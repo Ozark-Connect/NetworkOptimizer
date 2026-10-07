@@ -84,6 +84,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<HealthCheckDefinition> HealthCheckDefinitions { get; set; }
     public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
     public DbSet<ApAgentEventCursor> ApAgentEventCursors { get; set; }
+    public DbSet<DeviceSshRoute> DeviceSshRoutes { get; set; }
     public DbSet<ApRoamRecord> ApRoamRecords { get; set; }
     public DbSet<ApRadioHealthSample> ApRadioHealthSamples { get; set; }
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
@@ -116,6 +117,12 @@ public class NetworkOptimizerDbContext : DbContext
 
     /// <inheritdoc cref="SharedFirmwareBuilds"/>
     public DbSet<SharedNetworkAppBuild> SharedNetworkAppBuilds { get; set; }
+
+    /// <inheritdoc cref="SharedNetworkAppPackage"/>
+    public DbSet<SharedNetworkAppPackage> SharedNetworkAppPackages { get; set; }
+
+    /// <inheritdoc cref="SharedFirmwareBuilds"/>
+    public DbSet<SharedUniFiOsBuild> SharedUniFiOsBuilds { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -229,6 +236,12 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<ApAgentEventCursor>(entity =>
         {
             entity.ToTable("ApAgentEventCursors");
+            entity.HasIndex(e => e.DeviceMac).IsUnique();
+        });
+
+        modelBuilder.Entity<DeviceSshRoute>(entity =>
+        {
+            entity.ToTable("DeviceSshRoutes");
             entity.HasIndex(e => e.DeviceMac).IsUnique();
         });
 
@@ -733,6 +746,18 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SharedNetworkAppBuilds");
             entity.HasKey(e => new { e.Channel, e.Version });
+        });
+
+        modelBuilder.Entity<SharedNetworkAppPackage>(entity =>
+        {
+            entity.ToTable("SharedNetworkAppPackages");
+            entity.HasKey(e => new { e.Platform, e.Version });
+        });
+
+        modelBuilder.Entity<SharedUniFiOsBuild>(entity =>
+        {
+            entity.ToTable("SharedUniFiOsBuilds");
+            entity.HasKey(e => new { e.Platform, e.Channel, e.Version });
         });
     }
 }

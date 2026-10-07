@@ -551,17 +551,17 @@ public class DeviceTypeClassificationTests
     }
 
     [Fact]
-    public void DetermineDeviceType_DreamRouterUplinkToGateway_ReturnsAccessPoint()
+    public void DetermineDeviceType_Ux7UplinkToGateway_ReturnsAccessPoint()
     {
-        // Arrange - Dream Router (UDR) being used as mesh AP
+        // Arrange - Express 7 (UX7) adopted as an AP, wired to the gateway
         var gatewayMac = "aa:bb:cc:dd:ee:01";
         var device = new UniFiDeviceResponse
         {
             Mac = "aa:bb:cc:dd:ee:02",
             Type = "udm",
-            Model = "UDR",
-            Shortname = "UDR",
-            Name = "Guest House Router",
+            Model = "UX7",
+            Shortname = "UX7",
+            Name = "Guest House AP",
             Uplink = new UplinkInfo { UplinkMac = gatewayMac }
         };
         var allMacs = CreateDeviceMacSet(gatewayMac, "aa:bb:cc:dd:ee:02");

@@ -1,0 +1,165 @@
+using System.Text.RegularExpressions;
+using NetworkOptimizer.Core;
+
+namespace NetworkOptimizer.Web.Services.Firmware;
+
+/// <summary>What a hand-added firmware URL installs.</summary>
+public enum FirmwareUrlKind
+{
+    /// <summary>Not recognized by any rule.</summary>
+    Unknown,
+    /// <summary>UniFi device firmware (APs, switches, UXG-class gateways).</summary>
+    Device,
+    /// <summary>A Cloud Gateway's UniFi OS image.</summary>
+    UniFiOs,
+    /// <summary>The UniFi Network application package.</summary>
+    NetworkApp,
+}
+
+/// <summary>
+/// One firmware URL taken apart. <see cref="Token"/> is the model or platform code the file name
+/// carries; it is not always the code the console uses for the device (UXGPRO ships as UXGPROV2).
+/// </summary>
+/// <param name="Kind">The surface the rules matched, or Unknown.</param>
+/// <param name="Token">Model or platform code from the file name; null for the Network application.</param>
+/// <param name="Version">Version from the path.</param>
+/// <param name="Directory">Path up to the file name, used to match the URL against known builds.</param>
+/// <param name="Url">The canonical URL.</param>
+public sealed record ParsedFirmwareUrl(FirmwareUrlKind Kind, string? Token, string Version, string Directory, string Url);
+
+/// <summary>
+/// Reads Ubiquiti firmware URLs pasted by an admin. The URL ends up in an install command and is
+/// shared with every site, so it must be on a Ubiquiti domain AND match a known image layout. The
+/// layout is the real check: some Ubiquiti hosts serve uploaded files, which never sit at these paths.
+/// </summary>
+[VendorSpecific("UniFi", "fw-download.ubnt.com and dl.ui.com path layouts")]
+public static class FirmwareUrlParser
+{
+    /// <summary>Ubiquiti's domains; a link's host must be one of these or a subdomain of one.</summary>
+    public static readonly IReadOnlyList<string> UbiquitiDomains = ["ui.com", "ubnt.com"];
+
+    /// <summary>Whether a host is a Ubiquiti domain or a subdomain of one (a suffix match on a dot boundary).</summary>
+    public static bool IsUbiquitiHost(string host) =>
+        UbiquitiDomains.Any(d => host.Equals(d, StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith("." + d, StringComparison.OrdinalIgnoreCase));
+
+    // <hex>-<TOKEN>-<x.y.z[.n]>-<rest>.bin, e.g. 6a7a-UCGF-6.0.11-847f967b-....bin
+    private static readonly Regex ImageFile = new(
+        @"^[0-9a-f]+-(?<token>[A-Za-z0-9]+)-(?<version>\d+\.\d+\.\d+(?:\.\d+)?)-[A-Za-z0-9-]+\.bin$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // /unifi/firmware/<MODEL>/<x.y.z.build>/<file>.bin, e.g. /unifi/firmware/U7PRO/8.8.8.20113/BZ.ipq53xx_8.8.8+20113....bin
+    private static readonly Regex DeviceDownloadPath = new(
+        @"^/unifi/firmware/(?<token>[A-Za-z0-9]+)/(?<version>\d+\.\d+\.\d+(?:\.\d+)?)/[A-Za-z0-9._+-]+\.bin$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // /unifi/<version>/<package>.deb, or /unifi/<version>-<token>/<package>.deb as Ubiquiti's
+    // community release notes link an Early Access build (the token is not derivable).
+    private static readonly Regex NetworkAppPath = new(
+        @"^/unifi/(?<version>\d+\.\d+\.\d+)(-[A-Za-z0-9]+)?/(unifi-native_sysvinit|unifi_sysvinit_all)\.deb$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // What a UniFi OS console really installs, Early Access included: one package per Debian release
+    // and architecture, e.g. /data/unifi-native/8530-uos-deb13-arm64-11.0.81-37038-1-<uuid>.deb.
+    private static readonly Regex NetworkPackagePath = new(
+        @"^/data/(unifi-native|unifi)/[0-9a-f]+-(?<platform>uos-deb\d+-(amd64|arm64))-(?<version>\d+\.\d+\.\d+)-\d+-\d+-[0-9a-f-]+\.deb$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The platform (<c>uos-deb13-arm64</c>) and version a console's Network package URL is for, or
+    /// null when the URL is not one. Only these URLs are real for an Early Access build: the
+    /// <c>/unifi/&lt;version&gt;/</c> path holds public releases only.
+    /// </summary>
+    public static (string Platform, string Version)? NetworkPackage(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        var match = NetworkPackagePath.Match(uri.AbsolutePath);
+        return match.Success ? (match.Groups["platform"].Value.ToLowerInvariant(), match.Groups["version"].Value) : null;
+    }
+
+    /// <summary>
+    /// Parses a URL. Returns null with a reason when the URL is not one this app can install;
+    /// a URL on an allowed host whose layout no rule knows comes back as <see cref="FirmwareUrlKind.Unknown"/>
+    /// with its token, for the caller to match against builds it already knows.
+    /// </summary>
+    /// <param name="input">The URL as entered.</param>
+    /// <param name="error">Why the URL was refused, when it was.</param>
+    public static ParsedFirmwareUrl? Parse(string? input, out string? error)
+    {
+        error = null;
+        if (string.IsNullOrWhiteSpace(input)
+            || !Uri.TryCreate(input.Trim(), UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            error = "Enter a full https:// download link.";
+            return null;
+        }
+
+        if (!IsUbiquitiHost(uri.Host) || !uri.IsDefaultPort)
+        {
+            error = "Only Ubiquiti download links are accepted (a ui.com or ubnt.com address).";
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            error = "The link must be a plain download path, without a query string.";
+            return null;
+        }
+
+        var path = uri.AbsolutePath;
+        var url = uri.GetLeftPart(UriPartial.Path);
+
+        var app = NetworkAppPath.Match(path);
+        if (app.Success)
+            return new ParsedFirmwareUrl(FirmwareUrlKind.NetworkApp, null, app.Groups["version"].Value, DirectoryOf(path), url);
+
+        // The platform rides in the token: the package installs only on a console of that platform.
+        if (NetworkPackage(url) is { } package)
+            return new ParsedFirmwareUrl(FirmwareUrlKind.NetworkApp, package.Platform, package.Version, DirectoryOf(path), url);
+
+        // The model is a folder here, not part of the file name, so no catalog match is needed for it.
+        var download = DeviceDownloadPath.Match(path);
+        if (download.Success)
+            return new ParsedFirmwareUrl(
+                FirmwareUrlKind.Device, download.Groups["token"].Value, download.Groups["version"].Value, DirectoryOf(path), url);
+
+        var slash = path.LastIndexOf('/');
+        var file = ImageFile.Match(path[(slash + 1)..]);
+        if (!file.Success)
+        {
+            error = "The file name does not look like a UniFi firmware image (<id>-<model>-<version>-<id>.bin).";
+            return null;
+        }
+
+        var directory = DirectoryOf(path);
+        var kind = directory.ToLowerInvariant() switch
+        {
+            "/data/unifi-firmware" => FirmwareUrlKind.Device,
+            "/data/unifi-dream" => FirmwareUrlKind.UniFiOs,
+            _ => FirmwareUrlKind.Unknown,
+        };
+
+        return new ParsedFirmwareUrl(kind, file.Groups["token"].Value, file.Groups["version"].Value, directory, url);
+    }
+
+    /// <summary>
+    /// The model or platform token in a stored build's URL, when it is on the same path as
+    /// <paramref name="directory"/>. Null for any other URL.
+    /// </summary>
+    public static string? TokenIn(string? url, string directory)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        if (!string.Equals(DirectoryOf(uri.AbsolutePath), directory, StringComparison.OrdinalIgnoreCase)) return null;
+
+        var path = uri.AbsolutePath;
+        var match = ImageFile.Match(path[(path.LastIndexOf('/') + 1)..]);
+        return match.Success ? match.Groups["token"].Value : null;
+    }
+
+    private static string DirectoryOf(string path)
+    {
+        var slash = path.LastIndexOf('/');
+        return slash <= 0 ? "/" : path[..slash];
+    }
+}

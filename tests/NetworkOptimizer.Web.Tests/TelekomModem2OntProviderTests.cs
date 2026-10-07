@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NetworkOptimizer.Monitoring.Models;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.OntProviders;
 using Xunit;
 
@@ -107,7 +108,7 @@ public class TelekomModem2OntProviderTests
         // The device's firmware rejects any request missing this header with a malformed
         // "400 Bad Request" - confirmed live against a real Glasfaser-Modem 2, and matches
         // Netzwerkfehler/hass-GFM2 (a working Home Assistant integration for this device).
-        using var client = TelekomModem2OntProvider.CreateClient();
+        using var client = TelekomModem2OntProvider.CreateClient(DirectDeviceDialer.Instance);
 
         client.DefaultRequestHeaders.AcceptLanguage.ToString().Should().Be("en");
     }

@@ -68,6 +68,70 @@ public class RolloutReportTests
     }
 
     [Fact]
+    public async Task EndSoakEarly_ReportsNowWithoutTheReadyAlert()
+    {
+        using var harness = new RolloutHarness();
+        await harness.WithSettingsAsync(s => s.SoakHours = 24);
+        var start = harness.Time.GetUtcNow().UtcDateTime;
+        var plan = await harness.SeedSoakingPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            start.AddHours(-1),
+            start,
+            Settled(ApMac, FirmwareRolloutStepState.LitmusPassed, backAt: start, pre: Stats(10, 40)));
+
+        (await harness.Orchestrator.EndSoakAsync(plan.Id)).Should().BeNull();
+
+        var reported = await harness.PlanAsync(plan.Id);
+        reported!.Status.Should().Be(FirmwareRolloutStatus.Reported);
+        RolloutReport.Parse(reported.ReportJson).Should().NotBeNull();
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.ReportReady);
+    }
+
+    [Fact]
+    public void ANetworkInstallThatWasRefused_IsAFailureWithItsReason()
+    {
+        // A tried-and-refused install must not read as a clean run in the report or the history.
+        var document = Document(Wave(1, PlanStep(ApMac)));
+        document.IncludesUniFiNetworkUpdate = true;
+        document.ConsoleMac = GatewayMac;
+        document.NetworkAppUpdate.Settled = true;
+        document.NetworkAppUpdate.Outcome = "refused";
+        document.NetworkAppUpdate.TargetVersion = "11.0.81";
+        document.NetworkAppUpdate.Error = "curl: (22) The requested URL returned error: 404";
+        var plan = new FirmwareRolloutPlan { Id = 1, PlanJson = JsonSerializer.Serialize(document) };
+
+        var report = RolloutReportBuilder.Build(plan, document, [], DateTime.UtcNow, new Dictionary<string, string?>());
+
+        report.DevicesFailed.Should().Be(1);
+        report.Issues.Should().Contain(i => i.Contains("11.0.81") && i.Contains("404"));
+    }
+
+    [Fact]
+    public async Task EndSoakEarly_WaitsForARollbackStillRunning()
+    {
+        using var harness = new RolloutHarness();
+        var start = harness.Time.GetUtcNow().UtcDateTime;
+        var plan = await harness.SeedSoakingPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            start.AddHours(-1),
+            start,
+            Settled(ApMac, FirmwareRolloutStepState.Commanded));
+
+        (await harness.Orchestrator.EndSoakAsync(plan.Id)).Should().NotBeNull();
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
+    }
+
+    [Fact]
+    public async Task EndSoakEarly_RefusesAPlanThatIsNotSoaking()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(Document(Wave(1, PlanStep(ApMac))), Step(ApMac));
+
+        (await harness.Orchestrator.EndSoakAsync(plan.Id)).Should().NotBeNull();
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
+    }
+
+    [Fact]
     public async Task Report_CountsEveryOutcomeAndAveragesThePairedWindows()
     {
         using var harness = new RolloutHarness();

@@ -1,0 +1,108 @@
+@using NetworkOptimizer.Web.Services
+@inject IClientSettingsService ClientSettings
+@inject ILogger<ClientFixedIpEditor> Logger
+@implements IDisposable
+
+@* Inline fixed IP (DHCP reservation) for a client, beside the IP on a meta line. The field opens
+   on the reserved address, read from the Console; blank removes the reservation. *@
+<InlineEditField Class="@("inline-edit-compact " + Class)" EditClass="inline-edit-compact"
+                 Tooltip="Set fixed IP in UniFi Network" Placeholder="No fixed IP"
+                 Notice="@_notice" TourId="@TourId" Load="LoadAsync" Save="SaveAsync">
+    @ChildContent
+</InlineEditField>
+
+@code {
+    /// <summary>The client's MAC address.</summary>
+    [Parameter, EditorRequired] public string Mac { get; set; } = "";
+
+    /// <summary>The IP the page shows (the client's current lease).</summary>
+    [Parameter] public string? CurrentIp { get; set; }
+
+    /// <summary>Called with the reserved address after a save, or null when the reservation was removed.</summary>
+    [Parameter] public EventCallback<string?> OnChanged { get; set; }
+
+    /// <summary>
+    /// The IP's tooltip when the client has a reservation it has not moved to yet, else null. The
+    /// page shows the current lease, which only changes to the reserved address on DHCP renewal.
+    /// </summary>
+    public static string? PendingTooltip(string? currentIp, string? fixedIp) =>
+        !string.IsNullOrEmpty(fixedIp) && fixedIp != currentIp
+            ? $"Fixed IP: {fixedIp}"
+            : null;
+
+    /// <summary>Guided tour anchor on the pencil; null for none.</summary>
+    [Parameter] public string? TourId { get; set; }
+
+    /// <summary>Extra class on the wrapper around the IP and the pencil.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>The page's IP element, shown when not editing.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string? _current;
+    private string? _notice;
+    private CancellationTokenSource? _noticeCts;
+
+    /// <summary>How long the after-save note stays up.</summary>
+    private static readonly TimeSpan NoticeLife = TimeSpan.FromSeconds(10);
+
+    private async Task<string> LoadAsync()
+    {
+        try
+        {
+            ClearNotice();
+            _current = await ClientSettings.GetFixedIpAsync(Mac);
+            return _current ?? "";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Fixed IP read failed for {Mac}", Mac);
+            throw new InvalidOperationException(ClientSettingsService.Describe(ex, "Could not read the fixed IP from UniFi Network."));
+        }
+    }
+
+    private async Task<string?> SaveAsync(string ip)
+    {
+        if (ip == (_current ?? "")) return null;
+        try
+        {
+            _current = await ClientSettings.SetFixedIpAsync(Mac, ip);
+            // The page shows the current lease, which only moves to the reservation on renewal.
+            _notice = _current != null && _current != CurrentIp ? "Saved. Takes effect when the client renews its DHCP lease." : null;
+            // Save is a plain delegate, not an EventCallback, so this component re-renders itself.
+            StateHasChanged();
+            if (_notice != null) _ = ExpireNoticeAsync();
+            await OnChanged.InvokeAsync(_current);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Fixed IP change failed for {Mac}", Mac);
+            return ClientSettingsService.Describe(ex, "Could not change the fixed IP in UniFi Network.");
+        }
+    }
+
+    private void ClearNotice()
+    {
+        _noticeCts?.Cancel();
+        _noticeCts = null;
+        if (_notice == null) return;
+        _notice = null;
+        StateHasChanged();
+    }
+
+    private async Task ExpireNoticeAsync()
+    {
+        _noticeCts?.Cancel();
+        var cts = _noticeCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(NoticeLife, cts.Token);
+            await InvokeAsync(ClearNotice);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    /// <inheritdoc />
+    public void Dispose() => _noticeCts?.Cancel();
+}

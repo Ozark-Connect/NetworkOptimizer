@@ -895,7 +895,8 @@ public class ChannelRecommendationService
             HasNeighborNetworks = graph.ExternalLoad.Any(d => d.Count > 0),
             HasMeasuredChannelData = graph.ScanChannelData.Any(d => d.Count > 0),
             HasBuildingData = hasBuildingData,
-            DfsAvoidanceNotPossible = graph.DfsAvoidanceFallback
+            DfsAvoidanceNotPossible = graph.DfsAvoidanceFallback,
+            HearingNeighbors = BuildHearingNeighbors(graph)
         };
 
         for (int i = 0; i < n; i++)
@@ -3691,6 +3692,26 @@ public class ChannelRecommendationService
             if (ChannelSpanHelper.SpansOverlap(span, extSpan))
                 w += extWeight;
         return w;
+    }
+
+    /// <summary>
+    /// For each AP (lowercase MAC), the APs whose signal reaches it on this band: any nonzero internal
+    /// weight. Applying a plan moves APs that hear each other in different waves.
+    /// </summary>
+    private static Dictionary<string, HashSet<string>> BuildHearingNeighbors(InterferenceGraph graph)
+    {
+        var n = graph.Nodes.Count;
+        var result = graph.Nodes.ToDictionary(
+            node => node.Mac.ToLowerInvariant(), _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        if (graph.InternalWeights.GetLength(0) < n || graph.InternalWeights.GetLength(1) < n) return result;
+        for (int i = 0; i < n; i++)
+            for (int j = i + 1; j < n; j++)
+                if (graph.InternalWeights[i, j] > 0)
+                {
+                    result[graph.Nodes[i].Mac.ToLowerInvariant()].Add(graph.Nodes[j].Mac.ToLowerInvariant());
+                    result[graph.Nodes[j].Mac.ToLowerInvariant()].Add(graph.Nodes[i].Mac.ToLowerInvariant());
+                }
+        return result;
     }
 
     /// <summary>Human-readable age of a scan timestamp relative to now, for debug logs.</summary>

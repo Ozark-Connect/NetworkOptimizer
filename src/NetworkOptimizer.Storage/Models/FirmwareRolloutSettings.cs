@@ -120,6 +120,12 @@ public class FirmwareRolloutSettings
     /// <summary>Pinned local hour (0-23) for Fixed window mode; null in Auto mode.</summary>
     public int? FixedHour { get; set; }
 
+    /// <summary>
+    /// Fixed mode only: whether Autopilot may move the start up to three hours either side of the
+    /// pinned time when a nearby hour is quieter. A time that is not flexible is used exactly as set.
+    /// </summary>
+    public bool FixedWindowFlexible { get; set; }
+
     /// <summary>How far ahead of an autopilot run the heads-up alert is published.</summary>
     public int NotifyHoursAhead { get; set; } = 12;
 

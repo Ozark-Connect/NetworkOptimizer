@@ -151,6 +151,15 @@ public class RolloutPlanningInput
     /// <summary>Direct firmware image URL for the SSH fallback UniFi OS install.</summary>
     public string? UniFiOsDownloadUrl { get; init; }
 
+    /// <summary>Publish date of the UniFi OS build the plan targets, when the console gave one.</summary>
+    public DateTime? UniFiOsPublishedAt { get; init; }
+
+    /// <summary>True when the UniFi OS target was chosen by hand (<see cref="RolloutBuildPin"/>).</summary>
+    public bool UniFiOsPinned { get; init; }
+
+    /// <summary>True when the Network application target was chosen by hand.</summary>
+    public bool NetworkAppPinned { get; init; }
+
     /// <summary>True when the console is a self-hosted UniFi OS Server (uses the all.deb package).</summary>
     public bool IsStandaloneConsole { get; init; }
 
@@ -436,6 +445,12 @@ public class RolloutPlanDocument
     /// <summary>Progress of the UniFi OS update that runs after every device step.</summary>
     public RolloutConsoleStepState UniFiOsUpdate { get; set; } = new();
 
+    /// <summary>
+    /// The per-model channels a rollout for a hand-added device build raised, put back when the plan
+    /// ends. Empty when nothing was raised, and once restored.
+    /// </summary>
+    public List<RaisedModelChannel> RaisedModelChannels { get; set; } = [];
+
     /// <summary>Console channels this rollout has already set.</summary>
     public RolloutConsoleChannels ConsoleChannels { get; set; } = new();
 
@@ -503,6 +518,13 @@ public class RolloutConsoleStepState
     /// <summary>Whether the install has been commanded. The resume guard.</summary>
     public bool Triggered { get; set; }
 
+    /// <summary>
+    /// When an SSH install was sent and has not returned yet. The command blocks while the gateway
+    /// downloads the image, so this is what shows the step as upgrading in the meantime. Display
+    /// only: <see cref="Triggered"/> stays the resume guard.
+    /// </summary>
+    public DateTime? SendingAt { get; set; }
+
     /// <summary>When it was commanded, which the recovery budget runs from.</summary>
     public DateTime? TriggeredAt { get; set; }
 
@@ -522,6 +544,24 @@ public class RolloutConsoleStepState
 
     /// <summary>Direct download URL for the SSH fallback path, captured at plan time.</summary>
     public string? Url { get; set; }
+
+    /// <summary>Why the install did not go ahead, when it was tried and refused; shown in the report.</summary>
+    public string? Error { get; set; }
+
+    /// <summary>True when the install was started over SSH, so its log on the console says how it ended.</summary>
+    public bool ViaSsh { get; set; }
+
+    /// <summary>
+    /// Publish date of <see cref="TargetVersion"/>, captured at plan time. The console's own
+    /// pending build can be a different one when the target came from another site's console.
+    /// </summary>
+    public DateTime? PublishedAt { get; set; }
+
+    /// <summary>
+    /// True when an admin chose <see cref="TargetVersion"/> by hand. It installs over SSH by
+    /// <see cref="Url"/> only: the console's API trigger installs its own newest build.
+    /// </summary>
+    public bool Pinned { get; set; }
 
     /// <summary>
     /// When the SSH retry ran because the console took the command and never installed it.
@@ -563,6 +603,51 @@ public class PlanTargetImage
     /// channels on different models without the console having to be on each in turn.
     /// </summary>
     public string? Url { get; set; }
+
+    /// <summary>
+    /// True when an admin chose this build by hand. It installs by URL only: the console's own
+    /// upgrade would install its newest build instead.
+    /// </summary>
+    public bool Pinned { get; set; }
+}
+
+/// <summary>
+/// A build an admin added by hand and asked to roll out. The plan installs exactly this version,
+/// even when the console or the shared catalog offers a newer one.
+/// </summary>
+/// <param name="Kind">The surface the build is for.</param>
+/// <param name="Target">Device model or hardware platform; null for the Network application.</param>
+/// <param name="Version">The version to install.</param>
+/// <param name="Url">The image or package URL.</param>
+/// <param name="Models">Every device model the image is for; null means <paramref name="Target"/> alone.</param>
+/// <param name="ModelUrls">Per-model install URLs for the same image, where a model has its own; others use <paramref name="Url"/>.</param>
+public sealed record RolloutBuildPin(
+    FirmwareUrlKind Kind,
+    string? Target,
+    string Version,
+    string Url,
+    IReadOnlyList<string>? Models = null,
+    IReadOnlyDictionary<string, string>? ModelUrls = null)
+{
+    /// <summary>The device models the pin covers.</summary>
+    public IReadOnlyList<string> DeviceModels => Models is { Count: > 0 } ? Models : Target is { Length: > 0 } t ? [t] : [];
+
+    /// <summary>The URL a device of this model installs from.</summary>
+    public string UrlFor(string? model) =>
+        model != null && ModelUrls != null && ModelUrls.TryGetValue(model, out var url) ? url : Url;
+}
+
+/// <summary>A per-model channel entry a rollout changed, and the entry it replaced.</summary>
+public class RaisedModelChannel
+{
+    /// <summary>Model code, the key in the per-model channel settings.</summary>
+    public string Model { get; set; } = string.Empty;
+
+    /// <summary>The channel the rollout set.</summary>
+    public string Channel { get; set; } = string.Empty;
+
+    /// <summary>The entry before the rollout; null when the model had none.</summary>
+    public string? Previous { get; set; }
 }
 
 public class PlanPriorVersion

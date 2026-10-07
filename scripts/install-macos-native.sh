@@ -361,13 +361,14 @@ if command -v go &> /dev/null; then
     APAGENT_SRC="$REPO_ROOT/src/apagent"
     if [ -d "$APAGENT_SRC" ]; then
         cd "$APAGENT_SRC"
-        # AP Agent, pushed over SSH into tmpfs on each access point. Every U7-class access
-        # point measured is armv7l, so there is deliberately no arm64 target. MIPS is built in
-        # both byte orders, soft-float (no FPU on those SoCs).
+        # AP Agent, pushed over SSH into tmpfs on each access point. U7-class access points are
+        # armv7l; arm64 is for UniFi OS gateways with Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built
+        # in both byte orders, soft-float (no FPU on those SoCs).
         CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -a -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-arm" .
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-arm64" .
         CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -a -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-mipsle" .
         CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat go build -a -trimpath             -ldflags "-s -w -X main.version=$GO_VERSION"             -o "$INSTALL_DIR/tools/apagent-linux-mips" .
-        echo "Built apagent for linux/arm/v7, linux/mipsle, and linux/mips (access point)"
+        echo "Built apagent for linux/arm/v7, linux/arm64, linux/mipsle, and linux/mips (access point)"
     else
         echo "Warning: apagent source not found at $APAGENT_SRC"
     fi

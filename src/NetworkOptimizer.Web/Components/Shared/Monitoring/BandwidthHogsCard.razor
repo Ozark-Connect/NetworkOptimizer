@@ -146,7 +146,8 @@
         {
             var rank = 0;
             var denominator = ShareDenominator();
-            var slots = _mode == Mode.Data ? rows.Count : _showAll ? MaxRows : CollapsedRows;
+            // Pad no further than the site's client count: slots no client could ever fill are blank rows.
+            var slots = _mode == Mode.Data ? rows.Count : Math.Min(_showAll ? MaxRows : CollapsedRows, Math.Max(rows.Count, VisibleRows(_view).Count()));
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
                     <colgroup>

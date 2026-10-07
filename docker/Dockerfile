@@ -82,10 +82,10 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
     -o /wansteer-gateway .
 
-# Stage 2.6: Build apagent Go binaries (access-point-only: linux/arm/v7, plus 32-bit MIPS)
-# AP Agent - on-AP Wi-Fi telemetry. Every measured U7-class AP is armv7l, so there is
-# deliberately no arm64 target; unsupported hardware gets an honest "unsupported" row. MIPS is
-# built in both byte orders (U6-Lite is little-endian, UAP-AC big), soft-float for FPU-less SoCs.
+# Stage 2.6: Build apagent Go binaries (access-point-only: linux/arm/v7, linux/arm64, 32-bit MIPS)
+# AP Agent - on-AP Wi-Fi telemetry. U7-class APs are armv7l; arm64 is for UniFi OS gateways with
+# Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built in both byte orders (U6-Lite is little-endian,
+# UAP-AC big), soft-float for FPU-less SoCs.
 FROM golang:1.22-alpine AS apagent-build
 ARG VERSION=""
 WORKDIR /src
@@ -94,6 +94,9 @@ WORKDIR /src/apagent
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath \
     -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
     -o /apagent-ap . && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+    -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
+    -o /apagent-arm64 . && \
     CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -trimpath \
     -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
     -o /apagent-mipsle . && \
@@ -166,6 +169,7 @@ COPY --from=wansteer-build /wansteer-gateway /app/tools/wansteer-linux-arm64
 
 # Copy apagent binary (access-point-only, pushed via SSH into tmpfs on each AP)
 COPY --from=apagent-build /apagent-ap /app/tools/apagent-linux-arm
+COPY --from=apagent-build /apagent-arm64 /app/tools/apagent-linux-arm64
 COPY --from=apagent-build /apagent-mipsle /app/tools/apagent-linux-mipsle
 COPY --from=apagent-build /apagent-mips /app/tools/apagent-linux-mips
 

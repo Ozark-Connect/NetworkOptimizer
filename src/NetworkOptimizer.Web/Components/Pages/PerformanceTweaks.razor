@@ -175,6 +175,13 @@
                             @(string.Join(", ", outdated)) @(outdated.Count > 1 ? "have" : "has") a newer version. Redeploy @(outdated.Count > 1 ? "them" : "it") below to update.
                         </div>
                     }
+
+                    @if (BackendIndeterminate)
+                    {
+                        <div class="alert alert-info" style="margin-top: 1rem;">
+                            Database backend could not be determined (UniFi Network may be upgrading). Checking again shortly.
+                        </div>
+                    }
                 }
             </div>
         </div>
@@ -226,14 +233,21 @@
 
     @if (!string.IsNullOrEmpty(_deployMessage))
     {
-        <div class="alert alert-danger">
+        <div class="alert alert-danger pt-multiline">
             @_deployMessage
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_deployNotice))
+    {
+        <div class="alert alert-warning pt-multiline">
+            @_deployNotice
         </div>
     }
 
     @if (!string.IsNullOrEmpty(_removeMessage))
     {
-        <div class="alert alert-warning">
+        <div class="alert alert-warning pt-multiline">
             @_removeMessage
         </div>
     }
@@ -241,7 +255,7 @@
     <!-- Tweak Cards -->
     @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true)
     {
-        @foreach (var def in _tweakDefs.Where(d => d.IsCompatibleWith(_status?.GatewayModel)))
+        @foreach (var def in _compatibleTweaks)
         {
             var tweakStatus = _status?.Tweaks.GetValueOrDefault(def.Id);
             var effectiveStatus = GetEffectiveStatus(tweakStatus, def.Id);
@@ -314,8 +328,30 @@
                         </div>
                     }
 
-                    <!-- MongoDB SSD gate: requires SSD volume -->
-                    @if (def.Id == "mongodb-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SsdAvailable != true)
+                    @if (def.Id == "mongodb-ssd" && _status?.MongoDecommissioned == true && effectiveStatus == TweakDisplayStatus.NotDeployed)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                            <strong>UniFi Network is back on MongoDB.</strong> The MongoDB data on this gateway is from the PostgreSQL migration point. Changes made while UniFi Network ran on PostgreSQL are not in it.
+                        </div>
+                    }
+
+                    <!-- PostgreSQL SSD: retires MongoDB on SSD first when any of it is left -->
+                    @if (def.Id == "postgresql-ssd" && _status?.MongoArtifactsPresent == true && tweakStatus?.BootScriptDeployed != true)
+                    {
+                        <p class="pt-tweak-description" style="font-style: italic;">Replaces MongoDB on SSD.</p>
+                        <div class="alert alert-info" style="margin-top: 0.75rem;">
+                            <strong>Note:</strong> Deploying retires the MongoDB SSD tweak first. UniFi Network stops for about 1 to 2 minutes while the MongoDB data is copied back to eMMC, then again briefly while PostgreSQL moves to the SSD.
+                        </div>
+                    }
+                    @if (def.Id == "postgresql-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.PgOtherDatabases > 0)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                            <strong>Shared PostgreSQL cluster: not supported.</strong> The PostgreSQL cluster holds databases besides UniFi Network's.
+                        </div>
+                    }
+
+                    <!-- Database SSD gate: requires SSD volume -->
+                    @if (def.Id is "mongodb-ssd" or "postgresql-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SsdAvailable != true)
                     {
                         <div class="alert alert-warning" style="margin-top: 0.75rem;">
                             <strong>No SSD volume detected.</strong> This tweak requires an internal NVMe SSD mounted at <code>/volume1</code> or <code>/volume/&lt;uuid&gt;/</code>. Make sure your gateway has an SSD installed and mounted.
@@ -373,9 +409,9 @@
                         {
                             <SiteAdminOnly>
                                 <button class="btn btn-primary btn-sm"
-                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || exclusiveOtherActive || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus-port6" && _status?.SfpPort6ModuleAlreadyLoaded == true) || ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true) || IsLicenseRestricted)"
+                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || exclusiveOtherActive || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus-port6" && _status?.SfpPort6ModuleAlreadyLoaded == true) || ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && _status?.SfpQcaSsdkMissing == true) || (def.Id is "mongodb-ssd" or "postgresql-ssd" && _status?.SsdAvailable != true) || (def.Id == "postgresql-ssd" && _status?.PgOtherDatabases > 0) || IsLicenseRestricted)"
                                     @onclick="() => ShowDeployConfirmation(def.Id)"
-                                    data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : null)">
+                                    data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : def.Id == "postgresql-ssd" && _status?.PgOtherDatabases > 0 ? "Shared PostgreSQL cluster: not supported" : null)">
                                 @if (_deployingTweakId == def.Id)
                                 {
                                     <span class="spinner spinner-sm"></span>
@@ -571,6 +607,12 @@
                 {
                     <div class="alert alert-warning" style="margin-top: 0.75rem;">
                         <strong>Note:</strong> Removal will briefly stop UniFi Network while migrating MongoDB data back from SSD to eMMC, then restart it.
+                    </div>
+                }
+                else if (_pendingRemoveTweakId == "postgresql-ssd")
+                {
+                    <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                        <strong>Note:</strong> Removal will briefly stop UniFi Network while copying the PostgreSQL data back from SSD to eMMC, then restart it. The SSD copy and the backups are kept.
                     </div>
                 }
             </div>
@@ -923,6 +965,10 @@ ls -la /var/config/run-syslog.sh</code></pre>
         }
     }
 
+    .pt-multiline {
+        white-space: pre-line;
+    }
+
     /* Inline action link */
     .pt-inline-link {
         color: var(--primary-color);
@@ -1038,17 +1084,29 @@ ls -la /var/config/run-syslog.sh</code></pre>
     private bool _allConfirmed => _confirmBackup && _confirmBackupDownloaded && _confirmWarranty && _confirmRisk;
     private bool _canDeploy => _status?.UdmBootInstalled == true && _status?.FirmwareSupported == true;
 
-    // Titles of compatible tweaks whose deployed boot script is out of date.
+    // Titles of shown tweaks whose deployed boot script is out of date.
     private List<string> OutdatedTweakTitles => _tweakDefs
-        .Where(d => d.IsCompatibleWith(_status?.GatewayModel)
+        .Where(d => IsShown(d)
                     && _status?.Tweaks.GetValueOrDefault(d.Id)?.ScriptOutdated == true)
         .Select(d => d.Title)
         .ToList();
     private List<string> _deploySteps = new();
     private PerfTweaksStatus? _status;
+    private string? _deployNotice;
+    private System.Threading.Timer? _backendRecheck;
 
-    private List<TweakDefinition> _compatibleTweaks => _tweakDefs
-        .Where(d => d.IsCompatibleWith(_status?.GatewayModel)).ToList();
+    private List<TweakDefinition> _compatibleTweaks => _tweakDefs.Where(IsShown).ToList();
+
+    // The database SSD cards follow the Network app's backend; an unknown backend shows neither.
+    private bool IsShown(TweakDefinition d) => d.IsCompatibleWith(_status?.GatewayModel) && d.Id switch
+    {
+        "mongodb-ssd" => _status?.DatabaseBackend == DatabaseBackend.MongoDb,
+        "postgresql-ssd" => _status?.DatabaseBackend == DatabaseBackend.PostgreSql,
+        _ => true
+    };
+
+    private bool BackendIndeterminate => _status is { Error: null, IsSupportedGateway: true, DatabaseBackend: DatabaseBackend.Indeterminate }
+        && _tweakDefs.Any(d => d.Id is "mongodb-ssd" or "postgresql-ssd" && d.IsCompatibleWith(_status.GatewayModel));
 
     // TODO: Remove deduplication when simultaneous SFP port support is working -
     // at that point each SFP tweak should count independently.
@@ -1092,6 +1150,9 @@ ls -la /var/config/run-syslog.sh</code></pre>
         new("mongodb-ssd", "MongoDB on SSD",
             "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. MongoDB's periodic bulk deletions hammer the eMMC flash controller, triggering garbage collection stalls that cause packet loss on CPU-attached ports. Moving the database to NVMe eliminates the I/O bottleneck entirely and improves the responsiveness of the UniFi Network app. Includes daily SSD backups with weekly eMMC failover copies.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "ucg-max", "ucgmax" }),
+        new("postgresql-ssd", "PostgreSQL on SSD",
+            "Bind-mounts the UniFi Network PostgreSQL database (cluster 14/apps) from eMMC to the internal NVMe SSD. UniFi Network 11.0.81 moved from MongoDB to PostgreSQL, so on these gateways this tweak takes over from MongoDB on SSD. Includes daily SSD backups with weekly eMMC failover copies.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "ucg-max", "ucgmax" }),
         new("journald-volatile", "Logging Offload",
             "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax", "uxg-max", "uxgmax" }),
@@ -1133,6 +1194,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
             _status = await DeployService.CheckAllStatusAsync();
             _gatewayConnected = _status.Error == null;
             if (_status.Error == null) ModuleUpdates.NotifyPerfTweaksStatus(_status);
+            ScheduleBackendRecheck();
         }
         catch (Exception ex)
         {
@@ -1149,6 +1211,26 @@ ls -la /var/config/run-syslog.sh</code></pre>
     private async Task RefreshStatus()
     {
         await LoadStatusAsync();
+    }
+
+    // While UniFi Network upgrades the backend reads as unknown; re-probe until it settles.
+    private void ScheduleBackendRecheck()
+    {
+        _backendRecheck?.Dispose();
+        _backendRecheck = null;
+        if (!BackendIndeterminate) return;
+        _backendRecheck = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_deployingTweakId == null && _removingTweakId == null)
+                        await LoadStatusAsync();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(30), System.Threading.Timeout.InfiniteTimeSpan);
     }
 
     private async Task InstallUdmBoot()
@@ -1222,6 +1304,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
     {
         _deployingTweakId = tweakId;
         _deployMessage = null;
+        _deployNotice = null;
         _deploySteps.Clear();
         StateHasChanged();
 
@@ -1239,6 +1322,8 @@ ls -la /var/config/run-syslog.sh</code></pre>
             {
                 if (tweakId is "sfp-sgmiiplus" or "sfp-sgmiiplus-port6")
                     _sfpDeployTimes[tweakId] = DateTime.UtcNow;
+                if (result.message != "Deployed successfully")
+                    _deployNotice = result.message;
                 await LoadStatusAsync();
             }
             else
@@ -1262,7 +1347,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
         try
         {
             var result = await DeployService.RemoveTweakAsync(tweakId, _status);
-            if (result.success && result.message != "Removed")
+            if (result.message != "Removed")
                 _removeMessage = result.message;
             await LoadStatusAsync();
         }
@@ -1316,6 +1401,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
     public void Dispose()
     {
         // PullToRefreshState is scoped - no cleanup needed
+        _backendRecheck?.Dispose();
     }
 
     private enum TweakDisplayStatus { NotDeployed, Active, Manual, Detected, Issue }

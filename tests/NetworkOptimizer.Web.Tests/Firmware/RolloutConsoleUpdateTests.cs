@@ -133,6 +133,32 @@ public class RolloutConsoleUpdateTests
     }
 
     [Fact]
+    public async Task APinnedSshInstallThatFailsOnTheConsole_IsRefusedWithItsReason()
+    {
+        // The install runs detached, so Start Now returns before it ends; its log says how it ended.
+        using var harness = new RolloutHarness();
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.Pinned = true;
+        document.NetworkAppUpdate.TargetVersion = "99.0.1";
+        document.NetworkAppUpdate.Url = "https://fw-download.ubnt.com/data/unifi-native/8530-uos-deb13-arm64-99.0.1-1-1-0b745a73.deb";
+        var plan = await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        Stored((await harness.PlanAsync(plan.Id))!).NetworkAppUpdate.Triggered.Should().BeTrue();
+
+        harness.Commands.SshNetworkInstallLog = new NetworkInstallLog(100,
+            " unifi-native : Depends: unifi-matter-controller (= 0.0.9) but it is not installable\n");
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+
+        var stored = Stored((await harness.PlanAsync(plan.Id))!).NetworkAppUpdate;
+        stored.Outcome.Should().Be("refused");
+        stored.Error.Should().Contain("unifi-matter-controller");
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.NetworkAppUpdateStuck);
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
     public async Task AnSshRetryThatAlsoFails_IsStuckAndTriedOnce()
     {
         using var harness = new RolloutHarness();

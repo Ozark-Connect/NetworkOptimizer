@@ -1,0 +1,43 @@
+{
+  "id": "2.9.2",
+  "kind": "whats-new",
+  "title": "What's new in v2.9.2",
+  "summary": "Roll out a UniFi OS, device, or UniFi Network build as soon as any of your Consoles is offered it, and move your access points to the recommended channels.",
+  "steps": [
+    {
+      "id": "firmware-add-url",
+      "level": "minor",
+      "url": "/firmware-rollout",
+      "selector": "[data-tour=\"firmware-known\"]",
+      "alsoSelectors": ["[data-tour=\"firmware-add-url\"]"],
+      "title": "Deploy Known Firmware",
+      "listLabel": "Roll out a build before your Consoles are offered it",
+      "body": "**Deploy Known Firmware** picks from every build your sites have seen, by device, model, or build, including an Early Access build going to a site that isn't on Early Access. **Deploy Firmware by URL** takes a Ubiquiti download link for device firmware, UniFi OS, or the UniFi Network application.\n\n**Plan Rollout Now** takes you straight to the preview of a rollout that starts now.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "apply-channels",
+      "level": "major",
+      "url": "/wifi-optimizer?tab=channels&recommend=true",
+      "selector": "[data-tour=\"channel-recommendation\"]",
+      "alsoSelectors": ["[data-tour=\"apply-channels\"]"],
+      "title": "Apply Recommended Channels",
+      "listLabel": "Move your access points to the recommended channels",
+      "body": "**Apply Recommended Channels** moves your access points to the plan, never two that hear each other at the same time.\n\nThe button shows when the plan moves at least one radio. Like spectrum scans, it needs **Network: Full** (**Site Admin** in older versions) on the UniFi account Network Optimizer signs in with or an API Key.",
+      "optional": true
+    },
+    {
+      "id": "client-rename-fixed-ip",
+      "level": "major",
+      "url": "/client-dashboard?ip={!client-ip}",
+      "selector": "[data-tour=\"client-rename\"]",
+      "alsoSelectors": ["[data-tour=\"client-fixed-ip\"]"],
+      "title": "Rename and Fixed IP",
+      "listLabel": "Rename a client or set its fixed IP without opening UniFi Network",
+      "body": "Click the **pencil** beside a client's name or IP to change it in UniFi Network, here or on **Wi-Fi Optimizer - Client Stats**.\n\nClear the name to bring back the one UniFi picks, or clear the fixed IP to remove the reservation.",
+      "placement": "bottom",
+      "optional": true
+    }
+  ]
+}

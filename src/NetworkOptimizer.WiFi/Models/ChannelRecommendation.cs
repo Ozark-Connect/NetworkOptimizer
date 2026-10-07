@@ -37,7 +37,7 @@ public class ApChannelRecommendation
     /// <summary>The operator kept this radio on its channel, so the plan left it where it is.</summary>
     public bool IsKept { get; set; }
 
-    /// <summary>The channel is set by hand in UniFi Network rather than by Channel AI. Labeled, never skipped.</summary>
+    /// <summary>The radio's channel is a number in radio_table rather than "auto". Labeled, never skipped.</summary>
     public bool IsChannelFixed { get; set; }
 
     /// <summary>When the radio last moved, if within the last day and the AP Agent saw it (UTC).</summary>
@@ -170,6 +170,12 @@ public class ChannelPlan
     /// (e.g. 160 MHz where all bonding groups include DFS channels).
     /// </summary>
     public bool DfsAvoidanceNotPossible { get; set; }
+
+    /// <summary>
+    /// For each AP on the band (lowercase MAC), the APs that hear it. Null when the plan was not
+    /// built by the engine, in which case applying moves one AP at a time.
+    /// </summary>
+    public Dictionary<string, HashSet<string>>? HearingNeighbors { get; set; }
 }
 
 /// <summary>

@@ -5,18 +5,31 @@ using NetworkOptimizer.Core;
 namespace NetworkOptimizer.UniFi.Models;
 
 /// <summary>
-/// The read-only view of the `mgmt` section of GET rest/setting. Only the auto-upgrade flag is
-/// modeled, because that is UniFi's own nightly device upgrade and it races a rollout.
+/// The view of the `mgmt` section of GET rest/setting. Only the auto-upgrade flag is modeled,
+/// because that is UniFi's own nightly device upgrade and it races a rollout.
 /// <para>
-/// This section is NEVER written back: it carries the site's SSH credentials, so a round-trip would
-/// re-send them. Read only - do not add a write path or widen this model.
+/// This section is NEVER round-tripped: it carries the site's SSH credentials, so writing it back
+/// would re-send them. The one write is <see cref="BuildAutoUpgradeWriteBody"/>, a partial body
+/// naming only `auto_upgrade`; the console leaves every other field as it was (live-tested,
+/// including over an API key). Do not widen that body or this model.
 /// </para>
 /// </summary>
-[VendorSpecific("UniFi", "rest/setting mgmt section, read only")]
+[VendorSpecific("UniFi", "rest/setting mgmt section; auto_upgrade-only partial write")]
 public class UniFiMgmtSettings
 {
     /// <summary>The settings section key this model represents.</summary>
     public const string SettingKey = "mgmt";
+
+    /// <summary>
+    /// The POST set/setting/mgmt body that sets the auto-upgrade flag and nothing else. Every
+    /// mgmt save rotates `x_api_token`, the UI's own included; nothing in this app reads it.
+    /// </summary>
+    /// <param name="enabled">Whether UniFi upgrades devices on its own schedule.</param>
+    public static Dictionary<string, object> BuildAutoUpgradeWriteBody(bool enabled) => new()
+    {
+        ["key"] = SettingKey,
+        ["auto_upgrade"] = enabled,
+    };
 
     /// <summary>Whether the console upgrades devices on its own schedule.</summary>
     [JsonPropertyName("auto_upgrade")]

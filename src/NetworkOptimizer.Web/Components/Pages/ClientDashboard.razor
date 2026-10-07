@@ -218,11 +218,17 @@
                     }
                     else
                     {
-                        <h2 class="identity-name">@_client.DisplayName</h2>
+                        <ClientNameEditor @key="_client.Mac" Mac="@_client.Mac" Name="@_client.Name" Hostname="@_client.Hostname" Class="identity-name-cell" TourId="client-rename"
+                                          OnRenamed="OnClientRenamed">
+                            <h2 class="identity-name">@_client.DisplayName</h2>
+                        </ClientNameEditor>
                         <div class="identity-meta">
                             <span>@_client.Mac</span>
                             <span class="meta-sep">·</span>
-                            <span>@_client.Ip</span>
+                            <ClientFixedIpEditor @key="_client.Mac" Mac="@_client.Mac" CurrentIp="@_client.Ip" TourId="client-fixed-ip"
+                                                 OnChanged="@(ip => _client.FixedIp = ip)">
+                                <span data-tooltip="@ClientFixedIpEditor.PendingTooltip(_client.Ip, _client.FixedIp)">@_client.Ip</span>
+                            </ClientFixedIpEditor>
                             @if (!string.IsNullOrEmpty(_client.Essid))
                             {
                                 <span class="meta-sep">·</span>
@@ -232,7 +238,7 @@
                     }
                 </div>
                 <div class="identity-signal">
-                    @if (_canSteer && _client is { IsWired: false, IsOffline: false, IsVpn: false })
+                    @if (_canSteer && !OnApWithoutSteering && _client is { IsWired: false, IsOffline: false, IsVpn: false })
                     {
                         @* The gate is the service; this is the UX half, so a Viewer is never shown a
                            control that would refuse them. *@
@@ -1219,6 +1225,11 @@
     private bool _pendingChartUpdate;
     private bool _tabLoading;
     private ClientIdentity? _client;
+
+    private void OnClientRenamed((string Alias, string Shown) renamed)
+    {
+        if (_client != null) _client.Name = renamed.Shown;
+    }
     private WiredPortStats? _portStats;
     private bool _liveViewLinkEnabled;
     private bool _seenOnline;
@@ -1381,6 +1392,13 @@
 
     /// <summary>Whether this site can steer: the AP Agent is on and at least two access points run it.</summary>
     private bool _canSteer;
+
+    /// <summary>Access points whose agent cannot send a steer, read with <see cref="_canSteer"/>.</summary>
+    private HashSet<string> _apsWithoutSteering = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The client is on one of those, which it can roam onto or off at any poll.</summary>
+    private bool OnApWithoutSteering =>
+        !string.IsNullOrEmpty(_client?.ApMac) && _apsWithoutSteering.Contains(_client.ApMac.Trim());
 
     private bool _roamBusy;
     private bool _showRoamOptions;
@@ -1768,7 +1786,12 @@
             // stuck on the wrong access point is the point, and that client is rarely in your hand.
             if (!_canSteer && !string.IsNullOrEmpty(_client?.Mac))
             {
-                try { _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac); }
+                try
+                {
+                    _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac);
+                    if (_canSteer)
+                        _apsWithoutSteering = new(await ApAgentRoam.GetApsWithoutSteeringAsync(), StringComparer.OrdinalIgnoreCase);
+                }
                 catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
             }
 

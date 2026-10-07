@@ -365,10 +365,11 @@ public class WiFiOptimizerService : IWiFiScanService
             summary.HealthScore = healthScore?.OverallScore;
             summary.HealthGrade = healthScore?.Grade;
 
-            if (onlineClients.Any(c => c.Satisfaction.HasValue))
+            // UniFi's -1 means no score, not a score.
+            if (onlineClients.Any(c => c.Satisfaction is >= 0))
             {
                 summary.AvgSatisfaction = (int)onlineClients
-                    .Where(c => c.Satisfaction.HasValue)
+                    .Where(c => c.Satisfaction is >= 0)
                     .Average(c => c.Satisfaction!.Value);
             }
 

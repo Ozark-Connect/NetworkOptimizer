@@ -116,6 +116,188 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
     }
 
     /// <inheritdoc />
+    public async Task UpsertUniFiOsBuildsAsync(
+        IReadOnlyList<SharedUniFiOsBuild> builds, CancellationToken cancellationToken = default)
+    {
+        if (builds == null || builds.Count == 0) return;
+
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            var now = DateTime.UtcNow;
+
+            foreach (var build in builds)
+            {
+                if (string.IsNullOrWhiteSpace(build.Platform)
+                    || string.IsNullOrWhiteSpace(build.Channel)
+                    || string.IsNullOrWhiteSpace(build.Version)
+                    || string.IsNullOrWhiteSpace(build.Url))
+                {
+                    continue;
+                }
+
+                var existing = await db.SharedUniFiOsBuilds.FindAsync(
+                    [build.Platform, build.Channel, build.Version], cancellationToken);
+                if (existing == null)
+                {
+                    db.SharedUniFiOsBuilds.Add(new SharedUniFiOsBuild
+                    {
+                        Platform = build.Platform,
+                        Channel = build.Channel,
+                        Version = build.Version,
+                        Url = build.Url,
+                        PublishedUtc = build.PublishedUtc,
+                        FirstSeenUtc = now,
+                        LastSeenUtc = now,
+                    });
+                }
+                else
+                {
+                    existing.LastSeenUtc = now;
+                    existing.Url = build.Url;
+                    if (build.PublishedUtc != null)
+                        existing.PublishedUtc = build.PublishedUtc;
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not record UniFi OS builds in the shared firmware catalog");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<SharedUniFiOsBuild?> FindNewerUniFiOsBuildAsync(
+        string platform, IReadOnlyCollection<string> channels, string? thanVersion, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(platform) || channels == null || channels.Count == 0) return null;
+
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            var rows = await db.SharedUniFiOsBuilds.AsNoTracking()
+                .Where(b => b.Platform == platform && channels.Contains(b.Channel))
+                .ToListAsync(cancellationToken);
+            return Newest(rows, thanVersion, b => b.Version);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the shared UniFi OS catalog for platform {Platform}", platform);
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<SharedFirmwareBuild>> ListDeviceBuildsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            return await db.SharedFirmwareBuilds.AsNoTracking().ToListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list the shared device builds");
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<SharedUniFiOsBuild>> ListUniFiOsBuildsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            return await db.SharedUniFiOsBuilds.AsNoTracking().ToListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list the shared UniFi OS builds");
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<SharedNetworkAppBuild>> ListNetworkAppBuildsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            return await db.SharedNetworkAppBuilds.AsNoTracking().ToListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list the shared UniFi Network builds");
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task UpsertNetworkAppPackagesAsync(
+        IReadOnlyList<SharedNetworkAppPackage> packages, CancellationToken cancellationToken = default)
+    {
+        var usable = packages
+            .Where(p => !string.IsNullOrWhiteSpace(p.Platform) && !string.IsNullOrWhiteSpace(p.Version) && !string.IsNullOrWhiteSpace(p.Url))
+            .GroupBy(p => (p.Platform.ToLowerInvariant(), p.Version))
+            .Select(g => g.Last())
+            .ToList();
+        if (usable.Count == 0) return;
+
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            var now = DateTime.UtcNow;
+            foreach (var package in usable)
+            {
+                var platform = package.Platform.ToLowerInvariant();
+                var existing = await db.SharedNetworkAppPackages.FindAsync([platform, package.Version], cancellationToken);
+                if (existing == null)
+                {
+                    db.SharedNetworkAppPackages.Add(new SharedNetworkAppPackage
+                    {
+                        Platform = platform,
+                        Version = package.Version,
+                        Url = package.Url,
+                        CompanionUrlsJson = package.CompanionUrlsJson,
+                        FirstSeenUtc = now,
+                        LastSeenUtc = now,
+                    });
+                }
+                else
+                {
+                    existing.Url = package.Url;
+                    if (!string.IsNullOrWhiteSpace(package.CompanionUrlsJson))
+                        existing.CompanionUrlsJson = package.CompanionUrlsJson;
+                    existing.LastSeenUtc = now;
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not record shared UniFi Network packages");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<SharedNetworkAppPackage>> ListNetworkAppPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+            return await db.SharedNetworkAppPackages.AsNoTracking().ToListAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list the shared UniFi Network packages");
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<SharedFirmwareBuild?> FindNewerDeviceBuildAsync(
         string model, string channel, string? thanVersion, CancellationToken cancellationToken = default)
     {

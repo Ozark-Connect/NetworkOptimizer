@@ -85,8 +85,8 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
             }
 
             _logger.LogWarning("ARRIS Surfboard {Name} at {Host}: both SB8200 and SB6183 fetch failed",
-                context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                context.Name, context.Host);
+            return PollResult<CableModemStats>.Failed($"No stats could be read from {context.Host}.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -94,8 +94,8 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling ARRIS Surfboard {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling ARRIS Surfboard {Name} at {Host}", context.Name, context.Host);
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -128,7 +128,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -147,7 +147,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         var baseUrl = $"https://{context.Host}{portSuffix}";
         var statusUrl = $"{baseUrl}{statusPath}";
 
-        using var client = CreateHttpClient(ignoreSslErrors: true);
+        using var client = CreateHttpClient(context.Dialer, ignoreSslErrors: true);
 
         // Try with cached token first
         if (_tokenCache.TryGetValue(context.CacheKey, out var cachedToken))
@@ -193,7 +193,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
 
         try
         {
-            using var client = CreateHttpClient(ignoreSslErrors: false);
+            using var client = CreateHttpClient(context.Dialer, ignoreSslErrors: false);
             var response = await client.GetAsync(url, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
@@ -236,14 +236,14 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogDebug("ARRIS SB8200 auth returned {Status} for {Host}",
-                    response.StatusCode, context.ConfiguredHost ?? context.Host);
+                    response.StatusCode, context.Host);
                 return null;
             }
 
             var token = await response.Content.ReadAsStringAsync(cancellationToken);
             if (string.IsNullOrWhiteSpace(token))
             {
-                _logger.LogDebug("ARRIS SB8200 auth returned empty token for {Host}", context.ConfiguredHost ?? context.Host);
+                _logger.LogDebug("ARRIS SB8200 auth returned empty token for {Host}", context.Host);
                 return null;
             }
 
@@ -251,7 +251,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogDebug(ex, "ARRIS SB8200 auth request failed for {Host}", context.ConfiguredHost ?? context.Host);
+            _logger.LogDebug(ex, "ARRIS SB8200 auth request failed for {Host}", context.Host);
             return null;
         }
     }
@@ -293,7 +293,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
 
         try
         {
-            using var client = CreateHttpClient(ignoreSslErrors: true);
+            using var client = CreateHttpClient(context.Dialer, ignoreSslErrors: true);
             await client.GetAsync(logoutUrl, cancellationToken);
         }
         catch
@@ -326,7 +326,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = "ARRIS SB8200",
         };
@@ -357,7 +357,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = "ARRIS SB6183",
         };
@@ -451,16 +451,17 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
                    .Replace("Bonded Channels</td>\n</tr>\n</tr>", "Bonded Channels</td>\n</tr>");
     }
 
-    private HttpClient CreateHttpClient(bool ignoreSslErrors)
+    private HttpClient CreateHttpClient(IDeviceDialer dialer, bool ignoreSslErrors)
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
         };
 
         if (ignoreSslErrors)
         {
-            handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
+            handler.SslOptions.RemoteCertificateValidationCallback = (_, _, _, _) => true;
         }
 
         return new HttpClient(handler)

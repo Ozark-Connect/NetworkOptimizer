@@ -134,9 +134,15 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(ExternalResult);
     }
 
-    public Task<FirmwareCommandResult> TriggerSshUpgradeAsync(string host, string firmwareUrl, bool isGateway, CancellationToken cancellationToken = default)
+    /// <summary>Runs while an SSH device upgrade is in flight, e.g. to show the device Upgrading.</summary>
+    public Action? DuringSshUpgrade { get; set; }
+
+    public Task<FirmwareCommandResult> TriggerSshUpgradeAsync(
+        string deviceMac, string host, string firmwareUrl, NetworkOptimizer.Core.Enums.DeviceType role, bool isGateway,
+        CancellationToken cancellationToken = default)
     {
         SshCommands.Add((host, firmwareUrl, isGateway));
+        DuringSshUpgrade?.Invoke();
         return Task.FromResult(SshResult);
     }
 
@@ -167,6 +173,24 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     public Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(AutoUpgradeEnabled);
+
+    /// <summary>Whether each auto-update turn-off is accepted, keyed by "devices" or the schedule key.</summary>
+    public Dictionary<string, bool> AutoUpdateDisableAccepted { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Auto-update turn-offs, in order: "devices" or the console schedule key.</summary>
+    public List<string> AutoUpdateDisables { get; } = [];
+
+    public Task<bool> DisableDeviceAutoUpgradeAsync(CancellationToken cancellationToken = default)
+    {
+        AutoUpdateDisables.Add("devices");
+        return Task.FromResult(AutoUpdateDisableAccepted.GetValueOrDefault("devices", true));
+    }
+
+    public Task<bool> DisableConsoleAutoUpdateAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    {
+        AutoUpdateDisables.Add(scheduleKey);
+        return Task.FromResult(AutoUpdateDisableAccepted.GetValueOrDefault(scheduleKey, true));
+    }
 
     public Task<bool> SetDeviceChannelAsync(string channel, CancellationToken cancellationToken = default)
     {
@@ -242,17 +266,39 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     public FirmwareCommandResult SshNetworkAppResult { get; set; } = FirmwareCommandResult.Ok();
     public FirmwareCommandResult SshUniFiOsResult { get; set; } = FirmwareCommandResult.Ok();
 
-    public Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, CancellationToken cancellationToken = default)
+    public Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(
+        string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default)
     {
         Calls.Add("ssh-network-app-update");
         return Task.FromResult(SshNetworkAppResult);
     }
 
-    public Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default)
+    /// <summary>Runs while the SSH UniFi OS install is in flight, before it returns.</summary>
+    public Func<Task>? DuringSshUniFiOsUpdate { get; set; }
+
+    public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default)
     {
         Calls.Add("ssh-unifi-os-update");
-        return Task.FromResult(SshUniFiOsResult);
+        if (DuringSshUniFiOsUpdate != null) await DuringSshUniFiOsUpdate();
+        return SshUniFiOsResult;
     }
+
+    public bool GatewaySshConfigured { get; set; } = true;
+
+    public Task<bool> HasGatewaySshAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(GatewaySshConfigured);
+
+    /// <summary>What the console's own log reports; null reads as no gateway SSH.</summary>
+    public ConsoleNetworkPackages? NetworkPackages { get; set; }
+
+    /// <summary>The detached SSH Network install's log; null reads as unreadable.</summary>
+    public NetworkInstallLog? SshNetworkInstallLog { get; set; }
+
+    public Task<NetworkInstallLog?> ReadSshNetworkInstallLogAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(SshNetworkInstallLog);
+
+    public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default) =>
+        Task.FromResult(NetworkPackages);
 }
 
 /// <summary>A device table the test moves through offline, upgrading and back-online states.</summary>
@@ -327,7 +373,7 @@ internal sealed class RecordingMeshRepairQueue : IMeshRepairQueue
 {
     public List<(string? Ip, string? Iface, string? Name)> Enqueued { get; } = [];
 
-    public bool Enqueue(string? childIp, string? iface, string? apName)
+    public bool Enqueue(string? childIp, string? iface, string? apName, string? childMac)
     {
         Enqueued.Add((childIp, iface, apName));
         return childIp != null && iface != null && iface.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase);
@@ -605,7 +651,11 @@ internal sealed class RolloutHarness : IDisposable
         NullLogger<FirmwareRolloutOrchestrator>.Instance,
         rebootWitness: Reboots,
         observerLocator: Locator,
-        audit: AuditLog);
+        audit: AuditLog)
+    {
+        // The settle wait runs on the wall clock; tests decide the device state up front.
+        SshDropSettleWindow = TimeSpan.Zero,
+    };
 
     public NetworkOptimizerDbContext NewContext()
     {

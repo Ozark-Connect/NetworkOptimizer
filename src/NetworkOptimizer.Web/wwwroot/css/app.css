@@ -4382,6 +4382,7 @@ select.form-control {
 @media (max-width: 768px) {
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
     .identity-bar .identity-name,
+    .identity-bar .identity-name-cell,
     .identity-bar .identity-meta {
         max-height: 60px;
         opacity: 1;
@@ -4394,6 +4395,7 @@ select.form-control {
     }
 
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-name,
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-name-cell,
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-meta {
         max-height: 0;
         opacity: 0;
@@ -12902,6 +12904,62 @@ a.path-hop.hop-clickable:hover {
     color: var(--warning-color);
 }
 
+/* Apply Recommended Channels: button row and the progress / results panel. Sizes come from
+   .recommendation-notice; spacing from .recommendation-view's gap. */
+.recommendation-view .channel-apply-actions {
+    justify-content: flex-end;
+}
+
+.recommendation-view .channel-apply-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.recommendation-view .channel-apply-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.recommendation-view .channel-apply-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.recommendation-view .channel-apply-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+}
+
+.recommendation-view .channel-apply-ap {
+    min-width: 10rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.recommendation-view .channel-apply-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+@media (max-width: 768px) {
+    .recommendation-view .channel-apply-actions .btn {
+        flex: 1 1 100%;
+    }
+
+    .recommendation-view .channel-apply-ap {
+        flex-basis: 100%;
+        min-width: 0;
+    }
+}
+
 /* DFS preference toggle */
 .dfs-toggle { margin: 0; }
 
@@ -13015,9 +13073,18 @@ a.path-hop.hop-clickable:hover {
 
 .rec-channels-col {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
+}
+
+/* A width reason or a move's measurement sits on its own line under the channels. */
+.rec-channels-col .rec-move-note {
+    flex-basis: 100%;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
 }
 
 /* Responsive Channel Analysis */
@@ -20188,7 +20255,7 @@ body.kiosk-mode .status-indicators {
 .inline-name-cell {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.2rem;
 }
 
 .site-name-edit-btn,
@@ -20238,6 +20305,63 @@ body.kiosk-mode .status-indicators {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+}
+
+/* The name's own bottom margin moves to the wrapper, so the pencil centers on the text rather
+   than on text plus margin. Block-level flex, so it takes the heading's place in the layout. */
+.identity-name-cell {
+    display: flex;
+    margin-bottom: 2px;
+}
+
+.identity-name-cell > .identity-name {
+    margin: 0;
+}
+
+.inline-name-edit-btn.inline-edit-save:hover {
+    color: var(--success-color);
+}
+
+.inline-name-edit-btn.inline-edit-cancel:hover {
+    color: var(--danger-color);
+}
+
+/* Beside small text such as a meta line: the pencil, check, and X are sized in em off that text,
+   and the field shrinks to the same line. */
+.inline-edit-compact {
+    gap: 0.25rem;
+}
+
+.inline-edit-compact .inline-name-edit-btn {
+    padding: 0.1rem;
+}
+
+.inline-edit-compact .inline-name-edit-btn svg {
+    width: 1.15em;
+    height: 1.15em;
+}
+
+.inline-name-edit.inline-edit-compact .form-control {
+    width: 9.5rem;
+    min-width: 0;
+    padding: 0.1rem 0.4rem;
+    font: inherit;
+}
+
+/* Sits on the edited value's line, sized off its text, not as a block under it. */
+.form-error.inline-edit-error,
+.form-help.inline-edit-notice {
+    display: inline;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 0.85em;
+    align-self: center;
+}
+
+/* Client Stats: the IP's font lives on .client-ip, which edit mode removes, so the wrapper carries it. */
+.client-info-main .inline-edit-compact {
+    font-size: 0.875rem;
+    font-family: monospace;
 }
 
 .checkbox-toggle {
@@ -21234,8 +21358,13 @@ body.kiosk-mode .status-indicators {
     flex-shrink: 0;
 }
 
-.firmware-rollout-autopilot-config {
+.firmware-rollout-autopilot-config,
+.firmware-rollout-add-url {
     padding-top: 0;
+}
+
+.firmware-rollout-add-url .setup-guide {
+    margin-top: 0.5rem;
 }
 
 .firmware-rollout-config-title {
@@ -21273,6 +21402,22 @@ body.kiosk-mode .status-indicators {
     gap: 0.5rem;
     align-items: center;
     flex-wrap: wrap;
+}
+
+/* Anchors the Set Time popover (the shared Custom Range popover) under its button. */
+.firmware-rollout-set-time {
+    position: relative;
+}
+
+/* Narrow screens: under the button it would run off the left edge, so it hangs from the row's right. */
+@media (max-width: 768px) {
+    .firmware-rollout-controls:has(.firmware-rollout-set-time) {
+        position: relative;
+    }
+
+    .firmware-rollout-set-time {
+        position: static;
+    }
 }
 
 .firmware-rollout-deploy-now {
@@ -21420,8 +21565,46 @@ body.kiosk-mode .status-indicators {
     }
 }
 
-.firmware-rollout-guide .setup-guide-content > .form-group.firmware-rollout-inline:last-child {
+.firmware-rollout-guide .setup-guide-content > .form-group.firmware-rollout-inline:last-child,
+.firmware-rollout-add-url .setup-guide-content > .form-group:last-child {
     margin-bottom: 0.5rem;
+}
+
+@media (min-width: 769px) {
+    .firmware-rollout-add-url .action-buttons {
+        justify-content: flex-end;
+    }
+}
+
+/* Deploy Known Firmware sits right under it. */
+.firmware-rollout-add-url:not(.firmware-rollout-known) {
+    padding-bottom: 8px;
+}
+
+.firmware-rollout-known .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.firmware-rollout-known .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    .firmware-rollout-known .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .firmware-rollout-known .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+}
+
+.firmware-rollout-known option.firmware-rollout-known-older {
+    color: var(--text-muted);
 }
 
 .firmware-rollout-muted {
@@ -21558,6 +21741,28 @@ body.kiosk-mode .status-indicators {
 .firmware-rollout-wave-device {
     color: var(--text-primary);
     font-size: 0.85rem;
+}
+
+/* Device waves: one device per line, its Exclude button on the right. */
+.firmware-rollout-wave-devices-rows {
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.firmware-rollout-wave-device-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.firmware-rollout-wave-device-row > span {
+    min-width: 0;
+}
+
+.firmware-rollout-wave-device-row > .btn {
+    flex-shrink: 0;
 }
 
 .firmware-rollout-version-badge {

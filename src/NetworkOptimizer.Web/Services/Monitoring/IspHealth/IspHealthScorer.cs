@@ -74,7 +74,8 @@ public class IspHealthScorer
         {
             _logger?.LogDebug("ISP Health: excluding {Count} SQM probe and learning sample windows", inputs.LoadExclusionWindows.Count);
         }
-        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options, inputs.LoadExclusionWindows, _logger);
+        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options, inputs.LoadExclusionWindows, _logger,
+            inputs.WanSpeedTests.Select(t => t.Time).ToList());
         var hasExpectedSpeeds = inputs.ExpectedDownloadMbps.HasValue || inputs.ExpectedUploadMbps.HasValue;
 
         var idleBaseline = ComputeIdleBaseline(inputs.FirstHopSeries, loadWindows);
@@ -515,27 +516,25 @@ public class IspHealthScorer
     /// </para>
     /// </summary>
     /// <summary>
-    /// Raises one episode's delta to a WAN speed test's own loaded-vs-idle figure when a test ran
-    /// during it and read higher, in the SAME direction.
+    /// Every WAN speed test in the window that measured this direction under load, as its own
+    /// loaded-vs-idle delta.
     /// <para>
     /// A test carries its own idle reference (<see cref="SpeedTestSample.PingMs"/>) taken by the
     /// same probe against the same endpoint seconds apart, so the difference needs no baseline of
     /// ours and inherits none of its blind spots.
     /// </para>
     /// <para>
-    /// Deliberately one-directional, and deliberately per-episode. Taking the larger of two
-    /// estimates biases upward wherever both are about right, so it is confined to the episodes a
-    /// test actually overlapped rather than allowed to lift the whole factor.
+    /// Not limited to tests that overlapped a passive load episode. Whether the rate series
+    /// classified a test's few seconds as loaded says nothing about the test, and that limit kept
+    /// an outlier in the pool while dropping the clean test that would have outvoted it.
     /// </para>
     /// </summary>
-    private List<(DateTime Time, double Value)> QualifyingTests(
-        DateTime start, DateTime end, IspHealthInputs inputs, bool upstream)
+    private List<(DateTime Time, double Value)> QualifyingTests(IspHealthInputs inputs, bool upstream)
     {
-        var tolerance = TimeSpan.FromSeconds(Math.Max(0, _options.LoadedLatencySpeedTestMatchSeconds));
         var found = new List<(DateTime Time, double Value)>();
         foreach (var test in inputs.WanSpeedTests)
         {
-            if (test.Time < start - tolerance || test.Time > end + tolerance) continue;
+            if (test.Time < inputs.WindowStart || test.Time > inputs.WindowEnd) continue;
             var underLoad = upstream ? test.UploadLatencyMs : test.DownloadLatencyMs;
             if (!underLoad.HasValue || !test.PingMs.HasValue) continue;
 
@@ -1088,39 +1087,44 @@ public class IspHealthScorer
         // their newest, and always-clean lines have no elevated episodes to go stale.
         if (episodes.Count == 0 || pooled.Count < _options.MinLoadedSamples) return null;
 
-        // Where a WAN speed test ran during an episode, it measured the same event on purpose and
-        // at full saturation, while these probes only sampled it on their own cadence - so a short
-        // event's peak queue can build and drain between two probes and never be seen. Taken only
-        // when it reads HIGHER: that is the direction passive sampling fails in. When the test
-        // reads lower, the series saw something the test's own window did not cover, and the
-        // measurement stands.
-        var episodeEnds = episodeStarts
-            .GroupBy(kv => kv.Value)
-            .ToDictionary(g => g.Key, g => g.Max(kv => kv.Key)
-                .AddSeconds(Math.Max(1, _options.LoadWindowSeconds)));
-        // What a speed test measured during each episode, where one qualified. Applied to the
-        // FINAL figure rather than to the episode it came from, because the figure is a median
-        // across episodes and a median cannot be moved by one member however it is weighted -
-        // lifting per-episode left the better instrument unable to change a reported number even
-        // once. But applied only over the episodes the answer is actually being drawn from: a
-        // test is evidence about the line AS IT WAS THEN, and a window-wide maximum would let a
-        // test from before a fix override the clean run that proves the fix.
-        var testsByEpisode = episodes.ToDictionary(
-            e => e.Time,
-            e => QualifyingTests(
-                e.Time, episodeEnds.TryGetValue(e.Time, out var end) ? end : e.Time,
-                inputs, upstream));
+        // A WAN speed test measures the line on purpose and at full saturation, while these probes
+        // only sample on their own cadence - so a short event's peak queue can build and drain
+        // between two probes and never be seen. The tests' figure is taken only when it reads
+        // HIGHER: that is the direction passive sampling fails in.
+        //
+        // That reasoning holds only where the probes MISSED the test. Where enough of the cohort
+        // sampled its loaded seconds in this direction and agreed the link was clean, the probes
+        // did not miss anything, and the test is the outlier. It is dropped rather than outvoting
+        // them, and a test the probes never covered stands as it is.
+        var tolerance = TimeSpan.FromSeconds(Math.Max(0, _options.LoadedLatencySpeedTestMatchSeconds));
+        bool ContradictedByProbes((DateTime Time, double Value) test)
+        {
+            if (test.Value < LoadedLatencyRegimeFloorMs) return false;
+            var from = test.Time - tolerance;
+            var to = test.Time + tolerance;
+            var reporting = perHop
+                .Where(p => p.Time >= from && p.Time <= to)
+                .Select(p => p.Series)
+                .Distinct()
+                .Count();
+            if (reporting < _options.LoadedLatencyAgreementMinCohort) return false;
+            var seen = pooled.Where(p => p.Time >= from && p.Time <= to).Select(p => p.Value).ToList();
+            return SeriesStats.Median(seen) is { } median && median < LoadedLatencyRegimeFloorMs;
+        }
+
+        var tests = QualifyingTests(inputs, upstream)
+            .Where(t => !ContradictedByProbes(t))
+            .ToList();
 
         // Judged the same way the speed-test fallback judges its own pool: a recent run of clean
         // tests is read as the line having been FIXED and the older ones as describing a
         // connection that no longer exists, otherwise recency-weighted. A plain maximum threw all
         // of that away - the worst test in the window won outright, so a line whose recent tests
         // are all clean kept reporting its worst day from a week ago.
-        double SpeedTestOver(IEnumerable<(DateTime Time, double Value)> over)
+        double SpeedTestFrom(DateTime since)
         {
-            var deltas = over
-                .SelectMany(e => testsByEpisode.TryGetValue(e.Time, out var t) ? t : [])
-                .DistinctBy(t => t.Time)
+            var deltas = tests
+                .Where(t => t.Time >= since)
                 .OrderByDescending(t => t.Time)
                 .ToList();
             if (deltas.Count == 0) return double.NegativeInfinity;
@@ -1168,14 +1172,14 @@ public class IspHealthScorer
 
         // The line was fixed: the elevated episodes describe a connection that no longer exists,
         // so only the clean run since speaks for it.
-        // Only tests taken DURING the clean run speak for a line that was fixed. The elevated
+        // Only tests taken since the clean run began speak for a line that was fixed. The elevated
         // episodes describe a connection that no longer exists, and so do the tests that ran in
         // them - letting those back in through the lift would re-assert the very finding the
         // clean run just cleared.
         if (verdict is { ElevationIsOver: true })
             return Math.Max(0, Math.Max(
                 SeriesStats.Median(verdict.CleanRun.Select(e => e.Value).ToList())!.Value,
-                SpeedTestOver(verdict.CleanRun)));
+                SpeedTestFrom(verdict.CleanRun.Min(e => e.Time) - tolerance)));
 
         // The reported figure is the median ACROSS EPISODES - what this line typically does under
         // load - weighted by recency and by how credible each episode's load was.
@@ -1187,7 +1191,7 @@ public class IspHealthScorer
         // verdict above - it is not a filter on what gets reported.
         return Math.Max(0, Math.Max(
             RecencyWeightedDelta(episodes, inputs.WindowEnd, loadWeight) ?? 0,
-            SpeedTestOver(episodes)));
+            SpeedTestFrom(DateTime.MinValue)));
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(

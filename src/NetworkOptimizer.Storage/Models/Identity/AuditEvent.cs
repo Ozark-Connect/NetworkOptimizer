@@ -160,7 +160,11 @@ public static class AuditActions
     public const string FirmwareRolloutResumed = "firmware_rollout.resumed";
     public const string FirmwareRolloutAborted = "firmware_rollout.aborted";
     public const string FirmwareRolloutPostponed = "firmware_rollout.postponed";
+    public const string FirmwareRolloutRescheduled = "firmware_rollout.rescheduled";
+    public const string FirmwareRolloutSoakEnded = "firmware_rollout.soak_ended";
+    public const string FirmwareRolloutUniFiAutoUpdateDisabled = "firmware_rollout.unifi_auto_update.disabled";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
+    public const string FirmwareSharedBuildAdded = "firmware_rollout.shared_build.added";
 
     // AP Agent (the telemetry agent deployed onto an access point, not the on-site Agent)
     public const string ApAgentDeployed = "ap_agent.deployed";
@@ -176,6 +180,15 @@ public static class AuditActions
     public const string WiFiIssueRestored = "wifi.issue.restored";
     public const string WiFiRadioKept = "wifi.radio.kept";
     public const string WiFiRadioReleased = "wifi.radio.released";
+
+    /// <summary>Recommended channels were written to access points in UniFi Network.</summary>
+    public const string WiFiChannelPlanApplied = "wifi.channel_plan.applied";
+
+    /// <summary>A client's alias was set or cleared in UniFi Network.</summary>
+    public const string ClientRenamed = "client.renamed";
+
+    /// <summary>A client's fixed IP (DHCP reservation) was set or removed in UniFi Network.</summary>
+    public const string ClientFixedIpChanged = "client.fixed_ip.changed";
 
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";

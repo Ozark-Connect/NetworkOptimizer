@@ -41,14 +41,16 @@ public class ApAgentScriptsTests
     [InlineData("armv7l", true)]
     [InlineData("armv6l", true)]
     [InlineData("armv8l", true)]
-    [InlineData("aarch64", false)]
+    [InlineData("aarch64", true)]
+    [InlineData("arm64", true)]
+    [InlineData("aarch64_be", false)]
     [InlineData("mips", true)]
     [InlineData("mipsel", true)]
     [InlineData("mips64", false)]
     [InlineData("x86_64", false)]
     [InlineData("", false)]
     [InlineData(null, false)]
-    public void ThirtyTwoBitArmAndMips_have_a_build(string? machine, bool supported)
+    public void ArmAndThirtyTwoBitMips_have_a_build(string? machine, bool supported)
     {
         ApAgentScripts.SupportsArchitecture(machine).Should().Be(supported);
     }
@@ -60,7 +62,8 @@ public class ApAgentScriptsTests
     [InlineData("mips", "little", "apagent-linux-mipsle")]
     [InlineData("mips", "big", "apagent-linux-mips")]
     [InlineData("mips", null, null)]
-    [InlineData("aarch64", "little", null)]
+    [InlineData("aarch64", null, "apagent-linux-arm64")]
+    [InlineData("aarch64_be", null, null)]
     public void TheBuild_follows_the_byte_order_not_the_machine_string(string machine, string? byteOrder, string? expected)
     {
         ApAgentPaths.BinaryNameFor(machine, byteOrder).Should().Be(expected);
@@ -69,7 +72,7 @@ public class ApAgentScriptsTests
     [Fact]
     public void AnUnsupportedArchitecture_says_what_it_is_rather_than_failing_cryptically()
     {
-        ApAgentScripts.UnsupportedReason("aarch64").Should().Contain("aarch64").And.Contain("armv7l");
+        ApAgentScripts.UnsupportedReason("x86_64").Should().Contain("x86_64").And.Contain("armv7l").And.Contain("aarch64");
         ApAgentScripts.UnsupportedReason("mips").Should().Contain("byte order");
     }
 
@@ -93,6 +96,29 @@ public class ApAgentScriptsTests
 
         status.SupportedArchitecture.Should().BeTrue();
         status.BinaryName.Should().Be("apagent-linux-mipsle");
+        status.BinaryDeployed.Should().BeTrue();
+        status.BinaryMd5.Should().Be("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    }
+
+    [Fact]
+    public void AnAarch64Probe_picks_the_arm64_build_not_the_arm_build_its_name_starts_with()
+    {
+        var output = """
+            ---ARCH---
+            aarch64
+            ---BYTE_ORDER---
+            ---BINARY---
+            /tmp/netopt-apagent/apagent-linux-arm
+            /tmp/netopt-apagent/apagent-linux-arm64
+            ---MD5---
+            aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  /tmp/netopt-apagent/apagent-linux-arm
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  /tmp/netopt-apagent/apagent-linux-arm64
+            """;
+
+        var status = ApAgentScripts.ParseStatus(output, success: true);
+
+        status.SupportedArchitecture.Should().BeTrue();
+        status.BinaryName.Should().Be("apagent-linux-arm64");
         status.BinaryDeployed.Should().BeTrue();
         status.BinaryMd5.Should().Be("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     }

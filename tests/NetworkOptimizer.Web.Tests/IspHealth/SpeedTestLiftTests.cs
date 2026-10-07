@@ -13,7 +13,8 @@ namespace NetworkOptimizer.Web.Tests.IspHealth;
 /// <para>
 /// That asymmetry is only fair while neither instrument can over-read, so a test that never filled
 /// the pipe is refused: it did not load the buffers, and since the substitution only ever raises
-/// the figure there is nothing downstream able to correct it.
+/// the figure there is nothing downstream able to correct it. A test the probe cohort sampled and
+/// read clean is refused too: the probes did not miss its peak, so the test is the outlier.
 /// </para>
 /// <para>
 /// Distinct from the older wholesale fallback, which takes the speed tests' own deltas when the
@@ -35,6 +36,13 @@ public class SpeedTestLiftTests
     /// rather than as an absent measurement.
     /// </param>
     private static double? LoadedDown(double loadedHopRtt, params SpeedTestSample[] tests)
+        => LoadedDown(loadedHopRtt, targets: 1, tests);
+
+    /// <param name="targets">
+    /// How many probe targets sample the line. One is too few to corroborate anything, so its
+    /// clean reading never overrules a test; a cohort of four or more is.
+    /// </param>
+    private static double? LoadedDown(double loadedHopRtt, int targets, params SpeedTestSample[] tests)
     {
         var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
             .Select(r => r.Time >= LoadedStart && r.Time < LoadedEnd
@@ -42,16 +50,18 @@ public class SpeedTestLiftTests
                 : r)
             .ToList();
 
-        var hop = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)
-            .WithSegment(LoadedStart, LoadedEnd, loadedHopRtt, 0.3);
+        var hops = Enumerable.Range(0, targets)
+            .Select(_ => TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)
+                .WithSegment(LoadedStart, LoadedEnd, loadedHopRtt, 0.3))
+            .ToList();
 
         var inputs = new IspHealthInputs
         {
             WindowStart = TestSeries.Start,
             WindowEnd = TestSeries.Start + Day,
-            FirstHopSeries = hop,
-            AccessHopSeries = new List<List<LatencySample>> { hop },
-            LossPoolSeries = new List<List<LatencySample>> { hop },
+            FirstHopSeries = hops[0],
+            AccessHopSeries = hops,
+            LossPoolSeries = hops,
             WanRates = rates,
             ExpectedDownloadMbps = 1000,
             ExpectedUploadMbps = 500,
@@ -72,7 +82,8 @@ public class SpeedTestLiftTests
     public void A_saturating_test_that_saw_more_queue_than_the_probes_did_sets_the_figure()
     {
         // 980 of a 1000 plan, 31 ms under load against its own 6 ms idle: it filled the pipe and
-        // measured 25 ms of queue the probes, reading about 1 ms, never sampled.
+        // measured 25 ms of queue the probes, reading about 1 ms, never sampled. One target is too
+        // few to contradict it - see the cohort cases below.
         var measured = LoadedDown(3.0);
         var lifted = LoadedDown(3.0, Test(LoadedStart.AddHours(1), 980, 31));
 
@@ -104,12 +115,50 @@ public class SpeedTestLiftTests
     }
 
     [Fact]
-    public void A_test_from_outside_the_episode_is_not_its_measurement()
+    public void A_saturating_test_outside_any_load_episode_still_counts()
     {
+        // Whether the rate series marked a test's few seconds as loaded says nothing about the
+        // test. It filled the pipe on its own terms, so it is measured evidence either way.
         var measured = LoadedDown(3.0);
-        var far = LoadedDown(3.0, Test(TestSeries.Start.AddHours(2), 980, 31));
+        var outside = LoadedDown(3.0, Test(TestSeries.Start.AddHours(2), 980, 31));
 
-        far.Should().Be(measured);
+        outside.Should().BeApproximately(25, 1);
+        outside.Should().BeGreaterThan(measured!.Value);
+    }
+
+    [Fact]
+    public void A_test_the_probe_cohort_sampled_and_read_clean_is_dropped()
+    {
+        // Five targets sampled the test's loaded seconds and all read about 1 ms. The probes did
+        // not miss a peak here, so the test's 25 ms is the outlier and cannot outvote them.
+        var measured = LoadedDown(3.0, targets: 5);
+        var contradicted = LoadedDown(3.0, targets: 5, Test(LoadedStart.AddHours(1), 980, 31));
+
+        contradicted.Should().Be(measured);
+    }
+
+    [Fact]
+    public void A_test_the_probe_cohort_corroborated_still_lifts_the_figure()
+    {
+        // The cohort saw about 8 ms of queue, so it agrees the line was loaded and elevated. The
+        // test measured more of the same event at full saturation, and its figure stands.
+        var measured = LoadedDown(10.0, targets: 5);
+        var lifted = LoadedDown(10.0, targets: 5, Test(LoadedStart.AddHours(1), 980, 31));
+
+        lifted.Should().BeGreaterThan(measured!.Value);
+    }
+
+    [Fact]
+    public void A_contradicted_outlier_gives_way_to_a_clean_test_outside_the_episode()
+    {
+        // The shape of a real report: one scheduled test inside a load episode read 18.6 ms while
+        // the cohort beside it read clean, and the next test ran outside any episode and read
+        // 1.5 ms. Only the clean test speaks, so the figure stays near what everything else saw.
+        var withBoth = LoadedDown(3.0, targets: 5,
+            Test(LoadedStart.AddHours(1), 980, 24.6),
+            Test(LoadedEnd.AddHours(2), 980, 7.5));
+
+        withBoth.Should().BeLessThan(3);
     }
 
     [Fact]

@@ -58,8 +58,7 @@ public class HealthCheckService : IHealthCheckService
     private readonly SiteContextService _siteContext;
     private readonly HealthCheckTemplateService _templates;
     private readonly HealthCheckRegistry _registry;
-    private readonly IGatewaySshService _gatewaySsh;
-    private readonly IUniFiSshService _deviceSsh;
+    private readonly DeviceSshRouterRegistry _ssh;
     private readonly UniFiConnectionService _connection;
 
     public HealthCheckService(
@@ -67,16 +66,14 @@ public class HealthCheckService : IHealthCheckService
         SiteContextService siteContext,
         HealthCheckTemplateService templates,
         HealthCheckRegistry registry,
-        IGatewaySshService gatewaySsh,
-        UniFiSshService deviceSsh,
+        DeviceSshRouterRegistry ssh,
         UniFiConnectionService connection)
     {
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
         _templates = templates;
         _registry = registry;
-        _gatewaySsh = gatewaySsh;
-        _deviceSsh = deviceSsh;
+        _ssh = ssh;
         _connection = connection;
     }
 
@@ -101,7 +98,7 @@ public class HealthCheckService : IHealthCheckService
     public async Task<IReadOnlyList<HealthCheckTemplate>> GetTemplatesAsync(string deviceMac, DeviceType fallbackType)
     {
         var device = await FindDeviceAsync(deviceMac);
-        // Hardware type, not role: a UDR meshing as an AP is still the UniFi OS console.
+        // Hardware type, not role: an Express (UX, UX7) adopted as an AP is still a UniFi OS console.
         var type = device == null ? fallbackType : HealthCheckRunner.EffectiveType(device);
         return _templates.GetTemplates()
             .Where(t => t.Fits(type, device?.Model, device?.Shortname))
@@ -193,7 +190,8 @@ public class HealthCheckService : IHealthCheckService
             return new HealthCheckRunResult { Ran = false, Error = "UniFi does not currently list this device, so there is nowhere to run it." };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(draft.TimeoutSeconds, 5, 120) + 15));
-        return await HealthCheckExecutor.RunAsync(draft, target.EffectiveType, target.Host, _gatewaySsh, _deviceSsh, cts.Token);
+        return await HealthCheckExecutor.RunAsync(
+            draft, target.ToSshTarget(draft.DeviceMac), _ssh.GetFor(_siteContext.Slug), cts.Token);
     }
 
     /// <summary>The last-known device from any saved check on it, for a test while UniFi Network is down.</summary>

@@ -59,6 +59,18 @@ public class UniFiApiClient : IDisposable
     private bool _isAuthenticated = false;
     private DateTime _lastApiKeyRevalidationAttempt = DateTime.MinValue;
     private static readonly TimeSpan ApiKeyRevalidationInterval = TimeSpan.FromSeconds(60);
+
+    /// <summary>When the Console last rejected this client's password (401/403 on the login), or MinValue.</summary>
+    private DateTime _passwordRejectedAt = DateTime.MinValue;
+
+    /// <summary>
+    /// How often a rejected password is tried again. Sized to stay far under a Console's failed-login
+    /// lockout, so a changed password never locks the account before the new one is saved.
+    /// </summary>
+    public static readonly TimeSpan RejectedPasswordRetryInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>Whether this client's last login was refused because of its password.</summary>
+    public bool PasswordRejected => _passwordRejectedAt != DateTime.MinValue;
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
     private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
@@ -416,6 +428,15 @@ public class UniFiApiClient : IDisposable
                 }
             }
 
+            // Every call that finds the session gone signs in again. With a password the Console has
+            // rejected, that is a failed login per call, which locks the account and then refuses the
+            // new password too. A rejected password is retried once per interval instead.
+            if (DateTime.UtcNow - _passwordRejectedAt < RejectedPasswordRetryInterval)
+            {
+                _logger.LogDebug("Skipping login to {Url}: its password was rejected at {RejectedAt:u}", _controllerUrl, _passwordRejectedAt);
+                return false;
+            }
+
             _logger.LogInformation("Authenticating with UniFi controller at {Url}", _controllerUrl);
 
             // Reset client to clear old cookies
@@ -458,9 +479,13 @@ public class UniFiApiClient : IDisposable
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    _passwordRejectedAt = DateTime.UtcNow;
                 AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
+
+            _passwordRejectedAt = DateTime.MinValue;
 
             // Extract CSRF token from response headers
             if (response.Headers.TryGetValues("X-Csrf-Token", out var csrfTokens))
@@ -830,10 +855,30 @@ public class UniFiApiClient : IDisposable
     /// Executes an API call with automatic re-authentication on 401/403 and on a
     /// reverse proxy's 502/503/504 while the console backend is restarting (<see cref="IsRecoverableAuthFailure"/>)
     /// </summary>
+    /// <summary>The <c>meta.msg</c> error code from a refused call's body, or null when there is none.</summary>
+    private static string? TryReadApiErrorCode(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("meta", out var meta)
+                && meta.TryGetProperty("msg", out var msg)
+                && msg.ValueKind == JsonValueKind.String
+                ? msg.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task<T?> ExecuteApiCallAsync<T>(
         Func<Task<HttpResponseMessage>> apiCall,
         CancellationToken cancellationToken = default,
-        bool throwOnPermissionError = false) where T : class
+        bool throwOnPermissionError = false,
+        string? permissionErrorMessage = null,
+        bool throwOnApiError = false) where T : class
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -852,9 +897,9 @@ public class UniFiApiClient : IDisposable
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
                 if (body.Contains("api.err.NoPermission", StringComparison.OrdinalIgnoreCase))
-                    throw new UniFiPermissionException(
+                    throw new UniFiPermissionException(permissionErrorMessage ??
                         "The UniFi account lacks permission to run RF spectrum scans. In UniFi Network, " +
-                        "give this account the Network: Site Admin role, then try again.");
+                        "give this account Network: Full (Site Admin in older versions), then try again.");
             }
 
             // Handle authentication failures
@@ -878,6 +923,8 @@ public class UniFiApiClient : IDisposable
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("API call failed with status {StatusCode}: {Error}",
                     response.StatusCode, errorBody);
+                if (throwOnApiError && TryReadApiErrorCode(errorBody) is { } code)
+                    throw new UniFiApiErrorException(code, (int)response.StatusCode);
                 return null;
             }
 
@@ -1003,6 +1050,48 @@ public class UniFiApiClient : IDisposable
         }
 
         _logger.LogWarning("Device {Mac} not found", mac);
+        return null;
+    }
+
+    /// <summary>
+    /// PUT rest/device/{id} - set the channel and width of one or more of a device's radios. Sends
+    /// only those radios (see <see cref="RadioChannelUpdate.ToRequestJson"/>); the console provisions
+    /// the device, which moves within seconds and briefly drops the clients on each moved radio.
+    /// </summary>
+    /// <param name="deviceId">The device document id (<c>_id</c>), not the MAC.</param>
+    /// <param name="radios">The radios to move.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The device as stored after the write (its <c>cfgversion</c> is the one written), or null when refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change device settings.</exception>
+    [VendorSpecific("UniFi", "rest/device PUT; GET on rest/device returns 404, so reads go through stat/device")]
+    public async Task<UniFiDeviceResponse?> UpdateDeviceRadioChannelsAsync(
+        string deviceId,
+        IReadOnlyList<RadioChannelUpdate> radios,
+        CancellationToken cancellationToken = default)
+    {
+        if (radios.Count == 0) return null;
+
+        var json = RadioChannelUpdate.ToRequestJson(radios);
+        _logger.LogDebug("Updating radio channels on device {DeviceId}: {Body}", deviceId, json);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiDeviceResponse>>(
+            () => _httpClient!.PutAsync(
+                BuildApiPath($"rest/device/{deviceId}"),
+                new StringContent(json, Encoding.UTF8, "application/json"),
+                cancellationToken),
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: "The UniFi account lacks permission to change device settings. In UniFi Network, " +
+                "give this account Network: Full (Site Admin in older versions), then try again.");
+
+        if (response?.Meta.Rc == "ok" && response.Data.Count > 0)
+        {
+            _logger.LogInformation("Updated radio channels on device {DeviceId} (cfgversion {CfgVersion})",
+                deviceId, response.Data[0].CfgVersion);
+            return response.Data[0];
+        }
+
+        _logger.LogWarning("Failed to update radio channels on device {DeviceId}", deviceId);
         return null;
     }
 
@@ -1146,6 +1235,113 @@ public class UniFiApiClient : IDisposable
 
         _logger.LogWarning("Client {Mac} not found", mac);
         return null;
+    }
+
+    /// <summary>
+    /// GET stat/user/{mac} - a client's stored record (its <c>_id</c>, alias, and fixed IP),
+    /// online or not. <c>rest/user?mac=</c> ignores the filter, so this is the lookup by MAC.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/user/{mac}; rest/user ignores a mac query parameter")]
+    public async Task<UniFiClientResponse?> GetKnownClientAsync(string mac, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching known client {Mac} from site {Site}", mac, _site);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+            () => _httpClient!.GetAsync(BuildApiPath($"stat/user/{mac.ToLowerInvariant()}"), cancellationToken),
+            cancellationToken);
+
+        return response?.Meta.Rc == "ok" && response.Data.Count > 0 ? response.Data[0] : null;
+    }
+
+    /// <summary>
+    /// PUT rest/user/{id} - write a client's settings. Only the fields set on
+    /// <paramref name="update"/> are sent; the Console keeps the stored value of the rest. Use
+    /// <see cref="UniFiClientUpdate.FromRecord"/> to send the full form as UniFi Network does.
+    /// </summary>
+    /// <param name="userId">The client record id (<c>_id</c>), not the MAC.</param>
+    /// <param name="update">The fields to write. The Console enforces no length limit on <c>name</c> (65,536 characters stored).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The client as stored after the write, or null when it failed without an error code.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    /// <exception cref="UniFiApiErrorException">The Console refused the write with a code, such as
+    /// <c>api.err.DuplicateFixedIP</c> (another client holds the address) or <c>api.err.InvalidFixedIP</c>
+    /// (outside the client's network).</exception>
+    [VendorSpecific("UniFi", "rest/user PUT")]
+    public async Task<UniFiClientResponse?> UpdateClientAsync(
+        string userId,
+        UniFiClientUpdate update,
+        CancellationToken cancellationToken = default)
+    {
+        var json = update.ToRequestJson();
+        _logger.LogDebug("Updating client record {UserId}: {Body}", userId, json);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+            () => _httpClient!.PutAsync(
+                BuildApiPath($"rest/user/{userId}"),
+                new StringContent(json, Encoding.UTF8, "application/json"),
+                cancellationToken),
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: "The UniFi account lacks permission to change client settings. In UniFi Network, " +
+                "give this account Network: Full (Site Admin in older versions), then try again.",
+            throwOnApiError: true);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Updated client record {UserId}", userId);
+            if (response.Data.Count > 0) return response.Data[0];
+
+            // A write that changes nothing answers ok with no data; the record is read back instead.
+            var current = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+                () => _httpClient!.GetAsync(BuildApiPath($"rest/user/{userId}"), cancellationToken),
+                cancellationToken);
+            return current?.Meta.Rc == "ok" && current.Data.Count > 0 ? current.Data[0] : null;
+        }
+
+        _logger.LogWarning("Failed to update client record {UserId}", userId);
+        return null;
+    }
+
+    /// <summary>
+    /// Sets a client's alias, sending only <c>name</c>. An empty name clears the alias and UniFi
+    /// Network shows the hostname again.
+    /// </summary>
+    /// <returns>The client as stored after the write, or null when the client is unknown or the write was refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    public async Task<UniFiClientResponse?> SetClientNameAsync(string mac, string name, CancellationToken cancellationToken = default)
+    {
+        var record = await GetKnownClientAsync(mac, cancellationToken);
+        if (record == null || string.IsNullOrEmpty(record.Id))
+        {
+            _logger.LogWarning("Cannot rename client {Mac}: no client record", mac);
+            return null;
+        }
+        return await UpdateClientAsync(record.Id, new UniFiClientUpdate { Name = name }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets or removes a client's DHCP reservation (UniFi Network's Fixed IP Address). Removing it
+    /// also turns off the client's Local DNS Record, as UniFi Network does; the address and DNS
+    /// name stay on the record, dormant. Setting it leaves the Local DNS Record as it is.
+    /// </summary>
+    /// <param name="mac">The client's MAC address.</param>
+    /// <param name="fixedIp">The address to reserve, or null to remove the reservation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The client as stored after the write, or null when the client is unknown or the write was refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    [VendorSpecific("UniFi", "rest/user PUT; UniFi Network's form clears local_dns_record_enabled with use_fixedip")]
+    public async Task<UniFiClientResponse?> SetClientFixedIpAsync(string mac, string? fixedIp, CancellationToken cancellationToken = default)
+    {
+        var record = await GetKnownClientAsync(mac, cancellationToken);
+        if (record == null || string.IsNullOrEmpty(record.Id))
+        {
+            _logger.LogWarning("Cannot set fixed IP on client {Mac}: no client record", mac);
+            return null;
+        }
+        var update = fixedIp == null
+            ? new UniFiClientUpdate { UseFixedIp = false, LocalDnsRecordEnabled = false }
+            : new UniFiClientUpdate { UseFixedIp = true, FixedIp = fixedIp };
+        return await UpdateClientAsync(record.Id, update, cancellationToken);
     }
 
     /// <summary>
@@ -2935,7 +3131,7 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>
     /// GET rest/setting - whether UniFi's own nightly device auto-upgrade is on. Null when it
-    /// cannot be read. Read only: the `mgmt` section carries SSH credentials and is never written.
+    /// cannot be read.
     /// </summary>
     [VendorSpecific("UniFi", "rest/setting mgmt section")]
     public async Task<bool?> GetDeviceAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)
@@ -2948,6 +3144,34 @@ public class UniFiApiClient : IDisposable
         }
 
         return UniFiMgmtSettings.FromSettingsResponse(settings)?.AutoUpgrade;
+    }
+
+    /// <summary>
+    /// POST set/setting/mgmt - turns UniFi's own nightly device auto-upgrade on or off. The body
+    /// names only `auto_upgrade`, never the rest of the section, which carries SSH credentials.
+    /// </summary>
+    /// <param name="enabled">Whether UniFi upgrades devices on its own schedule.</param>
+    [VendorSpecific("UniFi", "set/setting/mgmt auto_upgrade-only partial write")]
+    public async Task<bool> SetDeviceAutoUpgradeAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        var body = UniFiMgmtSettings.BuildAutoUpgradeWriteBody(enabled);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath($"set/setting/{UniFiMgmtSettings.SettingKey}"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Set device auto-upgrade for site {Site} to {Enabled}", _site, enabled);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to set device auto-upgrade for site {Site} to {Enabled}", _site, enabled);
+        return false;
     }
 
     /// <summary>
@@ -3194,6 +3418,59 @@ public class UniFiApiClient : IDisposable
             var error = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to set console update channels: {StatusCode} - {Error}",
                 response.StatusCode, error);
+            return false;
+        });
+    }
+
+    /// <summary>
+    /// PATCH /api/system - turns off one console auto-update schedule: UniFi OS or the UniFi
+    /// Network application. Console-level, so it does NOT go through /proxy/network, and an API-key
+    /// connection cannot reach it.
+    /// </summary>
+    /// <param name="scheduleKey"><see cref="UniFiConsoleAutoUpdateRequest.UniFiOs"/> or <see cref="UniFiConsoleAutoUpdateRequest.NetworkApplication"/>.</param>
+    [VendorSpecific("UniFi", "console-level PATCH /api/system autoUpdates")]
+    public async Task<bool> DisableConsoleAutoUpdateAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scheduleKey);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var url = $"{_controllerUrl}/api/system";
+        var payload = JsonSerializer.Serialize(UniFiConsoleAutoUpdateRequest.BuildDisable(scheduleKey));
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.PatchAsync(
+                url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+
+            if (IsRecoverableAuthFailure(response.StatusCode))
+            {
+                _logger.LogWarning("Got {StatusCode} turning off the {Schedule} auto-update, re-authenticating...",
+                    response.StatusCode, scheduleKey);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while turning off the {Schedule} auto-update", scheduleKey);
+                    return false;
+                }
+
+                response = await _httpClient!.PatchAsync(
+                    url, new StringContent(payload, Encoding.UTF8, "application/json"), cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Turned off the console's {Schedule} auto-update", scheduleKey);
+                return true;
+            }
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to turn off the console's {Schedule} auto-update: {StatusCode} - {Error}",
+                scheduleKey, response.StatusCode, error);
             return false;
         });
     }

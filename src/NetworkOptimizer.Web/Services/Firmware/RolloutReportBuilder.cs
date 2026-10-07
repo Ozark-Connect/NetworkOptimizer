@@ -140,7 +140,7 @@ public static class RolloutReportBuilder
             var appOutcome = document.NetworkAppUpdate.Outcome switch
             {
                 "updated" => RolloutOutcomes.Upgraded,
-                "stuck" => RolloutOutcomes.Failed,
+                "stuck" or "refused" => RolloutOutcomes.Failed,
                 _ => RolloutOutcomes.Skipped,
             };
             report.Rows.Add(new RolloutReportRow
@@ -156,6 +156,10 @@ public static class RolloutReportBuilder
                 FromVersion = document.NetworkAppUpdate.FromVersion,
                 ToVersion = document.NetworkAppUpdate.TargetVersion,
                 Outcome = appOutcome,
+                Issue = document.NetworkAppUpdate.Outcome == "refused"
+                    ? $"UniFi Network {document.NetworkAppUpdate.TargetVersion} was not installed"
+                      + (string.IsNullOrWhiteSpace(document.NetworkAppUpdate.Error) ? "." : $": {document.NetworkAppUpdate.Error}")
+                    : null,
             });
         }
 

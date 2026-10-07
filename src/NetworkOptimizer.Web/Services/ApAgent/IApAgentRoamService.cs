@@ -60,4 +60,12 @@ public interface IApAgentRoamService
     /// <param name="currentBand">Band it is on now, in either the agent's ("5") or UniFi's ("na") spelling.</param>
     [RequireRole(Roles.Viewer)]
     Task<bool> CanChangeBandAsync(string clientMac, string? currentBand, CancellationToken ct = default);
+
+    /// <summary>
+    /// Access points whose agent cannot send a steer, by lower-case MAC: their firmware has no
+    /// hostapd control on ubus (an Express (UX, UX7) adopted as an AP). A client on one is not offered a move.
+    /// Taken from the supervisor's last health read, so it is empty until each agent is first assessed.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<IReadOnlyCollection<string>> GetApsWithoutSteeringAsync(CancellationToken ct = default);
 }

@@ -74,8 +74,8 @@ public class RolloutPlanner
         var canaried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deviceWave = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        // Not candidates: a Cloud Gateway reports upgradable=false while its UniFi OS build waits,
-        // because that update belongs to the console. Its own device candidacy says nothing here.
+        // A Cloud Gateway is never a device step: it updates as UniFi OS, never as a Network device,
+        // so it never reports upgradable. Its update is the console's UniFi OS step, planned here.
         var cloudGateway = input.Devices
             .FirstOrDefault(d => FirmwareTimingEstimator.Classify(d) == FirmwareDeviceClass.CloudGatewayUniFiOs);
         doc.ConsoleMac = cloudGateway?.Mac;
@@ -154,6 +154,9 @@ public class RolloutPlanner
         doc.UniFiOsUpdate.FromVersion = input.UniFiOsFromVersion;
         doc.UniFiOsUpdate.TargetVersion = input.UniFiOsToVersion;
         doc.UniFiOsUpdate.Url = input.UniFiOsDownloadUrl;
+        doc.UniFiOsUpdate.PublishedAt = input.UniFiOsPublishedAt;
+        doc.UniFiOsUpdate.Pinned = input.UniFiOsPinned;
+        doc.NetworkAppUpdate.Pinned = input.NetworkAppPinned;
         doc.NetworkAppUpdate.Wave = 0;
         doc.UniFiOsUpdate.Wave = steps.Count > 0 ? steps.Max(s => s.Wave) + 1 : 1;
         doc.MaxApsInFlight = apCap;
@@ -679,7 +682,7 @@ public class RolloutPlanner
         State = state,
     };
 
-    private static Dictionary<string, string> ParseMap(string? json)
+    internal static Dictionary<string, string> ParseMap(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try

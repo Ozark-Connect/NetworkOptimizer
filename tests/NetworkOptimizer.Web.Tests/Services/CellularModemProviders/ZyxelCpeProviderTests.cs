@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
 using Xunit;
@@ -54,8 +55,24 @@ public class ZyxelCpeProviderTests
         ModemType = "Zyxel CPE",
     };
 
+    [Fact]
+    public async Task PollAsync_BuildsItsClientWithTheContextsDialer()
+    {
+        using var router = new StubRouter(encrypted: true);
+        var dialer = Mock.Of<IDeviceDialer>();
+        IDeviceDialer? used = null;
+        var provider = new ZyxelCpeProvider(NullLogger<ZyxelCpeProvider>.Instance, d =>
+        {
+            used = d;
+            return new BorrowedHandler(router);
+        });
+
+        await provider.PollAsync(Context() with { Dialer = dialer });
+
+        used.Should().BeSameAs(dialer);
+    }
     private static ZyxelCpeProvider Create(StubRouter router) =>
-        new(NullLogger<ZyxelCpeProvider>.Instance, router);
+        new(NullLogger<ZyxelCpeProvider>.Instance, _ => new BorrowedHandler(router));
 
     // ----- Encrypted firmware -----
 
@@ -63,7 +80,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_EncryptedFirmware_SignsInAndReadsCellwanStatus()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var result = await provider.PollAsync(Context());
 
@@ -80,7 +97,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_EncryptedFirmware_SendsTheLoginTheWebUiSends()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context());
 
@@ -96,7 +113,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_DalCallsCarryTheSessionCookieAndKey()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context());
 
@@ -110,7 +127,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_ReusesTheSessionAndReadsDeviceInfoOnce()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context());
         var second = await provider.PollAsync(Context());
@@ -125,7 +142,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_DefaultsTheUsernameToAdmin_AndUsesASavedOne()
     {
         using var router = new StubRouter(encrypted: true, username: "operator");
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var blank = await provider.PollAsync(Context(username: "  "));
         blank.Stats.Should().BeNull();
@@ -144,7 +161,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_PlainFirmware_SignsInWithPlainJson(string keyResponse)
     {
         using var router = new StubRouter(encrypted: false) { PublicKeyResponse = keyResponse };
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var result = await provider.PollAsync(Context());
 
@@ -157,7 +174,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_PlainFirmwareRejectingWith401_IsARejectedPassword()
     {
         using var router = new StubRouter(encrypted: false) { LoginStatus = HttpStatusCode.Unauthorized };
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var result = await provider.PollAsync(Context());
 
@@ -170,7 +187,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_ExpiredSession_SignsInAgain()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context());
         router.ExpireSession();
@@ -184,7 +201,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_ResponseUnderAnotherKey_SignsInAgain()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context());
         router.ScrambleSessionKey();
@@ -198,7 +215,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_SessionRefusedAfterFreshSignIn_Fails()
     {
         using var router = new StubRouter(encrypted: true) { RefuseAllDal = true };
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var result = await provider.PollAsync(Context());
 
@@ -210,7 +227,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_StatusCallFailing_DoesNotFailThePoll()
     {
         using var router = new StubRouter(encrypted: true) { StatusResult = "ZCFG_NO_SUCH_OBJECT" };
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var result = await provider.PollAsync(Context());
 
@@ -224,7 +241,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_RejectedPassword_IsNotRetriedByLaterPolls()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var first = await provider.PollAsync(Context(password: "wrong"));
         var requestsAfterFirst = router.Requests.Count;
@@ -239,7 +256,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_ChangedPassword_SignsInAgain()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context(password: "wrong"));
         var result = await provider.PollAsync(Context());
@@ -251,7 +268,7 @@ public class ZyxelCpeProviderTests
     public async Task TestConnectionAsync_ClearsTheRejectedGuardAndReportsTheModel()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context(password: "wrong"));
         router.Password = "wrong";  // e.g. the password was reset on the router itself
@@ -266,7 +283,7 @@ public class ZyxelCpeProviderTests
     {
         // A second sign-in for the same account can be refused as "Duplicated login".
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context());
         var (success, _) = await provider.TestConnectionAsync(Context());
@@ -279,7 +296,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_ChangedCredentials_OpenANewSession()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context());
         router.Password = "new-password";
@@ -299,7 +316,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_OtherSignInRefusals_SayWhy_AndAreRetried(string routerResult, string expected)
     {
         using var router = new StubRouter(encrypted: true) { ForcedLoginResult = routerResult };
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var first = await provider.PollAsync(Context());
         await provider.PollAsync(Context());
@@ -312,7 +329,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_NoPassword_FailsWithoutContactingTheRouter()
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var result = await provider.PollAsync(Context(password: ""));
 
@@ -324,7 +341,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_HtmlLoginReply_ReportsUnreadableAnswer()
     {
         using var router = new StubRouter(encrypted: false) { LoginBodyOverride = "<html>login</html>" };
-        using var provider = Create(router);
+        var provider = Create(router);
 
         var result = await provider.PollAsync(Context());
 
@@ -339,7 +356,7 @@ public class ZyxelCpeProviderTests
     public async Task PollAsync_BuildsTheBaseUrlFromThePort(int port, string expectedPrefix)
     {
         using var router = new StubRouter(encrypted: true);
-        using var provider = Create(router);
+        var provider = Create(router);
 
         await provider.PollAsync(Context(port: port));
 

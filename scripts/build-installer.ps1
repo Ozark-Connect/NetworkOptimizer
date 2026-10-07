@@ -148,9 +148,9 @@ if ($GoCmd) {
     Write-Warning "Go not installed - wansteer binary will not be available in this installer"
 }
 
-# AP Agent, pushed into tmpfs on each access point. Every measured U7-class AP is armv7l and an
-# arm64 build will not exec on them, so there is deliberately no arm64 target. MIPS is built in
-# both byte orders, soft-float (no FPU on those SoCs).
+# AP Agent, pushed into tmpfs on each access point. U7-class APs are armv7l; arm64 is for UniFi OS
+# gateways with Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built in both byte orders, soft-float
+# (no FPU on those SoCs).
 $ApAgentSrc = Join-Path $RepoRoot "src\apagent"
 
 if ($GoCmd) {
@@ -160,6 +160,7 @@ if ($GoCmd) {
     $env:GOOS = "linux"
     $apTargets = @(
         @{ GOARCH = "arm";    GOARM = "7";   GOMIPS = $null;       Output = "apagent-linux-arm" },
+        @{ GOARCH = "arm64";  GOARM = $null; GOMIPS = $null;       Output = "apagent-linux-arm64" },
         @{ GOARCH = "mipsle"; GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mipsle" },
         @{ GOARCH = "mips";   GOARM = $null; GOMIPS = "softfloat"; Output = "apagent-linux-mips" }
     )

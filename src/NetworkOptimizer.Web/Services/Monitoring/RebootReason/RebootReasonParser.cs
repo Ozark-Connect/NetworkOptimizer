@@ -286,6 +286,19 @@ public static class RebootReasonParser
         logAgeVsBootSeconds < -RebootLogBootGraceSeconds;
 
     /// <summary>
+    /// Whether the console's reason log is known to describe an earlier boot: dated before this one,
+    /// or naming an upgrade when the firmware is known not to have changed. The second catch needs no
+    /// clock, so it holds when the device dated the log on a wrong one.
+    /// </summary>
+    /// <param name="logTail">The log's trailing lines; the last non-empty one is the entry.</param>
+    /// <param name="logAgeVsBootSeconds">Log mtime minus this boot's start, in seconds, or null.</param>
+    /// <param name="firmwareKnownUnchanged">A version was recorded before this boot and names the same image.</param>
+    internal static bool ConsoleRebootLogIsStale(string? logTail, int? logAgeVsBootSeconds, bool firmwareKnownUnchanged) =>
+        ConsoleRebootLogPredatesBoot(logAgeVsBootSeconds) ||
+        (firmwareKnownUnchanged &&
+         LastNonEmptyLine(logTail)?.Contains("upgrade reboot", StringComparison.OrdinalIgnoreCase) == true);
+
+    /// <summary>
     /// Last-resort mapping of a UniFi Network event key. These are generic: the "unknown reason"
     /// variants cover power loss, hangs and panics alike, so the summary says so rather than
     /// implying the console knows.

@@ -109,6 +109,20 @@ public class ApAgentScanMergerTests
     }
 
     [Fact]
+    public void A_spectrum_time_from_1970_is_an_unknown_age()
+    {
+        // mca-dump's spectrum_table_time is a small counter; the agent forwards 39115 as 1970-01-01 10:51:55.
+        var payload = JsonSerializer.Deserialize<ApAgentScanPayload>(
+            ScanJson.Replace("2026-09-02T11:58:00Z", "1970-01-01T10:51:55Z"), Options)!;
+        var result = Result(Ap, RadioBand.Band5GHz);
+
+        ApAgentScanMerger.Apply([result], _ => payload, Now);
+
+        result.Channels.Should().HaveCount(2, "the measurement itself still replaces the console's");
+        result.SpectrumTableTime.Should().BeNull();
+    }
+
+    [Fact]
     public void The_scan_radio_covers_a_band_with_no_serving_table()
     {
         var band24 = Result(Ap, RadioBand.Band2_4GHz);

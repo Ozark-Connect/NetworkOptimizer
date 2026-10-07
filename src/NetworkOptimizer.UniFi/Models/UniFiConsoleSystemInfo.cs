@@ -345,3 +345,29 @@ public class UniFiConsoleUpdateChannelsRequest
         };
     }
 }
+
+/// <summary>
+/// Body for PATCH /api/system that turns off one auto-update schedule: `firmware` is UniFi OS,
+/// `network` is the UniFi Network application. The shape is the console UI's own, sent one
+/// schedule at a time as the UI does; a null schedule is off.
+/// </summary>
+[VendorSpecific("UniFi", "console-level PATCH /api/system autoUpdates")]
+public static class UniFiConsoleAutoUpdateRequest
+{
+    /// <summary>Schedule key for UniFi OS.</summary>
+    public const string UniFiOs = "firmware";
+
+    /// <summary>Schedule key for the UniFi Network application.</summary>
+    public const string NetworkApplication = UniFiConsoleController.NetworkName;
+
+    /// <summary>The body that turns off the schedule named by <paramref name="scheduleKey"/>.</summary>
+    /// <param name="scheduleKey"><see cref="UniFiOs"/> or <see cref="NetworkApplication"/>.</param>
+    public static Dictionary<string, object> BuildDisable(string scheduleKey) => new()
+    {
+        ["autoUpdates"] = new Dictionary<string, object>
+        {
+            ["useApplicationSchedules"] = true,
+            ["schedules"] = new Dictionary<string, object?> { [scheduleKey] = null },
+        },
+    };
+}

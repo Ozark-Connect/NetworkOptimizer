@@ -13,8 +13,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.RebootReason;
 /// </summary>
 public class DeviceRebootProbe
 {
-    private readonly IUniFiSshService _deviceSsh;
-    private readonly IGatewaySshService _gatewaySsh;
+    private readonly DeviceSshRouter _ssh;
     private readonly ILogger<DeviceRebootProbe> _logger;
 
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(20);
@@ -28,6 +27,13 @@ public class DeviceRebootProbe
     private const string UpgradeAgeMarker = "###UPGRADEAGE";
     private const string ConsoleRingMarker = "###CONSOLERING";
     private const string CrashAgeMarker = "###CRASHAGE";
+    private const string DeviceClockMarker = "###DEVICECLOCK";
+
+    /// <summary>
+    /// How far the device's clock may sit from the server's before the reason log's age, which is
+    /// measured on the device clock, stops being trusted.
+    /// </summary>
+    private const int MaxClockSkewSeconds = 600;
 
     /// <summary>
     /// One shell line per evidence source, each behind a marker so the reply can be split.
@@ -72,36 +78,46 @@ public class DeviceRebootProbe
         "M=$(stat -c %Y /etc/persistent/post_upgrade_pending 2>/dev/null); " +
         "U=$(awk '{print int($1)}' /proc/uptime 2>/dev/null); N=$(date +%s 2>/dev/null); " +
         "if [ -n \"$M\" ] && [ -n \"$U\" ] && [ -n \"$N\" ]; then echo $((M - N + U)); fi",
+        // The device's clock, so the server can tell when the ages above were measured on a wrong one.
+        $"echo '{DeviceClockMarker}'",
+        "date +%s 2>/dev/null",
         // Absent paths make the last command exit non-zero, which the SSH layer reports as a
         // failed run even though the probe output is right there. Land on a success either way.
         "true");
 
     /// <summary>Creates the probe.</summary>
     public DeviceRebootProbe(
-        IUniFiSshService deviceSsh,
-        IGatewaySshService gatewaySsh,
+        DeviceSshRouter ssh,
         ILogger<DeviceRebootProbe> logger)
     {
-        _deviceSsh = deviceSsh;
-        _gatewaySsh = gatewaySsh;
+        _ssh = ssh;
         _logger = logger;
     }
 
     /// <summary>
     /// Probe one device for why its previous run ended.
     /// </summary>
+    /// <param name="deviceMac">The device's MAC, which the SSH router keys its credential route on.</param>
     /// <param name="host">Device IP or hostname to SSH to.</param>
-    /// <param name="deviceType">Gateways use the console's SSH credentials, everything else the shared device ones.</param>
+    /// <param name="deviceType">The device's role. <see cref="DeviceSshRouter"/> picks the credentials from it.</param>
     /// <param name="firmwareChanged">Whether the reported firmware version changed across this boot.</param>
+    /// <param name="firmwareKnownUnchanged">Whether a firmware version was recorded before this boot and
+    /// still names the same image. Distinct from <paramref name="firmwareChanged"/> being false, which
+    /// also covers having no earlier version to compare.</param>
+    /// <param name="trustDeviceClock">Date the reason log on the device's clock even when it disagrees with
+    /// the server's: past the provisional window a clock that never syncs gets the same answer as before.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// The reason, or null when SSH produced nothing usable (not configured, unreachable, or a
     /// platform that keeps no pstore). Callers fall back to the UniFi Network event in that case.
     /// </returns>
     public async Task<DeviceRebootReason?> ProbeAsync(
+        string deviceMac,
         string host,
         DeviceType deviceType,
         bool firmwareChanged,
+        bool firmwareKnownUnchanged = false,
+        bool trustDeviceClock = false,
         CancellationToken cancellationToken = default)
     {
         var credentialSet = deviceType == DeviceType.Gateway ? "console" : "shared device";
@@ -112,7 +128,7 @@ public class DeviceRebootProbe
             return null;
         }
 
-        var (success, output) = await RunProbeAsync(host, deviceType, cancellationToken);
+        var (success, output) = await RunProbeAsync(deviceMac, host, deviceType, cancellationToken);
 
         if (!success)
         {
@@ -134,9 +150,17 @@ public class DeviceRebootProbe
 
         var sections = SplitSections(output);
         var rebootLogAge = ParseSeconds(sections.GetValueOrDefault(RebootLogAgeMarker));
+        var rebootLog = sections.GetValueOrDefault(RebootLogMarker);
+
+        // A console booted without a synced clock dates its log on the wrong clock, and an old entry
+        // then reads as this boot's. Hold the log back until the clock is right.
+        var clockSkewed = !trustDeviceClock &&
+            ClockSkewSeconds(sections.GetValueOrDefault(DeviceClockMarker)) > MaxClockSkewSeconds;
+        var rebootLogStale = HasContent(rebootLog) &&
+            (clockSkewed || RebootReasonParser.ConsoleRebootLogIsStale(rebootLog, rebootLogAge, firmwareKnownUnchanged));
 
         var reason = RebootReasonParser.Best(
-            RebootReasonParser.ParseConsoleRebootLog(sections.GetValueOrDefault(RebootLogMarker), rebootLogAge),
+            rebootLogStale ? null : RebootReasonParser.ParseConsoleRebootLog(rebootLog, rebootLogAge),
             RebootReasonParser.ParsePstore(
                 sections.GetValueOrDefault(PstoreMarker),
                 sections.GetValueOrDefault(ConsoleMarker),
@@ -162,15 +186,17 @@ public class DeviceRebootProbe
             return null;
         }
 
-        // This console keeps a reason log and has not written this boot's entry into it yet, so the
-        // strongest source has still to speak. Answer from what is here, but come back for it.
-        if (HasContent(sections.GetValueOrDefault(RebootLogMarker)) &&
-            RebootReasonParser.ConsoleRebootLogPredatesBoot(rebootLogAge))
+        // This console keeps a reason log and has not written this boot's entry into it yet, or its
+        // clock cannot date the entry, so the strongest source has still to speak. Answer from what
+        // is here, but come back for it.
+        if (rebootLogStale)
         {
             _logger.LogDebug(
                 "Reboot reason probe on {Host} ({DeviceType}) resolved {Category} from {Source}, provisionally: " +
-                "the console's reason log still holds the previous boot's entry; evidence: {Evidence}",
-                host, deviceType, reason.Category, reason.Source, DescribeEvidence(sections));
+                "the console's reason log {Why}; evidence: {Evidence}",
+                host, deviceType, reason.Category, reason.Source,
+                clockSkewed ? "cannot be dated on the device's clock" : "still holds the previous boot's entry",
+                DescribeEvidence(sections));
 
             return reason with { Provisional = true };
         }
@@ -210,6 +236,14 @@ public class DeviceRebootProbe
     private static int? ParseSeconds(string? section) =>
         int.TryParse(section?.Trim(), out var seconds) ? seconds : null;
 
+    /// <summary>How far the device's clock is from the server's, or 0 when the device did not report it.</summary>
+    internal static long ClockSkewSeconds(string? deviceClockSection, long? serverNowUnix = null)
+    {
+        if (!long.TryParse(deviceClockSection?.Trim(), out var deviceNow)) return 0;
+        var serverNow = serverNowUnix ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return Math.Abs(deviceNow - serverNow);
+    }
+
     private static string Summarize(string? output)
     {
         if (string.IsNullOrWhiteSpace(output)) return "no error text";
@@ -218,17 +252,13 @@ public class DeviceRebootProbe
     }
 
     private async Task<(bool success, string output)> RunProbeAsync(
-        string host, DeviceType deviceType, CancellationToken cancellationToken)
+        string deviceMac, string host, DeviceType deviceType, CancellationToken cancellationToken)
     {
         try
         {
-            // The gateway is a UniFi OS console with its own credentials; APs and switches
-            // share one device credential set.
-            if (deviceType == DeviceType.Gateway)
-                return await _gatewaySsh.RunCommandAsync(ProbeCommand, ProbeTimeout, cancellationToken);
-
-            return await _deviceSsh.RunCommandAsync(host, ProbeCommand, portOverride: null,
-                cancellationToken: cancellationToken);
+            // The gateway keeps the probe's own timeout; every other device keeps the SSH service default.
+            var timeout = deviceType == DeviceType.Gateway ? ProbeTimeout : (TimeSpan?)null;
+            return await _ssh.RunAsync(new DeviceSshTarget(deviceMac, host, deviceType), ProbeCommand, timeout, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -257,7 +287,7 @@ public class DeviceRebootProbe
 
             if (trimmed is PstoreMarker or ConsoleMarker or CrashMarker or RebootLogMarker
                 or RebootLogAgeMarker or UpgradeMarker or UpgradeAgeMarker or ConsoleRingMarker
-                or CrashAgeMarker)
+                or CrashAgeMarker or DeviceClockMarker)
             {
                 Flush();
                 current = trimmed;

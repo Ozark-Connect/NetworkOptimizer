@@ -110,7 +110,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// How long the site has to be out of sight before the rollout says so. A device reboot takes
     /// the console with it for a minute or two, which is the run working rather than stalling.
     /// </summary>
-    public static readonly TimeSpan VisibilityLostAfter = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan VisibilityLostAfter = TimeSpan.FromMinutes(8);
 
     /// <summary>How long a firmware catalog read is reused before the console is asked again.</summary>
     private static readonly TimeSpan CatalogCacheTtl = TimeSpan.FromMinutes(5);
@@ -200,6 +200,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Where the console and the probe vantages sit on the uplink tree. Null places the console at
     /// the tree's root (a Cloud Gateway) and no vantage at all.
     /// </param>
+    private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? _sharedCatalog;
+
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
         IFirmwareCommandClient commands,
@@ -219,9 +221,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         ApAgent.ApAgentRegistry? apAgents = null,
         IRolloutRebootWitness? rebootWitness = null,
         IRolloutObserverLocator? observerLocator = null,
-        Auditing.IAuditLogger? audit = null)
+        Auditing.IAuditLogger? audit = null,
+        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null)
     {
         _audit = audit;
+        _sharedCatalog = sharedCatalog;
         _tunnelRouting = tunnelRouting;
         _apAgents = apAgents;
         _rebootWitness = rebootWitness;
@@ -490,6 +494,44 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
+    /// Moves the start of a rollout that has not started yet to a time the user chose. The
+    /// starting-soon reminder is marked sent for the new start: the user just picked it.
+    /// </summary>
+    /// <param name="planId">Plan to move.</param>
+    /// <param name="target">The new start from the current one, or null to refuse the move.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The new start, or null when the plan was not moved.</returns>
+    public async Task<DateTime?> MoveStartAsync(
+        int planId, Func<DateTime, DateTime?> target, CancellationToken cancellationToken = default)
+    {
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced })
+                return null;
+
+            if (target(plan.ScheduledStartAt ?? Now) is not DateTime start || start <= Now)
+                return null;
+
+            var document = ParseDocument(plan);
+            document.ReminderSentForStartAt = start;
+            plan.PlanJson = JsonSerializer.Serialize(document);
+            plan.ScheduledStartAt = start;
+            plan.Status = FirmwareRolloutStatus.Scheduled;
+            await PersistPlanAsync(plan, cancellationToken);
+
+            _logger.LogInformation(
+                "Firmware rollout {Id} on site {Site} moved to {When}", plan.Id, _siteSlug, start);
+            return start;
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Stops a rollout for good, puts the console channels back, and drops every device that had
     /// not started. Devices already mid-cycle are left to finish - nothing can call them back.
     /// </summary>
@@ -524,6 +566,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         await RestoreChannelsAsync(plan, cancellationToken);
+        await RestoreRaisedModelChannelAsync(plan, ParseDocument(plan), cancellationToken);
 
         plan.Status = FirmwareRolloutStatus.Aborted;
         plan.CompletedAt = Now;
@@ -605,8 +648,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The step settled after its upgrade, so the agent's supervisor has likely redeployed by now.
         await HoldApAgentAsync(step, cancellationToken);
 
-        var result = await _commands.TriggerSshUpgradeAsync(
-            observation?.IpAddress ?? string.Empty, prior.Url, SshUpgradesAsGateway(step), cancellationToken);
+        var result = await SshUpgradeAsync(step, observation?.IpAddress ?? string.Empty, prior.Url, cancellationToken);
         if (!result.IsOk)
             result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, prior.Url, cancellationToken);
 
@@ -882,6 +924,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 continue;
             }
 
+            // A pinned downgrade is behind what runs by design; only reaching it is done.
+            if (RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
+                && !VersionsMatch(seen.Firmware, step.ToVersion))
+            {
+                continue;
+            }
+
             var running = ShortVersion(seen.Firmware);
             step.State = FirmwareRolloutStepState.SkippedExcluded;
             step.Error = $"Already on {running}, updated outside this rollout.";
@@ -1111,6 +1160,42 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         var application = console?.NetworkApplication;
 
+        // A build chosen by hand installs by URL, since the API installs the console's newest. When the
+        // console's newest IS the chosen build, the API is used: an Early Access package is not
+        // published at the URL derived from its version, so SSH by URL would 404.
+        var consoleOffersPin = state.Pinned
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(application?.UpdateAvailable, state.TargetVersion);
+        if (state.Pinned && !consoleOffersPin)
+        {
+            var pinnedNewer = console?.IsStandaloneConsole != true
+                && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(state.TargetVersion, application?.Version);
+            if (pinnedNewer && !string.IsNullOrWhiteSpace(state.Url))
+            {
+                var pinnedSsh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
+                if (pinnedSsh.IsOk)
+                {
+                    state.Triggered = true;
+                    state.ViaSsh = true;
+                    state.TriggeredAt = Now;
+                    _logger.LogInformation(
+                        "Installing the chosen UniFi Network {Version} over SSH on site {Site}", state.TargetVersion, _siteSlug);
+                    return;
+                }
+                _logger.LogWarning(
+                    "SSH install of the chosen UniFi Network {Version} failed on site {Site}: {Reason}",
+                    state.TargetVersion, _siteSlug, pinnedSsh.Message);
+                state.Error = ConsoleStepError(pinnedSsh.Message);
+            }
+            else if (pinnedNewer)
+            {
+                state.Error = "No download link is known for this build.";
+            }
+
+            state.Settled = true;
+            state.Outcome = pinnedNewer ? "refused" : "nothing-to-update";
+            return;
+        }
+
         var apiPathAvailable = application is not { HasUpdate: false }
             && !string.IsNullOrWhiteSpace(application?.Version)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version);
@@ -1128,6 +1213,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
 
             _logger.LogWarning("API trigger refused the Network app update on site {Site}", _siteSlug);
+            if (state.Pinned) state.Error = "The Console did not accept the update command.";
         }
         else
         {
@@ -1139,6 +1225,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // The console may not see an update because the channel switch failed, but the plan
         // captured the URL at planning time when the channel was still right. Not on a standalone
         // console: its Network app runs on the UOS Server host, not the gateway this SSH reaches.
+        var sshAttempted = false;
         var installedApp = application?.Version;
         var plannedApp = state.TargetVersion;
         if (console?.IsStandaloneConsole != true
@@ -1147,24 +1234,84 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             && !string.IsNullOrWhiteSpace(installedApp)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedApp, installedApp))
         {
+            sshAttempted = true;
             _logger.LogInformation(
                 "Falling back to SSH for the Network app update on site {Site} ({Url})", _siteSlug, state.Url);
-            var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+            var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
             if (ssh.IsOk)
             {
                 state.Triggered = true;
+                state.ViaSsh = true;
                 state.TriggeredAt = Now;
                 _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
                 return;
             }
             _logger.LogWarning(
                 "SSH Network app update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            state.Error = ConsoleStepError(ssh.Message);
         }
 
+        // A chosen build, or an SSH install that was tried and failed, is a refusal, not nothing to do:
+        // the report and the history must not read it as a clean run. The console's API declining an
+        // unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
+        var refused = state.Pinned || sshAttempted;
         state.Settled = true;
-        state.Outcome = "nothing-to-update";
-        _logger.LogInformation(
-            "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+        state.Outcome = refused ? "refused" : "nothing-to-update";
+        if (refused)
+            _logger.LogWarning(
+                "UniFi Network {Version} could not be installed on site {Site}; going on to the devices", state.TargetVersion, _siteSlug);
+        else
+            _logger.LogInformation(
+                "No UniFi Network application update to install on site {Site}; going straight to the devices", _siteSlug);
+    }
+
+    private static readonly TimeSpan InstallLogReadInterval = TimeSpan.FromMinutes(1);
+    private DateTime _lastInstallLogRead = DateTime.MinValue;
+
+    private Task<NetworkInstallLog?> ReadInstallLogAsync(CancellationToken cancellationToken)
+    {
+        _lastInstallLogRead = Now;
+        return _commands.ReadSshNetworkInstallLogAsync(cancellationToken);
+    }
+
+    /// <summary>The packages the Network package at <paramref name="url"/> was released with, from the catalog.</summary>
+    private async Task<IReadOnlyList<string>?> NetworkCompanionsAsync(string? url, CancellationToken cancellationToken)
+    {
+        if (_sharedCatalog == null || string.IsNullOrWhiteSpace(url)) return null;
+        var package = (await _sharedCatalog.ListNetworkAppPackagesAsync(cancellationToken))
+            .FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(package?.CompanionUrlsJson)) return null;
+        try { return JsonSerializer.Deserialize<List<string>>(package.CompanionUrlsJson); }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// Records the package a Network install just downloaded, with its real URL, so other sites of
+    /// the same platform can install it. A fresh read: the console's log only now holds it.
+    /// </summary>
+    private async Task RecordNetworkPackagesAsync(CancellationToken cancellationToken)
+    {
+        if (_sharedCatalog == null) return;
+        try
+        {
+            var read = await _commands.ReadConsoleNetworkPackagesAsync(fresh: true, cancellationToken);
+            if (read is { Downloaded.Count: > 0 })
+                await _sharedCatalog.UpsertNetworkAppPackagesAsync(read.Downloaded, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not record the Network packages on site {Site}", _siteSlug);
+        }
+    }
+
+    /// <summary>The last line of a failed install's output, capped: enough to say why, short enough for a report.</summary>
+    internal static string? ConsoleStepError(string? output)
+    {
+        // apt names an unmet dependency on a "Depends:" line and ends on solver detail ("[no choices]").
+        var lines = (output ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var line = lines.FirstOrDefault(l => l.Contains(" Depends: ", StringComparison.Ordinal)) ?? lines.LastOrDefault();
+        if (string.IsNullOrEmpty(line)) return null;
+        return line.Length <= 200 ? line : line[..200] + "...";
     }
 
     /// <summary>
@@ -1193,6 +1340,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (ElapsedReachable(triggeredAt) < NetworkAppJudgeDelay)
             return false;
 
+        // An SSH install runs detached on the console; one that ended on a failure (a package that
+        // would not download or install) has nothing left to wait for, and its log says why. Read
+        // once a minute: the install takes minutes, and every read is an SSH session.
+        if (state.ViaSsh && !consoleDark && Now - _lastInstallLogRead >= InstallLogReadInterval
+            && await ReadInstallLogAsync(cancellationToken) is { ExitCode: > 0 } failedInstall)
+        {
+            state.Settled = true;
+            state.Outcome = "refused";
+            state.Error = ConsoleStepError(failedInstall.Output);
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            _logger.LogWarning(
+                "SSH install of UniFi Network {Version} failed on site {Site}: {Reason}", state.TargetVersion, _siteSlug, state.Error);
+            return true;
+        }
+
         string? installed = null;
         var standalone = false;
         var failed = false;
@@ -1215,6 +1377,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _logger.LogInformation(
                     "The UniFi Network application on site {Site} is answering again on {Version}",
                     _siteSlug, installed ?? "an unreported version");
+                await RecordNetworkPackagesAsync(cancellationToken);
                 return true;
             }
         }
@@ -1272,10 +1435,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             failed ? "reports the install failed" : $"is still on {installed} after {NetworkAppUpdateBudget}",
             state.Url);
 
-        var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, cancellationToken);
+        var ssh = await _commands.TriggerSshNetworkAppUpdateAsync(state.Url, await NetworkCompanionsAsync(state.Url, cancellationToken), cancellationToken);
         state.SshRetriedAt = Now;
         if (ssh.IsOk)
+        {
             state.TriggeredAt = Now;
+            state.ViaSsh = true;
+        }
         await PersistDocumentAsync(plan, document, cancellationToken);
 
         if (ssh.IsOk)
@@ -1464,7 +1630,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // nobody chose. Version match, not "newer": a beta on offer is newer than the planned RC.
         var offerIsPlanned = channelInForce
             || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(pending?.Version, document.UniFiOsUpdate.TargetVersion);
-        if (pending?.Version != null && !offerIsPlanned)
+        if (pending?.Version != null && !offerIsPlanned && !document.UniFiOsUpdate.Pinned)
         {
             _logger.LogError(
                 "Declining the UniFi OS update on site {Site}: the console would not take the planned channel and offers {Offered}, not the planned {Planned}",
@@ -1489,6 +1655,30 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             var preWindow = ResourceWindowFor(settings);
             document.UniFiOsUpdate.PreStatsJson = JsonSerializer.Serialize(
                 await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
+        }
+
+        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
+        if (document.UniFiOsUpdate.Pinned)
+        {
+            var pinnedNewer = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(
+                document.UniFiOsUpdate.TargetVersion, installedOs);
+            if (pinnedNewer && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+                && await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken))
+                return false;
+
+            await SettleUniFiOsAsync(plan, document, pinnedNewer ? "refused" : "nothing-to-update", cancellationToken);
+            return true;
+        }
+
+        // A plan adopted from the shared catalog targets a build newer than the console's own offer.
+        // Taking the API path here would install the older build, so the URL goes first.
+        var sshTried = false;
+        if (apiPathAvailable
+            && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(document.UniFiOsUpdate.TargetVersion, pending!.Version))
+        {
+            if (await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken)) return false;
+            sshTried = true;
         }
 
         if (apiPathAvailable)
@@ -1516,33 +1706,59 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 _siteSlug, installedOs ?? "unknown", pending?.Version ?? "none");
         }
 
-        // The console may not see the build because the channel switch failed, but the plan
-        // captured the firmware URL at planning time when the channel was still right.
+        // The console may not see the build because the channel switch failed, or because the
+        // build came from another site's console; the plan captured its URL either way.
         var plannedOs = document.UniFiOsUpdate.TargetVersion;
-        if (!string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
+        if (!sshTried
+            && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
             && !string.IsNullOrWhiteSpace(plannedOs)
             && !string.IsNullOrWhiteSpace(installedOs)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedOs, installedOs))
         {
-            _logger.LogInformation(
-                "Falling back to SSH for the UniFi OS update on site {Site} ({Url})", _siteSlug, document.UniFiOsUpdate.Url);
-            var ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url, cancellationToken);
-            if (ssh.IsOk)
-            {
-                document.UniFiOsUpdate.Triggered = true;
-                document.UniFiOsUpdate.TriggeredAt = Now;
-                await PersistDocumentAsync(plan, document, cancellationToken);
-                _logger.LogInformation(
-                    "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
-                return false;
-            }
-            _logger.LogWarning(
-                "SSH UniFi OS update also failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+            if (await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken)) return false;
         }
 
         var outcome = apiPathAvailable || (pending?.Version != null && !offerIsPlanned) ? "refused" : "nothing-to-update";
         await SettleUniFiOsAsync(plan, document, outcome, cancellationToken);
         return true;
+    }
+
+    /// <summary>Installs the plan's UniFi OS image by URL over SSH. True when the gateway accepted it.</summary>
+    private async Task<bool> TrySshUniFiOsUpdateAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "Installing UniFi OS {Version} over SSH on site {Site} ({Url})",
+            document.UniFiOsUpdate.TargetVersion, _siteSlug, document.UniFiOsUpdate.Url);
+
+        // The command returns only after the gateway has downloaded the image, so the step shows as
+        // upgrading from the moment it is sent rather than a minute or more later.
+        document.UniFiOsUpdate.SendingAt = Now;
+        await PersistDocumentAsync(plan, document, cancellationToken);
+
+        FirmwareCommandResult ssh;
+        try
+        {
+            ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, cancellationToken);
+        }
+        finally
+        {
+            document.UniFiOsUpdate.SendingAt = null;
+        }
+
+        if (ssh.IsOk)
+        {
+            document.UniFiOsUpdate.Triggered = true;
+            document.UniFiOsUpdate.TriggeredAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            _logger.LogInformation(
+                "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
+            return true;
+        }
+
+        await PersistDocumentAsync(plan, document, cancellationToken);
+        _logger.LogWarning("SSH UniFi OS update failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
+        return false;
     }
 
     private async Task SettleUniFiOsAsync(
@@ -1641,7 +1857,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         RolloutDeviceObservation observation,
         CancellationToken cancellationToken)
     {
-        var url = await ResolveImageUrlAsync(step.Model, cancellationToken);
+        var url = await StepImageUrlAsync(document, step, cancellationToken);
         if (url == null)
         {
             await FailStepAsync(document, steps, step,
@@ -1662,8 +1878,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             "{Device} on site {Site} did not act on its upgrade command; retrying over SSH",
             step.DeviceName, _siteSlug);
 
-        var result = await _commands.TriggerSshUpgradeAsync(
-            observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+        var result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -1688,7 +1903,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         var cameBack = $"The device cycled but came back on {ShortVersion(observation.Firmware) ?? "an unknown version"}, not {ShortVersion(step.ToVersion)}";
 
-        var url = await ResolveImageUrlAsync(step.Model, cancellationToken);
+        var url = await StepImageUrlAsync(document, step, cancellationToken);
         if (url == null)
         {
             await FailStepAsync(document, steps, step,
@@ -1710,8 +1925,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // A second flash is still a flash, so the AP Agent hold applies to the retry too.
         await HoldApAgentAsync(step, cancellationToken);
 
-        var result = await _commands.TriggerSshUpgradeAsync(
-            observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+        var result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
         if (!result.IsOk)
         {
             await FailStepAsync(document, steps, step,
@@ -2116,7 +2330,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 continue;
             }
 
-            if (_meshRepairs.Enqueue(repair.ChildIp, repair.Iface, repair.ChildName))
+            if (_meshRepairs.Enqueue(repair.ChildIp, repair.Iface, repair.ChildName, repair.ChildMac))
             {
                 _logger.LogInformation(
                     "Queued a mesh backhaul re-pair for {Ap} on site {Site}", repair.ChildName, _siteSlug);
@@ -2273,7 +2487,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The console has to have staged this device's build before there is anything to command.
         // After the wait it is commanded anyway: some models report nothing here even when ready.
+        // A pinned image installs by URL, and the Console never stages a build older than it runs.
         if (!string.IsNullOrWhiteSpace(step.ToVersion)
+            && !RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
             && !VersionsMatch(observation.UpgradeToFirmware, step.ToVersion)
             && !VersionsMatch(observation.Firmware, step.ToVersion))
         {
@@ -2290,9 +2506,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // Last gate before this device reboots. The plan can be hours old and the console restages
         // on its own, so what it runs NOW decides - a target that is not ahead of it is a downgrade
-        // whatever the plan says, and firmware does not come back on its own.
-        // TODO: a deliberate downgrade is the separate opt-in mode, as for the console.
-        if (!NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(step.ToVersion, observation.Firmware))
+        // whatever the plan says, and firmware does not come back on its own. The exception is a
+        // build pasted by URL: that downgrade was chosen by hand.
+        // TODO: a deliberate fleet-wide downgrade is the separate opt-in mode, as for the console.
+        var pinnedPending = RolloutPlanComposer.IsPinnedTarget(document.TargetImages, step.DeviceMac, step.ToVersion)
+            && !VersionsMatch(observation.Firmware, step.ToVersion);
+        if (!pinnedPending
+            && !NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(step.ToVersion, observation.Firmware))
         {
             _logger.LogWarning(
                 "Refusing to command {Device} on site {Site}: {Target} is not newer than the installed {Installed}",
@@ -2319,24 +2539,47 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // the CDN download runs on the device itself). Console-cached first for them, always.
         var preferConsoleCached = string.Equals(step.DeviceType, "cellularmodem", StringComparison.OrdinalIgnoreCase);
 
-        var result = string.IsNullOrWhiteSpace(planned) || preferConsoleCached
-            ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
-            : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
+        // A build pasted by URL installs over SSH first, as a rollback does: upgrade-external has
+        // cycled a device without flashing an older build. The SSH path is then spent.
+        FirmwareCommandResult? sshFirst = null;
+        if (pinnedPending && !string.IsNullOrWhiteSpace(planned) && !string.IsNullOrWhiteSpace(observation.IpAddress))
+        {
+            // The SSH command holds while the device downloads its image, so the step reads
+            // Starting from the moment it is sent rather than once the session ends.
+            step.State = FirmwareRolloutStepState.Commanded;
+            step.CommandedAt = Now;
+            await PersistStepAsync(step, cancellationToken);
+
+            sshFirst = await SshUpgradeAsync(step, observation.IpAddress, planned, cancellationToken);
+            if (sshFirst.IsOk)
+                _escalatedAt[step.Id] = Now;
+            else
+                _logger.LogWarning(
+                    "SSH install of the pasted build on {Device} on site {Site} failed ({Message}); trying the Console with the same link",
+                    step.DeviceName, _siteSlug, sshFirst.Message);
+        }
+
+        var result = sshFirst is { IsOk: true }
+            ? sshFirst
+            : string.IsNullOrWhiteSpace(planned) || preferConsoleCached
+                ? await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken)
+                : await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, planned, cancellationToken);
 
         // A build Ubiquiti has since pulled 404s, so the console's own catalog is still the fallback.
-        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached)
+        // Not for a build chosen by hand: the console would install its newest one instead.
+        if (!result.IsOk && !string.IsNullOrWhiteSpace(planned) && !preferConsoleCached && image?.Pinned != true)
             result = await _commands.TriggerUpgradeAsync(step.DeviceMac, cancellationToken);
 
         if (!result.IsOk)
         {
-            var url = planned ?? await ResolveImageUrlAsync(step.Model, cancellationToken);
+            var url = planned ?? await StepImageUrlAsync(document, step, cancellationToken);
             if (url != null)
                 result = await _commands.TriggerExternalUpgradeAsync(step.DeviceMac, url, cancellationToken);
 
-            if (!result.IsOk && url != null && !string.IsNullOrWhiteSpace(observation.IpAddress))
+            // A pasted build already tried SSH with this link first; a second try only adds a timeout.
+            if (!result.IsOk && url != null && sshFirst == null && !string.IsNullOrWhiteSpace(observation.IpAddress))
             {
-                result = await _commands.TriggerSshUpgradeAsync(
-                    observation.IpAddress, url, SshUpgradesAsGateway(step), cancellationToken);
+                result = await SshUpgradeAsync(step, observation.IpAddress, url, cancellationToken);
                 if (result.IsOk)
                     _escalatedAt[step.Id] = Now;
             }
@@ -2370,6 +2613,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         CancellationToken cancellationToken)
     {
         await RestoreChannelsAsync(plan, cancellationToken);
+        await RestoreRaisedModelChannelAsync(plan, document, cancellationToken);
 
         plan.Status = FirmwareRolloutStatus.SoakWait;
         plan.CompletedAt = Now;
@@ -2519,6 +2763,53 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (measured.Count == 0 && ConsoleSurfaceUpdated(document) && Now - completedAt < ResourceWindowFor(settings))
             return;
 
+        await BuildSoakReportAsync(plan, steps, document, settings, measured, announce: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ends a soak before its window closes: the report is built from whatever comparisons are in,
+    /// and the plan becomes Reported, which frees the site to plan again.
+    /// </summary>
+    /// <param name="planId">The soaking plan.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Why the soak could not end, or null when it ended.</returns>
+    public async Task<string?> EndSoakAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await _tickLock.WaitAsync(cancellationToken);
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+            if (plan is not { Status: FirmwareRolloutStatus.SoakWait } || !string.IsNullOrEmpty(plan.ReportJson))
+                return "Only a rollout that is soaking can end its soak early.";
+
+            var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
+            if (steps.Any(IsInFlight))
+                return "A rollback is still running. The soak can end once it finishes.";
+
+            var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+            var measured = steps.Where(s => s.State is FirmwareRolloutStepState.LitmusPassed
+                or FirmwareRolloutStepState.RegressionFlagged).ToList();
+
+            // No Report Ready alert: the person who ended it is looking at the report.
+            await BuildSoakReportAsync(plan, steps, ParseDocument(plan), settings, measured, announce: false, cancellationToken);
+            _logger.LogInformation("Firmware rollout {Id} on site {Site}: soak ended early", plan.Id, _siteSlug);
+            return null;
+        }
+        finally
+        {
+            _tickLock.Release();
+        }
+    }
+
+    private async Task BuildSoakReportAsync(
+        FirmwareRolloutPlan plan,
+        List<FirmwareRolloutStep> steps,
+        RolloutPlanDocument document,
+        FirmwareRolloutSettings settings,
+        List<FirmwareRolloutStep> measured,
+        bool announce,
+        CancellationToken cancellationToken)
+    {
         if (await NameConsoleFromSiteAsync(document, cancellationToken))
             plan.PlanJson = JsonSerializer.Serialize(document);
         var changelogs = await ResolveChangelogsAsync(steps, cancellationToken);
@@ -2527,6 +2818,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         plan.ReportJson = JsonSerializer.Serialize(report);
         plan.Status = FirmwareRolloutStatus.Reported;
         await PersistPlanAsync(plan, cancellationToken);
+
+        _logger.LogInformation(
+            "Firmware rollout {Id} on site {Site} reported: {Upgraded} upgraded, {Failed} failed, {Skipped} skipped",
+            plan.Id, _siteSlug, report.DevicesUpgraded, report.DevicesFailed, report.DevicesSkipped);
+
+        if (!announce) return;
 
         var issues = report.Issues.Count switch
         {
@@ -2550,10 +2847,6 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                   + $"for {TimeFormatHelper.Pluralize(settings.SoakHours, "hour")}. {issues} "
                   + "Open Firmware Rollout for the before-and-after.",
             null, null, cancellationToken);
-
-        _logger.LogInformation(
-            "Firmware rollout {Id} on site {Site} reported: {Upgraded} upgraded, {Failed} failed, {Skipped} skipped",
-            plan.Id, _siteSlug, report.DevicesUpgraded, report.DevicesFailed, report.DevicesSkipped);
     }
 
     /// <summary>
@@ -2660,7 +2953,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 RolloutAlerts.VisibilityLost,
                 AlertSeverity.Warning,
                 $"Firmware Rollout Cannot See The Site{_siteSuffix}",
-                $"Nothing has answered for {spell.TotalMinutes:0} minutes, so the rollout is holding where it is. Time we cannot watch is not counted against any device.",
+                $"Network Optimizer hasn't been able to reach this site's UniFi Console for {spell.TotalMinutes:0} minutes. The rollout is paused until it comes back online.",
                 null, null, cancellationToken);
             return;
         }
@@ -2898,6 +3191,50 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
+    /// Puts back the per-model channels a hand-added device build's rollout raised. The console
+    /// channels come back through <see cref="RestoreChannelsAsync"/>, but these live only in the
+    /// saved settings, where the next wizard would otherwise read them. An entry changed since is left alone.
+    /// </summary>
+    private async Task RestoreRaisedModelChannelAsync(
+        FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        if (document.RaisedModelChannels.Count == 0)
+            return;
+
+        var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        var map = RolloutPlanner.ParseMap(settings.PerSkuChannelsJson);
+        var restored = new List<RaisedModelChannel>();
+        foreach (var raised in document.RaisedModelChannels)
+        {
+            if (!map.TryGetValue(raised.Model, out var current)
+                || !string.Equals(current, raised.Channel, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (raised.Previous == null) map.Remove(raised.Model);
+            else map[raised.Model] = raised.Previous;
+            restored.Add(raised);
+        }
+
+        if (restored.Count > 0)
+        {
+            settings.PerSkuChannelsJson = JsonSerializer.Serialize(map);
+            await _repositories.UseAsync((r, c) => r.SaveSettingsAsync(settings, c), cancellationToken);
+
+            _logger.LogInformation(
+                "Put the per-model channel back for {Models} on site {Site} after rollout {Id}",
+                string.Join(", ", restored.Select(r => r.Model)), _siteSlug, plan.Id);
+            RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutSettingsChanged,
+                _siteSlug, plan.Id, new
+                {
+                    models = restored.Select(r => new { model = r.Model, from = r.Channel, to = r.Previous }).ToList(),
+                    reason = "rollout ended",
+                });
+        }
+
+        document.RaisedModelChannels = [];
+        await PersistDocumentAsync(plan, document, cancellationToken);
+    }
+
+    /// <summary>
     /// Puts the channels back for a rollout that ended while the server was down. The capture is
     /// only cleared once the restore has been made, so a leftover value is a restore that never ran.
     /// </summary>
@@ -2907,13 +3244,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _restoreSweepDone = true;
 
         var history = await _repositories.UseAsync((r, c) => r.GetPlanHistoryAsync(10, c), cancellationToken);
-        foreach (var plan in history.Where(p => p.OriginalChannelSettingsJson != null
-            && FirmwareRolloutStatuses.Terminal.Contains(p.Status)))
+        foreach (var plan in history.Where(p => FirmwareRolloutStatuses.Terminal.Contains(p.Status)))
         {
+            var document = ParseDocument(plan);
+            if (plan.OriginalChannelSettingsJson == null && document.RaisedModelChannels.Count == 0)
+                continue;
+
             _logger.LogWarning(
                 "Firmware rollout {Id} on site {Site} ended without putting the firmware channels back; restoring now",
                 plan.Id, _siteSlug);
             await RestoreChannelsAsync(plan, cancellationToken);
+            await RestoreRaisedModelChannelAsync(plan, document, cancellationToken);
         }
     }
 
@@ -2948,7 +3289,64 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     // --- Helpers -------------------------------------------------------------------------------
 
-    private async Task<string?> ResolveImageUrlAsync(string model, CancellationToken cancellationToken)
+    /// <summary>How long a failed SSH upgrade waits for UniFi to show the device flashing.</summary>
+    internal TimeSpan SshDropSettleWindow { get; set; } = TimeSpan.FromSeconds(45);
+
+    /// <summary>
+    /// Runs the SSH upgrade, reading a dropped session as accepted when UniFi then reports the
+    /// device Upgrading or offline: an AP or switch closes the session itself once it starts to
+    /// flash, and UniFi can take some seconds to say so.
+    /// </summary>
+    private async Task<FirmwareCommandResult> SshUpgradeAsync(
+        FirmwareRolloutStep step, string host, string url, CancellationToken cancellationToken)
+    {
+        var result = await _commands.TriggerSshUpgradeAsync(
+            step.DeviceMac, host, url, StepRole(step), SshUpgradesAsGateway(step), cancellationToken);
+        if (result.IsOk || string.IsNullOrWhiteSpace(host))
+            return result;
+
+        // Wall-clock: this waits on UniFi inside one tick, not across ticks.
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var seen = (await _observer.ObserveAsync(cancellationToken))
+                .FirstOrDefault(o => string.Equals(o.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase));
+            if (seen != null && (seen.State == (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Upgrading
+                || UniFiDeviceStateMap.ToStatus(seen.State).Kind == DeviceStatusKind.Offline))
+            {
+                _logger.LogInformation(
+                    "The SSH session to {Device} on site {Site} ended ({Message}), but UniFi reports it {State}; the command took",
+                    step.DeviceName, _siteSlug, result.Message, UniFiDeviceStateMap.ToStatus(seen.State).Label);
+                return FirmwareCommandResult.Ok(result.Message);
+            }
+
+            if (waited.Elapsed >= SshDropSettleWindow)
+                return result;
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// The image a retry installs: only ever the step's own target. The plan's captured image comes
+    /// first (a pasted build, or a shared build newer than the Console offers), then the Console's
+    /// catalog entry, used only when it names that same version - the catalog lists one build per
+    /// model, which can be older than the target. Null when neither matches.
+    /// </summary>
+    private async Task<string?> StepImageUrlAsync(
+        RolloutPlanDocument document, FirmwareRolloutStep step, CancellationToken cancellationToken)
+    {
+        var image = document.TargetImages.FirstOrDefault(i =>
+            string.Equals(i.Mac, step.DeviceMac, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(i.Url)
+            && VersionsMatch(i.Version, step.ToVersion));
+        if (image != null)
+            return image.Url;
+
+        var entry = await ResolveCatalogEntryAsync(step.Model, cancellationToken);
+        return entry != null && VersionsMatch(entry.Version, step.ToVersion) ? entry.Url : null;
+    }
+
+    private async Task<UniFiFirmwareCatalogEntry?> ResolveCatalogEntryAsync(string model, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(model)) return null;
 
@@ -2956,7 +3354,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var entry = _catalog.FirstOrDefault(e =>
             string.Equals(e.BaseModel, model, StringComparison.OrdinalIgnoreCase)
             || string.Equals(e.Device, model, StringComparison.OrdinalIgnoreCase));
-        return string.IsNullOrWhiteSpace(entry?.Url) ? null : entry.Url;
+        return string.IsNullOrWhiteSpace(entry?.Url) ? null : entry;
     }
 
     private async Task RefreshCatalogAsync(bool force, CancellationToken cancellationToken)
@@ -3204,8 +3602,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Whether the SSH path takes the UniFi OS gateway command. Legacy USG models (UGW*) predate
     /// UniFi OS and upgrade with <c>upgrade</c> like an AP.
     /// </summary>
+    /// <summary>
+    /// Whether the SSH upgrade treats the device as a UniFi OS gateway. An Express (UX, UX7) adopted as an AP
+    /// is still one, so it takes firmware as it does when it is the gateway.
+    /// </summary>
     private static bool SshUpgradesAsGateway(FirmwareRolloutStep step) =>
-        IsGatewayStep(step) && step.Model?.StartsWith("UGW", StringComparison.OrdinalIgnoreCase) != true;
+        (IsGatewayStep(step) && step.Model?.StartsWith("UGW", StringComparison.OrdinalIgnoreCase) != true)
+        || NetworkOptimizer.UniFi.UniFiProductDatabase.IsCloudGateway(step.Model, null);
+
+    private static DeviceType StepRole(FirmwareRolloutStep step) => FirmwareDeviceTypes.Parse(step.DeviceType);
 
     private static TimeSpan CoolDownFor(FirmwareRolloutStep step) =>
         IsGatewayStep(step) ? GatewayCoolDown : CoolDown;

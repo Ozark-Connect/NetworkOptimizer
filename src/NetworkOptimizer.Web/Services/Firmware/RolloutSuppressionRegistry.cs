@@ -36,8 +36,9 @@ public class RolloutSuppressionRegistry
     private readonly ConcurrentDictionary<string, DateTime> _siteActiveAt = new();
 
     /// <summary>
-    /// Marks the entire site as cycling a console-level step (Network app or UniFi OS update).
-    /// Every device goes dark during these, not just the ones being firmware-upgraded.
+    /// Marks the entire site as cycling a console-level step (Network app or UniFi OS update, or a
+    /// Performance Tweak that stops UniFi Network). Every device goes dark during these, not just
+    /// the ones being firmware-upgraded.
     /// </summary>
     public void RefreshConsoleCycle(string siteSlug, DateTime observedAt) =>
         _consoleCyclingAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();

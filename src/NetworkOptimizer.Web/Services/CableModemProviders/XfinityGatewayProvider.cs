@@ -93,13 +93,13 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
                 {
                     _logger.LogWarning(
                         "Xfinity Gateway at {Host} returned empty response (attempt {Attempt}/{Max})",
-                        context.ConfiguredHost ?? context.Host, attempt, MaxRetries);
+                        context.Host, attempt, MaxRetries);
                     if (attempt < MaxRetries)
                     {
                         await Task.Delay(RetryDelay, cancellationToken);
                         continue;
                     }
-                    return PollResult<CableModemStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                    return PollResult<CableModemStats>.Failed($"No stats could be read from {context.Host}.");
                 }
 
                 var stats = ParseNetworkSetup(html, context);
@@ -121,15 +121,15 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error polling Xfinity Gateway {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-                return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+                _logger.LogWarning(ex, "Error polling Xfinity Gateway {Name} at {Host}", context.Name, context.Host);
+                return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
             }
         }
 
         // Every retry is spent. The last attempt's own catch returns before this,
         // so reaching here means each one came back empty rather than throwing.
         return PollResult<CableModemStats>.Failed(
-            $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
+            $"No stats could be read from {context.Host}.");
     }
 
     /// <inheritdoc/>
@@ -165,7 +165,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -180,8 +180,9 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         var portSuffix = port == 80 ? "" : $":{port}";
         var baseUrl = $"http://{context.Host}{portSuffix}";
 
-        using var handler = new HttpClientHandler
+        using var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(context.Dialer),
             CookieContainer = new CookieContainer(),
             AllowAutoRedirect = true,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
@@ -204,7 +205,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         if (!loginResponse.IsSuccessStatusCode)
         {
             _logger.LogDebug("Xfinity Gateway login returned {Status} for {Host}",
-                loginResponse.StatusCode, context.ConfiguredHost ?? context.Host);
+                loginResponse.StatusCode, context.Host);
             return null;
         }
 
@@ -224,7 +225,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             if (!HasChannelData(html))
             {
                 _logger.LogDebug("Xfinity Gateway at {Host}: {Path} has no DOCSIS channel tables",
-                    context.ConfiguredHost ?? context.Host, path);
+                    context.Host, path);
                 continue;
             }
 
@@ -254,7 +255,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogDebug("Xfinity Gateway at {Host}: {Path} returned {Status}",
-                    context.ConfiguredHost ?? context.Host, path, response.StatusCode);
+                    context.Host, path, response.StatusCode);
                 return null;
             }
 
@@ -265,7 +266,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             if (IsLoginPage(html))
             {
                 _logger.LogDebug("Xfinity Gateway at {Host}: login failed, got redirected back to login page",
-                    context.ConfiguredHost ?? context.Host);
+                    context.Host);
                 return null;
             }
 
@@ -310,7 +311,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
 
         _discoveredPaths[key] = entry;
         _logger.LogDebug("Xfinity Gateway {Name} at {Host}: serving DOCSIS stats from {Path}",
-            context.Name, context.ConfiguredHost ?? context.Host, path);
+            context.Name, context.Host, path);
     }
 
     /// <summary>Whether a page carries a channel table this provider can read.</summary>
@@ -342,7 +343,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = ExtractProductType(doc) ?? "Xfinity Gateway",
         };

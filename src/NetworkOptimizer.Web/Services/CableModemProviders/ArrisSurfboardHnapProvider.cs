@@ -44,6 +44,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
     private readonly ILogger<ArrisSurfboardHnapProvider> _logger;
     private readonly ConcurrentDictionary<string, HnapSession> _sessions = new();
     private readonly ConditionalWeakTable<HttpClient, CookieContainer> _cookieContainers = new();
+    private readonly ConditionalWeakTable<HttpClient, IDeviceDialer> _dialers = new();
 
     public ArrisSurfboardHnapProvider(ILogger<ArrisSurfboardHnapProvider> logger)
     {
@@ -66,7 +67,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
             var stats = await TryHnapAsync(context, cancellationToken);
             if (stats == null)
                 return PollResult<CableModemStats>.Failed(
-                    $"No stats could be read from {context.ConfiguredHost ?? context.Host}.");
+                    $"No stats could be read from {context.Host}.");
 
             _logger.LogDebug(
                 "ARRIS Surfboard HNAP {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels",
@@ -82,8 +83,8 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         catch (Exception ex)
         {
             _sessions.TryRemove(context.CacheKey, out _);
-            _logger.LogWarning(ex, "Error polling ARRIS Surfboard HNAP {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+            _logger.LogWarning(ex, "Error polling ARRIS Surfboard HNAP {Name} at {Host}", context.Name, context.Host);
+            return PollResult<CableModemStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -108,7 +109,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -117,7 +118,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         if (string.IsNullOrWhiteSpace(context.Password))
             return null;
 
-        using var client = CreateHttpClient();
+        using var client = CreateHttpClient(context.Dialer);
         var baseUrl = BuildBaseUrl(context);
         var endpoint = baseUrl + HnapPath;
 
@@ -156,7 +157,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         catch (Exception ex)
         {
             _sessions.TryRemove(context.CacheKey, out _);
-            _logger.LogDebug(ex, "ARRIS Surfboard HNAP request failed for {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
+            _logger.LogDebug(ex, "ARRIS Surfboard HNAP request failed for {Name} at {Host}", context.Name, context.Host);
             return null;
         }
     }
@@ -420,9 +421,11 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
 
         try
         {
-            using var tcp = new TcpClient();
-            await tcp.ConnectAsync(endpointUri.Host, endpointUri.Port, rawToken);
-            await using var stream = new SslStream(tcp.GetStream(), false, (_, _, _, _) => true);
+            // Every client here comes from CreateHttpClient; without its dialer there is no safe way to dial.
+            if (!_dialers.TryGetValue(client, out var dialer))
+                return null;
+            var raw = await dialer.DialAsync(endpointUri.Host, endpointUri.Port, rawToken);
+            await using var stream = new SslStream(raw, false, (_, _, _, _) => true);
             await stream.AuthenticateAsClientAsync(endpointUri.Host);
 
             var requestBuilder = new StringBuilder()
@@ -497,7 +500,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.ConfiguredHost ?? context.Host,
+            DeviceHost = context.Host,
             DeviceName = context.Name,
             DeviceModel = "ARRIS Surfboard HNAP",
         };
@@ -590,14 +593,15 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         }
     }
 
-    private HttpClient CreateHttpClient()
+    private HttpClient CreateHttpClient(IDeviceDialer dialer)
     {
         var cookies = new CookieContainer();
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
+            ConnectCallback = DeviceHttp.Via(dialer),
             CookieContainer = cookies,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
             UseCookies = true,
         };
 
@@ -613,6 +617,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         };
 
         _cookieContainers.Add(client, cookies);
+        _dialers.Add(client, dialer);
         return client;
     }
 

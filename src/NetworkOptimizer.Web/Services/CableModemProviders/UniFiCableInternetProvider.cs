@@ -37,7 +37,7 @@ public sealed class UniFiCableInternetProvider : ICableModemProvider
     /// <inheritdoc/>
     public Task<PollResult<CableModemStats>> PollAsync(CmPollContext context, CancellationToken cancellationToken = default)
     {
-        var mac = context.ConfiguredHost ?? context.Host;
+        var mac = context.Host;
         var snapshot = _informs.GetSnapshot(context.SiteSlug, mac);
         if (snapshot == null || DateTime.UtcNow - snapshot.ReceivedAt > UciInformService.StaleAfter)
             return Task.FromResult(PollResult<CableModemStats>.Failed(_informs.DescribeMissing(context.SiteSlug, mac)));
@@ -49,7 +49,7 @@ public sealed class UniFiCableInternetProvider : ICableModemProvider
     /// <inheritdoc/>
     public Task<(bool Success, string Message)> TestConnectionAsync(CmPollContext context, CancellationToken cancellationToken = default)
     {
-        var mac = context.ConfiguredHost ?? context.Host;
+        var mac = context.Host;
         if (UciInformService.NormalizeMac(mac) == null)
             return Task.FromResult((false, "Pick the UCI to monitor."));
 

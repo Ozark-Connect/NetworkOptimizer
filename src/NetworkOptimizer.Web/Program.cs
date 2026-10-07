@@ -300,6 +300,10 @@ builder.Services.AddHttpClient(
     NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient.HttpClientName,
     client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.UbiquitiReleaseFeedClient>();
+// Reads an added firmware image's md5 (its .md5sum, or the image itself as a fallback); the service caps it at 3 minutes.
+builder.Services.AddHttpClient(
+    NetworkOptimizer.Web.Services.Firmware.SharedFirmwareCatalogService.HttpClientName,
+    client => client.Timeout = TimeSpan.FromMinutes(3));
 // Publish dates (autopilot's release-ripeness gate) and changelog links (the soak report) off that feed.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.IReleaseMetadataSource,
     NetworkOptimizer.Web.Services.Firmware.ReleaseFeedMetadataSource>();
@@ -354,6 +358,7 @@ builder.Services.AddScoped<IUdmBootService, UdmBootService>();
 // forwards to the current site's instance; singleton consumers inject the
 // registry and pin GetDefault() or GetFor(slug).
 builder.Services.AddSiteScopedRegistry<UniFiSshRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Ssh.DeviceSshRouterRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<UniFiSshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
@@ -755,6 +760,8 @@ builder.Services.AddHostedService(sp =>
 // client is site-pinned the same way the registry pins it for the executor.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Firmware.IRolloutPlanningSource,
     NetworkOptimizer.Web.Services.Firmware.RolloutPlanningSource>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.ISharedFirmwareCatalogService>(sp =>
+    ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.SharedFirmwareCatalogService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirmwareRolloutService>(sp =>
 {
     var slug = sp.GetRequiredService<SiteContextService>().Slug;
@@ -923,16 +930,23 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepos
         sp.GetRequiredService<SiteContextService>().IsDefault));
 builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAcknowledgmentService>();
 builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
+builder.Services.AddSingleton<ChannelPlanApplyRunner>();
+builder.Services.AddMutatingService<IChannelPlanApplyService, ChannelPlanApplyService>();
+builder.Services.AddMutatingService<IClientSettingsService, ClientSettingsService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();
 
 // Configure HTTP client for API calls
 builder.Services.AddHttpClient();
+// The TC monitor and AP Agent never redirect, and on an agent-routed site a followed redirect is
+// dialed from this server, outside the site's tunnel.
 builder.Services.AddHttpClient("TcMonitor", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(5);
-});
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddHttpClient(NetworkOptimizer.Web.Services.ApAgent.ApAgentHttpTransport.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 // CORS for client speed test endpoint (OpenSpeedTest sends results from browser)
 // Auto-construct allowed origins from HOST_IP/HOST_NAME, or use CORS_ORIGINS if set

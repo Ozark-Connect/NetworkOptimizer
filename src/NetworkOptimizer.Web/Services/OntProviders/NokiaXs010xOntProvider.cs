@@ -106,14 +106,14 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         try
         {
-            using var client = CreateClient();
+            using var client = CreateClient(context.Dialer);
             var baseUrl = BuildBaseUrl(context);
             var stats = await FetchStatsAsync(client, baseUrl, context, cancellationToken);
 
             if (stats is null)
             {
                 _logger.LogWarning("Nokia XS-010X-Q ONT {Name}: login failed", context.Name);
-                return PollResult<OntStats>.Failed($"No stats could be read from {(context.ConfiguredHost ?? context.Host)}.");
+                return PollResult<OntStats>.Failed($"No stats could be read from {context.Host}.");
             }
 
             _logger.LogDebug(
@@ -127,8 +127,8 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error polling Nokia XS-010X-Q ONT {Name} at {Host}",
-                context.Name, context.ConfiguredHost ?? context.Host);
-            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, (context.ConfiguredHost ?? context.Host)));
+                context.Name, context.Host);
+            return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -140,7 +140,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         try
         {
-            using var client = CreateClient();
+            using var client = CreateClient(context.Dialer);
             var baseUrl = BuildBaseUrl(context);
             var stats = await FetchStatsAsync(client, baseUrl, context, cancellationToken);
 
@@ -154,7 +154,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            return (false, HttpFailureSummary.Describe(ex, context.ConfiguredHost ?? context.Host));
+            return (false, HttpFailureSummary.Describe(ex, context.Host));
         }
     }
 
@@ -191,7 +191,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
             var stats = new OntStats
             {
                 Timestamp = DateTime.UtcNow,
-                DeviceHost = context.ConfiguredHost ?? context.Host,
+                DeviceHost = context.Host,
                 DeviceName = context.Name,
                 DeviceModel = "Nokia XS-010X-Q",
             };
@@ -365,9 +365,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
 
         try
         {
-            using var tcp = new TcpClient();
-            await tcp.ConnectAsync(context.Host, port, token);
-            var stream = tcp.GetStream();
+            await using var stream = await context.Dialer.DialAsync(context.Host, port, token);
             await stream.WriteAsync(requestBytes, token);
 
             using var memory = new MemoryStream();
@@ -659,7 +657,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
     private static double? ParseDouble(string? text) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) ? val : null;
 
-    internal static HttpClient CreateClient()
+    internal static HttpClient CreateClient(IDeviceDialer dialer)
     {
         // Handler cookies must stay off (thanks @jakerobb, #929): some firmware answers the
         // login calls with a malformed "Set-Cookie: Path=/; HttpOnly" header, which a default
@@ -667,7 +665,7 @@ public sealed class NokiaXs010xOntProvider : IOntProvider
         // hand-set "Cookie: sessionid=..." header, so the device never sees the session id.
         // The real session cookie arrives in the LoginForm JSON body, not in Set-Cookie, so
         // nothing legitimate is lost by disabling the cookie engine.
-        var handler = new HttpClientHandler { UseCookies = false };
+        var handler = new SocketsHttpHandler { ConnectCallback = DeviceHttp.Via(dialer), UseCookies = false };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
         // Mirror the working curl flow: a fresh TCP connection per request. These GponForm
         // boxes can tie the login session to the connection, so keep-alive reuse across the

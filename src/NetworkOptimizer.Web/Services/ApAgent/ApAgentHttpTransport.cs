@@ -23,6 +23,9 @@ public sealed record ApAgentHttpResult(int Status, string Body, bool Truncated, 
 /// </summary>
 public sealed class ApAgentHttpTransport
 {
+    /// <summary>Named client registered with redirects off, since the agent never sends one.</summary>
+    public const string HttpClientName = "ApAgent";
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILogger<ApAgentHttpTransport> _logger;
@@ -71,7 +74,7 @@ public sealed class ApAgentHttpTransport
         string? jsonBody,
         CancellationToken ct = default)
     {
-        using var client = _httpClientFactory.CreateClient();
+        using var client = _httpClientFactory.CreateClient(HttpClientName);
         client.Timeout = timeout;
 
         var method = jsonBody is null ? HttpMethod.Get : HttpMethod.Post;

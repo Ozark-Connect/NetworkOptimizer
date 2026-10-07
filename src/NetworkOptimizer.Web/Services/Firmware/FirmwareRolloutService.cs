@@ -167,14 +167,14 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
     /// <inheritdoc />
     public async Task<RolloutPreviewView> BuildPreviewAsync(
-        FirmwareRolloutSettings settings, bool readOnly = false, CancellationToken cancellationToken = default)
+        FirmwareRolloutSettings settings, bool readOnly = false, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
         // Every step here is a console round trip, and on an agent-relayed site they are the whole
         // cost of opening the wizard. Timed individually so a slow preview names its own culprit.
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        var (result, inputs) = await PlanAsync(settings, readOnly, cancellationToken);
+        var (result, inputs) = await PlanAsync(settings, readOnly, pin, cancellationToken);
         var planMs = timer.ElapsedMilliseconds;
         var document = result.Document;
         var context = inputs.Context;
@@ -252,7 +252,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
-        // The wizard's "Autopilot on" lands here, not in SaveAutopilotSettingsAsync.
+        // Any save that leaves the site on Autopilot gets a fresh look, not only the capturing one.
         if (settings.Mode == FirmwareRolloutMode.Autopilot)
             await _orchestrator.ReconsiderAutopilotAsync(cancellationToken);
 
@@ -332,9 +332,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
     /// <inheritdoc />
     public async Task<int> SchedulePlanAsync(
-        FirmwareRolloutSettings settings, DateTime startAtUtc, CancellationToken cancellationToken = default)
+        FirmwareRolloutSettings settings, DateTime startAtUtc, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default)
     {
-        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Scheduled, startAtUtc, cancellationToken);
+        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Scheduled, startAtUtc, pin, cancellationToken);
 
         _audit.SetTarget(plan.Id.ToString(), $"Firmware rollout {plan.Id}");
         _audit.SetDetails(new { planId = plan.Id, startAt = startAtUtc, devices = plan.DeviceCount, waves = plan.WaveCount });
@@ -343,9 +343,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
     /// <inheritdoc />
     public async Task<int> StartNowAsync(
-        FirmwareRolloutSettings settings, bool overrideHealthGate, CancellationToken cancellationToken = default)
+        FirmwareRolloutSettings settings, bool overrideHealthGate, RolloutBuildPin? pin = null, CancellationToken cancellationToken = default)
     {
-        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Draft, startAtUtc: null, cancellationToken);
+        var plan = await CreatePlanAsync(settings, FirmwareRolloutStatus.Draft, startAtUtc: null, pin, cancellationToken);
 
         // The executor owns the transition to Running: it runs the health gate, the pre-flight
         // backup and the catalog refresh first, and postpones the plan itself if any of those say no.
@@ -421,6 +421,100 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     }
 
     /// <inheritdoc />
+    public async Task AdvanceAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await RequireActiveAsync(planId, cancellationToken);
+        var start = await _orchestrator.MoveStartAsync(planId, current => current - AdvanceStep, cancellationToken)
+            ?? throw new InvalidOperationException("Only a rollout starting more than 24 hours from now can be moved a day earlier.");
+
+        _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
+        _audit.SetDetails(new { planId, startAt = start, advanced = true });
+    }
+
+    /// <inheritdoc />
+    public async Task EndSoakAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        await RequireActiveAsync(planId, cancellationToken);
+        var refused = await _orchestrator.EndSoakAsync(planId, cancellationToken);
+        if (refused != null)
+            throw new InvalidOperationException(refused);
+
+        _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
+        _audit.SetDetails(new { planId });
+    }
+
+    /// <inheritdoc />
+    public async Task<List<KnownFirmwareOption>> GetKnownFirmwareAsync(CancellationToken cancellationToken = default)
+    {
+        var context = await _planning.GetContextAsync(cancellationToken);
+        var info = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
+
+        // This console's own downloads join the catalog first: they are how Early Access packages are found.
+        var packages = await _commands.ReadConsoleNetworkPackagesAsync(cancellationToken: cancellationToken);
+        if (packages is { Downloaded.Count: > 0 })
+            await _sharedCatalog.UpsertNetworkAppPackagesAsync(packages.Downloaded, cancellationToken);
+
+        KnownFirmwareConsole? console = null;
+        if (RolloutPlanComposer.ConsoleReachable(info))
+        {
+            var offeredOs = info!.Firmware?.LatestByChannel.Values
+                .Where(r => !string.IsNullOrWhiteSpace(r.Version) && !string.IsNullOrWhiteSpace(r.Links?.Data?.Href))
+                .Select(r => (r.Version!, r.Links!.Data!.Href!))
+                .ToList() ?? [];
+            console = new KnownFirmwareConsole(
+                info.Hardware?.Shortname,
+                info.InstalledOsVersion,
+                info.NetworkApplication?.Version,
+                info.IsStandaloneConsole,
+                offeredOs,
+                info.NetworkApplication?.UpdateAvailable,
+                packages?.Platform);
+        }
+
+        return KnownFirmwareOptions.Build(
+            context.Devices,
+            console,
+            await _sharedCatalog.ListDeviceBuildsAsync(cancellationToken),
+            await _sharedCatalog.ListUniFiOsBuildsAsync(cancellationToken),
+            await _sharedCatalog.ListNetworkAppPackagesAsync(cancellationToken));
+    }
+
+    /// <inheritdoc />
+    public async Task RescheduleAsync(int planId, DateTime startAtUtc, CancellationToken cancellationToken = default)
+    {
+        await RequireActiveAsync(planId, cancellationToken);
+        var requested = DateTime.SpecifyKind(startAtUtc, DateTimeKind.Utc);
+        var start = await _orchestrator.MoveStartAsync(planId, _ => requested, cancellationToken)
+            ?? throw new InvalidOperationException("Pick a time in the future for a rollout that has not started yet.");
+
+        _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
+        _audit.SetDetails(new { planId, startAt = start });
+    }
+
+    /// <inheritdoc />
+    public async Task<UniFiAutoUpdateLayers> TurnOffUniFiAutoUpdateAsync(
+        UniFiAutoUpdateLayers layers, CancellationToken cancellationToken = default)
+    {
+        var off = UniFiAutoUpdateLayers.None;
+        if (layers.HasFlag(UniFiAutoUpdateLayers.Devices)
+            && await _commands.DisableDeviceAutoUpgradeAsync(cancellationToken))
+            off |= UniFiAutoUpdateLayers.Devices;
+        if (layers.HasFlag(UniFiAutoUpdateLayers.NetworkApplication)
+            && await _commands.DisableConsoleAutoUpdateAsync(UniFiConsoleAutoUpdateRequest.NetworkApplication, cancellationToken))
+            off |= UniFiAutoUpdateLayers.NetworkApplication;
+        if (layers.HasFlag(UniFiAutoUpdateLayers.UniFiOs)
+            && await _commands.DisableConsoleAutoUpdateAsync(UniFiConsoleAutoUpdateRequest.UniFiOs, cancellationToken))
+            off |= UniFiAutoUpdateLayers.UniFiOs;
+
+        _audit.SetTarget("unifi_auto_update", "UniFi auto-update");
+        _audit.SetDetails(new { requested = layers.ToString(), turnedOff = off.ToString() });
+        return off;
+    }
+
+    /// <summary>How far Advance moves a start: one day, the mirror of Postpone.</summary>
+    private static readonly TimeSpan AdvanceStep = TimeSpan.FromHours(24);
+
+    /// <inheritdoc />
     public async Task<bool> RollbackStepAsync(int stepId, CancellationToken cancellationToken = default)
     {
         var accepted = await _orchestrator.RollbackStepAsync(stepId, cancellationToken);
@@ -435,20 +529,43 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     /// Read-only withholds the settings from the gather, which is what skips channel staging.
     /// </summary>
     private async Task<(RolloutPlanResult Result, RolloutPlanInputs Inputs)> PlanAsync(
-        FirmwareRolloutSettings settings, bool readOnly, CancellationToken cancellationToken)
+        FirmwareRolloutSettings settings, bool readOnly, RolloutBuildPin? pin, CancellationToken cancellationToken)
     {
         var timings = await _repository.GetModelTimingsAsync(cancellationToken);
         var inputs = await RolloutPlanComposer.GatherAsync(
-            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, _feed, cancellationToken);
+            _planning, timings, _commands, readOnly ? null : settings, _logger, _sharedCatalog, _feed, pin, cancellationToken);
         var result = RolloutPlanComposer.Plan(inputs, settings);
         result.Document.TimeZoneId = inputs.Context.TimeZoneId;
         return (result, inputs);
+    }
+
+    /// <summary>
+    /// The per-model channels a hand-added device build's rollout changes, each with the entry it
+    /// replaces, so the plan can put them back when it ends. Empty for any other rollout.
+    /// </summary>
+    internal static List<RaisedModelChannel> RaisedModelChannelsFor(RolloutBuildPin? pin, string? storedJson, string? newJson)
+    {
+        if (pin is not { Kind: FirmwareUrlKind.Device }) return [];
+
+        var after = RolloutPlanner.ParseMap(newJson);
+        var before = RolloutPlanner.ParseMap(storedJson);
+        var raised = new List<RaisedModelChannel>();
+        foreach (var model in pin.DeviceModels)
+        {
+            after.TryGetValue(model, out var channel);
+            before.TryGetValue(model, out var previous);
+            if (string.IsNullOrWhiteSpace(channel) || string.Equals(channel, previous, StringComparison.OrdinalIgnoreCase))
+                continue;
+            raised.Add(new RaisedModelChannel { Model = model, Channel = channel, Previous = string.IsNullOrWhiteSpace(previous) ? null : previous });
+        }
+        return raised;
     }
 
     private async Task<CreatedPlan> CreatePlanAsync(
         FirmwareRolloutSettings settings,
         FirmwareRolloutStatus status,
         DateTime? startAtUtc,
+        RolloutBuildPin? pin,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -468,11 +585,14 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         // The mode is the exception, and it is not the caller's to change: planning a one-off is
         // not a decision to stop autopiloting. The wizard sets it on its working copy to shape the
         // preview, so it is overwritten here rather than trusted.
-        settings.Mode = (await _repository.GetSettingsAsync(cancellationToken)).Mode;
+        var stored = await _repository.GetSettingsAsync(cancellationToken);
+        settings.Mode = stored.Mode;
+        var raised = RaisedModelChannelsFor(pin, stored.PerSkuChannelsJson, settings.PerSkuChannelsJson);
         settings.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveSettingsAsync(settings, cancellationToken);
 
-        var (result, _) = await PlanAsync(settings, readOnly: false, cancellationToken);
+        var (result, _) = await PlanAsync(settings, readOnly: false, pin, cancellationToken);
+        result.Document.RaisedModelChannels = raised;
         var upgrading = result.Steps.Count(s => s.State != FirmwareRolloutStepState.SkippedExcluded);
         // The console counts too: a Cloud Gateway's UniFi OS build waits while every device
         // reports nothing pending, and that is still a rollout worth running.
@@ -583,11 +703,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
 
         if (!preview.HasCloudGateway) return;
 
+        // The plan's own channel walk, so the preview names the build the plan will install.
         var channel = settings.EffectiveUniFiOsChannel;
-        var offered = console?.Firmware?.LatestByChannel is { } byChannel
-            && byChannel.TryGetValue(channel, out var release) ? release?.Version : null;
+        var offered = RolloutPlanComposer.OfferedUniFiOsRelease(console, channel)?.Version;
         var installed = console?.InstalledOsVersion;
-
 
         preview.UniFiOs = new RolloutConsoleStepPreview
         {
@@ -617,7 +736,10 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 "Your UniFi Console isn't responding. What you're seeing here might be stale, and you " +
                 "can't start a rollout until it's back.");
 
-        if (preview.UpgradableCount == 0)
+        // A plan that only updates the Console (UniFi Network or UniFi OS, picked or offered) has
+        // no upgradable device and is still not up to date.
+        if (preview.UpgradableCount == 0
+            && !preview.Plan.IncludesUniFiNetworkUpdate && !preview.Plan.IncludesUniFiOsUpdate)
         {
             // Naming a surface the rollout was not asked to cover would promise something Autopilot
             // will not do, so the console half is named only when it is actually included.
@@ -630,23 +752,8 @@ public class FirmwareRolloutService : IFirmwareRolloutService
                 : $"You're all up to date. Turn on Autopilot in the Schedule step to have it manage {covers} automatically.");
         }
 
-        // Each UniFi auto-update layer races a rollout in its own way, so name the ones that are on.
-        var autoUpdaters = new List<string>();
-        if (preview.ConsoleAutoUpgradeEnabled) autoUpdaters.Add("devices");
-        if (preview.ConsoleAppsAutoUpdateEnabled) autoUpdaters.Add("the UniFi Network application");
-        if (preview.ConsoleOsAutoUpdateEnabled) autoUpdaters.Add("UniFi OS");
-        if (autoUpdaters.Count > 0)
-        {
-            var list = autoUpdaters.Count switch
-            {
-                1 => autoUpdaters[0],
-                2 => $"{autoUpdaters[0]} and {autoUpdaters[1]}",
-                _ => $"{string.Join(", ", autoUpdaters.Take(autoUpdaters.Count - 1))}, and {autoUpdaters[^1]}",
-            };
-            preview.Warnings.Add(
-                $"UniFi updates {list} on its own schedule. Rollouts still run; turning that off rules " +
-                "out the rare case where both update at once.");
-        }
+        // The UniFi auto-update warning is not added here: it names only the layers in the scope
+        // the wizard currently shows, which changes on the page without a new preview.
 
         if (!preview.ConsoleApiAvailable)
         {
