@@ -229,8 +229,9 @@ public class TourService
         TourStateService.Snapshot snapshot,
         TourPredicateResolver.PredicateContext ctx)
     {
-        var unseen = EligibleSteps(tour, ctx)
-            .Where(s => IsUnseen(s, snapshot.SeenStepIds))
+        // Unseen first: DueOfferNeeds covers only unseen steps, so Satisfies must not see the rest.
+        var unseen = CandidateSteps(tour)
+            .Where(s => IsUnseen(s, snapshot.SeenStepIds) && ctx.Satisfies(s.Requires, _siteContext.Slug, out _))
             .ToList();
         var tokens = await _tokens.ResolveAsync(unseen.Select(s => s.Url), _siteContext.Slug);
         var steps = unseen.Select(s => Resolve(tour, s, ctx, tokens)).OfType<ResolvedTourStep>().ToList();
