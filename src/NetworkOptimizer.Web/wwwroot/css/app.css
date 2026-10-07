@@ -20348,6 +20348,13 @@ body.kiosk-mode .status-indicators {
     font: inherit;
 }
 
+/* Sits on the edited value's line, sized off its text, not as a block under it. */
+.form-error.inline-edit-error {
+    margin: 0;
+    font-size: 0.85em;
+    align-self: center;
+}
+
 /* Client Stats: the IP's font lives on .client-ip, which edit mode removes, so the wrapper carries it. */
 .client-info-main .inline-edit-compact {
     font-size: 0.875rem;
