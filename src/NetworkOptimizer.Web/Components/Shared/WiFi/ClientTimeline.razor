@@ -189,7 +189,7 @@
                     </ClientNameEditor>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
-                        <span class="client-ip">@_selectedClient.Ip</span>
+                        <ClientFixedIpEditor @key="_selectedClient.Mac" Mac="@_selectedClient.Mac"><span class="client-ip">@_selectedClient.Ip</span></ClientFixedIpEditor>
                     }
                     <span class="client-mac">@_selectedClient.Mac</span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))

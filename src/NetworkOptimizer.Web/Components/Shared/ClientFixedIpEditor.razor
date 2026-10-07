@@ -1,0 +1,53 @@
+@using NetworkOptimizer.Web.Services
+@inject IClientSettingsService ClientSettings
+@inject ILogger<ClientFixedIpEditor> Logger
+
+@* Inline fixed IP (DHCP reservation) for a client, beside the IP on a meta line. The field opens
+   on the reserved address, read from the Console; blank removes the reservation. *@
+<InlineEditField Class="@("inline-edit-compact " + Class)" EditClass="inline-edit-compact"
+                 Tooltip="Set fixed IP in UniFi Network" Placeholder="No fixed IP"
+                 Load="LoadAsync" Save="SaveAsync">
+    @ChildContent
+</InlineEditField>
+
+@code {
+    /// <summary>The client's MAC address.</summary>
+    [Parameter, EditorRequired] public string Mac { get; set; } = "";
+
+    /// <summary>Extra class on the wrapper around the IP and the pencil.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>The page's IP element, shown when not editing.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string? _current;
+
+    private async Task<string> LoadAsync()
+    {
+        try
+        {
+            _current = await ClientSettings.GetFixedIpAsync(Mac);
+            return _current ?? "";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Fixed IP read failed for {Mac}", Mac);
+            throw new InvalidOperationException(ClientSettingsService.Describe(ex, "Could not read the fixed IP from UniFi Network."));
+        }
+    }
+
+    private async Task<string?> SaveAsync(string ip)
+    {
+        if (ip == (_current ?? "")) return null;
+        try
+        {
+            _current = await ClientSettings.SetFixedIpAsync(Mac, ip);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Fixed IP change failed for {Mac}", Mac);
+            return ClientSettingsService.Describe(ex, "Could not change the fixed IP in UniFi Network.");
+        }
+    }
+}

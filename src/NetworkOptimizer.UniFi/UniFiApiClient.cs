@@ -855,11 +855,30 @@ public class UniFiApiClient : IDisposable
     /// Executes an API call with automatic re-authentication on 401/403 and on a
     /// reverse proxy's 502/503/504 while the console backend is restarting (<see cref="IsRecoverableAuthFailure"/>)
     /// </summary>
+    /// <summary>The <c>meta.msg</c> error code from a refused call's body, or null when there is none.</summary>
+    private static string? TryReadApiErrorCode(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("meta", out var meta)
+                && meta.TryGetProperty("msg", out var msg)
+                && msg.ValueKind == JsonValueKind.String
+                ? msg.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task<T?> ExecuteApiCallAsync<T>(
         Func<Task<HttpResponseMessage>> apiCall,
         CancellationToken cancellationToken = default,
         bool throwOnPermissionError = false,
-        string? permissionErrorMessage = null) where T : class
+        string? permissionErrorMessage = null,
+        bool throwOnApiError = false) where T : class
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -904,6 +923,8 @@ public class UniFiApiClient : IDisposable
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("API call failed with status {StatusCode}: {Error}",
                     response.StatusCode, errorBody);
+                if (throwOnApiError && TryReadApiErrorCode(errorBody) is { } code)
+                    throw new UniFiApiErrorException(code, (int)response.StatusCode);
                 return null;
             }
 
@@ -1240,8 +1261,11 @@ public class UniFiApiClient : IDisposable
     /// <param name="userId">The client record id (<c>_id</c>), not the MAC.</param>
     /// <param name="update">The fields to write. The Console enforces no length limit on <c>name</c> (65,536 characters stored).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The client as stored after the write, or null when refused.</returns>
+    /// <returns>The client as stored after the write, or null when it failed without an error code.</returns>
     /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    /// <exception cref="UniFiApiErrorException">The Console refused the write with a code, such as
+    /// <c>api.err.DuplicateFixedIP</c> (another client holds the address) or <c>api.err.InvalidFixedIP</c>
+    /// (outside the client's network).</exception>
     [VendorSpecific("UniFi", "rest/user PUT")]
     public async Task<UniFiClientResponse?> UpdateClientAsync(
         string userId,
@@ -1259,7 +1283,8 @@ public class UniFiApiClient : IDisposable
             cancellationToken,
             throwOnPermissionError: true,
             permissionErrorMessage: "The UniFi account lacks permission to change client settings. In UniFi Network, " +
-                "give this account Network: Full (Site Admin in older versions), then try again.");
+                "give this account Network: Full (Site Admin in older versions), then try again.",
+            throwOnApiError: true);
 
         if (response?.Meta.Rc == "ok")
         {
@@ -1292,6 +1317,31 @@ public class UniFiApiClient : IDisposable
             return null;
         }
         return await UpdateClientAsync(record.Id, new UniFiClientUpdate { Name = name }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets or removes a client's DHCP reservation (UniFi Network's Fixed IP Address). Removing it
+    /// also turns off the client's Local DNS Record, as UniFi Network does; the address and DNS
+    /// name stay on the record, dormant. Setting it leaves the Local DNS Record as it is.
+    /// </summary>
+    /// <param name="mac">The client's MAC address.</param>
+    /// <param name="fixedIp">The address to reserve, or null to remove the reservation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The client as stored after the write, or null when the client is unknown or the write was refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    [VendorSpecific("UniFi", "rest/user PUT; UniFi Network's form clears local_dns_record_enabled with use_fixedip")]
+    public async Task<UniFiClientResponse?> SetClientFixedIpAsync(string mac, string? fixedIp, CancellationToken cancellationToken = default)
+    {
+        var record = await GetKnownClientAsync(mac, cancellationToken);
+        if (record == null || string.IsNullOrEmpty(record.Id))
+        {
+            _logger.LogWarning("Cannot set fixed IP on client {Mac}: no client record", mac);
+            return null;
+        }
+        var update = fixedIp == null
+            ? new UniFiClientUpdate { UseFixedIp = false, LocalDnsRecordEnabled = false }
+            : new UniFiClientUpdate { UseFixedIp = true, FixedIp = fixedIp };
+        return await UpdateClientAsync(record.Id, update, cancellationToken);
     }
 
     /// <summary>

@@ -187,6 +187,9 @@ public static class AuditActions
     /// <summary>A client's alias was set or cleared in UniFi Network.</summary>
     public const string ClientRenamed = "client.renamed";
 
+    /// <summary>A client's fixed IP (DHCP reservation) was set or removed in UniFi Network.</summary>
+    public const string ClientFixedIpChanged = "client.fixed_ip.changed";
+
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";
 

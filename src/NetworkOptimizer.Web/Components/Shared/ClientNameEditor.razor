@@ -1,39 +1,12 @@
 @using NetworkOptimizer.Web.Services
-@inject IClientRenameService RenameService
+@inject IClientSettingsService ClientSettings
 @inject ILogger<ClientNameEditor> Logger
 
-@* Inline rename for a client, as Latency Targets and the Sites table do it. The page's own name
-   element is the child content; edit mode swaps it for the field. *@
-@if (_editing)
-{
-    <div class="inline-name-edit">
-        <input type="text" class="form-control" @ref="_input" @bind="_editName" @bind:event="oninput"
-               @onkeydown="OnKeyAsync" placeholder="@Hostname" disabled="@_saving"
-               autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-        <div class="inline-name-edit-actions">
-            <button type="button" class="btn btn-primary btn-sm" @onclick="SaveAsync" disabled="@_saving">Save</button>
-            <button type="button" class="btn btn-secondary btn-sm" @onclick="Cancel" disabled="@_saving">Cancel</button>
-        </div>
-    </div>
-}
-else
-{
-    <span class="inline-name-cell @Class">
-        @ChildContent
-        <SiteAdminOnly>
-            <button type="button" class="inline-name-edit-btn" data-tooltip="Rename client in UniFi Network"
-                    aria-label="Rename client" @onclick="StartAsync" @onclick:stopPropagation>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                </svg>
-            </button>
-        </SiteAdminOnly>
-    </span>
-}
-@if (!string.IsNullOrEmpty(_error))
-{
-    <p class="alert alert-danger">@_error</p>
-}
+@* Inline rename for a client. The page's own name element is the child content. *@
+<InlineEditField Class="@Class" Tooltip="Rename client in UniFi Network" Placeholder="@Hostname"
+                 Load="@(() => Task.FromResult(Name ?? ""))" Save="SaveAsync">
+    @ChildContent
+</InlineEditField>
 
 @code {
     /// <summary>The client's MAC address.</summary>
@@ -54,70 +27,20 @@ else
     /// <summary>Called with the alias written and the name UniFi Network now shows.</summary>
     [Parameter] public EventCallback<(string Alias, string Shown)> OnRenamed { get; set; }
 
-    private bool _editing;
-    private bool _saving;
-    private string _editName = "";
-    private string? _error;
-    private ElementReference _input;
-
-    private async Task StartAsync()
+    private async Task<string?> SaveAsync(string alias)
     {
-        _editing = true;
-        _error = null;
-        _editName = Name ?? "";
-        StateHasChanged();
-        await Task.Delay(1); // let the input render before it is focused
-        await _input.FocusAsync();
-    }
-
-    private void Cancel()
-    {
-        _editing = false;
-        _error = null;
-    }
-
-    private async Task SaveAsync()
-    {
-        var alias = _editName.Trim();
-        if (alias == (Name ?? ""))
-        {
-            Cancel();
-            return;
-        }
-        if (alias.Length > ClientRenameService.MaxNameLength)
-        {
-            _error = ClientRenameService.NameTooLongMessage;
-            return;
-        }
-
-        _saving = true;
-        _error = null;
+        if (alias == (Name ?? "")) return null;
+        if (alias.Length > ClientSettingsService.MaxNameLength) return ClientSettingsService.NameTooLongMessage;
         try
         {
-            var shown = await RenameService.RenameAsync(Mac, alias);
-            _editing = false;
+            var shown = await ClientSettings.RenameAsync(Mac, alias);
             await OnRenamed.InvokeAsync((alias, shown));
+            return null;
         }
         catch (Exception ex)
         {
-            // Kept open on failure, so the typed name is not lost with the reason.
-            _error = ex switch
-            {
-                NetworkOptimizer.Web.Services.Gates.AuthorizationDeniedException => "You do not have permission to rename clients.",
-                NetworkOptimizer.UniFi.UniFiPermissionException or InvalidOperationException => ex.Message,
-                _ => "Could not rename the client in UniFi Network."
-            };
             Logger.LogWarning(ex, "Client rename failed for {Mac}", Mac);
+            return ClientSettingsService.Describe(ex, "Could not rename the client in UniFi Network.");
         }
-        finally
-        {
-            _saving = false;
-        }
-    }
-
-    private async Task OnKeyAsync(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") await SaveAsync();
-        else if (e.Key == "Escape") Cancel();
     }
 }
