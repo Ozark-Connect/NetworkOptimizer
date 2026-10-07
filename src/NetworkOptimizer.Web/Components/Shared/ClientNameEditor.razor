@@ -3,8 +3,8 @@
 @inject ILogger<ClientNameEditor> Logger
 
 @* Inline rename for a client. The page's own name element is the child content. *@
-<InlineEditField Class="@Class" Tooltip="Rename client in UniFi Network" Placeholder="@Hostname"
-                 TourId="@TourId" Load="@(() => Task.FromResult(Name ?? ""))" Save="SaveAsync">
+<InlineEditField Class="@Class" Tooltip="Rename client in UniFi Network" Placeholder="@(Name ?? Hostname)"
+                 TourId="@TourId" Load="LoadAsync" Save="SaveAsync">
     @ChildContent
 </InlineEditField>
 
@@ -12,10 +12,10 @@
     /// <summary>The client's MAC address.</summary>
     [Parameter, EditorRequired] public string Mac { get; set; } = "";
 
-    /// <summary>The alias to start editing from; empty when the client has none.</summary>
+    /// <summary>The name the page shows, which may be UniFi's own rather than an alias; the field's placeholder.</summary>
     [Parameter] public string? Name { get; set; }
 
-    /// <summary>Shown as the field's placeholder: what UniFi Network falls back to when the alias is cleared.</summary>
+    /// <summary>The placeholder when the page shows no name.</summary>
     [Parameter] public string? Hostname { get; set; }
 
     /// <summary>Guided tour anchor on the pencil; null for none.</summary>
@@ -30,9 +30,27 @@
     /// <summary>Called with the alias written and the name UniFi Network now shows.</summary>
     [Parameter] public EventCallback<(string Alias, string Shown)> OnRenamed { get; set; }
 
+    private string _alias = "";
+
+    // The field opens on the stored alias, not the name the page shows: a client with no alias
+    // shows UniFi's own name, and saving that back would turn it into an alias.
+    private async Task<string> LoadAsync()
+    {
+        try
+        {
+            _alias = await ClientSettings.GetNameAsync(Mac);
+            return _alias;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Client name read failed for {Mac}", Mac);
+            throw new InvalidOperationException(ClientSettingsService.Describe(ex, "Could not read the client's name from UniFi Network."));
+        }
+    }
+
     private async Task<string?> SaveAsync(string alias)
     {
-        if (alias == (Name ?? "")) return null;
+        if (alias == _alias) return null;
         if (alias.Length > ClientSettingsService.MaxNameLength) return ClientSettingsService.NameTooLongMessage;
         try
         {
