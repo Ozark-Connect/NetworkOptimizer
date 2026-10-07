@@ -24,6 +24,11 @@ public interface IClientSettingsService
     [AuditAction(AuditActions.ClientRenamed, TargetType = "client")]
     Task<string> RenameAsync(string mac, string? name);
 
+    /// <summary>The client's alias, empty when UniFi Network is showing a name of its own. Read when the editor opens.</summary>
+    /// <exception cref="InvalidOperationException">Not connected, or the Console has no record of the client.</exception>
+    [RequireRole(Roles.Admin)]
+    Task<string> GetNameAsync(string mac);
+
     /// <summary>The client's reserved address, or null when it has no fixed IP. Read when the editor opens.</summary>
     /// <exception cref="InvalidOperationException">Not connected, or the Console has no record of the client.</exception>
     [RequireRole(Roles.Admin)]
@@ -126,6 +131,10 @@ public class ClientSettingsService : IClientSettingsService
         }
         return DisplayName(written.Name, written.Hostname, written.Mac);
     }
+
+    /// <inheritdoc />
+    public async Task<string> GetNameAsync(string mac) =>
+        (await KnownClientAsync(ConnectedClient(), mac)).Name ?? "";
 
     /// <inheritdoc />
     public async Task<string?> GetFixedIpAsync(string mac)
