@@ -4382,6 +4382,7 @@ select.form-control {
 @media (max-width: 768px) {
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
     .identity-bar .identity-name,
+    .identity-bar .identity-name-cell,
     .identity-bar .identity-meta {
         max-height: 60px;
         opacity: 1;
@@ -4394,6 +4395,7 @@ select.form-control {
     }
 
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-name,
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-name-cell,
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-meta {
         max-height: 0;
         opacity: 0;
@@ -20306,8 +20308,9 @@ body.kiosk-mode .status-indicators {
 }
 
 /* The name's own bottom margin moves to the wrapper, so the pencil centers on the text rather
-   than on text plus margin. */
+   than on text plus margin. Block-level flex, so it takes the heading's place in the layout. */
 .identity-name-cell {
+    display: flex;
     margin-bottom: 2px;
 }
 
