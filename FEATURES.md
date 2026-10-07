@@ -393,7 +393,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 Requires Gateway SSH and UniFi Smart Queues.
 
 - Adjusts SQM rates from scheduled speed tests and backs off on latency
-- Download and upload shaping, configured separately for a primary and a secondary WAN; works on GRE and cellular WAN interfaces
+- Download and upload shaping, on any two WANs you choose, each configured separately; works on GRE and cellular WAN interfaces
 - Connection profiles: DOCSIS, Starlink, GPON, XGS-PON, DSL, Fixed Wireless, Fixed LTE/5G
 - **Congestion Schedule** - default or learned profile, range, severity, upload strength
 - **Congestion Profile Learning** - learns your line's weekly congestion pattern over 7 days
