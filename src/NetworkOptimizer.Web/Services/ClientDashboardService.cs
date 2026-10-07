@@ -404,6 +404,7 @@ public class ClientDashboardService
                     Name = histClient.DisplayName ?? histClient.Name,
                     Hostname = histClient.Hostname,
                     Ip = clientIp,
+                    FixedIp = histClient.UseFixedIp && !string.IsNullOrEmpty(histClient.FixedIp) ? histClient.FixedIp : null,
                     IsWired = histClient.IsWired,
                     Oui = histClient.Oui,
                     IsOffline = true
@@ -1527,6 +1528,7 @@ public class ClientDashboardService
                  : !string.IsNullOrEmpty(ucoreName) ? ucoreName : null,
             Hostname = !string.IsNullOrEmpty(client.Hostname) ? client.Hostname : null,
             Ip = ResolveClientIp(client),
+            FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             IsWired = client.IsWired,
             SignalDbm = client.Signal,
             NoiseDbm = client.Noise,
@@ -1591,6 +1593,7 @@ public class ClientDashboardService
             Name = !string.IsNullOrEmpty(client.DisplayName) ? client.DisplayName : client.Name,
             Hostname = client.Hostname,
             Ip = requestedIp,
+            FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             IsWired = client.IsWired
                 || string.Equals(client.Type, "WIRED", StringComparison.OrdinalIgnoreCase),
             Oui = client.Oui,

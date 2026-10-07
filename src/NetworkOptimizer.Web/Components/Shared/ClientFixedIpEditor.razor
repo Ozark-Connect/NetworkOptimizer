@@ -18,6 +18,18 @@
     /// <summary>The IP the page shows (the client's current lease).</summary>
     [Parameter] public string? CurrentIp { get; set; }
 
+    /// <summary>Called with the reserved address after a save, or null when the reservation was removed.</summary>
+    [Parameter] public EventCallback<string?> OnChanged { get; set; }
+
+    /// <summary>
+    /// The IP's tooltip when the client has a reservation it has not moved to yet, else null. The
+    /// page shows the current lease, which only changes to the reserved address on DHCP renewal.
+    /// </summary>
+    public static string? PendingTooltip(string? currentIp, string? fixedIp) =>
+        !string.IsNullOrEmpty(fixedIp) && fixedIp != currentIp
+            ? $"Fixed IP {fixedIp} takes effect when the client renews its DHCP lease."
+            : null;
+
     /// <summary>Extra class on the wrapper around the IP and the pencil.</summary>
     [Parameter] public string? Class { get; set; }
 
@@ -57,6 +69,7 @@
             // Save is a plain delegate, not an EventCallback, so this component re-renders itself.
             StateHasChanged();
             if (_notice != null) _ = ExpireNoticeAsync();
+            await OnChanged.InvokeAsync(_current);
             return null;
         }
         catch (Exception ex)

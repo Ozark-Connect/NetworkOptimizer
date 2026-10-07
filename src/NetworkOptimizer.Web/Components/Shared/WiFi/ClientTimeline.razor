@@ -189,7 +189,7 @@
                     </ClientNameEditor>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
-                        <ClientFixedIpEditor @key="_selectedClient.Mac" Mac="@_selectedClient.Mac" CurrentIp="@_selectedClient.Ip"><span class="client-ip">@_selectedClient.Ip</span></ClientFixedIpEditor>
+                        <ClientFixedIpEditor @key="_selectedClient.Mac" Mac="@_selectedClient.Mac" CurrentIp="@_selectedClient.Ip" OnChanged="OnFixedIpChanged"><span class="client-ip" data-tooltip="@ClientFixedIpEditor.PendingTooltip(_selectedClient.Ip, _selectedClient.FixedIp)">@_selectedClient.Ip</span></ClientFixedIpEditor>
                     }
                     <span class="client-mac">@_selectedClient.Mac</span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
@@ -421,6 +421,13 @@
         if (_selectedClient == null) return;
         _selectedClient.Name = renamed.Shown;
         foreach (var c in _clients.Where(c => c.Mac == _selectedClient.Mac)) c.Name = renamed.Shown;
+    }
+
+    private void OnFixedIpChanged(string? fixedIp)
+    {
+        if (_selectedClient == null) return;
+        foreach (var c in _clients.Where(c => c.Mac == _selectedClient.Mac)) c.FixedIp = fixedIp;
+        _selectedClient.FixedIp = fixedIp;
     }
 
     private void OnChartZoomed(ZoomedData<ClientChartPoint> data)
