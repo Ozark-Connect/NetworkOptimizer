@@ -20353,6 +20353,7 @@ body.kiosk-mode .status-indicators {
 .form-help.inline-edit-notice {
     display: inline;
     margin: 0;
+    font-family: var(--font-sans);
     font-size: 0.85em;
     align-self: center;
 }
