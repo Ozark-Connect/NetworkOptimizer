@@ -1,0 +1,121 @@
+@* One value edited in place behind a pencil (Site Admin). The page's own element is the child
+   content; edit mode swaps it for a field with check and X buttons. Enter saves, Escape cancels. *@
+@if (_editing)
+{
+    <div class="inline-name-edit inline-edit-field @EditClass">
+        <input type="text" class="form-control" @ref="_input" @bind="_value" @bind:event="oninput"
+               @onkeydown="OnKeyAsync" placeholder="@Placeholder" disabled="@_busy"
+               autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+        <div class="inline-name-edit-actions">
+            <button type="button" class="inline-name-edit-btn inline-edit-save" data-tooltip="Save" aria-label="Save"
+                    @onclick="SaveAsync" @onclick:stopPropagation disabled="@_busy">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                </svg>
+            </button>
+            <button type="button" class="inline-name-edit-btn inline-edit-cancel" data-tooltip="Cancel" aria-label="Cancel"
+                    @onclick="Cancel" @onclick:stopPropagation disabled="@_busy">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+}
+else
+{
+    <span class="inline-name-cell @Class">
+        @ChildContent
+        <SiteAdminOnly>
+            <button type="button" class="inline-name-edit-btn" data-tooltip="@Tooltip" aria-label="@Tooltip"
+                    @onclick="StartAsync" @onclick:stopPropagation disabled="@_busy">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                </svg>
+            </button>
+        </SiteAdminOnly>
+    </span>
+}
+@if (!string.IsNullOrEmpty(_error))
+{
+    <p class="alert alert-danger">@_error</p>
+}
+
+@code {
+    /// <summary>The page's element for the value, shown when not editing.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Extra class on the wrapper around the value and the pencil.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Extra class on the edit row.</summary>
+    [Parameter] public string? EditClass { get; set; }
+
+    /// <summary>The pencil's tooltip and accessible name.</summary>
+    [Parameter, EditorRequired] public string Tooltip { get; set; } = "";
+
+    /// <summary>The field's placeholder.</summary>
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>The value the field opens with. May fetch it; a thrown message is shown and the field stays closed.</summary>
+    [Parameter, EditorRequired] public Func<Task<string>> Load { get; set; } = () => Task.FromResult("");
+
+    /// <summary>Writes the trimmed value. Returns null on success, or the reason it failed; the field stays open on failure.</summary>
+    [Parameter, EditorRequired] public Func<string, Task<string?>> Save { get; set; } = _ => Task.FromResult<string?>(null);
+
+    private bool _editing;
+    private bool _busy;
+    private string _value = "";
+    private string? _error;
+    private ElementReference _input;
+
+    private async Task StartAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            _value = await Load();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            return;
+        }
+        finally
+        {
+            _busy = false;
+        }
+        _editing = true;
+        StateHasChanged();
+        await Task.Delay(1); // let the input render before it is focused
+        await _input.FocusAsync();
+    }
+
+    private void Cancel()
+    {
+        _editing = false;
+        _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _error = await Save(_value.Trim());
+            if (_error == null) _editing = false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OnKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SaveAsync();
+        else if (e.Key == "Escape") Cancel();
+    }
+}

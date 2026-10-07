@@ -225,7 +225,9 @@
                         <div class="identity-meta">
                             <span>@_client.Mac</span>
                             <span class="meta-sep">·</span>
-                            <span>@_client.Ip</span>
+                            <ClientFixedIpEditor @key="_client.Mac" Mac="@_client.Mac">
+                                <span>@_client.Ip</span>
+                            </ClientFixedIpEditor>
                             @if (!string.IsNullOrEmpty(_client.Essid))
                             {
                                 <span class="meta-sep">·</span>

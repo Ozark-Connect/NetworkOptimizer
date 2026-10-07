@@ -20318,6 +20318,42 @@ body.kiosk-mode .status-indicators {
     margin: 0;
 }
 
+.inline-name-edit-btn.inline-edit-save:hover {
+    color: var(--success-color);
+}
+
+.inline-name-edit-btn.inline-edit-cancel:hover {
+    color: var(--danger-color);
+}
+
+/* Beside small text such as a meta line: the pencil, check, and X are sized in em off that text,
+   and the field shrinks to the same line. */
+.inline-edit-compact {
+    gap: 0.25rem;
+}
+
+.inline-edit-compact .inline-name-edit-btn {
+    padding: 0.1rem;
+}
+
+.inline-edit-compact .inline-name-edit-btn svg {
+    width: 1.15em;
+    height: 1.15em;
+}
+
+.inline-name-edit.inline-edit-compact .form-control {
+    width: 9.5rem;
+    min-width: 0;
+    padding: 0.1rem 0.4rem;
+    font: inherit;
+}
+
+/* Client Stats: the IP's font lives on .client-ip, which edit mode removes, so the wrapper carries it. */
+.client-info-main .inline-edit-compact {
+    font-size: 0.875rem;
+    font-family: monospace;
+}
+
 .checkbox-toggle {
     display: flex;
     align-items: flex-start;
