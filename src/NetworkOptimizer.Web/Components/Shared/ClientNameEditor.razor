@@ -4,7 +4,7 @@
 
 @* Inline rename for a client. The page's own name element is the child content. *@
 <InlineEditField Class="@Class" Tooltip="Rename client in UniFi Network" Placeholder="@Hostname"
-                 Load="@(() => Task.FromResult(Name ?? ""))" Save="SaveAsync">
+                 TourId="@TourId" Load="@(() => Task.FromResult(Name ?? ""))" Save="SaveAsync">
     @ChildContent
 </InlineEditField>
 
@@ -17,6 +17,9 @@
 
     /// <summary>Shown as the field's placeholder: what UniFi Network falls back to when the alias is cleared.</summary>
     [Parameter] public string? Hostname { get; set; }
+
+    /// <summary>Guided tour anchor on the pencil; null for none.</summary>
+    [Parameter] public string? TourId { get; set; }
 
     /// <summary>Extra class on the wrapper around the name and the pencil.</summary>
     [Parameter] public string? Class { get; set; }
