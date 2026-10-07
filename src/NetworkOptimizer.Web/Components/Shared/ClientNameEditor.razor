@@ -18,7 +18,7 @@
 }
 else
 {
-    <span class="inline-name-cell">
+    <span class="inline-name-cell @Class">
         @ChildContent
         <SiteAdminOnly>
             <button type="button" class="inline-name-edit-btn" data-tooltip="Rename client in UniFi Network"
@@ -44,6 +44,9 @@ else
 
     /// <summary>Shown as the field's placeholder: what UniFi Network falls back to when the alias is cleared.</summary>
     [Parameter] public string? Hostname { get; set; }
+
+    /// <summary>Extra class on the wrapper around the name and the pencil.</summary>
+    [Parameter] public string? Class { get; set; }
 
     /// <summary>The page's name element, shown when not editing.</summary>
     [Parameter] public RenderFragment? ChildContent { get; set; }
