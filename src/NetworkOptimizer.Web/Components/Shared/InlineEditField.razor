@@ -38,6 +38,10 @@ else
                 </svg>
             </button>
         </SiteAdminOnly>
+        @if (!string.IsNullOrEmpty(Notice))
+        {
+            <small class="form-help inline-edit-notice">@Notice</small>
+        }
         @if (!string.IsNullOrEmpty(_error))
         {
             <span class="form-error inline-edit-error">@_error</span>
@@ -57,6 +61,9 @@ else
 
     /// <summary>The pencil's tooltip and accessible name.</summary>
     [Parameter, EditorRequired] public string Tooltip { get; set; } = "";
+
+    /// <summary>A short note shown beside the value after a save, such as when the change applies.</summary>
+    [Parameter] public string? Notice { get; set; }
 
     /// <summary>The field's placeholder.</summary>
     [Parameter] public string? Placeholder { get; set; }
