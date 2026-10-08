@@ -226,7 +226,8 @@ func run() int {
 			// A firmware upgrade or a provision cycle can change what resolves under a running
 			// agent, so capabilities are re-probed rather than fixed at startup. VAP names change
 			// with it, which is why the collector is handed the new set rather than its own.
-			refreshed := runProbes(ctx, cfg)
+			refreshed := refreshProbes(ctx, cfg, probes)
+			probes = refreshed
 			state.SetProbes(refreshed)
 			collector.Apply(collectCtx, refreshed)
 		}

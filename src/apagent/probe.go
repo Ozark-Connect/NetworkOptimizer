@@ -74,6 +74,10 @@ func (p ProbeSet) Unavailable() []string {
 // runProbes resolves every capability by behavior. Never match a model string or firmware version:
 // an allowlist breaks on each new SKU, and a shape check does not.
 func runProbes(ctx context.Context, cfg *Config) ProbeSet {
+	return refreshProbes(ctx, cfg, ProbeSet{})
+}
+
+func refreshProbes(ctx context.Context, cfg *Config, previous ProbeSet) ProbeSet {
 	now := time.Now().UTC()
 	set := ProbeSet{ProbedAt: now, HostapdDir: cfg.HostapdDir}
 
@@ -83,7 +87,7 @@ func runProbes(ctx context.Context, cfg *Config) ProbeSet {
 
 	set.Results = append(set.Results, probeWlanconfig(ctx, vaps, now))
 
-	mca, mcaResult := probeMcaDump(ctx, now)
+	mca, mcaResult := probeMcaDumpAfter(ctx, now, previous)
 	set.Results = append(set.Results, mcaResult)
 	set.Firmware = mca.Version
 
@@ -161,9 +165,32 @@ func probeWlanconfig(ctx context.Context, vaps []string, now time.Time) ProbeRes
 	return r
 }
 
+const mcaProbeTimeout = 20 * time.Second
+
+// A partial answer from a previously working utility should not disable both collection tiers
+// for a full probe interval. Confirm one such failure after a short rest, within the original
+// deadline. Startup and sources that were already unavailable still make only one attempt.
+func probeMcaDumpAfter(ctx context.Context, now time.Time, previous ProbeSet) (mcaSummary, ProbeResult) {
+	ctx, cancel := context.WithTimeout(ctx, mcaProbeTimeout)
+	defer cancel()
+	summary, result := probeMcaDump(ctx, now)
+	prior, _ := previous.Get(ProbeMcaDump)
+	if result.Available || !prior.Available || ctx.Err() != nil {
+		return summary, result
+	}
+	timer := time.NewTimer(250 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return summary, result
+	case <-timer.C:
+	}
+	return probeMcaDump(ctx, time.Now().UTC())
+}
+
 func probeMcaDump(ctx context.Context, now time.Time) (mcaSummary, ProbeResult) {
 	r := ProbeResult{Name: ProbeMcaDump, CheckedAt: now, Degrades: "no identity (ip, hostname)"}
-	out, err := runCommand(ctx, 20*time.Second, "mca-dump")
+	out, err := runCommand(ctx, mcaProbeTimeout, "mca-dump")
 	if err != nil {
 		r.Detail = err.Error()
 		return mcaSummary{}, r
