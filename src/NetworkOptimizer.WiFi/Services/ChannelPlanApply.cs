@@ -127,16 +127,22 @@ public static class ChannelPlanApply
     }
 
     /// <summary>
-    /// True once the AP is connected and either reports running the config we wrote
-    /// (<paramref name="writtenCfgVersion"/>) or its radio reports the target channel and width. The
-    /// config version lands seconds after the write; the console's live radio stats can lag it by a
-    /// minute.
+    /// True once the AP is connected and either runs a config newer than
+    /// <paramref name="previousCfgVersion"/> (the one read before the write) or its radio reports the
+    /// target channel and width. The config version lands seconds after the write; the console's live
+    /// radio stats can lag it by a minute.
     /// </summary>
-    [VendorSpecific("UniFi", "stat/device known_cfgversion; radio_table_stats live channel / bw")]
-    public static bool HasArrived(ChannelApplyItem item, UniFiDeviceResponse? device, string? writtenCfgVersion = null)
+    /// <remarks>
+    /// The write's own response still carries the previous <c>cfgversion</c>; the console mints the
+    /// new one when it provisions the AP. So arrival is "moved off the previous version", never
+    /// "equals the version the write returned".
+    /// </remarks>
+    [VendorSpecific("UniFi", "stat/device cfgversion / known_cfgversion; radio_table_stats live channel / bw")]
+    public static bool HasArrived(ChannelApplyItem item, UniFiDeviceResponse? device, string? previousCfgVersion = null)
     {
         if (device is not { State: 1 }) return false;
-        if (!string.IsNullOrEmpty(writtenCfgVersion) && device.KnownCfgVersion == writtenCfgVersion) return true;
+        if (!string.IsNullOrEmpty(previousCfgVersion) && !string.IsNullOrEmpty(device.CfgVersion)
+            && device.CfgVersion != previousCfgVersion && device.KnownCfgVersion == device.CfgVersion) return true;
         var bandCode = item.Band.ToUniFiCode();
         var name = device.RadioTable?.FirstOrDefault(r => string.Equals(r.Radio, bandCode, StringComparison.OrdinalIgnoreCase))?.Name;
         var live = LiveRadio(device, name, bandCode);

@@ -167,7 +167,7 @@ public sealed class ChannelPlanApplyRunner
                 Record(run, new(item, ChannelApplyStatus.Failed, "UniFi Network could not be reached"));
             return "UniFi Network could not be reached";
         }
-        // Each written radio, with the config version its write produced, until the AP reports it.
+        // Each written radio, with the config version the AP ran before the write, until the AP reports it.
         var pending = new Dictionary<ChannelApplyItem, string?>();
         foreach (var item in wave)
         {
@@ -203,7 +203,7 @@ public sealed class ChannelPlanApplyRunner
 
             _logger.LogInformation("Channel apply: {Ap} {Band} Ch {From}/{FromW} -> Ch {To}/{ToW} (site {Site})",
                 item.ApName, item.Band, item.CurrentChannel, item.CurrentWidth, item.Channel, item.Width, siteSlug);
-            pending[item] = written.CfgVersion;
+            pending[item] = device!.CfgVersion;
         }
 
         // Every change in the wave is saved from here, so a stop or a failed read is Unconfirmed,
