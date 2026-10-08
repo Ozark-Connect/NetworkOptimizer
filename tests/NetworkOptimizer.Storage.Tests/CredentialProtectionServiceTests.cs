@@ -52,6 +52,17 @@ public class CredentialProtectionServiceTests : IDisposable
     }
 
     [Fact]
+    public void EncryptForSite_SingleKey_UsesTheInstanceKey()
+    {
+        ICredentialProtectionService service = _service;
+
+        var encrypted = service.EncryptForSite("MySecretPassword123!", "site-a");
+
+        encrypted.Should().StartWith("ENC:");
+        service.Decrypt(encrypted).Should().Be("MySecretPassword123!");
+    }
+
+    [Fact]
     public void Encrypt_EmptyString_ReturnsEmptyString()
     {
         // Arrange & Act
