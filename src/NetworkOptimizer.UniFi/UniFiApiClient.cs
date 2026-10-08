@@ -1061,7 +1061,10 @@ public class UniFiApiClient : IDisposable
     /// <param name="deviceId">The device document id (<c>_id</c>), not the MAC.</param>
     /// <param name="radios">The radios to move.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The device as stored after the write (its <c>cfgversion</c> is the one written), or null when refused.</returns>
+    /// <returns>
+    /// The device as stored after the write, or null when refused. Its <c>cfgversion</c> is still the
+    /// previous one: the console mints the new version when it provisions the device.
+    /// </returns>
     /// <exception cref="UniFiPermissionException">The UniFi account cannot change device settings.</exception>
     [VendorSpecific("UniFi", "rest/device PUT; GET on rest/device returns 404, so reads go through stat/device")]
     public async Task<UniFiDeviceResponse?> UpdateDeviceRadioChannelsAsync(
