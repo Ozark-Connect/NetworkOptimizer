@@ -8,4 +8,9 @@ public interface ISecretDecryptor
 {
     string Decrypt(string encrypted);
     string Encrypt(string plaintext);
+
+    /// <summary>
+    /// Encrypts a secret for a delivery channel that belongs to one site.
+    /// </summary>
+    string EncryptForSite(string plaintext, string siteSlug) => Encrypt(plaintext);
 }

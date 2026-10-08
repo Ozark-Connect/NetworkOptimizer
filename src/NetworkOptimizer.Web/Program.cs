@@ -1707,6 +1707,7 @@ class SecretDecryptorAdapter(NetworkOptimizer.Storage.Services.ICredentialProtec
 {
     public string Decrypt(string encrypted) => inner.Decrypt(encrypted);
     public string Encrypt(string plaintext) => inner.Encrypt(plaintext);
+    public string EncryptForSite(string plaintext, string siteSlug) => inner.EncryptForSite(plaintext, siteSlug);
 }
 
 // Adapter to bridge IDigestStateStore (Alerts project) to SystemSettings (Storage project)

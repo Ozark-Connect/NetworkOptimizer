@@ -777,7 +777,7 @@ public class MonitoringCollectionAgent : BackgroundService
             var row = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (row == null) return;
             var before = row.SnmpDetectionState;
-            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection);
+            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection, _siteSlug);
             row.LastSnmpDetection = DateTime.UtcNow;
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);

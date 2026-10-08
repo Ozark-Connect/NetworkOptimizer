@@ -8637,7 +8637,7 @@
         {
             // When editing and password field is left blank, preserve the existing encrypted password
             var password = !string.IsNullOrEmpty(channelSmtpPass)
-                ? SecretDecryptor.Encrypt(channelSmtpPass)
+                ? SecretDecryptor.EncryptForSite(channelSmtpPass, SiteContext.Slug)
                 : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.EmailChannelConfig>(existingConfigJson, c => c.Password);
 
             var cfg = new NetworkOptimizer.Alerts.Delivery.EmailChannelConfig
@@ -8659,7 +8659,7 @@
             string? secret = clearWebhookSecret
                 ? null
                 : !string.IsNullOrEmpty(channelWebhookSecret)
-                    ? SecretDecryptor.Encrypt(channelWebhookSecret)
+                    ? SecretDecryptor.EncryptForSite(channelWebhookSecret, SiteContext.Slug)
                     : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig>(existingConfigJson, c => c.Secret);
 
             // Normalize empty string to null for webhook secrets (optional field)
@@ -8678,14 +8678,14 @@
             string? token = clearNtfyToken
                 ? null
                 : !string.IsNullOrEmpty(channelNtfyAccessToken)
-                    ? SecretDecryptor.Encrypt(channelNtfyAccessToken)
+                    ? SecretDecryptor.EncryptForSite(channelNtfyAccessToken, SiteContext.Slug)
                     : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.NtfyChannelConfig>(existingConfigJson, c => c.AccessToken);
             if (string.IsNullOrEmpty(token)) token = null;
 
             string? password = clearNtfyPassword
                 ? null
                 : !string.IsNullOrEmpty(channelNtfyPassword)
-                    ? SecretDecryptor.Encrypt(channelNtfyPassword)
+                    ? SecretDecryptor.EncryptForSite(channelNtfyPassword, SiteContext.Slug)
                     : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.NtfyChannelConfig>(existingConfigJson, c => c.Password);
             if (string.IsNullOrEmpty(password)) password = null;
 

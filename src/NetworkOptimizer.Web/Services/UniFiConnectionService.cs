@@ -1107,7 +1107,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // API key auth: save key, clear username/password
                 if (!string.IsNullOrEmpty(config.ApiKey))
                 {
-                    settings.ApiKey = _credentialProtection.Encrypt(config.ApiKey);
+                    settings.ApiKey = _credentialProtection.EncryptForSite(config.ApiKey, SiteSlug);
                 }
                 settings.Username = null;
                 settings.Password = null;
@@ -1117,7 +1117,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Username/password auth: save credentials, clear API key
                 if (!string.IsNullOrEmpty(config.Password))
                 {
-                    settings.Password = _credentialProtection.Encrypt(config.Password);
+                    settings.Password = _credentialProtection.EncryptForSite(config.Password, SiteSlug);
                 }
                 settings.ApiKey = null;
             }
