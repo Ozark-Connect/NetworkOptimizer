@@ -1,7 +1,7 @@
 # InfluxDB 2.x for Network Optimizer Monitoring
 #
 # Run:  docker compose up -d
-# UI:   http://localhost:8086
+# UI:   http://<docker-host>:8086
 #
 # After first start, open the UI to create an admin user and
 # an all-access API token. Then paste the token into Network
