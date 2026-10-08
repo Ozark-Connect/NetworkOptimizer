@@ -26,6 +26,21 @@ if [ -r "$CC_FILE" ]; then
     esac
 fi
 
+# Report the TCP buffer ceiling. Not set in compose: before kernel 4.15 these keys are global,
+# absent from the container netns, and a compose sysctl for them fails container start. From
+# 4.15 a new netns copies the host's values, so the host setting reaches the container either way.
+BUF_HINT="set on the host: sysctl -w net.ipv4.tcp_rmem='4096 131072 33554432' net.ipv4.tcp_wmem='4096 65536 33554432' (persist per DEPLOYMENT.md, Speed Test Server Tuning)"
+if [ -r /proc/sys/net/ipv4/tcp_rmem ]; then
+    RMEM_MAX=$(awk '{print $3}' /proc/sys/net/ipv4/tcp_rmem)
+    WMEM_MAX=$(awk '{print $3}' /proc/sys/net/ipv4/tcp_wmem)
+    echo "TCP buffer max: rmem $RMEM_MAX, wmem $WMEM_MAX"
+    if [ "$RMEM_MAX" -lt 33554432 ] || [ "$WMEM_MAX" -lt 33554432 ]; then
+        echo "NOTE: TCP buffer max is below 32 MB, which limits single-stream speedtests over long-RTT paths. To raise it, $BUF_HINT, then restart this container"
+    fi
+else
+    echo "TCP buffer max: set by the host (kernel before 4.15). For long-RTT single-stream speedtests, $BUF_HINT"
+fi
+
 # API endpoint path (single source of truth)
 API_PATH="/api/public/speedtest/results"
 
