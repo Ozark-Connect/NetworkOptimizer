@@ -34,12 +34,11 @@ public class ErrorCounterWindowService : IErrorCounterWindowService
         CachedAsync($"ont:{ontId}", async (from, to) =>
         {
             var series = await Influx.QueryOntAsync(from, to, ontId.ToString(), Bucket, includePon: true);
-            return series.TryGetValue(ontId.ToString(), out var pts) && pts.Count > 0
-                ? new PonErrorTotals(
-                    CounterIncrements.Total(pts.Select(p => p.BipErrors)),
-                    CounterIncrements.Total(pts.Select(p => p.FecErrors)),
-                    CounterIncrements.Total(pts.Select(p => p.Pon?.HecUncorrected)),
-                    CounterIncrements.Total(pts.Select(p => p.Pon?.GemRxDropped)))
+            return series.TryGetValue(ontId.ToString(), out var pts)
+                ? Totals(
+                    pts.Select(p => p.BipErrors), pts.Select(p => p.FecErrors),
+                    pts.Select(p => p.Pon?.HecUncorrected), pts.Select(p => p.Pon?.GemRxDropped),
+                    pts.Where(p => p.Pon is not null).Select(p => (p.Pon!.DsFecEnabled, p.Pon.UsFecEnabled)))
                 : null;
         });
 
@@ -49,13 +48,12 @@ public class ErrorCounterWindowService : IErrorCounterWindowService
         {
             var series = await Influx.QuerySfpPonByModulesAsync(new[] { (deviceMac, portName) }, from, to, Bucket);
             var pts = series.Values.FirstOrDefault();
-            return pts is { Count: > 0 }
-                ? new PonErrorTotals(
-                    CounterIncrements.Total(pts.Select(p => p.BipErrors)),
-                    CounterIncrements.Total(pts.Select(p => p.FecErrors)),
-                    CounterIncrements.Total(pts.Select(p => p.HecUncorrected)),
-                    CounterIncrements.Total(pts.Select(p => p.GemRxDropped)))
-                : null;
+            return pts is null
+                ? null
+                : Totals(
+                    pts.Select(p => p.BipErrors), pts.Select(p => p.FecErrors),
+                    pts.Select(p => p.HecUncorrected), pts.Select(p => p.GemRxDropped),
+                    pts.Select(p => (p.DsFecEnabled, p.UsFecEnabled)));
         });
 
     /// <inheritdoc />
@@ -64,10 +62,32 @@ public class ErrorCounterWindowService : IErrorCounterWindowService
         {
             // The poller writes per-poll deltas with resets already handled, so these just add up.
             var series = await Influx.QueryCableModemAsync(from, to, cmId.ToString(), Bucket);
-            return series.TryGetValue(cmId.ToString(), out var pts) && pts.Any(p => p.CorrDelta.HasValue || p.UncorrDelta.HasValue)
-                ? new CmErrorTotals(pts.Sum(p => p.CorrDelta ?? 0), pts.Sum(p => p.UncorrDelta ?? 0))
-                : null;
+            return series.TryGetValue(cmId.ToString(), out var pts) ? CmTotals(pts) : null;
         });
+
+    /// <summary>Sum of the per-poll deltas; null when no point in the window carries one.</summary>
+    internal static CmErrorTotals? CmTotals(IReadOnlyCollection<MonitoringInfluxClient.CmPoint> pts) =>
+        pts.Any(p => p.CorrDelta.HasValue || p.UncorrDelta.HasValue)
+            ? new CmErrorTotals(pts.Sum(p => p.CorrDelta ?? 0), pts.Sum(p => p.UncorrDelta ?? 0))
+            : null;
+
+    /// <summary>
+    /// Null when no counter moved or held across two readings, so a device that never reports
+    /// them (a DDM-only ONT) gets no error row rather than "- / - / -".
+    /// </summary>
+    internal static PonErrorTotals? Totals(
+        IEnumerable<long?> bip, IEnumerable<long?> fec, IEnumerable<long?> hec, IEnumerable<long?> drops,
+        IEnumerable<(long? Ds, long? Us)> fecState)
+    {
+        var totals = new PonErrorTotals(
+            CounterIncrements.Total(bip), CounterIncrements.Total(fec),
+            CounterIncrements.Total(hec), CounterIncrements.Total(drops),
+            // Same reading as the live path: either direction reporting FEC on means FEC is on.
+            fecState.LastOrDefault(s => s.Ds.HasValue || s.Us.HasValue) is var (ds, us) && (ds.HasValue || us.HasValue)
+                ? ds == 1 || us == 1
+                : null);
+        return totals is { Bip: null, Fec: null, HecUncorrected: null, GemRxDropped: null } ? null : totals;
+    }
 
     // Resolved per call, like the sibling site-scoped services: the circuit's site can change.
     private MonitoringInfluxClient Influx => _influxRegistry.GetFor(_siteContext.Slug);

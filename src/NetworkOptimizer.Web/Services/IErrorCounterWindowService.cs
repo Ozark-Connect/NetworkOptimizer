@@ -26,8 +26,11 @@ public interface IErrorCounterWindowService
     Task<CmErrorTotals?> GetCmTotalsAsync(int cmId);
 }
 
-/// <summary>PON error counter growth over the window. A null field was not reported.</summary>
-public sealed record PonErrorTotals(long? Bip, long? Fec, long? HecUncorrected, long? GemRxDropped);
+/// <summary>
+/// PON error counter growth over the window. A null field was not reported. FecEnabled is the
+/// OLT profile's FEC state at the latest reading, so the card can pick FEC or HEC without a live poll.
+/// </summary>
+public sealed record PonErrorTotals(long? Bip, long? Fec, long? HecUncorrected, long? GemRxDropped, bool? FecEnabled);
 
 /// <summary>Cable modem codeword counts over the window.</summary>
 public sealed record CmErrorTotals(long Correctables, long Uncorrectables);

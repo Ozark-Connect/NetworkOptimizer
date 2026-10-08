@@ -168,6 +168,7 @@ else if (IsShowingExternal)
             <div class="metric-content">
                 <div class="metric-row"><span class="metric-label">Wavelength:</span><span class="metric-value">-</span></div>
                 <div class="metric-row"><span class="metric-label">Voltage:</span><span class="metric-value">-</span></div>
+                @ErrorCountsRow(null, null, null, null, null)
             </div>
         </div>
     </div>
@@ -258,7 +259,7 @@ else
 
     var sfpPonState = PonLinkStateExtensions.ParsePonLinkState(stats?.PonLinkStatus);
     var midErr = stats?.FecEnabled == false ? stats?.HecUncorrected : stats?.FecErrors;
-    var hasErrCounts = stats?.BipErrors.HasValue == true || midErr.HasValue || stats?.GemRxDropped.HasValue == true;
+    var hasErrCounts = stats?.BipErrors.HasValue == true || midErr.HasValue || stats?.GemRxDropped.HasValue == true || _errorTotals != null;
     // Supplemental PON data present: move SFP Voltage to the Stats column to keep the
     // two columns even (Connection gains PON Status + error counts).
     var hasPonSupplement = sfpPonState != PonLinkState.Unknown || hasErrCounts;
@@ -667,16 +668,17 @@ else
 
     /// <summary>
     /// BIP / FEC or HEC / GEM drops. FEC disabled on the OLT profile leaves the FEC counter at 0,
-    /// so HEC is the live signal there. Hidden when the device reports none of them.
+    /// so HEC is the live signal there. The 24-hour totals come from history, so they show even
+    /// when the live poll has nothing; with neither, the row is hidden.
     /// </summary>
     private RenderFragment ErrorCountsRow(bool? fecEnabled, long? bip, long? fec, long? hec, long? drops) => __builder =>
     {
-        var fecOff = fecEnabled == false;
-        if (!bip.HasValue && !(fecOff ? hec : fec).HasValue && !drops.HasValue) return;
-
         var windowed = _errorTotals;
         if (windowed != null)
-            (bip, fec, hec, drops) = (windowed.Bip, windowed.Fec, windowed.HecUncorrected, windowed.GemRxDropped);
+            (bip, fec, hec, drops, fecEnabled) = (windowed.Bip, windowed.Fec, windowed.HecUncorrected, windowed.GemRxDropped, fecEnabled ?? windowed.FecEnabled);
+        var fecOff = fecEnabled == false;
+        if (windowed == null && !bip.HasValue && !(fecOff ? hec : fec).HasValue && !drops.HasValue) return;
+
         var mid = fecOff ? hec : fec;
         var midLabel = fecOff ? "HEC" : "FEC";
         var midTip = fecOff ? "uncorrectable HEC header errors (payload FEC disabled)" : "uncorrectable FEC codewords";

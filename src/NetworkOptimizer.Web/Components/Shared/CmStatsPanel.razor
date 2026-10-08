@@ -54,8 +54,8 @@
                 <div class="metric-header">Stats</div>
                 <div class="metric-content">
                     <div class="metric-row"><span class="metric-label">DS SNR:</span><span class="metric-value">-</span></div>
-                    <div class="metric-row"><span class="metric-label">Correctables:</span><span class="metric-value">-</span></div>
-                    <div class="metric-row"><span class="metric-label">Uncorrectables:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label" data-tooltip="@(_errorTotals != null ? CountSpan : null)" @onclick:stopPropagation>Correctables:</span><span class="metric-value">@(_errorTotals?.Correctables.ToString("N0") ?? "-")</span></div>
+                    <div class="metric-row"><span class="metric-label" data-tooltip="@(_errorTotals != null ? CountSpan : null)" @onclick:stopPropagation>Uncorrectables:</span><span class="metric-value @(_errorTotals?.Uncorrectables > 0 ? "signal-poor" : "")">@(_errorTotals?.Uncorrectables.ToString("N0") ?? "-")</span></div>
                 </div>
             </div>
         </div>
