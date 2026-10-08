@@ -1534,6 +1534,50 @@ public class WiFiOptimizerService : IWiFiScanService
         return evidence;
     }
 
+    /// <summary>
+    /// Puts each radio on the channel a fresh recorded move took it to while the console's live
+    /// stats still report the channel it left (see <see cref="ChannelMemoryHelper.LiveStatsLag"/>).
+    /// Without it, a plan built in the minute after a move reads the old channels and no soak.
+    /// Observed rows are skipped: they are themselves read off the live stats.
+    /// </summary>
+    private async Task CorrectRadiosAheadOfLiveStatsAsync(List<AccessPointSnapshot> aps)
+    {
+        var now = DateTime.UtcNow;
+        List<Storage.Models.ApChannelChange> recent;
+        try
+        {
+            recent = await _channelMemoryRepository.GetChangesSinceAsync(now - ChannelMemoryHelper.LiveStatsLag);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load recent channel changes; using the console's live channels");
+            return;
+        }
+
+        var latest = recent
+            .Where(c => c.Source != Storage.Models.ApChannelChangeSource.Observed)
+            .GroupBy(c => (Mac: c.ApMac.ToLowerInvariant(), c.Band))
+            .ToDictionary(g => g.Key, g => g.OrderBy(c => c.ChangedAtUtc).ThenBy(c => c.Id).Last());
+        if (latest.Count == 0) return;
+
+        foreach (var ap in aps)
+        {
+            foreach (var radio in ap.Radios)
+            {
+                if (radio.Channel is not { } live) continue;
+                if (!latest.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band.ToUniFiCode()), out var move)) continue;
+                if (!ChannelMemoryHelper.IsMoveAheadOfLiveStats(live, move.PreviousChannel, move.NewChannel, move.ChangedAtUtc, now))
+                    continue;
+
+                _logger.LogDebug(
+                    "[ChannelRec] {ApName} {Band}: live stats still say ch{Live}; using ch{New} from the {Source} move at {At:HH:mm:ss}",
+                    ap.Name, radio.Band, live, move.NewChannel, move.Source, move.ChangedAtUtc);
+                radio.Channel = move.NewChannel;
+                if (move.NewWidthMhz is > 0) radio.ChannelWidth = move.NewWidthMhz;
+            }
+        }
+    }
+
     private async Task<(Dictionary<RadioBand, ChannelPlan> Plans, bool AnyBandFailed)>
         BuildAllChannelRecommendationsAsync(
         RecommendationOptions? options,
@@ -1573,6 +1617,8 @@ public class WiFiOptimizerService : IWiFiScanService
                 _logger.LogDebug("No APs available for channel recommendations");
                 return (results, false);
             }
+
+            await CorrectRadiosAheadOfLiveStatsAsync(aps);
 
             // Load propagation context once (same pattern as BuildOptimizerContextAsync)
             ApPropagationContext? propCtx = null;

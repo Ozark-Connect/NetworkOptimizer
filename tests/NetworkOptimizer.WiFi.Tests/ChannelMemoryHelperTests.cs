@@ -18,6 +18,39 @@ public class ChannelMemoryHelperTests
         NewChannel = to
     };
 
+    // --- IsMoveAheadOfLiveStats ---
+
+    [Fact]
+    public void IsMoveAheadOfLiveStats_FreshMoveOffTheLiveChannel_IsAhead()
+    {
+        // Applied 6 -> 1 thirty seconds ago; the console still reports ch6.
+        ChannelMemoryHelper.IsMoveAheadOfLiveStats(6, 6, 1, Now.UtcDateTime.AddSeconds(-30), Now.UtcDateTime)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsMoveAheadOfLiveStats_StatsCaughtUp_IsNotAhead()
+    {
+        ChannelMemoryHelper.IsMoveAheadOfLiveStats(1, 6, 1, Now.UtcDateTime.AddSeconds(-30), Now.UtcDateTime)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsMoveAheadOfLiveStats_OlderThanTheLag_TrustsTheStats()
+    {
+        // Back on ch6 after the window: a later move nothing recorded, not lag.
+        ChannelMemoryHelper.IsMoveAheadOfLiveStats(6, 6, 1, Now.UtcDateTime - ChannelMemoryHelper.LiveStatsLag - TimeSpan.FromSeconds(1), Now.UtcDateTime)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsMoveAheadOfLiveStats_LiveChannelIsNotTheOrigin_TrustsTheStats()
+    {
+        // The move left ch6, but the radio reports ch11: something else moved it since.
+        ChannelMemoryHelper.IsMoveAheadOfLiveStats(11, 6, 1, Now.UtcDateTime.AddSeconds(-30), Now.UtcDateTime)
+            .Should().BeFalse();
+    }
+
     // --- GetChannelAtTime ---
 
     [Fact]
