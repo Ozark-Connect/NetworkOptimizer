@@ -153,6 +153,10 @@ elif [ -n "$HOST_IP" ]; then
     CANONICAL_URL="http://$HOST_IP:$OST_PORT"
 fi
 
+# nginx lowercases $host and the compare below is case-sensitive, so a mixed-case HOST_NAME
+# (Synology's default "DiskStation") would redirect to itself forever.
+CANONICAL_HOST=$(printf '%s' "$CANONICAL_HOST" | tr '[:upper:]' '[:lower:]')
+
 if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
     echo "Enforcing canonical URL: $CANONICAL_URL"
 
