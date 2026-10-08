@@ -261,9 +261,9 @@ public class ChannelMemoryCollectionService : BackgroundService
                 var lastRecordedAt = DateTime.SpecifyKind(lastKnown.ChangedAtUtc, DateTimeKind.Utc);
                 foreach (var evt in bandEvents.Where(e => e.Timestamp.UtcDateTime > lastRecordedAt))
                 {
-                    // The agent already logged this move, seconds after it happened; the console's
-                    // own event for it is the same move on another clock, not a second one.
-                    if (lastKnown.Source == ApChannelChangeSource.Agent
+                    // The agent or Apply already logged this move, seconds after it happened; the
+                    // console's own event for it is the same move on another clock, not a second one.
+                    if (lastKnown.Source is ApChannelChangeSource.Agent or ApChannelChangeSource.Applied
                         && lastKnown.NewChannel == evt.NewChannel
                         && (evt.Timestamp.UtcDateTime - lastRecordedAt).Duration() <= AgentEventMatchWindow)
                         continue;

@@ -1,3 +1,5 @@
+using NetworkOptimizer.Storage.Interfaces;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.WiFi.Models;
@@ -51,16 +53,20 @@ public sealed class ChannelPlanApplyRunner
     private readonly Dictionary<string, Run> _runs = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
     private readonly SiteConnectionRegistry _connections;
+    private readonly IServiceProvider _serviceProvider;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<ChannelPlanApplyRunner> _logger;
 
     /// <param name="connections">Every site's UniFi Network connection.</param>
+    /// <param name="serviceProvider">For a site-scoped change log, written as each radio arrives.</param>
     /// <param name="lifetime">A run stops when the app shuts down.</param>
     /// <param name="logger">Logger.</param>
     public ChannelPlanApplyRunner(
-        SiteConnectionRegistry connections, IHostApplicationLifetime lifetime, ILogger<ChannelPlanApplyRunner> logger)
+        SiteConnectionRegistry connections, IServiceProvider serviceProvider,
+        IHostApplicationLifetime lifetime, ILogger<ChannelPlanApplyRunner> logger)
     {
         _connections = connections;
+        _serviceProvider = serviceProvider;
         _lifetime = lifetime;
         _logger = logger;
     }
@@ -215,12 +221,15 @@ public sealed class ChannelPlanApplyRunner
             while (pending.Count > 0)
             {
                 devices = await ReadDevicesAsync(client, ct);
+                var arrived = new List<ChannelApplyItem>();
                 foreach (var (item, cfgVersion) in pending.ToList())
                 {
                     if (!ChannelPlanApply.HasArrived(item, devices.GetValueOrDefault(item.ApMac.ToLowerInvariant()), cfgVersion)) continue;
                     Record(run, new(item, ChannelApplyStatus.Applied));
                     pending.Remove(item);
+                    arrived.Add(item);
                 }
+                await LogMovesAsync(siteSlug, arrived, ct);
                 if (pending.Count == 0) break;
                 if (DateTime.UtcNow >= deadline)
                 {
@@ -245,6 +254,37 @@ public sealed class ChannelPlanApplyRunner
                 Record(run, new(item, ChannelApplyStatus.Unconfirmed, "Saved in UniFi Network; could not read the AP back"));
         }
         return null;
+    }
+
+    /// <summary>
+    /// Writes each arrived radio to the change log, so the next plan soaks it and sees its new
+    /// channel at once instead of after the console's live stats catch up. Never fails the run.
+    /// </summary>
+    private async Task LogMovesAsync(string siteSlug, List<ChannelApplyItem> arrived, CancellationToken ct)
+    {
+        if (arrived.Count == 0) return;
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+            var repository = scope.ServiceProvider.GetRequiredService<IChannelMemoryRepository>();
+            var now = DateTime.UtcNow;
+            await repository.AddChangesAsync(arrived.Select(item => new ApChannelChange
+            {
+                ApMac = item.ApMac.ToLowerInvariant(),
+                Band = item.Band.ToUniFiCode(),
+                PreviousChannel = item.CurrentChannel,
+                PreviousWidthMhz = item.CurrentWidth > 0 ? item.CurrentWidth : null,
+                NewChannel = item.Channel,
+                NewWidthMhz = item.Width > 0 ? item.Width : null,
+                ChangedAtUtc = now,
+                Source = ApChannelChangeSource.Applied
+            }).ToList(), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Channel apply: could not log the arrived moves (site {Site})", siteSlug);
+        }
     }
 
     private static async Task<Dictionary<string, UniFiDeviceResponse>> ReadDevicesAsync(UniFiApiClient client, CancellationToken ct) =>
