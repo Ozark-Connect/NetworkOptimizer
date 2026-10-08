@@ -492,22 +492,28 @@ sudo systemctl reload caddy
 
 Enable BBR congestion control on any host serving the speed test over the internet. The default (CUBIC) backs off hard on the small amount of loss normal to a long path, so it under-reports throughput the link can actually deliver. BBR paces on measured bandwidth and RTT instead. On a LAN-only speed test it makes little difference.
 
-This is a host setting, not a container one. The container shares the host's network stack, so setting it on the host covers the speed test. It mainly moves the download number, since that is the direction the server sends.
+Raise the TCP buffer ceiling on the same hosts. The kernel default (6 MB receive, 4 MB send) limits a single TCP stream to about buffer / RTT: roughly 225 Mbps at 100 ms. A 32 MB ceiling removes that limit for internet-facing tests. LAN tests are not affected.
+
+These are host settings, not container ones. The speed test container takes the host's values when it starts, so restart it after a change. The speed test log prints the values in effect at startup.
 
 ```bash
-# Available? (kernel 4.9+)
+# BBR available? (kernel 4.9+)
 sysctl net.ipv4.tcp_available_congestion_control
 
-# Enable BBR with fair queueing, persisted across reboots
-cat >/etc/sysctl.d/99-bbr.conf <<'EOF'
+# Enable BBR with fair queueing and raise the TCP buffer ceiling, persisted across reboots
+cat >/etc/sysctl.d/99-speedtest.conf <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_rmem = 4096 131072 33554432
+net.ipv4.tcp_wmem = 4096 65536 33554432
 EOF
 sysctl --system
 
 # Verify
-sysctl net.ipv4.tcp_congestion_control net.core.default_qdisc
+sysctl net.ipv4.tcp_congestion_control net.core.default_qdisc net.ipv4.tcp_rmem net.ipv4.tcp_wmem
 ```
+
+**Synology / QNAP:** DSM and QTS do not reliably keep `/etc/sysctl.d`. Run the `sysctl -w` form of the settings above as a boot-time task instead (Synology: Control Panel - Task Scheduler - Triggered Task - Boot-up, user root), then restart the speed test container. Leave out the two BBR lines if the first command does not list `bbr`.
 
 ### Firewall Configuration
 
