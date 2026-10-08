@@ -9,6 +9,7 @@
 @inject SiteContextService SiteCtx
 @inject UniFiConnectionService ConnectionService
 @inject IOntMonitorService ExternalOntService
+@inject IErrorCounterWindowService ErrorWindow
 
 @if (_isLoading)
 {
@@ -78,6 +79,13 @@ else if (IsShowingExternal && _externalOntStats != null)
                         <span class="metric-value">@(_externalOntStats.BwpSpeedMbps >= 1000 ? $"{_externalOntStats.BwpSpeedMbps / 1000.0:0.##} Gbps" : $"{_externalOntStats.BwpSpeedMbps} Mbps")</span>
                     </div>
                 }
+                @{
+                    var extPon = _externalOntStats.Pon;
+                    bool? extFecEnabled = extPon?.DsFecEnabled.HasValue == true || extPon?.UsFecEnabled.HasValue == true
+                        ? extPon.DsFecEnabled == 1 || extPon.UsFecEnabled == 1
+                        : null;
+                }
+                @ErrorCountsRow(extFecEnabled, _externalOntStats.BipErrors, _externalOntStats.FecErrors, extPon?.HecUncorrected, extPon?.GemRxDropped)
             </div>
         </div>
         <div class="metric-box">
@@ -249,11 +257,7 @@ else
     </div>
 
     var sfpPonState = PonLinkStateExtensions.ParsePonLinkState(stats?.PonLinkStatus);
-    // FEC disabled on the OLT profile => FEC counters stay 0; HEC is the live signal.
-    var fecOff = stats?.FecEnabled == false;
-    var midErr = fecOff ? stats?.HecUncorrected : stats?.FecErrors;
-    var midErrLabel = fecOff ? "HEC" : "FEC";
-    var midErrTip = fecOff ? "uncorrectable HEC header errors (payload FEC disabled)" : "uncorrectable FEC codewords";
+    var midErr = stats?.FecEnabled == false ? stats?.HecUncorrected : stats?.FecErrors;
     var hasErrCounts = stats?.BipErrors.HasValue == true || midErr.HasValue || stats?.GemRxDropped.HasValue == true;
     // Supplemental PON data present: move SFP Voltage to the Stats column to keep the
     // two columns even (Connection gains PON Status + error counts).
@@ -291,13 +295,7 @@ else
                         </span>
                     </div>
                 }
-                @if (hasErrCounts)
-                {
-                    <div class="metric-row">
-                        <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")" @onclick:stopPropagation>@($"BIP/{midErrLabel}/Drops:")</span>
-                        <span class="metric-value ont-err-counts">@FmtCount(stats?.BipErrors) / @FmtCount(midErr) / @FmtCount(stats?.GemRxDropped)</span>
-                    </div>
-                }
+                @ErrorCountsRow(stats?.FecEnabled, stats?.BipErrors, stats?.FecErrors, stats?.HecUncorrected, stats?.GemRxDropped)
                 @if (!hasPonSupplement)
                 {
                     <div class="metric-row">
@@ -425,6 +423,7 @@ else
                     }
                     catch { }
                     await RefreshExternalStatsAsync();
+                    await RefreshErrorTotalsAsync();
                     StateHasChanged();
                 });
             }
@@ -450,6 +449,8 @@ else
             _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
             if (_currentIndex >= TotalCount) _currentIndex = 0;
             await RefreshExternalStatsAsync();
+            _limitErrorsTo24h = (await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync())?.OntErrorCountersLast24h ?? true;
+            await RefreshErrorTotalsAsync();
 
             try
             {
@@ -477,13 +478,13 @@ else
 
     private async Task Previous()
     {
-        if (_currentIndex > 0) { _currentIndex--; await RefreshExternalStatsAsync(); }
+        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
         StateHasChanged();
     }
 
     private async Task Next()
     {
-        if (_currentIndex < TotalCount - 1) { _currentIndex++; await RefreshExternalStatsAsync(); }
+        if (_currentIndex < TotalCount - 1) { _currentIndex++; _errorTotals = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
         StateHasChanged();
     }
 
@@ -635,6 +636,56 @@ else
         : $"{mbps} Mbps";
 
     private static string FmtCount(long? v) => v.HasValue ? v.Value.ToString("N0") : "-";
+
+    /// <summary>Settings - ONT Device Monitoring: count errors over the last 24 hours, not since the module rebooted.</summary>
+    private bool _limitErrorsTo24h = true;
+
+    /// <summary>Error growth over the last 24 hours for the shown item; null shows the device's cumulative counters.</summary>
+    private PonErrorTotals? _errorTotals;
+
+    /// <summary>Assigned once at the end, so a render mid-refresh keeps the last totals instead of flashing cumulative ones.</summary>
+    private async Task RefreshErrorTotalsAsync()
+    {
+        PonErrorTotals? totals = null;
+        try
+        {
+            if (_limitErrorsTo24h && IsShowingExternal)
+            {
+                var extIdx = _currentIndex - _monitoredOnts.Count;
+                if (extIdx >= 0 && extIdx < _externalOnts.Count)
+                    totals = await ErrorWindow.GetOntTotalsAsync(_externalOnts[extIdx].Id);
+            }
+            else if (_limitErrorsTo24h && _currentIndex < _monitoredOnts.Count)
+            {
+                var sfp = _monitoredOnts[_currentIndex];
+                totals = await ErrorWindow.GetSfpTotalsAsync(sfp.DeviceMac, sfp.PortName);
+            }
+        }
+        catch { }
+        _errorTotals = totals;
+    }
+
+    /// <summary>
+    /// BIP / FEC or HEC / GEM drops. FEC disabled on the OLT profile leaves the FEC counter at 0,
+    /// so HEC is the live signal there. Hidden when the device reports none of them.
+    /// </summary>
+    private RenderFragment ErrorCountsRow(bool? fecEnabled, long? bip, long? fec, long? hec, long? drops) => __builder =>
+    {
+        var fecOff = fecEnabled == false;
+        if (!bip.HasValue && !(fecOff ? hec : fec).HasValue && !drops.HasValue) return;
+
+        var windowed = _errorTotals;
+        if (windowed != null)
+            (bip, fec, hec, drops) = (windowed.Bip, windowed.Fec, windowed.HecUncorrected, windowed.GemRxDropped);
+        var mid = fecOff ? hec : fec;
+        var midLabel = fecOff ? "HEC" : "FEC";
+        var midTip = fecOff ? "uncorrectable HEC header errors (payload FEC disabled)" : "uncorrectable FEC codewords";
+        var span = windowed != null ? "last 24 hours" : "cumulative";
+        <div class="metric-row">
+            <span class="metric-label" data-tooltip="@($"BIP / {midTip} / dropped GEM frames ({span})")" @onclick:stopPropagation>@($"BIP/{midLabel}/Drops:")</span>
+            <span class="metric-value ont-err-counts">@FmtCount(bip) / @FmtCount(mid) / @FmtCount(drops)</span>
+        </div>
+    };
 
     public string? CurrentModuleKey
     {

@@ -1,8 +1,12 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
 @inject ICableModemService CmService
+@inject IErrorCounterWindowService ErrorWindow
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
 @using NetworkOptimizer.Web.Services.Monitoring
+@using Microsoft.EntityFrameworkCore
 @implements IDisposable
 
 <div class="cellular-stats-panel">
@@ -166,12 +170,12 @@
                         <span class="metric-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">@(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-label">Correctables:</span>
-                        <span class="metric-value">@_stats.TotalCorrectables</span>
+                        <span class="metric-label" data-tooltip="@CountSpan" @onclick:stopPropagation>Correctables:</span>
+                        <span class="metric-value">@Correctables.ToString("N0")</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-label">Uncorrectables:</span>
-                        <span class="metric-value @(_stats.TotalUncorrectables > 0 ? "signal-poor" : "")">@_stats.TotalUncorrectables</span>
+                        <span class="metric-label" data-tooltip="@CountSpan" @onclick:stopPropagation>Uncorrectables:</span>
+                        <span class="metric-value @(Uncorrectables > 0 ? "signal-poor" : "")">@Uncorrectables.ToString("N0")</span>
                     </div>
                 </div>
             </div>
@@ -221,8 +225,24 @@
     /// whether there is a device to link to.</summary>
     [Parameter] public EventCallback OnDataLoaded { get; set; }
 
+    /// <summary>Settings - Cable Modem Monitoring: count codewords over the last 24 hours, not since the modem rebooted.</summary>
+    private bool _limitErrorsTo24h = true;
+
+    /// <summary>Codeword counts over the last 24 hours; null shows the modem's own cumulative totals.</summary>
+    private CmErrorTotals? _errorTotals;
+
+    private long Correctables => _errorTotals?.Correctables ?? _stats?.TotalCorrectables ?? 0;
+    private long Uncorrectables => _errorTotals?.Uncorrectables ?? _stats?.TotalUncorrectables ?? 0;
+    private string CountSpan => _errorTotals != null ? "Last 24 hours" : "Cumulative, since the modem last rebooted";
+
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+            _limitErrorsTo24h = (await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync())?.CmErrorCountersLast24h ?? true;
+        }
+        catch { }
         await LoadAsync();
         _isLoading = false;
         await OnDataLoaded.InvokeAsync();
@@ -244,8 +264,10 @@
 
     private async Task LoadStatsAsync()
     {
-        if (_configs.Count == 0) { _stats = null; return; }
+        if (_configs.Count == 0) { _stats = null; _errorTotals = null; return; }
         _stats = await CmService.GetCachedStatsAsync(_configs[_currentIndex].Id);
+        try { _errorTotals = _limitErrorsTo24h ? await ErrorWindow.GetCmTotalsAsync(_configs[_currentIndex].Id) : null; }
+        catch { _errorTotals = null; }
     }
 
     /// <summary>Whether polling is enabled for the currently shown modem (disabled configs
@@ -278,12 +300,12 @@
 
     private async Task Previous()
     {
-        if (_currentIndex > 0) { _currentIndex--; await LoadStatsAsync(); }
+        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; await LoadStatsAsync(); }
     }
 
     private async Task Next()
     {
-        if (_currentIndex < _configs.Count - 1) { _currentIndex++; await LoadStatsAsync(); }
+        if (_currentIndex < _configs.Count - 1) { _currentIndex++; _errorTotals = null; await LoadStatsAsync(); }
     }
 
     private static readonly System.Text.RegularExpressions.Regex ModelWithNumber =

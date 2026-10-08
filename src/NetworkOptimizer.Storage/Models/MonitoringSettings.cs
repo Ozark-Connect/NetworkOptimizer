@@ -158,6 +158,15 @@ public class MonitoringSettings
     public bool ShowCellularTab { get; set; } = true;
     public bool ShowStarlinkTab { get; set; } = true;
 
+    /// <summary>
+    /// Count the Dashboard ONT card's error counters (BIP, FEC/HEC, GEM drops) over the last 24
+    /// hours rather than since the module last rebooted. Display only: alerts and charts use per-poll deltas.
+    /// </summary>
+    public bool OntErrorCountersLast24h { get; set; } = true;
+
+    /// <summary>Same as <see cref="OntErrorCountersLast24h"/>, for the Dashboard cable modem card's codeword counts.</summary>
+    public bool CmErrorCountersLast24h { get; set; } = true;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
