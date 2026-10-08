@@ -11,6 +11,12 @@ public interface ICredentialProtectionService
     string Encrypt(string plaintext);
 
     /// <summary>
+    /// Encrypt a credential that belongs to one site, such as a console password or a device login.
+    /// One key protects every site here, so the site is ignored; an implementation may key per site.
+    /// </summary>
+    string EncryptForSite(string plaintext, string siteSlug) => Encrypt(plaintext);
+
+    /// <summary>
     /// Decrypt an encrypted credential
     /// </summary>
     string Decrypt(string encrypted);

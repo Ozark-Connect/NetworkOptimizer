@@ -218,7 +218,8 @@ public class SnmpDetectionService
     public static void ApplyToSettings(
         MonitoringSettings settings,
         SnmpDetectionResult result,
-        ICredentialProtectionService credentialProtection)
+        ICredentialProtectionService credentialProtection,
+        string siteSlug)
     {
         settings.SnmpDetectionState = result.DetectionState;
 
@@ -231,12 +232,12 @@ public class SnmpDetectionService
         if (result.DetectionState == SnmpDetectionState.EnabledV2c)
         {
             settings.SnmpVersion = SnmpVersionSetting.V2c;
-            settings.SnmpCommunity = credentialProtection.Encrypt(result.Community!);
+            settings.SnmpCommunity = credentialProtection.EncryptForSite(result.Community!, siteSlug);
             if (!string.IsNullOrEmpty(result.V3Username))
             {
                 settings.SnmpV3Username = result.V3Username;
                 settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
-                    ? credentialProtection.Encrypt(result.V3Password)
+                    ? credentialProtection.EncryptForSite(result.V3Password, siteSlug)
                     : null;
             }
         }
@@ -245,7 +246,7 @@ public class SnmpDetectionService
             settings.SnmpVersion = SnmpVersionSetting.V3;
             settings.SnmpV3Username = result.V3Username;
             settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
-                ? credentialProtection.Encrypt(result.V3Password)
+                ? credentialProtection.EncryptForSite(result.V3Password, siteSlug)
                 : null;
         }
     }
@@ -324,7 +325,7 @@ public class SnmpDetectionService
                 db.MonitoringSettings.Add(settings);
             }
 
-            ApplyToSettings(settings, result, _credentialProtection);
+            ApplyToSettings(settings, result, _credentialProtection, _siteContext.Slug);
             settings.LastSnmpDetection = DateTime.UtcNow;
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);

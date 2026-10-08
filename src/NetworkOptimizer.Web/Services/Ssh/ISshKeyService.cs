@@ -64,6 +64,7 @@ public sealed class SshKeyService : ISshKeyService
     private readonly NetworkOptimizerDbContext _db;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly ICallerContext _caller;
+    private readonly SiteContextService _siteContext;
 
     /// <summary>
     /// Takes the scoped context, not the singleton factory: the scoped one routes to the site in
@@ -73,11 +74,13 @@ public sealed class SshKeyService : ISshKeyService
     public SshKeyService(
         NetworkOptimizerDbContext db,
         ICredentialProtectionService credentialProtection,
-        ICallerContext caller)
+        ICallerContext caller,
+        SiteContextService siteContext)
     {
         _db = db;
         _credentialProtection = credentialProtection;
         _caller = caller;
+        _siteContext = siteContext;
     }
 
     /// <inheritdoc />
@@ -96,7 +99,7 @@ public sealed class SshKeyService : ISshKeyService
             KeyType = type == SshKeyType.Ed25519 ? "ed25519" : "rsa",
             Source = "Generated",
             PublicKey = generated.PublicKey,
-            PrivateKeyProtected = _credentialProtection.Encrypt(generated.PrivateKeyPem),
+            PrivateKeyProtected = _credentialProtection.EncryptForSite(generated.PrivateKeyPem, _siteContext.Slug),
             Fingerprint = generated.Fingerprint,
         });
     }
@@ -111,10 +114,10 @@ public sealed class SshKeyService : ISshKeyService
             KeyType = keyType,
             Source = "Uploaded",
             PublicKey = publicKey,
-            PrivateKeyProtected = _credentialProtection.Encrypt(privateKeyPem),
+            PrivateKeyProtected = _credentialProtection.EncryptForSite(privateKeyPem, _siteContext.Slug),
             PassphraseProtected = string.IsNullOrEmpty(passphrase)
                 ? null
-                : _credentialProtection.Encrypt(passphrase),
+                : _credentialProtection.EncryptForSite(passphrase, _siteContext.Slug),
             Fingerprint = SshKeyGenerator.FingerprintOfPublicKey(publicKey) ?? "",
         });
     }
