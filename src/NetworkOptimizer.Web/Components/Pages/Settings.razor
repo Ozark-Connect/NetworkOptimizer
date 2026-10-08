@@ -56,6 +56,7 @@
 @inject ICableModemService CmMonitorService
 @inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
 @inject IOntMonitorService OntMonitorService
+@inject IMonitoringSettingsService MonitoringSettingsAdmin
 @inject IStarlinkMonitorService StarlinkMonitor
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @inject NetworkOptimizer.Web.Services.Identity.IIdentityAdminService IdentityAdmin
@@ -1579,6 +1580,12 @@
                         <span>Show the CM Stats tab in Monitoring</span>
                     </label>
                 </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked="@_monitoringSettings.CmErrorCountersLast24h" @onchange="e => SetCmErrorWindowAsync(e.Value is true)" />
+                        <span>Limit error counters on Dashboard Cards to last 24 hours</span>
+                    </label>
+                </div>
             }
 
             @if (_cmConfigs.Count > 0)
@@ -1831,6 +1838,12 @@
                     <label class="checkbox-label">
                         <input type="checkbox" @bind="_monitoringSettings.ShowOntTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the ONT Stats tab in Monitoring</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked="@_monitoringSettings.OntErrorCountersLast24h" @onchange="e => SetOntErrorWindowAsync(e.Value is true)" />
+                        <span>Limit error counters on Dashboard Cards to last 24 hours</span>
                     </label>
                 </div>
             }
@@ -9170,6 +9183,22 @@
         {
             // Best-effort persistence; the toggle keeps its in-memory state either way.
         }
+    }
+
+    private async Task SetOntErrorWindowAsync(bool enabled)
+    {
+        if (_monitoringSettings == null) return;
+        _monitoringSettings.OntErrorCountersLast24h = enabled;
+        try { await MonitoringSettingsAdmin.SetOntErrorCountersLast24hAsync(enabled); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Failed to save the ONT error counter window"); }
+    }
+
+    private async Task SetCmErrorWindowAsync(bool enabled)
+    {
+        if (_monitoringSettings == null) return;
+        _monitoringSettings.CmErrorCountersLast24h = enabled;
+        try { await MonitoringSettingsAdmin.SetCmErrorCountersLast24hAsync(enabled); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Failed to save the cable modem error counter window"); }
     }
 
     /// <summary>

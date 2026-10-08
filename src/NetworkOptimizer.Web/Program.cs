@@ -836,6 +836,7 @@ builder.Services.AddMutatingService<IMonitoringInterfaceDeploymentService, Monit
 // as direct DbContext writes in the components, so none of them were audited.
 builder.Services.AddMutatingService<IMonitoringTargetService, MonitoringTargetService>();
 builder.Services.AddMutatingService<IMonitoringSettingsService, MonitoringSettingsService>();
+builder.Services.AddMutatingService<IErrorCounterWindowService, ErrorCounterWindowService>();
 builder.Services.AddMutatingService<IUpstreamDiscoveryService, UpstreamDiscoveryService>();
 
 // Register WiFi Optimizer rules and engine

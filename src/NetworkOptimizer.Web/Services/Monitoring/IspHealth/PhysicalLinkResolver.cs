@@ -307,24 +307,7 @@ public class PhysicalLinkResolver
 
     /// <summary>Total positive increments of a cumulative error counter over the window, reset-guarded
     /// (negative steps from a counter reset count as zero). Null when there aren't two readings.</summary>
-    private static long? TotalIncrements(IReadOnlyList<long?> counters)
-    {
-        long total = 0;
-        var any = false;
-        long? prev = null;
-        foreach (var v in counters)
-        {
-            if (v is not long cur) continue;
-            if (prev is long p)
-            {
-                var delta = cur - p;
-                if (delta > 0) total += delta;
-                any = true;
-            }
-            prev = cur;
-        }
-        return any ? total : (long?)null;
-    }
+    private static long? TotalIncrements(IReadOnlyList<long?> counters) => CounterIncrements.Total(counters);
 
     /// <summary>
     /// Grades the PON O5 (Operation) state from the persisted series rather than a single live poll:

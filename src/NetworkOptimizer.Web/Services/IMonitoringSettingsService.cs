@@ -51,6 +51,16 @@ public interface IMonitoringSettingsService
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_settings")]
     Task<MonitoringSettings> SaveOntThresholdsAsync(double? ponTempHighC, double? ponRxPowerLowDbm,
         CancellationToken ct = default);
+
+    /// <summary>Limits the Dashboard ONT card's error counters to the last 24 hours, or shows them cumulative.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_settings")]
+    Task<MonitoringSettings> SetOntErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default);
+
+    /// <summary>Limits the Dashboard cable modem card's codeword counts to the last 24 hours, or shows them cumulative.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_settings")]
+    Task<MonitoringSettings> SetCmErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default);
 }
 
 /// <summary>
