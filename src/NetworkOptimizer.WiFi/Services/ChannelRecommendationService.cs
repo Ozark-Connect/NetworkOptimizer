@@ -899,6 +899,10 @@ public class ChannelRecommendationService
             HearingNeighbors = BuildHearingNeighbors(graph)
         };
 
+        // Moves vetoed only for a small own gain that still improve the AP a little. Each may be what
+        // lets its neighbors' moves stand; see the enabling-move check after this loop.
+        var enablerCandidates = new HashSet<int>();
+
         for (int i = 0; i < n; i++)
         {
             var node = graph.Nodes[i];
@@ -963,6 +967,7 @@ public class ChannelRecommendationService
                         node.Name, absoluteImprovement, percentImprovement,
                         node.CurrentChannel, node.CurrentWidth,
                         MinApAbsoluteImprovement, MinApImprovementPercent);
+                    if (absoluteImprovement > 0) enablerCandidates.Add(i);
                     recommendedChannel = node.CurrentChannel;
                     recommendedWidth = node.CurrentWidth;
                     recommendedApScore = currentApScore;
@@ -992,145 +997,71 @@ public class ChannelRecommendationService
             });
         }
 
-        // Re-validate changed APs against the actual final assignment.
-        // Per-AP filtering may have vetoed some moves, which invalidates the scores
-        // used to approve other moves. For example, if the optimizer planned to swap
-        // APs A and B between channels but B was vetoed (score too low to move),
-        // A's move may now put it on the same channel as B - worse than before.
-        // Iterate until stable: rebuild final assignment, re-score changed APs,
-        // revert any that no longer meet thresholds.
-        var finalAssignment = new (int Channel, int Width)[n];
-        bool reverted;
-        do
+        // Re-validate changed APs against the actual final assignment (see Revalidate). An enabling
+        // move, vetoed above for a small own gain, is put back when the plan it unlocks is better for
+        // the site and clears the band's bar. Otherwise the veto stands.
+        var proposed = new (int Channel, int Width)[n];
+        var plannedScores = new double[n];
+        for (int i = 0; i < n; i++)
         {
-            reverted = false;
-            for (int i = 0; i < n; i++)
+            proposed[i] = (plan.Recommendations[i].RecommendedChannel, plan.Recommendations[i].RecommendedWidth);
+            plannedScores[i] = plan.Recommendations[i].RecommendedScore;
+        }
+        IReadOnlySet<int> enablers = new HashSet<int>();
+        if (enablerCandidates.Count > 0)
+        {
+            var withEnablers = ((int Channel, int Width)[])proposed.Clone();
+            var withScores = (double[])plannedScores.Clone();
+            foreach (var i in enablerCandidates)
             {
-                var rec = plan.Recommendations[i];
-                finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
+                withEnablers[i] = bestAssignment[i];
+                withScores[i] = ScoreAp(graph, bestAssignment, i, band);
             }
-            // Keep mesh children on their leader's channel so every re-score below sees a
-            // physically valid assignment (a backhaul pair can't sit on two channels).
-            ApplyMeshConstraints(graph, finalAssignment);
+            var netWithout = ScoreAssignment(graph, ApplyMeshConstraints(graph,
+                Revalidate(graph, band, proposed, plannedScores, currentAssignment, currentApScores, enablers, log: false)), band);
+            var kept = Revalidate(graph, band, withEnablers, withScores, currentAssignment, currentApScores, enablerCandidates, log: false);
+            var netWith = ScoreAssignment(graph, ApplyMeshConstraints(graph, ((int Channel, int Width)[])kept.Clone()), band);
 
-            // Check changed APs still meet improvement thresholds
-            for (int i = 0; i < n; i++)
+            var gain = currentNetworkScore - netWith;
+            var clearsBar = band == RadioBand.Band2_4GHz
+                ? currentNetworkScore > 0 && gain / currentNetworkScore * 100 >= MinBand24NetworkImprovementPercent
+                : gain / n >= MinAvgImprovementPerAp;
+            var stillMoving = enablerCandidates.Where(i => kept[i] != currentAssignment[i]).ToList();
+            if (netWith < netWithout && clearsBar && stillMoving.Count > 0)
             {
-                var rec = plan.Recommendations[i];
-                var node = graph.Nodes[i];
-                // A mesh child follows its leader - it has no independent move to revert.
-                if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
-                var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
-                                rec.RecommendedWidth != node.CurrentWidth;
-                if (!isChanged) continue;
-
-                // Never revert APs on invalid channels (e.g., 2.4 GHz ch3 must move to 1/6/11)
-                var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
-                if (!isOnValidChannel) continue;
-
-                // Re-score this AP against the actual final assignment (not the optimizer's ideal)
-                var actualScore = ScoreAp(graph, finalAssignment, i, band);
-                var currentApScore = ScoreAp(graph, currentAssignment, i, band);
-                var absoluteImprovement = currentApScore - actualScore;
-                var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
-
-                if (absoluteImprovement <= 0 ||
-                    absoluteImprovement < MinApAbsoluteImprovement ||
-                    percentImprovement < MinApImprovementPercent)
-                {
+                foreach (var i in stillMoving)
                     _logger.LogDebug(
-                        "[ChannelRec] {ApName} re-scored against final assignment: {ActualScore:F3} " +
-                        "(was {OriginalScore:F3} in optimizer plan), improvement {Abs:F3}/{Pct:P0} " +
-                        "no longer meets thresholds, reverting to ch{Channel}/{Width} MHz",
-                        node.Name, actualScore, rec.RecommendedScore,
-                        absoluteImprovement, percentImprovement,
-                        node.CurrentChannel, node.CurrentWidth);
-                    rec.RecommendedChannel = node.CurrentChannel;
-                    rec.RecommendedWidth = node.CurrentWidth;
-                    rec.RecommendedScore = currentApScore;
-                    finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
-                    reverted = true;
-                }
-                else
-                {
-                    // Update displayed score to reflect actual final assignment
-                    rec.RecommendedScore = actualScore;
-                }
+                        "[ChannelRec] {ApName} kept as an enabling move to ch{Channel}: site {Without:F3} without it, " +
+                        "{With:F3} with it (current {Current:F3})",
+                        graph.Nodes[i].Name, kept[i].Channel, netWithout, netWith, currentNetworkScore);
+                proposed = withEnablers;
+                plannedScores = withScores;
+                enablers = enablerCandidates;
             }
-
-            // Check unchanged APs for excessive degradation caused by other APs' moves.
-            // If moving AP-X onto an unchanged AP's channel makes it significantly worse,
-            // revert the move that caused the most degradation.
-            if (!reverted)
+            else
             {
-                int worstDegradedBy = -1;
-                double worstDegradation = 0;
-
-                for (int i = 0; i < n; i++)
-                {
-                    var node = graph.Nodes[i];
-                    var isChanged = plan.Recommendations[i].RecommendedChannel != node.CurrentChannel ||
-                                    plan.Recommendations[i].RecommendedWidth != node.CurrentWidth;
-                    if (isChanged) continue;
-
-                    var currentApScore = currentApScores[i];
-                    var actualScore = ScoreAp(graph, finalAssignment, i, band);
-                    var degradation = actualScore - currentApScore;
-
-                    // Degradation exceeds MaxApScoreDegradation (50% increase)
-                    if (currentApScore > 0 && actualScore / currentApScore > MaxApScoreDegradation)
-                    {
-                        if (degradation > worstDegradation)
-                        {
-                            worstDegradation = degradation;
-
-                            // Find which changed AP contributes most to this degradation
-                            // by checking co-channel overlap with the degraded AP
-                            double maxContribution = 0;
-                            for (int j = 0; j < n; j++)
-                            {
-                                if (j == i) continue;
-                                // Skip mesh pairs - their co-channel is expected and excluded from
-                                // scoring, so a mesh partner can't be the cause of i's degradation
-                                // and must not be the AP we revert (mesh must share a channel).
-                                if (AreMeshPair(graph, i, j)) continue;
-                                var jNode = graph.Nodes[j];
-                                var jChanged = plan.Recommendations[j].RecommendedChannel != jNode.CurrentChannel ||
-                                               plan.Recommendations[j].RecommendedWidth != jNode.CurrentWidth;
-                                if (!jChanged) continue;
-                                if (!jNode.ValidChannels.Contains(jNode.CurrentChannel)) continue;
-
-                                var contribution = graph.DirectionalWeights[j, i] *
-                                    OverlapFor(band, graph, i, finalAssignment[i], j, finalAssignment[j]) *
-                                    InternalCoChannelMultiplier;
-
-                                if (contribution > maxContribution)
-                                {
-                                    maxContribution = contribution;
-                                    worstDegradedBy = j;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (worstDegradedBy >= 0)
-                {
-                    var rec = plan.Recommendations[worstDegradedBy];
-                    var node = graph.Nodes[worstDegradedBy];
-                    _logger.LogDebug(
-                        "[ChannelRec] {ApName} move to ch{RecChannel} degrades unchanged AP beyond " +
-                        "{MaxDeg:P0} threshold, reverting to ch{CurrentChannel}/{Width} MHz",
-                        node.Name, rec.RecommendedChannel, MaxApScoreDegradation,
-                        node.CurrentChannel, node.CurrentWidth);
-                    rec.RecommendedChannel = node.CurrentChannel;
-                    rec.RecommendedWidth = node.CurrentWidth;
-                    rec.RecommendedScore = currentApScores[worstDegradedBy];
-                    finalAssignment[worstDegradedBy] = (node.CurrentChannel, node.CurrentWidth);
-                    reverted = true;
-                }
+                _logger.LogDebug(
+                    "[ChannelRec] {Band}: enabling move(s) not kept: site {Without:F3} without, {With:F3} with " +
+                    "(current {Current:F3}, bar {Bar})",
+                    band, netWithout, netWith, currentNetworkScore, clearsBar ? "met" : "not met");
             }
-        } while (reverted);
+        }
+
+        var revalidated = Revalidate(graph, band, proposed, plannedScores, currentAssignment, currentApScores, enablers, log: true);
+        var finalAssignment = ApplyMeshConstraints(graph, ((int Channel, int Width)[])revalidated.Clone());
+        for (int i = 0; i < n; i++)
+        {
+            var rec = plan.Recommendations[i];
+            var node = graph.Nodes[i];
+            rec.RecommendedChannel = revalidated[i].Channel;
+            rec.RecommendedWidth = revalidated[i].Width;
+            // A mesh child follows its leader, and an AP the gate kept in place keeps its score.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+            if (proposed[i] == currentAssignment[i]) continue;
+            rec.RecommendedScore = revalidated[i] == currentAssignment[i]
+                ? currentApScores[i]
+                : ScoreAp(graph, finalAssignment, i, band);
+        }
 
         // Per-AP fallback: the optimizer's global plan may have fully collapsed during
         // re-validation (e.g., it wanted both APs to swap but only one could move).
@@ -3002,6 +2933,152 @@ public class ChannelRecommendationService
     /// Count how many APs have a different channel/width vs the original assignment.
     /// Used for tie-breaking: prefer fewer changes when scores are equal.
     /// </summary>
+    /// <summary>
+    /// Re-validates the changed APs of a proposed assignment against the assignment as it will
+    /// actually stand. A vetoed move can invalidate the scores that approved another (a planned swap
+    /// where one side was vetoed puts the other on its channel), so this iterates until stable:
+    /// re-score each changed AP and revert any that no longer meets the per-AP thresholds, then
+    /// revert the move that most degrades an unchanged AP beyond <see cref="MaxApScoreDegradation"/>.
+    /// An AP in <paramref name="enablers"/> only has to improve at all; it moves for its neighbors.
+    /// </summary>
+    /// <param name="graph">The band's interference graph.</param>
+    /// <param name="band">The band.</param>
+    /// <param name="proposed">Each AP's proposed channel and width after the per-AP gate.</param>
+    /// <param name="plannedScores">Each AP's score in the optimizer's plan, for the log.</param>
+    /// <param name="currentAssignment">Each AP's current channel and width.</param>
+    /// <param name="currentApScores">Each AP's score in the current assignment.</param>
+    /// <param name="enablers">APs held only to improving at all.</param>
+    /// <param name="log">False for a trial run, so only the plan that is used logs its reverts.</param>
+    /// <returns>The surviving channel and width per AP, before mesh constraints.</returns>
+    private (int Channel, int Width)[] Revalidate(
+        InterferenceGraph graph,
+        RadioBand band,
+        (int Channel, int Width)[] proposed,
+        double[] plannedScores,
+        (int Channel, int Width)[] currentAssignment,
+        double[] currentApScores,
+        IReadOnlySet<int> enablers,
+        bool log)
+    {
+        var n = graph.Nodes.Count;
+        var recs = ((int Channel, int Width)[])proposed.Clone();
+        var finalAssignment = new (int Channel, int Width)[n];
+        bool reverted;
+        do
+        {
+            reverted = false;
+            Array.Copy(recs, finalAssignment, n);
+            // Keep mesh children on their leader's channel so every re-score below sees a
+            // physically valid assignment (a backhaul pair can't sit on two channels).
+            ApplyMeshConstraints(graph, finalAssignment);
+
+            // Check changed APs still meet improvement thresholds
+            for (int i = 0; i < n; i++)
+            {
+                var node = graph.Nodes[i];
+                // A mesh child follows its leader - it has no independent move to revert.
+                if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+                if (recs[i] == currentAssignment[i]) continue;
+
+                // Never revert APs on invalid channels (e.g., 2.4 GHz ch3 must move to 1/6/11)
+                if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+
+                // Re-score this AP against the actual final assignment (not the optimizer's ideal)
+                var actualScore = ScoreAp(graph, finalAssignment, i, band);
+                var currentApScore = ScoreAp(graph, currentAssignment, i, band);
+                var absoluteImprovement = currentApScore - actualScore;
+                var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
+
+                var fails = enablers.Contains(i)
+                    ? absoluteImprovement <= 0
+                    : absoluteImprovement <= 0 ||
+                      absoluteImprovement < MinApAbsoluteImprovement ||
+                      percentImprovement < MinApImprovementPercent;
+                if (!fails) continue;
+
+                if (log)
+                    _logger.LogDebug(
+                        "[ChannelRec] {ApName} re-scored against final assignment: {ActualScore:F3} " +
+                        "(was {OriginalScore:F3} in optimizer plan), improvement {Abs:F3}/{Pct:P0} " +
+                        "no longer meets thresholds, reverting to ch{Channel}/{Width} MHz",
+                        node.Name, actualScore, plannedScores[i],
+                        absoluteImprovement, percentImprovement,
+                        node.CurrentChannel, node.CurrentWidth);
+                recs[i] = currentAssignment[i];
+                finalAssignment[i] = currentAssignment[i];
+                reverted = true;
+            }
+
+            // Check unchanged APs for excessive degradation caused by other APs' moves.
+            // If moving AP-X onto an unchanged AP's channel makes it significantly worse,
+            // revert the move that caused the most degradation.
+            if (!reverted)
+            {
+                int worstDegradedBy = -1;
+                double worstDegradation = 0;
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (recs[i] != currentAssignment[i]) continue;
+
+                    var currentApScore = currentApScores[i];
+                    var actualScore = ScoreAp(graph, finalAssignment, i, band);
+                    var degradation = actualScore - currentApScore;
+
+                    // Degradation exceeds MaxApScoreDegradation (50% increase)
+                    if (currentApScore > 0 && actualScore / currentApScore > MaxApScoreDegradation)
+                    {
+                        if (degradation > worstDegradation)
+                        {
+                            worstDegradation = degradation;
+
+                            // Find which changed AP contributes most to this degradation
+                            // by checking co-channel overlap with the degraded AP
+                            double maxContribution = 0;
+                            for (int j = 0; j < n; j++)
+                            {
+                                if (j == i) continue;
+                                // Skip mesh pairs - their co-channel is expected and excluded from
+                                // scoring, so a mesh partner can't be the cause of i's degradation
+                                // and must not be the AP we revert (mesh must share a channel).
+                                if (AreMeshPair(graph, i, j)) continue;
+                                var jNode = graph.Nodes[j];
+                                if (recs[j] == currentAssignment[j]) continue;
+                                if (!jNode.ValidChannels.Contains(jNode.CurrentChannel)) continue;
+
+                                var contribution = graph.DirectionalWeights[j, i] *
+                                    OverlapFor(band, graph, i, finalAssignment[i], j, finalAssignment[j]) *
+                                    InternalCoChannelMultiplier;
+
+                                if (contribution > maxContribution)
+                                {
+                                    maxContribution = contribution;
+                                    worstDegradedBy = j;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (worstDegradedBy >= 0)
+                {
+                    var node = graph.Nodes[worstDegradedBy];
+                    if (log)
+                        _logger.LogDebug(
+                            "[ChannelRec] {ApName} move to ch{RecChannel} degrades unchanged AP beyond " +
+                            "{MaxDeg:P0} threshold, reverting to ch{CurrentChannel}/{Width} MHz",
+                            node.Name, recs[worstDegradedBy].Channel, MaxApScoreDegradation,
+                            node.CurrentChannel, node.CurrentWidth);
+                    recs[worstDegradedBy] = currentAssignment[worstDegradedBy];
+                    finalAssignment[worstDegradedBy] = currentAssignment[worstDegradedBy];
+                    reverted = true;
+                }
+            }
+        } while (reverted);
+
+        return recs;
+    }
+
     private static int CountChanges(
         (int Channel, int Width)[] assignment,
         (int Channel, int Width)[] original)
