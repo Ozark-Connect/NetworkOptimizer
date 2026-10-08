@@ -30,12 +30,14 @@ type ProbeResult struct {
 
 // ProbeSet is one full pass of the capability probes.
 type ProbeSet struct {
-	Results        []ProbeResult    `json:"results"`
-	Vaps           []string         `json:"vaps"`
-	Radios         []string         `json:"radios"`
-	ControlSurface []ControlSurface `json:"control_surface"`
-	Firmware       string           `json:"firmware,omitempty"`
-	ProbedAt       time.Time        `json:"probed_at"`
+	Results             []ProbeResult    `json:"results"`
+	Vaps                []string         `json:"vaps"`
+	Radios              []string         `json:"radios"`
+	ControlSurface      []ControlSurface `json:"control_surface"`
+	Firmware            string           `json:"firmware,omitempty"`
+	ProbedAt            time.Time        `json:"probed_at"`
+	HostapdDir          string           `json:"-"`
+	NativeVoluntaryVaps []string         `json:"native_voluntary_vaps,omitempty"`
 }
 
 // FatalFailure returns the fatal probe that did not resolve, if any.
@@ -73,7 +75,7 @@ func (p ProbeSet) Unavailable() []string {
 // an allowlist breaks on each new SKU, and a shape check does not.
 func runProbes(ctx context.Context, cfg *Config) ProbeSet {
 	now := time.Now().UTC()
-	set := ProbeSet{ProbedAt: now}
+	set := ProbeSet{ProbedAt: now, HostapdDir: cfg.HostapdDir}
 
 	vaps, vapErr := discoverVaps(cfg.HostapdDir)
 	set.Vaps = vaps
@@ -97,6 +99,8 @@ func runProbes(ctx context.Context, cfg *Config) ProbeSet {
 	set.Results = append(set.Results, ubusResult)
 	if ubusOK {
 		set.ControlSurface = inventoryControlSurface(ctx, vaps)
+	} else {
+		set.NativeVoluntaryVaps = probeNativeVoluntary(ctx, cfg.HostapdDir, vaps)
 	}
 
 	set.Results = append(set.Results, probeStahtd(cfg, now))

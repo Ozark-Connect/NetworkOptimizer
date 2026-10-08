@@ -137,7 +137,8 @@ public sealed record ApAgentHealthPayload(
     DateTime LastProbeRun,
     DateTime CollectedAt,
     bool Degraded,
-    IReadOnlyList<string> Unavailable);
+    IReadOnlyList<string> Unavailable,
+    IReadOnlyList<string>? NativeVoluntaryVaps = null);
 
 /// <summary>The classifier's verdict: what the AP is doing, and what to do about it.</summary>
 /// <param name="State">The condition observed.</param>

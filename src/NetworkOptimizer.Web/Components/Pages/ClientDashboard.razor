@@ -1392,6 +1392,8 @@
 
     /// <summary>Whether this site can steer: the AP Agent is on and at least two access points run it.</summary>
     private bool _canSteer;
+    private string? _steeringIdentity;
+    private DateTime _steeringCheckedAt;
 
     /// <summary>Access points whose agent cannot send a steer, read with <see cref="_canSteer"/>.</summary>
     private HashSet<string> _apsWithoutSteering = new(StringComparer.OrdinalIgnoreCase);
@@ -1568,8 +1570,7 @@
         // Identify client
         await IdentifyAndLoadAsync();
 
-        // _canSteer is resolved in IdentifyAndLoadAsync, which is the only place that knows when the
-        // client is actually in hand. On your own device the first attempt always returns null: the
+        // Steering availability is resolved after identity and refreshed by later client polls. On your own device the first attempt always returns null: the
         // browser has to report its own address after first render before identity can run.
 
         // Load AP markers for speed map (non-critical)
@@ -1763,6 +1764,26 @@
         // so we can skip it for wired devices
     }
 
+    private async Task RefreshSteeringAsync()
+    {
+        // Recheck after an AP move and periodically: native support depends on this client's
+        // current link, the destination's reports and the agent's latest capability probe.
+        var identity = $"{_client?.Mac}/{_client?.ApMac}/{_client?.Band}/{_client?.IsMlo}/{_client?.IsOffline}/{_client?.IsWired}/{_client?.IsVpn}";
+        if (identity == _steeringIdentity && DateTime.UtcNow - _steeringCheckedAt < TimeSpan.FromMinutes(1)) return;
+        _steeringIdentity = identity;
+        _steeringCheckedAt = DateTime.UtcNow;
+        _canSteer = false;
+        _apsWithoutSteering.Clear();
+        if (string.IsNullOrEmpty(_client?.Mac) || _client.IsOffline || _client.IsWired || _client.IsVpn) return;
+        try
+        {
+            _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac);
+            if (_canSteer)
+                _apsWithoutSteering = new(await ApAgentRoam.GetApsWithoutSteeringAsync(), StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
+    }
+
     private async Task IdentifyAndLoadAsync()
     {
         _loading = true;
@@ -1781,19 +1802,7 @@
             if (_client?.IsVpn == true && _activeTab != "speed")
                 _activeTab = "speed";
 
-            // Steering availability depends on which client this is, so it can only be answered
-            // once there is one. Deliberately not restricted to your own device: moving a client
-            // stuck on the wrong access point is the point, and that client is rarely in your hand.
-            if (!_canSteer && !string.IsNullOrEmpty(_client?.Mac))
-            {
-                try
-                {
-                    _canSteer = await ApAgentRoam.IsAvailableAsync(_client.Mac);
-                    if (_canSteer)
-                        _apsWithoutSteering = new(await ApAgentRoam.GetApsWithoutSteeringAsync(), StringComparer.OrdinalIgnoreCase);
-                }
-                catch (Exception ex) { Logger.LogDebug(ex, "Could not determine AP Agent steering availability"); }
-            }
+            await RefreshSteeringAsync();
 
             // Poll now rather than at the next tick. The timer starts before the address is known,
             // so its first tick returns at PollAsync's own guard without counting - and the label
@@ -2499,6 +2508,7 @@
             {
                 _client = _latestPoll.Client;
                 TrackPresence();
+                await RefreshSteeringAsync();
                 await RefreshThroughputAsync();
                 _pollCount++;
 

@@ -336,6 +336,12 @@ public sealed class ApAgentClientCapabilities
 /// </summary>
 public sealed class ApAgentClientLink
 {
+    [JsonPropertyName("vap")]
+    public string? Vap { get; set; }
+
+    [JsonPropertyName("ssid")]
+    public string? Ssid { get; set; }
+
     /// <summary>This link's own station MAC, which differs per link on an MLO client.</summary>
     [JsonPropertyName("mac")]
     public string? Mac { get; set; }

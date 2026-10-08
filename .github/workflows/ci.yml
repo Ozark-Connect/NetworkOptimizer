@@ -52,6 +52,14 @@ jobs:
         working-directory: src/wansteer
         run: go test ./...
 
+      - name: Test AP Agent
+        working-directory: src/apagent
+        run: go test -race ./...
+
+      - name: Build AP Agent (all AP architectures)
+        working-directory: src/apagent
+        run: make build-ap VERSION=ci
+
       - name: Restore dependencies
         run: dotnet restore
 
