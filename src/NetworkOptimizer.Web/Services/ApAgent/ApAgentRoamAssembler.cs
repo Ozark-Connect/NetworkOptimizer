@@ -84,7 +84,7 @@ public sealed class ApAgentRoamAssembler
     /// </summary>
     public static readonly TimeSpan DedupWindow = TimeSpan.FromSeconds(10);
 
-    /// <summary>Beyond this, a client turning up elsewhere is a fresh visit rather than a roam.</summary>
+    /// <summary>Without an observed departure, a later landing beyond this window is a fresh visit.</summary>
     public static readonly TimeSpan RoamMaxGap = TimeSpan.FromMinutes(30);
 
     /// <summary>After an observed disassociation, a join this much later is a rejoin, not a roam.</summary>
@@ -207,9 +207,12 @@ public sealed class ApAgentRoamAssembler
             return open;
         }
 
-        var isRoam = prior != null
-            && at - prior.At <= RoamMaxGap
-            && (prior.LeftAt == null || at - prior.LeftAt.Value <= RejoinGap);
+        // A client can hold an association for hours before roaming. When its departure was
+        // observed, the gap to that departure decides whether this is a transition, not its dwell
+        // on the old AP. Keep the conservative age ceiling when no departure was observed.
+        var isRoam = prior != null && (prior.LeftAt is { } leftAt
+            ? at >= leftAt && at - leftAt <= RejoinGap
+            : at >= prior.At && at - prior.At <= RoamMaxGap);
         var dwell = prior != null ? (at - prior.At).TotalSeconds : (double?)null;
 
         Remember(key, destination, at);
