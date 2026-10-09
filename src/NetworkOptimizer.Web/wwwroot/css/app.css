@@ -1936,6 +1936,10 @@ a.stat-card-link:active {
     background: var(--danger-color);
 }
 
+.status-indicator.status-warning {
+    background: var(--warning-color);
+}
+
 .learning-badge {
     background: var(--info-color);
     color: white;
