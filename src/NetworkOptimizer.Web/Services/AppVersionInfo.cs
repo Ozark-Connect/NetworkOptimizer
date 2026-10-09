@@ -35,7 +35,7 @@ public static class AppVersionInfo
     /// Internet capture) reaches the sites that want it without nagging the rest.
     /// Never lower than <see cref="RequiredAgentVersion"/>.
     /// </summary>
-    public const string LatestAgentVersion = "2.9.0-preview9";
+    public const string LatestAgentVersion = "2.9.3-preview2";
 
     /// <summary>Full informational version (e.g. "1.4.2" or "0.0.0-alpha.0.12").</summary>
     public static string Informational { get; }
