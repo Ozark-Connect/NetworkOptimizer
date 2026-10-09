@@ -90,6 +90,9 @@ public sealed class ApAgentRoamAssembler
     /// <summary>After an observed disassociation, a join this much later is a rejoin, not a roam.</summary>
     public static readonly TimeSpan RejoinGap = TimeSpan.FromSeconds(60);
 
+    /// <summary>AP clocks can put a landing just before the matching departure.</summary>
+    public static readonly TimeSpan ClockSkewTolerance = TimeSpan.FromSeconds(1);
+
     /// <summary>How long a candidate stays open for late observations before it is forgotten.</summary>
     private static readonly TimeSpan CandidateRetention = TimeSpan.FromMinutes(5);
 
@@ -102,6 +105,8 @@ public sealed class ApAgentRoamAssembler
     private readonly Dictionary<string, string> _clientKeyByLinkMac = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Association> _lastAssoc = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ApRoamCandidate> _open = new();
+    private readonly Dictionary<string, PendingLanding> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _latestObservedAt = DateTime.MinValue;
 
     /// <summary>Records one access point's VAP table, which is what resolves an event to a BSSID.</summary>
     public void SetVaps(string apMac, IReadOnlyList<ApAgentVap> vaps)
@@ -143,7 +148,13 @@ public sealed class ApAgentRoamAssembler
     {
         var touched = new List<ApRoamCandidate>();
 
-        foreach (var observed in events.OrderBy(e => e.Event.At).ThenBy(e => e.Event.Seq))
+        var ordered = events.OrderBy(e => e.Event.At).ThenBy(e => e.Event.Seq).ToList();
+        if (ordered.Count > 0)
+            _latestObservedAt = ordered[^1].Event.At > _latestObservedAt
+                ? ordered[^1].Event.At : _latestObservedAt;
+        PrunePending();
+
+        foreach (var observed in ordered)
         {
             var candidate = Observe(observed);
             if (candidate != null && !touched.Contains(candidate)) touched.Add(candidate);
@@ -165,9 +176,10 @@ public sealed class ApAgentRoamAssembler
         switch (e.Type)
         {
             case ApAgentEventTypes.Disassoc:
-                if (_lastAssoc.TryGetValue(key, out var held) && MacEquals(held.ApMac, observer))
+                if (_lastAssoc.TryGetValue(key, out var held)
+                    && MatchesSource(held, observer, e.Vap) && e.At >= held.At)
                     held.LeftAt = e.At;
-                return null;
+                return ConfirmPending(key, observer, e, observed.AfterGap);
 
             case ApAgentEventTypes.Assoc:
             {
@@ -198,29 +210,47 @@ public sealed class ApAgentRoamAssembler
     {
         var prior = _lastAssoc.GetValueOrDefault(key);
 
+        // A late landing report may enrich old evidence, but must not rewind the client's
+        // current location after a quick return or another band change.
+        if (prior != null && at < prior.At)
+        {
+            var old = FindOpen(key, destination, at);
+            if (old != null)
+            {
+                var currentLanding = SameDestination(prior, destination) && prior.At == old.RoamedAt;
+                Merge(old, destination, at, observer, source, afterGap);
+                if (currentLanding) prior.At = old.RoamedAt;
+            }
+            else MergePending(key, destination, at, observer, source, afterGap);
+            return old;
+        }
+
         if (prior != null && SameDestination(prior, destination))
         {
             // The client is where we already believe it is, so this is a second report of a landing
             // we already hold rather than a new one.
             var open = FindOpen(key, destination, at);
             if (open != null) Merge(open, destination, at, observer, source, afterGap);
+            else MergePending(key, destination, at, observer, source, afterGap);
             return open;
         }
 
         // A client can hold an association for hours before roaming. When its departure was
         // observed, the gap to that departure decides whether this is a transition, not its dwell
         // on the old AP. Keep the conservative age ceiling when no departure was observed.
-        var isRoam = prior != null && (prior.LeftAt is { } leftAt
-            ? at >= leftAt && at - leftAt <= RejoinGap
-            : at >= prior.At && at - prior.At <= RoamMaxGap);
+        var isRoam = prior != null && at >= prior.At && (prior.LeftAt is { } leftAt
+            ? IsTransitionGap(at - leftAt)
+            : at - prior.At <= RoamMaxGap);
         var dwell = prior != null ? (at - prior.At).TotalSeconds : (double?)null;
 
         Remember(key, destination, at);
 
-        if (!isRoam || prior == null) return null;
+        if (prior == null) return null;
+        if (!isRoam && (prior.LeftAt != null || at < prior.At || string.IsNullOrEmpty(prior.ApMac)))
+            return null;
 
         var existing = FindOpen(key, destination, at);
-        if (existing != null)
+        if (isRoam && existing != null && prior.At <= existing.RoamedAt)
         {
             Merge(existing, destination, at, observer, source, afterGap);
             return existing;
@@ -244,20 +274,72 @@ public sealed class ApAgentRoamAssembler
             Source = source,
         };
         candidate.Observers.Add(observer);
+        if (!isRoam)
+        {
+            // The source may be long lived and its departure may be read in a later pass.
+            // Retain the source separately from current membership; publish only on confirmation.
+            if (_pending.Count >= MaxTrackedClients && !_pending.ContainsKey(key))
+                foreach (var stale in _pending.OrderBy(p => p.Value.Candidate.RoamedAt)
+                             .Take(MaxTrackedClients / 2).Select(p => p.Key).ToList())
+                    _pending.Remove(stale);
+            _pending[key] = new PendingLanding(prior, candidate);
+            return null;
+        }
         _open.Add(candidate);
         return candidate;
     }
 
+    private static bool IsTransitionGap(TimeSpan gap)
+        => gap >= -ClockSkewTolerance && gap <= RejoinGap;
+
+    private bool MatchesSource(Association held, string observer, string? vapName)
+    {
+        if (!MacEquals(held.ApMac, observer)) return false;
+        var bssid = Normalize(ResolveVap(observer, vapName)?.Bssid);
+        return held.Bssid.Length == 0 || bssid.Length == 0 || MacEquals(held.Bssid, bssid);
+    }
+
+    private void MergePending(string key, Destination destination, DateTime at,
+        string observer, string source, bool afterGap)
+    {
+        if (!_pending.TryGetValue(key, out var pending)
+            || (at - pending.Candidate.RoamedAt).Duration() > DedupWindow
+            || !DestinationMatches(pending.Candidate, destination)) return;
+        var current = _lastAssoc.GetValueOrDefault(key);
+        var currentLanding = current != null && SameDestination(current, destination)
+            && current.At == pending.Candidate.RoamedAt;
+        Merge(pending.Candidate, destination, at, observer, source, afterGap);
+        if (currentLanding) current!.At = pending.Candidate.RoamedAt;
+        pending.Candidate.DwellSeconds = (pending.Candidate.RoamedAt - pending.Prior.At).TotalSeconds;
+    }
+
+    private ApRoamCandidate? ConfirmPending(string key, string observer, ApAgentEvent departure, bool afterGap)
+    {
+        if (!_pending.TryGetValue(key, out var pending)
+            || !MatchesSource(pending.Prior, observer, departure.Vap)
+            || departure.At < pending.Prior.At
+            || !IsTransitionGap(pending.Candidate.RoamedAt - departure.At)) return null;
+
+        _pending.Remove(key);
+        var candidate = pending.Candidate;
+        candidate.AfterEventGap |= afterGap;
+        _open.Add(candidate);
+        // No Remember here: the client may already have returned or moved again.
+        return candidate;
+    }
+
+    private void PrunePending()
+    {
+        foreach (var stale in _pending.Where(p => _latestObservedAt - p.Value.Candidate.RoamedAt > CandidateRetention)
+                     .Select(p => p.Key).ToList())
+            _pending.Remove(stale);
+    }
+
     private ApRoamCandidate? FindOpen(string key, Destination destination, DateTime at)
     {
-        for (var i = _open.Count - 1; i >= 0; i--)
-        {
-            var c = _open[i];
-            if (!string.Equals(c.ClientMac, key, StringComparison.OrdinalIgnoreCase)) continue;
-            if ((at - c.RoamedAt).Duration() > DedupWindow) continue;
-            if (DestinationMatches(c, destination)) return c;
-        }
-        return null;
+        return _open.Where(c => string.Equals(c.ClientMac, key, StringComparison.OrdinalIgnoreCase)
+                && (at - c.RoamedAt).Duration() <= DedupWindow && DestinationMatches(c, destination))
+            .MinBy(c => (at - c.RoamedAt).Duration());
     }
 
     /// <summary>
@@ -287,7 +369,12 @@ public sealed class ApAgentRoamAssembler
 
         // First-hand association outranks gossip, and the earliest report sits closest to the roam.
         if (source == RoamSources.Assoc) candidate.Source = RoamSources.Assoc;
-        if (at < candidate.RoamedAt) candidate.RoamedAt = at;
+        if (at < candidate.RoamedAt)
+        {
+            if (candidate.DwellSeconds is { } dwell)
+                candidate.DwellSeconds = Math.Max(0, dwell - (candidate.RoamedAt - at).TotalSeconds);
+            candidate.RoamedAt = at;
+        }
         candidate.Dirty = true;
     }
 
@@ -313,6 +400,7 @@ public sealed class ApAgentRoamAssembler
 
     private void Prune()
     {
+        PrunePending();
         if (_open.Count == 0) return;
         var newest = _open.Max(c => c.RoamedAt);
         _open.RemoveAll(c => newest - c.RoamedAt > CandidateRetention);
@@ -340,13 +428,15 @@ public sealed class ApAgentRoamAssembler
 
     private sealed record Destination(string? ApMac, string Bssid, string? Band, int? Channel);
 
+    private sealed record PendingLanding(Association Prior, ApRoamCandidate Candidate);
+
     private sealed class Association
     {
         public string? ApMac { get; init; }
         public string Bssid { get; init; } = "";
         public string? Band { get; init; }
         public int? Channel { get; init; }
-        public DateTime At { get; init; }
+        public DateTime At { get; set; }
         public DateTime? LeftAt { get; set; }
     }
 }
