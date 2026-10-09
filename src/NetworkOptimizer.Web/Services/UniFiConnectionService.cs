@@ -816,8 +816,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client.AuthProbeCompleted += HandleAuthProbe;
             _client.ConsoleWentSilent += HandleConsoleWentSilent;
 
-            // Attempt to authenticate
+            // Attempt to authenticate. A Save is never held, but its 429 still holds the reconnects after it.
             var success = await _client.LoginAsync();
+            _loginLimitedUntil = _client.LoginLimitedUntil;
+            _loginLimitBackoff = _client.LoginLimitBackoff;
 
             if (success)
             {
