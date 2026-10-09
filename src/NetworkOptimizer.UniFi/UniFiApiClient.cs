@@ -71,6 +71,33 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>Whether this client's last login was refused because of its password.</summary>
     public bool PasswordRejected => _passwordRejectedAt != DateTime.MinValue;
+
+    /// <summary>
+    /// A 429 on the login is the Console's login attempt limit. It counts every login, correct or not
+    /// (about 5 in a few seconds), sends no Retry-After, and cleared within a minute when left alone.
+    /// The hold doubles from 10 s per consecutive 429 and stops at 60 s, so a connection is never
+    /// left down for long once the limit clears.
+    /// </summary>
+    public static readonly TimeSpan LoginLimitInitialBackoff = TimeSpan.FromSeconds(10);
+
+    /// <summary>The longest hold after consecutive 429s on the login.</summary>
+    public static readonly TimeSpan LoginLimitMaxBackoff = TimeSpan.FromSeconds(60);
+
+    private DateTime _loginLimitedUntil = DateTime.MinValue;
+    private TimeSpan _loginLimitBackoff = TimeSpan.Zero;
+
+    /// <summary>When the login attempt limit next allows a login, or MinValue.</summary>
+    public DateTime LoginLimitedUntil => _loginLimitedUntil;
+
+    /// <summary>The hold set by the last 429 on the login, or zero after a successful login.</summary>
+    public TimeSpan LoginLimitBackoff => _loginLimitBackoff;
+
+    /// <summary>Carries the login attempt limit hold over from the client this one replaces.</summary>
+    public void CarryLoginLimit(DateTime limitedUntil, TimeSpan backoff)
+    {
+        _loginLimitedUntil = limitedUntil;
+        _loginLimitBackoff = backoff;
+    }
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
     private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
@@ -437,6 +464,13 @@ public class UniFiApiClient : IDisposable
                 return false;
             }
 
+            // Each login during the limit is another attempt against it.
+            if (DateTime.UtcNow < _loginLimitedUntil)
+            {
+                _logger.LogDebug("Skipping login to {Url}: login attempt limit, next try at {Until:u}", _controllerUrl, _loginLimitedUntil);
+                return false;
+            }
+
             _logger.LogInformation("Authenticating with UniFi controller at {Url}", _controllerUrl);
 
             // Reset client to clear old cookies
@@ -481,11 +515,20 @@ public class UniFiApiClient : IDisposable
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                     _passwordRejectedAt = DateTime.UtcNow;
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    _loginLimitBackoff = _loginLimitBackoff == TimeSpan.Zero
+                        ? LoginLimitInitialBackoff
+                        : TimeSpan.FromTicks(Math.Min(_loginLimitBackoff.Ticks * 2, LoginLimitMaxBackoff.Ticks));
+                    _loginLimitedUntil = DateTime.UtcNow + _loginLimitBackoff;
+                }
                 AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
 
             _passwordRejectedAt = DateTime.MinValue;
+            _loginLimitedUntil = DateTime.MinValue;
+            _loginLimitBackoff = TimeSpan.Zero;
 
             // Extract CSRF token from response headers
             if (response.Headers.TryGetValues("X-Csrf-Token", out var csrfTokens))
