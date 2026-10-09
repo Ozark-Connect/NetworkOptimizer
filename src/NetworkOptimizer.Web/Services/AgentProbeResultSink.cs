@@ -863,7 +863,8 @@ public class AgentProbeResultSink
                     config.AuthPassword = string.IsNullOrEmpty(settings.SnmpV3AuthPassword)
                         ? ""
                         : _credentialProtection.Decrypt(settings.SnmpV3AuthPassword);
-                    config.Enabled = true;
+                    // A withheld v3 password (View accounts) leaves nothing to authenticate with.
+                    config.Enabled = !string.IsNullOrEmpty(config.AuthPassword);
                 }
                 config.FastIntervalSeconds = Math.Max(2, settings.FastPollIntervalSeconds);
                 config.MediumIntervalSeconds = Math.Max(10, settings.MediumPollIntervalSeconds);
