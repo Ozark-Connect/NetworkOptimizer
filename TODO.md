@@ -1405,9 +1405,15 @@ the uplink returns (#1244). Accepted for now: the UniFi Console is usually down 
 except on UniFi OS Server. The fix is to check uplinks against the full device list, not the
 monitorable subset.
 
-## SNMPv3 password warning: UniFi Network 11 role names
+## UniFi Network 11 role names
 
-The Monitoring - Setup warning for a withheld SNMPv3 password tells the user to give Network
-Optimizer's account "the Site Admin / Full Management role". Network 11 replaces those roles with
-Full, Hotspot, View, and None. Update that copy once Network 11 is GA, and re-test which of the new
-roles get the `x_` secrets in `get/setting` (on Network 10.x only View Only loses them).
+Network 11 replaces the UniFi Network roles with Full, Hotspot, View, and None. Once Network 11 is
+GA, update every place we name a UniFi Network role, and re-test which roles get the `x_` secrets in
+`get/setting` (on Network 10.x only View Only loses them, which withholds the SNMPv3 password).
+
+- `Monitoring.razor`: the SNMPv3 password warning ("View Only", "Site Admin / Full Management")
+- `MonitoringSettings.SnmpV3PasswordMissing` XML doc ("View Only")
+- `Settings.razor`: Local Account role guidance (Network Full / View, Protect View, "Why Full?")
+- `README.md`: Restricted account roles
+- `docker/DEPLOYMENT.md`: Restricted account roles and the View vs Full note
+- `wwwroot/data/tours/2.9.2.json`: Apply Recommended Channels step ("Network: Full", "Site Admin")
