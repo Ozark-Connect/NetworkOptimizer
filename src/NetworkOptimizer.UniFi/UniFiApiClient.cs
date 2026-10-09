@@ -474,8 +474,8 @@ public class UniFiApiClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Login failed with status {StatusCode}: {Error}",
-                    response.StatusCode, errorBody);
+                _logger.LogError("Login failed with status {StatusCode} (Retry-After: {RetryAfter}): {Error}",
+                    response.StatusCode, response.Headers.RetryAfter?.ToString() ?? "none", errorBody);
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
