@@ -361,15 +361,32 @@ public sealed class HealthCheckRunner
         _logger.LogInformation("Health check {Check} on {Device}: value {Value}, running remedy: {Command}",
             check.Name, device.Name, value, command);
 
-        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, device.ToSshTarget(check.DeviceMac), _ssh, ct);
+        var target = device.ToSshTarget(check.DeviceMac);
+        var (ok, output) = await HealthCheckExecutor.RunRemedyAsync(command, target, _ssh, ct);
 
         // A reboot drops the session, which the SSH layer reports as a failure that is not one.
         if (check.Remedy == HealthCheckRemedy.RebootDevice) ok = true;
 
+        // systemctl reports only its own start job. A unit with Restart= retries a failed start on
+        // its own (unifi.service: Restart=always, RestartSec=10), so the unit's state decides.
+        var retried = false;
+        string? unitState = null;
+        if (!ok && check.Remedy == HealthCheckRemedy.RestartService
+            && HealthCheckRemedies.BuildActiveCheckCommand(check.RemedyArg) is { } activeCheck)
+        {
+            var (active, reported) = await HealthCheckExecutor.RunRemedyAsync(activeCheck, target, _ssh, ct);
+            unitState = Trim(reported);
+            ok = retried = active;
+            _logger.LogInformation("Health check {Check} on {Device}: systemctl reported the restart failed; the unit is now {State}",
+                check.Name, device.Name, unitState);
+        }
+
         var did = HealthCheckRemedies.Describe(check.Remedy, check.RemedyArg);
         var detail = ok
             ? $"{check.Name} was {HealthCheckEvaluation.DescribeCondition(check.Operator, check.Threshold)} (read {value:0.##}), so Network Optimizer {did}."
-            : $"{check.Name} was {HealthCheckEvaluation.DescribeCondition(check.Operator, check.Threshold)} (read {value:0.##}). Network Optimizer tried to run \"{command}\" and it failed: {Trim(output)}";
+              + (retried ? " The first start attempt failed, and systemd's automatic retry brought it up." : "")
+            : $"{check.Name} was {HealthCheckEvaluation.DescribeCondition(check.Operator, check.Threshold)} (read {value:0.##}). Network Optimizer tried to run \"{command}\" and it failed: {Trim(output)}"
+              + (unitState != null ? $" systemd reports the service as {unitState}." : "");
 
         _ = _influx.WriteHealthCheckEventAsync(
             check.DeviceMac, MonitoringCollectionAgent.DescribeDeviceType(device.Type), check.Name, check.FieldName,

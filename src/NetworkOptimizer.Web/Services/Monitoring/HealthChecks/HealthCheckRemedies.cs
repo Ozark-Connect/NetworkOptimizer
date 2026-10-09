@@ -53,6 +53,18 @@ public static class HealthCheckRemedies
         }
     }
 
+    /// <summary>
+    /// Waits for a restarted unit to settle, prints its state, and exits 0 only when it is active.
+    /// While systemd retries a failed start (<c>Restart=</c>), the unit reads "activating", so the
+    /// loop waits that out. 80 reads 10 s apart stay inside the remedy's SSH timeout.
+    /// </summary>
+    public static string? BuildActiveCheckCommand(string? unit) =>
+        IsValidArgument(unit)
+            ? "for i in $(seq 1 80); do s=$(systemctl is-active " + unit + "); case \"$s\" in " +
+              "active) echo active; exit 0;; failed|inactive) echo \"$s\"; exit 1;; esac; sleep 10; done; " +
+              "echo \"$s\"; exit 1"
+            : null;
+
     /// <summary>What the remedy did, in one clause for alerts and the event mark.</summary>
     public static string Describe(HealthCheckRemedy remedy, string? arg) => remedy switch
     {
