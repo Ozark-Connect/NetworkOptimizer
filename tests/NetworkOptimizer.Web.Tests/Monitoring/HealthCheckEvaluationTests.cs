@@ -167,6 +167,17 @@ public class HealthCheckRemediesTests
     }
 
     [Fact]
+    public void BuildActiveCheckCommand_waits_out_activating_and_refuses_an_invalid_unit()
+    {
+        HealthCheckRemedies.BuildActiveCheckCommand("unifi; reboot").Should().BeNull();
+
+        var command = HealthCheckRemedies.BuildActiveCheckCommand("unifi");
+        command.Should().Contain("systemctl is-active unifi");
+        command.Should().Contain("active) echo active; exit 0;;");
+        command.Should().Contain("failed|inactive) echo \"$s\"; exit 1;;");
+    }
+
+    [Fact]
     public void RestartService_is_gateway_only()
     {
         HealthCheckRemedies.SupportedOn(HealthCheckRemedy.RestartService, DeviceType.Gateway).Should().BeTrue();
