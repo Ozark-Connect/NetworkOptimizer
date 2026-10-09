@@ -37,6 +37,8 @@
 @inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
+@inject ISystemSettingsAdmin SettingsAdmin
+@inject NetworkOptimizer.Threats.ThreatCollectionService ThreatCollection
 @inject NavigationManager NavigationManager
 @inject ISiteManagementService SiteManagement
 @inject SiteRegistryChangeNotifier SiteChangeNotifier
@@ -3210,6 +3212,84 @@
     </div>
     }
 
+    @* The WAF lives in the main site's NetworkOptimizer-Proxy, so its connection is global. *@
+    @if (SiteContext.IsDefault)
+    {
+    <!-- Web Application Firewall (netopt-waf) -->
+    <div class="card settings-tab-security" id="waf">
+        <div class="card-header">
+            <h2 class="card-title">Web Application Firewall</h2>
+            <div class="card-header-badges">
+                @if (wafEnabled && hasWafToken)
+                {
+                    <span class="status-badge status-active">Enabled</span>
+                }
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Read attacks caught by the WAF in <a href="https://github.com/Ozark-Connect/NetworkOptimizer-Proxy#web-application-firewall-optional" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">NetworkOptimizer-Proxy</a> into Threat Intelligence, next to the gateway's IPS events.
+            </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="wafEnabled" />
+                    <span>Read WAF events</span>
+                </label>
+            </div>
+
+            @if (wafEnabled)
+            {
+                <div class="form-group">
+                    <label class="form-label">WAF URL</label>
+                    <input type="text" class="form-control" @bind="wafUrl" @bind:event="oninput" placeholder="http://127.0.0.1:8044" />
+                    <small class="form-help">Where netopt-waf listens. http://127.0.0.1:8044 when the proxy runs on this host.</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">API Token</label>
+                    <input type="password" class="form-control" @bind="wafToken" @bind:event="oninput" autocomplete="new-password" placeholder="@(hasWafToken ? "Saved - enter new to update" : "WAF_API_TOKEN from the proxy's .env")" data-1p-ignore data-lpignore="true" data-bwignore />
+                </div>
+            }
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-primary" @onclick="SaveWafSettings" disabled="@savingWafSettings">
+                    @if (savingWafSettings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+                @if (wafEnabled && (hasWafToken || !string.IsNullOrEmpty(wafToken)))
+                {
+                    <button class="btn btn-secondary" @onclick="TestWaf" disabled="@testingWaf">
+                        @if (testingWaf)
+                        {
+                            <span class="spinner"></span>
+                            <span>Testing...</span>
+                        }
+                        else
+                        {
+                            <span>Test Connection</span>
+                        }
+                    </button>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(wafMessage))
+            {
+                <div class="alert alert-@wafMessageClass" style="margin-top: 1rem;">
+                    @wafMessage
+                </div>
+            }
+        </div>
+    </div>
+    }
+
     @if (SiteContext.IsDefault)
     {
     <!-- 12. UI / Display Settings -->
@@ -4075,6 +4155,7 @@
         ["threat-intelligence"] = "security",
         ["maxmind"] = "security",
         ["crowdsec"] = "security",
+        ["waf"] = "security",
         ["admin-password"] = "application",
         ["licensing"] = "application",
         ["application-settings"] = "application",
@@ -5341,6 +5422,16 @@
     private string _sharedInfluxOrg = string.Empty;
     private string _siteInfluxPrimaryBucket = string.Empty;
     private string _siteInfluxLongtermBucket = string.Empty;
+
+    // Web Application Firewall (netopt-waf) connection
+    private bool wafEnabled;
+    private string wafUrl = "";
+    private string wafToken = "";
+    private bool hasWafToken;
+    private bool savingWafSettings;
+    private bool testingWaf;
+    private string wafMessage = "";
+    private string wafMessageClass = "";
 
     // CrowdSec Settings
     private bool crowdsecEnabled = false;
@@ -8849,6 +8940,10 @@
 
             var rateLimitState = CrowdSecClient.GetRateLimitState();
             crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/{rateLimitState.DailyLimit}";
+
+            wafEnabled = await SystemSettings.GetGlobalAsync(NetworkOptimizer.Threats.Waf.WafSettingKeys.Enabled) == "true";
+            wafUrl = await SystemSettings.GetGlobalAsync(NetworkOptimizer.Threats.Waf.WafSettingKeys.Url) ?? "";
+            hasWafToken = !string.IsNullOrEmpty(await SystemSettings.GetGlobalAsync(NetworkOptimizer.Threats.Waf.WafSettingKeys.Token));
         }
         catch (Exception ex)
         {
@@ -9048,6 +9143,75 @@
         finally
         {
             savingCrowdsecSettings = false;
+        }
+    }
+
+    private async Task SaveWafSettings()
+    {
+        savingWafSettings = true;
+        wafMessage = "";
+        StateHasChanged();
+        try
+        {
+            var url = wafUrl.Trim();
+            var validUrl = Uri.TryCreate(url, UriKind.Absolute, out var parsed) && parsed.Scheme is "http" or "https";
+            if (wafEnabled && !validUrl)
+            {
+                wafMessage = "Enter the WAF URL as an http:// or https:// address.";
+                wafMessageClass = "warning";
+                return;
+            }
+
+            await SettingsAdmin.SetGlobalAsync(NetworkOptimizer.Threats.Waf.WafSettingKeys.Enabled, wafEnabled ? "true" : "false");
+            await SettingsAdmin.SetGlobalAsync(NetworkOptimizer.Threats.Waf.WafSettingKeys.Url, url);
+            if (!string.IsNullOrEmpty(wafToken))
+            {
+                await SettingsAdmin.SetGlobalAsync(NetworkOptimizer.Threats.Waf.WafSettingKeys.Token, CredentialService.Encrypt(wafToken.Trim()));
+                hasWafToken = true;
+                wafToken = "";
+            }
+            ThreatCollection.TriggerCollection();
+            wafMessage = "WAF settings saved.";
+            wafMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            wafMessage = $"Error saving settings: {ex.Message}";
+            wafMessageClass = "danger";
+        }
+        finally
+        {
+            savingWafSettings = false;
+        }
+    }
+
+    private async Task TestWaf()
+    {
+        testingWaf = true;
+        wafMessage = "";
+        StateHasChanged();
+        try
+        {
+            var token = wafToken.Trim();
+            if (string.IsNullOrEmpty(token))
+            {
+                var stored = await SystemSettings.GetGlobalAsync(NetworkOptimizer.Threats.Waf.WafSettingKeys.Token);
+                token = stored != null && CredentialService.IsEncrypted(stored) ? CredentialService.Decrypt(stored) : stored ?? "";
+            }
+            var client = new NetworkOptimizer.Threats.Waf.WafClient(HttpClientFactory.CreateClient());
+            var page = await client.GetEventsAsync(wafUrl.Trim(), token, 0, CancellationToken.None, limit: 1);
+            var mode = page.Mode == "block" ? "blocking" : "detection only";
+            wafMessage = $"Connected: {mode}, paranoia level {page.Paranoia}, {page.Stats.Inspected:N0} requests inspected since it started.";
+            wafMessageClass = "success";
+        }
+        catch (NetworkOptimizer.Threats.Waf.WafClientException ex)
+        {
+            wafMessage = ex.Message;
+            wafMessageClass = "danger";
+        }
+        finally
+        {
+            testingWaf = false;
         }
     }
 

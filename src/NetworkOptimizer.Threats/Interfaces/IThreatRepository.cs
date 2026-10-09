@@ -88,6 +88,11 @@ public interface IThreatRepository
     /// a duplicate row.
     /// </summary>
     Task PromoteToSystemFilterAsync(int filterId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Totals, top CRS rules, and top hosts for netopt-waf events in the range, noise filters applied.
+    /// </summary>
+    Task<Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to, int top = 5, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

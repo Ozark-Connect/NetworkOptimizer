@@ -28,10 +28,21 @@ public class KillChainClassifier
         if (evt.Severity <= 1)
             return KillChainStage.Monitored;
 
-        return evt.EventSource == EventSource.TrafficFlow
-            ? ClassifyFlow(evt)
-            : ClassifyIps(evt);
+        return evt.EventSource switch
+        {
+            EventSource.TrafficFlow => ClassifyFlow(evt),
+            EventSource.Waf => ClassifyWaf(evt),
+            _ => ClassifyIps(evt)
+        };
     }
+
+    // Category is the CRS attack tag. Scanner fingerprints and protocol violations probe;
+    // everything else is an exploit payload that the app either received or the WAF stopped.
+    private static KillChainStage ClassifyWaf(ThreatEvent evt) => evt.Category.ToLowerInvariant() switch
+    {
+        "attack-reputation-scanner" or "attack-protocol" or "attack-disclosure" => KillChainStage.Reconnaissance,
+        _ => KillChainStage.AttemptedExploitation
+    };
 
     private KillChainStage ClassifyIps(ThreatEvent evt)
     {
