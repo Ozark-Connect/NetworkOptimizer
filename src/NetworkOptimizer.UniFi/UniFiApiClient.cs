@@ -60,7 +60,7 @@ public class UniFiApiClient : IDisposable
     private DateTime _lastApiKeyRevalidationAttempt = DateTime.MinValue;
     private static readonly TimeSpan ApiKeyRevalidationInterval = TimeSpan.FromSeconds(60);
 
-    /// <summary>When the Console last refused this client's login (401/403, or 429 for its failed-login limit), or MinValue.</summary>
+    /// <summary>When the Console last rejected this client's password (401/403 on the login), or MinValue.</summary>
     private DateTime _passwordRejectedAt = DateTime.MinValue;
 
     /// <summary>
@@ -479,10 +479,7 @@ public class UniFiApiClient : IDisposable
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
-                // A 429 here is the Console's failed-login limit. Each attempt during it keeps the limit
-                // in force, so it waits out the same interval as a rejected password.
-                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-                    or HttpStatusCode.TooManyRequests)
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                     _passwordRejectedAt = DateTime.UtcNow;
                 AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
