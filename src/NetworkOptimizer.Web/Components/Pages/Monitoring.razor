@@ -1589,7 +1589,7 @@
                             <p>Devices without SNMP enabled will not report port-level traffic or health metrics.</p>
 
                             <h4>Recommended configuration</h4>
-                            <p><strong>SNMP v1/v2c</strong> with a unique Community String is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
+                            <p><strong>SNMP v1/v2c</strong> with a unique Community String on a <strong>management VLAN</strong> is recommended unless compliance (PCI, HIPAA) requires an encrypted management plane. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices.</p>
                         </div>
                     </details>
 
