@@ -2032,6 +2032,10 @@ public class IspHealthScorer
             .Select(s => (Series: s, Mad: RttMadOf(s.Samples)))
             .ToList();
 
+        // This WAN's traced ISP hops. A witness whose ancestry holds any of them left through this
+        // WAN's ISP, so it crossed the WAN's L2 neighbor first.
+        var tracedIspHopIps = ispHopSeries.Where(s => !s.IsL2Neighbor).SelectMany(s => s.HopIps).ToList();
+
         var grades = new List<IspAsnHealth>();
         foreach (var asnGroup in ispHopSeries.GroupBy(s => s.AsnNumber))
         {
@@ -2046,19 +2050,29 @@ public class IspHealthScorer
             foreach (var hop in hops)
             {
                 var measured = ScoringJitterOf(hop.Samples);
+                // The L2 neighbor is on no trace, so no witness can list it as an ancestor. It is
+                // crossed by any witness proven to leave through this WAN's ISP, and by every
+                // other ISP hop on this WAN.
+                bool Crosses(List<string> ancestors) =>
+                    RoutesThrough(ancestors, hop.HopIps)
+                    || (hop.IsL2Neighbor && RoutesThrough(ancestors, tracedIspHopIps));
+                bool SiblingCrosses(AsnSeries sibling) =>
+                    hop.IsL2Neighbor
+                        ? !sibling.IsL2Neighbor
+                        : hopOrderKnown && RoutesThrough(sibling.AncestorIps, hop.HopIps);
+
                 // Transit is always downstream of the ISP: with ancestor data we require a
                 // proven routes-through (this hop is in the transit's ancestor set), without
                 // it the gate is open. ISP siblings are strict either way - a sibling absolves
                 // only a hop in its ancestor set, never on faith.
                 var witnesses = transitWitnesses
-                    .Where(w => !hopOrderKnown || RoutesThrough(w.Ancestors, hop.HopIps))
+                    .Where(w => !hopOrderKnown || Crosses(w.Ancestors))
                     .Select(w => w.Jitter)
                     .Concat(ispHopJitter
-                        .Where(h => hopOrderKnown && !ReferenceEquals(h.Series, hop) && h.Jitter.HasValue
-                            && RoutesThrough(h.Series.AncestorIps, hop.HopIps))
+                        .Where(h => !ReferenceEquals(h.Series, hop) && h.Jitter.HasValue && SiblingCrosses(h.Series))
                         .Select(h => h.Jitter!.Value))
                     .Concat(destinationWitnesses
-                        .Where(w => hopOrderKnown && RoutesThrough(w.AncestorIps, hop.HopIps))
+                        .Where(w => hopOrderKnown && Crosses(w.AncestorIps))
                         .Select(w => w.Jitter))
                     .ToList();
                 double? effective = measured;
@@ -2067,14 +2081,13 @@ public class IspHealthScorer
 
                 // Same routes-through gate, in absolute RTT MAD, for the hop's stability.
                 var stabWitnesses = transitMadWitnesses
-                    .Where(w => !hopOrderKnown || RoutesThrough(w.Ancestors, hop.HopIps))
+                    .Where(w => !hopOrderKnown || Crosses(w.Ancestors))
                     .Select(w => w.Mad)
                     .Concat(ispHopMad
-                        .Where(h => hopOrderKnown && !ReferenceEquals(h.Series, hop) && h.Mad.HasValue
-                            && RoutesThrough(h.Series.AncestorIps, hop.HopIps))
+                        .Where(h => !ReferenceEquals(h.Series, hop) && h.Mad.HasValue && SiblingCrosses(h.Series))
                         .Select(h => h.Mad!.Value))
                     .Concat(destinationMadWitnesses
-                        .Where(w => hopOrderKnown && RoutesThrough(w.AncestorIps, hop.HopIps))
+                        .Where(w => hopOrderKnown && Crosses(w.AncestorIps))
                         .Select(w => w.Mad))
                     .ToList();
                 double? stabOverride = stabWitnesses.Count > 0 ? stabWitnesses.Min() : (double?)null;

@@ -2593,6 +2593,7 @@ public class IspHealthService
                 TargetIds = series.TargetIds,
                 Samples = series.Samples.Where(s => !windows.Any(w => s.Time >= w.Start && s.Time <= w.End)).ToList(),
                 NearestClusterMeanRttMs = series.NearestClusterMeanRttMs,
+                IsL2Neighbor = series.IsL2Neighbor,
             };
         }).ToList();
     }
@@ -2646,7 +2647,8 @@ public class IspHealthService
                     Samples = ispSeries[t.TargetId],
                     RoleTargetIds = { t.TargetId },
                     HopIps = { t.Address },
-                    AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : new List<string>()
+                    AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : new List<string>(),
+                    IsL2Neighbor = t.DiscoveryMethod == DiscoveryMethod.L2Neighbor
                 };
             })
             .ToList();

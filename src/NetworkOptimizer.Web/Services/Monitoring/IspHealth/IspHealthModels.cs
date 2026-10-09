@@ -739,6 +739,12 @@ public class AsnSeries
     /// <summary>True for an internet/CDN destination series (DB TargetType InternetService).
     /// Carried onto path-shift events so correlation can prefer an on-path hop as the label.</summary>
     public bool IsDestination { get; init; }
+
+    /// <summary>
+    /// True for the gateway's WAN-side L2 neighbor (found in its ARP table, not on a trace). Every
+    /// packet out this WAN crosses it, so its absent ancestry does not mean nothing routes through it.
+    /// </summary>
+    public bool IsL2Neighbor { get; init; }
 }
 
 /// <summary>
