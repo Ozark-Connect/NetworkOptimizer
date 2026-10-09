@@ -180,4 +180,11 @@ public class MonitoringSettings
         SnmpDetectionState == SnmpDetectionState.EnabledV3Only
         && !string.IsNullOrEmpty(SnmpV3Username)
         && string.IsNullOrEmpty(SnmpV3AuthPassword);
+
+    /// <summary>
+    /// SNMP v2c is on but the console returned no Community String. UniFi Network 11 withholds it from View accounts.
+    /// </summary>
+    public bool SnmpCommunityMissing =>
+        SnmpDetectionState == SnmpDetectionState.EnabledV2c
+        && string.IsNullOrEmpty(SnmpCommunity);
 }

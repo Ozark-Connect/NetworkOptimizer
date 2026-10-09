@@ -41,6 +41,8 @@ public class SnmpDetectionResult
             if (!SnmpEnabled && !SnmpV3Enabled) return SnmpDetectionState.Disabled;
             if (SnmpEnabled && !string.IsNullOrEmpty(Community)) return SnmpDetectionState.EnabledV2c;
             if (SnmpV3Enabled) return SnmpDetectionState.EnabledV3Only;
+            // v2c on with no community: UniFi Network 11 withholds it from View accounts. Not Disabled.
+            if (SnmpEnabled) return SnmpDetectionState.EnabledV2c;
             return SnmpDetectionState.Disabled;
         }
     }
@@ -232,7 +234,9 @@ public class SnmpDetectionService
         if (result.DetectionState == SnmpDetectionState.EnabledV2c)
         {
             settings.SnmpVersion = SnmpVersionSetting.V2c;
-            settings.SnmpCommunity = credentialProtection.EncryptForSite(result.Community!, siteSlug);
+            settings.SnmpCommunity = !string.IsNullOrEmpty(result.Community)
+                ? credentialProtection.EncryptForSite(result.Community, siteSlug)
+                : null;
             if (!string.IsNullOrEmpty(result.V3Username))
             {
                 settings.SnmpV3Username = result.V3Username;
