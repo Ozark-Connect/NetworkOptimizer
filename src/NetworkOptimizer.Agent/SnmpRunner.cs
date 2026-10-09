@@ -349,6 +349,8 @@ public sealed class SnmpRunner
             _pollerKey = "";
             return null;
         }
+        // New credentials: failures and exclusions earned under the old ones say nothing about these.
+        if (key != _pollerKey) _failures.Reset();
         _rejectedKey = "";
         _pollerKey = key;
         return _poller;
