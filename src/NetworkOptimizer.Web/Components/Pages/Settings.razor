@@ -936,6 +936,10 @@
                 <div class="form-value">
                     @switch (_monitoringSettings?.SnmpDetectionState)
                     {
+                        case SnmpDetectionState.EnabledV2c when _monitoringSettings.SnmpCommunityMissing:
+                            <span class="status-indicator status-warning"></span>
+                            <span>Configured (v2c), Community String not returned</span>
+                            break;
                         case SnmpDetectionState.EnabledV2c:
                             <span class="status-indicator status-active"></span>
                             <span>Configured (v2c)</span>
@@ -9457,15 +9461,17 @@
                 await SnmpDetection.SaveDetectionResultAsync(result);
                 await LoadMonitoringSettings();
                 var v3PasswordMissing = _monitoringSettings?.SnmpV3PasswordMissing == true;
+                var communityMissing = _monitoringSettings?.SnmpCommunityMissing == true;
                 _monitoringMessage = _monitoringSettings?.SnmpDetectionState switch
                 {
+                    SnmpDetectionState.EnabledV2c when communityMissing => "SNMP v2c detected, but the UniFi Console didn't return its Community String. See Monitoring - Setup.",
                     SnmpDetectionState.EnabledV2c => "SNMP v2c detected and saved.",
                     SnmpDetectionState.EnabledV3Only when v3PasswordMissing => "SNMPv3 detected, but the UniFi Console didn't return its password. See Monitoring - Setup.",
                     SnmpDetectionState.EnabledV3Only => "SNMPv3 detected and saved.",
                     SnmpDetectionState.Disabled => "SNMP is not enabled on your UniFi Console.",
                     _ => "SNMP detection complete."
                 };
-                _monitoringMessageClass = v3PasswordMissing ? "warning" : "success";
+                _monitoringMessageClass = v3PasswordMissing || communityMissing ? "warning" : "success";
             }
             else
             {
