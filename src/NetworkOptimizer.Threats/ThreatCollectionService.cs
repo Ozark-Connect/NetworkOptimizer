@@ -385,11 +385,17 @@ public class ThreatCollectionService : BackgroundService
             noiseFilters = [];
         }
 
+        // Pattern and chain queries below see filtered events only, so a filtered source
+        // can never assemble an alert from its suppressed traffic.
+        repository.SetNoiseFilters(noiseFilters);
+        var sources = new AlertSourceDescriber(events, () => _uniFiClientAccessor.GetClient(siteKey));
+
         // Pattern analysis on recent data
         try
         {
             var recentEvents = await repository.GetEventsAsync(
                 DateTime.UtcNow.AddHours(-6), DateTime.UtcNow, limit: 5000, cancellationToken: cancellationToken);
+            sources.AddEvents(recentEvents);
             var patterns = _patternAnalyzer.DetectPatterns(recentEvents);
             foreach (var pattern in patterns)
                 await repository.SavePatternAsync(pattern, cancellationToken);
@@ -535,7 +541,8 @@ public class ThreatCollectionService : BackgroundService
 
                 // 2-stage chains ending in Monitored are likely normal admin/scanning traffic
                 var isLowConfidence = seq.Stages.Count == 2 && lastStage == KillChainStage.Monitored;
-                var message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} kill chain stages with {totalEvents} events";
+                var source = await sources.DescribeAsync(seq.SourceIp, seq.CountryCode, seq.AsnOrg, cancellationToken);
+                var message = $"{source.Text} progressed through {seq.Stages.Count} kill chain stages with {totalEvents} events";
                 if (isLowConfidence)
                     message += ". Note: 2-stage chains ending in Monitored may be typical administration or scanning traffic rather than a real attack.";
 
@@ -549,14 +556,12 @@ public class ThreatCollectionService : BackgroundService
                     Message = message,
                     DeviceIp = seq.SourceIp,
                     SourceUrl = "/threats",
-                    Context = new Dictionary<string, string>
+                    Context = source.WithContext(new Dictionary<string, string>
                     {
                         ["stages"] = stageNames,
                         ["stage_count"] = seq.Stages.Count.ToString(),
-                        ["total_events"] = totalEvents.ToString(),
-                        ["country"] = seq.CountryCode ?? "unknown",
-                        ["asn"] = seq.AsnOrg ?? "unknown"
-                    }
+                        ["total_events"] = totalEvents.ToString()
+                    })
                 }, cancellationToken);
 
                 _logger.LogInformation("Attack chain detected: {Ip} ({Country}) - {Stages}",
@@ -601,6 +606,7 @@ public class ThreatCollectionService : BackgroundService
                 stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
+                var source = await sources.DescribeAsync(seq.SourceIp, seq.CountryCode, seq.AsnOrg, cancellationToken);
 
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
@@ -609,18 +615,16 @@ public class ThreatCollectionService : BackgroundService
                     SiteSlug = alertSiteSlug,
                     Severity = AlertSeverity.Info,
                     Title = $"Early-stage attack chain: {stageNames}",
-                    Message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} early kill chain stages with {totalEvents} events. " +
+                    Message = $"{source.Text} progressed through {seq.Stages.Count} early kill chain stages with {totalEvents} events. " +
                               "This may indicate a blocked attack or reconnaissance activity that did not reach exploitation.",
                     DeviceIp = seq.SourceIp,
                     SourceUrl = "/threats",
-                    Context = new Dictionary<string, string>
+                    Context = source.WithContext(new Dictionary<string, string>
                     {
                         ["stages"] = stageNames,
                         ["stage_count"] = seq.Stages.Count.ToString(),
-                        ["total_events"] = totalEvents.ToString(),
-                        ["country"] = seq.CountryCode ?? "unknown",
-                        ["asn"] = seq.AsnOrg ?? "unknown"
-                    }
+                        ["total_events"] = totalEvents.ToString()
+                    })
                 }, cancellationToken);
 
                 _logger.LogDebug("Early-stage attack chain detected: {Ip} ({Country}) - {Stages}",
@@ -650,6 +654,7 @@ public class ThreatCollectionService : BackgroundService
                 var eventType = evt.EventSource == Models.EventSource.TrafficFlow
                     ? "threats.traffic_flow" : "threats.ips_event";
                 var titlePrefix = evt.EventSource == Models.EventSource.TrafficFlow ? "Flow" : "IPS";
+                var source = await sources.DescribeAsync(evt.SourceIp, evt.CountryCode, evt.AsnOrg, cancellationToken);
 
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
@@ -658,16 +663,15 @@ public class ThreatCollectionService : BackgroundService
                     SiteSlug = alertSiteSlug,
                     Severity = evt.Severity >= 5 ? AlertSeverity.Critical : AlertSeverity.Error,
                     Title = $"{titlePrefix}: {evt.SignatureName}",
-                    Message = $"{evt.Action} {evt.Protocol} from {evt.SourceIp}:{evt.SourcePort} to {evt.DestIp}:{evt.DestPort} - {evt.Category}",
+                    Message = $"{evt.Action} {evt.Protocol} from {evt.SourceIp}:{evt.SourcePort}{source.InternalSuffix} to {evt.DestIp}:{evt.DestPort} - {evt.Category}",
                     DeviceIp = evt.SourceIp,
                     SourceUrl = "/threats",
-                    Context = new Dictionary<string, string>
+                    Context = source.WithContext(new Dictionary<string, string>
                     {
                         ["signature_id"] = evt.SignatureId.ToString(),
                         ["category"] = evt.Category,
-                        ["kill_chain_stage"] = evt.KillChainStage.ToDisplayString(),
-                        ["country"] = evt.CountryCode ?? "unknown"
-                    }
+                        ["kill_chain_stage"] = evt.KillChainStage.ToDisplayString()
+                    })
                 }, cancellationToken);
             }
             catch (Exception ex)

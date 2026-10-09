@@ -90,6 +90,13 @@ public class KillChainClassifier
         if (isIncoming && isBlocked)
             return KillChainStage.Reconnaissance;
 
+        // Low-risk egress from an internal host is a policy hit, not reconnaissance. Signed IPS
+        // flows and medium/high risk keep their stage: those can be a blocked call home.
+        var isLocal = "local".Equals(evt.Direction, StringComparison.OrdinalIgnoreCase);
+        var isLowRisk = "low".Equals(evt.RiskLevel, StringComparison.OrdinalIgnoreCase);
+        if ((isOutgoing || isLocal) && isLowRisk && evt.SignatureId == 0 && evt.Severity <= 2)
+            return KillChainStage.Monitored;
+
         // Default: classify by severity
         if (evt.Severity >= 4 && !isBlocked)
             return KillChainStage.ActiveExploitation;
