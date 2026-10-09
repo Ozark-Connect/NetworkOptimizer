@@ -1688,7 +1688,9 @@
                 <div class="alert alert-info" style="margin-bottom: 1.5rem;">
                     <strong>SNMPv3 detected.</strong>
                     Consider switching to v1/v2c - the per-packet crypto adds CPU load to your network devices. The recommended security posture is a management VLAN, not v3 encryption.
-                    <button class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+                    <div style="margin-top: 0.75rem;">
+                        <button class="btn btn-sm btn-contrast" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+                    </div>
                 </div>
             }
 
