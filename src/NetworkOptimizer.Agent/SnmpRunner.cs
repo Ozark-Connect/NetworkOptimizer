@@ -330,6 +330,8 @@ public sealed class SnmpRunner
             cfg.Version = SnmpVersion.V3;
             cfg.Username = config.Username;
             cfg.AuthenticationPassword = config.AuthPassword;
+            // UniFi's v3 user is authPriv, SHA and AES, both keyed by the one password it shows.
+            cfg.PrivacyPassword = config.AuthPassword;
         }
 
         // Both poll loops call this outside their per-device catch, so a throw here would end

@@ -170,6 +170,8 @@ public static class SnmpEndpoints
                 cfg.AuthenticationPassword = string.IsNullOrEmpty(settings.SnmpV3AuthPassword)
                     ? string.Empty
                     : credentialProtection.Decrypt(settings.SnmpV3AuthPassword);
+                // UniFi's v3 user is authPriv, SHA and AES, both keyed by the one password it shows.
+                cfg.PrivacyPassword = cfg.AuthenticationPassword;
                 if (string.IsNullOrEmpty(cfg.Username)) return null;
             }
             return new SnmpPoller(cfg, loggerFactory.CreateLogger<SnmpPoller>());
