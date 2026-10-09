@@ -11,6 +11,7 @@ using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
+using NetworkOptimizer.Threats.Waf;
 
 namespace NetworkOptimizer.Threats;
 
@@ -40,6 +41,9 @@ public class ThreatCollectionService : BackgroundService
     // must be keyed by site or the dashboard shows whichever site the loop touched last.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _collectedSites = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset?> _backfillCursorBySite = new();
+
+    // netopt-waf as of the last poll; only the default site reads a WAF.
+    private volatile WafStatus? _wafStatus;
 
     // Geo database staleness check (24h cooldown to avoid checking every cycle)
     private DateTimeOffset _lastGeoCheck = DateTimeOffset.MinValue;
@@ -115,6 +119,12 @@ public class ThreatCollectionService : BackgroundService
     /// </summary>
     public DateTimeOffset? BackfillCursorFor(string? siteSlug) =>
         _backfillCursorBySite.TryGetValue(NormalizeSite(siteSlug), out var cursor) ? cursor : null;
+
+    /// <summary>
+    /// netopt-waf as of the last poll, or null when no WAF is configured.
+    /// Only the default site reads a WAF; other sites always get null.
+    /// </summary>
+    public WafStatus? WafStatusFor(string? siteSlug) => NormalizeSite(siteSlug).Length == 0 ? _wafStatus : null;
 
     /// <summary>
     /// Collapses the default site's various identifiers (null, empty, and the configured default
@@ -210,6 +220,10 @@ public class ThreatCollectionService : BackgroundService
             _logger.LogDebug("Threat collection disabled for site {Site}", siteKey ?? "main");
             return;
         }
+
+        // The WAF sits beside the default site's proxy and does not need the console.
+        if (NormalizeSite(siteKey).Length == 0)
+            await CollectWafAsync(repository, settings, siteKey, cancellationToken);
 
         var apiClient = _uniFiClientAccessor.GetClient(siteKey);
         if (apiClient == null)
@@ -651,9 +665,12 @@ public class ThreatCollectionService : BackgroundService
 
             try
             {
-                var eventType = evt.EventSource == Models.EventSource.TrafficFlow
-                    ? "threats.traffic_flow" : "threats.ips_event";
-                var titlePrefix = evt.EventSource == Models.EventSource.TrafficFlow ? "Flow" : "IPS";
+                var (eventType, titlePrefix) = evt.EventSource switch
+                {
+                    Models.EventSource.TrafficFlow => ("threats.traffic_flow", "Flow"),
+                    Models.EventSource.Waf => ("threats.waf_event", "WAF"),
+                    _ => ("threats.ips_event", "IPS")
+                };
                 var source = await sources.DescribeAsync(evt.SourceIp, evt.CountryCode, evt.AsnOrg, cancellationToken);
 
                 await _alertEventBus.PublishAsync(new AlertEvent
@@ -827,6 +844,61 @@ public class ThreatCollectionService : BackgroundService
         var retention = await settings.GetSettingAsync("threats.retention_days", ct);
         if (retention != null && int.TryParse(retention, out var days) && days >= 1)
             _retentionDays = days;
+    }
+
+    /// <summary>
+    /// Reads new events from netopt-waf and feeds them through the same enrichment, pattern,
+    /// and alert path as IPS events. The cursor is per WAF instance: a restarted WAF starts over.
+    /// </summary>
+    private async Task CollectWafAsync(IThreatRepository repository, IThreatSettingsAccessor settings,
+        string? siteKey, CancellationToken cancellationToken)
+    {
+        var enabled = await settings.GetSettingAsync(WafSettingKeys.Enabled, cancellationToken);
+        var url = await settings.GetSettingAsync(WafSettingKeys.Url, cancellationToken);
+        var token = await settings.GetDecryptedSettingAsync(WafSettingKeys.Token, cancellationToken);
+        if (enabled != "true" || string.IsNullOrWhiteSpace(url) || string.IsNullOrEmpty(token))
+        {
+            _wafStatus = null;
+            return;
+        }
+
+        var (instance, since) = ParseWafCursor(await settings.GetSettingAsync(WafSettingKeys.Cursor, cancellationToken));
+        var client = new WafClient(_httpClientFactory.CreateClient());
+        try
+        {
+            // A few pages per cycle; a backlog drains over the next cycles.
+            for (var pageNo = 0; pageNo < 10; pageNo++)
+            {
+                var page = await client.GetEventsAsync(url, token, since, cancellationToken);
+                if (page.Instance != instance && since != 0)
+                {
+                    instance = page.Instance;
+                    since = 0;
+                    continue;
+                }
+                instance = page.Instance;
+
+                var events = _normalizer.NormalizeWafEvents(page);
+                await ProcessAndSaveAsync(events, repository, settings, siteKey, cancellationToken);
+                since = page.Next;
+                await settings.SaveSettingAsync(WafSettingKeys.Cursor, $"{instance}:{since}", cancellationToken);
+                _wafStatus = new WafStatus(DateTimeOffset.UtcNow, page.Mode, page.Paranoia, page.Started, page.Stats, null);
+
+                if (page.Events.Count < WafClient.PageSize) break;
+            }
+        }
+        catch (WafClientException ex)
+        {
+            _wafStatus = new WafStatus(DateTimeOffset.UtcNow, _wafStatus?.Mode, _wafStatus?.Paranoia ?? 0,
+                _wafStatus?.Started, _wafStatus?.Stats, ex.Message);
+            _logger.LogDebug("WAF poll failed: {Message}", ex.Message);
+        }
+    }
+
+    internal static (string Instance, ulong Since) ParseWafCursor(string? raw)
+    {
+        var parts = (raw ?? "").Split(':', 2);
+        return parts.Length == 2 && ulong.TryParse(parts[1], out var since) ? (parts[0], since) : ("", 0);
     }
 
     /// <summary>

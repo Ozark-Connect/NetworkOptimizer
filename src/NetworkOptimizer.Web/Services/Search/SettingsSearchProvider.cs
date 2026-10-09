@@ -287,6 +287,12 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["cti api key", "daily quota", "reputation database", "enrichment", "community threat intelligence",
              "source ip lookup", "usage today"], Reach.DefaultSite),
 
+        Entry("security", "Security & Alerts", "waf",
+            "Web Application Firewall",
+            ["WAF", "Coraza", "OWASP CRS"],
+            ["netopt-waf", "networkoptimizer-proxy", "waf url", "api token", "web attacks", "sql injection",
+             "test connection"], Reach.DefaultSite),
+
         Entry("application", "Application", "admin-password",
             "Admin Password",
             ["app password", "application password", "passwords", "change password"],
