@@ -940,6 +940,10 @@
                             <span class="status-indicator status-active"></span>
                             <span>Configured (v2c)</span>
                             break;
+                        case SnmpDetectionState.EnabledV3Only when _monitoringSettings.SnmpV3PasswordMissing:
+                            <span class="status-indicator status-warning"></span>
+                            <span>Configured (v3), password not returned</span>
+                            break;
                         case SnmpDetectionState.EnabledV3Only:
                             <span class="status-indicator status-active"></span>
                             <span>Configured (v3)</span>
@@ -9452,14 +9456,16 @@
             {
                 await SnmpDetection.SaveDetectionResultAsync(result);
                 await LoadMonitoringSettings();
+                var v3PasswordMissing = _monitoringSettings?.SnmpV3PasswordMissing == true;
                 _monitoringMessage = _monitoringSettings?.SnmpDetectionState switch
                 {
                     SnmpDetectionState.EnabledV2c => "SNMP v2c detected and saved.",
+                    SnmpDetectionState.EnabledV3Only when v3PasswordMissing => "SNMPv3 detected, but the UniFi Console didn't return its password. See Monitoring - Setup.",
                     SnmpDetectionState.EnabledV3Only => "SNMPv3 detected and saved.",
                     SnmpDetectionState.Disabled => "SNMP is not enabled on your UniFi Console.",
                     _ => "SNMP detection complete."
                 };
-                _monitoringMessageClass = "success";
+                _monitoringMessageClass = v3PasswordMissing ? "warning" : "success";
             }
             else
             {

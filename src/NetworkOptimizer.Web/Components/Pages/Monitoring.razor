@@ -159,22 +159,27 @@
         @* Too-long community shows even when the gateway is still polling - gateways
            often tolerate a long Community String while the switches silently drop. *@
         var unpolledKeyDevices = GetUnpolledKeyDevices();
-        if (unpolledKeyDevices.Count > 0 || CommunityTooLong)
+        var v3PasswordMissing = _snmpV3PasswordMissing && _snmpState == SnmpDetectionState.EnabledV3Only;
+        if (unpolledKeyDevices.Count > 0 || CommunityTooLong || v3PasswordMissing)
         {
+            @* Keep the gateway-down specifics when a console-side cause is known - only the
+               device-table pointer is useless then, not the who's-affected detail. *@
+            var prefix = unpolledKeyDevices.Count == 1
+                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
+                : unpolledKeyDevices.Count > 1
+                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
+                    : "The ";
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
                 <div class="banner-content">
                     <span class="banner-icon banner-icon-warning">!</span>
                     <div class="banner-text" style="flex: 1;">
                         @if (CommunityTooLong)
                         {
-                            @* Keep the gateway-down specifics when both conditions hold - only the
-                               device-table pointer is useless here, not the who's-affected detail. *@
-                            var prefix = unpolledKeyDevices.Count == 1
-                                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
-                                : unpolledKeyDevices.Count > 1
-                                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
-                                    : "The ";
                             @($"{prefix}SNMP Community String is too long. UniFi devices only reliably support 20 characters; shorten it in UniFi Network.")
+                        }
+                        else if (v3PasswordMissing)
+                        {
+                            @($"{prefix}UniFi Console isn't returning the SNMPv3 password to Network Optimizer's account.")
                         }
                         else if (unpolledKeyDevices.Count == 1)
                         {
@@ -187,7 +192,11 @@
                         }
                     </div>
                     <div class="banner-actions">
-                        @if (!CommunityTooLong)
+                        @if (v3PasswordMissing && !CommunityTooLong)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick='() => SetActiveTab("setup")'>Open Setup</button>
+                        }
+                        else if (!CommunityTooLong)
                         {
                             <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
                         }
@@ -1635,7 +1644,25 @@
                 </div>
             }
 
-            @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
+            @if (_snmpV3PasswordMissing && _snmpState == SnmpDetectionState.EnabledV3Only)
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+                    <strong>SNMPv3 password not returned.</strong>
+                    The UniFi Console sent the SNMPv3 username but withheld its password, which it does for View Only accounts.
+                    Give Network Optimizer's local account the Site Admin / Full Management role in UniFi, or switch to an API Key in Settings - Connection
+                    (limits Firmware Rollout).
+                    Enabling SNMP v1/v2c instead also fixes it, and is the recommended setup to reduce Network Device load.
+                    <div style="margin-top: 0.75rem;">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            else if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
             {
                 <div class="alert alert-info" style="margin-bottom: 1.5rem;">
                     <strong>SNMPv3 detected.</strong>
@@ -1925,6 +1952,7 @@
     private SnmpDetectionState _snmpState = SnmpDetectionState.NotChecked;
     private bool _detecting;
     private bool _showV3Recommendation = true;
+    private bool _snmpV3PasswordMissing;
     private string? _detectionError;
     private bool _snmpCommunityTooLong;
     private int _snmpCommunityLength;
@@ -3117,6 +3145,7 @@
 
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
+        _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
         await RefreshInfluxStateAsync(settings);
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
@@ -3241,6 +3270,8 @@
             {
                 _snmpState = settings.SnmpDetectionState;
             }
+            if (!_detecting && _detectionError == null)
+                _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
 
             await LoadSiteAgentAsync();
         }
@@ -3559,6 +3590,7 @@
             await SnmpDetection.SaveDetectionResultAsync(result);
             var settings = await SnmpDetection.GetOrCreateSettingsAsync();
             _snmpState = settings.SnmpDetectionState;
+            _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
             _snmpCommunityTooLong = result.CommunityTooLong;
             _snmpCommunityLength = result.Community?.Length ?? 0;
             // Fresh console read beats the agent's cached self-heal sighting - otherwise a

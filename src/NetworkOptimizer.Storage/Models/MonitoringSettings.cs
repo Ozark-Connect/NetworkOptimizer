@@ -171,4 +171,13 @@ public class MonitoringSettings
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public bool HasSnmpCredentials => !string.IsNullOrEmpty(SnmpCommunity) || !string.IsNullOrEmpty(SnmpV3Username);
+
+    /// <summary>
+    /// SNMPv3 is the only version on the console and it returned the username without the password.
+    /// UniFi strips <c>x_</c> secrets from the settings response for View Only accounts, so v3 polling cannot authenticate.
+    /// </summary>
+    public bool SnmpV3PasswordMissing =>
+        SnmpDetectionState == SnmpDetectionState.EnabledV3Only
+        && !string.IsNullOrEmpty(SnmpV3Username)
+        && string.IsNullOrEmpty(SnmpV3AuthPassword);
 }
