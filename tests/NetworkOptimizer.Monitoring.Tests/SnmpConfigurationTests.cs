@@ -365,6 +365,23 @@ public class SnmpConfigurationTests
     }
 
     [Fact]
+    public void Validate_V3_UniFiShape_SameAuthAndPrivacyPassword_DoesNotThrow()
+    {
+        // UniFi's v3 user: SHA and AES (the defaults), both keyed by its one password
+        var config = new SnmpConfiguration
+        {
+            Version = SnmpVersion.V3,
+            Username = "testuser",
+            AuthenticationPassword = "authpass",
+            PrivacyPassword = "authpass"
+        };
+
+        var act = () => config.Validate();
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void Validate_V3_WithNoAuthProtocol_DoesNotRequireAuthPassword()
     {
         // Arrange
