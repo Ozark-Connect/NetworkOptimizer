@@ -894,6 +894,44 @@ public class ThreatRepository : IThreatRepository
 
     #endregion
 
+    #region WAF
+
+    public async Task<NetworkOptimizer.Threats.Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to,
+        int top = 5, CancellationToken cancellationToken = default)
+    {
+        var waf = BaseQuery(from, to).Where(e => e.EventSource == EventSource.Waf);
+        var counts = await waf
+            .GroupBy(e => e.Action)
+            .Select(g => new { Action = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var rules = await waf
+            .GroupBy(e => new { e.SignatureId, e.SignatureName })
+            .Select(g => new { g.Key.SignatureId, g.Key.SignatureName, Count = g.Count() })
+            .OrderByDescending(r => r.Count)
+            .Take(top)
+            .ToListAsync(cancellationToken);
+        var hosts = await waf
+            .Where(e => e.Domain != null)
+            .GroupBy(e => e.Domain!)
+            .Select(g => new { Host = g.Key, Count = g.Count() })
+            .OrderByDescending(h => h.Count)
+            .Take(top)
+            .ToListAsync(cancellationToken);
+
+        var blocked = counts.Where(c => c.Action == ThreatAction.Blocked).Sum(c => c.Count);
+        var detected = counts.Where(c => c.Action == ThreatAction.Detected).Sum(c => c.Count);
+        return new NetworkOptimizer.Threats.Waf.WafSummary
+        {
+            Total = blocked + detected,
+            Blocked = blocked,
+            Detected = detected,
+            TopRules = rules.Select(r => new NetworkOptimizer.Threats.Waf.WafRuleCount(r.SignatureId, r.SignatureName, r.Count)).ToList(),
+            TopHosts = hosts.Select(h => new NetworkOptimizer.Threats.Waf.WafHostCount(h.Host, h.Count)).ToList()
+        };
+    }
+
+    #endregion
+
     #region Threat Patterns
 
     public async Task SavePatternAsync(ThreatPattern pattern, CancellationToken cancellationToken = default)

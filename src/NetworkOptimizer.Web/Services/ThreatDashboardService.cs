@@ -1038,6 +1038,25 @@ public class ThreatDashboardService : IThreatFilterAdminService
         repository.SetSeverityFilter(null);
     }
 
+    /// <summary>
+    /// netopt-waf events in the range for the Web Application Firewall card, noise filters applied.
+    /// </summary>
+    public async Task<NetworkOptimizer.Threats.Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetWafSummaryAsync(from, to, 5, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAF summary");
+            return new NetworkOptimizer.Threats.Waf.WafSummary();
+        }
+    }
+
     // --- Noise Filter Management ---
 
     public async Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default)
