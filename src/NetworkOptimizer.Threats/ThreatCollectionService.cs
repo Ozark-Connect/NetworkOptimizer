@@ -1,12 +1,12 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
-using NetworkOptimizer.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
@@ -892,6 +892,11 @@ public class ThreatCollectionService : BackgroundService
             _wafStatus = new WafStatus(DateTimeOffset.UtcNow, _wafStatus?.Mode, _wafStatus?.Paranoia ?? 0,
                 _wafStatus?.Started, _wafStatus?.Stats, ex.Message);
             _logger.LogDebug("WAF poll failed: {Message}", ex.Message);
+        }
+        // A WAF failure must never cost the site its IPS and flow collection, which runs next.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "WAF event processing failed");
         }
     }
 
