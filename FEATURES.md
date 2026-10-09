@@ -298,12 +298,13 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 ### Channels (Channel Recommendation)
 
 - Current channel map, radios table, and channel issues per band
-- **Recommend Best Channels** - lowest-interference plan from pairwise AP interference, live scans, and channel history
-  - Respects mesh, DFS preference (include, avoid, prefer), and regulatory limits
+- **Recommend Best Channels** - a physical RF model of the site, solved for the plan with the least real interference
+  - Propagation from floor plan, walls, and antenna patterns, each AP's real transmit power, and contention at the CCA threshold
+  - Measured airtime, noise floor, triangulated neighbors, and months of per-channel outcome history beyond the console's retention
+  - Searches the whole site, then checks each AP: every move clears an improvement bar and never lands on a measurably worse channel
+  - Respects mesh and MLO backhaul, DFS preference (include, avoid, prefer), regulatory limits, and **Pin Channel**
   - Width recommendations from actual client usage ([AP Telemetry](#ap-telemetry))
-  - **Pin Channel** per radio; the plan works around it
   - A radio that just moved soaks on its channel unless interference is high
-  - Keeps per-channel history beyond the console's own metrics retention
 - **Apply Recommended Channels** - writes the plan to UniFi Network in waves, server-side
 - Interference measured before and after a move ([AP Telemetry](#ap-telemetry))
 
