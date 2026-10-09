@@ -21,6 +21,7 @@ public sealed class SnmpRunner
     private volatile SnmpConfig? _config;
     private SnmpPoller? _poller;
     private string _pollerKey = "";
+    private string _rejectedKey = "";
 
     // Failure counting + temporary exclusion, same tracker (and thresholds) the
     // server's collection loops use, so a rebooting device isn't hammered from
@@ -331,7 +332,22 @@ public sealed class SnmpRunner
             cfg.AuthenticationPassword = config.AuthPassword;
         }
 
-        _poller = new SnmpPoller(cfg, NullLogger<SnmpPoller>.Instance);
+        // Both poll loops call this outside their per-device catch, so a throw here would end
+        // polling for the life of the process (a v3 config with no password fails Validate).
+        try
+        {
+            _poller = new SnmpPoller(cfg, NullLogger<SnmpPoller>.Instance);
+        }
+        catch (ArgumentException ex)
+        {
+            if (key != _rejectedKey)
+                Console.Error.WriteLine($"SNMP config rejected, not polling: {ex.Message}");
+            _rejectedKey = key;
+            _poller = null;
+            _pollerKey = "";
+            return null;
+        }
+        _rejectedKey = "";
         _pollerKey = key;
         return _poller;
     }
