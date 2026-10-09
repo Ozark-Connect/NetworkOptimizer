@@ -1404,3 +1404,10 @@ up, it reads as the gateway and its poll address and fabric target flip to the g
 the uplink returns (#1244). Accepted for now: the UniFi Console is usually down in that case too,
 except on UniFi OS Server. The fix is to check uplinks against the full device list, not the
 monitorable subset.
+
+## SNMPv3 password warning: UniFi Network 11 role names
+
+The Monitoring - Setup warning for a withheld SNMPv3 password tells the user to give Network
+Optimizer's account "the Site Admin / Full Management role". Network 11 replaces those roles with
+Full, Hotspot, View, and None. Update that copy once Network 11 is GA, and re-test which of the new
+roles get the `x_` secrets in `get/setting` (on Network 10.x only View Only loses them).
