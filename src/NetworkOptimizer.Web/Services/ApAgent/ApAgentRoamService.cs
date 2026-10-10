@@ -85,16 +85,16 @@ public sealed class ApAgentRoamService : IApAgentRoamService
 
         var targets = await _directory.GetTargetsAsync(_siteSlug, ct);
         if (targets.Count == 0)
-            return ApAgentRoamResult.Fail("No access points on this site are running the AP Agent.");
+            return ApAgentRoamResult.Fail("No Access Points on this site are running the AP Agent.");
         if (intent == ApAgentRoamIntent.AccessPoint && targets.Count < 2)
-            return ApAgentRoamResult.Fail("Moving to another access point needs at least two running the AP Agent.");
+            return ApAgentRoamResult.Fail("Moving to another Access Point needs at least two running the AP Agent.");
 
         if (!await HasRoamedBeforeAsync(mac, ct))
             return ApAgentRoamResult.Fail("This client has never been seen roaming, so it may not survive being moved.");
 
         var (current, idleSeconds, currentBands, sourceClient) = await FindHoldingApAsync(targets, mac, ct);
         if (current == null)
-            return ApAgentRoamResult.Fail("That client is not on an access point running the AP Agent.");
+            return ApAgentRoamResult.Fail("That client is not on an Access Point running the AP Agent.");
 
         // A sleeping client holds its association but will not scan until it wakes, so moving it
         // off leaves it off.
@@ -105,24 +105,25 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         // a request after an agent restart, firmware change or client move.
         var steeringHealth = await FetchSteeringHealthAsync(current, ct);
         if (!FreshSteeringHealth(steeringHealth))
-            return ApAgentRoamResult.Fail("The access point's steering capabilities are unavailable or stale.");
+            return ApAgentRoamResult.Fail("Couldn't check whether this Access Point can roam clients right now.");
 
         if (steeringHealth!.Unavailable.Contains(SteeringProbe, StringComparer.OrdinalIgnoreCase))
         {
             if (intent != ApAgentRoamIntent.AccessPoint)
-                return ApAgentRoamResult.Fail("This access point supports only voluntary moves to another access point.");
-            var nativeVaps = ApAgentNativeSteering.SupportedVaps(steeringHealth);
-            if (sourceClient == null || !ApAgentNativeSteering.EligibleClient(sourceClient, nativeVaps))
-                return ApAgentRoamResult.Fail("Native steering needs an authorized non-MLO client on a supported 5 GHz network.");
+                return ApAgentRoamResult.Fail("Changing band isn't supported on this Access Point.");
+            if (sourceClient == null)
+                return ApAgentRoamResult.Fail("That client is not on an Access Point running the AP Agent.");
+            if (ApAgentNativeSteering.Ineligibility(sourceClient, ApAgentNativeSteering.SupportedVaps(steeringHealth)) is { } unsupported)
+                return ApAgentRoamResult.Fail(unsupported);
             var sourceSsid = sourceClient.Links[0].Ssid!;
             if (!string.IsNullOrEmpty(ssid) && ssid != sourceSsid)
-                return ApAgentRoamResult.Fail("The client's network changed before the request.");
+                return ApAgentRoamResult.Fail("The client switched networks, so the request wasn't sent.");
             var reports = new List<ApAgentNeighborReport>();
             foreach (var target in targets.Where(t => !t.Mac.Equals(current.Mac, StringComparison.OrdinalIgnoreCase)))
                 reports.AddRange(await FetchNeighborReportsAsync(target, sourceSsid, ct));
             var nativeCandidates = ApAgentNativeSteering.Candidates(reports, sourceSsid);
             if (nativeCandidates.Count == 0)
-                return ApAgentRoamResult.Fail("No compatible 5 GHz destination supplied a verified neighbor report.");
+                return ApAgentRoamResult.Fail("No other Access Point offers this network on 5 GHz with the same security settings.");
             return await SendNativeAsync(current, sourceClient, nativeCandidates, ct);
         }
 
@@ -133,8 +134,8 @@ public sealed class ApAgentRoamService : IApAgentRoamService
 
         if (wanted.Count == 0)
             return ApAgentRoamResult.Fail(intent == ApAgentRoamIntent.Band
-                ? "That access point offers no other band on this network."
-                : "No other access point offered a candidate to move to.");
+                ? "That Access Point offers no other band on this network."
+                : "No other Access Point offered a candidate to move to.");
 
         // Where the client already is, last. The request evicts either way, so a client that can use
         // none of the above needs somewhere valid to land or it ends up on no SSID at all.
@@ -180,9 +181,9 @@ public sealed class ApAgentRoamService : IApAgentRoamService
                 // common case, and reporting it as a server error made it look like a defect.
                 return ApAgentRoamResult.Fail(result.Status switch
                 {
-                    404 => "That client is no longer on that access point - it may have already moved.",
-                    400 => "The access point could not use the request.",
-                    _ => $"The access point refused the request ({result.Status}).",
+                    404 => "That client is no longer on that Access Point. It may have already moved.",
+                    400 => "The Access Point could not use the request.",
+                    _ => $"The Access Point refused the request ({result.Status}).",
                 });
             }
 
@@ -198,7 +199,7 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "BTM request failed for {Mac} on site {Site}", mac, _siteSlug);
-            return ApAgentRoamResult.Fail("Could not reach the access point the client is on.");
+            return ApAgentRoamResult.Fail("Couldn't reach the Access Point the client is on.");
         }
     }
 
@@ -398,24 +399,42 @@ public sealed class ApAgentRoamService : IApAgentRoamService
         var body = JsonSerializer.Serialize(new ApAgentNativeTransitionRequest { Candidates = candidates }, JsonOptions);
         try
         {
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Voluntary BTM candidates for {Mac} leaving {Ap}: {Candidates}",
+                    client.Mac, target.Name ?? target.Host,
+                    string.Join(", ", candidates.Select(c => ApAgentRoamCandidates.Describe(c.Element))));
+            }
+
             var (host, port) = await _transport.RouteAsync(_siteSlug, target.Host);
             var result = await _transport.SendAsync(host, port, target.Token,
                 $"/clients/{client.Mac}/{ApAgentNativeSteering.Route}", TransitionTimeout, MaxTransitionBytes, body, ct);
             if (!result.IsUsable)
+            {
+                // Same as the ubus path: the body carries the agent's own reason for the refusal.
+                _logger.LogWarning("Voluntary BTM request for {Mac} on {Ap} answered {Status}: {Body}",
+                    client.Mac, target.Name ?? target.Host, result.Status, result.Body);
                 return ApAgentRoamResult.Fail(result.Status == 404
-                    ? "The client moved or the agent no longer supports this voluntary request."
-                    : "The access point could not confirm the voluntary request. It will not be retried.");
+                    ? "That client is no longer on that Access Point. It may have already moved."
+                    : "The Access Point didn't confirm the request.");
+            }
             var sent = JsonSerializer.Deserialize<ApAgentTransitionResult>(result.Body, JsonOptions);
             if (sent == null || !sent.Mac.Equals(client.Mac, StringComparison.OrdinalIgnoreCase)
                 || sent.Vap != client.Links[0].Vap || sent.Candidates != candidates.Count)
-                return ApAgentRoamResult.Fail("The access point returned an unexpected acknowledgment. It will not be retried.");
-            return new(true, "Asked the client to move voluntarily. It may stay connected here.", target.Name, candidates.Count);
+            {
+                _logger.LogWarning("Voluntary BTM request for {Mac} on {Ap} returned an unexpected acknowledgment: {Body}",
+                    client.Mac, target.Name ?? target.Host, result.Body);
+                return ApAgentRoamResult.Fail("The Access Point gave an unexpected answer, so the request may not have been sent.");
+            }
+            _logger.LogInformation("Voluntary BTM request sent for {Mac} from {Ap} with {Count} candidate(s) on site {Site}",
+                client.Mac, target.Name ?? target.Host, candidates.Count, _siteSlug);
+            return new(true, "Asked the client to move. It may choose to stay.", target.Name, candidates.Count);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not confirm the voluntary request for {Mac}", client.Mac);
-            return ApAgentRoamResult.Fail("The voluntary request could not be confirmed. It will not be retried.");
+            _logger.LogWarning(ex, "Voluntary BTM request failed for {Mac} on site {Site}", client.Mac, _siteSlug);
+            return ApAgentRoamResult.Fail("Couldn't reach the Access Point the client is on.");
         }
     }
 

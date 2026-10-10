@@ -80,6 +80,25 @@ public class ApAgentNativeSteeringTests
     }
 
     [Fact]
+    public void IneligibilityNamesWhatIsNotSupported()
+    {
+        var vaps = new[] { "wifi1ap0" };
+        ApAgentNativeSteering.Ineligibility(Client(), vaps).Should().BeNull();
+        foreach (var (change, expected) in new (Action<ApAgentClient>, string)[] {
+            (c => c.IsMlo = true, "MLO clients"),
+            (c => c.Links.Add(new() { Mac = "02:00:00:00:00:11", Vap = "wifi2ap0" }), "MLO clients"),
+            (c => c.Band = "2.4", "only supported on 5 GHz"),
+            (c => c.Links[0].Band = "6", "only supported on 5 GHz"),
+            (c => c.Authorized = false, "hasn't finished connecting"),
+            (c => c.Links[0].Vap = "wifi2ap0", "on this network on this Access Point") })
+        {
+            var client = Client();
+            change(client);
+            ApAgentNativeSteering.Ineligibility(client, vaps).Should().Contain(expected);
+        }
+    }
+
+    [Fact]
     public void DestinationsNeedPublicSecurityAndAnIntactFiveGHzReport()
     {
         var missing = Report(); missing.Security = null;
@@ -156,7 +175,7 @@ public class ApAgentNativeSteeringTests
         using var body = JsonDocument.Parse(handler.Body!);
         body.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal("candidates");
         body.RootElement.GetProperty("candidates")[0].GetProperty("security").GetProperty("wpa").GetString().Should().Be("2");
-        if (succeeds) result.Message.Should().Contain("may stay");
+        if (succeeds) result.Message.Should().Contain("may choose to stay");
     }
 
     [Fact]
@@ -166,7 +185,7 @@ public class ApAgentNativeSteeringTests
         var result = await Service(handler).SendNativeAsync(new("02:00:00:01:01:01", "ap.test", null, "Source AP"),
             Client(), ApAgentNativeSteering.Candidates(new[] { Report() }, "TestNet"), CancellationToken.None);
         result.Success.Should().BeFalse();
-        result.Message.Should().Contain("not be retried");
+        result.Message.Should().Contain("Couldn't reach the Access Point");
         handler.Calls.Should().Be(1);
         handler.Path.Should().EndWith("/voluntary-bss-transitions");
     }
