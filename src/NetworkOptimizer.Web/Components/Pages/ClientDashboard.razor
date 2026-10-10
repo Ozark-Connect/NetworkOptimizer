@@ -1390,8 +1390,10 @@
     /// <summary>Whether the last poll found the client offline, which sets the tick rate.</summary>
     private bool _wasOffline;
 
-    /// <summary>Whether this site can steer: the AP Agent is on and at least two access points run it.</summary>
+    /// <summary>Whether this client can be steered from where it is now: the AP Agent runs on at least two access points and the holding one can send a request.</summary>
     private bool _canSteer;
+
+    /// <summary>The client state <see cref="_canSteer"/> was last resolved for, and when.</summary>
     private string? _steeringIdentity;
     private DateTime _steeringCheckedAt;
 
@@ -1570,8 +1572,9 @@
         // Identify client
         await IdentifyAndLoadAsync();
 
-        // Steering availability is resolved after identity and refreshed by later client polls. On your own device the first attempt always returns null: the
-        // browser has to report its own address after first render before identity can run.
+        // Steering availability is resolved after identity and refreshed by later client polls. On
+        // your own device the first attempt always returns null: the browser has to report its own
+        // address after first render before identity can run.
 
         // Load AP markers for speed map (non-critical)
         try { _apMapMarkers = await ApMapService.GetApMapMarkersAsync(); }
