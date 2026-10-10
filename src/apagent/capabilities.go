@@ -36,6 +36,9 @@ type Capabilities struct {
 	Interfaces     []InterfaceInfo  `json:"interfaces"`
 	ProbedAt       time.Time        `json:"probed_at"`
 	CollectedAt    time.Time        `json:"collected_at"`
+	// NativeVoluntaryVaps can send one non-MLO 5 GHz AP-move request. It does not advertise
+	// own neighbor reports, band moves, disconnection timers or reassociation guards.
+	NativeVoluntaryVaps []string `json:"native_voluntary_vaps,omitempty"`
 }
 
 // ProbeHealth is one probe's last outcome, for GET /health.
@@ -54,22 +57,23 @@ type TableHealth struct {
 
 // Health is the GET /health payload.
 type Health struct {
-	Version       string                 `json:"version"`
-	BinaryVersion int                    `json:"binary_version"`
-	StartedAt     time.Time              `json:"started_at"`
-	UptimeSeconds int64                  `json:"uptime_seconds"`
-	Degraded      bool                   `json:"degraded"`
-	Unavailable   []string               `json:"unavailable,omitempty"`
-	Probes        map[string]ProbeHealth `json:"probes"`
-	LastProbeRun  time.Time              `json:"last_probe_run"`
-	ProbeRuns     uint64                 `json:"probe_runs"`
-	ProbeFailures uint64                 `json:"probe_failures"`
-	Requests      uint64                 `json:"requests"`
-	AuthFailures  uint64                 `json:"auth_failures"`
-	Tiers         TierStatus             `json:"tiers"`
-	Table         TableHealth            `json:"table"`
-	Events        EventStats             `json:"events"`
-	CollectedAt   time.Time              `json:"collected_at"`
+	Version             string                 `json:"version"`
+	BinaryVersion       int                    `json:"binary_version"`
+	StartedAt           time.Time              `json:"started_at"`
+	UptimeSeconds       int64                  `json:"uptime_seconds"`
+	Degraded            bool                   `json:"degraded"`
+	Unavailable         []string               `json:"unavailable,omitempty"`
+	Probes              map[string]ProbeHealth `json:"probes"`
+	LastProbeRun        time.Time              `json:"last_probe_run"`
+	ProbeRuns           uint64                 `json:"probe_runs"`
+	ProbeFailures       uint64                 `json:"probe_failures"`
+	Requests            uint64                 `json:"requests"`
+	AuthFailures        uint64                 `json:"auth_failures"`
+	Tiers               TierStatus             `json:"tiers"`
+	Table               TableHealth            `json:"table"`
+	Events              EventStats             `json:"events"`
+	CollectedAt         time.Time              `json:"collected_at"`
+	NativeVoluntaryVaps []string               `json:"native_voluntary_vaps,omitempty"`
 }
 
 // Counters are the error and request tallies /health reports.
@@ -90,17 +94,19 @@ type State struct {
 	probes    ProbeSet
 	counters  Counters
 
-	table     *Table
-	ring      *EventRing
-	collector *Collector
+	table      *Table
+	ring       *EventRing
+	collector  *Collector
+	nativeGate chan struct{}
 }
 
 func NewState(startedAt time.Time, platform PlatformInfo) *State {
 	return &State{
-		startedAt: startedAt,
-		platform:  platform,
-		table:     NewTable(defaultMaxTrackedClients, defaultClientTTLSeconds*time.Second),
-		ring:      NewEventRing(defaultEventBufferSize),
+		startedAt:  startedAt,
+		platform:   platform,
+		table:      NewTable(defaultMaxTrackedClients, defaultClientTTLSeconds*time.Second),
+		ring:       NewEventRing(defaultEventBufferSize),
+		nativeGate: make(chan struct{}, 1),
 	}
 }
 
@@ -149,15 +155,16 @@ func (s *State) Capabilities() Capabilities {
 			StartedAt:     s.startedAt,
 			PID:           processID(),
 		},
-		Platform:       s.platform,
-		Listener:       s.listener,
-		Vaps:           s.probes.Vaps,
-		Radios:         s.probes.Radios,
-		Probes:         s.probes.Results,
-		ControlSurface: s.probes.ControlSurface,
-		Interfaces:     collectInterfaces(),
-		ProbedAt:       s.probes.ProbedAt,
-		CollectedAt:    time.Now().UTC(),
+		Platform:            s.platform,
+		Listener:            s.listener,
+		Vaps:                s.probes.Vaps,
+		Radios:              s.probes.Radios,
+		Probes:              s.probes.Results,
+		ControlSurface:      s.probes.ControlSurface,
+		Interfaces:          collectInterfaces(),
+		ProbedAt:            s.probes.ProbedAt,
+		CollectedAt:         time.Now().UTC(),
+		NativeVoluntaryVaps: s.probes.NativeVoluntaryVaps,
 	}
 }
 
@@ -179,21 +186,22 @@ func (s *State) Health() Health {
 	}
 
 	return Health{
-		Version:       version,
-		BinaryVersion: binaryVersion(),
-		StartedAt:     s.startedAt,
-		UptimeSeconds: int64(now.Sub(s.startedAt).Seconds()),
-		Degraded:      len(unavailable) > 0,
-		Unavailable:   unavailable,
-		Probes:        probes,
-		LastProbeRun:  s.probes.ProbedAt,
-		ProbeRuns:     s.counters.ProbeRuns.Load(),
-		ProbeFailures: s.counters.ProbeFailures.Load(),
-		Requests:      s.counters.Requests.Load(),
-		AuthFailures:  s.counters.AuthFailures.Load(),
-		Tiers:         s.table.Tiers(),
-		Table:         table,
-		Events:        events,
-		CollectedAt:   now,
+		Version:             version,
+		BinaryVersion:       binaryVersion(),
+		StartedAt:           s.startedAt,
+		UptimeSeconds:       int64(now.Sub(s.startedAt).Seconds()),
+		Degraded:            len(unavailable) > 0,
+		Unavailable:         unavailable,
+		Probes:              probes,
+		LastProbeRun:        s.probes.ProbedAt,
+		ProbeRuns:           s.counters.ProbeRuns.Load(),
+		ProbeFailures:       s.counters.ProbeFailures.Load(),
+		Requests:            s.counters.Requests.Load(),
+		AuthFailures:        s.counters.AuthFailures.Load(),
+		Tiers:               s.table.Tiers(),
+		Table:               table,
+		Events:              events,
+		CollectedAt:         now,
+		NativeVoluntaryVaps: s.probes.NativeVoluntaryVaps,
 	}
 }
