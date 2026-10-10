@@ -214,6 +214,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Rename a client and set or clear its **Fixed IP** in place
 - MLO links, AP Lock, channel, and width
 - **Roam** - **Change Band** or **Change AP** to move a client during a walk test ([AP Telemetry](#ap-telemetry))
+  - On a gateway with built-in Wi-Fi: **Change AP** only, for 5 GHz non-MLO clients
 - **Start Logging** - log a remote client's signal at poll rate without GPS
 - GPS walk test - signal heatmap from your phone while the page is open (HTTPS)
 - **Speed** - live throughput, **Run Speed Test** / **Quick Test**, speed and latency history, result map
@@ -331,7 +332,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 ### AP Telemetry
 
-Opt-in data straight from the access points, turned on in **Settings - AP Telemetry** (Device SSH). Supports U6 and U7 access points, MIPS
+Opt-in data straight from the access points, turned on in **Settings - AP Telemetry** (Device SSH; Gateway SSH for a gateway). Supports U6 and U7 access points, MIPS
 models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-Fi.
 
 - Deploys a small in-memory agent to each AP; redeploys after reboots and firmware updates
