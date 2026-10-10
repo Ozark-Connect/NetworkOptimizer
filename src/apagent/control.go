@@ -142,26 +142,27 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 		duration = defaultBtmDurationTbtt
 	}
 
-	// hostapd keys its station table per link, so an MLO client is not addressable there by its MLD
-	// MAC: ubus answers "Not found" and the whole request fails. Substituted only when a different
-	// link address is actually known for this VAP, so a non-MLO request is unchanged.
-	addr := mac
-	if link := table.LinkAddrForVap(mac, vap); link != "" {
-		addr = link
+	err := sendBtm(ctx, table, vap, mac, duration, req)
+	if err != nil && isUbusNotFound(err) {
+		// After a band hop on this access point the table still holds the radio the client left for
+		// a few seconds. "Not found" means hostapd sent nothing, so ask it where the client is and
+		// retry there once.
+		others := make([]string, 0, len(vaps))
+		for _, v := range vaps {
+			if v != vap {
+				others = append(others, v)
+			}
+		}
+		moved := vapHoldingClient(ctx, others, mac)
+		if moved == "" {
+			return nil, notFound("client %s is not associated to this access point", mac)
+		}
+		slog.Info("client was not on the expected VAP, sending on the one holding it",
+			"mac", mac, "expected", vap, "vap", moved)
+		vap = moved
+		err = sendBtm(ctx, table, vap, mac, duration, req)
 	}
-
-	args := map[string]any{
-		"addr":      addr,
-		"duration":  duration,
-		"abridged":  req.Abridged,
-		"neighbors": req.Candidates,
-	}
-	encoded, err := json.Marshal(args)
 	if err != nil {
-		return nil, err
-	}
-
-	if _, err := ubusCall(ctx, "hostapd."+vap, "wnm_disassoc_imminent", string(encoded)); err != nil {
 		return nil, fmt.Errorf("BTM request failed on %s: %w", vap, err)
 	}
 
@@ -175,6 +176,34 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 		Candidates: len(req.Candidates),
 		SentAt:     time.Now().UTC(),
 	}, nil
+}
+
+// sendBtm issues one disassoc-imminent BSS Transition request on vap.
+func sendBtm(ctx context.Context, table *Table, vap, mac string, duration int, req RoamRequest) error {
+	// hostapd keys its station table per link, so an MLO client is not addressable there by its MLD
+	// MAC: ubus answers "Not found" and the whole request fails. Substituted only when a different
+	// link address is actually known for this VAP, so a non-MLO request is unchanged.
+	addr := mac
+	if link := table.LinkAddrForVap(mac, vap); link != "" {
+		addr = link
+	}
+
+	encoded, err := json.Marshal(map[string]any{
+		"addr":      addr,
+		"duration":  duration,
+		"abridged":  req.Abridged,
+		"neighbors": req.Candidates,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = ubusCall(ctx, "hostapd."+vap, "wnm_disassoc_imminent", string(encoded))
+	return err
+}
+
+// isUbusNotFound reports ubus refusing a call because the station is not on that VAP.
+func isUbusNotFound(err error) bool {
+	return strings.Contains(err.Error(), "(Not found)")
 }
 
 // guardDeparture applies the bounce guard once the client has actually left: a ban on a plain RSN
