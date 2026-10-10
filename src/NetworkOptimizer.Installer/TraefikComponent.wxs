@@ -61,6 +61,16 @@
             Profile="all" />
       </Component>
 
+      <?ifdef NetoptWafExe ?>
+      <!-- netopt-waf (optional web application firewall). Started by TraefikHostedService only when
+           TRAEFIK_WAF_MODE is detect or block; it listens on loopback, so no firewall exception. -->
+      <Component Id="NetoptWafExecutable" Directory="TraefikFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE7" Bitness="always64">
+        <File Id="NetoptWafExe"
+              Source="$(var.TraefikDir)netopt-waf.exe"
+              KeyPath="yes" />
+      </Component>
+      <?endif?>
+
       <!-- Config templates -->
       <Component Id="TraefikTemplates" Directory="TraefikTemplatesFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE1" Bitness="always64">
         <File Id="TraefikStaticTemplate"

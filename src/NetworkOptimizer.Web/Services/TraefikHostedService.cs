@@ -1,4 +1,9 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Threats.Waf;
+using NetworkOptimizer.Web.Services.Auditing;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -7,19 +12,26 @@ namespace NetworkOptimizer.Web.Services;
 /// Active on Windows only when the Traefik feature is installed (traefik.exe present).
 /// Generates static and dynamic configs from templates using registry values on each startup.
 /// CF_DNS_API_TOKEN is injected via process environment variable, never written to disk.
+/// With TRAEFIK_WAF_MODE set to detect or block, it also runs netopt-waf and wires it to Threat Intelligence.
 /// </summary>
 public class TraefikHostedService : IHostedService, IDisposable
 {
     private readonly ILogger<TraefikHostedService> _logger;
     private readonly IConfiguration _configuration;
+    private readonly IServiceProvider _services;
     private Process? _traefikProcess;
+    private Process? _wafProcess;
     private readonly string _installFolder;
     private bool _disposed;
 
-    public TraefikHostedService(ILogger<TraefikHostedService> logger, IConfiguration configuration)
+    /// <summary>Where the bundled netopt-waf listens; the template's waf middleware points here.</summary>
+    internal const string LocalWafUrl = "http://127.0.0.1:8044";
+
+    public TraefikHostedService(ILogger<TraefikHostedService> logger, IConfiguration configuration, IServiceProvider services)
     {
         _logger = logger;
         _configuration = configuration;
+        _services = services;
         _installFolder = AppContext.BaseDirectory;
     }
 
@@ -50,7 +62,9 @@ public class TraefikHostedService : IHostedService, IDisposable
 
         try
         {
-            await GenerateConfigsAsync(traefikFolder);
+            // The WAF starts first, so the router only lists it once it is actually answering.
+            var wafRunning = await StartWafAsync(traefikFolder, cancellationToken);
+            await GenerateConfigsAsync(traefikFolder, wafRunning);
             await StartTraefikAsync(traefikFolder, traefikExe, cancellationToken);
         }
         catch (Exception ex)
@@ -62,10 +76,11 @@ public class TraefikHostedService : IHostedService, IDisposable
     public Task StopAsync(CancellationToken cancellationToken)
     {
         StopTraefik();
+        StopWaf();
         return Task.CompletedTask;
     }
 
-    private async Task GenerateConfigsAsync(string traefikFolder)
+    private async Task GenerateConfigsAsync(string traefikFolder, bool wafRunning)
     {
         var templatesFolder = Path.Combine(traefikFolder, "templates");
         var dynamicFolder = Path.Combine(traefikFolder, "dynamic");
@@ -108,7 +123,9 @@ public class TraefikHostedService : IHostedService, IDisposable
                 .Replace("{{SPEEDTEST_HOSTNAME}}", GetConfigValue("TRAEFIK_SPEEDTEST_HOSTNAME", "speedtest.example.com"))
                 .Replace("{{SPEEDTEST_PORT}}", GetConfigValue("OPENSPEEDTEST_PORT", "3005"))
                 // Same key the app reads to bind the agent tunnel listener (Program.cs).
-                .Replace("{{TUNNEL_PORT}}", GetConfigValue("AgentTunnel:Port", "8043"));
+                .Replace("{{TUNNEL_PORT}}", GetConfigValue("AgentTunnel:Port", "8043"))
+                // A router listing a WAF that is not running answers 500, so add it only when it is.
+                .Replace("# {{WAF_MIDDLEWARE}}", wafRunning ? "- waf" : "# waf (set TRAEFIK_WAF_MODE to enable)");
 
             await File.WriteAllTextAsync(Path.Combine(dynamicFolder, "config.yml"), config);
             _logger.LogInformation("Generated dynamic/config.yml");
@@ -192,6 +209,132 @@ public class TraefikHostedService : IHostedService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Starts the bundled netopt-waf when TRAEFIK_WAF_MODE is detect or block and the binary is installed.
+    /// Returns true only when the process is up.
+    /// </summary>
+    private async Task<bool> StartWafAsync(string traefikFolder, CancellationToken cancellationToken)
+    {
+        StopWaf();
+
+        var mode = GetConfigValue("TRAEFIK_WAF_MODE", "off").Trim().ToLowerInvariant();
+        if (mode is not ("detect" or "block"))
+            return false;
+
+        var wafExe = Path.Combine(traefikFolder, "netopt-waf.exe");
+        if (!File.Exists(wafExe))
+        {
+            _logger.LogWarning("TRAEFIK_WAF_MODE is {Mode} but netopt-waf.exe is not installed at {Path}", mode, wafExe);
+            return false;
+        }
+
+        var token = await EnsureLocalWafConnectionAsync();
+        var rulesDir = Path.Combine(traefikFolder, "waf-rules");
+        Directory.CreateDirectory(rulesDir);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = wafExe,
+            WorkingDirectory = traefikFolder,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.Environment["WAF_LISTEN"] = new Uri(LocalWafUrl).Authority;
+        startInfo.Environment["WAF_MODE"] = mode;
+        startInfo.Environment["WAF_RULES_DIR"] = rulesDir;
+        if (token != null)
+            startInfo.Environment["WAF_API_TOKEN"] = token;
+
+        _wafProcess = new Process { StartInfo = startInfo };
+        // netopt-waf logs everything (start-up and events) through the Go log package, which writes stderr.
+        _wafProcess.OutputDataReceived += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogDebug("netopt-waf: {Output}", e.Data); };
+        _wafProcess.ErrorDataReceived += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogDebug("netopt-waf: {Output}", e.Data); };
+        _wafProcess.Start();
+        _wafProcess.BeginOutputReadLine();
+        _wafProcess.BeginErrorReadLine();
+
+        // Loading the Core Rule Set takes a moment; the router must not point at a WAF that died on start.
+        await Task.Delay(1500, cancellationToken);
+        if (_wafProcess.HasExited)
+        {
+            _logger.LogError("netopt-waf exited immediately with code {ExitCode}; the app router runs without it", _wafProcess.ExitCode);
+            _wafProcess.Dispose();
+            _wafProcess = null;
+            return false;
+        }
+
+        _logger.LogInformation("netopt-waf started in {Mode} mode (PID: {Pid})", mode, _wafProcess.Id);
+        return true;
+    }
+
+    /// <summary>
+    /// Points Threat Intelligence at the bundled WAF and returns its API token. Reuses the stored token
+    /// when the stored URL is already the local WAF; never replaces a WAF the admin configured elsewhere.
+    /// </summary>
+    private async Task<string?> EnsureLocalWafConnectionAsync()
+    {
+        try
+        {
+            var settings = _services.GetRequiredService<SystemSettingsService>();
+            var credentials = _services.GetRequiredService<ICredentialProtectionService>();
+
+            var storedUrl = await settings.GetGlobalAsync(WafSettingKeys.Url);
+            var storedToken = await settings.GetGlobalAsync(WafSettingKeys.Token);
+            var isLocal = string.Equals(storedUrl?.TrimEnd('/'), LocalWafUrl, StringComparison.OrdinalIgnoreCase);
+
+            if (isLocal && !string.IsNullOrEmpty(storedToken))
+                return credentials.IsEncrypted(storedToken) ? credentials.Decrypt(storedToken) : storedToken;
+
+            var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+            if (!string.IsNullOrEmpty(storedUrl) && !isLocal)
+            {
+                _logger.LogInformation("Threat Intelligence reads a WAF at {Url}; the bundled WAF runs unconnected", storedUrl);
+                return token;
+            }
+
+            await settings.SetGlobalAsync(WafSettingKeys.Url, LocalWafUrl);
+            await settings.SetGlobalAsync(WafSettingKeys.Token, credentials.Encrypt(token));
+            await settings.SetGlobalAsync(WafSettingKeys.Enabled, "true");
+            _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
+                AuditCategories.Settings,
+                AuditActions.SettingsChanged,
+                targetType: "setting",
+                targetName: WafSettingKeys.Url,
+                details: new { change = "bundled_waf_connected", reason = "TRAEFIK_WAF_MODE started the bundled netopt-waf" }));
+            return token;
+        }
+        catch (Exception ex)
+        {
+            // The WAF still filters without a token; only the events API stays off.
+            _logger.LogWarning(ex, "Could not connect Threat Intelligence to the bundled WAF");
+            return null;
+        }
+    }
+
+    private void StopWaf()
+    {
+        try
+        {
+            if (_wafProcess is { HasExited: false })
+            {
+                _logger.LogInformation("Stopping netopt-waf (PID: {Pid})", _wafProcess.Id);
+                _wafProcess.Kill(entireProcessTree: true);
+                _wafProcess.WaitForExit(5000);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error stopping netopt-waf");
+        }
+        finally
+        {
+            _wafProcess?.Dispose();
+            _wafProcess = null;
+        }
+    }
+
     private void StopTraefik()
     {
         try
@@ -222,6 +365,7 @@ public class TraefikHostedService : IHostedService, IDisposable
             return;
 
         StopTraefik();
+        StopWaf();
         _disposed = true;
         GC.SuppressFinalize(this);
     }
