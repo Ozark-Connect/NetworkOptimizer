@@ -2,7 +2,7 @@
 
 The storage layer. Two things live here: the SQLite database that holds everything persistent the app needs, and the InfluxDB client that handles time-series monitoring data.
 
-SQLite is always in play. InfluxDB is optional - it's only used by the Monitoring feature, so if you never open the Monitoring page you never need an InfluxDB instance at all.
+SQLite is always in play. InfluxDB is optional - Monitoring and supported speed test exports use it when configured through the Monitoring page. Without an InfluxDB connection, speed tests continue to use SQLite alone.
 
 ## SQLite (EF Core)
 
@@ -19,6 +19,25 @@ The host application registers the context, its factory, and the repositories in
 Writes are buffered and flushed on a timer, or sooner when the buffer fills. That keeps high-frequency metric writes from hammering the database one point at a time. The client also exposes the read side the monitoring charts pull from, plus a health check the UI leans on to tell you whether the connection is actually good - it runs a small query against the buckets rather than just pinging the server, because a reachable server with a revoked or mis-scoped token will happily fail every write while looking "up."
 
 This is the only thing in the project that touches `InfluxDB.Client`, which is why the package lives here.
+
+### Speed test export
+
+Saved WAN and LAN speed tests, including browser and client-initiated iperf3 results, automatically export to the `speed_test` measurement when InfluxDB is configured. Manual and scheduled runs use the same paths; unsaved ephemeral probes are excluded. There is no separate toggle, and disabling monitoring collection does not disable export. Each site's client writes to its existing long-term bucket (365 days by default), falling back to the primary bucket when unset. Export does not change retention.
+
+Points keep the saved UTC `TestTime`. Tags are `test_type` (`wan` or `lan`), `runner` (`server`, `gateway`, or `client`), `provider` (`cloudflare`, `uwn`, `iperf3`, or `openspeedtest`), and either `wan_network_group` or LAN `target_host`. On-Site Agent runs use `server`. Fields include success, throughput in bps, available latency/jitter in ms, and descriptive names. WAN rates use the usual internet perspective; LAN download is device to NO, and upload is NO to device. Browser WAN results identify the external server and use the sole WAN group when known; multi-WAN sites omit the group. Successful WAN descriptions use `server_host`/`server_name`; LAN uses `target_name`/`target_type`. Failed results omit descriptions. Raw payloads and detailed client metadata stay in SQLite.
+
+Client iperf3 results export immediately. Merges update the same point; enrichment updates LAN names/types without overwriting rates or changing browser WAN server identity. Browser WAN results record the sole WAN group at test time regardless of InfluxDB configuration; ambiguous or unavailable groups remain unset.
+
+SQLite remains authoritative. Delivery uses the existing buffer and flush timer: errors are logged without failing tests, failed writes are dropped, and shutdown discards unflushed points (normally up to five seconds of data). There is no backfill, persistent retry queue, or synchronization of SQLite edits/deletions.
+
+A Grafana Flux query for WAN download throughput (use the site's actual long-term bucket):
+
+```flux
+from(bucket: "network_monitoring_longterm")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "speed_test"
+    and r.test_type == "wan" and r.runner != "client" and r._field == "download_bps")
+```
 
 ## Provisioning InfluxDB
 

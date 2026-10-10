@@ -27,6 +27,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentIperf3Service _agentIperf3;
     private readonly AgentEnrollmentService _agentEnrollment;
+    private readonly MonitoringInfluxRegistry? _influxRegistry;
 
     // Track running tests
     private bool _isTestRunning = false;
@@ -44,7 +45,8 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         SiteAgentCoverage agentCoverage,
         AgentIperf3Service agentIperf3,
         AgentEnrollmentService agentEnrollment,
-        Licensing.LicenseStateService licenseState)
+        Licensing.LicenseStateService licenseState,
+        MonitoringInfluxRegistry? influxRegistry = null)
     {
         _licenseState = licenseState;
         _logger = logger;
@@ -59,6 +61,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         _agentCoverage = agentCoverage;
         _agentIperf3 = agentIperf3;
         _agentEnrollment = agentEnrollment;
+        _influxRegistry = influxRegistry;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -589,6 +592,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             await using var db = CreateSiteDb();
             db.Iperf3Results.Add(historyResult);
             await db.SaveChangesAsync();
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteContext.Slug, historyResult, _logger);
 
             _logger.LogDebug("Saved gateway speed test result to history");
         }

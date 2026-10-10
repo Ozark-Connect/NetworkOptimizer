@@ -31,6 +31,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly IAlertEventBus? _alertEventBus;
+    private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
@@ -85,7 +86,8 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         IServiceProvider serviceProvider,
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        MonitoringInfluxRegistry? influxRegistry = null)
     {
         _licenseState = licenseState;
         _logger = logger;
@@ -97,6 +99,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         _siteDbFactory = siteDbFactory;
         _pathAnalyzer = pathAnalyzer;
         _alertEventBus = alertEventBus;
+        _influxRegistry = influxRegistry;
         _serviceProvider = serviceProvider;
     }
 
@@ -282,7 +285,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                 if (!deploySuccess)
                 {
                     Report("Error", 0, deployError);
-                    return FailResult(deployError, wanNetworkGroup, wanName, options);
+                    return await FailResultAsync(deployError, wanNetworkGroup, wanName, options);
                 }
             }
             Report("Preparing", 8, "Binary ready");
@@ -307,7 +310,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             _logger.LogError(ex, "Gateway WAN speed test failed");
             lock (_lock) { _currentPhase = "Error"; _currentPercent = 0; _currentStatus = ex.Message; }
             onProgress?.Invoke(("Error", 0, ex.Message));
-            return FailResult(ex.Message, wanNetworkGroup, wanName, options);
+            return await FailResultAsync(ex.Message, wanNetworkGroup, wanName, options);
         }
         finally
         {
@@ -363,7 +366,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var error = $"Gateway speed test failed: {ExtractBinaryError(result.output)}";
             _logger.LogWarning("Gateway speed test failed: {Output}", result.output);
             report("Error", 0, error);
-            return FailResult(error, wanNetworkGroup, wanName, options);
+            return await FailResultAsync(error, wanNetworkGroup, wanName, options);
         }
 
         report("Parsing", 95, "Processing results...");
@@ -373,7 +376,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         {
             var error = "Failed to parse speed test output";
             report("Error", 0, error);
-            return FailResult(error, wanNetworkGroup, wanName, options);
+            return await FailResultAsync(error, wanNetworkGroup, wanName, options);
         }
 
         if (options.Ephemeral)
@@ -406,10 +409,10 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
     }
 
     /// <summary>A failed result: stored for a normal run, returned unstored for an ephemeral one.</summary>
-    private Iperf3Result? FailResult(string? errorMessage, string? wanNetworkGroup, string? wanName, GatewayWanTestOptions options) =>
+    private async Task<Iperf3Result?> FailResultAsync(string? errorMessage, string? wanNetworkGroup, string? wanName, GatewayWanTestOptions options) =>
         options.Ephemeral
             ? BuildFailedResult(errorMessage, wanNetworkGroup, wanName)
-            : SaveFailedResult(errorMessage, wanNetworkGroup, wanName);
+            : await SaveFailedResultAsync(errorMessage, wanNetworkGroup, wanName);
 
     private async Task<Iperf3Result?> RunParallelWanTests(
         IReadOnlyList<WanInterfaceInfo> interfaces,
@@ -488,7 +491,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var failNames = interfaces
                 .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
                 .Distinct().OrderBy(n => n);
-            return SaveFailedResult("All WAN interface tests failed",
+            return await SaveFailedResultAsync("All WAN interface tests failed",
                 string.Join("+", failGroups), string.Join(" + ", failNames));
         }
 
@@ -623,6 +626,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         db.Iperf3Results.Add(testResult);
         await db.SaveChangesAsync(cancellationToken);
         var resultId = testResult.Id;
+        await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, testResult, _logger);
 
         _logger.LogInformation(
             "Gateway WAN speed test complete ({Interface}): Down {Download:F1} Mbps, Up {Upload:F1} Mbps, Latency {Latency:F1} ms",
@@ -800,14 +804,15 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         ErrorMessage = errorMessage,
     };
 
-    private Iperf3Result? SaveFailedResult(string? errorMessage, string? wanNetworkGroup, string? wanName)
+    private async Task<Iperf3Result?> SaveFailedResultAsync(string? errorMessage, string? wanNetworkGroup, string? wanName)
     {
         try
         {
             var failedResult = BuildFailedResult(errorMessage, wanNetworkGroup, wanName);
-            using var context = CreateSiteDb();
+            await using var context = CreateSiteDb();
             context.Iperf3Results.Add(failedResult);
-            context.SaveChanges();
+            await context.SaveChangesAsync();
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, failedResult, _logger);
             return failedResult;
         }
         catch (Exception saveEx)
