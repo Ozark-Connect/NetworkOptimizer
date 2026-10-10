@@ -578,6 +578,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatEventNormalizer>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.KillChainClassifier>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ThreatPatternAnalyzer>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ExposureValidator>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IThreatSystemAudit, NetworkOptimizer.Web.Services.ThreatSystemAudit>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
@@ -1664,7 +1665,8 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
             ["TRAEFIK_OPTIMIZER_HOSTNAME"] = "TRAEFIK_OPTIMIZER_HOSTNAME",
             ["TRAEFIK_SPEEDTEST_HOSTNAME"] = "TRAEFIK_SPEEDTEST_HOSTNAME",
             ["TRAEFIK_LISTEN_IP"] = "TRAEFIK_LISTEN_IP",
-            ["TRAEFIK_LOG_LEVEL"] = "TRAEFIK_LOG_LEVEL"
+            ["TRAEFIK_LOG_LEVEL"] = "TRAEFIK_LOG_LEVEL",
+            ["TRAEFIK_WAF_MODE"] = "TRAEFIK_WAF_MODE"
         };
 
         foreach (var mapping in keyMappings)

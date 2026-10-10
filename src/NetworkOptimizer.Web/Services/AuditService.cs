@@ -764,7 +764,9 @@ public class AuditService : IAuditScanService
     /// Builds a ReportData object from an AuditResult for PDF generation.
     /// Derives client name from gateway device name if not explicitly provided.
     /// </summary>
-    public async Task<Reports.ThreatSummaryData?> BuildThreatSummaryAsync()
+    public async Task<Reports.ThreatSummaryData?> BuildThreatSummaryAsync(
+        int topSourcesLimit = Reports.ThreatSummaryData.DefaultTopSourcesRows,
+        int categorySubTableLimit = Reports.ThreatSummaryData.DefaultCategoryRows)
     {
         if (_threatRepository == null) return null;
 
@@ -772,11 +774,36 @@ public class AuditService : IAuditScanService
         {
             var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
             var now = DateTime.UtcNow;
+
+            topSourcesLimit = Math.Clamp(topSourcesLimit, 1, Reports.ThreatSummaryData.MaxRows);
+            categorySubTableLimit = Math.Clamp(categorySubTableLimit, 1, Reports.ThreatSummaryData.MaxRows);
+            var categoryQueryLimit = categorySubTableLimit * 2;
+
+            // Apply enabled noise filters so the audit report matches what the user
+            // sees on the threat dashboard. Without this, the audit always sees raw
+            // events including infrastructure self-scans and trusted-user noise.
+            var allFilters = await _threatRepository.GetNoiseFiltersAsync();
+            var enabledFilters = allFilters.Where(f => f.Enabled).ToList();
+            _threatRepository.SetNoiseFilters(enabledFilters);
+
             var summary = await _threatRepository.GetThreatSummaryAsync(thirtyDaysAgo, now);
             if (summary.TotalEvents == 0) return null;
 
-            var topSources = await _threatRepository.GetTopSourcesAsync(thirtyDaysAgo, now, 5);
+            var topSources = await _threatRepository.GetTopSourcesAsync(thirtyDaysAgo, now, topSourcesLimit);
             var killChain = await _threatRepository.GetKillChainDistributionAsync(thirtyDaysAgo, now);
+
+            // Categorized sub-tables: events matching Infrastructure / TrustedUser
+            // filters are excluded from TopSources above but surfaced here so the
+            // user can see what was suppressed and why.
+            var infraSources = enabledFilters.Any(f => f.Category == ThreatFilterCategory.Infrastructure && f.SourceIp != null)
+                ? await _threatRepository.GetSourcesByCategoryAsync(thirtyDaysAgo, now, ThreatFilterCategory.Infrastructure, categoryQueryLimit)
+                : new List<NetworkOptimizer.Threats.Interfaces.SourceIpSummary>();
+
+            var trustedSources = enabledFilters.Any(f => f.Category == ThreatFilterCategory.TrustedUser && f.SourceIp != null)
+                ? await _threatRepository.GetSourcesByCategoryAsync(thirtyDaysAgo, now, ThreatFilterCategory.TrustedUser, categoryQueryLimit)
+                : new List<NetworkOptimizer.Threats.Interfaces.SourceIpSummary>();
+
+            var suppressedEventCount = infraSources.Sum(s => s.EventCount) + trustedSources.Sum(s => s.EventCount);
 
             return new Reports.ThreatSummaryData
             {
@@ -792,7 +819,24 @@ public class AuditService : IAuditScanService
                     CountryCode = s.CountryCode,
                     AsnOrg = s.AsnOrg,
                     EventCount = s.EventCount
-                }).ToList()
+                }).ToList(),
+                InfrastructureSources = infraSources.Take(categorySubTableLimit).Select(s => new Reports.ThreatSourceEntry
+                {
+                    Ip = s.SourceIp,
+                    CountryCode = s.CountryCode,
+                    AsnOrg = s.AsnOrg,
+                    EventCount = s.EventCount,
+                    Label = s.Label
+                }).ToList(),
+                TrustedUserSources = trustedSources.Take(categorySubTableLimit).Select(s => new Reports.ThreatSourceEntry
+                {
+                    Ip = s.SourceIp,
+                    CountryCode = s.CountryCode,
+                    AsnOrg = s.AsnOrg,
+                    EventCount = s.EventCount,
+                    Label = s.Label
+                }).ToList(),
+                SuppressedEventCount = suppressedEventCount
             };
         }
         catch (Exception ex)
@@ -1031,7 +1075,7 @@ public class AuditService : IAuditScanService
     /// Gets the PDF bytes for a specific audit by ID.
     /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
     /// </summary>
-    public async Task<(byte[]? PdfBytes, string? FileName)> GetAuditPdfAsync(int auditId)
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetAuditPdfAsync(int auditId, ThreatReportRows? rows = null)
     {
         var audit = await _auditRepository.GetAuditResultAsync(auditId);
         if (audit == null)
@@ -1039,14 +1083,14 @@ public class AuditService : IAuditScanService
             _logger.LogWarning("Audit {AuditId} not found", auditId);
             return (null, null);
         }
-        return await GetPdfForAuditAsync(audit);
+        return await GetPdfForAuditAsync(audit, rows);
     }
 
     /// <summary>
     /// Gets the PDF bytes for the most recent audit.
     /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
     /// </summary>
-    public async Task<(byte[]? PdfBytes, string? FileName)> GetLatestAuditPdfAsync()
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetLatestAuditPdfAsync(ThreatReportRows? rows = null)
     {
         var audit = await _auditRepository.GetLatestAuditResultAsync();
         if (audit == null)
@@ -1054,19 +1098,28 @@ public class AuditService : IAuditScanService
             _logger.LogWarning("No audit results found");
             return (null, null);
         }
-        return await GetPdfForAuditAsync(audit);
+        return await GetPdfForAuditAsync(audit, rows);
     }
 
     /// <summary>
     /// Common logic for retrieving or regenerating a PDF for an audit.
+    /// Non-default row counts always regenerate, and that copy is not stored.
     /// </summary>
-    private async Task<(byte[]? PdfBytes, string? FileName)> GetPdfForAuditAsync(StorageAuditResult audit)
+    private async Task<(byte[]? PdfBytes, string? FileName)> GetPdfForAuditAsync(StorageAuditResult audit, ThreatReportRows? rows)
     {
-        var pdfBytes = await _pdfStorageService.GetPdfAsync(audit.Id);
-        if (pdfBytes == null)
+        byte[]? pdfBytes;
+        if (rows is { IsDefault: false })
         {
-            _logger.LogInformation("PDF not found for audit {AuditId}, attempting to regenerate", audit.Id);
-            pdfBytes = await RegeneratePdfFromStoredDataAsync(audit);
+            pdfBytes = await RegeneratePdfFromStoredDataAsync(audit, rows, save: false);
+        }
+        else
+        {
+            pdfBytes = await _pdfStorageService.GetPdfAsync(audit.Id);
+            if (pdfBytes == null)
+            {
+                _logger.LogInformation("PDF not found for audit {AuditId}, attempting to regenerate", audit.Id);
+                pdfBytes = await RegeneratePdfFromStoredDataAsync(audit, null, save: true);
+            }
         }
 
         if (pdfBytes == null)
@@ -1083,7 +1136,7 @@ public class AuditService : IAuditScanService
     /// Regenerates a PDF from the stored audit data (ReportDataJson and FindingsJson).
     /// Saves the regenerated PDF for future use.
     /// </summary>
-    private async Task<byte[]?> RegeneratePdfFromStoredDataAsync(StorageAuditResult audit)
+    private async Task<byte[]?> RegeneratePdfFromStoredDataAsync(StorageAuditResult audit, ThreatReportRows? rows, bool save)
     {
         if (string.IsNullOrEmpty(audit.ReportDataJson))
         {
@@ -1153,13 +1206,15 @@ public class AuditService : IAuditScanService
             }
 
             // Build ReportData and generate PDF
-            var threatSummaryForPdf = await BuildThreatSummaryAsync();
+            var threatSummaryForPdf = rows == null
+                ? await BuildThreatSummaryAsync()
+                : await BuildThreatSummaryAsync(rows.TopSources, rows.CategoryRows);
             var reportData = BuildReportData(result, threatSummary: threatSummaryForPdf);
             var generator = new Reports.PdfReportGenerator();
             var pdfBytes = generator.GenerateReportBytes(reportData);
 
-            // Save for future use
-            await _pdfStorageService.SavePdfAsync(audit.Id, reportData);
+            if (save)
+                await _pdfStorageService.SavePdfAsync(audit.Id, reportData);
 
             _logger.LogInformation("Regenerated and saved PDF for audit {AuditId}: {Size} bytes", audit.Id, pdfBytes.Length);
             return pdfBytes;
@@ -2434,4 +2489,15 @@ public class OfflineClientReference
     public bool IsIoT { get; set; }
     public bool IsCamera { get; set; }
     public NetworkOptimizer.Audit.Models.DeviceDetectionResult Detection { get; set; } = null!;
+}
+
+/// <summary>
+/// Row counts for the threat tables in a downloaded Security Audit PDF.
+/// </summary>
+public sealed record ThreatReportRows(int TopSources, int CategoryRows)
+{
+    /// <summary>True when both counts match the stored PDF, so the stored copy can be served.</summary>
+    public bool IsDefault =>
+        TopSources == Reports.ThreatSummaryData.DefaultTopSourcesRows &&
+        CategoryRows == Reports.ThreatSummaryData.DefaultCategoryRows;
 }

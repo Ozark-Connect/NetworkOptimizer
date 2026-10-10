@@ -64,4 +64,13 @@
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(TraefikDir)Download-Traefik.ps1&quot;" />
   </Target>
 
+  <!-- netopt-waf.exe is optional (Download-Traefik.ps1 builds it only when Go is available).
+       Define NetoptWafExe after staging, right before WiX compiles, so TraefikComponent.wxs includes it only when present. -->
+  <Target Name="DetectNetoptWaf" BeforeTargets="CoreCompile" DependsOnTargets="DownloadTraefik">
+    <PropertyGroup Condition="Exists('$(TraefikDir)netopt-waf.exe')">
+      <DefineConstants>$(DefineConstants);NetoptWafExe=1</DefineConstants>
+    </PropertyGroup>
+    <Message Importance="high" Text="netopt-waf.exe staged: the MSI includes the web application firewall" Condition="Exists('$(TraefikDir)netopt-waf.exe')" />
+  </Target>
+
 </Project>

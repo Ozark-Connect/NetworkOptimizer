@@ -245,6 +245,53 @@ public class ThreatEventNormalizer
     /// <summary>
     /// Map flow risk + action to our 1-5 severity scale.
     /// </summary>
+    /// <summary>
+    /// Normalize a page of netopt-waf events. The most severe CRS rule names the event; its
+    /// attack tag is the category the kill chain classifier reads.
+    /// </summary>
+    public List<ThreatEvent> NormalizeWafEvents(Waf.WafEventPage page)
+    {
+        var results = new List<ThreatEvent>(page.Events.Count);
+        foreach (var e in page.Events)
+        {
+            if (string.IsNullOrEmpty(e.SourceIp) || e.Rules.Count == 0) continue;
+            var top = e.Rules[0];
+            var path = e.Uri.Split('?', 2)[0];
+            results.Add(new ThreatEvent
+            {
+                InnerAlertId = $"waf-{page.Instance}-{e.Seq}",
+                Timestamp = e.Time.UtcDateTime,
+                SourceIp = e.SourceIp,
+                DestIp = "",
+                DestPort = 443,
+                Protocol = "HTTP",
+                SignatureId = top.Id,
+                SignatureName = top.Message,
+                Category = WafAttackTag(top) ?? "waf",
+                Severity = MapCrsSeverity(top.Severity),
+                Action = e.Action == "blocked" ? ThreatAction.Blocked : ThreatAction.Detected,
+                EventSource = EventSource.Waf,
+                Domain = string.IsNullOrEmpty(e.Host) ? null : e.Host,
+                Direction = "incoming",
+                Service = $"{e.Method} {(path.Length > 200 ? path[..200] : path)}"
+            });
+        }
+        return results;
+    }
+
+    // CRS tags each detection rule with its family: attack-sqli, attack-rce, attack-protocol, ...
+    private static string? WafAttackTag(Waf.WafRuleHit rule) =>
+        rule.Tags.FirstOrDefault(t => t.StartsWith("attack-", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>CRS severity to the 1-5 scale. CRITICAL stays below 5 so single requests do not page.</summary>
+    internal static int MapCrsSeverity(string severity) => severity.ToUpperInvariant() switch
+    {
+        "EMERGENCY" or "ALERT" or "CRITICAL" => 4,
+        "ERROR" => 3,
+        "WARNING" => 2,
+        _ => 1
+    };
+
     internal static int MapFlowSeverity(string risk, string action)
     {
         var isBlocked = action.Equals("blocked", StringComparison.OrdinalIgnoreCase);

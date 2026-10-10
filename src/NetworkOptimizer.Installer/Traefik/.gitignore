@@ -1,5 +1,8 @@
 # Downloaded Traefik binary (fetched during build)
 traefik.exe
 
+# netopt-waf, built from the NetworkOptimizer-Proxy repo during the build
+netopt-waf.exe
+
 # Config templates (downloaded from NetworkOptimizer-Proxy repo during build)
 templates/

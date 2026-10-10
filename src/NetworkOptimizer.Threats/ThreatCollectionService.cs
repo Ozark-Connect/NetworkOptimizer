@@ -1,13 +1,17 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
+using NetworkOptimizer.Threats.Waf;
 
 namespace NetworkOptimizer.Threats;
 
@@ -38,9 +42,12 @@ public class ThreatCollectionService : BackgroundService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _collectedSites = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset?> _backfillCursorBySite = new();
 
+    // netopt-waf as of the last poll; only the default site reads a WAF.
+    private volatile WafStatus? _wafStatus;
+
     // Geo database staleness check (24h cooldown to avoid checking every cycle)
     private DateTimeOffset _lastGeoCheck = DateTimeOffset.MinValue;
-    private bool _geoBackfillComplete;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _geoBackfillCompleteSites = new();
 
     // Track attack chain alerts: key = "chain:{ip}" or "attempt:{ip}", value = "stageCount:totalEvents:utcTicks"
     // Persisted to SystemSettings as JSON so dedup survives restarts.
@@ -51,6 +58,7 @@ public class ThreatCollectionService : BackgroundService
     // Optional per-site fan-out. Null (unregistered) means single-site behavior.
     private readonly NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? _siteContext;
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
+    private readonly IThreatSystemAudit? _systemAudit;
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -63,8 +71,10 @@ public class ThreatCollectionService : BackgroundService
         IHttpClientFactory httpClientFactory,
         IUniFiClientAccessor uniFiClientAccessor,
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
-        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
+        IThreatSystemAudit? systemAudit = null)
     {
+        _systemAudit = systemAudit;
         _siteWorkGate = siteWorkGate;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -111,6 +121,12 @@ public class ThreatCollectionService : BackgroundService
         _backfillCursorBySite.TryGetValue(NormalizeSite(siteSlug), out var cursor) ? cursor : null;
 
     /// <summary>
+    /// netopt-waf as of the last poll, or null when no WAF is configured.
+    /// Only the default site reads a WAF; other sites always get null.
+    /// </summary>
+    public WafStatus? WafStatusFor(string? siteSlug) => NormalizeSite(siteSlug).Length == 0 ? _wafStatus : null;
+
+    /// <summary>
     /// Collapses the default site's various identifiers (null, empty, and the configured default
     /// key) to one canonical key so the loop's write and the dashboard's read line up.
     /// </summary>
@@ -126,6 +142,11 @@ public class ThreatCollectionService : BackgroundService
 
         // Attempt auto-download of MaxMind databases if configured and missing/stale
         await TryAutoDownloadGeoDatabasesAsync(stoppingToken);
+
+        // Ensure a locked Infrastructure-category noise filter exists for our own IP
+        // so the optimizer's own scanning traffic does not dominate the audit report's
+        // Top Threat Sources table.
+        await EnsureSelfInfrastructureFilterAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -199,6 +220,10 @@ public class ThreatCollectionService : BackgroundService
             _logger.LogDebug("Threat collection disabled for site {Site}", siteKey ?? "main");
             return;
         }
+
+        // The WAF sits beside the default site's proxy and does not need the console.
+        if (NormalizeSite(siteKey).Length == 0)
+            await CollectWafAsync(repository, settings, siteKey, cancellationToken);
 
         var apiClient = _uniFiClientAccessor.GetClient(siteKey);
         if (apiClient == null)
@@ -298,13 +323,13 @@ public class ThreatCollectionService : BackgroundService
         }
 
         // Re-enrich existing events that lack geo data (runs each cycle until complete)
-        if (_geoService.IsCityAvailable && !_geoBackfillComplete)
+        if (_geoService.IsCityAvailable && !_geoBackfillCompleteSites.ContainsKey(NormalizeSite(siteKey)))
         {
             var enriched = await repository.BackfillGeoDataAsync(
                 events => _geoService.EnrichEvents(events), batchSize: 2000, cancellationToken);
             if (enriched == 0)
             {
-                _geoBackfillComplete = true;
+                _geoBackfillCompleteSites.TryAdd(NormalizeSite(siteKey), 0);
                 _logger.LogDebug("Geo data backfill complete - all events enriched");
             }
             else
@@ -374,11 +399,17 @@ public class ThreatCollectionService : BackgroundService
             noiseFilters = [];
         }
 
+        // Pattern and chain queries below see filtered events only, so a filtered source
+        // can never assemble an alert from its suppressed traffic.
+        repository.SetNoiseFilters(noiseFilters);
+        var sources = new AlertSourceDescriber(events, () => _uniFiClientAccessor.GetClient(siteKey));
+
         // Pattern analysis on recent data
         try
         {
             var recentEvents = await repository.GetEventsAsync(
                 DateTime.UtcNow.AddHours(-6), DateTime.UtcNow, limit: 5000, cancellationToken: cancellationToken);
+            sources.AddEvents(recentEvents);
             var patterns = _patternAnalyzer.DetectPatterns(recentEvents);
             foreach (var pattern in patterns)
                 await repository.SavePatternAsync(pattern, cancellationToken);
@@ -524,7 +555,8 @@ public class ThreatCollectionService : BackgroundService
 
                 // 2-stage chains ending in Monitored are likely normal admin/scanning traffic
                 var isLowConfidence = seq.Stages.Count == 2 && lastStage == KillChainStage.Monitored;
-                var message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} kill chain stages with {totalEvents} events";
+                var source = await sources.DescribeAsync(seq.SourceIp, seq.CountryCode, seq.AsnOrg, cancellationToken);
+                var message = $"{source.Text} progressed through {seq.Stages.Count} kill chain stages with {totalEvents} events";
                 if (isLowConfidence)
                     message += ". Note: 2-stage chains ending in Monitored may be typical administration or scanning traffic rather than a real attack.";
 
@@ -538,14 +570,12 @@ public class ThreatCollectionService : BackgroundService
                     Message = message,
                     DeviceIp = seq.SourceIp,
                     SourceUrl = "/threats",
-                    Context = new Dictionary<string, string>
+                    Context = source.WithContext(new Dictionary<string, string>
                     {
                         ["stages"] = stageNames,
                         ["stage_count"] = seq.Stages.Count.ToString(),
-                        ["total_events"] = totalEvents.ToString(),
-                        ["country"] = seq.CountryCode ?? "unknown",
-                        ["asn"] = seq.AsnOrg ?? "unknown"
-                    }
+                        ["total_events"] = totalEvents.ToString()
+                    })
                 }, cancellationToken);
 
                 _logger.LogInformation("Attack chain detected: {Ip} ({Country}) - {Stages}",
@@ -590,6 +620,7 @@ public class ThreatCollectionService : BackgroundService
                 stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
+                var source = await sources.DescribeAsync(seq.SourceIp, seq.CountryCode, seq.AsnOrg, cancellationToken);
 
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
@@ -598,18 +629,16 @@ public class ThreatCollectionService : BackgroundService
                     SiteSlug = alertSiteSlug,
                     Severity = AlertSeverity.Info,
                     Title = $"Early-stage attack chain: {stageNames}",
-                    Message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} early kill chain stages with {totalEvents} events. " +
+                    Message = $"{source.Text} progressed through {seq.Stages.Count} early kill chain stages with {totalEvents} events. " +
                               "This may indicate a blocked attack or reconnaissance activity that did not reach exploitation.",
                     DeviceIp = seq.SourceIp,
                     SourceUrl = "/threats",
-                    Context = new Dictionary<string, string>
+                    Context = source.WithContext(new Dictionary<string, string>
                     {
                         ["stages"] = stageNames,
                         ["stage_count"] = seq.Stages.Count.ToString(),
-                        ["total_events"] = totalEvents.ToString(),
-                        ["country"] = seq.CountryCode ?? "unknown",
-                        ["asn"] = seq.AsnOrg ?? "unknown"
-                    }
+                        ["total_events"] = totalEvents.ToString()
+                    })
                 }, cancellationToken);
 
                 _logger.LogDebug("Early-stage attack chain detected: {Ip} ({Country}) - {Stages}",
@@ -636,9 +665,13 @@ public class ThreatCollectionService : BackgroundService
 
             try
             {
-                var eventType = evt.EventSource == Models.EventSource.TrafficFlow
-                    ? "threats.traffic_flow" : "threats.ips_event";
-                var titlePrefix = evt.EventSource == Models.EventSource.TrafficFlow ? "Flow" : "IPS";
+                var (eventType, titlePrefix) = evt.EventSource switch
+                {
+                    Models.EventSource.TrafficFlow => ("threats.traffic_flow", "Flow"),
+                    Models.EventSource.Waf => ("threats.waf_event", "WAF"),
+                    _ => ("threats.ips_event", "IPS")
+                };
+                var source = await sources.DescribeAsync(evt.SourceIp, evt.CountryCode, evt.AsnOrg, cancellationToken);
 
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
@@ -647,16 +680,15 @@ public class ThreatCollectionService : BackgroundService
                     SiteSlug = alertSiteSlug,
                     Severity = evt.Severity >= 5 ? AlertSeverity.Critical : AlertSeverity.Error,
                     Title = $"{titlePrefix}: {evt.SignatureName}",
-                    Message = $"{evt.Action} {evt.Protocol} from {evt.SourceIp}:{evt.SourcePort} to {evt.DestIp}:{evt.DestPort} - {evt.Category}",
+                    Message = $"{evt.Action} {evt.Protocol} from {evt.SourceIp}:{evt.SourcePort}{source.InternalSuffix} to {evt.DestIp}:{evt.DestPort} - {evt.Category}",
                     DeviceIp = evt.SourceIp,
                     SourceUrl = "/threats",
-                    Context = new Dictionary<string, string>
+                    Context = source.WithContext(new Dictionary<string, string>
                     {
                         ["signature_id"] = evt.SignatureId.ToString(),
                         ["category"] = evt.Category,
-                        ["kill_chain_stage"] = evt.KillChainStage.ToDisplayString(),
-                        ["country"] = evt.CountryCode ?? "unknown"
-                    }
+                        ["kill_chain_stage"] = evt.KillChainStage.ToDisplayString()
+                    })
                 }, cancellationToken);
             }
             catch (Exception ex)
@@ -812,6 +844,178 @@ public class ThreatCollectionService : BackgroundService
         var retention = await settings.GetSettingAsync("threats.retention_days", ct);
         if (retention != null && int.TryParse(retention, out var days) && days >= 1)
             _retentionDays = days;
+    }
+
+    /// <summary>
+    /// Reads new events from netopt-waf and feeds them through the same enrichment, pattern,
+    /// and alert path as IPS events. The cursor is per WAF instance: a restarted WAF starts over.
+    /// </summary>
+    private async Task CollectWafAsync(IThreatRepository repository, IThreatSettingsAccessor settings,
+        string? siteKey, CancellationToken cancellationToken)
+    {
+        var enabled = await settings.GetSettingAsync(WafSettingKeys.Enabled, cancellationToken);
+        var url = await settings.GetSettingAsync(WafSettingKeys.Url, cancellationToken);
+        var token = await settings.GetDecryptedSettingAsync(WafSettingKeys.Token, cancellationToken);
+        if (enabled != "true" || string.IsNullOrWhiteSpace(url) || string.IsNullOrEmpty(token))
+        {
+            _wafStatus = null;
+            return;
+        }
+
+        var (instance, since) = ParseWafCursor(await settings.GetSettingAsync(WafSettingKeys.Cursor, cancellationToken));
+        var client = new WafClient(_httpClientFactory.CreateClient());
+        try
+        {
+            // A few pages per cycle; a backlog drains over the next cycles.
+            for (var pageNo = 0; pageNo < 10; pageNo++)
+            {
+                var page = await client.GetEventsAsync(url, token, since, cancellationToken);
+                if (page.Instance != instance && since != 0)
+                {
+                    instance = page.Instance;
+                    since = 0;
+                    continue;
+                }
+                instance = page.Instance;
+
+                var events = _normalizer.NormalizeWafEvents(page);
+                await ProcessAndSaveAsync(events, repository, settings, siteKey, cancellationToken);
+                since = page.Next;
+                await settings.SaveSettingAsync(WafSettingKeys.Cursor, $"{instance}:{since}", cancellationToken);
+                _wafStatus = new WafStatus(DateTimeOffset.UtcNow, page.Mode, page.Paranoia, page.Started, page.Stats, null);
+
+                if (page.Events.Count < WafClient.PageSize) break;
+            }
+        }
+        catch (WafClientException ex)
+        {
+            _wafStatus = new WafStatus(DateTimeOffset.UtcNow, _wafStatus?.Mode, _wafStatus?.Paranoia ?? 0,
+                _wafStatus?.Started, _wafStatus?.Stats, ex.Message);
+            _logger.LogDebug("WAF poll failed: {Message}", ex.Message);
+        }
+        // A WAF failure must never cost the site its IPS and flow collection, which runs next.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "WAF event processing failed");
+        }
+    }
+
+    internal static (string Instance, ulong Since) ParseWafCursor(string? raw)
+    {
+        var parts = (raw ?? "").Split(':', 2);
+        return parts.Length == 2 && ulong.TryParse(parts[1], out var since) ? (parts[0], since) : ("", 0);
+    }
+
+    /// <summary>
+    /// Ensures an enabled, system-managed Infrastructure filter exists for this host's IPv4 on the
+    /// default site, so Network Optimizer's own traffic lands in its own table instead of Top Sources.
+    /// On an IP change the old entry is demoted and disabled but kept; a returning IP re-promotes it.
+    /// </summary>
+    private async Task EnsureSelfInfrastructureFilterAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var selfIp = DetectSelfIpv4();
+            if (string.IsNullOrEmpty(selfIp))
+            {
+                _logger.LogDebug("Could not determine this host's LAN IPv4, skipping self-filter registration");
+                return;
+            }
+
+            using var scope = _scopeFactory.CreateScope();
+            // This host's address only means something on the default site's LAN.
+            _siteContext?.PinScope(scope, DefaultSiteKey);
+            var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
+
+            var existing = await repository.GetNoiseFiltersAsync(cancellationToken);
+
+            var activeSystemMatch = existing.FirstOrDefault(f =>
+                f.IsSystem &&
+                f.Enabled &&
+                f.Category == ThreatFilterCategory.Infrastructure &&
+                string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal));
+            if (activeSystemMatch != null)
+                return;
+
+            var staleSystemEntries = existing
+                .Where(f => f.IsSystem &&
+                            f.Category == ThreatFilterCategory.Infrastructure &&
+                            IsSelfLabel(f.Label) &&
+                            !string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal))
+                .ToList();
+
+            foreach (var stale in staleSystemEntries)
+            {
+                await repository.DemoteAndDisableSystemFilterAsync(stale.Id, cancellationToken);
+                _systemAudit?.NoiseFilterChanged("self_filter_demoted", stale.SourceIp ?? "", null,
+                    $"This host's address changed to {selfIp}");
+                _logger.LogInformation(
+                    "Demoted stale system self-filter for {OldIp} (IP changed to {NewIp})",
+                    stale.SourceIp, selfIp);
+            }
+
+            var revivable = existing.FirstOrDefault(f =>
+                f.Category == ThreatFilterCategory.Infrastructure &&
+                string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal) &&
+                IsSelfLabel(f.Label));
+
+            if (revivable != null)
+            {
+                await repository.PromoteToSystemFilterAsync(revivable.Id, cancellationToken);
+                _systemAudit?.NoiseFilterChanged("self_filter_promoted", selfIp, null,
+                    "This host is back on a previous address");
+                _logger.LogInformation("Re-promoted existing self-filter for {SelfIp}", selfIp);
+                return;
+            }
+
+            var filter = new ThreatNoiseFilter
+            {
+                SourceIp = selfIp,
+                Category = ThreatFilterCategory.Infrastructure,
+                Label = SelfFilterLabel,
+                Description = "Auto-detected. Suppresses the optimizer's own scanning traffic from threat tables.",
+                IsSystem = true,
+                Enabled = true
+            };
+
+            await repository.SaveNoiseFilterAsync(filter, cancellationToken);
+            _systemAudit?.NoiseFilterChanged("self_filter_created", selfIp, null,
+                "Detected this host's LAN address");
+            _logger.LogInformation("Registered system Infrastructure filter for self IP {SelfIp}", selfIp);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to ensure self infrastructure filter");
+        }
+    }
+
+    internal const string SelfFilterLabel = "Network Optimizer (self)";
+
+    private static bool IsSelfLabel(string? label) =>
+        (label ?? string.Empty).Contains("(self)", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// This host's LAN IPv4, or null when it cannot be known. HOST_IP wins when set. A container
+    /// that sees a single interface is on bridge networking, where that address is the container's.
+    /// </summary>
+    internal static string? DetectSelfIpv4(
+        Func<string, string?>? getEnv = null,
+        Func<IReadOnlyList<string>>? localAddresses = null,
+        Func<string?>? detectLocalIp = null)
+    {
+        getEnv ??= Environment.GetEnvironmentVariable;
+        localAddresses ??= NetworkUtilities.LocalUnicastAddresses;
+        detectLocalIp ??= NetworkUtilities.DetectLocalIp;
+
+        var inContainer = string.Equals(getEnv("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase);
+        var hostIpSet = !string.IsNullOrWhiteSpace(getEnv("HOST_IP"));
+        if (inContainer && !hostIpSet && localAddresses().Count <= 1)
+            return null;
+
+        var ip = detectLocalIp();
+        return IPAddress.TryParse(ip, out var address) && address.AddressFamily == AddressFamily.InterNetwork
+            ? address.ToString()
+            : null;
     }
 
     private async Task TryAutoDownloadGeoDatabasesAsync(CancellationToken cancellationToken)

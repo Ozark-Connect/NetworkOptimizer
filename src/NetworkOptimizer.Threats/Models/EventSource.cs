@@ -6,5 +6,8 @@ namespace NetworkOptimizer.Threats.Models;
 public enum EventSource
 {
     Ips = 0,
-    TrafficFlow = 1
+    TrafficFlow = 1,
+
+    /// <summary>netopt-waf, the web application firewall in NetworkOptimizer-Proxy.</summary>
+    Waf = 2
 }

@@ -270,6 +270,37 @@ public class KillChainClassifierTests
         Assert.Equal(KillChainStage.Reconnaissance, result);
     }
 
+    [Theory]
+    [InlineData("outgoing")]
+    [InlineData("local")]
+    public void Classify_FlowLowRiskBlockedEgress_ReturnsMonitored(string direction)
+    {
+        var evt = CreateFlowEvent(direction: direction, riskLevel: "low", severity: 2, action: ThreatAction.Blocked, destPort: 443);
+        Assert.Equal(KillChainStage.Monitored, _classifier.Classify(evt));
+    }
+
+    [Fact]
+    public void Classify_FlowLowRiskBlockedEgressWithIpsSignature_KeepsStage()
+    {
+        var evt = CreateFlowEvent(direction: "outgoing", riskLevel: "low", severity: 2, action: ThreatAction.Blocked, destPort: 443);
+        evt.SignatureId = 2_000_001;
+        Assert.Equal(KillChainStage.Reconnaissance, _classifier.Classify(evt));
+    }
+
+    [Fact]
+    public void Classify_FlowMediumRiskBlockedEgress_KeepsStage()
+    {
+        var evt = CreateFlowEvent(direction: "outgoing", riskLevel: "medium", severity: 4, action: ThreatAction.Blocked, destPort: 443);
+        Assert.Equal(KillChainStage.AttemptedExploitation, _classifier.Classify(evt));
+    }
+
+    [Fact]
+    public void Classify_FlowLowRiskBlockedIncoming_StaysReconnaissance()
+    {
+        var evt = CreateFlowEvent(direction: "incoming", riskLevel: "low", severity: 2, action: ThreatAction.Blocked, destPort: 443);
+        Assert.Equal(KillChainStage.Reconnaissance, _classifier.Classify(evt));
+    }
+
     // --- Monitored (severity 1 / Info) ---
 
     [Fact]
