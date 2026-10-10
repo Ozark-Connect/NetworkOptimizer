@@ -262,7 +262,22 @@ public class ClientSpeedTestService : IClientSpeedTestService
             LocationAccuracyMeters = locationAccuracy
         };
 
-        // Save immediately so client doesn't wait
+        if (isWan)
+        {
+            try
+            {
+                var networks = await _connectionService.GetNetworksAsync();
+                var wans = networks.Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase)).ToList();
+                if (wans.Count == 1)
+                    result.WanNetworkGroup = wans[0].WanNetworkgroup;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not identify the sole WAN for browser speed test on site {Site}", _siteSlug);
+            }
+        }
+
+        // Save immediately so client doesn't wait for enrichment.
         await using var db = await CreateSiteDbAsync();
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();

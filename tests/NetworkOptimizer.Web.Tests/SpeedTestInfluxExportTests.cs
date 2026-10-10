@@ -110,6 +110,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         await _registry.DisposeAsync();
         await _services.DisposeAsync();
         await _server.DisposeAsync();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         _directory.Delete(recursive: true);
     }
 
@@ -296,7 +297,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             saved.WanNetworkGroup.Should().Be("WAN2");
             var write = _writes.Should().ContainSingle().Subject;
             write.Bucket.Should().Be(site == "main" ? "history" : "branch-history");
-            write.Body.Should().Contain("direction=UwnWanGateway").And.Contain("wan_network_group=WAN2")
+            write.Body.Should().Contain("runner=gateway").And.Contain("provider=uwn").And.Contain("wan_network_group=WAN2")
                 .And.Contain($"result_id={saved.Id}i").And.Contain($"success={success.ToString().ToLowerInvariant()}");
         }
     }
@@ -433,14 +434,14 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             .And.NotContain("private-user-agent").And.NotContain("42.123").And.NotContain("-71.123");
         if (wan)
         {
-            write.Body.Should().Contain("test_type=wan").And.Contain("direction=OpenSpeedTestWan")
-                .And.Contain("external_server_name=\"vps-test\"").And.Contain("wan_network_group=unknown")
+            write.Body.Should().Contain("test_type=wan").And.Contain("runner=client").And.Contain("provider=openspeedtest")
+                .And.Contain("server_name=\"vps-test\"").And.NotContain("wan_network_group")
                 .And.NotContain("server_host").And.NotContain("target_host").And.NotContain("192.0.2.50");
         }
         else
         {
-            write.Body.Should().Contain("test_type=lan").And.Contain("direction=BrowserToServer")
-                .And.Contain("target_host=192.0.2.50").And.NotContain("external_server_name");
+            write.Body.Should().Contain("test_type=lan").And.Contain("runner=client").And.Contain("provider=openspeedtest")
+                .And.Contain("target_host=192.0.2.50").And.NotContain("server_name");
         }
         await _registry.GetFor(site).FlushAsync();
         _writes.Should().ContainSingle("background enrichment should not export another summary");
@@ -463,7 +464,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         await WaitForClientEnrichmentAsync(first.Id);
         var originalTime = first.TestTime;
         var firstWrite = _writes.Should().ContainSingle().Subject;
-        firstWrite.Body.Should().Contain("test_type=lan").And.Contain("direction=ClientToServer")
+        firstWrite.Body.Should().Contain("test_type=lan").And.Contain("runner=client").And.Contain("provider=iperf3")
             .And.Contain("target_host=192.0.2.50")
             .And.Contain(downloadFirst ? "upload_bps=0" : "download_bps=0");
 
@@ -569,6 +570,11 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         await using var db = _siteDbFactory.CreateForSite(site);
         (await db.Iperf3Results.SingleAsync()).DeviceName.Should().Be("Laptop");
         var writes = _writes.ToArray();
+        if (direction == SpeedTestDirection.OpenSpeedTestWan)
+        {
+            writes.Should().ContainSingle().Which.Body.Should().Contain("server_name=\"vps-test\"").And.NotContain("Laptop");
+            return;
+        }
         writes.Should().HaveCount(2);
         writes.Select(write => write.Bucket).Should().OnlyContain(bucket =>
             bucket == (site == "main" ? "history" : "branch-history"));
@@ -624,6 +630,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         foreach (var site in new[] { "main", "branch" })
         {
             connectionCache[site] = (UniFiConnectionService)RuntimeHelpers.GetUninitializedObject(typeof(UniFiConnectionService));
+            SetField(connectionCache[site], "_logger", NullLogger<UniFiConnectionService>.Instance);
             bundleCache[site] = new(null!, null!, null!, null!, null!, null!);
         }
         var services = new ServiceCollection()
@@ -672,6 +679,93 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             bundleCache[site] = bundleCache[site] with { PathAnalyzer = analyzer };
         }
         return services;
+    }
+
+    [Theory]
+    [InlineData("main", 0, true)]
+    [InlineData("main", 1, true)]
+    [InlineData("main", 2, true)]
+    [InlineData("branch", 0, true)]
+    [InlineData("branch", 1, true)]
+    [InlineData("branch", 2, true)]
+    [InlineData("main", 0, false)]
+    [InlineData("main", 1, false)]
+    [InlineData("main", 2, false)]
+    [InlineData("branch", 0, false)]
+    [InlineData("branch", 1, false)]
+    [InlineData("branch", 2, false)]
+    public async Task BrowserWan_UsesOnlyUnambiguousOriginatingSiteWan(string site, int wanCount, bool influxConfigured)
+    {
+        if (!influxConfigured)
+        {
+            await using var mainDb = _mainDbFactory.CreateDbContext();
+            (await mainDb.MonitoringSettings.SingleAsync()).InfluxDbToken = null;
+            await mainDb.SaveChangesAsync();
+        }
+        await using var services = ProductionServices(enrichedName: "Laptop");
+        var connections = services.GetRequiredService<SiteConnectionRegistry>();
+        foreach (var slug in new[] { "main", "branch" })
+        {
+            var connection = connections.GetFor(slug);
+            SetField(connection, "_client", RuntimeHelpers.GetUninitializedObject(typeof(UniFiApiClient)));
+            SetField(connection, "_isConnected", true);
+            SetField(connection, "_networkCacheTime", DateTime.UtcNow);
+            var networks = new List<NetworkInfo>
+            {
+                new() { Purpose = "corporate", WanNetworkgroup = "not-a-wan" }
+            };
+            if (slug == site)
+                networks.AddRange(Enumerable.Range(1, wanCount).Select(i =>
+                    new NetworkInfo { Purpose = "wan", WanNetworkgroup = $"WAN{i}", Name = $"WAN {i}" }));
+            else
+                networks.Add(new NetworkInfo { Purpose = "wan", WanNetworkgroup = "OTHER-SITE" });
+            SetField(connection, "_cachedNetworks", networks);
+        }
+        var service = ActivatorUtilities.CreateInstance<ClientSpeedTestService>(services, site);
+
+        var result = await service.RecordOpenSpeedTestResultAsync("192.0.2.50", 500, 50, 12.5, 0.5, 100, 10, null,
+            externalServerId: "vps-test");
+        await WaitForClientEnrichmentAsync(result.Id);
+        await _registry.GetFor(site).FlushAsync();
+
+        await using var db = _siteDbFactory.CreateForSite(site);
+        var saved = await db.Iperf3Results.SingleAsync();
+        saved.WanNetworkGroup.Should().Be(wanCount == 1 ? "WAN1" : null);
+        if (!influxConfigured)
+        {
+            _writes.Should().BeEmpty();
+            return;
+        }
+        var write = _writes.Should().ContainSingle().Subject;
+        write.Bucket.Should().Be(site == "main" ? "history" : "branch-history");
+        write.Body.Should().Contain("server_name=\"vps-test\"").And.NotContain("Laptop").And.NotContain("OTHER-SITE");
+        if (wanCount == 1)
+            write.Body.Should().Contain("wan_network_group=WAN1");
+        else
+            write.Body.Should().NotContain("wan_network_group");
+    }
+
+    [Fact]
+    public async Task BrowserWan_NetworkLookupFailureDoesNotFailSavedTest()
+    {
+        await using var services = ProductionServices();
+        var connection = services.GetRequiredService<SiteConnectionRegistry>().GetDefault();
+        // The fixture's uninitialized client cannot fetch networks; the saved test must still succeed.
+        SetField(connection, "_client", RuntimeHelpers.GetUninitializedObject(typeof(UniFiApiClient)));
+        SetField(connection, "_isConnected", true);
+        var service = ActivatorUtilities.CreateInstance<ClientSpeedTestService>(services, "main");
+
+        var result = await service.RecordOpenSpeedTestResultAsync("192.0.2.50", 500, 50, 12.5, 0.5, 100, 10, null,
+            externalServerId: "vps-test");
+        await WaitForClientEnrichmentAsync(result.Id);
+        await _registry.GetDefault().FlushAsync();
+
+        result.Success.Should().BeTrue();
+        await using var db = _mainDbFactory.CreateDbContext();
+        (await db.Iperf3Results.SingleAsync()).WanNetworkGroup.Should().BeNull();
+        _writes.Should().ContainSingle().Which.Body.Should().Contain("server_name=\"vps-test\"")
+            .And.NotContain("wan_network_group");
+        VerifyLog(_clientLogger, LogLevel.Warning, "Could not identify the sole WAN");
     }
 
     private static object? GetField(object target, string name) =>

@@ -11,11 +11,11 @@ public class SpeedTestInfluxPointTests
     private static readonly DateTime TestTime = new(2026, 10, 7, 12, 0, 0, DateTimeKind.Utc);
 
     [Theory]
-    [InlineData(SpeedTestDirection.CloudflareWan)]
-    [InlineData(SpeedTestDirection.CloudflareWanGateway)]
-    [InlineData(SpeedTestDirection.UwnWan)]
-    [InlineData(SpeedTestDirection.UwnWanGateway)]
-    public void WanPoint_ContainsSummaryAndBoundedTags(SpeedTestDirection direction)
+    [InlineData(SpeedTestDirection.CloudflareWan, "server", "cloudflare")]
+    [InlineData(SpeedTestDirection.CloudflareWanGateway, "gateway", "cloudflare")]
+    [InlineData(SpeedTestDirection.UwnWan, "server", "uwn")]
+    [InlineData(SpeedTestDirection.UwnWanGateway, "gateway", "uwn")]
+    public void WanPoint_ContainsSummaryAndBoundedTags(SpeedTestDirection direction, string runner, string provider)
     {
         var result = new Iperf3Result
         {
@@ -44,26 +44,27 @@ public class SpeedTestInfluxPointTests
         var tags = line[..line.IndexOf(' ')];
 
         tags.Should().Contain("speed_test,").And.Contain("test_type=wan")
-            .And.Contain($"direction={direction}").And.Contain("wan_network_group=WAN+WAN2");
+            .And.Contain($"runner={runner}").And.Contain($"provider={provider}").And.Contain("wan_network_group=WAN+WAN2")
+            .And.NotContain("direction=");
         tags.Should().NotContain("result_id").And.NotContain("speed.example.net")
             .And.NotContain("Test").And.NotContain("Fiber");
         line.Should().Contain("result_id=42i").And.Contain("success=true")
             .And.Contain("download_bps=900000000").And.Contain("upload_bps=100000000")
             .And.Contain("duration_s=8i").And.Contain("parallel_streams=20i")
-            .And.Contain("server_host=\"speed.example.net\"").And.Contain("target_name=\"Test edge\"")
+            .And.Contain("server_host=\"speed.example.net\"").And.Contain("server_name=\"Test edge\"")
             .And.Contain("wan_name=\"Fiber + Backup\"")
             .And.Contain("ping_ms=12.5").And.Contain("jitter_ms=0.5")
             .And.Contain("download_latency_ms=20.5").And.Contain("download_jitter_ms=1.5")
             .And.Contain("upload_latency_ms=30.5").And.Contain("upload_jitter_ms=2.5");
         line.Should().EndWith($" {TimestampNs(TestTime)}");
-        line.Should().NotContain("target_host");
+        line.Should().NotContain("target_host").And.NotContain("target_name").And.NotContain("target_type");
     }
 
     [Theory]
-    [InlineData(SpeedTestDirection.ServerToDevice)]
-    [InlineData(SpeedTestDirection.ClientToServer)]
-    [InlineData(SpeedTestDirection.BrowserToServer)]
-    public void LanPoint_PreservesFromDeviceAndToDeviceRatesAndOmitsMissingLatency(SpeedTestDirection direction)
+    [InlineData(SpeedTestDirection.ServerToDevice, "server", "iperf3")]
+    [InlineData(SpeedTestDirection.ClientToServer, "client", "iperf3")]
+    [InlineData(SpeedTestDirection.BrowserToServer, "client", "openspeedtest")]
+    public void LanPoint_PreservesFromDeviceAndToDeviceRatesAndOmitsMissingLatency(SpeedTestDirection direction, string runner, string provider)
     {
         var result = new Iperf3Result
         {
@@ -79,7 +80,8 @@ public class SpeedTestInfluxPointTests
         var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
         var tags = line[..line.IndexOf(' ')];
 
-        tags.Should().Contain("test_type=lan").And.Contain($"direction={direction}")
+        tags.Should().Contain("test_type=lan").And.Contain($"runner={runner}").And.Contain($"provider={provider}")
+            .And.NotContain("direction=")
             .And.Contain("target_host=192.0.2.10").And.NotContain("wan_network_group");
         line.Should().Contain("download_bps=800000000").And.Contain("upload_bps=700000000")
             .And.NotContain("ping_ms").And.NotContain("jitter_ms").And.NotContain("latency_ms")
@@ -138,12 +140,12 @@ public class SpeedTestInfluxPointTests
             Direction = SpeedTestDirection.UwnWanGateway,
             DeviceHost = host!,
             TestTime = TestTime,
-            Success = false
+            Success = true
         };
 
         var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
 
-        line.Should().Contain("success=false").And.NotContain("server_host").And.NotContain("target_host");
+        line.Should().Contain("success=true").And.NotContain("server_host").And.NotContain("target_host");
     }
 
     [Theory]
@@ -184,8 +186,8 @@ public class SpeedTestInfluxPointTests
 
         var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
 
-        line.Should().Contain("test_type=wan").And.Contain("direction=OpenSpeedTestWan")
-            .And.Contain("wan_network_group=unknown").And.Contain("external_server_name=\"vps-test\"")
+        line.Should().Contain("test_type=wan").And.Contain("runner=client").And.Contain("provider=openspeedtest")
+            .And.NotContain("wan_network_group").And.Contain("server_name=\"vps-test\"")
             .And.Contain("download_bps=500000000").And.Contain("upload_bps=50000000")
             .And.NotContain("server_host").And.NotContain("target_host").And.NotContain("192.0.2.50");
     }
@@ -194,9 +196,67 @@ public class SpeedTestInfluxPointTests
         ((time.Ticks - DateTime.UnixEpoch.Ticks) * 100).ToString(CultureInfo.InvariantCulture);
 
     [Theory]
+    [InlineData(SpeedTestDirection.CloudflareWan)]
+    [InlineData(SpeedTestDirection.CloudflareWanGateway)]
+    [InlineData(SpeedTestDirection.UwnWan)]
+    [InlineData(SpeedTestDirection.UwnWanGateway)]
+    [InlineData(SpeedTestDirection.OpenSpeedTestWan)]
+    [InlineData(SpeedTestDirection.ServerToDevice)]
+    [InlineData(SpeedTestDirection.ClientToServer)]
+    [InlineData(SpeedTestDirection.BrowserToServer)]
+    public void FailedPoint_OmitsDescriptionsAndMetadataUpdates(SpeedTestDirection direction)
+    {
+        var result = new Iperf3Result
+        {
+            Direction = direction, DeviceHost = "UWN Test", DeviceName = "Gateway", DeviceType = "WAN",
+            WanName = "Placeholder WAN", ExternalServerName = "Cloudflare", Success = false, TestTime = TestTime
+        };
+
+        var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
+        var fields = line[(line.IndexOf(' ') + 1)..];
+
+        fields.Should().Contain("success=false").And.NotContain("server_host").And.NotContain("server_name")
+            .And.NotContain("target_name").And.NotContain("target_type").And.NotContain("wan_name")
+            .And.NotContain("external_server_name");
+        MonitoringInfluxClient.BuildSpeedTestMetadataPoint(result).Should().BeNull();
+    }
+
+    [Fact]
+    public void SuccessfulGatewayWan_OmitsPlaceholderHostButKeepsRealServerName()
+    {
+        var result = new Iperf3Result
+        {
+            Direction = SpeedTestDirection.UwnWanGateway, DeviceHost = "UWN Test",
+            DeviceName = "Real edge", DeviceType = "WAN", Success = true, TestTime = TestTime
+        };
+
+        var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
+
+        line.Should().Contain("server_name=\"Real edge\"").And.NotContain("server_host")
+            .And.NotContain("UWN Test").And.NotContain("target_type").And.NotContain("target_name");
+    }
+
+    [Fact]
+    public void BrowserWan_ClientEnrichmentDoesNotReplaceExternalServerName()
+    {
+        var result = new Iperf3Result
+        {
+            Direction = SpeedTestDirection.OpenSpeedTestWan, DeviceHost = "192.0.2.50",
+            DeviceName = "Private laptop", DeviceType = "Client", ExternalServerName = "vps-test",
+            WanNetworkGroup = "WAN2", Success = true, TestTime = TestTime
+        };
+
+        var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
+
+        line.Should().Contain("server_name=\"vps-test\"").And.Contain("wan_network_group=WAN2")
+            .And.NotContain("Private").And.NotContain("target_name").And.NotContain("target_type");
+        MonitoringInfluxClient.BuildSpeedTestMetadataPoint(result).Should().BeNull();
+    }
+
+    [Theory]
     [InlineData(SpeedTestDirection.BrowserToServer)]
     [InlineData(SpeedTestDirection.ClientToServer)]
-    [InlineData(SpeedTestDirection.OpenSpeedTestWan)]
+    [InlineData(SpeedTestDirection.UwnWan)]
     public void MetadataPoint_SharesSummaryIdentityWithoutMeasurementFields(SpeedTestDirection direction)
     {
         var result = new Iperf3Result
@@ -211,8 +271,11 @@ public class SpeedTestInfluxPointTests
 
         metadata[..metadata.IndexOf(' ')].Should().Be(summary[..summary.IndexOf(' ')]);
         metadata.Should().EndWith($" {TimestampNs(TestTime)}");
-        metadata.Should().Contain("target_name=\"Laptop\"").And.Contain("target_type=\"Client\"")
-            .And.NotContain("download_bps").And.NotContain("upload_bps").And.NotContain("ping_ms")
+        if (direction == SpeedTestDirection.UwnWan)
+            metadata.Should().Contain("server_name=\"Laptop\"").And.NotContain("target_name").And.NotContain("target_type");
+        else
+            metadata.Should().Contain("target_name=\"Laptop\"").And.Contain("target_type=\"Client\"");
+        metadata.Should().NotContain("download_bps").And.NotContain("upload_bps").And.NotContain("ping_ms")
             .And.NotContain("success=").And.NotContain("result_id").And.NotContain("duration_s")
             .And.NotContain("parallel_streams");
     }

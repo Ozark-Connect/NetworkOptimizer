@@ -391,21 +391,21 @@ public class MonitoringInfluxClient : IAsyncDisposable
             .Field("duration_s", result.DurationSeconds)
             .Field("parallel_streams", result.ParallelStreams);
 
-        if (isWan)
+        if (isWan && result.Success)
         {
             if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
             {
                 if (!string.IsNullOrWhiteSpace(result.ExternalServerName))
-                    point = point.Field("external_server_name", result.ExternalServerName);
+                    point = point.Field("server_name", result.ExternalServerName);
             }
-            else if (!string.IsNullOrWhiteSpace(result.DeviceHost))
+            else if (!string.IsNullOrWhiteSpace(result.DeviceHost) && result.DeviceHost != "UWN Test")
             {
                 point = point.Field("server_host", result.DeviceHost);
             }
             if (!string.IsNullOrEmpty(result.WanName)) point = point.Field("wan_name", result.WanName);
         }
 
-        point = AddSpeedTestMetadata(point, result);
+        point = AddSpeedTestMetadata(point, result, isWan);
         if (result.PingMs.HasValue) point = point.Field("ping_ms", result.PingMs.Value);
         if (result.JitterMs.HasValue) point = point.Field("jitter_ms", result.JitterMs.Value);
         if (result.DownloadLatencyMs.HasValue) point = point.Field("download_latency_ms", result.DownloadLatencyMs.Value);
@@ -425,40 +425,63 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     internal static PointData? BuildSpeedTestMetadataPoint(Iperf3Result result)
     {
-        if (string.IsNullOrWhiteSpace(result.DeviceName) && string.IsNullOrWhiteSpace(result.DeviceType))
+        if (!result.Success || (string.IsNullOrWhiteSpace(result.DeviceName) && string.IsNullOrWhiteSpace(result.DeviceType)))
             return null;
-        return AddSpeedTestMetadata(BuildSpeedTestIdentity(result, out _), result);
+        var point = BuildSpeedTestIdentity(result, out var isWan);
+        if (isWan)
+        {
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan || string.IsNullOrWhiteSpace(result.DeviceName))
+                return null;
+        }
+        return AddSpeedTestMetadata(point, result, isWan);
     }
 
-    private static PointData AddSpeedTestMetadata(PointData point, Iperf3Result result)
+    private static PointData AddSpeedTestMetadata(PointData point, Iperf3Result result, bool isWan)
     {
-        if (!string.IsNullOrWhiteSpace(result.DeviceName)) point = point.Field("target_name", result.DeviceName);
-        if (!string.IsNullOrWhiteSpace(result.DeviceType)) point = point.Field("target_type", result.DeviceType);
+        if (!result.Success) return point;
+        if (isWan)
+        {
+            if (result.Direction != SpeedTestDirection.OpenSpeedTestWan && !string.IsNullOrWhiteSpace(result.DeviceName))
+                point = point.Field("server_name", result.DeviceName);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(result.DeviceName)) point = point.Field("target_name", result.DeviceName);
+            if (!string.IsNullOrWhiteSpace(result.DeviceType)) point = point.Field("target_type", result.DeviceType);
+        }
         return point;
     }
 
     private static PointData BuildSpeedTestIdentity(Iperf3Result result, out bool isWan)
     {
-        isWan = result.Direction switch
+        var (testType, runner, provider) = result.Direction switch
         {
-            SpeedTestDirection.CloudflareWan or SpeedTestDirection.CloudflareWanGateway
-                or SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway
-                or SpeedTestDirection.OpenSpeedTestWan => true,
-            SpeedTestDirection.ServerToDevice or SpeedTestDirection.ClientToServer
-                or SpeedTestDirection.BrowserToServer => false,
+            SpeedTestDirection.CloudflareWan => ("wan", "server", "cloudflare"),
+            SpeedTestDirection.CloudflareWanGateway => ("wan", "gateway", "cloudflare"),
+            SpeedTestDirection.UwnWan => ("wan", "server", "uwn"),
+            SpeedTestDirection.UwnWanGateway => ("wan", "gateway", "uwn"),
+            SpeedTestDirection.OpenSpeedTestWan => ("wan", "client", "openspeedtest"),
+            SpeedTestDirection.ServerToDevice => ("lan", "server", "iperf3"),
+            SpeedTestDirection.ClientToServer => ("lan", "client", "iperf3"),
+            SpeedTestDirection.BrowserToServer => ("lan", "client", "openspeedtest"),
             _ => throw new ArgumentOutOfRangeException(nameof(result), result.Direction,
                 "Unsupported speed test direction.")
         };
+        isWan = testType == "wan";
         // SQLite reads UTC timestamps back with Unspecified kind.
         var timestamp = DateTimeUtilities.AsUtc(result.TestTime);
         var point = PointData.Measurement("speed_test")
-            .Tag("test_type", isWan ? "wan" : "lan")
-            .Tag("direction", result.Direction.ToString())
+            .Tag("test_type", testType)
+            .Tag("runner", runner)
+            .Tag("provider", provider)
             .Timestamp(timestamp, WritePrecision.Ns);
 
         if (isWan)
         {
-            point = point.Tag("wan_network_group", result.WanNetworkGroup ?? "unknown");
+            if (!string.IsNullOrWhiteSpace(result.WanNetworkGroup))
+                point = point.Tag("wan_network_group", result.WanNetworkGroup);
+            else if (result.Direction != SpeedTestDirection.OpenSpeedTestWan)
+                point = point.Tag("wan_network_group", "unknown");
         }
         else
         {
