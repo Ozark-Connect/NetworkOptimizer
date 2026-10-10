@@ -30,10 +30,13 @@ func newMux(state *State) *http.ServeMux {
 	mux.HandleFunc("/events", jsonRequestHandler(state.eventsPayload))
 	mux.HandleFunc("/neighbors", jsonRequestHandler(state.neighborsPayload))
 
-	// The only route that changes anything. The resource is the transition request, not an action:
+	// The legacy route that changes client association. The resource is the transition request, not an action:
 	// POST creates one for the client named in the path. A more specific pattern than "/clients/{mac}",
 	// so it wins on precedence.
 	mux.HandleFunc("POST /clients/{mac}/bss-transitions", jsonMutatingHandler(state.bssTransitionPayload))
+	// A distinct resource protects mixed-version installations: an older agent cannot interpret
+	// a voluntary request as its legacy disassociation-imminent command.
+	mux.HandleFunc("POST /clients/{mac}/voluntary-bss-transitions", jsonMutatingHandler(state.nativeRoamPayload))
 	return mux
 }
 
@@ -52,7 +55,7 @@ func jsonHandler(payload func() any) http.HandlerFunc {
 	return jsonRequestHandler(func(*http.Request) (any, error) { return payload(), nil })
 }
 
-// jsonMutatingHandler is the read handler's contract for the one endpoint that changes something.
+// jsonMutatingHandler is the read handler's contract for endpoints that change something.
 // POST only, so a stray GET or a link preview can never move a client.
 func jsonMutatingHandler(payload func(*http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

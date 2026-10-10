@@ -11,6 +11,28 @@ public sealed class ApAgentNeighborReport
 
     /// <summary>Hex neighbor report element, passed through untouched as a BTM candidate.</summary>
     [JsonPropertyName("element")] public string Element { get; set; } = "";
+    [JsonPropertyName("security")] public ApAgentBssSecurity? Security { get; set; }
+}
+
+/// <summary>Public security protocol fields; never a password or key.</summary>
+public sealed class ApAgentBssSecurity
+{
+    [JsonPropertyName("wpa")] public string Wpa { get; set; } = "";
+    [JsonPropertyName("key_mgmt")] public string KeyMgmt { get; set; } = "";
+    [JsonPropertyName("pairwise")] public string Pairwise { get; set; } = "";
+}
+
+public sealed class ApAgentNativeCandidate
+{
+    [JsonPropertyName("element")] public string Element { get; set; } = "";
+    [JsonPropertyName("ssid")] public string Ssid { get; set; } = "";
+    [JsonPropertyName("security")] public ApAgentBssSecurity? Security { get; set; }
+}
+
+/// <summary>A separate voluntary-only body and route prevent legacy timer semantics.</summary>
+public sealed class ApAgentNativeTransitionRequest
+{
+    [JsonPropertyName("candidates")] public List<ApAgentNativeCandidate> Candidates { get; set; } = new();
 }
 
 /// <summary>The agent's <c>/neighbors</c> reply.</summary>

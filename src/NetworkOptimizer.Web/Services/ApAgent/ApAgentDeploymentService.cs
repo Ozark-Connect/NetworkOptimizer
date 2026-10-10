@@ -541,11 +541,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         lock (_lastAssessment) _lastAssessment[record.DeviceMac] = assessment;
 
-        // Steering goes through hostapd on ubus. Firmware without it (an Express (UX, UX7) adopted as an AP)
-        // reports the probe unavailable, and a steer sent there can only fail.
-        if (observation.Health is { } reported)
-            _directory.RecordSteering(_siteSlug, record.DeviceMac,
-                !reported.Unavailable.Contains(ApAgentRoamService.SteeringProbe, StringComparer.OrdinalIgnoreCase));
+        // Native voluntary steering is a distinct operation; do not pretend ubus became available.
+        _directory.RecordSteering(_siteSlug, record.DeviceMac, CanSteer(assessment, observation.Health));
 
         if (assessment.State == ApAgentState.Healthy || assessment.State == ApAgentState.OutOfDate)
         {
@@ -564,6 +561,11 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
 
         return assessment;
     }
+
+    internal static bool CanSteer(ApAgentAssessment assessment, ApAgentHealthPayload? health)
+        => assessment.State is ApAgentState.Healthy or ApAgentState.OutOfDate && health is { } reported
+            && (!reported.Unavailable.Contains(ApAgentRoamService.SteeringProbe, StringComparer.OrdinalIgnoreCase)
+                || ApAgentNativeSteering.SupportedVaps(reported).Count > 0);
 
     /// <summary>How long a fresh agent gets to bind its port: it runs its capability probes first.</summary>
     private static readonly TimeSpan VerifyBindWindow = TimeSpan.FromSeconds(20);
