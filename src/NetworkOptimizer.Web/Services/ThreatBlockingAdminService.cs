@@ -142,6 +142,13 @@ public interface IThreatBlockingSiteAdmin
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
     Task SetTrustedSitesAsync([SiteSlug] string siteSlug, IReadOnlyList<string> trustedSiteSlugs, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The site's current public addresses (single IPs, not prefixes), for Network Tools' target list.
+    /// Gated on that site, so a user only sees the sites they can open.
+    /// </summary>
+    [RequireSiteRole(SiteRole.SiteViewer)]
+    Task<IReadOnlyList<string>> GetSiteAddressesAsync([SiteSlug] string siteSlug, CancellationToken cancellationToken = default);
+
     /// <summary>Forgets an address <paramref name="siteSlug"/> no longer reports. Gated on the site the address belongs to.</summary>
     [RequireSiteRole(SiteRole.SiteAdmin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
@@ -178,6 +185,9 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops)
 
     public Task SetTrustedSitesAsync(string siteSlug, IReadOnlyList<string> trustedSiteSlugs, CancellationToken ct = default) =>
         ops.SaveTrustedSitesAsync(siteSlug, trustedSiteSlugs, ct);
+
+    public Task<IReadOnlyList<string>> GetSiteAddressesAsync(string siteSlug, CancellationToken ct = default) =>
+        ops.GetCurrentSiteAddressesAsync(siteSlug, ct);
 
     public Task<bool> RemoveTrustedAddressAsync(string siteSlug, string address, CancellationToken ct = default) =>
         ops.RemoveTrustedAddressAsync(siteSlug, address, ct);
