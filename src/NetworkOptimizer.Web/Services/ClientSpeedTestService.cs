@@ -36,6 +36,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly string _siteSlug;
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     /// <summary>
     /// Throws when this site is license-restricted. New client speed test
@@ -55,6 +56,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         ITopologySnapshotService snapshotService,
         IConfiguration configuration,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        IServiceScopeFactory scopeFactory,
         MonitoringInfluxRegistry? influxRegistry = null,
         ApAgent.ApAgentTargetDirectory? apAgents = null,
         Licensing.LicenseStateService? licenseState = null,
@@ -78,6 +80,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _configuration = configuration;
         _alertEventBus = alertEventBus;
         _siteDbFactory = siteDbFactory;
+        _scopeFactory = scopeFactory;
         _influx = influxRegistry?.GetFor(_siteSlug);
         _influxRegistry = influxRegistry;
         _apAgents = apAgents;
@@ -266,10 +269,12 @@ public class ClientSpeedTestService : IClientSpeedTestService
         {
             try
             {
-                var networks = await _connectionService.GetNetworksAsync();
-                var wans = networks.Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase)).ToList();
+                using var scope = _scopeFactory.CreateScope();
+                scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+                using var caller = Identity.SystemScope.Enter(scope.ServiceProvider, "speedtest:wan");
+                var wans = await scope.ServiceProvider.GetRequiredService<ISqmService>().GetWanInterfacesFromControllerAsync();
                 if (wans.Count == 1)
-                    result.WanNetworkGroup = wans[0].WanNetworkgroup;
+                    result.WanNetworkGroup = wans[0].NetworkGroup;
             }
             catch (Exception ex)
             {

@@ -612,7 +612,8 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         (await db.Iperf3Results.SingleAsync()).UploadBitsPerSecond.Should().Be(50_000_000);
     }
 
-    private ServiceProvider ProductionServices(string? enrichedName = null)
+    private ServiceProvider ProductionServices(string? enrichedName = null,
+        Dictionary<string, List<WanInterfaceInfo>>? activeWans = null, bool failWanLookup = false)
     {
         // Avoid the console connection's constructor-triggered network initialization, matching
         // ClientDashboardIdentificationTests. The real speed-test constructors still run.
@@ -635,6 +636,20 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         }
         var services = new ServiceCollection()
             .AddLogging()
+            .AddScoped<NetworkOptimizer.Web.Services.Identity.ICallerContext, NetworkOptimizer.Web.Services.Identity.CallerContext>()
+            .AddScoped<ISqmService>(sp =>
+            {
+                var sqm = new Mock<ISqmService>();
+                sqm.Setup(s => s.GetWanInterfacesFromControllerAsync()).Returns(() =>
+                {
+                    sp.GetRequiredService<NetworkOptimizer.Web.Services.Identity.ICallerContext>().Require().IsSystem.Should().BeTrue();
+                    if (failWanLookup) throw new InvalidOperationException("WAN lookup unavailable");
+                    var slug = sp.GetRequiredService<SiteContextService>().Slug;
+                    return Task.FromResult(activeWans != null && activeWans.TryGetValue(slug, out var wans)
+                        ? wans : new List<WanInterfaceInfo>());
+                });
+                return sqm.Object;
+            })
             .AddSingleton(_clientLogger.Object)
             .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
             .AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(_mainDbFactory)
@@ -702,7 +717,13 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             (await mainDb.MonitoringSettings.SingleAsync()).InfluxDbToken = null;
             await mainDb.SaveChangesAsync();
         }
-        await using var services = ProductionServices(enrichedName: "Laptop");
+        var activeWans = new Dictionary<string, List<WanInterfaceInfo>>
+        {
+            [site] = Enumerable.Range(1, wanCount).Select(i =>
+                new WanInterfaceInfo { NetworkGroup = $"WAN{i}", Name = $"WAN {i}" }).ToList(),
+            [site == "main" ? "branch" : "main"] = new() { new() { NetworkGroup = "OTHER-SITE" } }
+        };
+        await using var services = ProductionServices(enrichedName: "Laptop", activeWans: activeWans);
         var connections = services.GetRequiredService<SiteConnectionRegistry>();
         foreach (var slug in new[] { "main", "branch" })
         {
@@ -715,7 +736,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
                 new() { Purpose = "corporate", WanNetworkgroup = "not-a-wan" }
             };
             if (slug == site)
-                networks.AddRange(Enumerable.Range(1, wanCount).Select(i =>
+                networks.AddRange(Enumerable.Range(1, Math.Max(2, wanCount)).Select(i =>
                     new NetworkInfo { Purpose = "wan", WanNetworkgroup = $"WAN{i}", Name = $"WAN {i}" }));
             else
                 networks.Add(new NetworkInfo { Purpose = "wan", WanNetworkgroup = "OTHER-SITE" });
@@ -748,7 +769,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
     [Fact]
     public async Task BrowserWan_NetworkLookupFailureDoesNotFailSavedTest()
     {
-        await using var services = ProductionServices();
+        await using var services = ProductionServices(failWanLookup: true);
         var connection = services.GetRequiredService<SiteConnectionRegistry>().GetDefault();
         // The fixture's uninitialized client cannot fetch networks; the saved test must still succeed.
         SetField(connection, "_client", RuntimeHelpers.GetUninitializedObject(typeof(UniFiApiClient)));

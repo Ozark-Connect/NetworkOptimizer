@@ -430,7 +430,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         var point = BuildSpeedTestIdentity(result, out var isWan);
         if (isWan)
         {
-            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan || string.IsNullOrWhiteSpace(result.DeviceName))
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan || !HasSpeedTestServerName(result))
                 return null;
         }
         return AddSpeedTestMetadata(point, result, isWan);
@@ -441,7 +441,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (!result.Success) return point;
         if (isWan)
         {
-            if (result.Direction != SpeedTestDirection.OpenSpeedTestWan && !string.IsNullOrWhiteSpace(result.DeviceName))
+            if (result.Direction != SpeedTestDirection.OpenSpeedTestWan && HasSpeedTestServerName(result))
                 point = point.Field("server_name", result.DeviceName);
         }
         else
@@ -451,6 +451,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         }
         return point;
     }
+
+    private static bool HasSpeedTestServerName(Iperf3Result result) =>
+        !string.IsNullOrWhiteSpace(result.DeviceName)
+        && !(result.Direction is SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway && result.DeviceName == "UWN");
 
     private static PointData BuildSpeedTestIdentity(Iperf3Result result, out bool isWan)
     {

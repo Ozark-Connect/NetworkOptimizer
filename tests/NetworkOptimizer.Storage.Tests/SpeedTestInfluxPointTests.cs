@@ -254,6 +254,24 @@ public class SpeedTestInfluxPointTests
     }
 
     [Theory]
+    [InlineData(SpeedTestDirection.UwnWan)]
+    [InlineData(SpeedTestDirection.UwnWanGateway)]
+    public void SuccessfulUwn_ProviderFallbackDoesNotBecomeServerName(SpeedTestDirection direction)
+    {
+        var result = new Iperf3Result
+        {
+            Direction = direction, DeviceHost = "edge.example.net", DeviceName = "UWN",
+            Success = true, TestTime = TestTime
+        };
+
+        var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
+
+        line.Should().Contain("provider=uwn").And.Contain("server_host=\"edge.example.net\"")
+            .And.NotContain("server_name");
+        MonitoringInfluxClient.BuildSpeedTestMetadataPoint(result).Should().BeNull();
+    }
+
+    [Theory]
     [InlineData(SpeedTestDirection.BrowserToServer)]
     [InlineData(SpeedTestDirection.ClientToServer)]
     [InlineData(SpeedTestDirection.UwnWan)]
