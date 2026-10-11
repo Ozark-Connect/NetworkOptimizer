@@ -30,6 +30,11 @@ public interface IWafConnectionAdmin
     /// <summary>Reads one page from the WAF; a null or empty token uses the stored one.</summary>
     [RequireRole(Roles.Admin)]
     Task<WafEventPage> TestAsync(string url, string? token, CancellationToken cancellationToken = default);
+
+    /// <summary>Switches the site's WAF between detect and block, through its saved connection.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "waf_mode")]
+    Task<WafModeState> SetModeAsync(string mode, CancellationToken cancellationToken = default);
 }
 
 public sealed class WafConnectionAdminService(
@@ -68,5 +73,26 @@ public sealed class WafConnectionAdminService(
             : token.Trim();
         var client = new WafClient(await http.GetClientAsync(Site, ct));
         return await client.GetEventsAsync(url.Trim(), useToken, 0, ct, limit: 1);
+    }
+
+    public async Task<WafModeState> SetModeAsync(string mode, CancellationToken ct = default)
+    {
+        if (mode is not ("detect" or "block"))
+            throw new ArgumentException("The WAF mode is detect or block.");
+        var url = await settings.GetSettingAsync(Key(WafSettingKeys.Url), ct);
+        var token = await settings.GetDecryptedSettingAsync(Key(WafSettingKeys.Token), ct);
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(token))
+            throw new ArgumentException("Connect the WAF first.");
+        var client = new WafClient(await http.GetClientAsync(Site, ct));
+        try
+        {
+            var state = await client.PutModeAsync(url.Trim(), token, mode, ct);
+            collector.TriggerCollection();
+            return state;
+        }
+        catch (WafClientException ex)
+        {
+            throw new InvalidOperationException(ex.Message, ex);
+        }
     }
 }

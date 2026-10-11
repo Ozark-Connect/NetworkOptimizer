@@ -8,6 +8,7 @@
 @inject ThreatDashboardService DashboardService
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject SiteContextService SiteContext
+@inject IWafConnectionAdmin WafAdmin
 @inject NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor ThreatSettings
 @inject IJSRuntime JS
 
@@ -96,7 +97,48 @@
                 <span class="status-badge @(_status.Mode == "block" ? "status-active" : "")">@(_status.Mode == "block" ? "Blocking" : "Detection Only")</span>
             </div>
             <div class="card-body">
-                <p class="form-help">Paranoia Level @_status.Paranoia. Mode and paranoia are set in the proxy's .env (WAF_MODE, WAF_PARANOIA).</p>
+                @if (_status.Mode != "block")
+                {
+                    @if (DetectDays >= 7)
+                    {
+                        <div class="alert alert-info">
+                            <div class="banner-content">
+                                <div class="banner-text">
+                                    <span><strong>@DetectDays days in Detection Only.</strong> In the last 7 days it flagged @(_week?.Detected ?? 0) requests.
+                                        Review them on Events and add exclusions for anything legitimate, then switch to Block.</span>
+                                </div>
+                                <SiteAdminOnly>
+                                    <div class="banner-actions">
+                                        <button class="btn btn-sm btn-primary" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
+                                    </div>
+                                </SiteAdminOnly>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="form-help">Detection Only@(SinceText): attacks are logged and let through. Run it for a week, review Events, then switch to Block.</p>
+                        <SiteAdminOnly>
+                            <div class="action-buttons">
+                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
+                            </div>
+                        </SiteAdminOnly>
+                    }
+                }
+                else
+                {
+                    <p class="form-help">Blocking@(SinceText): a request that crosses the CRS anomaly threshold gets a 403.</p>
+                    <SiteAdminOnly>
+                        <div class="action-buttons">
+                            <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("detect")'>Switch to Detection Only</button>
+                        </div>
+                    </SiteAdminOnly>
+                }
+                <p class="form-help">Paranoia Level @_status.Paranoia, set in the proxy's .env (WAF_PARANOIA).</p>
+                @if (_modeMessage != null)
+                {
+                    <div class="alert alert-@_modeMessageClass">@_modeMessage</div>
+                }
             </div>
         </div>
         @if ((_summary?.Total ?? 0) > 0)
@@ -221,6 +263,39 @@ else if (_tab == "setup")
     private WafStatus? _status;
     private bool _configured;
     private WafSummary? _summary;
+    private WafSummary? _week;
+    private bool _modeBusy;
+    private string? _modeMessage;
+    private string _modeMessageClass = "info";
+
+    private int DetectDays => _status?.ModeSince is { } since ? (int)(DateTimeOffset.UtcNow - since).TotalDays : 0;
+
+    private string SinceText => _status?.ModeSince is { } since
+        ? $" since {TimeFormatHelper.FormatRelativeTime(since.UtcDateTime)}"
+        : "";
+
+    private async Task SetMode(string mode)
+    {
+        _modeBusy = true;
+        _modeMessage = null;
+        try
+        {
+            var state = await WafAdmin.SetModeAsync(mode);
+            _status = _status! with { Mode = state.Mode, ModeSince = state.Since };
+            _modeMessage = (state.Mode == "block" ? "Blocking." : "Detection Only.")
+                + (state.Persisted ? "" : " This WAF has no state directory, so it returns to WAF_MODE when it restarts.");
+            _modeMessageClass = state.Persisted ? "success" : "warning";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _modeMessage = ex.Message;
+            _modeMessageClass = "danger";
+        }
+        finally
+        {
+            _modeBusy = false;
+        }
+    }
     private List<ThreatEvent> _events = [];
     private string _search = "";
     private int? _exclusionFor;
@@ -259,6 +334,7 @@ else if (_tab == "setup")
         _configured = await NetworkOptimizer.Threats.Blocking.BlockingSettings.WafConnectedAsync(k => ThreatSettings.GetSettingAsync(k), site);
         var (from, to) = Window();
         _summary = await DashboardService.GetWafSummaryAsync(from, to);
+        _week = await DashboardService.GetWafSummaryAsync(to.AddDays(-7), to);
         await LoadEvents();
     }
 

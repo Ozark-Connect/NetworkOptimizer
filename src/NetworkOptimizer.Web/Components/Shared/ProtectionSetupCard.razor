@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Threats.Blocking
 @inject IThreatBlockingAdmin Blocking
+@inject IWafConnectionAdmin WafAdmin
 @inject NavigationManager Nav
 
 @* Threat Intelligence - Overview: the recommended protection setup for the site in context, in
@@ -38,9 +39,13 @@
                     </li>
                     <li class="@StepClass(_status.WafConnected, optional: true)">
                         <span class="protection-step-text">
-                            @if (_status.WafConnected)
+                            @if (_status.WafConnected && _status.WafDetectDays >= 7)
                             {
-                                <text>Web Application Firewall connected</text>
+                                <text>Web Application Firewall: @_status.WafDetectDays days in Detection Only. Review its detections, then switch to Block.</text>
+                            }
+                            else if (_status.WafConnected)
+                            {
+                                <text>Web Application Firewall connected@(_status.WafMode == "block" ? ", blocking" : _status.WafMode == "detect" ? ", Detection Only" : "")</text>
                             }
                             else
                             {
@@ -51,6 +56,13 @@
                         {
                             <SiteAdminOnly>
                                 <a class="btn btn-sm btn-contrast" href="/settings#waf">Connect</a>
+                            </SiteAdminOnly>
+                        }
+                        else if (_status.WafDetectDays >= 7)
+                        {
+                            <a class="btn btn-sm btn-contrast" href="/threats/waf?tab=events">Review</a>
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SwitchWafToBlock">Switch to Block</button>
                             </SiteAdminOnly>
                         }
                     </li>
@@ -150,6 +162,26 @@
             _status = await Blocking.GetProtectionStatusAsync();
             _message = r.GatewayError == null ? null : $"Enforcing, but the gateway was not set up: {r.GatewayError}";
             _messageClass = "warning";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SwitchWafToBlock()
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            var state = await WafAdmin.SetModeAsync("block");
+            _status = _status! with { WafMode = state.Mode, WafModeSince = state.Since };
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
         {

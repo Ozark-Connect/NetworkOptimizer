@@ -231,6 +231,9 @@ public class TraefikHostedService : IHostedService, IDisposable
         var token = await EnsureLocalWafConnectionAsync();
         var rulesDir = Path.Combine(traefikFolder, "waf-rules");
         Directory.CreateDirectory(rulesDir);
+        // The mode set from Network Optimizer and the pushed allow lists live here; TRAEFIK_WAF_MODE is only the starting mode.
+        var stateDir = Path.Combine(traefikFolder, "waf-state");
+        Directory.CreateDirectory(stateDir);
 
         var startInfo = new ProcessStartInfo
         {
@@ -244,6 +247,7 @@ public class TraefikHostedService : IHostedService, IDisposable
         startInfo.Environment["WAF_LISTEN"] = new Uri(LocalWafUrl).Authority;
         startInfo.Environment["WAF_MODE"] = mode;
         startInfo.Environment["WAF_RULES_DIR"] = rulesDir;
+        startInfo.Environment["WAF_STATE_DIR"] = stateDir;
         if (token != null)
             startInfo.Environment["WAF_API_TOKEN"] = token;
 
