@@ -128,7 +128,7 @@
     }.Count(d => d);
 
     private string GatewayText => _status!.GatewaySetUp
-        ? "Gateway blocking set up"
+        ? "Gateway blocking configured"
         : _status.WafConnected && _status.WafTarget
             ? "Blocking through the WAF. Gateway blocking is not set up; Turn On Recommended adds it."
             : "Gateway blocking not set up. Turn On Recommended sets it up.";

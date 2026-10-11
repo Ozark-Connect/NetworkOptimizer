@@ -7540,6 +7540,10 @@ a.path-hop.hop-clickable:hover {
     color: var(--success-color);
 }
 
+.automatic-blocking .ab-check {
+    flex: 0 0 auto;
+}
+
 .automatic-blocking .ab-status.is-warning {
     color: var(--warning-color);
 }

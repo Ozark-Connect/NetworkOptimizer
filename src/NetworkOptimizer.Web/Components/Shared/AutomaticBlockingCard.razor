@@ -149,7 +149,7 @@
                         {
                             <small class="form-help ab-status @(_gatewayOk ? "is-ok" : _gatewaySetUp ? "is-warning" : "")">@if (_gatewayOk)
                             {
-                                <span class="status-dot online"></span>
+                                <svg class="ab-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
                             }@_gatewayStatus</small>
                         }
                     </div>
@@ -201,7 +201,7 @@
                         </small>
                         @if (_form.TargetCloudflare && _cf?.List != null)
                         {
-                            <small class="form-help ab-status is-ok"><span class="status-dot online"></span>List <code>@_cf.List.Name</code>: @_cf.List.NumItems blocked, used by @_cf.List.NumReferencingFilters rule(s).</small>
+                            <small class="form-help ab-status is-ok"><svg class="ab-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>List <code>@_cf.List.Name</code>: @_cf.List.NumItems blocked, used by @_cf.List.NumReferencingFilters rule(s).</small>
                         }
                     </div>
                     @if (_form.TargetCloudflare)
@@ -354,7 +354,7 @@
         var problem = await Blocking.CheckGatewayAsync();
         _gatewaySetUp = problem != "Not set up yet.";
         _gatewayOk = problem == null;
-        _gatewayStatus = problem == null ? "Set up in UniFi Network." : problem;
+        _gatewayStatus = problem == null ? "Configured in UniFi Network." : problem;
     }
 
     private async Task Run(Func<Task<string>> action)
