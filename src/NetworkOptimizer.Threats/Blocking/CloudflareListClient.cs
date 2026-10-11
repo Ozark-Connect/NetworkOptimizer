@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Threats.Blocking;
 
 /// <summary>
 /// Keeps an account-level Cloudflare IP list that a custom rule blocks on
-/// (<c>ip.src in $netopt_blocklist</c>). The token needs Account Rule Lists with Edit.
+/// (<c>ip.src in $netopt_blocklist</c>). The token needs Edit on Account Rule Lists (account token) or Account Filter Lists (user token).
 /// </summary>
 public sealed class CloudflareListClient
 {
@@ -110,7 +110,7 @@ public sealed class CloudflareListClient
             }
 
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                throw new CloudflareException("Cloudflare rejected the token. It needs Account Rule Lists with Edit on this account.");
+                throw new CloudflareException("Cloudflare rejected the token. It needs Edit on Account Rule Lists (account token) or Account Filter Lists (user token) for this account.");
             if (body is { Success: true, Result: not null })
                 return body.Result;
 
