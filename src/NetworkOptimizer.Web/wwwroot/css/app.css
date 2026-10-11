@@ -7382,6 +7382,22 @@ a.path-hop.hop-clickable:hover {
     min-width: 0;
 }
 
+/* Settings - Multi-Site: a site's Automatic Blocking in its Configuration panel */
+.site-blocking .site-blocking-mode {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.site-blocking .site-blocking-mode .form-label {
+    margin-bottom: 0;
+}
+
+.site-blocking .site-blocking-mode .form-control {
+    width: auto;
+}
+
 /* Threat Intelligence - block one address from its details */
 .ip-block-control {
     display: inline-flex;
