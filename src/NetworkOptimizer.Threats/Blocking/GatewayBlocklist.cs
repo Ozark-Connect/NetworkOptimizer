@@ -34,13 +34,13 @@ public sealed record GatewaySetUpResult(int PoliciesCreated, int PoliciesAdopted
 /// </summary>
 public sealed class GatewayBlocklist : IGatewayBlocklistWriter
 {
-    public const string GroupNameV4 = "Network Optimizer Blocklist (IPv4)";
-    public const string GroupNameV6 = "Network Optimizer Blocklist (IPv6)";
-    public const string PolicyName = "Network Optimizer Blocklist";
+    public const string GroupNameV4 = "Net. Opt. Blocklist (IPv4)";
+    public const string GroupNameV6 = "Net. Opt. Blocklist (IPv6)";
+    public const string PolicyName = "Net. Opt. Blocklist";
     public const string Description = "Managed by Network Optimizer: sources it has blocked. Changes here are overwritten.";
-    public const string FeedsNameV4 = "Network Optimizer Public Block Lists (IPv4)";
-    public const string FeedsNameV6 = "Network Optimizer Public Block Lists (IPv6)";
-    public const string FeedsPolicyName = "Network Optimizer Public Block Lists";
+    public const string FeedsNameV4 = "Net. Opt. Public Lists (IPv4)";
+    public const string FeedsNameV6 = "Net. Opt. Public Lists (IPv6)";
+    public const string FeedsPolicyName = "Net. Opt. Public Lists";
     public const string FeedsDescription = "Managed by Network Optimizer: the public block lists chosen in Automatic Blocking. Changes here are overwritten.";
 
     private readonly IUniFiClientAccessor _clients;

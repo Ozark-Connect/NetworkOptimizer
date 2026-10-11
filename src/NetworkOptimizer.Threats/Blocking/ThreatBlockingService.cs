@@ -384,19 +384,19 @@ public sealed class ThreatBlockingService : BackgroundService
             !_trustedSent.TryGetValue((Key(site), kind), out var last) || last.Fingerprint != fingerprint
             || now - last.At >= (last.Ok ? Resync : TimeSpan.FromMinutes(5));
 
-        // Cloudflare's ranges go to the UniFi groups only, by choice: a port forward to a proxied
-        // host sees Cloudflare as the source. Never to the WAF, which sees the visitor behind it.
+        // Cloudflare's ranges go only to the separate "+ Cloudflare" UniFi groups, by choice: a port
+        // forward to a proxied host sees Cloudflare as the source. Never to the WAF, which sees the visitor.
         // A site's own WAN addresses stay out of its own UniFi groups: a port forward there never
         // needs to admit the site itself.
         if (uniFi && services.GetService<TrustedSourcesGroup>() is { } writer
             && await TrustedMembersAsync(services, site, ct, excludeOwn: true) is { Count: > 0 } others)
         {
-            var groupMembers = await TrustedSourcesSettings.UniFiIncludesCloudflareAsync(accessor, site, ct) && _lists != null
-                ? [.. others, .. await _lists.GetCloudflareRangesAsync(accessor, now, ct)]
-                : others;
-            var groupFingerprint = string.Join(",", groupMembers);
+            var cloudflare = await TrustedSourcesSettings.UniFiIncludesCloudflareAsync(accessor, site, ct) && _lists != null
+                ? await _lists.GetCloudflareRangesAsync(accessor, now, ct)
+                : null;
+            var groupFingerprint = string.Join(",", others) + "|" + string.Join(",", cloudflare ?? []);
             if (Due(BlockTargetKind.Gateway, groupFingerprint))
-                Record(BlockTargetKind.Gateway, groupFingerprint, await writer.SyncAsync(site, groupMembers, ct));
+                Record(BlockTargetKind.Gateway, groupFingerprint, await writer.SyncAsync(site, others, cloudflare, ct));
         }
         var fingerprint = string.Join(",", members);
 

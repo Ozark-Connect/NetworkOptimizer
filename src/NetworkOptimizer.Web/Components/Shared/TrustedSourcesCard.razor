@@ -119,12 +119,12 @@
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" @bind="_uniFiCloudflare" />
-                        <span>Include Cloudflare's ranges in the UniFi groups</span>
+                        <span>Also keep a Trusted Sources + Cloudflare group</span>
                     </label>
                     <small class="form-help">
-                        For port forwards to hosts proxied by Cloudflare, whose traffic arrives from Cloudflare rather than from your sites. Kept current from
-                        Cloudflare's published list. Anyone behind Cloudflare's proxy can then reach those port forwards, so leave it off otherwise.
-                        The WAF's list never includes them: the WAF sees the visitor behind Cloudflare.
+                        Creates <strong>@TrustedSourcesGroup.CloudflareNameV4</strong> and <strong>@TrustedSourcesGroup.CloudflareNameV6</strong>: your Trusted Sources plus
+                        Cloudflare's ranges, kept current. Use it for port forwards to hosts Cloudflare proxies, whose traffic arrives from Cloudflare; anyone behind
+                        Cloudflare's proxy can reach them. Everything else should use the plain Trusted Sources groups. The WAF's list never includes Cloudflare: the WAF sees the visitor behind it.
                     </small>
                 </div>
             }
