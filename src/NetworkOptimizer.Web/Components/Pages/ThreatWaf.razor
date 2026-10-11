@@ -161,7 +161,7 @@
                         <tbody>
                             @foreach (var rule in _summary!.TopRules)
                             {
-                                <tr><td class="text-truncate-300"><code>@rule.RuleId</code> @rule.Message</td><td>@rule.Count</td></tr>
+                                <tr><td class="text-truncate-300"><a href="@EventsUrl(rule.RuleId.ToString())" @onclick="() => ShowEvents(rule.RuleId.ToString())" @onclick:preventDefault><code>@rule.RuleId</code> @rule.Message</a></td><td>@rule.Count</td></tr>
                             }
                         </tbody>
                     </table>
@@ -172,7 +172,7 @@
                         <tbody>
                             @foreach (var host in _summary!.TopHosts)
                             {
-                                <tr><td class="text-truncate-300">@host.Host</td><td>@host.Count</td></tr>
+                                <tr><td class="text-truncate-300"><a href="@EventsUrl(host.Host)" @onclick="() => ShowEvents(host.Host)" @onclick:preventDefault>@host.Host</a></td><td>@host.Count</td></tr>
                             }
                         </tbody>
                     </table>
@@ -272,6 +272,9 @@ else if (_tab == "setup")
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? SearchParam { get; set; }
+
     private string _tab = "overview";
     private string _range = "24h";
     private WafStatus? _status;
@@ -320,7 +323,17 @@ else if (_tab == "setup")
     protected override async Task OnInitializedAsync()
     {
         if (Tabs.Any(t => t.Id == TabParam)) _tab = TabParam!;
+        if (!string.IsNullOrWhiteSpace(SearchParam)) _search = SearchParam;
         await Load();
+    }
+
+    private static string EventsUrl(string search) => $"/threats/waf?tab=events&search={Uri.EscapeDataString(search)}";
+
+    // Overview rows open Events filtered to that rule or host, keeping the time range.
+    private async Task ShowEvents(string search)
+    {
+        _search = search;
+        await SetTab("events");
     }
 
     private (DateTime From, DateTime To) Window()
