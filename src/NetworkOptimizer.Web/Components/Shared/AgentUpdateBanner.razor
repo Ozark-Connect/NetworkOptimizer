@@ -9,6 +9,7 @@
 @inject AgentTunnelRegistry TunnelRegistry
 @inject IAuthorizationService Authz
 @inject UiHintService UiHints
+@implements IDisposable
 
 @if (_requiredSites.Count > 0)
 {
@@ -77,7 +78,19 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || AuthState is null) return;
+        if (!firstRender) return;
+        await RefreshAsync();
+        // An upgrade restarts the agent, so its reconnect is when the banner can change.
+        TunnelRegistry.AgentConnected += OnAgentConnected;
+    }
+
+    private void OnAgentConnected(int agentId) => _ = InvokeAsync(RefreshAsync);
+
+    public void Dispose() => TunnelRegistry.AgentConnected -= OnAgentConnected;
+
+    private async Task RefreshAsync()
+    {
+        if (AuthState is null) return;
         try
         {
             var user = (await AuthState).User;
@@ -100,13 +113,14 @@
             optional.ExceptWith(required);
 
             // Only sites this user can update an agent on: upgrading is a Site Admin action.
-            _requiredSites = await ManageableAsync(user, required, sites);
-            _optionalSites = await ManageableAsync(user, optional, sites);
-            if (_optionalSites.Count > 0 && !await UiHints.ShouldShowAsync(OptionalHintKey))
-                _optionalSites = new();
+            var requiredSites = await ManageableAsync(user, required, sites);
+            var optionalSites = await ManageableAsync(user, optional, sites);
+            if (optionalSites.Count > 0 && !await UiHints.ShouldShowAsync(OptionalHintKey))
+                optionalSites = new();
 
-            if (_requiredSites.Count > 0 || _optionalSites.Count > 0)
-                await InvokeAsync(StateHasChanged);
+            _requiredSites = requiredSites;
+            _optionalSites = optionalSites;
+            StateHasChanged();
         }
         catch
         {

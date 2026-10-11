@@ -48,8 +48,23 @@ public class AgentTunnelRegistry
             return connection;
         });
         _lastTunnelActivity[agentId] = DateTime.UtcNow;
+        try
+        {
+            AgentConnected?.Invoke(agentId);
+        }
+        catch
+        {
+            // A subscriber's failure must never fail the tunnel's connect.
+        }
         return connection;
     }
+
+    /// <summary>
+    /// Raised with the agent id when a tunnel connects or reconnects. The tunnel records the
+    /// hello's version before it registers, so a handler reads the agent's current version.
+    /// Raised on the tunnel's thread: handlers must return quickly and not throw.
+    /// </summary>
+    public event Action<int>? AgentConnected;
 
     /// <summary>
     /// Removes a connection if it is still the current one for its agent.
