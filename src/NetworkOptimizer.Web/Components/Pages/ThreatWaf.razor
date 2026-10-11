@@ -18,22 +18,27 @@
     <p class="page-description">Attacks on the apps behind this site's NetworkOptimizer-Proxy, and the sources it refuses</p>
 </div>
 
-<div class="tab-bar waf-tabs">
-    @foreach (var (id, label) in Tabs)
-    {
-        <button class="tab-btn @(_tab == id ? "active" : "")" @onclick="() => _tab = id">@label</button>
-    }
-</div>
-
-@if (_tab is "overview" or "events")
-{
-    <div class="time-range-selector waf-range">
-        @foreach (var range in new[] { "24h", "7d", "30d" })
-        {
-            <button class="time-btn @(_range == range ? "active" : "")" @onclick="() => SetRange(range)">@range</button>
-        }
+@* Same header row as Threat Intelligence: page tabs left, time range right. *@
+<div class="threat-header-bar">
+    <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
+            @foreach (var (id, label) in Tabs)
+            {
+                <button class="wifi-view-tab @(_tab == id ? "active" : "")" @onclick="() => _tab = id">@label</button>
+            }
+        </div>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
     </div>
-}
+    <div class="threat-controls" style="@(_tab is "overview" or "events" ? "" : "visibility:hidden;")">
+        <div class="time-range-selector">
+            @foreach (var range in new[] { "24h", "7d", "30d" })
+            {
+                <button class="time-btn threat-time-preset @(_range == range ? "active" : "")" @onclick="() => SetRange(range)">@range</button>
+            }
+        </div>
+    </div>
+</div>
 
 @if (_tab == "overview")
 {

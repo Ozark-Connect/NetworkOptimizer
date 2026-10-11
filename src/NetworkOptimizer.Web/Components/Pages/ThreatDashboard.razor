@@ -1694,30 +1694,6 @@ else
 </div>
 
 <style>
-    .threat-header-bar {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-        min-height: 34px;
-    }
-
-    .threat-header-bar > .wifi-view-tabs-wrapper {
-        flex: 1 1 auto;
-        min-width: 200px;
-    }
-
-    .threat-header-bar > div:last-child {
-        margin-left: auto;
-    }
-
-    .threat-header-bar .wifi-tabs-scroll-btn {
-        border-bottom: none;
-        margin-top: 0.35rem;
-    }
-
     .waf-card-mode {
         display: flex;
         align-items: center;
@@ -1849,25 +1825,8 @@ else
     }
 
     @@media (max-width: 768px) {
-        .threat-header-bar {
-            flex-direction: column;
-            flex-wrap: nowrap;
-            align-items: stretch;
-            gap: 0.5rem;
-        }
-
-        .threat-header-bar > div:last-child {
-            margin-left: unset;
-            justify-content: space-between;
-        }
-
         .threat-custom-label {
             display: none;
-        }
-
-        .threat-time-preset {
-            padding: 0.35rem 0.5rem;
-            font-size: 0.75rem;
         }
 
         .threat-action-chart {
@@ -2081,12 +2040,6 @@ else
     }
 
     /* Header bar right-side controls */
-    .threat-controls {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
     /* Protocols list row in port drilldown */
     .protocols-row {
         display: flex;

@@ -7382,6 +7382,57 @@ a.path-hop.hop-clickable:hover {
     min-width: 0;
 }
 
+/* Threat Intelligence header row: page tabs on the left, filters and time range on the right.
+   Shared by the main page and the WAF page, so it lives here rather than in either page. */
+.threat-header-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    min-height: 34px;
+}
+
+.threat-header-bar > .wifi-view-tabs-wrapper {
+    flex: 1 1 auto;
+    min-width: 200px;
+}
+
+.threat-header-bar > div:last-child {
+    margin-left: auto;
+}
+
+.threat-header-bar .wifi-tabs-scroll-btn {
+    border-bottom: none;
+    margin-top: 0.35rem;
+}
+
+.threat-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .threat-header-bar {
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .threat-header-bar > div:last-child {
+        margin-left: unset;
+        justify-content: space-between;
+    }
+
+    .threat-time-preset {
+        padding: 0.35rem 0.5rem;
+        font-size: 0.75rem;
+    }
+}
+
 /* Threat Intelligence stat tiles and paired tables: shared by the main page and the WAF page, so
    they live here rather than in either page's style block. */
 .threat-summary-grid {
@@ -7434,15 +7485,6 @@ a.path-hop.hop-clickable:hover {
         grid-template-columns: 1fr;
         margin-bottom: 1rem;
     }
-}
-
-/* Threat Intelligence - Web Application Firewall page */
-.waf-tabs {
-    margin-bottom: 1rem;
-}
-
-.waf-range {
-    margin-bottom: 1rem;
 }
 
 /* The tiles' own 0.75rem margin plus this is the 1.5rem rhythm to the link. */
