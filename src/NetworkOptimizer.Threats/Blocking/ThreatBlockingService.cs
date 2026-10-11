@@ -288,7 +288,8 @@ public sealed class ThreatBlockingService : BackgroundService
             addresses.AddRange((await TrustedAddressBook.LoadAsync(accessor, s, ct)).Select(a => a.Address));
         var cloudflare = _lists == null ? null : await _lists.GetCloudflareRangesAsync(accessor, now, ct);
         var filters = await services.GetRequiredService<IThreatRepository>().GetNoiseFiltersAsync(ct);
-        return new BlockAllowlist(settings.Allowlist, filters, addresses, cloudflare);
+        var extras = await accessor.GetSettingAsync(BlockingSettingKeys.ForSite(TrustedSourcesKeys.Extras, site), ct);
+        return new BlockAllowlist($"{settings.Allowlist}\n{extras}", filters, addresses, cloudflare);
     }
 
     // The enabled public lists' entries, minus anything overlapping protected space.
@@ -434,7 +435,7 @@ public sealed class ThreatBlockingService : BackgroundService
         foreach (var s in trusted)
             foreach (var a in await TrustedAddressBook.LoadAsync(accessor, s, ct))
                 members.Add(a.Address);
-        var extras = await accessor.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Allowlist, site), ct);
+        var extras = await accessor.GetSettingAsync(BlockingSettingKeys.ForSite(TrustedSourcesKeys.Extras, site), ct);
         foreach (var e in BlockAllowlist.ParseList(extras))
         {
             if (PublicBlockLists.Normalize(e) is { } n) members.Add(n);

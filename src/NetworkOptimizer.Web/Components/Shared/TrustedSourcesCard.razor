@@ -87,9 +87,9 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Extra Addresses</label>
+                <label class="form-label">Extra Trusted Addresses</label>
                 <textarea class="form-control" rows="3" @bind="_extras" placeholder="203.0.113.10, 198.51.100.0/24, 2001:db8::/48"></textarea>
-                <small class="form-help">IP addresses and CIDR ranges, IPv4 or IPv6, one per line or comma-separated. Trusted User and Infrastructure filters are never blocked either.</small>
+                <small class="form-help">Addresses you trust like your own sites: never blocked, and in the UniFi groups and the WAF's list. IP addresses and CIDR ranges, IPv4 or IPv6, one per line or comma-separated.</small>
             </div>
 
             <div class="form-group">
@@ -104,6 +104,7 @@
                 <small class="form-help">
                     To accept a port forward only from your sites, edit it in UniFi Network and limit its source to the IPv4 group. IPv6 needs no port forward,
                     so use the IPv6 group in the firewall policy that allows the traffic. The groups are never emptied, so a port forward that uses one is never shut off by a failed read.
+                    Turning this off stops updates; the groups stay until you delete them in UniFi Network.
                 </small>
                 @if (_uniFiGroup && _overview.UniFiStatus is { } status)
                 {
@@ -142,6 +143,11 @@
                 </div>
             }
 
+            <div class="form-group">
+                <label class="form-label">Never Block Only</label>
+                <textarea class="form-control" rows="2" @bind="_neverBlock" placeholder="198.51.100.20"></textarea>
+                <small class="form-help">Never blocked, but not trusted: kept out of the UniFi groups and the WAF's list. For a monitoring service or a scanner you expect. Trusted User and Infrastructure filters are never blocked either.</small>
+            </div>
             <div class="action-buttons">
                 <button class="btn btn-primary" disabled="@_busy" @onclick="Save">
                     @if (_busy)
@@ -165,6 +171,7 @@
     private Dictionary<string, string> _names = [];
     private HashSet<string> _trusted = [];
     private string _extras = "";
+    private string _neverBlock = "";
     private bool _uniFiGroup;
     private bool _uniFiCloudflare;
     private bool _multiSite;
@@ -185,6 +192,7 @@
         _overview = await Blocking.GetTrustedSourcesAsync();
         _trusted = _overview.Sites.Where(s => s.Trusted).Select(s => s.Slug).ToHashSet();
         _extras = _overview.Extras;
+        _neverBlock = _overview.NeverBlock;
         _uniFiGroup = _overview.UniFiGroup;
         _uniFiCloudflare = _overview.UniFiCloudflare;
     }
@@ -219,7 +227,7 @@
 
     private Task Save() => Run(async () =>
     {
-        await Blocking.SaveTrustedSourcesAsync(_trusted.ToList(), _extras, _uniFiGroup, _uniFiGroup && _uniFiCloudflare);
+        await Blocking.SaveTrustedSourcesAsync(_trusted.ToList(), _extras, _neverBlock, _uniFiGroup, _uniFiGroup && _uniFiCloudflare);
         await Load();
         return "Trusted Sources saved.";
     });

@@ -80,8 +80,8 @@ public interface IThreatBlockingAdmin
 
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
-    Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, bool uniFiCloudflare,
-        CancellationToken cancellationToken = default);
+    Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, string neverBlock, bool uniFiGroup,
+        bool uniFiCloudflare, CancellationToken cancellationToken = default);
 }
 
 public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, SiteContextService site) : IThreatBlockingAdmin
@@ -103,13 +103,13 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) => ops.GetTrustedSourcesAsync(Slug, ct);
     public Task<ProtectionStatus> GetProtectionStatusAsync(CancellationToken ct = default) => ops.GetProtectionStatusAsync(Slug, ct);
     public Task SetProtectionSetupHiddenAsync(bool hidden, CancellationToken ct = default) => ops.SetProtectionSetupHiddenAsync(Slug, hidden, ct);
-    public Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, bool uniFiCloudflare,
-        CancellationToken ct = default) =>
-        ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, uniFiGroup, uniFiCloudflare, ct);
+    public Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, string neverBlock, bool uniFiGroup,
+        bool uniFiCloudflare, CancellationToken ct = default) =>
+        ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, neverBlock, uniFiGroup, uniFiCloudflare, ct);
 }
 
 /// <summary>One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site.</summary>
-public sealed record BlockingSiteSummary(BlockingMode Mode, bool Share, bool GatewaySetUp, int ActiveBlocks);
+public sealed record BlockingSiteSummary(BlockingMode Mode, bool Share, bool GatewaySetUp, int ActiveBlocks, string? RecommendedNote);
 
 /// <summary>
 /// Automatic Blocking for a named site, for Settings - Multi-Site, which lists every site rather than
@@ -154,7 +154,8 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops)
     {
         var overview = await ops.GetOverviewAsync(siteSlug, ct);
         return new BlockingSiteSummary(overview.Settings.Mode, overview.Settings.Share,
-            await ops.IsGatewaySetUpAsync(siteSlug, ct), overview.Active.Count(b => b.Enforced));
+            await ops.IsGatewaySetUpAsync(siteSlug, ct), overview.Active.Count(b => b.Enforced),
+            PublicBlockLists.RecommendedNote(overview.Settings.Feeds));
     }
 
     public async Task SetModeAsync(string siteSlug, BlockingMode mode, CancellationToken ct = default)

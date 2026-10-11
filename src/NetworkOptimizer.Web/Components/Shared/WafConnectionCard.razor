@@ -90,6 +90,10 @@
                 <div class="banner-content">
                     <div class="banner-text">
                         <span><strong>The WAF is connected.</strong> Turn on recommended blocking to have it refuse repeat attackers, and the gateway too.</span>
+                        @if (_listNote != null)
+                        {
+                            <small class="form-help">@_listNote</small>
+                        }
                     </div>
                     <div class="banner-actions">
                         <button class="btn btn-sm btn-primary" disabled="@_turningOn" @onclick="TurnOnRecommended">Turn On Recommended</button>
@@ -114,6 +118,7 @@
     private string _message = "";
     private string _messageClass = "";
     private bool _offerRecommended;
+    private string? _listNote;
     private bool _turningOn;
 
     protected override async Task OnInitializedAsync()
@@ -146,9 +151,24 @@
                 ? "WAF settings saved. When Automatic Blocking is enforcing, the WAF also refuses the sources it blocks."
                 : "WAF settings saved.";
             _messageClass = "success";
-            // Connecting is the moment to finish the setup: offer the one-click recommended blocking.
-            _offerRecommended = _enabled && _hasToken && !string.IsNullOrWhiteSpace(_url)
-                && (await Blocking.GetOverviewAsync()).Settings.Mode != BlockingMode.Enforce;
+            _offerRecommended = false;
+            if (_enabled && _hasToken && !string.IsNullOrWhiteSpace(_url))
+            {
+                // Saved settings are tested at once, and recommended blocking is offered only for a
+                // WAF that answers: turning it on against a dead URL would only add a failing target.
+                try
+                {
+                    await WafAdmin.TestAsync(_url, null);
+                    var blocking = (await Blocking.GetOverviewAsync()).Settings;
+                    _offerRecommended = blocking.Mode != BlockingMode.Enforce;
+                    _listNote = PublicBlockLists.RecommendedNote(blocking.Feeds);
+                }
+                catch (WafClientException ex)
+                {
+                    _message = $"WAF settings saved, but the WAF did not answer: {ex.Message}";
+                    _messageClass = "warning";
+                }
+            }
         }
         catch (ArgumentException ex)
         {

@@ -26,6 +26,7 @@ public sealed record TrustedSite(string Slug, bool Trusted, IReadOnlyList<Truste
 public sealed record TrustedSourcesOverview(
     IReadOnlyList<TrustedSite> Sites,
     string Extras,
+    string NeverBlock,
     bool UniFiGroup,
     bool UniFiCloudflare,
     BlockTargetStatus? UniFiStatus,
@@ -36,8 +37,8 @@ public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBl
 
 /// <summary>
 /// Where a site stands on the recommended protection setup, for the Protection Setup checklist.
-/// <see cref="Complete"/> needs Enforce, the gateway set up, and the site's own addresses known; the
-/// WAF, Cloudflare, and the UniFi groups are optional, since not every site has them.
+/// <see cref="Complete"/> needs Enforce, blocks reaching the gateway or the WAF, and the site's own
+/// addresses known; Cloudflare and the UniFi groups are optional.
 /// </summary>
 public sealed record ProtectionStatus(
     bool EventsSeen,
@@ -51,9 +52,14 @@ public sealed record ProtectionStatus(
     bool GatewaySetUp,
     bool CloudflareSetUp,
     bool UniFiGroups,
-    bool Hidden)
+    bool Hidden,
+    bool WafTarget,
+    string? RecommendedNote)
 {
-    public bool Complete => Mode == BlockingMode.Enforce && GatewaySetUp && SiteAddresses > 0;
+    /// <summary>Blocks reach somewhere: the gateway, or the WAF where a site has no gateway blocking.</summary>
+    public bool BlockingTargetReady => GatewaySetUp || (WafConnected && WafTarget);
+
+    public bool Complete => Mode == BlockingMode.Enforce && BlockingTargetReady && SiteAddresses > 0;
 }
 
 /// <summary>Cloudflare target state for the Settings card.</summary>
@@ -324,13 +330,15 @@ public sealed class ThreatBlockingOperations
             (await TrustedAddressBook.LoadAsync(_settings, site, ct)).Count,
             trusted.Count,
             trustedAddresses,
-            BlockAllowlist.ParseList(settings.Allowlist).Count(),
+            BlockAllowlist.ParseList(await _settings.GetSettingAsync(Key(slug, TrustedSourcesKeys.Extras), ct)).Count(),
             settings.Mode,
             wouldBlock,
             await IsGatewaySetUpAsync(slug, ct),
             !string.IsNullOrEmpty(await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.CloudflareListId), ct)),
             await TrustedSourcesSettings.UniFiGroupEnabledAsync(_settings, site, ct),
-            bool.TryParse(await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.SetupHidden), ct), out var hidden) && hidden);
+            bool.TryParse(await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.SetupHidden), ct), out var hidden) && hidden,
+            settings.TargetWaf,
+            PublicBlockLists.RecommendedNote(settings.Feeds));
     }
 
     public Task SetProtectionSetupHiddenAsync(string slug, bool hidden, CancellationToken ct) =>
@@ -355,6 +363,7 @@ public sealed class ThreatBlockingOperations
             sites.Add(new TrustedSite(SlugOf(s), trusted.Contains(s), await TrustedAddressBook.LoadAsync(_settings, s, ct)));
         return new TrustedSourcesOverview(
             sites,
+            await _settings.GetSettingAsync(Key(slug, TrustedSourcesKeys.Extras), ct) ?? "",
             await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), ct) ?? "",
             await TrustedSourcesSettings.UniFiGroupEnabledAsync(_settings, site, ct),
             await TrustedSourcesSettings.UniFiIncludesCloudflareAsync(_settings, site, ct),
@@ -362,15 +371,19 @@ public sealed class ThreatBlockingOperations
             _blocking.TrustedSourcesStatus(site, BlockTargetKind.Waf));
     }
 
-    /// <summary>The sites a site trusts (always itself), its extra addresses, and whether it keeps the UniFi groups.</summary>
-    public async Task SaveTrustedSourcesAsync(string slug, IReadOnlyList<string> trustedSlugs, string extras, bool uniFiGroup,
-        bool uniFiCloudflare, CancellationToken ct)
+    /// <summary>
+    /// The sites a site trusts (always itself), its extra trusted addresses, its never-block-only
+    /// addresses, and whether it keeps the UniFi groups.
+    /// </summary>
+    public async Task SaveTrustedSourcesAsync(string slug, IReadOnlyList<string> trustedSlugs, string extras, string neverBlock,
+        bool uniFiGroup, bool uniFiCloudflare, CancellationToken ct)
     {
-        var invalid = BlockAllowlist.Invalid(extras);
+        var invalid = BlockAllowlist.Invalid(extras).Concat(BlockAllowlist.Invalid(neverBlock)).ToList();
         if (invalid.Count > 0)
             throw new ArgumentException($"Not an IP address or CIDR range: {string.Join(", ", invalid.Take(5))}");
         await SaveTrustedSitesAsync(slug, trustedSlugs, ct);
-        await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), string.Join("\n", BlockAllowlist.ParseList(extras)), ct);
+        await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.Extras), string.Join("\n", BlockAllowlist.ParseList(extras)), ct);
+        await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), string.Join("\n", BlockAllowlist.ParseList(neverBlock)), ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiGroup), uniFiGroup.ToString(), ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiCloudflare), uniFiCloudflare.ToString(), ct);
         _blocking.Trigger();

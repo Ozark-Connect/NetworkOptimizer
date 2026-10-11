@@ -14,6 +14,12 @@ public static class TrustedSourcesKeys
     /// <summary>JSON list of <see cref="TrustedAddress"/>: the addresses a site has been seen at.</summary>
     public const string Addresses = "trusted.addresses";
 
+    /// <summary>
+    /// Extra trusted addresses: never blocked, and in the UniFi groups and the WAF list. Never-block-only
+    /// addresses are <see cref="BlockingSettingKeys.Allowlist"/>, which grants no access.
+    /// </summary>
+    public const string Extras = "trusted.extras";
+
     /// <summary>JSON array of the site keys whose addresses this site trusts. Unset = its sharing group.</summary>
     public const string Sites = "trusted.sites";
 

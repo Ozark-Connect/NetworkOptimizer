@@ -31,10 +31,24 @@
                     <div class="banner-content">
                         <div class="banner-text">
                             <span>Start blocking repeat attackers in one click: on the gateway, in the WAF when one is connected, and across your sites. Cloudflare stays off until you add a token.</span>
+                            @if (PublicBlockLists.RecommendedNote(_saved?.Feeds ?? []) is { } listNote)
+                            {
+                                <small class="form-help">@listNote</small>
+                            }
                         </div>
                         <div class="banner-actions">
                             <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="TurnOnRecommended">Turn On Recommended</button>
                         </div>
+                    </div>
+                </div>
+            }
+
+            @if (_setupHidden)
+            {
+                <div class="form-group ab-setup-hidden">
+                    <small class="form-help">The Protection Setup checklist is hidden on Threat Intelligence.</small>
+                    <div class="action-buttons">
+                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="ShowSetup">Show Protection Setup</button>
                     </div>
                 </div>
             }
@@ -258,6 +272,7 @@
     private string? _gatewayStatus;
     private CloudflareBlockingStatus? _cf;
     private IReadOnlyList<PublicListView> _lists = [];
+    private bool _setupHidden;
     private string _cfAccount = "";
     private string _cfToken = "";
     private string? _message;
@@ -284,9 +299,17 @@
         };
         await RefreshGateway();
         _lists = await Blocking.GetPublicListsAsync();
+        _setupHidden = (await Blocking.GetProtectionStatusAsync()).Hidden;
         _cf = await Blocking.GetCloudflareStatusAsync();
         _cfAccount = _cf.AccountId ?? "";
     }
+
+    private Task ShowSetup() => Run(async () =>
+    {
+        await Blocking.SetProtectionSetupHiddenAsync(false);
+        _setupHidden = false;
+        return "Protection Setup is back on the Threat Intelligence Overview.";
+    });
 
     private void ToggleFeed(string id, bool on)
     {

@@ -17,6 +17,10 @@
                     <div class="banner-content">
                         <div class="banner-text">
                             <span>Dry Run: these sources would be blocked. Nothing is sent to the gateway, the WAF, or Cloudflare yet.</span>
+                            @if (PublicBlockLists.RecommendedNote(_overview.Settings.Feeds) is { } listNote)
+                            {
+                                <small class="form-help">@listNote</small>
+                            }
                         </div>
                         <SiteAdminOnly>
                             <div class="banner-actions">
