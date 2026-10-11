@@ -747,7 +747,7 @@ public static class RolloutPlanComposer
         if (!ConsoleReachable(console)) return console;
 
         // latestByChannel is only refreshed for a channel the console has actually been put on:
-        // an atl console sitting on RC reported release 4.4.7 for weeks and produced 5.1.19 the
+        // a console sitting on RC reported release 4.4.7 for weeks and produced 5.1.19 the
         // moment GA was selected. So both surfaces are put on their planned channel before their
         // version is read, and left there - planning on a channel is committing to it.
         var app = settings.IncludeUniFiNetwork ? settings.EffectiveNetworkAppChannel : null;

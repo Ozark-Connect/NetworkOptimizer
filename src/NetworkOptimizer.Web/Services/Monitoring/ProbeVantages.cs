@@ -18,7 +18,7 @@ public sealed record ProbeVantageOption(string Key, string Label, int? AgentId, 
 /// </summary>
 /// <param name="VantageId">Row id of the WAN vantage, which makes the picker key unique.</param>
 /// <param name="Name">The vantage's name, used when the console cannot name its WAN.</param>
-/// <param name="WanLabel">Its WAN in UniFi's own wording ("Yelcot Cable WAN4"), if known.</param>
+/// <param name="WanLabel">Its WAN in UniFi's own wording ("Cable WAN4"), if known.</param>
 /// <param name="SourceBind">The interface or source IP its probes leave by.</param>
 public sealed record ProbeVantageBinding(int VantageId, string Name, string? WanLabel, string? SourceBind);
 
