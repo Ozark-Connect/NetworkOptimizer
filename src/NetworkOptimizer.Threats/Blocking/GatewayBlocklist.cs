@@ -212,7 +212,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         }
         catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
         {
-            return BlockTargetResult.Failure("Network Optimizer's address group was removed in UniFi Network. Run Set Up again.");
+            return BlockTargetResult.Failure("Network Optimizer's Network List was removed in UniFi Network. Run Set Up again.");
         }
         catch (UniFiPermissionException ex)
         {
@@ -243,7 +243,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         }
         catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
         {
-            return BlockTargetResult.Failure("Network Optimizer's public block list group was removed in UniFi Network. Run Set Up again.");
+            return BlockTargetResult.Failure("Network Optimizer's public block list Network List was removed in UniFi Network. Run Set Up again.");
         }
         catch (UniFiPermissionException ex)
         {

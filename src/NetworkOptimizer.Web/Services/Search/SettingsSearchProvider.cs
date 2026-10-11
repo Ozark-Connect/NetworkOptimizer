@@ -299,7 +299,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["Blocklist", "ban list", "block list", "IP blocking"],
             ["dry run", "enforce", "turn on recommended", "waf events", "scan sweep", "brute force",
              "exploit campaign", "first block", "most blocked sources",
-             "share blocks with other sites", "gateway", "zone-based firewall", "address group",
+             "share blocks with other sites", "gateway", "zone-based firewall", "network list", "address group",
              "block policy", "set up", "web application firewall", "cloudflare", "account id",
              "api token", "netopt_blocklist", "custom rule", "release", "public block lists",
              "spamhaus drop", "feodo tracker", "abuse.ch", "dshield", "blocklist.de"]),
@@ -308,7 +308,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Trusted Sources",
             ["Allowlist", "whitelist", "trusted IPs", "never block"],
             ["extra trusted addresses", "blocking exceptions", "site addresses", "wan ip", "ipv6 prefix", "port forward", "source limit",
-             "address group", "net. opt. trusted sources", "trusted sources + cloudflare", "last seen", "stale address", "remove"]),
+             "network list", "address group", "net. opt. trusted sources", "trusted sources + cloudflare", "last seen", "stale address", "remove"]),
 
         Entry("application", "Application", "admin-password",
             "Admin Password",
@@ -411,7 +411,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("multisite", "Multi-Site", "trusted-sources-matrix",
             "Trusted Sources",
             ["trusted sites", "site allowlist"],
-            ["which sites trust", "site wan addresses", "port forward", "address group"], Reach.MultiSite),
+            ["which sites trust", "site wan addresses", "port forward", "network list", "address group"], Reach.MultiSite),
 
         Entry("multisite", "Multi-Site", "site-agent-setup",
             "Add a site",
