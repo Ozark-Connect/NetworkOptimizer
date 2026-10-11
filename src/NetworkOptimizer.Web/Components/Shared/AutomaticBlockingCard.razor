@@ -144,7 +144,7 @@
                             <input type="checkbox" @bind="_form.TargetGateway" />
                             <span>Gateway</span>
                         </label>
-                        <small class="form-help">An address group and a Block policy from External to every other zone in UniFi Network's zone-based firewall. Set Up creates them; they are named Network Optimizer Blocklist.</small>
+                        <small class="form-help">An address group and a Block policy from External to every other zone in UniFi Network's zone-based firewall. Set Up creates them; they are named <strong>@GatewayBlocklist.PolicyName</strong>.</small>
                         @if (_gatewayStatus != null)
                         {
                             <small class="form-help ab-status">@_gatewayStatus</small>

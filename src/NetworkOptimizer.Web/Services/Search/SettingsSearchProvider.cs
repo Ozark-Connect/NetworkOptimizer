@@ -308,7 +308,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Trusted Sources",
             ["Allowlist", "whitelist", "trusted IPs", "never block"],
             ["extra trusted addresses", "blocking exceptions", "site addresses", "wan ip", "ipv6 prefix", "port forward", "source limit",
-             "address group", "network optimizer trusted sources", "last seen", "stale address", "remove"]),
+             "address group", "net. opt. trusted sources", "trusted sources + cloudflare", "last seen", "stale address", "remove"]),
 
         Entry("application", "Application", "admin-password",
             "Admin Password",
