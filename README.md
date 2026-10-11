@@ -17,6 +17,12 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
+## Coming Soon: Integrated WAF + Security Features
+
+This should be hitting our Preview channel here in a few days, but in a nutshell, the companion Traefik proxy repo is getting a custom wrapper around the Coraza Web Application Firewall (WAF), with a management plane implemented in Network Optimizer that pulls in free block lists, IPS events, establishes an allow list based upon a matrix of your managed sites' public IPs, and more. On the UniFi Network side, we are introducing automatically managed Network Lists based upon said lists of site public IPs, Cloudflare's IP set, and IPs of your own choosing. These lists can be used in UniFi Firewall and Port Forwarding rules so you don't have to keep managing them manually. Your UniFi Gateway also gets optional auto-block functionality based upon both the public block lists (supplements CyberSecure / Suricata) and live WAF attack detections, so blocking for already-identified direct / non-Cloudflare traffic occurs right at the firewall level before it even hits Traefik.
+
+If you haven't already checked out [our Traefik based reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) it's definitely worth setting up with this coming soon.
+
 ## Coming Soon: Hosted Network Optimizer
 
 For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is coming soon: $15/month for up to 3 sites, with a 14 day free trial and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits.
