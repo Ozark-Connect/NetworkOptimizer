@@ -372,8 +372,8 @@ public sealed class ThreatBlockingOperations
     }
 
     /// <summary>
-    /// The sites a site trusts (always itself), its extra trusted addresses, its never-block-only
-    /// addresses, and whether it keeps the UniFi groups.
+    /// The sites a site trusts (always itself), its extra trusted addresses, its blocking exceptions,
+    /// and whether it keeps the UniFi groups.
     /// </summary>
     public async Task SaveTrustedSourcesAsync(string slug, IReadOnlyList<string> trustedSlugs, string extras, string neverBlock,
         bool uniFiGroup, bool uniFiCloudflare, CancellationToken ct)
