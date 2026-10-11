@@ -78,9 +78,15 @@
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/threats">
+            <NavLink class="nav-link" href="/threats" Match="NavLinkMatch.All">
                 <img src="/icons/threats.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Threat Intelligence</span>
+            </NavLink>
+        </li>
+        <li class="nav-item nav-sub-item" @onclick="HandleNavClick" data-tour="nav-waf">
+            <NavLink class="nav-link" href="/threats/waf">
+                <span class="nav-sub-icon">└</span>
+                <span class="nav-text">Web Application Firewall</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">

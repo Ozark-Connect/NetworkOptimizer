@@ -57,6 +57,31 @@ public class ThreatRepositoryBlockTests : IDisposable
     }
 
     [Fact]
+    public async Task WafEvents_NewestFirst_SearchedAcrossFields_NoiseFiltered()
+    {
+        ThreatEvent W(string ip, int minutesAgo, string host, string service, long rule) => new()
+        {
+            Timestamp = Now.AddMinutes(-minutesAgo), SourceIp = ip, DestIp = "", Protocol = "HTTP",
+            SignatureId = rule, SignatureName = $"Rule {rule}", Category = "", Domain = host, Service = service,
+            InnerAlertId = Guid.NewGuid().ToString(), EventSource = EventSource.Waf,
+        };
+        _context.ThreatEvents.AddRange(
+            W("203.0.113.1", 5, "app.example.com", "GET /search", 942100),
+            W("2001:db8::1", 1, "wiki.example.com", "POST /login", 930100),
+            W("203.0.113.9", 2, "app.example.com", "GET /", 942100));                 // hidden by a noise filter
+        await _context.SaveChangesAsync();
+        _repository.SetNoiseFilters([new ThreatNoiseFilter { SourceIp = "203.0.113.9", Enabled = true }]);
+
+        var all = await _repository.GetWafEventsAsync(Now.AddHours(-1), Now, null, 50);
+        all.Select(e => e.SourceIp).Should().Equal("2001:db8::1", "203.0.113.1");
+
+        (await _repository.GetWafEventsAsync(Now.AddHours(-1), Now, "wiki", 50)).Should().ContainSingle();
+        (await _repository.GetWafEventsAsync(Now.AddHours(-1), Now, "/search", 50)).Should().ContainSingle();
+        (await _repository.GetWafEventsAsync(Now.AddHours(-1), Now, "930100", 50)).Should().ContainSingle()
+            .Which.SourceIp.Should().Be("2001:db8::1");
+    }
+
+    [Fact]
     public async Task GetBlocks_ReturnsActivePlusRecentlyCreated()
     {
         await _repository.AddBlocksAsync(

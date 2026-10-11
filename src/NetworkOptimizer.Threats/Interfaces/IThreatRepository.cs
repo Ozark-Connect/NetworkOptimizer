@@ -14,6 +14,12 @@ public interface IThreatRepository
     /// </summary>
     void SetNoiseFilters(List<ThreatNoiseFilter> filters);
 
+    /// <summary>
+    /// WAF events in the range, newest first, noise filters applied. <paramref name="search"/> matches
+    /// the source, host, request, rule name, or rule ID.
+    /// </summary>
+    Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit, CancellationToken cancellationToken = default);
+
     // --- Automatic Blocking ---
 
     /// <summary>WAF events per source in the range, ignoring noise filters (a trusted source is
