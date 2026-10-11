@@ -386,11 +386,14 @@ public sealed class ThreatBlockingService : BackgroundService
 
         // Cloudflare's ranges go to the UniFi groups only, by choice: a port forward to a proxied
         // host sees Cloudflare as the source. Never to the WAF, which sees the visitor behind it.
-        if (uniFi && services.GetService<TrustedSourcesGroup>() is { } writer)
+        // A site's own WAN addresses stay out of its own UniFi groups: a port forward there never
+        // needs to admit the site itself.
+        if (uniFi && services.GetService<TrustedSourcesGroup>() is { } writer
+            && await TrustedMembersAsync(services, site, ct, excludeOwn: true) is { Count: > 0 } others)
         {
             var groupMembers = await TrustedSourcesSettings.UniFiIncludesCloudflareAsync(accessor, site, ct) && _lists != null
-                ? [.. members, .. await _lists.GetCloudflareRangesAsync(accessor, now, ct)]
-                : members;
+                ? [.. others, .. await _lists.GetCloudflareRangesAsync(accessor, now, ct)]
+                : others;
             var groupFingerprint = string.Join(",", groupMembers);
             if (Due(BlockTargetKind.Gateway, groupFingerprint))
                 Record(BlockTargetKind.Gateway, groupFingerprint, await writer.SyncAsync(site, groupMembers, ct));
@@ -426,13 +429,18 @@ public sealed class ThreatBlockingService : BackgroundService
         }
     }
 
-    /// <summary>A site's Trusted Sources: every address of the sites it trusts, plus its extra addresses.</summary>
-    public static async Task<List<string>> TrustedMembersAsync(IServiceProvider services, string? site, CancellationToken ct)
+    /// <summary>
+    /// A site's Trusted Sources: every address of the sites it trusts, plus its extra addresses.
+    /// With <paramref name="excludeOwn"/>, the site's own addresses are left out (its UniFi groups),
+    /// unless another trusted site or an extra address also holds them.
+    /// </summary>
+    public static async Task<List<string>> TrustedMembersAsync(IServiceProvider services, string? site, CancellationToken ct,
+        bool excludeOwn = false)
     {
         var accessor = services.GetRequiredService<IThreatSettingsAccessor>();
         var trusted = await TrustedSourcesSettings.ResolveSitesAsync(accessor, services.GetService<IBlockSharingScope>(), site, ct);
         var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var s in trusted)
+        foreach (var s in trusted.Where(s => !excludeOwn || s != site))
             foreach (var a in await TrustedAddressBook.LoadAsync(accessor, s, ct))
                 members.Add(a.Address);
         var extras = await accessor.GetSettingAsync(BlockingSettingKeys.ForSite(TrustedSourcesKeys.Extras, site), ct);
