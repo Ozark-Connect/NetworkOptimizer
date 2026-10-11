@@ -7379,6 +7379,11 @@ a.path-hop.hop-clickable:hover {
     margin: 0 0 1.5rem;
 }
 
+/* An option that belongs to the target above it: indented to its checkbox text. */
+.automatic-blocking .ab-suboption {
+    margin-left: 1.625rem;
+}
+
 .automatic-blocking .ab-list {
     margin-bottom: 1rem;
 }

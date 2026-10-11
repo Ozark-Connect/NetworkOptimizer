@@ -133,18 +133,6 @@
                         }
                     </div>
                 }
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="_form.FeedsOutbound" />
-                        <span>Also block devices from reaching these addresses (outbound)</span>
-                    </label>
-                    <small class="form-help">
-                        Optional, on the gateway. Stops a device on your networks from connecting to a listed address, such as a botnet's command server.
-                        This supplements UniFi's CyberSecure IPS, which carries Feodo Tracker and DShield too: its Suricata runs in pcap mode, so it reacts
-                        after a connection has started and blocks for 5 minutes at a time. A Network List policy drops the first packet, costs no inspection
-                        CPU, and holds while the address is listed. Needs gateway blocking set up.
-                    </small>
-                </div>
             </div>
 
             <div class="ab-section">
@@ -164,6 +152,18 @@
                                 <span class="status-dot online"></span>
                             }@_gatewayStatus</small>
                         }
+                    </div>
+                    <div class="form-group ab-suboption">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_form.FeedsOutbound" />
+                            <span>Also block devices from reaching the public lists (outbound)</span>
+                        </label>
+                        <small class="form-help">
+                            Optional. Stops a device on your networks from connecting to a listed address, such as a botnet's command server.
+                            This supplements UniFi's CyberSecure IPS, which carries Feodo Tracker and DShield too: its Suricata runs in pcap mode, so it reacts
+                            after a connection has started and blocks for 5 minutes at a time. A Network List policy drops the first packet, costs no inspection
+                            CPU, and holds while the address is listed. Applied when you save, once gateway blocking is set up.
+                        </small>
                     </div>
                     <div class="action-buttons">
                         @if (_gatewaySetUp)
