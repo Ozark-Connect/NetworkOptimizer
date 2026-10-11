@@ -8,6 +8,7 @@
 @inject ThreatDashboardService DashboardService
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject SiteContextService SiteContext
+@inject NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor ThreatSettings
 @inject IJSRuntime JS
 
 <PageTitle>Web Application Firewall - Network Optimizer</PageTitle>
@@ -25,7 +26,7 @@
         <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
             @foreach (var (id, label) in Tabs)
             {
-                <button class="wifi-view-tab @(_tab == id ? "active" : "")" @onclick="() => _tab = id">@label</button>
+                <button class="wifi-view-tab @(_tab == id ? "active" : "")" @onclick="() => SetTab(id)">@label</button>
             }
         </div>
         <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
@@ -42,14 +43,24 @@
 
 @if (_tab == "overview")
 {
-    @if (_status == null)
+    @if (_status == null && _configured)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <p>Connected. Waiting for the WAF's first report, which takes up to a minute.</p>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_status == null)
     {
         <div class="card">
             <div class="card-body">
                 <div class="empty-state">
                     <p>No WAF is connected to this site yet.</p>
                     <SiteAdminOnly>
-                        <button class="btn btn-primary" @onclick='() => _tab = "setup"'>Set Up</button>
+                        <button class="btn btn-primary" @onclick='() => SetTab("setup")'>Set Up</button>
                     </SiteAdminOnly>
                 </div>
             </div>
@@ -208,6 +219,7 @@ else if (_tab == "setup")
     private string _tab = "overview";
     private string _range = "24h";
     private WafStatus? _status;
+    private bool _configured;
     private WafSummary? _summary;
     private List<ThreatEvent> _events = [];
     private string _search = "";
@@ -233,9 +245,18 @@ else if (_tab == "setup")
         await Load();
     }
 
+    // Re-read on every view tab: a connection saved on Setup shows up without a page reload.
+    private async Task SetTab(string id)
+    {
+        _tab = id;
+        if (id != "setup") await Load();
+    }
+
     private async Task Load()
     {
         _status = CollectionService.WafStatusFor(SiteContext.Slug);
+        var site = SiteContext.IsDefault ? null : SiteContext.Slug;
+        _configured = await NetworkOptimizer.Threats.Blocking.BlockingSettings.WafConnectedAsync(k => ThreatSettings.GetSettingAsync(k), site);
         var (from, to) = Window();
         _summary = await DashboardService.GetWafSummaryAsync(from, to);
         await LoadEvents();
