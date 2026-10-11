@@ -96,7 +96,7 @@
             <div class="card-header">
                 <h3 class="card-title">Mode</h3>
                 <div class="waf-card-mode">
-                    <span class="waf-meta">Paranoia Level @_status.Paranoia</span>
+                    <span class="waf-meta">Paranoia Level @_status.Paranoia <span class="tooltip-icon tooltip-icon-sm" data-tooltip="OWASP CRS paranoia level, set by WAF_PARANOIA in the proxy's .env. Level 1 suits most sites. Higher levels catch more and flag more legitimate requests.">?</span></span>
                     <span class="status-badge @(_status.Mode == "block" ? "status-active" : "")">@(_status.Mode == "block" ? "Blocking" : "Detection Only")</span>
                 </div>
             </div>
