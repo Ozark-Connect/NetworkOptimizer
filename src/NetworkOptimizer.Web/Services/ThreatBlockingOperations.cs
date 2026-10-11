@@ -42,6 +42,8 @@ public sealed record ProtectionStatus(
     bool EventsSeen,
     bool WafConnected,
     int SiteAddresses,
+    int TrustedSites,
+    int TrustedAddresses,
     int ExtraAddresses,
     BlockingMode Mode,
     int WouldBlock,
@@ -311,10 +313,16 @@ public sealed class ThreatBlockingOperations
             eventsSeen = (await repository.GetThreatSummaryAsync(now.AddDays(-7), now, ct)).TotalEvents > 0;
             wouldBlock = (await repository.GetBlocksAsync(now, now, ct)).Count(b => b.IsActive(now) && !b.Enforced);
         }
+        var trusted = await TrustedSourcesSettings.ResolveSitesAsync(_settings, _sharing, site, ct);
+        var trustedAddresses = 0;
+        foreach (var s in trusted)
+            trustedAddresses += (await TrustedAddressBook.LoadAsync(_settings, s, ct)).Count;
         return new ProtectionStatus(
             eventsSeen,
             await BlockingSettings.WafConnectedAsync(k => _settings.GetSettingAsync(k, ct), site),
             (await TrustedAddressBook.LoadAsync(_settings, site, ct)).Count,
+            trusted.Count,
+            trustedAddresses,
             BlockAllowlist.ParseList(settings.Allowlist).Count(),
             settings.Mode,
             wouldBlock,

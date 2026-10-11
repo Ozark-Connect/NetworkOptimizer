@@ -7396,6 +7396,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    font-size: 0.875rem;
     padding: 0.625rem 0;
     border-bottom: 1px solid var(--border-color);
 }
