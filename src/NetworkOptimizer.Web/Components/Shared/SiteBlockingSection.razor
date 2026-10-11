@@ -1,0 +1,110 @@
+@using NetworkOptimizer.Threats.Blocking
+@inject IThreatBlockingSiteAdmin SiteBlocking
+
+@* Settings - Multi-Site, a site's Configuration panel: Automatic Blocking for that site, without
+   switching to it. Every call is gated on the caller's role on SiteSlug. *@
+
+<div class="site-config-section site-blocking">
+    <div class="site-config-section-title">Automatic Blocking</div>
+    @if (_summary == null)
+    {
+        <span class="spinner spinner-sm"></span>
+    }
+    else
+    {
+        <div class="site-blocking-mode">
+            <label class="form-label" for="blocking-mode-@SiteSlug">Mode</label>
+            <select id="blocking-mode-@SiteSlug" class="form-control" value="@_summary.Mode" @onchange="SetMode" disabled="@_busy">
+                <option value="@BlockingMode.Off">Off</option>
+                <option value="@BlockingMode.DryRun">Dry Run</option>
+                <option value="@BlockingMode.Enforce">Enforce</option>
+            </select>
+        </div>
+        <label class="checkbox-toggle">
+            <input type="checkbox" checked="@_summary.Share" disabled="@_busy" @onchange="e => SetShare((bool)e.Value!)" />
+            Share blocks with other sites. Each site's own Never block list still applies.
+        </label>
+        <p class="form-help">
+            @(_summary.GatewaySetUp ? "Gateway set up." : "Gateway not set up.")
+            @(_summary.ActiveBlocks == 1 ? "1 source blocked." : $"{_summary.ActiveBlocks} sources blocked.")
+        </p>
+        @if (_summary.Mode != BlockingMode.Enforce)
+        {
+            <div class="site-agent-actions">
+                <button type="button" class="btn btn-primary btn-sm" disabled="@_busy" @onclick="TurnOnRecommended">Turn On Recommended</button>
+            </div>
+        }
+        @if (_message != null)
+        {
+            <p class="form-help @(_isError ? "text-danger" : "")">@_message</p>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string SiteSlug { get; set; } = "";
+
+    /// <summary>Raised after a change, so the page can refresh anything that summarizes sites.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private BlockingSiteSummary? _summary;
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            _summary = await SiteBlocking.GetSummaryAsync(SiteSlug);
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+            _isError = true;
+        }
+    }
+
+    private async Task Act(Func<Task<string?>> action)
+    {
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            _message = await action();
+            await Load();
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task SetMode(ChangeEventArgs e) => Act(async () =>
+    {
+        if (!Enum.TryParse<BlockingMode>(e.Value?.ToString(), out var mode)) return null;
+        await SiteBlocking.SetModeAsync(SiteSlug, mode);
+        return null;
+    });
+
+    private Task SetShare(bool share) => Act(async () =>
+    {
+        await SiteBlocking.SetShareAsync(SiteSlug, share);
+        return null;
+    });
+
+    private Task TurnOnRecommended() => Act(async () =>
+    {
+        var r = await SiteBlocking.TurnOnRecommendedAsync(SiteSlug);
+        return r.GatewayError == null ? null : $"Enforcing, but the gateway was not set up: {r.GatewayError}";
+    });
+}

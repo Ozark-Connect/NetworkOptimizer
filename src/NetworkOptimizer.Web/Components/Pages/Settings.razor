@@ -3584,6 +3584,8 @@
 
             @if (_multiSiteEnabled)
             {
+                <AllSitesBlockingAction SiteSlugs="@_sites.Where(s => s.Enabled).Select(s => s.Slug).ToList()" />
+
                 <div class="form-group">
                     <label class="form-label">Sites</label>
                     <div class="table-responsive">
@@ -3929,6 +3931,10 @@
                                                                 </small>
                                                             </div>
                                                         </div>
+
+                                                        <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="blockingAdmin">
+                                                            <SiteBlockingSection SiteSlug="@site.Slug" />
+                                                        </AuthorizeView>
 
                                                         @* A site's lifecycle is instance work, not site work: removing one destroys its
                                                            database and agent enrollments and hands a licence slot back, and disabling one
