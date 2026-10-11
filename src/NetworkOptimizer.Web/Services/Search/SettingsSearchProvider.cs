@@ -298,7 +298,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Automatic Blocking",
             ["Blocklist", "ban list", "block list", "IP blocking"],
             ["dry run", "enforce", "turn on recommended", "waf events", "scan sweep", "brute force",
-             "exploit campaign", "first block", "most blocked sources",
+             "exploit campaign", "first block", "maximum blocked sources",
              "share blocks with other sites", "gateway", "zone-based firewall", "network list", "address group",
              "block policy", "set up", "web application firewall", "cloudflare", "cloudflare edge blocking", "account id",
              "api token", "netopt_blocklist", "custom rule", "release", "public block lists",
