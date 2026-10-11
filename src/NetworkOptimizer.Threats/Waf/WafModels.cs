@@ -11,6 +11,8 @@ public sealed class WafEventPage
     [JsonPropertyName("instance")] public string Instance { get; set; } = "";
     [JsonPropertyName("started")] public DateTimeOffset Started { get; set; }
     [JsonPropertyName("mode")] public string Mode { get; set; } = "";
+    /// <summary>When the current mode took effect; absent from WAFs that predate mode switching.</summary>
+    [JsonPropertyName("modeSince")] public DateTimeOffset? ModeSince { get; set; }
     [JsonPropertyName("paranoia")] public int Paranoia { get; set; }
     [JsonPropertyName("stats")] public WafStats Stats { get; set; } = new();
     /// <summary>Sequence number to pass as since= on the next call.</summary>
@@ -79,4 +81,14 @@ public sealed record WafStatus(
     int Paranoia,
     DateTimeOffset? Started,
     WafStats? Stats,
-    string? Error);
+    string? Error,
+    DateTimeOffset? ModeSince = null);
+
+/// <summary>netopt-waf's GET/PUT /api/mode response.</summary>
+public sealed class WafModeState
+{
+    [JsonPropertyName("mode")] public string Mode { get; set; } = "";
+    [JsonPropertyName("since")] public DateTimeOffset Since { get; set; }
+    /// <summary>False when the WAF has no state directory: a change lasts until it restarts.</summary>
+    [JsonPropertyName("persisted")] public bool Persisted { get; set; }
+}

@@ -54,8 +54,13 @@ public sealed record ProtectionStatus(
     bool UniFiGroups,
     bool Hidden,
     bool WafTarget,
-    string? RecommendedNote)
+    string? RecommendedNote,
+    string? WafMode = null,
+    DateTimeOffset? WafModeSince = null)
 {
+    /// <summary>Whole days the WAF has run in detect mode, or 0 when it blocks or is unknown.</summary>
+    public int WafDetectDays => WafMode == "detect" && WafModeSince is { } since ? (int)(DateTimeOffset.UtcNow - since).TotalDays : 0;
+
     /// <summary>Blocks reach somewhere: the gateway, or the WAF where a site has no gateway blocking.</summary>
     public bool BlockingTargetReady => GatewaySetUp || (WafConnected && WafTarget);
 
@@ -82,6 +87,7 @@ public sealed class ThreatBlockingOperations
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly PublicBlockListCache _lists;
     private readonly TrustedSourcesGroup _trustedGroup;
+    private readonly NetworkOptimizer.Threats.ThreatCollectionService _collector;
 
     public ThreatBlockingOperations(
         IThreatSettingsAccessor settings,
@@ -93,8 +99,10 @@ public sealed class ThreatBlockingOperations
         IHttpClientFactory httpClientFactory,
         PublicBlockListCache lists,
         TrustedSourcesGroup trustedGroup,
+        NetworkOptimizer.Threats.ThreatCollectionService collector,
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null)
     {
+        _collector = collector;
         _lists = lists;
         _trustedGroup = trustedGroup;
         _settings = settings;
@@ -338,7 +346,9 @@ public sealed class ThreatBlockingOperations
             await TrustedSourcesSettings.UniFiGroupEnabledAsync(_settings, site, ct),
             bool.TryParse(await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.SetupHidden), ct), out var hidden) && hidden,
             settings.TargetWaf,
-            PublicBlockLists.RecommendedNote(settings.Feeds));
+            PublicBlockLists.RecommendedNote(settings.Feeds),
+            _collector.WafStatusFor(slug)?.Mode,
+            _collector.WafStatusFor(slug)?.ModeSince);
     }
 
     public Task SetProtectionSetupHiddenAsync(string slug, bool hidden, CancellationToken ct) =>

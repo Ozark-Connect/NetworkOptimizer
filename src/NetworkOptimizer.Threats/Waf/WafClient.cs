@@ -42,6 +42,14 @@ public sealed class WafClient
     }
 
     /// <summary>
+    /// Switches the WAF between detect and block. Throws <see cref="WafClientException"/> on any failure,
+    /// including a WAF too old to switch modes.
+    /// </summary>
+    public Task<WafModeState> PutModeAsync(string baseUrl, string token, string mode, CancellationToken cancellationToken) =>
+        SendAsync<WafModeState>(HttpMethod.Put, baseUrl, "/api/mode", token, JsonContent.Create(new { mode }),
+            "The WAF cannot switch modes from here. Update NetworkOptimizer-Proxy.", cancellationToken);
+
+    /// <summary>
     /// Replaces one of the WAF's allow lists (routes opt in with <c>/check?allow=name</c>) and
     /// returns how many entries it holds. Throws <see cref="WafClientException"/> on any failure.
     /// </summary>
