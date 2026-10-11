@@ -259,6 +259,13 @@ public sealed class ThreatBlockingService : BackgroundService
             desired = BlockDecisionEngine.DesiredSet(union.Where(b => allowlist.Exempts(b.SourceIp) == null), now, settings.MaxEntries);
             if (settings.Mode == BlockingMode.Enforce)
                 feeds = await FeedEntriesAsync(accessor, settings, allowlist, now, ct);
+            else if (_lists != null)
+            {
+                // Dry Run downloads the chosen lists without sending them, so Settings shows their
+                // counts and the first Enforce has them at once. The cache keeps each list's interval.
+                foreach (var id in settings.Feeds)
+                    await _lists.GetAsync(id, accessor, now, ct);
+            }
         }
 
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
@@ -486,11 +493,11 @@ public sealed class ThreatBlockingService : BackgroundService
 
     private async Task<IBlockTarget?> CreateTargetAsync(BlockTargetKind kind, string? site, IServiceProvider services,
         IThreatSettingsAccessor settings, CancellationToken ct) => kind switch
-    {
-        BlockTargetKind.Waf => new WafBlockTarget(new WafClient(services.GetService<ISiteHttpClientProvider>() is { } http
-            ? await http.GetClientAsync(site, ct) : _httpClientFactory.CreateClient("Waf")), settings, site),
-        BlockTargetKind.Cloudflare => new CloudflareBlockTarget(new CloudflareListClient(_httpClientFactory.CreateClient("Cloudflare")), settings, site),
-        BlockTargetKind.Gateway => services.GetService<IGatewayBlocklistWriter>() is { } writer ? new GatewayBlockTarget(writer, site) : null,
-        _ => null
-    };
+        {
+            BlockTargetKind.Waf => new WafBlockTarget(new WafClient(services.GetService<ISiteHttpClientProvider>() is { } http
+                ? await http.GetClientAsync(site, ct) : _httpClientFactory.CreateClient("Waf")), settings, site),
+            BlockTargetKind.Cloudflare => new CloudflareBlockTarget(new CloudflareListClient(_httpClientFactory.CreateClient("Cloudflare")), settings, site),
+            BlockTargetKind.Gateway => services.GetService<IGatewayBlocklistWriter>() is { } writer ? new GatewayBlockTarget(writer, site) : null,
+            _ => null
+        };
 }
