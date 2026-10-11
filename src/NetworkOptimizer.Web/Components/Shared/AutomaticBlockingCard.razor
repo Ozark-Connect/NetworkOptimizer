@@ -121,6 +121,7 @@
                         </label>
                         <small class="form-help">
                             @view.List.Description
+                            <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
                             {
                                 <span> @view.Status.Count.ToString("N0") entries, updated @TimeFormatHelper.FormatRelativeTime(fetched).</span>
@@ -335,6 +336,15 @@
         _setupHidden = false;
         return "Protection Setup is back on the Threat Intelligence Overview.";
     });
+
+    private static string RefreshText(TimeSpan every) => every switch
+    {
+        { TotalMinutes: < 60 } => $"every {(int)every.TotalMinutes} minutes",
+        { TotalHours: 1 } => "hourly",
+        { TotalHours: < 24 } => $"every {(int)every.TotalHours} hours",
+        { TotalDays: 1 } => "daily",
+        _ => $"every {(int)every.TotalDays} days",
+    };
 
     private void ToggleFeed(string id, bool on)
     {
