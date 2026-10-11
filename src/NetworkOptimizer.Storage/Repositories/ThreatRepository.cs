@@ -894,6 +894,81 @@ public class ThreatRepository : IThreatRepository
 
     #endregion
 
+    #region Automatic Blocking
+
+    public async Task<Dictionary<string, int>> GetWafEventCountsBySourceAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _context.ThreatEvents
+            .AsNoTracking()
+            .Where(e => e.EventSource == EventSource.Waf && e.Timestamp >= from && e.Timestamp <= to)
+            .GroupBy(e => e.SourceIp)
+            .Select(g => new { Ip = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        return rows.ToDictionary(r => r.Ip, r => r.Count, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public Task<List<ThreatPattern>> GetPatternsSeenAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default) =>
+        _context.ThreatPatterns
+            .AsNoTracking()
+            .Where(p => p.LastSeen >= from && p.LastSeen <= to)
+            .ToListAsync(cancellationToken);
+
+    public Task<List<ThreatBlock>> GetBlocksAsync(DateTime now, DateTime createdSince,
+        CancellationToken cancellationToken = default) =>
+        _context.ThreatBlocks
+            .AsNoTracking()
+            .Where(b => (b.ReleasedAt == null && b.ExpiresAt > now) || b.CreatedAt >= createdSince)
+            .OrderByDescending(b => b.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+    public async Task<Dictionary<string, int>> GetBlockCountsBySourceAsync(DateTime since,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _context.ThreatBlocks
+            .AsNoTracking()
+            .Where(b => b.CreatedAt >= since)
+            .GroupBy(b => b.SourceIp)
+            .Select(g => new { Ip = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        return rows.ToDictionary(r => r.Ip, r => r.Count, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task AddBlocksAsync(List<ThreatBlock> blocks, CancellationToken cancellationToken = default)
+    {
+        if (blocks.Count == 0) return;
+        _context.ThreatBlocks.AddRange(blocks);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task<ThreatBlock?> GetBlockAsync(int id, CancellationToken cancellationToken = default) =>
+        _context.ThreatBlocks.AsNoTracking().FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+
+    public async Task<bool> ReleaseBlockAsync(int id, string releasedBy, DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        var block = await _context.ThreatBlocks.FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+        if (block == null || !block.IsActive(now)) return false;
+        block.ReleasedAt = now;
+        block.ReleasedBy = releasedBy;
+        await _context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<int> PruneBlocksAsync(DateTime olderThan, CancellationToken cancellationToken = default)
+    {
+        var old = await _context.ThreatBlocks
+            .Where(b => b.ExpiresAt < olderThan || (b.ReleasedAt != null && b.ReleasedAt < olderThan))
+            .ToListAsync(cancellationToken);
+        if (old.Count == 0) return 0;
+        _context.ThreatBlocks.RemoveRange(old);
+        await _context.SaveChangesAsync(cancellationToken);
+        return old.Count;
+    }
+
+    #endregion
+
     #region WAF
 
     public async Task<NetworkOptimizer.Threats.Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to,

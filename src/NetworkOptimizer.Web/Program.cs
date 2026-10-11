@@ -598,6 +598,16 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatFilterAdminService>(
     sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.ThreatDashboardService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor, NetworkOptimizer.Web.Services.ThreatSettingsAccessor>();
+// Automatic Blocking: the loop is a singleton the admin service triggers. The gateway writer and the
+// sharing scope are scoped because they read settings through the scoped accessor. A multi-tenant
+// host narrows sharing by decorating IBlockSharingScope.
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>();
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IGatewayBlocklistWriter>(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>());
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockSharingScope, NetworkOptimizer.Threats.Blocking.InstanceBlockSharingScope>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
 
 // Register Schedule services (scheduling engine for periodic audits, speed tests)

@@ -14,4 +14,10 @@ public interface IThreatSystemAudit
     /// <param name="siteSlug">The site whose filter changed; null for the default site.</param>
     /// <param name="reason">Why the collector made the change.</param>
     void NoiseFilterChanged(string change, string sourceIp, string? siteSlug, string reason);
+
+    /// <summary>Automatic Blocking blocked a source on a site (Enforce mode only; null site = default).</summary>
+    void SourceBlocked(string? siteSlug, string sourceIp, string reason, DateTime expiresAt, IReadOnlyList<string> targets);
+
+    /// <summary>A site's block ended on its own and its source was removed from the targets.</summary>
+    void BlockExpired(string? siteSlug, string sourceIp);
 }

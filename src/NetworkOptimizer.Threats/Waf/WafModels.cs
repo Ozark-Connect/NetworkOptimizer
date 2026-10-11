@@ -24,6 +24,8 @@ public sealed class WafStats
     [JsonPropertyName("inspected")] public long Inspected { get; set; }
     [JsonPropertyName("blocked")] public long Blocked { get; set; }
     [JsonPropertyName("detected")] public long Detected { get; set; }
+    /// <summary>Requests refused by the ban list; 0 from a WAF without one.</summary>
+    [JsonPropertyName("banned")] public long Banned { get; set; }
 }
 
 /// <summary>A request that crossed the OWASP CRS anomaly threshold.</summary>

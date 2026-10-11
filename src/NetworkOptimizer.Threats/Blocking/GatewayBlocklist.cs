@@ -1,0 +1,202 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Threats.Interfaces;
+using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
+
+namespace NetworkOptimizer.Threats.Blocking;
+
+/// <summary>The UniFi console objects Network Optimizer owns for gateway blocking.</summary>
+public sealed class GatewayBlocklistState
+{
+    public string? GroupV4Id { get; set; }
+    public string? GroupV6Id { get; set; }
+    public List<GatewayBlockPolicyRef> Policies { get; set; } = [];
+}
+
+/// <summary>One Block policy: External to <see cref="ZoneId"/> for one IP version.</summary>
+public sealed record GatewayBlockPolicyRef(string Id, string ZoneId, string IpVersion);
+
+/// <summary>What Set Up found or created.</summary>
+public sealed record GatewaySetUpResult(int PoliciesCreated, int PoliciesAdopted, int GroupsCreated);
+
+/// <summary>
+/// Gateway blocking through a site's UniFi console: an IPv4 and an IPv6 address group, each
+/// referenced by a Block policy from External to every other zone. Set Up creates them once; every
+/// sync after that only replaces the group members. Every method takes the site (null = default).
+/// </summary>
+public sealed class GatewayBlocklist : IGatewayBlocklistWriter
+{
+    public const string GroupNameV4 = "Network Optimizer Blocklist (IPv4)";
+    public const string GroupNameV6 = "Network Optimizer Blocklist (IPv6)";
+    public const string PolicyName = "Network Optimizer Blocklist";
+    public const string Description = "Managed by Network Optimizer: sources it has blocked. Changes here are overwritten.";
+
+    private readonly IUniFiClientAccessor _clients;
+    private readonly IThreatSettingsAccessor _settings;
+    private readonly ILogger _logger;
+
+    public GatewayBlocklist(IUniFiClientAccessor clients, IThreatSettingsAccessor settings, ILogger<GatewayBlocklist> logger)
+    {
+        _clients = clients;
+        _settings = settings;
+        _logger = logger;
+    }
+
+    public async Task<GatewayBlocklistState?> LoadStateAsync(string? site, CancellationToken ct)
+    {
+        var json = await _settings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.GatewayState, site), ct);
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<GatewayBlocklistState>(json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private Task SaveStateAsync(string? site, GatewayBlocklistState? state, CancellationToken ct) =>
+        _settings.SaveSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.GatewayState, site),
+            state == null ? "" : JsonSerializer.Serialize(state), ct);
+
+    private UniFiApiClient Client(string? site) =>
+        _clients.GetClient(site) ?? throw new InvalidOperationException("Connect the UniFi Console in Settings - Connection first.");
+
+    /// <summary>
+    /// Creates (or adopts) the two groups and a Block policy from External to every other zone,
+    /// for each IP version. Safe to run again: anything already there is reused.
+    /// </summary>
+    public async Task<GatewaySetUpResult> SetUpAsync(string? site, CancellationToken ct)
+    {
+        var client = Client(site);
+        var state = await LoadStateAsync(site, ct) ?? new GatewayBlocklistState();
+
+        var zones = await client.GetFirewallZonesAsync(ct);
+        var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External)
+            ?? throw new InvalidOperationException("This UniFi Console has no zone-based firewall. Gateway blocking needs UniFi Network 9.0 or later with zones enabled.");
+
+        var groups = await client.GetFirewallGroupsAsync(ct);
+        var groupsCreated = 0;
+        async Task<string> EnsureGroup(string? id, string name, string type)
+        {
+            var existing = groups.FirstOrDefault(g => g.Id == id) ?? groups.FirstOrDefault(g => g.Name == name && g.GroupType == type);
+            if (existing != null) return existing.Id;
+            groupsCreated++;
+            var created = await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(null, name, type, [], Description), ct);
+            return created.Id;
+        }
+        state.GroupV4Id = await EnsureGroup(state.GroupV4Id, GroupNameV4, "address-group");
+        state.GroupV6Id = await EnsureGroup(state.GroupV6Id, GroupNameV6, "ipv6-address-group");
+
+        var policies = await client.GetFirewallPoliciesAsync(ct);
+        var created = 0;
+        var adopted = 0;
+        var refs = new List<GatewayBlockPolicyRef>();
+        foreach (var zone in zones.Where(z => z.Id != external.Id))
+        {
+            foreach (var (version, groupId) in new[] { ("IPV4", state.GroupV4Id), ("IPV6", state.GroupV6Id) })
+            {
+                var existing = policies.FirstOrDefault(p => !p.Predefined
+                    && p.Source.ZoneId == external.Id && p.Destination.ZoneId == zone.Id
+                    && p.Source.IpGroupId == groupId);
+                if (existing != null)
+                {
+                    adopted++;
+                    refs.Add(new GatewayBlockPolicyRef(existing.Id, zone.Id, version));
+                    continue;
+                }
+                var policy = await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.Create(
+                    PolicyName, Description, version, external.Id, groupId!, zone.Id), ct);
+                created++;
+                refs.Add(new GatewayBlockPolicyRef(policy.Id, zone.Id, version));
+            }
+        }
+        state.Policies = refs;
+        await SaveStateAsync(site, state, ct);
+        _logger.LogInformation("Gateway blocking set up: {Created} policies created, {Adopted} adopted, {Groups} groups created",
+            created, adopted, groupsCreated);
+        return new GatewaySetUpResult(created, adopted, groupsCreated);
+    }
+
+    /// <summary>
+    /// Removes Network Optimizer's policies, then its groups. Policies go first: UniFi lets a
+    /// referenced group be deleted and leaves the policy pointing at nothing.
+    /// </summary>
+    public async Task RemoveAsync(string? site, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state == null) return;
+        var client = Client(site);
+        var policies = await client.GetFirewallPoliciesAsync(ct);
+        var groupIds = new[] { state.GroupV4Id, state.GroupV6Id }.Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
+        var policyIds = state.Policies.Select(p => p.Id)
+            .Concat(policies.Where(p => !p.Predefined && groupIds.Contains(p.Source.IpGroupId ?? "")).Select(p => p.Id))
+            .Distinct();
+        foreach (var id in policyIds)
+            await client.DeleteFirewallPolicyAsync(id, ct);
+        foreach (var id in groupIds)
+            await client.DeleteFirewallGroupAsync(id!, ct);
+        await SaveStateAsync(site, null, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state?.GroupV4Id == null || state.GroupV6Id == null)
+        {
+            // Nothing set up means nothing to clear; only an actual send needs the setup.
+            return ips.Count == 0 ? BlockTargetResult.Success(0) : BlockTargetResult.Failure("Set up gateway blocking first.");
+        }
+
+        var v4 = new List<string>();
+        var v6 = new List<string>();
+        foreach (var ip in ips)
+        {
+            if (!IPAddress.TryParse(ip, out var addr)) continue;
+            (addr.AddressFamily == AddressFamily.InterNetworkV6 && !addr.IsIPv4MappedToIPv6 ? v6 : v4)
+                .Add(addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString());
+        }
+
+        try
+        {
+            var client = Client(site);
+            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.GroupV4Id, GroupNameV4, "address-group", v4, Description), ct);
+            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.GroupV6Id, GroupNameV6, "ipv6-address-group", v6, Description), ct);
+            return BlockTargetResult.Success(v4.Count + v6.Count);
+        }
+        catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
+        {
+            return BlockTargetResult.Failure("Network Optimizer's address group was removed in UniFi Network. Run Set Up again.");
+        }
+        catch (UniFiPermissionException ex)
+        {
+            return BlockTargetResult.Failure(ex.Message);
+        }
+        catch (Exception ex) when (ex is UniFiApiErrorException or InvalidOperationException or HttpRequestException)
+        {
+            return BlockTargetResult.Failure(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Checks the policies Set Up created are still there and enabled. Null when all is well,
+    /// otherwise a message for the Settings card.
+    /// </summary>
+    public async Task<string?> VerifyAsync(string? site, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state == null) return null;
+        var policies = await Client(site).GetFirewallPoliciesAsync(ct);
+        var byId = policies.ToDictionary(p => p.Id);
+        var missing = state.Policies.Count(r => !byId.ContainsKey(r.Id));
+        var disabled = state.Policies.Count(r => byId.TryGetValue(r.Id, out var p) && !p.Enabled);
+        if (missing > 0) return $"{missing} of Network Optimizer's Block policies were removed in UniFi Network. Run Set Up again.";
+        if (disabled > 0) return $"{disabled} of Network Optimizer's Block policies are disabled in UniFi Network.";
+        return null;
+    }
+}

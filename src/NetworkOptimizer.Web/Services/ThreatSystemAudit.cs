@@ -23,4 +23,24 @@ public sealed class ThreatSystemAudit : IThreatSystemAudit
             targetName: sourceIp,
             siteSlug: siteSlug,
             details: new { change, reason }));
+
+    /// <inheritdoc />
+    public void SourceBlocked(string? siteSlug, string sourceIp, string reason, DateTime expiresAt, IReadOnlyList<string> targets) =>
+        _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
+            AuditCategories.Settings,
+            AuditActions.ThreatSourceBlocked,
+            targetType: "threat_block",
+            targetName: sourceIp,
+            siteSlug: siteSlug,
+            details: new { reason, expiresAt, targets = string.Join(",", targets) }));
+
+    /// <inheritdoc />
+    public void BlockExpired(string? siteSlug, string sourceIp) =>
+        _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
+            AuditCategories.Settings,
+            AuditActions.ThreatSourceUnblocked,
+            targetType: "threat_block",
+            targetName: sourceIp,
+            siteSlug: siteSlug,
+            details: new { reason = "expired" }));
 }

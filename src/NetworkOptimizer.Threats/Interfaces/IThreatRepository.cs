@@ -14,6 +14,31 @@ public interface IThreatRepository
     /// </summary>
     void SetNoiseFilters(List<ThreatNoiseFilter> filters);
 
+    // --- Automatic Blocking ---
+
+    /// <summary>WAF events per source in the range, ignoring noise filters (a trusted source is
+    /// exempted by the allowlist instead, so a Noise-only filter never hides an attacker).</summary>
+    Task<Dictionary<string, int>> GetWafEventCountsBySourceAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+
+    /// <summary>Patterns whose last event falls in the range, ignoring noise filters.</summary>
+    Task<List<ThreatPattern>> GetPatternsSeenAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+
+    /// <summary>Blocks that are active at <paramref name="now"/> or were created since <paramref name="createdSince"/>.</summary>
+    Task<List<ThreatBlock>> GetBlocksAsync(DateTime now, DateTime createdSince, CancellationToken cancellationToken = default);
+
+    /// <summary>Blocks per source created since <paramref name="since"/>, for strike counting.</summary>
+    Task<Dictionary<string, int>> GetBlockCountsBySourceAsync(DateTime since, CancellationToken cancellationToken = default);
+
+    Task AddBlocksAsync(List<ThreatBlock> blocks, CancellationToken cancellationToken = default);
+
+    Task<ThreatBlock?> GetBlockAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>Marks a block released; false when it does not exist or is not active.</summary>
+    Task<bool> ReleaseBlockAsync(int id, string releasedBy, DateTime now, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes blocks that ended before <paramref name="olderThan"/>.</summary>
+    Task<int> PruneBlocksAsync(DateTime olderThan, CancellationToken cancellationToken = default);
+
     // --- Severity Filtering ---
     /// <summary>
     /// Set active severity filter. When non-null, only events with matching severity levels
