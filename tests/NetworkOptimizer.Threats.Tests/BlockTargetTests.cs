@@ -191,7 +191,7 @@ public class BlockTargetTests
 
         var act = () => new CloudflareListClient(new HttpClient(handler)).GetListAsync("t", "acct", "L1", CancellationToken.None);
 
-        await act.Should().ThrowAsync<CloudflareException>().WithMessage("*Account Filter Lists Edit*");
+        await act.Should().ThrowAsync<CloudflareException>().WithMessage("*Account Rule Lists*Account Filter Lists*");
     }
 }
 
@@ -297,8 +297,12 @@ public class ThreatBlockingServiceTests
         h.WafCounts["203.0.113.7"] = 6; // decided in Dry Run: recorded, not sent
         h.Blocks.Add(new ThreatBlock
         {
-            SourceIp = "2001:db8::9", Trigger = BlockTrigger.Manual, Reason = "Blocked by admin",
-            Enforced = true, CreatedAt = Now.AddMinutes(-1), ExpiresAt = Now.AddHours(1),
+            SourceIp = "2001:db8::9",
+            Trigger = BlockTrigger.Manual,
+            Reason = "Blocked by admin",
+            Enforced = true,
+            CreatedAt = Now.AddMinutes(-1),
+            ExpiresAt = Now.AddHours(1),
         });
 
         await h.Service.RunCycleAsync(Now, CancellationToken.None);
@@ -314,8 +318,11 @@ public class ThreatBlockingServiceTests
         h.Set(BlockingSettingKeys.TargetGateway, "true");
         h.Blocks.Add(new ThreatBlock
         {
-            SourceIp = "203.0.113.9", Trigger = BlockTrigger.Manual, Enforced = true,
-            CreatedAt = Now.AddMinutes(-1), ExpiresAt = Now.AddHours(1),
+            SourceIp = "203.0.113.9",
+            Trigger = BlockTrigger.Manual,
+            Enforced = true,
+            CreatedAt = Now.AddMinutes(-1),
+            ExpiresAt = Now.AddHours(1),
         });
 
         await h.Service.RunCycleAsync(Now, CancellationToken.None);
