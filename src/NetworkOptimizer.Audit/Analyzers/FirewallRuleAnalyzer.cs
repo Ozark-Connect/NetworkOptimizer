@@ -2102,6 +2102,23 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// True when a rule's destination covers every External address: ANY, or an IP or network
+    /// list it inverts (match opposite). A plain IP list, such as a public block list, does not.
+    /// </summary>
+    private static bool HasBroadExternalDestination(FirewallRule rule)
+    {
+        if (rule.IsAnyDestination())
+            return true;
+
+        return rule.DestinationMatchingTarget?.ToUpperInvariant() switch
+        {
+            "IP" => rule.DestinationMatchOppositeIps,
+            "NETWORK" => rule.DestinationMatchOppositeNetworks,
+            _ => false
+        };
+    }
+
+    /// <summary>
     /// Checks if a specific allow rule is eclipsed by a block rule with lower index.
     /// A block rule eclipses the allow rule if it:
     /// 1. Has a lower index (higher priority)
@@ -2152,6 +2169,7 @@ public class FirewallRuleAnalyzer
             r.Index < allowRule.Index &&
             // WEB-based block rules target specific web domains, not arbitrary port/protocol traffic
             !string.Equals(r.DestinationMatchingTarget, "WEB", StringComparison.OrdinalIgnoreCase) &&
+            HasBroadExternalDestination(r) &&
             r.AppliesToSourceNetwork(sourceNetwork, family) &&
             TargetsExternalZone(r, externalZoneId) &&
             FirewallGroupHelper.RuleBlocksPortAndProtocol(r, port, protocol));
@@ -2240,7 +2258,10 @@ public class FirewallRuleAnalyzer
                         blockDomain.Contains(allowDomain, StringComparison.OrdinalIgnoreCase)));
             }
 
-            // For other destination types (ANY, NETWORK, IP), check if block rule would block HTTPS
+            // A block limited to listed IPs or networks (a block list) does not cover the allowed domains
+            if (!HasBroadExternalDestination(blockRule))
+                return false;
+
             // Web traffic uses TCP 443 - if block rule doesn't block that, it doesn't eclipse
             if (!FirewallGroupHelper.RuleBlocksPortAndProtocol(blockRule, "443", "tcp"))
                 return false;
