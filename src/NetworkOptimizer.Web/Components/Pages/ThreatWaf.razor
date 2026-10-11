@@ -225,12 +225,15 @@ else if (_tab == "events")
                                 </tr>
                                 @if (_exclusionFor == e.Id)
                                 {
-                                    <tr class="history-details-row">
+                                    <tr class="history-details-row site-config-row">
                                         <td colspan="7">
-                                            <p class="form-help">If this request was legitimate, add this to <code>waf-rules/before-crs.conf</code> beside the proxy and restart netopt-waf. It turns rule @e.SignatureId off for this host and path only.</p>
-                                            <pre class="gateway-diag-raw">@_exclusionText</pre>
-                                            <div class="action-buttons">
-                                                <button class="btn btn-sm btn-contrast" @onclick="CopyExclusion">@(_copied ? "Copied" : "Copy")</button>
+                                            <div class="expand-wrapper expanded">
+                                                <div class="expand-content">
+                                                    <div class="site-config-panel">
+                                                        <p class="section-description">If this request was legitimate, add this to <code>waf-rules/before-crs.conf</code> beside the proxy and restart netopt-waf. It turns rule @e.SignatureId off for this host and path only.</p>
+                                                        <CopyableCommand Text="@_exclusionText" Tooltip="Copy the exclusion" />
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -313,7 +316,6 @@ else if (_tab == "setup")
     private string _search = "";
     private int? _exclusionFor;
     private string _exclusionText = "";
-    private bool _copied;
 
     protected override async Task OnInitializedAsync()
     {
@@ -388,7 +390,6 @@ else if (_tab == "setup")
 
     private void ShowExclusion(ThreatEvent e)
     {
-        _copied = false;
         if (_exclusionFor == e.Id)
         {
             _exclusionFor = null;
@@ -396,11 +397,5 @@ else if (_tab == "setup")
         }
         _exclusionFor = e.Id;
         _exclusionText = WafExclusion.ForRule(e.SignatureId, e.Domain, WafExclusion.PathOf(e.Service));
-    }
-
-    private async Task CopyExclusion()
-    {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _exclusionText);
-        _copied = true;
     }
 }

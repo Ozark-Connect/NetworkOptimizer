@@ -1336,7 +1336,7 @@
     // The image request carries no fetch wrapper to stamp the tab's site, so it is stamped here.
     private string AppIconUrl(string domain)
     {
-        var path = $"/api/client-dashboard/app-icon/{Uri.EscapeDataString(domain)}";
+        var path = $"/api/client-dashboard/apps/{Uri.EscapeDataString(domain)}/icon";
         return SiteContext.IsDefault ? path : $"{path}?site={Uri.EscapeDataString(SiteContext.Slug)}";
     }
     private List<SpeedChartPoint> _wanDownData = new();

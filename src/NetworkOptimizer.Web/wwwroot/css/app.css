@@ -20604,7 +20604,8 @@ body.kiosk-mode .status-indicators {
 /* .data-table holds a 500px floor, so on a phone this row runs past the wrapper's visible width
    into its scroll overflow, taking anything at its right edge - the command copy buttons - with
    it. Capped to the scroller's own inline size instead. */
-.table-responsive:has(> .sites-table) {
+.table-responsive:has(> .sites-table),
+.table-responsive:has(> .waf-events) {
     container-type: inline-size;
 }
 
@@ -20616,6 +20617,16 @@ body.kiosk-mode .status-indicators {
 
 .site-config-row .site-config-panel {
     max-width: 100cqw;
+}
+
+/* Threat Intelligence - WAF Events: the panel's gap spaces the exclusion help and its code block */
+.waf-events .site-config-panel > .section-description,
+.waf-events .site-config-panel .code-copy-block pre {
+    margin: 0;
+}
+
+.waf-events tr:not(.history-details-row) > td:first-child {
+    white-space: nowrap;
 }
 
 .site-config-section {
