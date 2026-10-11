@@ -220,6 +220,7 @@
                         </div>
                         <details class="setup-guide">
                             <summary>Create the token</summary>
+                            <div class="setup-guide-content">
                             <ol>
                                 <li>In the Cloudflare dashboard, go to <strong>My Profile</strong> - <strong>API Tokens</strong> (or <strong>Manage Account</strong> - <strong>API Tokens</strong> for an account-owned token) and select <strong>Create Token</strong>.</li>
                                 <li>Start a custom token instead of a template.</li>
@@ -227,6 +228,7 @@
                                 <li>Under <strong>Account Resources</strong>, include only this site's account.</li>
                                 <li>Select <strong>Continue to summary</strong>, then <strong>Create Token</strong>, and paste it here. Cloudflare shows it only once.</li>
                             </ol>
+                            </div>
                         </details>
                         @if (_cf?.List != null)
                         {
