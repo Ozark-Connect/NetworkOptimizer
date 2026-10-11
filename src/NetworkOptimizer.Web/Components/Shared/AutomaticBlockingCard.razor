@@ -216,13 +216,14 @@
                                 <label class="form-label">API Token</label>
                                 <input type="password" class="form-control" @bind="_cfToken" autocomplete="new-password"
                                        placeholder="@(_cf?.HasToken == true ? "Saved - enter new to update" : "Cloudflare API token")" data-1p-ignore data-lpignore="true" data-bwignore />
+                                <small class="form-help">Create one with the steps in <strong>Create the token</strong> below.</small>
                             </div>
                         </div>
                         <details class="setup-guide">
                             <summary>Create the token</summary>
                             <div class="setup-guide-content">
                             <ol>
-                                <li>In the Cloudflare dashboard, go to <strong>My Profile</strong> - <strong>API Tokens</strong> (or <strong>Manage Account</strong> - <strong>API Tokens</strong> for an account-owned token) and select <strong>Create Token</strong>.</li>
+                                <li>In the Cloudflare dashboard, go to <strong>Manage Account</strong> - <strong>Account API Tokens</strong> and select <strong>Create Token</strong>. Cloudflare recommends Account API Tokens for credentials that are not tied to a user. A user token from <strong>My Profile</strong> - <strong>API Tokens</strong> works too.</li>
                                 <li>Start a custom token instead of a template.</li>
                                 <li>Add one permission: <strong>Account</strong> - <strong>Account Filter Lists</strong> - <strong>Edit</strong>. It needs nothing else: no zone or DNS access.</li>
                                 <li>Under <strong>Account Resources</strong>, include only this site's account.</li>
