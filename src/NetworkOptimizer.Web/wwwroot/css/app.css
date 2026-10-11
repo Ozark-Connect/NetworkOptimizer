@@ -7374,6 +7374,98 @@ a.path-hop.hop-clickable:hover {
     margin-bottom: 1rem;
 }
 
+/* Threat Intelligence - Protection Setup checklist: one row per step, its action on the right */
+.protection-setup .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.protection-setup-count {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.protection-steps {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+}
+
+.protection-step {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.protection-step:last-child {
+    border-bottom: none;
+}
+
+.protection-step::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 50%;
+    border: 2px solid var(--text-muted);
+}
+
+.protection-step.is-done::before {
+    border-color: var(--success-color);
+    background: var(--success-color);
+}
+
+.protection-step.is-optional::before {
+    border-style: dashed;
+}
+
+.protection-step-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.protection-step.is-done .protection-step-text {
+    color: var(--text-secondary);
+}
+
+.protection-step .btn {
+    flex: 0 0 auto;
+}
+
+.protection-optional {
+    margin: 0 0 1rem;
+}
+
+.protection-hide {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.protection-setup-done {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .protection-step {
+        flex-wrap: wrap;
+    }
+
+    .protection-step-text {
+        flex-basis: calc(100% - 2.25rem);
+    }
+
+    .protection-step .btn {
+        margin-left: 1.875rem;
+    }
+}
 /* Settings - Trusted Sources: one block per site, its addresses in a table under it */
 .trusted-sources .trusted-site {
     margin-bottom: 1.5rem;

@@ -70,6 +70,14 @@ public interface IThreatBlockingAdmin
     [RequireRole(Roles.Admin)]
     Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>The Protection Setup checklist's state. Viewer: it is on the Threat Intelligence Overview.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<ProtectionStatus> GetProtectionStatusAsync(CancellationToken cancellationToken = default);
+
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
+    Task SetProtectionSetupHiddenAsync(bool hidden, CancellationToken cancellationToken = default);
+
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
     Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, CancellationToken cancellationToken = default);
@@ -92,6 +100,8 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken ct = default) => ops.GetCloudflareStatusAsync(Slug, ct);
     public Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken ct = default) => ops.GetPublicListsAsync(Slug, ct);
     public Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) => ops.GetTrustedSourcesAsync(Slug, ct);
+    public Task<ProtectionStatus> GetProtectionStatusAsync(CancellationToken ct = default) => ops.GetProtectionStatusAsync(Slug, ct);
+    public Task SetProtectionSetupHiddenAsync(bool hidden, CancellationToken ct = default) => ops.SetProtectionSetupHiddenAsync(Slug, hidden, ct);
     public Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, CancellationToken ct = default) =>
         ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, uniFiGroup, ct);
 }
