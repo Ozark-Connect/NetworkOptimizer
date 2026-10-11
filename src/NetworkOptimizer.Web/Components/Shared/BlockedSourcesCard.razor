@@ -101,7 +101,7 @@
             }
             @if (_overview.Recent.Count > 0)
             {
-                <p class="form-help">@_overview.Recent.Count block(s) ended in the last 24 hours.</p>
+                <p class="form-help">@(_overview.Recent.Count == 1 ? "1 block" : $"{_overview.Recent.Count} blocks") ended in the last 24 hours.</p>
             }
             @if (_message != null)
             {

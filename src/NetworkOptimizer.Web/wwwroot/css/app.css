@@ -7390,34 +7390,18 @@ a.path-hop.hop-clickable:hover {
     padding-top: 1.25rem;
 }
 
-/* Threat Intelligence - Web Application Firewall: the Mode card's facts, label column then value */
-.waf-mode-facts {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 0.5rem 1.5rem;
-    margin: 0 0 1rem;
-    font-size: 0.95rem;
+/* WAF card headers (Threat Intelligence Overview and the WAF page): paranoia beside the mode badge */
+.waf-card-mode {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
 }
 
-.waf-mode-facts dt {
-    color: var(--text-secondary);
+.waf-meta {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
 }
 
-.waf-mode-facts dd {
-    margin: 0;
-    color: var(--text-primary);
-}
-
-.waf-mode-note {
-    margin-left: 0.5rem;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-}
-
-.waf-mode-next {
-    margin: 0 0 1rem;
-    color: var(--text-secondary);
-}
 .automatic-blocking .ab-list {
     margin-bottom: 1rem;
 }
@@ -7741,7 +7725,11 @@ a.path-hop.hop-clickable:hover {
 .ip-block-control .ip-block-until,
 .ip-block-control .ip-block-message {
     color: var(--text-secondary);
-    font-size: 0.8rem;
+    font-size: 0.875rem;
+}
+
+.ip-block-message.is-ok {
+    color: var(--success-color);
 }
 
 .ip-block-message.is-error {
