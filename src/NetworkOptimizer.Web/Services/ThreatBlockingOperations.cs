@@ -27,7 +27,8 @@ public sealed record TrustedSourcesOverview(
     IReadOnlyList<TrustedSite> Sites,
     string Extras,
     bool UniFiGroup,
-    BlockTargetStatus? UniFiStatus);
+    BlockTargetStatus? UniFiStatus,
+    BlockTargetStatus? WafStatus);
 
 /// <summary>A public block list as a site sees it: chosen or not, and its last download.</summary>
 public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBlockListStatus Status);
@@ -298,7 +299,8 @@ public sealed class ThreatBlockingOperations
             sites,
             await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), ct) ?? "",
             await TrustedSourcesSettings.UniFiGroupEnabledAsync(_settings, site, ct),
-            _blocking.TrustedSourcesStatus(site));
+            _blocking.TrustedSourcesStatus(site, BlockTargetKind.Gateway),
+            _blocking.TrustedSourcesStatus(site, BlockTargetKind.Waf));
     }
 
     /// <summary>The sites a site trusts (always itself), its extra addresses, and whether it keeps the UniFi groups.</summary>

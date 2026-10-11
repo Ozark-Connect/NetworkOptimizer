@@ -35,6 +35,10 @@
                 <label class="form-label">WAF URL</label>
                 <input type="text" class="form-control" @bind="_url" @bind:event="oninput" placeholder="http://127.0.0.1:8044" />
                 <small class="form-help">Where netopt-waf listens. http://127.0.0.1:8044 when the proxy runs beside @(SiteContext.IsDefault ? "Network Optimizer" : "this site's On-Site Agent").</small>
+                @if (PlainHttpOffHost(_url))
+                {
+                    <small class="form-error">This sends the API token unencrypted across the network. Keep the WAF on 127.0.0.1, or reach it through an HTTPS host in Traefik (see the NetworkOptimizer-Proxy README).</small>
+                }
             </div>
 
             <div class="form-group">
@@ -81,6 +85,10 @@
 @code {
     private bool _enabled;
     private string _url = "";
+
+    // http:// is fine on loopback; anywhere else the bearer token crosses a network in the clear.
+    private static bool PlainHttpOffHost(string url) =>
+        Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttp && !u.IsLoopback;
     private string _token = "";
     private bool _hasToken;
     private bool _saving;
