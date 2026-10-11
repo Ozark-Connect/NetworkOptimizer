@@ -13,6 +13,11 @@ public sealed class GatewayBlocklistState
 {
     public string? GroupV4Id { get; set; }
     public string? GroupV6Id { get; set; }
+
+    /// <summary>The public block lists' groups, kept apart so the minute-by-minute blocklist never rewrites them.</summary>
+    public string? FeedsV4Id { get; set; }
+    public string? FeedsV6Id { get; set; }
+
     public List<GatewayBlockPolicyRef> Policies { get; set; } = [];
 }
 
@@ -33,6 +38,10 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     public const string GroupNameV6 = "Network Optimizer Blocklist (IPv6)";
     public const string PolicyName = "Network Optimizer Blocklist";
     public const string Description = "Managed by Network Optimizer: sources it has blocked. Changes here are overwritten.";
+    public const string FeedsNameV4 = "Network Optimizer Public Block Lists (IPv4)";
+    public const string FeedsNameV6 = "Network Optimizer Public Block Lists (IPv6)";
+    public const string FeedsPolicyName = "Network Optimizer Public Block Lists";
+    public const string FeedsDescription = "Managed by Network Optimizer: the public block lists chosen in Automatic Blocking. Changes here are overwritten.";
 
     private readonly IUniFiClientAccessor _clients;
     private readonly IThreatSettingsAccessor _settings;
@@ -67,8 +76,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         _clients.GetClient(site) ?? throw new InvalidOperationException("Connect the UniFi Console in Settings - Connection first.");
 
     /// <summary>
-    /// Creates (or adopts) the two groups and a Block policy from External to every other zone,
-    /// for each IP version. Safe to run again: anything already there is reused.
+    /// Creates (or adopts) the blocklist and public block list groups, and a Block policy from
+    /// External to every other zone for each group. Safe to run again: anything already there is reused.
     /// </summary>
     public async Task<GatewaySetUpResult> SetUpAsync(string? site, CancellationToken ct)
     {
@@ -94,6 +103,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         }
         state.GroupV4Id = await EnsureGroup(state.GroupV4Id, GroupNameV4, "address-group");
         state.GroupV6Id = await EnsureGroup(state.GroupV6Id, GroupNameV6, "ipv6-address-group");
+        state.FeedsV4Id = await EnsureGroup(state.FeedsV4Id, FeedsNameV4, "address-group");
+        state.FeedsV6Id = await EnsureGroup(state.FeedsV6Id, FeedsNameV6, "ipv6-address-group");
 
         var policies = await client.GetFirewallPoliciesAsync(ct);
         var created = 0;
@@ -101,7 +112,11 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var refs = new List<GatewayBlockPolicyRef>();
         foreach (var zone in zones.Where(z => z.Id != external.Id))
         {
-            foreach (var (version, groupId) in new[] { ("IPV4", state.GroupV4Id), ("IPV6", state.GroupV6Id) })
+            foreach (var (version, groupId, name, description) in new[]
+                     {
+                         ("IPV4", state.GroupV4Id, PolicyName, Description), ("IPV6", state.GroupV6Id, PolicyName, Description),
+                         ("IPV4", state.FeedsV4Id, FeedsPolicyName, FeedsDescription), ("IPV6", state.FeedsV6Id, FeedsPolicyName, FeedsDescription),
+                     })
             {
                 var existing = policies.FirstOrDefault(p => !p.Predefined
                     && p.Source.ZoneId == external.Id && p.Destination.ZoneId == zone.Id
@@ -113,7 +128,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                     continue;
                 }
                 var policy = await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.Create(
-                    PolicyName, Description, version, external.Id, groupId!, zone.Id), ct);
+                    name, description, version, external.Id, groupId!, zone.Id), ct);
                 created++;
                 refs.Add(new GatewayBlockPolicyRef(policy.Id, zone.Id, version));
             }
@@ -165,7 +180,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         if (state == null) return;
         var client = Client(site);
         var policies = await client.GetFirewallPoliciesAsync(ct);
-        var groupIds = new[] { state.GroupV4Id, state.GroupV6Id }.Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
+        var groupIds = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }
+            .Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
         var policyIds = state.Policies.Select(p => p.Id)
             .Concat(policies.Where(p => !p.Predefined && groupIds.Contains(p.Source.IpGroupId ?? "")).Select(p => p.Id))
             .Distinct();
@@ -186,15 +202,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             return ips.Count == 0 ? BlockTargetResult.Success(0) : BlockTargetResult.Failure("Set up gateway blocking first.");
         }
 
-        var v4 = new List<string>();
-        var v6 = new List<string>();
-        foreach (var ip in ips)
-        {
-            if (!IPAddress.TryParse(ip, out var addr)) continue;
-            (addr.AddressFamily == AddressFamily.InterNetworkV6 && !addr.IsIPv4MappedToIPv6 ? v6 : v4)
-                .Add(addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString());
-        }
-
+        var (v4, v6) = SplitFamilies(ips);
         try
         {
             var client = Client(site);
@@ -216,6 +224,52 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         }
     }
 
+    /// <inheritdoc />
+    public async Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state?.FeedsV4Id == null || state.FeedsV6Id == null)
+        {
+            return entries.Count == 0 ? BlockTargetResult.Success(0)
+                : BlockTargetResult.Failure(state == null ? "Set up gateway blocking first." : "Run Set Up again to add the public block lists to the gateway.");
+        }
+        var (v4, v6) = SplitFamilies(entries);
+        try
+        {
+            var client = Client(site);
+            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.FeedsV4Id, FeedsNameV4, "address-group", v4, FeedsDescription), ct);
+            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.FeedsV6Id, FeedsNameV6, "ipv6-address-group", v6, FeedsDescription), ct);
+            return BlockTargetResult.Success(v4.Count + v6.Count);
+        }
+        catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
+        {
+            return BlockTargetResult.Failure("Network Optimizer's public block list group was removed in UniFi Network. Run Set Up again.");
+        }
+        catch (UniFiPermissionException ex)
+        {
+            return BlockTargetResult.Failure(ex.Message);
+        }
+        catch (Exception ex) when (ex is UniFiApiErrorException or InvalidOperationException or HttpRequestException)
+        {
+            return BlockTargetResult.Failure(ex.Message);
+        }
+    }
+
+    /// <summary>Splits IPs and CIDR ranges into IPv4 and IPv6, unwrapping IPv4-mapped addresses. Others are dropped.</summary>
+    public static (List<string> V4, List<string> V6) SplitFamilies(IEnumerable<string> entries)
+    {
+        var v4 = new List<string>();
+        var v6 = new List<string>();
+        foreach (var entry in entries)
+        {
+            if (PublicBlockLists.Normalize(entry) is not { } n) continue;
+            var host = n.Split('/')[0];
+            if (!IPAddress.TryParse(host, out var addr)) continue;
+            (addr.AddressFamily == AddressFamily.InterNetworkV6 ? v6 : v4).Add(n);
+        }
+        return (v4, v6);
+    }
+
     /// <summary>
     /// Checks the policies Set Up created are still there and enabled. Null when all is well,
     /// otherwise a message for the Settings card.
@@ -229,6 +283,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var missing = state.Policies.Count(r => !byId.ContainsKey(r.Id));
         var disabled = state.Policies.Count(r => byId.TryGetValue(r.Id, out var p) && !p.Enabled);
         if (missing > 0) return $"{missing} of Network Optimizer's Block policies were removed in UniFi Network. Run Set Up again.";
+        if (state.FeedsV4Id == null) return "Run Set Up again to add the public block lists to the gateway.";
         if (disabled > 0) return $"{disabled} of Network Optimizer's Block policies are disabled in UniFi Network.";
         return null;
     }

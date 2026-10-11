@@ -43,4 +43,14 @@ public sealed class ThreatSystemAudit : IThreatSystemAudit
             targetName: sourceIp,
             siteSlug: siteSlug,
             details: new { reason = "expired" }));
+
+    /// <inheritdoc />
+    public void TrustedAddressesChanged(string? siteSlug, IReadOnlyList<string> added, IReadOnlyList<string> dropped) =>
+        _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
+            AuditCategories.Settings,
+            AuditActions.SettingsChanged,
+            targetType: "trusted_sources",
+            targetName: siteSlug ?? "default",
+            siteSlug: siteSlug,
+            details: new { added = string.Join(",", added), dropped = string.Join(",", dropped) }));
 }

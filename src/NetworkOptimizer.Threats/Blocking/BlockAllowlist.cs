@@ -24,16 +24,34 @@ public sealed class BlockAllowlist
         "2a06:98c0::/29", "2c0f:f248::/32",
     ];
 
+    /// <summary>
+    /// Special-use space no public list entry may touch. An entry overlapping any of these is dropped
+    /// whole: FireHOL-style lists carry bogons such as 10.0.0.0/8, which would cut off every LAN.
+    /// </summary>
+    private static readonly IReadOnlyList<System.Net.IPNetwork> SpecialUse =
+    [
+        .. new[]
+        {
+            "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
+            "192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4",
+            "::/8", "64:ff9b::/96", "fc00::/7", "fe80::/10", "ff00::/8",
+        }.Select(System.Net.IPNetwork.Parse)
+    ];
+
+    private static readonly System.Net.IPNetwork GlobalUnicastV6 = System.Net.IPNetwork.Parse("2000::/3");
+
     private readonly List<string> _ranges = [];
+    private readonly List<System.Net.IPNetwork> _networks = [];
     private readonly HashSet<string> _exact = new(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="userList">The site's own allowlist setting.</param>
     /// <param name="filters">The site's noise filters; Trusted User and Infrastructure ones exempt their source.</param>
     /// <param name="wanAddresses">WAN addresses of this site and every site it shares blocks with.</param>
-    public BlockAllowlist(string? userList, IEnumerable<ThreatNoiseFilter>? filters = null, IEnumerable<string>? wanAddresses = null)
+    /// <param name="cloudflareRanges">Cloudflare's current ranges; the built-in copy when null.</param>
+    public BlockAllowlist(string? userList, IEnumerable<ThreatNoiseFilter>? filters = null,
+        IEnumerable<string>? wanAddresses = null, IEnumerable<string>? cloudflareRanges = null)
     {
-        _ranges.AddRange(CloudflareRanges);
-        foreach (var entry in ParseList(userList).Concat(wanAddresses ?? []))
+        foreach (var entry in (cloudflareRanges ?? CloudflareRanges).Concat(ParseList(userList)).Concat(wanAddresses ?? []))
             Add(entry);
         foreach (var f in filters ?? [])
         {
@@ -44,9 +62,38 @@ public sealed class BlockAllowlist
 
     private void Add(string entry)
     {
-        if (entry.Contains('/')) _ranges.Add(entry);
-        else _exact.Add(entry);
+        if (entry.Contains('/'))
+        {
+            _ranges.Add(entry);
+            if (System.Net.IPNetwork.TryParse(entry, out var n)) _networks.Add(n);
+        }
+        else
+        {
+            _exact.Add(entry);
+            if (System.Net.IPAddress.TryParse(entry, out var a))
+                _networks.Add(new System.Net.IPNetwork(a, a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32));
+        }
     }
+
+    /// <summary>
+    /// The reason a public list's IP or CIDR must not be applied, or null when it may be. A range
+    /// is refused if it overlaps anything protected at all, not only if it is inside it.
+    /// </summary>
+    public string? ExemptsRange(string entry)
+    {
+        if (!entry.Contains('/'))
+            return Exempts(entry);
+        if (!System.Net.IPNetwork.TryParse(entry, out var range)) return "not an IP range";
+        if (range.BaseAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 && !Overlaps(range, GlobalUnicastV6))
+            return "not a public range";
+        if (SpecialUse.Any(s => Overlaps(range, s))) return "overlaps private or reserved space";
+        if (_networks.Any(n => Overlaps(range, n))) return "overlaps the allowlist";
+        return null;
+    }
+
+    private static bool Overlaps(System.Net.IPNetwork a, System.Net.IPNetwork b) =>
+        a.BaseAddress.AddressFamily == b.BaseAddress.AddressFamily
+        && (a.Contains(b.BaseAddress) || b.Contains(a.BaseAddress));
 
     /// <summary>The reason an address must not be blocked, or null when it may be.</summary>
     public string? Exempts(string ip)

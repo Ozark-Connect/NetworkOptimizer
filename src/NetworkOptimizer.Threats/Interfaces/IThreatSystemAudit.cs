@@ -20,4 +20,7 @@ public interface IThreatSystemAudit
 
     /// <summary>A site's block ended on its own and its source was removed from the targets.</summary>
     void BlockExpired(string? siteSlug, string sourceIp);
+
+    /// <summary>A site's observed addresses changed in Trusted Sources: new ones seen, replaced ones aged out.</summary>
+    void TrustedAddressesChanged(string? siteSlug, IReadOnlyList<string> added, IReadOnlyList<string> dropped);
 }
