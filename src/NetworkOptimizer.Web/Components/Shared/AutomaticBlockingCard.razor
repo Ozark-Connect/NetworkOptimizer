@@ -1,0 +1,367 @@
+@using NetworkOptimizer.Threats.Blocking
+@inject IThreatBlockingAdmin Blocking
+@inject ISiteManagementService SiteManagement
+@inject SiteContextService SiteContext
+
+@* Settings - Security & Alerts: Automatic Blocking for the site in context. *@
+
+<div class="card settings-tab-security automatic-blocking" id="automatic-blocking">
+    <div class="card-header">
+        <h2 class="card-title">Automatic Blocking</h2>
+        @if (_saved != null && _saved.Mode != BlockingMode.Off)
+        {
+            <span class="status-badge @(_saved.Mode == BlockingMode.Enforce ? "status-active" : "")">@(_saved.Mode == BlockingMode.Enforce ? "Enforcing" : "Dry Run")</span>
+        }
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Block sources that keep attacking this site: on the gateway, in the WAF, and at Cloudflare's edge.
+            Each block expires on its own, and LAN, VPN, Tailscale, Cloudflare, and this site's own WAN addresses are never blocked.
+        </p>
+
+        @if (_form == null)
+        {
+            <div class="loading-container"><span class="spinner spinner-sm"></span></div>
+        }
+        else
+        {
+            @if (_saved?.Mode != BlockingMode.Enforce)
+            {
+                <div class="alert alert-info">
+                    <div class="banner-content">
+                        <div class="banner-text">
+                            <span>Start blocking repeat attackers in one click: on the gateway@(SiteContext.IsDefault ? ", in the WAF," : "") and across your sites. Cloudflare stays off until you add a token.</span>
+                        </div>
+                        <div class="banner-actions">
+                            <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="TurnOnRecommended">Turn On Recommended</button>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="form-group">
+                <label class="form-label">Mode</label>
+                <div class="radio-group">
+                    @foreach (var mode in new[] { BlockingMode.Off, BlockingMode.DryRun, BlockingMode.Enforce })
+                    {
+                        <label class="radio-label">
+                            <input type="radio" name="blocking-mode" checked="@(_form.Mode == mode)" @onchange="() => _form.Mode = mode" />
+                            <span>@ModeOption(mode)</span>
+                        </label>
+                    }
+                </div>
+                <small class="form-help">Start with Dry Run: Threat Intelligence lists what would be blocked, and nothing is.</small>
+            </div>
+
+            <div class="ab-section">
+                <h3 class="ab-section-title">What Triggers a Block</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">WAF events from one source</label>
+                        <input type="number" class="form-control" min="@BlockingSettings.MinThreshold" max="@BlockingSettings.MaxThreshold" @bind="_form.WafEventThreshold" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Within (minutes)</label>
+                        <input type="number" class="form-control" min="1" max="@BlockingSettings.MaxWindowMinutes" @bind="_form.WindowMinutes" />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_form.UsePatterns" />
+                        <span>Also block the sources of scan sweeps, brute force, and exploit campaigns</span>
+                    </label>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">First block (minutes)</label>
+                        <input type="number" class="form-control" min="1" max="@BlockingSettings.MaxBanMinutes" @bind="_form.BanMinutes" />
+                        <small class="form-help">Each repeat within 30 days blocks 4 times longer, up to 7 days.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Most blocked sources</label>
+                        <input type="number" class="form-control" min="1" max="@BlockingSettings.MaxMaxEntries" @bind="_form.MaxEntries" />
+                        <small class="form-help">The newest are kept. Large gateway lists slow down the UniFi Console.</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Never block</label>
+                    <textarea class="form-control" rows="3" @bind="_form.Allowlist" placeholder="203.0.113.10, 198.51.100.0/24"></textarea>
+                    <small class="form-help">IP addresses and CIDR ranges, one per line or comma-separated. Trusted User and Infrastructure filters are never blocked either.</small>
+                </div>
+                @if (_multiSite)
+                {
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_form.Share" />
+                            <span>Share blocks with other sites</span>
+                        </label>
+                        <small class="form-help">This site enforces the blocks of every site that shares, and they enforce this site's. Each site's own Never block list still applies.</small>
+                    </div>
+                }
+            </div>
+
+            <div class="ab-section">
+                <h3 class="ab-section-title">Where Blocks Are Enforced</h3>
+
+                <div class="ab-target">
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_form.TargetGateway" />
+                            <span>Gateway</span>
+                        </label>
+                        <small class="form-help">An address group and a Block policy from External to every other zone in UniFi Network's zone-based firewall. Set Up creates them; they are named Network Optimizer Blocklist.</small>
+                        @if (_gatewayStatus != null)
+                        {
+                            <small class="form-help ab-status">@_gatewayStatus</small>
+                        }
+                    </div>
+                    <div class="action-buttons">
+                        @if (_gatewaySetUp)
+                        {
+                            <button class="btn btn-contrast" disabled="@_busy" @onclick="CheckGateway">Check</button>
+                            <button class="btn btn-contrast" disabled="@_busy" @onclick="RemoveGateway">Remove from UniFi Network</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpGateway">Set Up</button>
+                        }
+                    </div>
+                </div>
+
+                @if (SiteContext.IsDefault)
+                {
+                    <div class="ab-target">
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_form.TargetWaf" />
+                                <span>Web Application Firewall</span>
+                            </label>
+                            <small class="form-help">Refuses blocked sources on every route the WAF covers, including hosts behind Cloudflare's proxy, where the gateway only sees Cloudflare. Needs the WAF connected above.</small>
+                        </div>
+                    </div>
+                }
+
+                <div class="ab-target">
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_form.TargetCloudflare" />
+                            <span>Cloudflare</span>
+                        </label>
+                        <small class="form-help">Keeps an IP list named <code>@CloudflareListClient.ListName</code> in this site's Cloudflare account. A custom rule in each domain blocks it at Cloudflare's edge.</small>
+                        @if (_form.TargetCloudflare && _cf?.List != null)
+                        {
+                            <small class="form-help ab-status">List <code>@_cf.List.Name</code>: @_cf.List.NumItems blocked, used by @_cf.List.NumReferencingFilters rule(s).</small>
+                        }
+                    </div>
+                    @if (_form.TargetCloudflare)
+                    {
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Account ID</label>
+                                <input type="text" class="form-control" @bind="_cfAccount" />
+                                <small class="form-help">Account home: press Ctrl+K and search "Copy account ID".</small>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">API Token</label>
+                                <input type="password" class="form-control" @bind="_cfToken" autocomplete="new-password"
+                                       placeholder="@(_cf?.HasToken == true ? "Saved - enter new to update" : "Cloudflare API token")" data-1p-ignore data-lpignore="true" data-bwignore />
+                            </div>
+                        </div>
+                        <details class="setup-guide">
+                            <summary>Create the token</summary>
+                            <ol>
+                                <li>In the Cloudflare dashboard, go to <strong>My Profile</strong> - <strong>API Tokens</strong> (or <strong>Manage Account</strong> - <strong>API Tokens</strong> for an account-owned token) and select <strong>Create Token</strong>.</li>
+                                <li>Start a custom token instead of a template.</li>
+                                <li>Add one permission: <strong>Account</strong> - <strong>Account Filter Lists</strong> - <strong>Edit</strong>. It needs nothing else: no zone or DNS access.</li>
+                                <li>Under <strong>Account Resources</strong>, include only this site's account.</li>
+                                <li>Select <strong>Continue to summary</strong>, then <strong>Create Token</strong>, and paste it here. Cloudflare shows it only once.</li>
+                            </ol>
+                        </details>
+                        @if (_cf?.List != null)
+                        {
+                            @if (_cf.List.NumReferencingFilters == 0)
+                            {
+                                <div class="alert alert-warning">
+                                    No rule uses the list yet, so Cloudflare blocks nothing. In each domain: <strong>Security rules</strong> - <strong>Create rule</strong> - <strong>Custom rules</strong>,
+                                    select <strong>Edit expression</strong>, enter <code>@CloudflareListClient.RuleExpression</code>, choose the <strong>Block</strong> action, and <strong>Deploy</strong>.
+                                </div>
+                            }
+                        }
+                        else if (_cf?.Error != null)
+                        {
+                            <div class="alert alert-danger">@_cf.Error</div>
+                        }
+                        <div class="action-buttons">
+                            <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpCloudflare">@(_cf?.List != null ? "Update" : "Set Up")</button>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" disabled="@_busy" @onclick="Save">
+                    @if (_busy)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    <span>Save</span>
+                </button>
+            </div>
+
+            @if (_message != null)
+            {
+                <div class="alert alert-@_messageClass">@_message</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private sealed class Form
+    {
+        public BlockingMode Mode { get; set; }
+        public int WafEventThreshold { get; set; }
+        public int WindowMinutes { get; set; }
+        public bool UsePatterns { get; set; }
+        public int BanMinutes { get; set; }
+        public int MaxEntries { get; set; }
+        public string Allowlist { get; set; } = "";
+        public bool Share { get; set; }
+        public bool TargetGateway { get; set; }
+        public bool TargetWaf { get; set; }
+        public bool TargetCloudflare { get; set; }
+    }
+
+    private Form? _form;
+    private BlockingSettings? _saved;
+    private bool _multiSite;
+    private bool _busy;
+    private bool _gatewaySetUp;
+    private string? _gatewayStatus;
+    private CloudflareBlockingStatus? _cf;
+    private string _cfAccount = "";
+    private string _cfToken = "";
+    private string? _message;
+    private string _messageClass = "info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _multiSite = await SiteManagement.IsMultiSiteEnabledAsync();
+        var overview = await Blocking.GetOverviewAsync();
+        _saved = overview.Settings;
+        _form = new Form
+        {
+            Mode = _saved.Mode,
+            WafEventThreshold = _saved.WafEventThreshold,
+            WindowMinutes = _saved.WindowMinutes,
+            UsePatterns = _saved.UsePatterns,
+            BanMinutes = _saved.BanMinutes,
+            MaxEntries = _saved.MaxEntries,
+            Allowlist = _saved.Allowlist,
+            Share = _saved.Share,
+            TargetGateway = _saved.TargetGateway,
+            TargetWaf = _saved.TargetWaf,
+            TargetCloudflare = _saved.TargetCloudflare,
+        };
+        await RefreshGateway();
+        _cf = await Blocking.GetCloudflareStatusAsync();
+        _cfAccount = _cf.AccountId ?? "";
+    }
+
+    private static string ModeOption(BlockingMode mode) => mode switch
+    {
+        BlockingMode.DryRun => "Dry Run: record what would be blocked",
+        BlockingMode.Enforce => "Enforce: block on the targets below",
+        _ => "Off"
+    };
+
+    private async Task RefreshGateway()
+    {
+        var problem = await Blocking.CheckGatewayAsync();
+        _gatewaySetUp = problem != "Not set up yet.";
+        _gatewayStatus = problem == null ? "Set up in UniFi Network." : problem;
+    }
+
+    private async Task Run(Func<Task<string>> action)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            _message = await action();
+            _messageClass = "success";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or HttpRequestException
+                                   or NetworkOptimizer.UniFi.UniFiApiErrorException or NetworkOptimizer.UniFi.UniFiPermissionException
+                                   or CloudflareException)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task Save() => Run(async () =>
+    {
+        var f = _form!;
+        var settings = new BlockingSettings
+        {
+            Mode = f.Mode,
+            WafEventThreshold = f.WafEventThreshold,
+            WindowMinutes = f.WindowMinutes,
+            UsePatterns = f.UsePatterns,
+            BanMinutes = f.BanMinutes,
+            MaxEntries = f.MaxEntries,
+            Allowlist = f.Allowlist,
+            Share = f.Share,
+            TargetGateway = f.TargetGateway,
+            TargetWaf = f.TargetWaf,
+            TargetCloudflare = f.TargetCloudflare,
+        };
+        await Blocking.SaveSettingsAsync(settings);
+        _saved = settings;
+        return "Automatic Blocking saved.";
+    });
+
+    private Task TurnOnRecommended() => Run(async () =>
+    {
+        var r = await Blocking.TurnOnRecommendedAsync();
+        await OnInitializedAsync();
+        var where = new List<string>();
+        if (r.Gateway) where.Add("the gateway");
+        if (r.Waf) where.Add("the WAF");
+        var on = where.Count > 0 ? $"Blocking on {string.Join(" and ", where)}." : "Enforce is on, but there is nowhere to block yet.";
+        return r.GatewayError == null ? on : $"{on} The gateway was not set up: {r.GatewayError}";
+    });
+
+    private Task SetUpGateway() => Run(async () =>
+    {
+        var r = await Blocking.SetUpGatewayAsync();
+        await RefreshGateway();
+        return $"Gateway set up: {r.PoliciesCreated} policies created, {r.PoliciesAdopted} already there.";
+    });
+
+    private Task CheckGateway() => Run(async () =>
+    {
+        await RefreshGateway();
+        return _gatewayStatus ?? "";
+    });
+
+    private Task RemoveGateway() => Run(async () =>
+    {
+        await Blocking.RemoveGatewayAsync();
+        await RefreshGateway();
+        return "Removed Network Optimizer's policies and address groups from UniFi Network.";
+    });
+
+    private Task SetUpCloudflare() => Run(async () =>
+    {
+        var list = await Blocking.SetUpCloudflareAsync(string.IsNullOrWhiteSpace(_cfToken) ? null : _cfToken, _cfAccount);
+        _cfToken = "";
+        _cf = await Blocking.GetCloudflareStatusAsync();
+        return $"Cloudflare list {list.Name} is ready.";
+    });
+}

@@ -48,7 +48,11 @@ public static class BlockingSettingKeys
 /// <summary>Automatic Blocking configuration, with the defaults used when a key is unset.</summary>
 public sealed record BlockingSettings
 {
-    public BlockingMode Mode { get; init; } = BlockingMode.Off;
+    /// <summary>
+    /// Dry Run until someone turns on Enforce: it writes nothing to any console or edge, so every
+    /// site can start it on upgrade, and the first Enforce is always a deliberate click.
+    /// </summary>
+    public BlockingMode Mode { get; init; } = BlockingMode.DryRun;
 
     /// <summary>WAF events from one source within <see cref="WindowMinutes"/> that trigger a block.</summary>
     public int WafEventThreshold { get; init; } = 5;
@@ -66,8 +70,8 @@ public sealed record BlockingSettings
 
     public string Allowlist { get; init; } = "";
 
-    /// <summary>Share blocks with the other sites that share (see <see cref="IBlockSharingScope"/>).</summary>
-    public bool Share { get; init; }
+    /// <summary>Share blocks with the other sites that share (see <see cref="IBlockSharingScope"/>). On unless a site opts out.</summary>
+    public bool Share { get; init; } = true;
 
     public bool TargetGateway { get; init; }
     public bool TargetWaf { get; init; }
@@ -79,9 +83,23 @@ public sealed record BlockingSettings
     public const int MaxBanMinutes = 10080;
     public const int MaxMaxEntries = 10000;
 
-    /// <summary>Reads a site's settings (null = default site), falling back to defaults.</summary>
-    public static Task<BlockingSettings> LoadAsync(Func<string, Task<string?>> getRaw, string? site) =>
-        LoadAsync(k => getRaw(BlockingSettingKeys.ForSite(k, site)));
+    /// <summary>
+    /// Reads a site's settings (null = default site), falling back to defaults. The WAF target
+    /// follows the WAF connection until someone sets it: connecting a WAF turns its ban list on.
+    /// </summary>
+    public static async Task<BlockingSettings> LoadAsync(Func<string, Task<string?>> getRaw, string? site)
+    {
+        var settings = await LoadAsync(k => getRaw(BlockingSettingKeys.ForSite(k, site)));
+        if (site == null && await getRaw(BlockingSettingKeys.TargetWaf) == null)
+            settings = settings with { TargetWaf = await WafConnectedAsync(getRaw) };
+        return settings;
+    }
+
+    /// <summary>Whether the default site reads a WAF (enabled, with a URL and a token).</summary>
+    public static async Task<bool> WafConnectedAsync(Func<string, Task<string?>> getRaw) =>
+        string.Equals(await getRaw(Waf.WafSettingKeys.Enabled), "true", StringComparison.OrdinalIgnoreCase)
+        && !string.IsNullOrWhiteSpace(await getRaw(Waf.WafSettingKeys.Url))
+        && !string.IsNullOrWhiteSpace(await getRaw(Waf.WafSettingKeys.Token));
 
     /// <summary>Reads the settings, falling back to defaults for unset or unreadable values.</summary>
     public static async Task<BlockingSettings> LoadAsync(Func<string, Task<string?>> get)
@@ -96,7 +114,7 @@ public sealed record BlockingSettings
             BanMinutes = Int(await get(BlockingSettingKeys.BanMinutes), d.BanMinutes, 1, MaxBanMinutes),
             MaxEntries = Int(await get(BlockingSettingKeys.MaxEntries), d.MaxEntries, 1, MaxMaxEntries),
             Allowlist = await get(BlockingSettingKeys.Allowlist) ?? "",
-            Share = Bool(await get(BlockingSettingKeys.Share), false),
+            Share = Bool(await get(BlockingSettingKeys.Share), d.Share),
             TargetGateway = Bool(await get(BlockingSettingKeys.TargetGateway), false),
             TargetWaf = Bool(await get(BlockingSettingKeys.TargetWaf), false),
             TargetCloudflare = Bool(await get(BlockingSettingKeys.TargetCloudflare), false),

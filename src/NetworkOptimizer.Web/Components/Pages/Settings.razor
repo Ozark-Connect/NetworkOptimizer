@@ -3290,6 +3290,8 @@
     </div>
     }
 
+    <AutomaticBlockingCard />
+
     @if (SiteContext.IsDefault)
     {
     <!-- 12. UI / Display Settings -->
@@ -9171,7 +9173,11 @@
                 wafToken = "";
             }
             ThreatCollection.TriggerCollection();
-            wafMessage = "WAF settings saved.";
+            // The WAF ban list follows the connection unless Automatic Blocking set it explicitly.
+            var wafTargetSet = await SystemSettings.GetGlobalAsync(NetworkOptimizer.Threats.Blocking.BlockingSettingKeys.TargetWaf) != null;
+            wafMessage = wafEnabled && !wafTargetSet
+                ? "WAF settings saved. When Automatic Blocking is enforcing, the WAF also refuses the sources it blocks."
+                : "WAF settings saved.";
             wafMessageClass = "success";
         }
         catch (Exception ex)
