@@ -147,7 +147,10 @@
                         <small class="form-help">A Network List and a Block policy from External to every other zone in UniFi Network's zone-based firewall. Set Up creates them; they are named <strong>@GatewayBlocklist.PolicyName</strong>.</small>
                         @if (_gatewayStatus != null)
                         {
-                            <small class="form-help ab-status">@_gatewayStatus</small>
+                            <small class="form-help ab-status @(_gatewayOk ? "is-ok" : _gatewaySetUp ? "is-warning" : "")">@if (_gatewayOk)
+                            {
+                                <span class="status-dot online"></span>
+                            }@_gatewayStatus</small>
                         }
                     </div>
                     <div class="action-buttons">
@@ -182,7 +185,7 @@
                         <small class="form-help">Keeps an IP list named <code>@CloudflareListClient.ListName</code> in this site's Cloudflare account. A custom rule in each domain blocks it at Cloudflare's edge.</small>
                         @if (_form.TargetCloudflare && _cf?.List != null)
                         {
-                            <small class="form-help ab-status">List <code>@_cf.List.Name</code>: @_cf.List.NumItems blocked, used by @_cf.List.NumReferencingFilters rule(s).</small>
+                            <small class="form-help ab-status is-ok"><span class="status-dot online"></span>List <code>@_cf.List.Name</code>: @_cf.List.NumItems blocked, used by @_cf.List.NumReferencingFilters rule(s).</small>
                         }
                     </div>
                     @if (_form.TargetCloudflare)
@@ -270,6 +273,7 @@
     private bool _busy;
     private bool _gatewaySetUp;
     private string? _gatewayStatus;
+    private bool _gatewayOk;
     private CloudflareBlockingStatus? _cf;
     private IReadOnlyList<PublicListView> _lists = [];
     private bool _setupHidden;
@@ -328,6 +332,7 @@
     {
         var problem = await Blocking.CheckGatewayAsync();
         _gatewaySetUp = problem != "Not set up yet.";
+        _gatewayOk = problem == null;
         _gatewayStatus = problem == null ? "Set up in UniFi Network." : problem;
     }
 
