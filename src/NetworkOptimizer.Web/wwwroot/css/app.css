@@ -7374,6 +7374,11 @@ a.path-hop.hop-clickable:hover {
     margin: 0 0 0.5rem;
 }
 
+/* The form row above already ends in a 1.5rem margin; the guide sits on it and keeps one below. */
+.automatic-blocking .setup-guide {
+    margin: 0 0 1.5rem;
+}
+
 .automatic-blocking .ab-list {
     margin-bottom: 1rem;
 }
