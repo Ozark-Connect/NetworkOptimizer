@@ -1709,6 +1709,24 @@ public class UniFiApiClient : IDisposable
                ?? throw new InvalidOperationException("The UniFi Console did not return the new firewall policy.");
     }
 
+    /// <summary>
+    /// PUT v2/api/site/{site}/firewall-policies/batch-reorder: sets the order of the custom policies
+    /// in one zone pair, those that run before UniFi's predefined ones and those after.
+    /// </summary>
+    public async Task ReorderFirewallPoliciesAsync(string sourceZoneId, string destinationZoneId,
+        IReadOnlyList<string> beforePredefinedIds, IReadOnlyList<string> afterPredefinedIds,
+        CancellationToken cancellationToken = default)
+    {
+        var body = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["source_zone_id"] = sourceZoneId,
+            ["destination_zone_id"] = destinationZoneId,
+            ["before_predefined_ids"] = beforePredefinedIds,
+            ["after_predefined_ids"] = afterPredefinedIds,
+        });
+        await ExecuteV2Async(HttpMethod.Put, "firewall-policies/batch-reorder", body, cancellationToken);
+    }
+
     /// <summary>DELETE v2/api/site/{site}/firewall-policies/{id} (HTTP 204). A missing policy counts as deleted.</summary>
     public async Task DeleteFirewallPolicyAsync(string policyId, CancellationToken cancellationToken = default)
     {

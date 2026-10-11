@@ -117,9 +117,39 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         }
         state.Policies = refs;
         await SaveStateAsync(site, state, ct);
+
+        // New custom policies land after the ones already there, so a user ALLOW from External
+        // would run first. Move ours to the front of each zone pair once; later ones land after.
+        var current = await client.GetFirewallPoliciesAsync(ct);
+        foreach (var pair in refs.GroupBy(r => r.ZoneId))
+        {
+            var (before, after) = OrderWithOursFirst(current, external.Id, pair.Key, pair.Select(r => r.Id).ToHashSet());
+            if (before.Count > 0)
+                await client.ReorderFirewallPoliciesAsync(external.Id, pair.Key, before, after, ct);
+        }
         _logger.LogInformation("Gateway blocking set up: {Created} policies created, {Adopted} adopted, {Groups} groups created",
             created, adopted, groupsCreated);
         return new GatewaySetUpResult(created, adopted, groupsCreated);
+    }
+
+    /// <summary>
+    /// The batch-reorder lists for one zone pair: custom policies that run before UniFi's predefined
+    /// ones with ours first and the rest in their current order, and those that run after, untouched.
+    /// Port-forward policies (custom, index 30000-39999) are UniFi's to place and are left out.
+    /// </summary>
+    public static (List<string> Before, List<string> After) OrderWithOursFirst(
+        IEnumerable<UniFiFirewallPolicy> policies, string sourceZoneId, string destinationZoneId, IReadOnlySet<string> ours)
+    {
+        var custom = policies
+            .Where(p => !p.Predefined && p.Source.ZoneId == sourceZoneId && p.Destination.ZoneId == destinationZoneId
+                        && (p.Index < 30000 || p.Index >= 40000))
+            .OrderBy(p => p.Index)
+            .ToList();
+        var before = custom.Where(p => p.Index < 30000).ToList();
+        var after = custom.Where(p => p.Index >= 40000).Select(p => p.Id).ToList();
+        var ordered = before.Where(p => ours.Contains(p.Id)).Concat(before.Where(p => !ours.Contains(p.Id)))
+            .Select(p => p.Id).ToList();
+        return (ordered, after);
     }
 
     /// <summary>
