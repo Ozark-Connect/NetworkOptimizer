@@ -601,12 +601,16 @@ builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAc
 // Automatic Blocking: the loop is a singleton the admin service triggers. The gateway writer and the
 // sharing scope are scoped because they read settings through the scoped accessor. A multi-tenant
 // host narrows sharing by decorating IBlockSharingScope.
+// A site's WAF is read and given its ban list through the site's agent when the site is routed that way.
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.ISiteHttpClientProvider, NetworkOptimizer.Web.Services.SiteHttpClientProvider>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>();
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IGatewayBlocklistWriter>(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockSharingScope, NetworkOptimizer.Threats.Blocking.InstanceBlockSharingScope>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IWafConnectionAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WafConnectionAdminService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingSiteAdmin>(

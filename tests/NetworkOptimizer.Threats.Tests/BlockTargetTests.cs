@@ -52,7 +52,7 @@ public class BlockTargetTests
         var settings = new FakeSettings();
         settings.Values[WafSettingKeys.Url] = "http://127.0.0.1:8044/";
         settings.Values[WafSettingKeys.Token] = "secret";
-        var target = new WafBlockTarget(new WafClient(new HttpClient(handler)), settings);
+        var target = new WafBlockTarget(new WafClient(new HttpClient(handler)), settings, null);
 
         var result = await target.SyncAsync([Block("203.0.113.7"), Block("2001:db8::7", 120)], CancellationToken.None);
 
@@ -76,7 +76,7 @@ public class BlockTargetTests
         settings.Values[WafSettingKeys.Url] = "http://127.0.0.1:8044";
         settings.Values[WafSettingKeys.Token] = "secret";
 
-        var result = await new WafBlockTarget(new WafClient(new HttpClient(handler)), settings).SyncAsync([Block("203.0.113.7")], CancellationToken.None);
+        var result = await new WafBlockTarget(new WafClient(new HttpClient(handler)), settings, null).SyncAsync([Block("203.0.113.7")], CancellationToken.None);
 
         result.Ok.Should().BeFalse();
         result.Error.Should().Contain("Update NetworkOptimizer-Proxy");
@@ -86,12 +86,28 @@ public class BlockTargetTests
     public async Task Waf_NotConnected_FailsWithoutCalling()
     {
         var handler = new ScriptedHandler((_, _) => throw new InvalidOperationException("must not be called"));
-        var result = await new WafBlockTarget(new WafClient(new HttpClient(handler)), new FakeSettings()).SyncAsync([], CancellationToken.None);
+        var result = await new WafBlockTarget(new WafClient(new HttpClient(handler)), new FakeSettings(), null).SyncAsync([], CancellationToken.None);
 
         result.Ok.Should().BeFalse();
         handler.Requests.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Waf_ASite_UsesItsOwnConnection()
+    {
+        var handler = new ScriptedHandler((_, _) => ScriptedHandler.Json(HttpStatusCode.OK, """{"count":1,"bans":[]}"""));
+        var settings = new FakeSettings();
+        settings.Values[WafSettingKeys.Url] = "http://default-site:8044";
+        settings.Values[WafSettingKeys.Token] = "default";
+        settings.Values[WafSettingKeys.ForSite(WafSettingKeys.Url, "site-b")] = "http://127.0.0.1:8044";
+        settings.Values[WafSettingKeys.ForSite(WafSettingKeys.Token, "site-b")] = "site-b-token";
+
+        var result = await new WafBlockTarget(new WafClient(new HttpClient(handler)), settings, "site-b")
+            .SyncAsync([Block("203.0.113.7")], CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        handler.Requests.Single().Url.Should().Be("http://127.0.0.1:8044/api/bans");
+    }
     private const string ListsWithOurs = """{"success":true,"errors":[],"result":[{"id":"other","name":"office","kind":"ip"},{"id":"L1","name":"netopt_blocklist","kind":"ip","num_items":3,"num_referencing_filters":1}]}""";
 
     [Fact]

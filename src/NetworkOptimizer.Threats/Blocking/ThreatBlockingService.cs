@@ -272,7 +272,7 @@ public sealed class ThreatBlockingService : BackgroundService
         {
             var key = (Key(site), kind);
             var known = _sent.TryGetValue(key, out var last);
-            var target = CreateTarget(kind, site, services, settingsAccessor);
+            var target = await CreateTargetAsync(kind, site, services, settingsAccessor, ct);
 
             if (!enabled.Contains(kind))
             {
@@ -309,19 +309,21 @@ public sealed class ThreatBlockingService : BackgroundService
         }
     }
 
-    // The WAF sits beside the default site's proxy, so only the default site can use it.
+    /// <summary>The targets a site's settings turn on.</summary>
     public static List<BlockTargetKind> EnabledTargets(BlockingSettings s, string? site)
     {
         var list = new List<BlockTargetKind>();
         if (s.TargetGateway) list.Add(BlockTargetKind.Gateway);
-        if (s.TargetWaf && site == null) list.Add(BlockTargetKind.Waf);
+        if (s.TargetWaf) list.Add(BlockTargetKind.Waf);
         if (s.TargetCloudflare) list.Add(BlockTargetKind.Cloudflare);
         return list;
     }
 
-    private IBlockTarget? CreateTarget(BlockTargetKind kind, string? site, IServiceProvider services, IThreatSettingsAccessor settings) => kind switch
+    private async Task<IBlockTarget?> CreateTargetAsync(BlockTargetKind kind, string? site, IServiceProvider services,
+        IThreatSettingsAccessor settings, CancellationToken ct) => kind switch
     {
-        BlockTargetKind.Waf => site == null ? new WafBlockTarget(new WafClient(_httpClientFactory.CreateClient("Waf")), settings) : null,
+        BlockTargetKind.Waf => new WafBlockTarget(new WafClient(services.GetService<ISiteHttpClientProvider>() is { } http
+            ? await http.GetClientAsync(site, ct) : _httpClientFactory.CreateClient("Waf")), settings, site),
         BlockTargetKind.Cloudflare => new CloudflareBlockTarget(new CloudflareListClient(_httpClientFactory.CreateClient("Cloudflare")), settings, site),
         BlockTargetKind.Gateway => services.GetService<IGatewayBlocklistWriter>() is { } writer ? new GatewayBlockTarget(writer, site) : null,
         _ => null

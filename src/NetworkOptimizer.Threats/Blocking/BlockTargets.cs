@@ -37,18 +37,18 @@ public interface IBlockTarget
 }
 
 /// <summary>
-/// netopt-waf's ban list. Covers Cloudflare-proxied hosts, which a gateway block cannot. The WAF sits
-/// beside the default site's proxy, so only the default site uses this target.
+/// A site's netopt-waf ban list. Covers Cloudflare-proxied hosts, which a gateway block cannot. The
+/// client reaches the site's WAF directly or through its agent (<see cref="ISiteHttpClientProvider"/>).
 /// </summary>
-public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor settings) : IBlockTarget
+public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor settings, string? site) : IBlockTarget
 {
     public BlockTargetKind Kind => BlockTargetKind.Waf;
     public bool SyncEveryCycle => true;
 
     public async Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken)
     {
-        var url = await settings.GetSettingAsync(WafSettingKeys.Url, cancellationToken);
-        var token = await settings.GetDecryptedSettingAsync(WafSettingKeys.Token, cancellationToken);
+        var url = await settings.GetSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Url, site), cancellationToken);
+        var token = await settings.GetDecryptedSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Token, site), cancellationToken);
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(token))
             return BlockTargetResult.Failure("Connect the WAF in Settings - Security & Alerts - Web Application Firewall first.");
         try

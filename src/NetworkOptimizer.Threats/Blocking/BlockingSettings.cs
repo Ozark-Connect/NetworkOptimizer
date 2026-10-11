@@ -90,16 +90,16 @@ public sealed record BlockingSettings
     public static async Task<BlockingSettings> LoadAsync(Func<string, Task<string?>> getRaw, string? site)
     {
         var settings = await LoadAsync(k => getRaw(BlockingSettingKeys.ForSite(k, site)));
-        if (site == null && await getRaw(BlockingSettingKeys.TargetWaf) == null)
-            settings = settings with { TargetWaf = await WafConnectedAsync(getRaw) };
+        if (await getRaw(BlockingSettingKeys.ForSite(BlockingSettingKeys.TargetWaf, site)) == null)
+            settings = settings with { TargetWaf = await WafConnectedAsync(getRaw, site) };
         return settings;
     }
 
-    /// <summary>Whether the default site reads a WAF (enabled, with a URL and a token).</summary>
-    public static async Task<bool> WafConnectedAsync(Func<string, Task<string?>> getRaw) =>
-        string.Equals(await getRaw(Waf.WafSettingKeys.Enabled), "true", StringComparison.OrdinalIgnoreCase)
-        && !string.IsNullOrWhiteSpace(await getRaw(Waf.WafSettingKeys.Url))
-        && !string.IsNullOrWhiteSpace(await getRaw(Waf.WafSettingKeys.Token));
+    /// <summary>Whether a site reads a WAF (enabled, with a URL and a token). Null site = default.</summary>
+    public static async Task<bool> WafConnectedAsync(Func<string, Task<string?>> getRaw, string? site) =>
+        string.Equals(await getRaw(Waf.WafSettingKeys.ForSite(Waf.WafSettingKeys.Enabled, site)), "true", StringComparison.OrdinalIgnoreCase)
+        && !string.IsNullOrWhiteSpace(await getRaw(Waf.WafSettingKeys.ForSite(Waf.WafSettingKeys.Url, site)))
+        && !string.IsNullOrWhiteSpace(await getRaw(Waf.WafSettingKeys.ForSite(Waf.WafSettingKeys.Token, site)));
 
     /// <summary>Reads the settings, falling back to defaults for unset or unreadable values.</summary>
     public static async Task<BlockingSettings> LoadAsync(Func<string, Task<string?>> get)
