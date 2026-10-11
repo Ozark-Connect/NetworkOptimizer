@@ -644,6 +644,30 @@ Everything rides that one TLS session: heartbeats, probe and SNMP traffic
 (including SNMP credentials pushed to the agent), and proxied UniFi Console
 connections - which are additionally HTTPS end-to-end inside the tunnel.
 
+### Behind Cloudflare's proxy
+
+Proxying the central server's hostname through Cloudflare (its DNS record's
+**Proxy status** set to **Proxied**) is a good fit for agents: they reach the server through Cloudflare's
+edge from anywhere, so the server's port forward only has to admit Cloudflare's
+ranges rather than every site's address. The tunnel is gRPC, which Cloudflare
+proxies only when you turn it on:
+
+- **Turn on gRPC** - in the Cloudflare dashboard, open the domain, go to
+  **Network**, and set **gRPC** to **On**. It is available on every plan,
+  Free included. With it off, Cloudflare answers the tunnel with
+  **403 Forbidden** and the agent never connects.
+- **SSL/TLS mode Full or Full (strict)** - not Flexible.
+- **The origin** must serve the hostname on port 443 with TLS and HTTP/2
+  advertised over ALPN. NetworkOptimizer-Proxy (Traefik) already does.
+- **Use a Proxied DNS record, not a Cloudflare Tunnel** - Cloudflare Tunnel
+  public hostnames do not support gRPC.
+- **Keep Cloudflare Access off the tunnel path** - Access does not support gRPC
+  through Cloudflare's proxy.
+
+Source: Cloudflare's
+[gRPC connections](https://developers.cloudflare.com/network/grpc-connections/)
+documentation.
+
 ### After the proxy is up: the agent's server URL
 
 The install command in **Settings > Multi-Site > (site) > Configuration** carries the
