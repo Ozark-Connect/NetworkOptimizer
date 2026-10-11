@@ -7390,6 +7390,34 @@ a.path-hop.hop-clickable:hover {
     padding-top: 1.25rem;
 }
 
+/* Threat Intelligence - Web Application Firewall: the Mode card's facts, label column then value */
+.waf-mode-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.5rem 1.5rem;
+    margin: 0 0 1rem;
+    font-size: 0.95rem;
+}
+
+.waf-mode-facts dt {
+    color: var(--text-secondary);
+}
+
+.waf-mode-facts dd {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.waf-mode-note {
+    margin-left: 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.waf-mode-next {
+    margin: 0 0 1rem;
+    color: var(--text-secondary);
+}
 .automatic-blocking .ab-list {
     margin-bottom: 1rem;
 }

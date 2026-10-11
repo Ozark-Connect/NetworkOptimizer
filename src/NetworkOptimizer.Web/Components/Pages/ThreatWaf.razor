@@ -97,45 +97,49 @@
                 <span class="status-badge @(_status.Mode == "block" ? "status-active" : "")">@(_status.Mode == "block" ? "Blocking" : "Detection Only")</span>
             </div>
             <div class="card-body">
-                @if (_status.Mode != "block")
+                @if (_status.Mode != "block" && DetectDays >= 7)
                 {
-                    @if (DetectDays >= 7)
-                    {
-                        <div class="alert alert-info">
-                            <div class="banner-content">
-                                <div class="banner-text">
-                                    <span><strong>@DetectDays days in Detection Only.</strong> In the last 7 days it flagged @(_week?.Detected ?? 0) requests.
-                                        Review them on Events and add exclusions for anything legitimate, then switch to Block.</span>
+                    <div class="alert alert-info">
+                        <div class="banner-content">
+                            <div class="banner-text">
+                                <span><strong>@DetectDays days in Detection Only.</strong> In the last 7 days it flagged @(_week?.Detected ?? 0) requests.
+                                    Review them on Events and add exclusions for anything legitimate, then switch to Block.</span>
+                            </div>
+                            <SiteAdminOnly>
+                                <div class="banner-actions">
+                                    <button class="btn btn-sm btn-primary" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
                                 </div>
-                                <SiteAdminOnly>
-                                    <div class="banner-actions">
-                                        <button class="btn btn-sm btn-primary" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
-                                    </div>
-                                </SiteAdminOnly>
-                            </div>
+                            </SiteAdminOnly>
                         </div>
-                    }
-                    else
-                    {
-                        <p class="form-help">Detection Only@(SinceText): attacks are logged and let through. Run it for a week, review Events, then switch to Block.</p>
-                        <SiteAdminOnly>
-                            <div class="action-buttons">
-                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
-                            </div>
-                        </SiteAdminOnly>
-                    }
+                    </div>
                 }
-                else
+                <dl class="waf-mode-facts">
+                    <dt>Mode</dt>
+                    <dd>@(_status.Mode == "block" ? "Blocking" : "Detection Only")@(SinceText)</dd>
+                    <dt>Effect</dt>
+                    <dd>@(_status.Mode == "block" ? "Requests that cross the CRS anomaly threshold get a 403." : "Attacks are logged and let through.")</dd>
+                    <dt>Paranoia level</dt>
+                    <dd>@_status.Paranoia <span class="waf-mode-note">set in the proxy's .env as <code>WAF_PARANOIA</code></span></dd>
+                </dl>
+                @if (_status.Mode != "block" && DetectDays < 7)
                 {
-                    <p class="form-help">Blocking@(SinceText): a request that crosses the CRS anomaly threshold gets a 403.</p>
+                    <p class="waf-mode-next">Run it for a week, review <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>, then switch to Block.</p>
+                }
+                @if (_status.Mode == "block" || DetectDays < 7)
+                {
                     <SiteAdminOnly>
                         <div class="action-buttons">
-                            <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("detect")'>Switch to Detection Only</button>
+                            @if (_status.Mode == "block")
+                            {
+                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("detect")'>Switch to Detection Only</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
+                            }
                         </div>
                     </SiteAdminOnly>
-                }
-                <p class="form-help">Paranoia Level @_status.Paranoia, set in the proxy's .env (WAF_PARANOIA).</p>
-                @if (_modeMessage != null)
+                }                @if (_modeMessage != null)
                 {
                     <div class="alert alert-@_modeMessageClass">@_modeMessage</div>
                 }
@@ -271,7 +275,7 @@ else if (_tab == "setup")
     private int DetectDays => _status?.ModeSince is { } since ? (int)(DateTimeOffset.UtcNow - since).TotalDays : 0;
 
     private string SinceText => _status?.ModeSince is { } since
-        ? $" since {TimeFormatHelper.FormatRelativeTime(since.UtcDateTime)}"
+        ? $" for {TimeFormatHelper.FormatDurationCompact(DateTimeOffset.UtcNow - since)}"
         : "";
 
     private async Task SetMode(string mode)
@@ -282,8 +286,10 @@ else if (_tab == "setup")
         {
             var state = await WafAdmin.SetModeAsync(mode);
             _status = _status! with { Mode = state.Mode, ModeSince = state.Since };
-            _modeMessage = (state.Mode == "block" ? "Blocking." : "Detection Only.")
-                + (state.Persisted ? "" : " This WAF has no state directory, so it returns to WAF_MODE when it restarts.");
+            _modeMessage = (state.Mode == "block"
+                ? "Switched to Block. Requests that cross the CRS anomaly threshold now get a 403. If a legitimate app breaks, add an exclusion from Events or switch back here."
+                : "Switched to Detection Only. CRS rule matches are now logged and let through. Bans and the trusted list still refuse what they did before.")
+                + (state.Persisted ? "" : " This WAF has no state directory, so a restart returns it to the mode in its WAF_MODE setting. Update NetworkOptimizer-Proxy to keep the switch.");
             _modeMessageClass = state.Persisted ? "success" : "warning";
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
