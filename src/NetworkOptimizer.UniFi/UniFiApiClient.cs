@@ -1637,6 +1637,148 @@ public class UniFiApiClient : IDisposable
         return new List<UniFiFirewallGroup>();
     }
 
+    private const string FirewallPermissionMessage =
+        "The UniFi account lacks permission to change firewall settings. In UniFi Network, give this " +
+        "account Network: Full (Site Admin in older versions), then try again.";
+
+    /// <summary>
+    /// POST rest/firewallgroup (create) or PUT rest/firewallgroup/{id} (replace) - writes an
+    /// address group. Returns the stored group. Throws <see cref="UniFiPermissionException"/> or
+    /// <see cref="UniFiApiErrorException"/> (e.g. api.err.FirewallGroupInvalidArgs for a member of
+    /// the wrong IP family) instead of returning null.
+    /// </summary>
+    public async Task<UniFiFirewallGroup> SaveFirewallGroupAsync(UniFiFirewallGroupWrite group,
+        CancellationToken cancellationToken = default)
+    {
+        var path = group.Id == null ? "rest/firewallgroup" : $"rest/firewallgroup/{group.Id}";
+        _logger.LogDebug("Saving firewall group {Name} ({Count} members)", group.Name, group.GroupMembers.Count);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(group), Encoding.UTF8, "application/json");
+                return group.Id == null
+                    ? _httpClient!.PostAsync(BuildApiPath(path), content, cancellationToken)
+                    : _httpClient!.PutAsync(BuildApiPath(path), content, cancellationToken);
+            },
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: FirewallPermissionMessage,
+            throwOnApiError: true);
+
+        if (response?.Meta.Rc == "ok" && response.Data.Count > 0)
+            return response.Data[0];
+        throw new InvalidOperationException("The UniFi Console did not confirm the firewall group change.");
+    }
+
+    /// <summary>
+    /// DELETE rest/firewallgroup/{id}. A group that is already gone (api.err.IdInvalid) counts as deleted.
+    /// </summary>
+    public async Task DeleteFirewallGroupAsync(string groupId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+                () => _httpClient!.DeleteAsync(BuildApiPath($"rest/firewallgroup/{groupId}"), cancellationToken),
+                cancellationToken,
+                throwOnPermissionError: true,
+                permissionErrorMessage: FirewallPermissionMessage,
+                throwOnApiError: true);
+            if (response?.Meta.Rc != "ok")
+                throw new InvalidOperationException("The UniFi Console did not confirm deleting the firewall group.");
+        }
+        catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
+        {
+            _logger.LogDebug("Firewall group {Id} was already gone", groupId);
+        }
+    }
+
+    /// <summary>GET v2/api/site/{site}/firewall-policies, typed. Throws when the console does not answer.</summary>
+    public async Task<List<UniFiFirewallPolicy>> GetFirewallPoliciesAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await ExecuteV2Async(HttpMethod.Get, "firewall-policies", null, cancellationToken);
+        return JsonSerializer.Deserialize<List<UniFiFirewallPolicy>>(body) ?? [];
+    }
+
+    /// <summary>POST v2/api/site/{site}/firewall-policies. Returns the stored policy (HTTP 201).</summary>
+    public async Task<UniFiFirewallPolicy> CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite policy,
+        CancellationToken cancellationToken = default)
+    {
+        var body = await ExecuteV2Async(HttpMethod.Post, "firewall-policies", JsonSerializer.Serialize(policy), cancellationToken);
+        return JsonSerializer.Deserialize<UniFiFirewallPolicy>(body)
+               ?? throw new InvalidOperationException("The UniFi Console did not return the new firewall policy.");
+    }
+
+    /// <summary>DELETE v2/api/site/{site}/firewall-policies/{id} (HTTP 204). A missing policy counts as deleted.</summary>
+    public async Task DeleteFirewallPolicyAsync(string policyId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ExecuteV2Async(HttpMethod.Delete, $"firewall-policies/{policyId}", null, cancellationToken);
+        }
+        catch (UniFiApiErrorException ex) when (ex.StatusCode == 404 || ex.Code.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
+                                               || ex.Code.Contains("IdInvalid", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Firewall policy {Id} was already gone", policyId);
+        }
+    }
+
+    // A v2 write or strict read: errors throw (permission, api.err code, or HTTP status) instead of
+    // returning null, because a silent failure here leaves the firewall in an unknown state.
+    private async Task<string> ExecuteV2Async(HttpMethod method, string endpoint, string? json,
+        CancellationToken cancellationToken)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+            throw new InvalidOperationException("Could not sign in to the UniFi Console.");
+
+        HttpRequestMessage Build() => new(method, BuildV2ApiPath($"site/{_site}/{endpoint}"))
+        {
+            Content = json == null ? null : new StringContent(json, Encoding.UTF8, "application/json")
+        };
+
+        var result = await ExecuteRequestAsync(async () =>
+        {
+            using var request = Build();
+            var response = await _httpClient!.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Forbidden && body.Contains("NoPermission", StringComparison.OrdinalIgnoreCase))
+                throw new UniFiPermissionException(FirewallPermissionMessage);
+            if (IsRecoverableAuthFailure(response.StatusCode) && await LoginAsync(cancellationToken))
+            {
+                using var retry = Build();
+                response = await _httpClient!.SendAsync(retry, cancellationToken);
+                body = await response.Content.ReadAsStringAsync(cancellationToken);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("UniFi v2 {Method} {Endpoint} failed with {Status}: {Body}", method, endpoint, (int)response.StatusCode, body);
+                throw new UniFiApiErrorException(TryReadV2ErrorCode(body) ?? $"HTTP {(int)response.StatusCode}", (int)response.StatusCode);
+            }
+            return body;
+        });
+        return result ?? throw new InvalidOperationException("The UniFi Console is not answering.");
+    }
+
+    // v2 errors carry the code at the top level; older shapes nest it under meta like v1.
+    private static string? TryReadV2ErrorCode(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            foreach (var name in new[] { "code", "errorCode", "message" })
+            {
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String)
+                    return v.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON: fall back to the status code.
+        }
+        return TryReadApiErrorCode(body);
+    }
+
     /// <summary>
     /// GET stat/portforward - Get all port forwarding rules (UPnP and static)
     /// Returns both dynamic UPnP mappings and configured static port forwards

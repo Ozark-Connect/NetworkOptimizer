@@ -136,6 +136,16 @@ public static class AuditActions
     public const string AlertRuleChanged = "alert_rule.changed";
     public const string MonitoringSetupChanged = "monitoring_setup.changed";
 
+    // Threat Intelligence - Automatic Blocking
+    /// <summary>A source was blocked on the gateway, WAF, or Cloudflare. Usually the system actor.</summary>
+    public const string ThreatSourceBlocked = "threat_block.added";
+    /// <summary>A block ended: released by a user, or expired (system actor).</summary>
+    public const string ThreatSourceUnblocked = "threat_block.released";
+    /// <summary>A blocking target was set up (console objects or a Cloudflare list created).</summary>
+    public const string ThreatBlockingTargetSetUp = "threat_block.target.set_up";
+    /// <summary>A blocking target's console objects were removed.</summary>
+    public const string ThreatBlockingTargetRemoved = "threat_block.target.removed";
+
     // Device health checks
     public const string HealthCheckChanged = "health_check.changed";
     public const string HealthCheckTested = "health_check.tested";

@@ -1,0 +1,84 @@
+using NetworkOptimizer.Threats.Interfaces;
+using NetworkOptimizer.Threats.Models;
+using NetworkOptimizer.Threats.Waf;
+
+namespace NetworkOptimizer.Threats.Blocking;
+
+/// <summary>Where Automatic Blocking enforces its decisions.</summary>
+public enum BlockTargetKind
+{
+    Gateway = 0,
+    Waf = 1,
+    Cloudflare = 2
+}
+
+/// <summary>The outcome of one sync to a target.</summary>
+public sealed record BlockTargetResult(bool Ok, int Count, string? Error)
+{
+    public static BlockTargetResult Success(int count) => new(true, count, null);
+    public static BlockTargetResult Failure(string error) => new(false, 0, error);
+}
+
+/// <summary>
+/// A place a block list is enforced. Each sync sends the full desired set, so a missed or failed
+/// sync heals on the next one.
+/// </summary>
+public interface IBlockTarget
+{
+    BlockTargetKind Kind { get; }
+
+    /// <summary>
+    /// True when the target keeps its list in memory and must be re-sent every cycle (the WAF
+    /// loses its list on restart). Others are only sent when the set changes, or hourly.
+    /// </summary>
+    bool SyncEveryCycle { get; }
+
+    Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// netopt-waf's ban list. Covers Cloudflare-proxied hosts, which a gateway block cannot. The WAF sits
+/// beside the default site's proxy, so only the default site uses this target.
+/// </summary>
+public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor settings) : IBlockTarget
+{
+    public BlockTargetKind Kind => BlockTargetKind.Waf;
+    public bool SyncEveryCycle => true;
+
+    public async Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken)
+    {
+        var url = await settings.GetSettingAsync(WafSettingKeys.Url, cancellationToken);
+        var token = await settings.GetDecryptedSettingAsync(WafSettingKeys.Token, cancellationToken);
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(token))
+            return BlockTargetResult.Failure("Connect the WAF in Settings - Security & Alerts - Web Application Firewall first.");
+        try
+        {
+            var bans = desired.Select(b => new WafBan(b.SourceIp, new DateTimeOffset(DateTime.SpecifyKind(b.ExpiresAt, DateTimeKind.Utc)))).ToList();
+            return BlockTargetResult.Success(await client.PutBansAsync(url, token, bans, cancellationToken));
+        }
+        catch (WafClientException ex)
+        {
+            return BlockTargetResult.Failure(ex.Message);
+        }
+    }
+}
+
+/// <summary>
+/// Gateway enforcement through a site's UniFi console: an address group (one per IP version) that
+/// zone-based Block policies reference.
+/// </summary>
+public interface IGatewayBlocklistWriter
+{
+    /// <summary>Replaces the site's group members with <paramref name="ips"/> (null site = default).</summary>
+    Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken cancellationToken);
+}
+
+/// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>
+public sealed class GatewayBlockTarget(IGatewayBlocklistWriter writer, string? site) : IBlockTarget
+{
+    public BlockTargetKind Kind => BlockTargetKind.Gateway;
+    public bool SyncEveryCycle => false;
+
+    public Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken) =>
+        writer.SyncMembersAsync(site, desired.Select(b => b.SourceIp).ToList(), cancellationToken);
+}
