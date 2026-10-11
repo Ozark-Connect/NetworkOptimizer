@@ -32,6 +32,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
   - **ONT Stats (GPON / XGS-PON)** (or **Fiber Stats** for Active Ethernet) - optical levels, PON status, SFP health
   - **Cellular Stats (5G / LTE)** - RSRP, RSRQ, SNR, band, cell, tower, neighbors; **Reset Radio** when stuck off 5G
   - **Starlink Stats** - obstruction sky map, loss, power, Ethernet speed, uptime, GPS, last outage
+  - Cable modem and ONT error counts cover the last 24 hours, or since reboot (InfluxDB)
 - Sites overview (multi-site): site, agent, and agents-online counts
 
 ## Multi-Site
