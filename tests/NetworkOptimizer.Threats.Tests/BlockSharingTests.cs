@@ -165,6 +165,22 @@ public class BlockSharingTests
     }
 
     [Fact]
+    public async Task Sharing_APeerSwitchedOffContributesNothing()
+    {
+        var h = new Harness();
+        h.Enforce(null, share: true);
+        h.Enforce("b", share: true);
+        h.Waf["b"]["203.0.113.7"] = 9;
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+        h.Gateway.LastFor(null).Should().Equal("203.0.113.7");
+
+        h.Set("b", BlockingSettingKeys.Mode, "Off");
+        await h.Service.RunCycleAsync(Now.AddMinutes(1), CancellationToken.None);
+
+        h.Gateway.LastFor(null).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Scope_SharesByDefault_UntilASiteOptsOut_DefaultAsNull()
     {
         var settings = new FakeSettings();

@@ -75,11 +75,14 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var client = Client(site);
         var state = await LoadStateAsync(site, ct) ?? new GatewayBlocklistState();
 
+        // An empty zone list is a failed read (the client returns [] on error), not a console without zones.
         var zones = await client.GetFirewallZonesAsync(ct);
+        if (zones.Count == 0)
+            throw new InvalidOperationException("Could not read the firewall zones from the UniFi Console.");
         var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External)
             ?? throw new InvalidOperationException("This UniFi Console has no zone-based firewall. Gateway blocking needs UniFi Network 9.0 or later with zones enabled.");
 
-        var groups = await client.GetFirewallGroupsAsync(ct);
+        var groups = await client.GetFirewallGroupsOrThrowAsync(ct);
         var groupsCreated = 0;
         async Task<string> EnsureGroup(string? id, string name, string type)
         {

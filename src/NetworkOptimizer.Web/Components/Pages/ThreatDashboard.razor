@@ -722,7 +722,7 @@ else
                             <div class="threat-stat-label">Requests Inspected Since WAF Start</div>
                         </div>
                     </div>
-                    <div class="action-buttons">
+                    <div class="action-buttons waf-card-link">
                         <a class="btn btn-contrast" href="/threats/waf">Open Web Application Firewall</a>
                     </div>
                 </div>
@@ -1718,35 +1718,6 @@ else
         margin-top: 0.35rem;
     }
 
-    .threat-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 1rem;
-    }
-
-    .threat-summary-grid .card {
-        margin-bottom: 1.5rem;
-    }
-    .threat-summary-grid-compact .card {
-        margin-bottom: 0.75rem;
-    }
-
-    .threat-stat-card {
-        text-align: center;
-        padding: 1.25rem 1rem;
-    }
-
-    .threat-stat-value {
-        font-size: 2rem;
-        font-weight: 700;
-        line-height: 1.3;
-    }
-
-    .threat-stat-label {
-        font-size: 0.85rem;
-        color: var(--text-muted);
-    }
-
     .waf-card-mode {
         display: flex;
         align-items: center;
@@ -1756,17 +1727,6 @@ else
     .waf-meta {
         font-size: 0.85rem;
         color: var(--text-muted);
-    }
-
-    .waf-stats {
-        grid-template-columns: repeat(3, 1fr);
-    }
-
-    .threat-two-chart-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        margin-bottom: 0.5rem;
     }
 
     .threat-chart-body {
@@ -1908,15 +1868,6 @@ else
         .threat-time-preset {
             padding: 0.35rem 0.5rem;
             font-size: 0.75rem;
-        }
-
-        .threat-summary-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
-
-        .threat-two-chart-row {
-            grid-template-columns: 1fr;
-            margin-bottom: 1rem;
         }
 
         .threat-action-chart {
