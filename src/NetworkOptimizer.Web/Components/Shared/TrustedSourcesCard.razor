@@ -13,7 +13,7 @@
     <div class="card-body">
         <p class="section-description">
             Your sites' public addresses, kept current as they change, plus any addresses you add. Automatic Blocking never blocks them,
-            and UniFi Network can use them as an address group, for example to accept a port forward only from your own sites.
+            and UniFi Network can use them as a Network List, for example to accept a port forward only from your own sites.
         </p>
 
         @if (_overview == null)
@@ -89,22 +89,22 @@
             <div class="form-group">
                 <label class="form-label">Extra Trusted Addresses</label>
                 <textarea class="form-control" rows="3" @bind="_extras" placeholder="203.0.113.10, 198.51.100.0/24, 2001:db8::/48"></textarea>
-                <small class="form-help">Addresses you trust like your own sites: never blocked, and in the UniFi groups and the WAF's list. IP addresses and CIDR ranges, IPv4 or IPv6, one per line or comma-separated.</small>
+                <small class="form-help">Addresses you trust like your own sites: never blocked, and in the Network Lists and the WAF's list. IP addresses and CIDR ranges, IPv4 or IPv6, one per line or comma-separated.</small>
             </div>
 
             <div class="form-group">
                 <label class="checkbox-label">
                     <input type="checkbox" @bind="_uniFiGroup" />
-                    <span>Keep Trusted Sources as address groups in UniFi Network</span>
+                    <span>Keep Trusted Sources as Network Lists in UniFi Network</span>
                 </label>
                 <small class="form-help">
                     Named <strong>@TrustedSourcesGroup.NameV4</strong> and <strong>@TrustedSourcesGroup.NameV6</strong>. Network Optimizer only keeps their addresses current:
-                    it does not attach them to any port forward and creates no firewall rules with them, so nothing changes in UniFi Network until you use one. This site's own addresses are left out of its groups.
+                    it does not attach them to any port forward and creates no firewall rules with them, so nothing changes in UniFi Network until you use one. This site's own addresses are left out of its lists.
                 </small>
                 <small class="form-help">
-                    To accept a port forward only from your sites, edit it in UniFi Network and limit its source to the IPv4 group. IPv6 needs no port forward,
-                    so use the IPv6 group in the firewall policy that allows the traffic. The groups are never emptied, so a port forward that uses one is never shut off by a failed read.
-                    Turning this off stops updates; the groups stay until you delete them in UniFi Network.
+                    To accept a port forward only from your sites, edit it in UniFi Network and limit its source to the IPv4 list. IPv6 needs no port forward,
+                    so use the IPv6 list in the firewall policy that allows the traffic. The lists are never emptied, so a port forward that uses one is never shut off by a failed read.
+                    Turning this off stops updates; the lists stay until you delete them in UniFi Network.
                 </small>
                 @if (_uniFiGroup && _overview.UniFiStatus is { } status)
                 {
@@ -119,12 +119,12 @@
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" @bind="_uniFiCloudflare" />
-                        <span>Also keep a Trusted Sources + Cloudflare group</span>
+                        <span>Also keep Trusted Sources + Cloudflare Network Lists</span>
                     </label>
                     <small class="form-help">
                         Creates <strong>@TrustedSourcesGroup.CloudflareNameV4</strong> and <strong>@TrustedSourcesGroup.CloudflareNameV6</strong>: your Trusted Sources plus
                         Cloudflare's ranges, kept current. Use it for port forwards to hosts Cloudflare proxies, whose traffic arrives from Cloudflare; anyone behind
-                        Cloudflare's proxy can reach them. Everything else should use the plain Trusted Sources groups. The WAF's list never includes Cloudflare: the WAF sees the visitor behind it.
+                        Cloudflare's proxy can reach them. Everything else should use the plain Trusted Sources lists. The WAF's list never includes Cloudflare: the WAF sees the visitor behind it.
                     </small>
                 </div>
             }

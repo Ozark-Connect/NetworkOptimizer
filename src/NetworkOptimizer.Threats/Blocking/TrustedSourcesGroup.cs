@@ -115,7 +115,7 @@ public sealed class TrustedSourcesGroup(IUniFiClientAccessor clients, IThreatSet
         {
             // Deleted in UniFi Network: forget the ids, and the next sync creates the groups again.
             await SaveStateAsync(site, new TrustedSourcesGroupState { Version = CurrentVersion }, ct);
-            return BlockTargetResult.Failure("A Trusted Sources group was removed in UniFi Network. It is created again on the next sync; point your rules at the new one.");
+            return BlockTargetResult.Failure("A Trusted Sources Network List was removed in UniFi Network. It is created again on the next sync; point your rules at the new one.");
         }
         catch (Exception ex) when (ex is UniFiApiErrorException or UniFiPermissionException or InvalidOperationException or HttpRequestException)
         {
