@@ -36,6 +36,8 @@ public static class BlockingSettingKeys
     public const string Share = "blocking.share";
     /// <summary>Comma-separated <see cref="PublicBlockLists"/> ids. Unset = the lists that are on by default.</summary>
     public const string Feeds = "blocking.feeds";
+    /// <summary>"true" to also block devices from reaching the public lists' addresses (gateway only).</summary>
+    public const string FeedsOutbound = "blocking.feeds_outbound";
     /// <summary>"true" once a Site Admin hides the Protection Setup checklist on Threat Intelligence.</summary>
     public const string SetupHidden = "blocking.setup_hidden";
 
@@ -83,6 +85,9 @@ public sealed record BlockingSettings
     /// <summary>The public block lists this site enforces (in Enforce only, on the gateway and the WAF).</summary>
     public IReadOnlyList<string> Feeds { get; init; } = PublicBlockLists.DefaultIds;
 
+    /// <summary>Also block outbound connections to the public lists on the gateway. Optional, off by default.</summary>
+    public bool FeedsOutbound { get; init; }
+
     public bool TargetGateway { get; init; }
     public bool TargetWaf { get; init; }
     public bool TargetCloudflare { get; init; }
@@ -128,6 +133,7 @@ public sealed record BlockingSettings
             Feeds = await get(BlockingSettingKeys.Feeds) is { } feeds
                 ? feeds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(id => PublicBlockLists.Find(id) != null).Distinct().ToList()
                 : d.Feeds,
+            FeedsOutbound = Bool(await get(BlockingSettingKeys.FeedsOutbound), false),
             TargetGateway = Bool(await get(BlockingSettingKeys.TargetGateway), false),
             TargetWaf = Bool(await get(BlockingSettingKeys.TargetWaf), false),
             TargetCloudflare = Bool(await get(BlockingSettingKeys.TargetCloudflare), false),

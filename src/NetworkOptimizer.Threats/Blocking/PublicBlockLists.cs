@@ -8,7 +8,7 @@ namespace NetworkOptimizer.Threats.Blocking;
 /// <param name="Name">Display name.</param>
 /// <param name="Description">One line on what it lists.</param>
 /// <param name="Urls">Where to fetch it; each is parsed with <see cref="Parse"/>.</param>
-/// <param name="Refresh">How often to fetch: the source's own guidance, never faster.</param>
+/// <param name="Refresh">How often to fetch, within the source's guidance (abuse.ch asks for 15 minutes or sooner).</param>
 /// <param name="DefaultOn">Applied on a site that has not chosen.</param>
 /// <param name="Attribution">Credit the source's terms ask for.</param>
 /// <param name="InfoUrl">The source's page.</param>
@@ -42,19 +42,19 @@ public static class PublicBlockLists
         new(SpamhausDrop, "Spamhaus DROP",
             "Networks run by spammers and cyber-criminals, or hijacked from their owners (includes the former EDROP).",
             ["https://www.spamhaus.org/drop/drop_v4.json", "https://www.spamhaus.org/drop/drop_v6.json"],
-            TimeSpan.FromDays(1), DefaultOn: true,
+            TimeSpan.FromHours(1), DefaultOn: true,
             "Spamhaus DROP, (c) The Spamhaus Project", "https://www.spamhaus.org/blocklists/do-not-route-or-peer/",
             ParseSpamhausJson),
         new(Feodo, "abuse.ch Feodo Tracker",
             "Botnet command-and-control servers that are active now.",
             ["https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"],
-            TimeSpan.FromHours(1), DefaultOn: true,
+            TimeSpan.FromMinutes(15), DefaultOn: true,
             "abuse.ch Feodo Tracker (CC0)", "https://feodotracker.abuse.ch/blocklist/",
             ParseIpLines),
         new(DShield, "DShield Top 20",
             "The 20 /24 networks that attacked the most in the last three days, so neighbors on shared hosting are blocked too.",
             ["https://feeds.dshield.org/block.txt"],
-            TimeSpan.FromHours(6), DefaultOn: false,
+            TimeSpan.FromHours(1), DefaultOn: false,
             "SANS Internet Storm Center, DShield", "https://isc.sans.edu/feeds_doc.html",
             ParseDShield),
         new(BlocklistDeStrong, "blocklist.de Strong IPs",

@@ -172,6 +172,10 @@ public sealed class ThreatBlockingOperations
         await Set(BlockingSettingKeys.MaxEntries, Math.Clamp(s.MaxEntries, 1, BlockingSettings.MaxMaxEntries).ToString());
         await Set(BlockingSettingKeys.Share, s.Share.ToString());
         await Set(BlockingSettingKeys.Feeds, string.Join(",", s.Feeds.Where(id => PublicBlockLists.Find(id) != null).Distinct()));
+        var before = await GetSettingsAsync(slug, ct);
+        await Set(BlockingSettingKeys.FeedsOutbound, s.FeedsOutbound.ToString());
+        if (s.FeedsOutbound != before.FeedsOutbound && await IsGatewaySetUpAsync(slug, ct))
+            await _gateway.SetFeedsOutboundAsync(Site(slug), s.FeedsOutbound, ct);
         await Set(BlockingSettingKeys.TargetGateway, s.TargetGateway.ToString());
         await Set(BlockingSettingKeys.TargetWaf, s.TargetWaf.ToString());
         await Set(BlockingSettingKeys.TargetCloudflare, s.TargetCloudflare.ToString());
@@ -185,6 +189,8 @@ public sealed class ThreatBlockingOperations
         try
         {
             await _gateway.SetUpAsync(Site(slug), ct);
+            if (current.FeedsOutbound)
+                await _gateway.SetFeedsOutboundAsync(Site(slug), true, ct);
         }
         catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException
                                    or NetworkOptimizer.UniFi.UniFiApiErrorException or NetworkOptimizer.UniFi.UniFiPermissionException)
@@ -267,6 +273,8 @@ public sealed class ThreatBlockingOperations
     public async Task<GatewaySetUpResult> SetUpGatewayAsync(string slug, CancellationToken ct)
     {
         var result = await _gateway.SetUpAsync(Site(slug), ct);
+        if ((await GetSettingsAsync(slug, ct)).FeedsOutbound)
+            await _gateway.SetFeedsOutboundAsync(Site(slug), true, ct);
         _blocking.Trigger();
         return result;
     }

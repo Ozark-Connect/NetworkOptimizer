@@ -24,9 +24,10 @@ public sealed class ThreatBlockingService : BackgroundService
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan Resync = TimeSpan.FromHours(1);
     private static readonly TimeSpan Retention = TimeSpan.FromDays(90);
-    private static readonly TimeSpan ObserveEvery = TimeSpan.FromMinutes(10);
-    // Public lists change daily at most where it matters; the console is written no more often.
-    private static readonly TimeSpan FeedWriteEvery = TimeSpan.FromDays(1);
+    // Site addresses are read every 2 minutes: one cached stat/device call per site.
+    private static readonly TimeSpan ObserveEvery = TimeSpan.FromMinutes(2);
+    // The public lists' Network Lists are rewritten only when their entries change, and no more often than this.
+    private static readonly TimeSpan FeedWriteEvery = TimeSpan.FromMinutes(15);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ThreatBlockingService> _logger;
@@ -308,7 +309,8 @@ public sealed class ThreatBlockingService : BackgroundService
         return entries.Order(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    // Public lists go to their own gateway groups: on a change of chosen lists at once, otherwise daily.
+    // Public lists go to their own Network Lists: on a change of chosen lists at once, otherwise when entries
+    // change, at most every FeedWriteEvery.
     private async Task ReconcileGatewayFeedsAsync(string? site, IServiceProvider services, BlockingSettings settings,
         IReadOnlyList<string> feeds, DateTime now, CancellationToken ct)
     {

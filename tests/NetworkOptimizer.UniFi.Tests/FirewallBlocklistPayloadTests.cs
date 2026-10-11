@@ -69,4 +69,21 @@ public class FirewallBlocklistPayloadTests
         p.Destination.ZoneId.Should().Be("int");
         p.Predefined.Should().BeFalse();
     }
+    [Fact]
+    public void OutboundPolicy_MatchesTheGroupAsDestination()
+    {
+        var policy = UniFiGroupBlockPolicyWrite.CreateToGroup("Out", "d", "IPV4", "int", "ext", "grp");
+        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(policy));
+        var root = doc.RootElement;
+
+        root.GetProperty("action").GetString().Should().Be("BLOCK");
+        root.GetProperty("source").GetProperty("zone_id").GetString().Should().Be("int");
+        root.GetProperty("source").GetProperty("matching_target").GetString().Should().Be("ANY");
+        var dst = root.GetProperty("destination");
+        dst.GetProperty("zone_id").GetString().Should().Be("ext");
+        dst.GetProperty("matching_target").GetString().Should().Be("IP");
+        dst.GetProperty("matching_target_type").GetString().Should().Be("OBJECT");
+        dst.GetProperty("ip_group_id").GetString().Should().Be("grp");
+        dst.GetProperty("match_opposite_ips").GetBoolean().Should().BeFalse();
+    }
 }

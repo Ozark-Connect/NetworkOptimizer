@@ -58,6 +58,35 @@ public sealed class UniFiGroupBlockPolicyWrite
     [JsonPropertyName("source")] public required object Source { get; init; }
     [JsonPropertyName("destination")] public required object Destination { get; init; }
 
+    /// <summary>
+    /// Builds the outbound counterpart: traffic from <paramref name="sourceZoneId"/> to any address in
+    /// the group in <paramref name="destinationZoneId"/> (External). The destination object mirrors the
+    /// source object UniFi Network's UI sends for a Network List.
+    /// </summary>
+    public static UniFiGroupBlockPolicyWrite CreateToGroup(string name, string description, string ipVersion,
+        string sourceZoneId, string destinationZoneId, string groupId) => new()
+    {
+        Name = name,
+        Description = description,
+        IpVersion = ipVersion,
+        Source = new Dictionary<string, object>
+        {
+            ["zone_id"] = sourceZoneId,
+            ["match_mac"] = false,
+            ["port_matching_type"] = "ANY",
+            ["matching_target"] = "ANY",
+        },
+        Destination = new Dictionary<string, object>
+        {
+            ["zone_id"] = destinationZoneId,
+            ["port_matching_type"] = "ANY",
+            ["matching_target"] = "IP",
+            ["matching_target_type"] = "OBJECT",
+            ["ip_group_id"] = groupId,
+            ["match_opposite_ips"] = false,
+        },
+    };
+
     /// <summary>Builds the policy for one zone pair.</summary>
     public static UniFiGroupBlockPolicyWrite Create(string name, string description, string ipVersion,
         string sourceZoneId, string groupId, string destinationZoneId) => new()
