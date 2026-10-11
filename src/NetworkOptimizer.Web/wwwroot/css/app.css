@@ -7382,6 +7382,26 @@ a.path-hop.hop-clickable:hover {
     min-width: 0;
 }
 
+/* Threat Intelligence - block one address from its details */
+.ip-block-control {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.ip-block-control .ip-block-duration {
+    width: auto;
+    padding: 0.25rem 0.5rem;
+    height: 28px;
+}
+
+.ip-block-control .ip-block-until,
+.ip-block-control .ip-block-message {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
 /* Threat Intelligence - Blocked Sources */
 .blocked-sources .blocked-sources-subtitle {
     font-size: 0.95rem;

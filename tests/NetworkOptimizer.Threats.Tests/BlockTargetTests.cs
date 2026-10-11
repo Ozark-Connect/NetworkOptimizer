@@ -265,6 +265,41 @@ public class ThreatBlockingServiceTests
     }
 
     [Fact]
+    public async Task DryRun_SendsManualBlocks_ButNotItsOwnDecisions()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "DryRun");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.WafCounts["203.0.113.7"] = 6; // decided in Dry Run: recorded, not sent
+        h.Blocks.Add(new ThreatBlock
+        {
+            SourceIp = "2001:db8::9", Trigger = BlockTrigger.Manual, Reason = "Blocked by admin",
+            Enforced = true, CreatedAt = Now.AddMinutes(-1), ExpiresAt = Now.AddHours(1),
+        });
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+
+        h.Gateway.Syncs.Last().Should().Equal("2001:db8::9");
+    }
+
+    [Fact]
+    public async Task Off_SendsNothing_EvenManualBlocks()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "Off");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.Blocks.Add(new ThreatBlock
+        {
+            SourceIp = "203.0.113.9", Trigger = BlockTrigger.Manual, Enforced = true,
+            CreatedAt = Now.AddMinutes(-1), ExpiresAt = Now.AddHours(1),
+        });
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+
+        h.Gateway.Syncs.Should().OnlyContain(s => s.Count == 0);
+    }
+
+    [Fact]
     public async Task UnchangedSet_IsNotResent_UntilTheHourlyResync()
     {
         var h = new Harness();

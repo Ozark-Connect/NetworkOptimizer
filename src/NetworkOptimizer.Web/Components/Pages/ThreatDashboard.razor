@@ -1173,6 +1173,7 @@ else
                     @_drilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
+            <IpBlockControl Ip="@_drilldownData.Ip" />
         </div>
 
         @* CTI details row (behaviors) when we have data *@

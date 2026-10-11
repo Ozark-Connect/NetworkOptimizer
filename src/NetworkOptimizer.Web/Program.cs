@@ -606,8 +606,11 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.T
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>();
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IGatewayBlocklistWriter>(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockSharingScope, NetworkOptimizer.Threats.Blocking.InstanceBlockSharingScope>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingSiteAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingSiteAdminService>(sp));
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
 
 // Register Schedule services (scheduling engine for periodic audits, speed tests)

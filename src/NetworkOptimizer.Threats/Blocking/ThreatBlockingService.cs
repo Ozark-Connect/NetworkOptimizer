@@ -13,9 +13,10 @@ public sealed record BlockTargetStatus(BlockTargetKind Kind, DateTime At, bool O
 
 /// <summary>
 /// Automatic Blocking, per site. Once a minute, in two passes: every site decides new blocks from
-/// its own WAF events and patterns and records them in its own database; then every site in Enforce
-/// reconciles its targets to the active Enforce blocks of its sharing group (itself, unless it shares),
-/// filtered by its own allowlist and the group's WAN addresses. Dry Run records and sends nothing. A
+/// its own WAF events and patterns and records them in its own database; then every site not Off
+/// reconciles its targets to the active enforced blocks of its sharing group (itself, unless it shares),
+/// filtered by its own allowlist and the group's WAN addresses. Dry Run records its own decisions without
+/// enforcing them, so there only manual blocks are sent. A
 /// target that stops being wanted is emptied once, so nothing Network Optimizer added is left behind.
 /// </summary>
 public sealed class ThreatBlockingService : BackgroundService
@@ -214,7 +215,8 @@ public sealed class ThreatBlockingService : BackgroundService
         var accessor = services.GetRequiredService<IThreatSettingsAccessor>();
         List<ThreatBlock> desired = [];
 
-        if (settings.Mode == BlockingMode.Enforce)
+        // Off sends nothing. Dry Run sends only Enforced blocks, which there are the manual ones.
+        if (settings.Mode != BlockingMode.Off)
         {
             var sharing = services.GetService<IBlockSharingScope>();
             var peers = sharing == null ? [site] : await sharing.GetPeerSitesAsync(site, ct);
@@ -263,7 +265,7 @@ public sealed class ThreatBlockingService : BackgroundService
     private async Task ReconcileTargetsAsync(string? site, IServiceProvider services, IThreatSettingsAccessor settingsAccessor,
         BlockingSettings settings, List<ThreatBlock> desired, DateTime now, CancellationToken ct)
     {
-        var enabled = settings.Mode == BlockingMode.Enforce ? EnabledTargets(settings, site) : [];
+        var enabled = settings.Mode != BlockingMode.Off ? EnabledTargets(settings, site) : [];
         var fingerprint = string.Join(",", desired.Select(b => b.SourceIp).Order(StringComparer.OrdinalIgnoreCase));
 
         foreach (var kind in Enum.GetValues<BlockTargetKind>())
@@ -308,7 +310,7 @@ public sealed class ThreatBlockingService : BackgroundService
     }
 
     // The WAF sits beside the default site's proxy, so only the default site can use it.
-    private static List<BlockTargetKind> EnabledTargets(BlockingSettings s, string? site)
+    public static List<BlockTargetKind> EnabledTargets(BlockingSettings s, string? site)
     {
         var list = new List<BlockTargetKind>();
         if (s.TargetGateway) list.Add(BlockTargetKind.Gateway);

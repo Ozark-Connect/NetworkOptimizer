@@ -58,6 +58,16 @@ public sealed class BlockAllowlist
         return null;
     }
 
+    /// <summary>
+    /// One spelling per address: IPv6 compressed and lowercased, IPv4-mapped IPv6 unwrapped to IPv4.
+    /// Null when it is not an IP address. Blocks are stored and matched in this form.
+    /// </summary>
+    public static string? Normalize(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip) || !System.Net.IPAddress.TryParse(ip.Trim(), out var addr)) return null;
+        return (addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4() : addr).ToString();
+    }
+
     /// <summary>Splits a user allowlist on commas, whitespace, and newlines.</summary>
     public static IEnumerable<string> ParseList(string? list) =>
         (list ?? "").Split([',', '\n', '\r', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
