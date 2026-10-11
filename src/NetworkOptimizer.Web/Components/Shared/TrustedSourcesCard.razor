@@ -113,6 +113,21 @@
                 }
             </div>
 
+            @if (_uniFiGroup)
+            {
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_uniFiCloudflare" />
+                        <span>Include Cloudflare's ranges in the UniFi groups</span>
+                    </label>
+                    <small class="form-help">
+                        For port forwards to hosts proxied by Cloudflare, whose traffic arrives from Cloudflare rather than from your sites. Kept current from
+                        Cloudflare's published list. Anyone behind Cloudflare's proxy can then reach those port forwards, so leave it off otherwise.
+                        The WAF's list never includes them: the WAF sees the visitor behind Cloudflare.
+                    </small>
+                </div>
+            }
+
             @if (_overview.WafStatus is { } waf)
             {
                 <div class="form-group">
@@ -151,6 +166,7 @@
     private HashSet<string> _trusted = [];
     private string _extras = "";
     private bool _uniFiGroup;
+    private bool _uniFiCloudflare;
     private bool _multiSite;
     private bool _busy;
     private string? _message;
@@ -170,6 +186,7 @@
         _trusted = _overview.Sites.Where(s => s.Trusted).Select(s => s.Slug).ToHashSet();
         _extras = _overview.Extras;
         _uniFiGroup = _overview.UniFiGroup;
+        _uniFiCloudflare = _overview.UniFiCloudflare;
     }
 
     private string SiteName(string slug) => _names.TryGetValue(slug, out var name) ? name : slug;
@@ -202,7 +219,7 @@
 
     private Task Save() => Run(async () =>
     {
-        await Blocking.SaveTrustedSourcesAsync(_trusted.ToList(), _extras, _uniFiGroup);
+        await Blocking.SaveTrustedSourcesAsync(_trusted.ToList(), _extras, _uniFiGroup, _uniFiGroup && _uniFiCloudflare);
         await Load();
         return "Trusted Sources saved.";
     });

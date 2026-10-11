@@ -80,7 +80,8 @@ public interface IThreatBlockingAdmin
 
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
-    Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, CancellationToken cancellationToken = default);
+    Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, bool uniFiCloudflare,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, SiteContextService site) : IThreatBlockingAdmin
@@ -102,8 +103,9 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) => ops.GetTrustedSourcesAsync(Slug, ct);
     public Task<ProtectionStatus> GetProtectionStatusAsync(CancellationToken ct = default) => ops.GetProtectionStatusAsync(Slug, ct);
     public Task SetProtectionSetupHiddenAsync(bool hidden, CancellationToken ct = default) => ops.SetProtectionSetupHiddenAsync(Slug, hidden, ct);
-    public Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, CancellationToken ct = default) =>
-        ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, uniFiGroup, ct);
+    public Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, bool uniFiCloudflare,
+        CancellationToken ct = default) =>
+        ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, uniFiGroup, uniFiCloudflare, ct);
 }
 
 /// <summary>One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site.</summary>
