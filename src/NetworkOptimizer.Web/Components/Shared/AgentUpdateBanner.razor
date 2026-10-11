@@ -48,7 +48,7 @@
             <div class="banner-text">
                 <strong style="color: var(--info-color);">On-Site Agent update available</strong>
                 <span style="color: var(--text-secondary);">
-                    Agent v@(LatestDisplay) is available for @SiteList(_optionalSites). Updating is optional unless you want what it adds.
+                    Agent v@(LatestDisplay) is available for @SiteList(_optionalSites). Updating is optional, see <a href="@ReleaseNotesHref" target="_blank" rel="noopener">GitHub release notes</a> for details.
                 </span>
             </div>
             <div class="banner-actions">
@@ -66,6 +66,10 @@
     private List<Site> _optionalSites = new();
 
     private static string LatestDisplay => AppVersionInfo.AgentVersionForDisplay(AppVersionInfo.LatestAgentVersion);
+
+    // The release that carries the agent change is the one whose notes say what it adds.
+    private static string ReleaseNotesHref =>
+        $"https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v{AppVersionInfo.LatestAgentVersion}";
 
     // Keyed to the version it announces, so a dismissal retires this notice only: the next
     // LatestAgentVersion bump is a new notice and shows again.
