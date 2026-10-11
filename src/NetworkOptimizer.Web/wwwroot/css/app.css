@@ -7523,6 +7523,17 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
 }
 
+.automatic-blocking .ab-status.is-ok {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--success-color);
+}
+
+.automatic-blocking .ab-status.is-warning {
+    color: var(--warning-color);
+}
+
 .automatic-blocking .form-row {
     display: flex;
     gap: 1rem;
