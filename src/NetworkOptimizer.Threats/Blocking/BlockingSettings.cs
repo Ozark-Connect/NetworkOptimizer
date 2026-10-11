@@ -33,6 +33,8 @@ public static class BlockingSettingKeys
     public const string Share = "blocking.share";
     /// <summary>Comma-separated <see cref="PublicBlockLists"/> ids. Unset = the lists that are on by default.</summary>
     public const string Feeds = "blocking.feeds";
+    /// <summary>"true" once a Site Admin hides the Protection Setup checklist on Threat Intelligence.</summary>
+    public const string SetupHidden = "blocking.setup_hidden";
 
     public const string TargetGateway = "blocking.target.gateway";
     public const string TargetWaf = "blocking.target.waf";

@@ -33,6 +33,26 @@ public sealed record TrustedSourcesOverview(
 /// <summary>A public block list as a site sees it: chosen or not, and its last download.</summary>
 public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBlockListStatus Status);
 
+/// <summary>
+/// Where a site stands on the recommended protection setup, for the Protection Setup checklist.
+/// <see cref="Complete"/> needs Enforce, the gateway set up, and the site's own addresses known; the
+/// WAF, Cloudflare, and the UniFi groups are optional, since not every site has them.
+/// </summary>
+public sealed record ProtectionStatus(
+    bool EventsSeen,
+    bool WafConnected,
+    int SiteAddresses,
+    int ExtraAddresses,
+    BlockingMode Mode,
+    int WouldBlock,
+    bool GatewaySetUp,
+    bool CloudflareSetUp,
+    bool UniFiGroups,
+    bool Hidden)
+{
+    public bool Complete => Mode == BlockingMode.Enforce && GatewaySetUp && SiteAddresses > 0;
+}
+
 /// <summary>Cloudflare target state for the Settings card.</summary>
 public sealed record CloudflareBlockingStatus(bool HasToken, string? AccountId, CloudflareList? List, string? Error);
 
@@ -277,6 +297,35 @@ public sealed class ThreatBlockingOperations
         _blocking.Trigger();
         return list;
     }
+
+    public async Task<ProtectionStatus> GetProtectionStatusAsync(string slug, CancellationToken ct)
+    {
+        var site = Site(slug);
+        var settings = await GetSettingsAsync(slug, ct);
+        var now = DateTime.UtcNow;
+        bool eventsSeen;
+        int wouldBlock;
+        using (var scope = ScopeFor(site))
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
+            eventsSeen = (await repository.GetThreatSummaryAsync(now.AddDays(-7), now, ct)).TotalEvents > 0;
+            wouldBlock = (await repository.GetBlocksAsync(now, now, ct)).Count(b => b.IsActive(now) && !b.Enforced);
+        }
+        return new ProtectionStatus(
+            eventsSeen,
+            await BlockingSettings.WafConnectedAsync(k => _settings.GetSettingAsync(k, ct), site),
+            (await TrustedAddressBook.LoadAsync(_settings, site, ct)).Count,
+            BlockAllowlist.ParseList(settings.Allowlist).Count(),
+            settings.Mode,
+            wouldBlock,
+            await IsGatewaySetUpAsync(slug, ct),
+            !string.IsNullOrEmpty(await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.CloudflareListId), ct)),
+            await TrustedSourcesSettings.UniFiGroupEnabledAsync(_settings, site, ct),
+            bool.TryParse(await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.SetupHidden), ct), out var hidden) && hidden);
+    }
+
+    public Task SetProtectionSetupHiddenAsync(string slug, bool hidden, CancellationToken ct) =>
+        _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.SetupHidden), hidden.ToString(), ct);
 
     /// <summary>Every public list with this site's choice and the last download.</summary>
     public async Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(string slug, CancellationToken ct)

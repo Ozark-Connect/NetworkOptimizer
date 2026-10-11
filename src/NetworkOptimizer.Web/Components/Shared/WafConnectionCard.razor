@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Threats.Blocking
 @using NetworkOptimizer.Threats.Waf
 @inject IWafConnectionAdmin WafAdmin
+@inject IThreatBlockingAdmin Blocking
 @inject SiteContextService SiteContext
 @inject NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor ThreatSettings
 
@@ -82,6 +83,20 @@
         {
             <div class="alert alert-@_messageClass">@_message</div>
         }
+
+        @if (_offerRecommended)
+        {
+            <div class="alert alert-info">
+                <div class="banner-content">
+                    <div class="banner-text">
+                        <span><strong>The WAF is connected.</strong> Turn on recommended blocking to have it refuse repeat attackers, and the gateway too.</span>
+                    </div>
+                    <div class="banner-actions">
+                        <button class="btn btn-sm btn-primary" disabled="@_turningOn" @onclick="TurnOnRecommended">Turn On Recommended</button>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 </div>
 
@@ -98,6 +113,8 @@
     private bool _testing;
     private string _message = "";
     private string _messageClass = "";
+    private bool _offerRecommended;
+    private bool _turningOn;
 
     protected override async Task OnInitializedAsync()
     {
@@ -129,6 +146,9 @@
                 ? "WAF settings saved. When Automatic Blocking is enforcing, the WAF also refuses the sources it blocks."
                 : "WAF settings saved.";
             _messageClass = "success";
+            // Connecting is the moment to finish the setup: offer the one-click recommended blocking.
+            _offerRecommended = _enabled && _hasToken && !string.IsNullOrWhiteSpace(_url)
+                && (await Blocking.GetOverviewAsync()).Settings.Mode != BlockingMode.Enforce;
         }
         catch (ArgumentException ex)
         {
@@ -143,6 +163,29 @@
         finally
         {
             _saving = false;
+        }
+    }
+
+    private async Task TurnOnRecommended()
+    {
+        _turningOn = true;
+        try
+        {
+            var r = await Blocking.TurnOnRecommendedAsync();
+            _offerRecommended = false;
+            _message = r.GatewayError == null
+                ? $"Blocking on {(r.Gateway ? "the gateway and " : "")}the WAF."
+                : $"Blocking on the WAF. The gateway was not set up: {r.GatewayError}";
+            _messageClass = r.GatewayError == null ? "success" : "warning";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _turningOn = false;
         }
     }
 
