@@ -1,6 +1,3 @@
-using System.Net;
-using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Interfaces;
 
 namespace NetworkOptimizer.Threats.Blocking;
@@ -50,22 +47,4 @@ public sealed class InstanceBlockSharingScope : IBlockSharingScope
     // Same default as BlockingSettings.Share: on unless the site opted out.
     private async Task<bool> SharesAsync(string? site, CancellationToken ct) =>
         !bool.TryParse(await _settings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Share, site), ct), out var on) || on;
-}
-
-/// <summary>A site's public WAN addresses, which no site sharing blocks with it may ever block.</summary>
-public static class SiteWanAddresses
-{
-    public static async Task<IReadOnlyList<string>> GetAsync(IUniFiClientAccessor clients, string? site, CancellationToken ct)
-    {
-        var client = clients.GetClient(site);
-        if (client == null) return [];
-        var devices = await client.GetDevicesAsync(ct);
-        return devices
-            .Where(d => d.DeviceType.IsGateway())
-            .SelectMany(d => d.GetWanInterfaces().Select(w => w.Ip).Append(d.Ip))
-            .Where(ip => !string.IsNullOrWhiteSpace(ip) && IPAddress.TryParse(ip, out var a) && NetworkUtilities.IsPublicIpAddress(a))
-            .Select(ip => ip!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
 }

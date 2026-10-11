@@ -31,6 +31,8 @@ public static class BlockingSettingKeys
     public const string Allowlist = "blocking.allowlist";
     /// <summary>"true" to contribute this site's blocks to, and enforce, the shared group's.</summary>
     public const string Share = "blocking.share";
+    /// <summary>Comma-separated <see cref="PublicBlockLists"/> ids. Unset = the lists that are on by default.</summary>
+    public const string Feeds = "blocking.feeds";
 
     public const string TargetGateway = "blocking.target.gateway";
     public const string TargetWaf = "blocking.target.waf";
@@ -72,6 +74,9 @@ public sealed record BlockingSettings
 
     /// <summary>Share blocks with the other sites that share (see <see cref="IBlockSharingScope"/>). On unless a site opts out.</summary>
     public bool Share { get; init; } = true;
+
+    /// <summary>The public block lists this site enforces (in Enforce only, on the gateway and the WAF).</summary>
+    public IReadOnlyList<string> Feeds { get; init; } = PublicBlockLists.DefaultIds;
 
     public bool TargetGateway { get; init; }
     public bool TargetWaf { get; init; }
@@ -115,6 +120,9 @@ public sealed record BlockingSettings
             MaxEntries = Int(await get(BlockingSettingKeys.MaxEntries), d.MaxEntries, 1, MaxMaxEntries),
             Allowlist = await get(BlockingSettingKeys.Allowlist) ?? "",
             Share = Bool(await get(BlockingSettingKeys.Share), d.Share),
+            Feeds = await get(BlockingSettingKeys.Feeds) is { } feeds
+                ? feeds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(id => PublicBlockLists.Find(id) != null).Distinct().ToList()
+                : d.Feeds,
             TargetGateway = Bool(await get(BlockingSettingKeys.TargetGateway), false),
             TargetWaf = Bool(await get(BlockingSettingKeys.TargetWaf), false),
             TargetCloudflare = Bool(await get(BlockingSettingKeys.TargetCloudflare), false),

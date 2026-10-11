@@ -19,6 +19,19 @@ public sealed record BlockingOverview(
 /// <summary>What Turn On Recommended enabled. <see cref="GatewayError"/> says why the gateway was left out.</summary>
 public sealed record RecommendedResult(bool Gateway, string? GatewayError, bool Waf);
 
+/// <summary>One site in a Trusted Sources view: whether it is trusted, and every address it has been seen at.</summary>
+public sealed record TrustedSite(string Slug, bool Trusted, IReadOnlyList<TrustedAddress> Addresses);
+
+/// <summary>A site's Trusted Sources, for the Settings card.</summary>
+public sealed record TrustedSourcesOverview(
+    IReadOnlyList<TrustedSite> Sites,
+    string Extras,
+    bool UniFiGroup,
+    BlockTargetStatus? UniFiStatus);
+
+/// <summary>A public block list as a site sees it: chosen or not, and its last download.</summary>
+public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBlockListStatus Status);
+
 /// <summary>Cloudflare target state for the Settings card.</summary>
 public sealed record CloudflareBlockingStatus(bool HasToken, string? AccountId, CloudflareList? List, string? Error);
 
@@ -37,6 +50,8 @@ public sealed class ThreatBlockingOperations
     private readonly NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? _siteContext;
     private readonly ICredentialProtectionService _credentials;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly PublicBlockListCache _lists;
+    private readonly TrustedSourcesGroup _trustedGroup;
 
     public ThreatBlockingOperations(
         IThreatSettingsAccessor settings,
@@ -46,8 +61,12 @@ public sealed class ThreatBlockingOperations
         IServiceScopeFactory scopeFactory,
         ICredentialProtectionService credentials,
         IHttpClientFactory httpClientFactory,
+        PublicBlockListCache lists,
+        TrustedSourcesGroup trustedGroup,
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null)
     {
+        _lists = lists;
+        _trustedGroup = trustedGroup;
         _settings = settings;
         _blocking = blocking;
         _gateway = gateway;
@@ -105,9 +124,6 @@ public sealed class ThreatBlockingOperations
 
     public async Task SaveSettingsAsync(string slug, BlockingSettings s, CancellationToken ct)
     {
-        var invalid = BlockAllowlist.Invalid(s.Allowlist);
-        if (invalid.Count > 0)
-            throw new ArgumentException($"Not an IP address or CIDR range: {string.Join(", ", invalid.Take(5))}");
 
         async Task Set(string key, string value) => await _settings.SaveSettingAsync(Key(slug, key), value, ct);
         await Set(BlockingSettingKeys.Mode, s.Mode.ToString());
@@ -116,8 +132,8 @@ public sealed class ThreatBlockingOperations
         await Set(BlockingSettingKeys.UsePatterns, s.UsePatterns.ToString());
         await Set(BlockingSettingKeys.BanMinutes, Math.Clamp(s.BanMinutes, 1, BlockingSettings.MaxBanMinutes).ToString());
         await Set(BlockingSettingKeys.MaxEntries, Math.Clamp(s.MaxEntries, 1, BlockingSettings.MaxMaxEntries).ToString());
-        await Set(BlockingSettingKeys.Allowlist, string.Join("\n", BlockAllowlist.ParseList(s.Allowlist)));
         await Set(BlockingSettingKeys.Share, s.Share.ToString());
+        await Set(BlockingSettingKeys.Feeds, string.Join(",", s.Feeds.Where(id => PublicBlockLists.Find(id) != null).Distinct()));
         await Set(BlockingSettingKeys.TargetGateway, s.TargetGateway.ToString());
         await Set(BlockingSettingKeys.TargetWaf, s.TargetWaf.ToString());
         await Set(BlockingSettingKeys.TargetCloudflare, s.TargetCloudflare.ToString());
@@ -166,7 +182,7 @@ public sealed class ThreatBlockingOperations
         var settings = await GetSettingsAsync(slug, ct);
         using var scope = ScopeFor(site);
         var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
-        var allowlist = new BlockAllowlist(settings.Allowlist, await repository.GetNoiseFiltersAsync(ct));
+        var allowlist = await _blocking.BuildAllowlistAsync(scope.ServiceProvider, site, settings, DateTime.UtcNow, ct);
         if (allowlist.Exempts(normalized) is { } reason)
             throw new ArgumentException($"{normalized} can't be blocked: it is {reason}.");
 
@@ -259,6 +275,65 @@ public sealed class ThreatBlockingOperations
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareListId), list.Id, ct);
         _blocking.Trigger();
         return list;
+    }
+
+    /// <summary>Every public list with this site's choice and the last download.</summary>
+    public async Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(string slug, CancellationToken ct)
+    {
+        var chosen = (await GetSettingsAsync(slug, ct)).Feeds;
+        return PublicBlockLists.All.Select(l => new PublicListView(l, chosen.Contains(l.Id), _lists.Status(l.Id))).ToList();
+    }
+
+    private string SlugOf(string? site) => site ?? _siteContext?.DefaultKey ?? "";
+
+    public async Task<TrustedSourcesOverview> GetTrustedSourcesAsync(string slug, CancellationToken ct)
+    {
+        var site = Site(slug);
+        var trusted = (await TrustedSourcesSettings.ResolveSitesAsync(_settings, _sharing, site, ct)).ToHashSet();
+        var all = _siteContext == null ? [null] : (await _siteContext.GetSiteKeysAsync(ct)).Select(Site).ToList();
+        var sites = new List<TrustedSite>();
+        foreach (var s in all)
+            sites.Add(new TrustedSite(SlugOf(s), trusted.Contains(s), await TrustedAddressBook.LoadAsync(_settings, s, ct)));
+        return new TrustedSourcesOverview(
+            sites,
+            await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), ct) ?? "",
+            await TrustedSourcesSettings.UniFiGroupEnabledAsync(_settings, site, ct),
+            _blocking.TrustedSourcesStatus(site));
+    }
+
+    /// <summary>The sites a site trusts (always itself), its extra addresses, and whether it keeps the UniFi groups.</summary>
+    public async Task SaveTrustedSourcesAsync(string slug, IReadOnlyList<string> trustedSlugs, string extras, bool uniFiGroup, CancellationToken ct)
+    {
+        var invalid = BlockAllowlist.Invalid(extras);
+        if (invalid.Count > 0)
+            throw new ArgumentException($"Not an IP address or CIDR range: {string.Join(", ", invalid.Take(5))}");
+        await SaveTrustedSitesAsync(slug, trustedSlugs, ct);
+        await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), string.Join("\n", BlockAllowlist.ParseList(extras)), ct);
+        await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiGroup), uniFiGroup.ToString(), ct);
+        _blocking.Trigger();
+    }
+
+    public async Task SaveTrustedSitesAsync(string slug, IReadOnlyList<string> trustedSlugs, CancellationToken ct)
+    {
+        await TrustedSourcesSettings.SaveSitesAsync(_settings, Site(slug), trustedSlugs.Select(Site).Append(Site(slug)), ct);
+        _blocking.Trigger();
+    }
+
+    /// <summary>
+    /// Forgets an address a site no longer reports. Refused for a current one: the next read would
+    /// add it straight back.
+    /// </summary>
+    public async Task<bool> RemoveTrustedAddressAsync(string slug, string address, CancellationToken ct)
+    {
+        var site = Site(slug);
+        var list = await TrustedAddressBook.LoadAsync(_settings, site, ct);
+        var entry = list.FirstOrDefault(a => string.Equals(a.Address, address, StringComparison.OrdinalIgnoreCase));
+        if (entry == null) return false;
+        if (entry.ReplacedAt == null)
+            throw new ArgumentException($"{address} is this site's current address. Only addresses it no longer reports can be removed.");
+        await TrustedAddressBook.SaveAsync(_settings, site, list.Where(a => a != entry).ToList(), ct);
+        _blocking.Trigger();
+        return true;
     }
 
     public async Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(string slug, CancellationToken ct)

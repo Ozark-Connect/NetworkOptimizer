@@ -36,14 +36,25 @@ public interface IBlockTarget
     Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken);
 }
 
+/// <summary>A target that also enforces the public block lists. Cloudflare never does: its edge has its own data.</summary>
+public interface IFeedBlockTarget
+{
+    /// <summary>The list entries (IPs and CIDR ranges) to send with the next <see cref="IBlockTarget.SyncAsync"/>.</summary>
+    IReadOnlyList<string> Feeds { get; set; }
+}
+
 /// <summary>
 /// A site's netopt-waf ban list. Covers Cloudflare-proxied hosts, which a gateway block cannot. The
 /// client reaches the site's WAF directly or through its agent (<see cref="ISiteHttpClientProvider"/>).
 /// </summary>
-public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor settings, string? site) : IBlockTarget
+public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor settings, string? site) : IBlockTarget, IFeedBlockTarget
 {
+    // List entries outlive a missed sync by this much; the WAF is re-sent every minute.
+    private static readonly TimeSpan FeedTtl = TimeSpan.FromHours(2);
+
     public BlockTargetKind Kind => BlockTargetKind.Waf;
     public bool SyncEveryCycle => true;
+    public IReadOnlyList<string> Feeds { get; set; } = [];
 
     public async Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken)
     {
@@ -53,7 +64,11 @@ public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor set
             return BlockTargetResult.Failure("Connect the WAF in Settings - Security & Alerts - Web Application Firewall first.");
         try
         {
-            var bans = desired.Select(b => new WafBan(b.SourceIp, new DateTimeOffset(DateTime.SpecifyKind(b.ExpiresAt, DateTimeKind.Utc)))).ToList();
+            var feedExpiry = DateTimeOffset.UtcNow + FeedTtl;
+            var own = desired.Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var bans = desired.Select(b => new WafBan(b.SourceIp, new DateTimeOffset(DateTime.SpecifyKind(b.ExpiresAt, DateTimeKind.Utc))))
+                .Concat(Feeds.Where(f => !own.Contains(f)).Select(f => new WafBan(f, feedExpiry)))
+                .ToList();
             return BlockTargetResult.Success(await client.PutBansAsync(url, token, bans, cancellationToken));
         }
         catch (WafClientException ex)
@@ -71,6 +86,9 @@ public interface IGatewayBlocklistWriter
 {
     /// <summary>Replaces the site's group members with <paramref name="ips"/> (null site = default).</summary>
     Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken cancellationToken);
+
+    /// <summary>Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges).</summary>
+    Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken cancellationToken);
 }
 
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>

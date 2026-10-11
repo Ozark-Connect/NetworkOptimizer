@@ -366,6 +366,10 @@ public class UniFiDeviceResponse
     [JsonPropertyName("mbb")]
     public MbbInfo? Mbb { get; set; }
 
+    /// <summary>A gateway's LAN networks, each with the IPv6 prefixes it hands out.</summary>
+    [JsonPropertyName("network_table")]
+    public List<GatewayNetworkTableEntry>? NetworkTable { get; set; }
+
     /// <summary>
     /// Captures additional JSON properties not mapped to typed properties.
     /// Used to extract WAN interface objects (wan, wan1, wan2, etc.) which are dynamic keys.
@@ -413,6 +417,23 @@ public class UniFiDeviceResponse
     }
 }
 
+/// <summary>One LAN network in a gateway's network_table.</summary>
+public class GatewayNetworkTableEntry
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    /// <summary>A static IPv6 network's gateway address with the prefix length (singular; PD networks use <see cref="Ipv6Subnets"/>).</summary>
+    [JsonPropertyName("ipv6_subnet")]
+    [JsonConverter(typeof(FlexibleStringListConverter))]
+    public List<string>? Ipv6Subnet { get; set; }
+
+    /// <summary>A Prefix Delegation network's gateway address in each delegated prefix, with the prefix length.</summary>
+    [JsonPropertyName("ipv6_subnets")]
+    [JsonConverter(typeof(FlexibleStringListConverter))]
+    public List<string>? Ipv6Subnets { get; set; }
+}
+
 /// <summary>
 /// Represents a WAN interface from the gateway device JSON.
 /// These appear as dynamic keys (wan, wan1, wan2, wan3, etc.) on the device object.
@@ -440,6 +461,11 @@ public class GatewayWanInterface
 
     [JsonPropertyName("ip")]
     public string? Ip { get; set; }
+
+    /// <summary>The WAN's IPv6 addresses: global ones and link-local, without a prefix length.</summary>
+    [JsonPropertyName("ipv6")]
+    [JsonConverter(typeof(FlexibleStringListConverter))]
+    public List<string>? Ipv6 { get; set; }
 
     [JsonPropertyName("latency")]
     public int? Latency { get; set; }

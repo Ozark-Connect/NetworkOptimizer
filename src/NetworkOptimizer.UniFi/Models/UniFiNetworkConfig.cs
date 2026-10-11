@@ -180,6 +180,45 @@ public class FlexibleDoubleConverter : JsonConverter<double?>
 }
 
 /// <summary>
+/// Tolerant string-list parser: an array of strings, a single string (as a one-item list), or null.
+/// Anything else reads as null instead of failing the whole object it sits in.
+/// </summary>
+public class FlexibleStringListConverter : JsonConverter<List<string>?>
+{
+    public override List<string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        switch (reader.TokenType)
+        {
+            case JsonTokenType.String:
+                return [reader.GetString()!];
+            case JsonTokenType.StartArray:
+                var list = new List<string>();
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+                {
+                    if (reader.TokenType == JsonTokenType.String) list.Add(reader.GetString()!);
+                    else reader.Skip();
+                }
+                return list;
+            default:
+                reader.Skip();
+                return null;
+        }
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<string>? value, JsonSerializerOptions options)
+    {
+        if (value == null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+        writer.WriteStartArray();
+        foreach (var s in value) writer.WriteStringValue(s);
+        writer.WriteEndArray();
+    }
+}
+
+/// <summary>
 /// Response from GET /api/s/{site}/rest/networkconf
 /// Represents a network/VLAN configuration
 /// </summary>

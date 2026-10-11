@@ -22,7 +22,7 @@
         </div>
         <label class="checkbox-toggle">
             <input type="checkbox" checked="@_summary.Share" disabled="@_busy" @onchange="e => SetShare((bool)e.Value!)" />
-            Share blocks with other sites. Each site's own Never block list still applies.
+            Share blocks with other sites. Each site's own Trusted Sources still apply.
         </label>
         <p class="form-help">
             @(_summary.GatewaySetUp ? "Gateway set up." : "Gateway not set up.")
@@ -36,7 +36,7 @@
         }
         @if (_message != null)
         {
-            <p class="form-help @(_isError ? "text-danger" : "")">@_message</p>
+            <p class="@(_isError ? "form-error" : "form-help")">@_message</p>
         }
     }
 </div>

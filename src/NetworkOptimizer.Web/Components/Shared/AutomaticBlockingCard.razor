@@ -16,7 +16,7 @@
     <div class="card-body">
         <p class="section-description">
             Block sources that keep attacking this site: on the gateway, in the WAF, and at Cloudflare's edge.
-            Each block expires on its own, and LAN, VPN, Tailscale, Cloudflare, and this site's own WAN addresses are never blocked.
+            Each block expires on its own, and LAN, VPN, Tailscale, Cloudflare, and Trusted Sources are never blocked.
         </p>
 
         @if (_form == null)
@@ -83,11 +83,6 @@
                         <small class="form-help">The newest are kept. Large gateway lists slow down the UniFi Console.</small>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Never block</label>
-                    <textarea class="form-control" rows="3" @bind="_form.Allowlist" placeholder="203.0.113.10, 198.51.100.0/24"></textarea>
-                    <small class="form-help">IP addresses and CIDR ranges, one per line or comma-separated. Trusted User and Infrastructure filters are never blocked either.</small>
-                </div>
                 @if (_multiSite)
                 {
                     <div class="form-group">
@@ -95,7 +90,33 @@
                             <input type="checkbox" @bind="_form.Share" />
                             <span>Share blocks with other sites</span>
                         </label>
-                        <small class="form-help">This site enforces the blocks of every site that shares, and they enforce this site's. Each site's own Never block list still applies.</small>
+                        <small class="form-help">This site enforces the blocks of every site that shares, and they enforce this site's. Each site's own Trusted Sources still apply.</small>
+                    </div>
+                }
+            </div>
+
+            <div class="ab-section">
+                <h3 class="ab-section-title">Public Block Lists</h3>
+                <p class="form-help">Known-bad networks from public lists, blocked on the gateway and in the WAF while Automatic Blocking enforces. Never sent to Cloudflare, which has its own. Entries that overlap private space or Trusted Sources are skipped.</p>
+                @foreach (var view in _lists)
+                {
+                    <div class="form-group ab-list">
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@_form.Feeds.Contains(view.List.Id)" @onchange="e => ToggleFeed(view.List.Id, (bool)e.Value!)" />
+                            <span>@view.List.Name</span>
+                        </label>
+                        <small class="form-help">
+                            @view.List.Description
+                            @if (view.Status.FetchedAt is { } fetched)
+                            {
+                                <span> @view.Status.Count.ToString("N0") entries, updated @TimeFormatHelper.FormatRelativeTime(fetched).</span>
+                            }
+                            <span> Source: <a href="@view.List.InfoUrl" target="_blank" rel="noopener">@view.List.Attribution</a>.</span>
+                        </small>
+                        @if (view.Status.Error != null)
+                        {
+                            <small class="form-error">Last download failed, keeping the previous copy: @view.Status.Error</small>
+                        }
                     </div>
                 }
             </div>
@@ -222,8 +243,8 @@
         public bool UsePatterns { get; set; }
         public int BanMinutes { get; set; }
         public int MaxEntries { get; set; }
-        public string Allowlist { get; set; } = "";
         public bool Share { get; set; }
+        public HashSet<string> Feeds { get; set; } = [];
         public bool TargetGateway { get; set; }
         public bool TargetWaf { get; set; }
         public bool TargetCloudflare { get; set; }
@@ -236,6 +257,7 @@
     private bool _gatewaySetUp;
     private string? _gatewayStatus;
     private CloudflareBlockingStatus? _cf;
+    private IReadOnlyList<PublicListView> _lists = [];
     private string _cfAccount = "";
     private string _cfToken = "";
     private string? _message;
@@ -254,15 +276,22 @@
             UsePatterns = _saved.UsePatterns,
             BanMinutes = _saved.BanMinutes,
             MaxEntries = _saved.MaxEntries,
-            Allowlist = _saved.Allowlist,
             Share = _saved.Share,
+            Feeds = _saved.Feeds.ToHashSet(),
             TargetGateway = _saved.TargetGateway,
             TargetWaf = _saved.TargetWaf,
             TargetCloudflare = _saved.TargetCloudflare,
         };
         await RefreshGateway();
+        _lists = await Blocking.GetPublicListsAsync();
         _cf = await Blocking.GetCloudflareStatusAsync();
         _cfAccount = _cf.AccountId ?? "";
+    }
+
+    private void ToggleFeed(string id, bool on)
+    {
+        if (on) _form!.Feeds.Add(id);
+        else _form!.Feeds.Remove(id);
     }
 
     private static string ModeOption(BlockingMode mode) => mode switch
@@ -312,8 +341,9 @@
             UsePatterns = f.UsePatterns,
             BanMinutes = f.BanMinutes,
             MaxEntries = f.MaxEntries,
-            Allowlist = f.Allowlist,
+            Allowlist = _saved?.Allowlist ?? "",
             Share = f.Share,
+            Feeds = PublicBlockLists.All.Select(l => l.Id).Where(f.Feeds.Contains).ToList(),
             TargetGateway = f.TargetGateway,
             TargetWaf = f.TargetWaf,
             TargetCloudflare = f.TargetCloudflare,

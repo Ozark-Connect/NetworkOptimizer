@@ -107,6 +107,9 @@ public class SettingsSearchIndexTests
     [InlineData("blocklist", "automatic-blocking")]
     [InlineData("cloudflare", "automatic-blocking")]
     [InlineData("dry run", "automatic-blocking")]
+    [InlineData("spamhaus", "automatic-blocking")]
+    [InlineData("trusted sources", "trusted-sources")]
+    [InlineData("port forward", "trusted-sources")]
     [InlineData("waf url", "waf")]
     // Typed the hardware they own rather than the card that monitors it.
     [InlineData("xfinity", "cable-modem")]

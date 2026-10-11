@@ -1,0 +1,100 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IThreatBlockingSiteAdmin SiteBlocking
+@inject IAuthorizationService Authz
+@inject AuthenticationStateProvider AuthState
+
+@* Settings - Multi-Site: which sites each site trusts, one row per site the caller administers.
+   Each change is one gated, audited call on that row's site. *@
+
+@if (_rows.Count > 0 && Sites.Count > 1)
+{
+    <div class="form-group trusted-matrix" id="trusted-sources-matrix">
+        <label class="form-label">Trusted Sources</label>
+        <small class="form-help">
+            Each row's site trusts the ticked sites: it never blocks their addresses, and its Trusted Sources group in UniFi Network includes them.
+            Extra addresses are added in each site's Settings - Security & Alerts.
+        </small>
+        <div class="table-responsive">
+            <table class="data-table settings-table">
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        @foreach (var col in Sites)
+                        {
+                            <th class="trusted-matrix-cell">@col.Name</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _rows)
+                    {
+                        <tr>
+                            <td>@row.Name</td>
+                            @foreach (var col in Sites)
+                            {
+                                var self = col.Slug == row.Slug;
+                                <td class="trusted-matrix-cell">
+                                    <input type="checkbox" aria-label="@row.Name trusts @col.Name"
+                                           checked="@(self || _trusted[row.Slug].Contains(col.Slug))" disabled="@(self || _busy)"
+                                           @onchange="e => Set(row.Slug, col.Slug, (bool)e.Value!)" />
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_message != null)
+        {
+            <small class="form-error">@_message</small>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Every enabled site, in display order.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<Site> Sites { get; set; } = [];
+
+    private List<Site> _rows = [];
+    private Dictionary<string, HashSet<string>> _trusted = [];
+    private bool _busy;
+    private string? _message;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var user = (await AuthState.GetAuthenticationStateAsync()).User;
+        var rows = new List<Site>();
+        var trusted = new Dictionary<string, HashSet<string>>();
+        foreach (var site in Sites)
+        {
+            if (!(await Authz.AuthorizeAsync(user, site.Slug, Policies.SiteAdmin)).Succeeded) continue;
+            rows.Add(site);
+            trusted[site.Slug] = (await SiteBlocking.GetTrustedSitesAsync(site.Slug)).ToHashSet();
+        }
+        _rows = rows;
+        _trusted = trusted;
+    }
+
+    private async Task Set(string row, string col, bool on)
+    {
+        _busy = true;
+        _message = null;
+        var next = _trusted[row].ToHashSet();
+        if (on) next.Add(col);
+        else next.Remove(col);
+        try
+        {
+            await SiteBlocking.SetTrustedSitesAsync(row, next.ToList());
+            _trusted[row] = next;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

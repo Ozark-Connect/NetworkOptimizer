@@ -62,6 +62,17 @@ public interface IThreatBlockingAdmin
 
     [RequireRole(Roles.Admin)]
     Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Every public block list, whether this site uses it, and its last download.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken cancellationToken = default);
+
+    [RequireRole(Roles.Admin)]
+    Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken cancellationToken = default);
+
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
+    Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, CancellationToken cancellationToken = default);
 }
 
 public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, SiteContextService site) : IThreatBlockingAdmin
@@ -79,6 +90,10 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<string?> CheckGatewayAsync(CancellationToken ct = default) => ops.CheckGatewayAsync(Slug, ct);
     public Task<CloudflareList> SetUpCloudflareAsync(string? token, string accountId, CancellationToken ct = default) => ops.SetUpCloudflareAsync(Slug, token, accountId, ct);
     public Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken ct = default) => ops.GetCloudflareStatusAsync(Slug, ct);
+    public Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken ct = default) => ops.GetPublicListsAsync(Slug, ct);
+    public Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) => ops.GetTrustedSourcesAsync(Slug, ct);
+    public Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, bool uniFiGroup, CancellationToken ct = default) =>
+        ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, uniFiGroup, ct);
 }
 
 /// <summary>One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site.</summary>
@@ -106,6 +121,19 @@ public interface IThreatBlockingSiteAdmin
     [RequireSiteRole(SiteRole.SiteAdmin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
     Task<RecommendedResult> TurnOnRecommendedAsync([SiteSlug] string siteSlug, CancellationToken cancellationToken = default);
+
+    /// <summary>The sites <paramref name="siteSlug"/> trusts, for its row in the Trusted Sources matrix.</summary>
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    Task<IReadOnlyList<string>> GetTrustedSitesAsync([SiteSlug] string siteSlug, CancellationToken cancellationToken = default);
+
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
+    Task SetTrustedSitesAsync([SiteSlug] string siteSlug, IReadOnlyList<string> trustedSiteSlugs, CancellationToken cancellationToken = default);
+
+    /// <summary>Forgets an address <paramref name="siteSlug"/> no longer reports. Gated on the site the address belongs to.</summary>
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "trusted_sources")]
+    Task<bool> RemoveTrustedAddressAsync([SiteSlug] string siteSlug, string address, CancellationToken cancellationToken = default);
 }
 
 public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops) : IThreatBlockingSiteAdmin
@@ -131,4 +159,13 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops)
 
     public Task<RecommendedResult> TurnOnRecommendedAsync(string siteSlug, CancellationToken ct = default) =>
         ops.TurnOnRecommendedAsync(siteSlug, ct);
+
+    public async Task<IReadOnlyList<string>> GetTrustedSitesAsync(string siteSlug, CancellationToken ct = default) =>
+        (await ops.GetTrustedSourcesAsync(siteSlug, ct)).Sites.Where(s => s.Trusted).Select(s => s.Slug).ToList();
+
+    public Task SetTrustedSitesAsync(string siteSlug, IReadOnlyList<string> trustedSiteSlugs, CancellationToken ct = default) =>
+        ops.SaveTrustedSitesAsync(siteSlug, trustedSiteSlugs, ct);
+
+    public Task<bool> RemoveTrustedAddressAsync(string siteSlug, string address, CancellationToken ct = default) =>
+        ops.RemoveTrustedAddressAsync(siteSlug, address, ct);
 }

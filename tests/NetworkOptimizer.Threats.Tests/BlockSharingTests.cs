@@ -33,6 +33,14 @@ public class BlockSharingTests
             Syncs.Add((site, ips));
             return Task.FromResult(BlockTargetResult.Success(ips.Count));
         }
+
+        public List<IReadOnlyList<string>> FeedSyncs { get; } = [];
+
+        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct)
+        {
+            FeedSyncs.Add(entries);
+            return Task.FromResult(BlockTargetResult.Success(entries.Count));
+        }
         public IReadOnlyList<string> LastFor(string? site) => Syncs.Last(s => s.Site == site).Ips;
     }
 

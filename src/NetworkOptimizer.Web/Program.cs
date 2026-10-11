@@ -606,6 +606,14 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.ISiteHttpClien
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>();
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.TrustedSourcesGroup>();
+// Public block lists and Cloudflare's ranges, fetched once per instance and kept in the main database.
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.PublicBlockListCache>();
+builder.Services.AddHttpClient("PublicBlockLists", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("NetworkOptimizer (+https://github.com/Ozark-Connect/NetworkOptimizer)");
+});
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IGatewayBlocklistWriter>(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockSharingScope, NetworkOptimizer.Threats.Blocking.InstanceBlockSharingScope>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();

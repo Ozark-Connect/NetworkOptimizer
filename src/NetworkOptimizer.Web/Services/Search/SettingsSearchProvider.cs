@@ -298,10 +298,17 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Automatic Blocking",
             ["Blocklist", "ban list", "block list", "IP blocking"],
             ["dry run", "enforce", "turn on recommended", "waf events", "scan sweep", "brute force",
-             "exploit campaign", "first block", "most blocked sources", "never block", "allowlist",
+             "exploit campaign", "first block", "most blocked sources",
              "share blocks with other sites", "gateway", "zone-based firewall", "address group",
              "block policy", "set up", "web application firewall", "cloudflare", "account id",
-             "api token", "netopt_blocklist", "custom rule", "release"]),
+             "api token", "netopt_blocklist", "custom rule", "release", "public block lists",
+             "spamhaus drop", "feodo tracker", "abuse.ch", "dshield", "blocklist.de"]),
+
+        Entry("security", "Security & Alerts", "trusted-sources",
+            "Trusted Sources",
+            ["Allowlist", "whitelist", "trusted IPs", "never block"],
+            ["extra addresses", "site addresses", "wan ip", "ipv6 prefix", "port forward", "source limit",
+             "address group", "network optimizer trusted sources", "last seen", "stale address", "remove"]),
 
         Entry("application", "Application", "admin-password",
             "Admin Password",
@@ -400,6 +407,11 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "site configuration", "unifi console through the agent tunnel", "ssh via agent",
              "lan speed test server", "client speed test target override", "agent collects for this site",
              "multi-wan vantage", "disable multi-site management", "on-site agent"], Reach.MultiSite),
+
+        Entry("multisite", "Multi-Site", "trusted-sources-matrix",
+            "Trusted Sources",
+            ["trusted sites", "site allowlist"],
+            ["which sites trust", "site wan addresses", "port forward", "address group"], Reach.MultiSite),
 
         Entry("multisite", "Multi-Site", "site-agent-setup",
             "Add a site",

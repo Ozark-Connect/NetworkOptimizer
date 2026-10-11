@@ -1,0 +1,202 @@
+@using NetworkOptimizer.Threats.Blocking
+@inject IThreatBlockingAdmin Blocking
+@inject IThreatBlockingSiteAdmin SiteBlocking
+@inject ISiteManagementService SiteManagement
+@inject SiteContextService SiteContext
+
+@* Settings - Security & Alerts: the site in context's Trusted Sources. *@
+
+<div class="card settings-tab-security trusted-sources" id="trusted-sources">
+    <div class="card-header">
+        <h2 class="card-title">Trusted Sources</h2>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Your sites' public addresses, kept current as they change, plus any addresses you add. Automatic Blocking never blocks them,
+            and UniFi Network can use them as an address group, for example to accept a port forward only from your own sites.
+        </p>
+
+        @if (_overview == null)
+        {
+            <div class="loading-container"><span class="spinner spinner-sm"></span></div>
+        }
+        else
+        {
+            <div class="ab-section">
+                <h3 class="ab-section-title">@(_multiSite ? "Sites" : "This Site")</h3>
+                <p class="form-help">
+                    Every WAN's public IPv4 and IPv6 address, and each network's public IPv6 prefix. A site that can't be reached keeps its addresses;
+                    an address a site stops reporting stays for @((int)TrustedAddressBook.ReplacedRetention.TotalDays) days, so anything pinned to it can catch up.
+                </p>
+                @foreach (var site in _overview.Sites.Where(s => _multiSite || s.Slug == SiteContext.Slug))
+                {
+                    var isThis = site.Slug == SiteContext.Slug;
+                    <div class="trusted-site">
+                        @if (_multiSite)
+                        {
+                            <label class="checkbox-label">
+                                <input type="checkbox" checked="@(isThis || _trusted.Contains(site.Slug))" disabled="@isThis"
+                                       @onchange="e => ToggleSite(site.Slug, (bool)e.Value!)" />
+                                <span>@SiteName(site.Slug)@(isThis ? " (this site)" : "")</span>
+                            </label>
+                        }
+                        @if (site.Addresses.Count == 0)
+                        {
+                            <small class="form-help">No addresses seen yet.</small>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="data-table trusted-addresses">
+                                    <thead>
+                                        <tr>
+                                            <th>Address</th>
+                                            <th>Last Seen</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var a in site.Addresses)
+                                        {
+                                            <tr class="@(a.ReplacedAt != null ? "trusted-stale" : "")">
+                                                <td><code>@a.Address</code></td>
+                                                <td>
+                                                    @if (a.ReplacedAt is { } replaced)
+                                                    {
+                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen), dropped in @TimeFormatHelper.FormatDurationCompact(replaced + TrustedAddressBook.ReplacedRetention - DateTime.UtcNow)</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen)</span>
+                                                    }
+                                                </td>
+                                                <td class="trusted-action">
+                                                    @if (a.ReplacedAt != null)
+                                                    {
+                                                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="() => Remove(site.Slug, a.Address)">Remove</button>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Extra Addresses</label>
+                <textarea class="form-control" rows="3" @bind="_extras" placeholder="203.0.113.10, 198.51.100.0/24, 2001:db8::/48"></textarea>
+                <small class="form-help">IP addresses and CIDR ranges, IPv4 or IPv6, one per line or comma-separated. Trusted User and Infrastructure filters are never blocked either.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_uniFiGroup" />
+                    <span>Keep Trusted Sources as address groups in UniFi Network</span>
+                </label>
+                <small class="form-help">
+                    Named <strong>@TrustedSourcesGroup.NameV4</strong> and <strong>@TrustedSourcesGroup.NameV6</strong>. Network Optimizer only keeps their addresses current:
+                    it does not attach them to any port forward and creates no firewall rules with them, so nothing changes in UniFi Network until you use one.
+                </small>
+                <small class="form-help">
+                    To accept a port forward only from your sites, edit it in UniFi Network and limit its source to the IPv4 group. IPv6 needs no port forward,
+                    so use the IPv6 group in the firewall policy that allows the traffic. The groups are never emptied, so a port forward that uses one is never shut off by a failed read.
+                </small>
+                @if (_uniFiGroup && _overview.UniFiStatus is { } status)
+                {
+                    <small class="@(status.Ok ? "form-help ab-status" : "form-error")">
+                        @(status.Ok ? $"{status.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(status.At)}." : status.Error)
+                    </small>
+                }
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" disabled="@_busy" @onclick="Save">
+                    @if (_busy)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    <span>Save</span>
+                </button>
+            </div>
+
+            @if (_message != null)
+            {
+                <div class="alert alert-@_messageClass">@_message</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private TrustedSourcesOverview? _overview;
+    private Dictionary<string, string> _names = [];
+    private HashSet<string> _trusted = [];
+    private string _extras = "";
+    private bool _uniFiGroup;
+    private bool _multiSite;
+    private bool _busy;
+    private string? _message;
+    private string _messageClass = "info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _multiSite = await SiteManagement.IsMultiSiteEnabledAsync();
+        if (_multiSite)
+            _names = (await SiteManagement.GetSitesAsync()).ToDictionary(s => s.Slug, s => s.Name);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _overview = await Blocking.GetTrustedSourcesAsync();
+        _trusted = _overview.Sites.Where(s => s.Trusted).Select(s => s.Slug).ToHashSet();
+        _extras = _overview.Extras;
+        _uniFiGroup = _overview.UniFiGroup;
+    }
+
+    private string SiteName(string slug) => _names.TryGetValue(slug, out var name) ? name : slug;
+
+    private void ToggleSite(string slug, bool on)
+    {
+        if (on) _trusted.Add(slug);
+        else _trusted.Remove(slug);
+    }
+
+    private async Task Run(Func<Task<string>> action)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            _message = await action();
+            _messageClass = "success";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task Save() => Run(async () =>
+    {
+        await Blocking.SaveTrustedSourcesAsync(_trusted.ToList(), _extras, _uniFiGroup);
+        await Load();
+        return "Trusted Sources saved.";
+    });
+
+    private Task Remove(string slug, string address) => Run(async () =>
+    {
+        await SiteBlocking.RemoveTrustedAddressAsync(slug, address);
+        await Load();
+        return $"Removed {address}.";
+    });
+}

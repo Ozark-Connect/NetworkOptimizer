@@ -7353,14 +7353,69 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Settings - Automatic Blocking: divided sections like .audit-options, one target per block */
-.automatic-blocking .ab-section {
+.automatic-blocking .ab-section,
+.trusted-sources .ab-section {
     border-top: 1px solid var(--border-color);
     padding-top: 1.25rem;
 }
 
-.automatic-blocking .ab-section-title {
+.automatic-blocking .ab-section-title,
+.trusted-sources .ab-section-title {
     font-size: 1rem;
     margin: 0 0 1rem;
+}
+
+.automatic-blocking .ab-section > .form-help,
+.trusted-sources .ab-section > .form-help {
+    margin: 0 0 1rem;
+}
+
+.automatic-blocking .ab-list {
+    margin-bottom: 1rem;
+}
+
+/* Settings - Trusted Sources: one block per site, its addresses in a table under it */
+.trusted-sources .trusted-site {
+    margin-bottom: 1.5rem;
+}
+
+.trusted-sources .trusted-site > .checkbox-label {
+    margin-bottom: 0.5rem;
+}
+
+.trusted-sources .ab-status {
+    color: var(--text-secondary);
+}
+
+/* Three short columns fit a phone; no sideways scroll like wider tables. */
+.data-table.trusted-addresses {
+    min-width: 0;
+}
+
+.data-table.trusted-addresses td {
+    white-space: normal;
+}
+
+.data-table.trusted-addresses code {
+    word-break: break-all;
+}
+
+.trusted-addresses .trusted-action {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.trusted-addresses tr.trusted-stale td {
+    color: var(--text-secondary);
+}
+
+.trusted-matrix .trusted-matrix-cell {
+    text-align: center;
+}
+
+.trusted-matrix .table-responsive {
+    margin-top: 0.5rem;
 }
 
 .automatic-blocking .ab-target {
@@ -7531,6 +7586,10 @@ a.path-hop.hop-clickable:hover {
 .ip-block-control .ip-block-message {
     color: var(--text-secondary);
     font-size: 0.8rem;
+}
+
+.ip-block-message.is-error {
+    color: var(--danger-color);
 }
 
 /* Threat Intelligence - Blocked Sources */
