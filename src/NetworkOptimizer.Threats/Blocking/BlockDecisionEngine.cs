@@ -36,9 +36,9 @@ public static class BlockDecisionEngine
     {
         var decided = new Dictionary<string, ThreatBlock>(StringComparer.OrdinalIgnoreCase);
 
-        void Consider(string ip, BlockTrigger trigger, string reason)
+        void Consider(string raw, BlockTrigger trigger, string reason)
         {
-            if (string.IsNullOrWhiteSpace(ip) || decided.ContainsKey(ip) || activeSources.Contains(ip)) return;
+            if (BlockAllowlist.Normalize(raw) is not { } ip || decided.ContainsKey(ip) || activeSources.Contains(ip)) return;
             if (allowlist.Exempts(ip) != null) return;
             var strikes = priorStrikes.TryGetValue(ip, out var s) ? s : 0;
             decided[ip] = new ThreatBlock

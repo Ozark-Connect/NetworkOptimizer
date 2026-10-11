@@ -162,6 +162,28 @@ public class BlockDecisionEngineTests
             .Should().Equal("203.0.113.6", "203.0.113.2");
     }
 
+    [Theory]
+    [InlineData("203.0.113.7", "203.0.113.7")]
+    [InlineData(" 203.0.113.7 ", "203.0.113.7")]
+    [InlineData("::ffff:203.0.113.7", "203.0.113.7")]
+    [InlineData("2001:0DB8:0000:0000:0000:0000:0000:0007", "2001:db8::7")]
+    [InlineData("2001:db8::7", "2001:db8::7")]
+    [InlineData("not-an-ip", null)]
+    public void Normalize_GivesOneSpellingPerAddress(string input, string? expected) =>
+        BlockAllowlist.Normalize(input).Should().Be(expected);
+
+    [Fact]
+    public void IPv6_IsDecidedLikeIPv4_AndSpellingsCollapse()
+    {
+        var blocks = Decide(new Dictionary<string, int>
+        {
+            ["2001:0db8:0000:0000:0000:0000:0000:0007"] = 5,
+            ["2001:db8::8"] = 9,
+        }, active: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "2001:db8::8" });
+
+        blocks.Should().ContainSingle().Which.SourceIp.Should().Be("2001:db8::7");
+    }
+
     [Fact]
     public void Allowlist_Invalid_ReportsBadEntries()
     {

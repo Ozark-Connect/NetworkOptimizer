@@ -1,0 +1,131 @@
+@using NetworkOptimizer.Threats.Blocking
+@using NetworkOptimizer.Threats.Models
+@inject IThreatBlockingAdmin Blocking
+@inject SiteContextService SiteContext
+@inject AuthenticationStateProvider AuthState
+
+@* Block or release one address by hand. Renders nothing for an address that is not publicly
+   routable (IPv4 or IPv6) or while Automatic Blocking is Off. *@
+
+@if (_visible)
+{
+    <span class="ip-block-control">
+        @if (_active is { Enforced: true })
+        {
+            <span class="status-badge status-error" data-tooltip="@_active.Reason">Blocked</span>
+            <span class="ip-block-until">until @_active.ExpiresAt.ToLocalTime().ToString("MMM d HH:mm")</span>
+            <SiteAdminOnly>
+                <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="Release">Release</button>
+            </SiteAdminOnly>
+        }
+        else
+        {
+            @if (_active != null)
+            {
+                <span class="status-badge" data-tooltip="Dry Run would block this address: @_active.Reason">Dry Run</span>
+            }
+            <SiteAdminOnly>
+                <select class="form-control ip-block-duration" @bind="_minutes" aria-label="Block for">
+                    @foreach (var m in ThreatBlockingOperations.ManualBlockMinutes)
+                    {
+                        <option value="@m">@DurationLabel(m)</option>
+                    }
+                </select>
+                <button class="btn btn-sm btn-danger" disabled="@_busy" @onclick="Block">Block</button>
+            </SiteAdminOnly>
+        }
+        @if (_message != null)
+        {
+            <span class="ip-block-message @(_messageIsError ? "text-danger" : "")">@_message</span>
+        }
+    </span>
+}
+
+@code {
+    /// <summary>The address to block, IPv4 or IPv6.</summary>
+    [Parameter, EditorRequired] public string Ip { get; set; } = "";
+
+    private bool _visible;
+    private ThreatBlock? _active;
+    private BlockingSettings? _settings;
+    private int _minutes = 1440;
+    private bool _busy;
+    private string? _message;
+    private bool _messageIsError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _message = null;
+        _visible = System.Net.IPAddress.TryParse(Ip, out var addr)
+                   && NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPublicIpAddress(addr);
+        if (!_visible) return;
+        try
+        {
+            _settings = (await Blocking.GetOverviewAsync()).Settings;
+            _visible = _settings.Mode != BlockingMode.Off;
+            _active = _visible ? await Blocking.FindActiveBlockAsync(Ip) : null;
+        }
+        catch (Exception)
+        {
+            // A Viewer read; if blocking cannot be read the control stays out of the way.
+            _visible = false;
+        }
+    }
+
+    private static string DurationLabel(int minutes) => minutes switch
+    {
+        < 1440 => $"{minutes / 60} hour{(minutes == 60 ? "" : "s")}",
+        _ => $"{minutes / 1440} day{(minutes == 1440 ? "" : "s")}",
+    };
+
+    private async Task<string> UserName() =>
+        (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name ?? "a user";
+
+    private async Task Block()
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            _active = await Blocking.BlockAsync(Ip, _minutes, await UserName());
+            var targets = ThreatBlockingService.EnabledTargets(_settings!, SiteContext.IsDefault ? null : SiteContext.Slug)
+                .Select(BlockedSourcesCard.TargetLabel).ToList();
+            _messageIsError = targets.Count == 0;
+            _message = targets.Count > 0
+                ? $"Blocking on {string.Join(" and ", targets)} within a minute."
+                : "Recorded, but nothing enforces it yet: choose where in Settings - Security & Alerts - Automatic Blocking.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _message = ex.Message;
+            _messageIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Release()
+    {
+        if (_active == null) return;
+        _busy = true;
+        _message = null;
+        try
+        {
+            await Blocking.ReleaseAsync(_active.Id, await UserName());
+            _active = null;
+            _message = "Released. It leaves every target within a minute.";
+            _messageIsError = false;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _message = ex.Message;
+            _messageIsError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
