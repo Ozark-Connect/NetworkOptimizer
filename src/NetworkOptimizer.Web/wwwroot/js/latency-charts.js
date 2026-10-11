@@ -9,7 +9,7 @@ import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=17';
 import { renderFilterReset, renderInactiveToggle, isFiltered } from './chart-filter.js?v=6';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createAxisDateCaption } from './chart-axis-date.js?v=3';
+import { createAxisDateCaption } from './chart-axis-date.js?v=4';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
