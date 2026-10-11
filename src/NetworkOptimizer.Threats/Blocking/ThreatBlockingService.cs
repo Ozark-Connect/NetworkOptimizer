@@ -379,17 +379,26 @@ public sealed class ThreatBlockingService : BackgroundService
         // Never sent empty: an empty list would close every route that uses it.
         var members = await TrustedMembersAsync(services, site, ct);
         if (members.Count == 0) return;
-        var fingerprint = string.Join(",", members);
-        bool Due(BlockTargetKind kind) =>
+        bool Due(BlockTargetKind kind, string fingerprint) =>
             !_trustedSent.TryGetValue((Key(site), kind), out var last) || last.Fingerprint != fingerprint
             || now - last.At >= (last.Ok ? Resync : TimeSpan.FromMinutes(5));
 
-        if (uniFi && Due(BlockTargetKind.Gateway) && services.GetService<TrustedSourcesGroup>() is { } writer)
-            Record(BlockTargetKind.Gateway, await writer.SyncAsync(site, members, ct));
+        // Cloudflare's ranges go to the UniFi groups only, by choice: a port forward to a proxied
+        // host sees Cloudflare as the source. Never to the WAF, which sees the visitor behind it.
+        if (uniFi && services.GetService<TrustedSourcesGroup>() is { } writer)
+        {
+            var groupMembers = await TrustedSourcesSettings.UniFiIncludesCloudflareAsync(accessor, site, ct) && _lists != null
+                ? [.. members, .. await _lists.GetCloudflareRangesAsync(accessor, now, ct)]
+                : members;
+            var groupFingerprint = string.Join(",", groupMembers);
+            if (Due(BlockTargetKind.Gateway, groupFingerprint))
+                Record(BlockTargetKind.Gateway, groupFingerprint, await writer.SyncAsync(site, groupMembers, ct));
+        }
+        var fingerprint = string.Join(",", members);
 
         // The WAF's "trusted" list, for routes that use /check?allow=trusted. Pushed whatever the
         // blocking mode: it is an access list the operator opted routes into, not a block.
-        if (waf && Due(BlockTargetKind.Waf))
+        if (waf && Due(BlockTargetKind.Waf, fingerprint))
         {
             var url = await accessor.GetSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Url, site), ct);
             var token = await accessor.GetDecryptedSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Token, site), ct);
@@ -404,12 +413,12 @@ public sealed class ThreatBlockingService : BackgroundService
             {
                 result = BlockTargetResult.Failure(ex.Message);
             }
-            Record(BlockTargetKind.Waf, result);
+            Record(BlockTargetKind.Waf, fingerprint, result);
         }
 
-        void Record(BlockTargetKind kind, BlockTargetResult result)
+        void Record(BlockTargetKind kind, string sent, BlockTargetResult result)
         {
-            _trustedSent[(Key(site), kind)] = (fingerprint, now, result.Ok);
+            _trustedSent[(Key(site), kind)] = (sent, now, result.Ok);
             _trustedStatus[(Key(site), kind)] = new BlockTargetStatus(kind, now, result.Ok, result.Count, result.Error);
             if (!result.Ok)
                 _logger.LogWarning("Trusted Sources: {Target} sync failed on {Site}: {Error}", kind, site ?? "main", result.Error);

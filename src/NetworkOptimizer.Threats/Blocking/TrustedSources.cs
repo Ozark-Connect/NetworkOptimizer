@@ -20,6 +20,9 @@ public static class TrustedSourcesKeys
     /// <summary>"true" to keep the Trusted Sources address groups in this site's UniFi console.</summary>
     public const string UniFiGroup = "trusted.unifi";
 
+    /// <summary>"true" to add Cloudflare's ranges to the UniFi groups (never to the WAF list).</summary>
+    public const string UniFiCloudflare = "trusted.unifi.cloudflare";
+
     /// <summary>JSON <see cref="TrustedSourcesGroupState"/>.</summary>
     public const string UniFiGroupState = "trusted.unifi.state";
 
@@ -195,6 +198,10 @@ public static class TrustedSourcesSettings
             ?? (sharing == null ? [site] : [.. await sharing.GetPeerSitesAsync(site, ct)]);
         return chosen.Contains(site) ? chosen : [site, .. chosen];
     }
+
+    /// <summary>Whether a site's UniFi groups also hold Cloudflare's ranges, for port forwards to proxied hosts.</summary>
+    public static async Task<bool> UniFiIncludesCloudflareAsync(IThreatSettingsAccessor settings, string? site, CancellationToken ct) =>
+        bool.TryParse(await settings.GetSettingAsync(BlockingSettingKeys.ForSite(TrustedSourcesKeys.UniFiCloudflare, site), ct), out var on) && on;
 
     /// <summary>Whether a site keeps the Trusted Sources groups in its UniFi console.</summary>
     public static async Task<bool> UniFiGroupEnabledAsync(IThreatSettingsAccessor settings, string? site, CancellationToken ct) =>
