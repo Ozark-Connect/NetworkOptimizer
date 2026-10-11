@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Writes;
@@ -33,6 +36,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private readonly ConcurrentQueue<BufferedPoint> _writeBuffer = new();
     private readonly SemaphoreSlim _flushSemaphore = new(1, 1);
     private readonly CancellationTokenSource _timerCts = new();
+    private readonly object _backfillCancellationLock = new();
+    private CancellationTokenSource _backfillCancellation = new();
+    private int _pendingBackfillRefreshes;
 
     private InfluxDBClient? _client;
     private WriteApiAsync? _writeApi;
@@ -51,6 +57,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private bool _disposed;
     private bool _initialized;
     private string? _tokenHash;
+    private long _configurationVersion;
 
     private readonly SiteDbContextFactory? _siteDbFactory;
     private readonly string? _siteSlug;
@@ -84,6 +91,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     public string? CurrentUrl => _url;
     public bool IsConfigured => _client != null && !string.IsNullOrEmpty(_bucket);
+    /// <summary>Changes when connection settings change or an explicit refresh requests a backfill check.</summary>
+    public long ConfigurationVersion => Interlocked.Read(ref _configurationVersion);
 
     /// <summary>The primary bucket this client actually reads/writes, after resolution
     /// (slug-prefixed for non-default sites; collisions with main are corrected). Null
@@ -98,11 +107,45 @@ public class MonitoringInfluxClient : IAsyncDisposable
     /// Build (or rebuild) the client from current MonitoringSettings. Safe to call repeatedly.
     /// Returns true if a usable client was constructed.
     /// </summary>
-    public async Task<bool> ReconfigureAsync(CancellationToken ct = default)
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="refreshSpeedTestBackfill">False for lifecycle checks; explicit setup/health refreshes also recheck bucket metadata.</param>
+    public async Task<bool> ReconfigureAsync(CancellationToken ct = default, bool refreshSpeedTestBackfill = true)
     {
-        await _configLock.WaitAsync(ct);
+        if (!refreshSpeedTestBackfill)
+            return await ReconfigureCoreAsync(ct, refreshSpeedTestBackfill: false);
+
+        ct.ThrowIfCancellationRequested();
+        CancellationTokenSource previous;
+        lock (_backfillCancellationLock)
+        {
+            _pendingBackfillRefreshes++;
+            previous = _backfillCancellation;
+            _backfillCancellation = new CancellationTokenSource();
+        }
         try
         {
+            await previous.CancelAsync();
+            return await ReconfigureCoreAsync(ct, refreshSpeedTestBackfill: true);
+        }
+        finally
+        {
+            previous.Dispose();
+            lock (_backfillCancellationLock)
+                _pendingBackfillRefreshes--;
+        }
+    }
+
+    private async Task<bool> ReconfigureCoreAsync(CancellationToken ct, bool refreshSpeedTestBackfill)
+    {
+        await _configLock.WaitAsync(ct);
+        var wasConfigured = IsConfigured;
+        var ownsFlushGate = false;
+        try
+        {
+            await _flushSemaphore.WaitAsync(ct);
+            ownsFlushGate = true;
+            if (refreshSpeedTestBackfill)
+                Interlocked.Increment(ref _configurationVersion);
             await using var db = await CreateSettingsContextAsync(ct);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
 
@@ -146,6 +189,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         }
         finally
         {
+            if (wasConfigured && !IsConfigured)
+                Interlocked.Increment(ref _configurationVersion);
+            if (ownsFlushGate)
+                _flushSemaphore.Release();
             _configLock.Release();
         }
     }
@@ -271,6 +318,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
             _longtermBucket = SanitizeFluxString(string.IsNullOrWhiteSpace(longterm) ? bucket : longterm);
             _tokenHash = currentTokenHash;
             _initialized = true;
+            Interlocked.Increment(ref _configurationVersion);
 
             _flushTimer = new PeriodicTimer(TimeSpan.FromSeconds(_flushIntervalSeconds));
             _flushTask = RunFlushLoopAsync(_timerCts.Token);
@@ -372,6 +420,171 @@ public class MonitoringInfluxClient : IAsyncDisposable
     }
 
     // ---- Schema-aligned write helpers (Gate 1) ----
+
+    /// <summary>
+    /// Replays saved history once per destination and retention policy. Unlike live
+    /// buffered exports, completion is persisted only after acknowledged writes.
+    /// </summary>
+    public async Task<bool> BackfillSpeedTestResultsAsync(CancellationToken ct = default)
+    {
+        using var cancellation = CreateBackfillCancellation(ct);
+        try
+        {
+            return await BackfillSpeedTestResultsCoreAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && cancellation.IsCancellationRequested)
+        {
+            _logger.LogInformation("Speed test InfluxDB backfill interrupted by configuration refresh for site {Site}; will retry",
+                _siteSlug ?? "main");
+            return false;
+        }
+    }
+
+    private CancellationTokenSource CreateBackfillCancellation(CancellationToken ct)
+    {
+        lock (_backfillCancellationLock)
+        {
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, _backfillCancellation.Token);
+            // A new pass must not slip ahead of an explicit refresh that is waiting for the config lock.
+            if (_pendingBackfillRefreshes > 0)
+                cancellation.Cancel();
+            return cancellation;
+        }
+    }
+
+    private async Task<bool> BackfillSpeedTestResultsCoreAsync(CancellationToken ct)
+    {
+        await using var db = await CreateSettingsContextAsync(ct);
+        var lastId = await db.Iperf3Results.MaxAsync(r => (int?)r.Id, ct);
+        if (!lastId.HasValue) return true;
+
+        await _configLock.WaitAsync(ct);
+        try
+        {
+            if (!IsConfigured || _client == null || _writeApi == null)
+                return false;
+
+            var buckets = await _client.GetBucketsApi().FindBucketsAsync(
+                org: _org, name: _longtermBucket, cancellationToken: ct);
+            var bucket = buckets.SingleOrDefault()
+                ?? throw new InvalidOperationException($"Speed test backfill bucket '{_longtermBucket}' was not found.");
+            var retentionSeconds = bucket.RetentionRules?
+                .Where(r => r.Type == BucketRetentionRules.TypeEnum.Expire)
+                .Select(r => r.EverySeconds ?? 0).SingleOrDefault() ?? 0;
+            if (retentionSeconds < 0)
+                throw new InvalidOperationException("Speed test backfill bucket has a negative retention period.");
+            var destination = JsonSerializer.Serialize(new { Url = _url?.TrimEnd('/'), Org = _org, Bucket = _longtermBucket });
+            var key = SystemSettingKeys.SpeedTestInfluxBackfillPrefix
+                + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(destination)));
+            var marker = await db.SystemSettings.FindAsync(new object[] { key }, ct);
+            SpeedTestBackfillCompletion? previous = null;
+            if (marker?.Value != null)
+            {
+                try
+                {
+                    previous = JsonSerializer.Deserialize<SpeedTestBackfillCompletion>(marker.Value);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Invalid speed test InfluxDB backfill marker for site {Site}; replaying history",
+                        _siteSlug ?? "main");
+                }
+            }
+            if (previous?.BucketId == bucket.Id && previous.RetentionSeconds == retentionSeconds)
+                return true;
+
+            var exported = 0;
+            var skipped = 0;
+            // Hold the write gate before reading SQLite: earlier live writes go first,
+            // and updates queued during the replay go afterwards, never before stale history.
+            await _flushSemaphore.WaitAsync(ct);
+            try
+            {
+                await FlushBufferedPointsBestEffortAsync(ct);
+                var cursor = 0;
+                while (cursor < lastId.Value)
+                {
+                    var results = await db.Iperf3Results.AsNoTracking()
+                        .Where(r => r.Id > cursor && r.Id <= lastId.Value)
+                        .OrderBy(r => r.Id).Take(500)
+                        .Select(r => new Iperf3Result
+                        {
+                            Id = r.Id, TestTime = r.TestTime, Direction = r.Direction,
+                            DeviceHost = r.DeviceHost, DeviceName = r.DeviceName, DeviceType = r.DeviceType,
+                            WanNetworkGroup = r.WanNetworkGroup, WanName = r.WanName,
+                            ExternalServerName = r.ExternalServerName, Success = r.Success,
+                            DownloadBitsPerSecond = r.DownloadBitsPerSecond, UploadBitsPerSecond = r.UploadBitsPerSecond,
+                            DurationSeconds = r.DurationSeconds, ParallelStreams = r.ParallelStreams,
+                            PingMs = r.PingMs, JitterMs = r.JitterMs,
+                            DownloadLatencyMs = r.DownloadLatencyMs, DownloadJitterMs = r.DownloadJitterMs,
+                            UploadLatencyMs = r.UploadLatencyMs, UploadJitterMs = r.UploadJitterMs
+                        }).ToListAsync(ct);
+                    if (results.Count == 0) break;
+                    cursor = results[^1].Id;
+                    var points = new List<PointData>();
+                    var cutoff = retentionSeconds > 0 ? DateTime.UtcNow.AddSeconds(-retentionSeconds) : DateTime.MinValue;
+                    foreach (var result in results)
+                    {
+                        var timestamp = DateTimeUtilities.AsUtc(result.TestTime);
+                        if (timestamp < cutoff)
+                        {
+                            skipped++;
+                            continue;
+                        }
+                        try
+                        {
+                            var unixTicks = timestamp.Ticks - DateTime.UnixEpoch.Ticks;
+                            if (unixTicks < long.MinValue / 100 || unixTicks > long.MaxValue / 100
+                                || new double?[]
+                                {
+                                    result.DownloadBitsPerSecond, result.UploadBitsPerSecond,
+                                    result.PingMs, result.JitterMs, result.DownloadLatencyMs,
+                                    result.DownloadJitterMs, result.UploadLatencyMs, result.UploadJitterMs
+                                }.Any(value => value.HasValue && !double.IsFinite(value.Value)))
+                                throw new ArgumentException("Historical speed test has an invalid timestamp or non-finite measurement.");
+                            points.Add(BuildSpeedTestPoint(result));
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            skipped++;
+                            _logger.LogWarning(ex, "Skipping invalid historical speed test {ResultId} during InfluxDB backfill", result.Id);
+                        }
+                    }
+                    if (points.Count == 0) continue;
+                    await _writeApi.WritePointsAsync(points, _longtermBucket, _org, ct);
+                    exported += points.Count;
+                }
+
+                var completion = new SpeedTestBackfillCompletion(bucket.Id, retentionSeconds, DateTime.UtcNow, exported, skipped);
+                if (marker == null)
+                {
+                    marker = new SystemSetting { Key = key };
+                    db.SystemSettings.Add(marker);
+                }
+                marker.Value = JsonSerializer.Serialize(completion);
+                marker.UpdatedAt = completion.CompletedAt;
+                await db.SaveChangesAsync(ct);
+            }
+            finally
+            {
+                _flushSemaphore.Release();
+            }
+            _logger.LogInformation("Speed test InfluxDB backfill complete for site {Site}: {Exported} exported, {Skipped} skipped",
+                _siteSlug ?? "main", exported, skipped);
+            return true;
+        }
+        catch (InfluxDB.Client.Core.Exceptions.HttpException) when (ct.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(ct);
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+    }
+
+    private sealed record SpeedTestBackfillCompletion(
+        string BucketId, long RetentionSeconds, DateTime CompletedAt, int Exported, int Skipped);
 
     /// <summary>Export a saved speed test to the existing long-term bucket.</summary>
     public Task WriteSpeedTestResultAsync(Iperf3Result result)
@@ -5752,38 +5965,53 @@ from(bucket: ""{_longtermBucket}"")
         if (!await _flushSemaphore.WaitAsync(0)) return;
         try
         {
-            var primary = new List<PointData>();
-            var longterm = new List<PointData>();
-            while (_writeBuffer.TryDequeue(out var buffered))
-            {
-                if (buffered.Longterm) longterm.Add(buffered.Point);
-                else primary.Add(buffered.Point);
-            }
-
-            if (primary.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_bucket))
-            {
-                await _writeApi.WritePointsAsync(primary, _bucket, _org);
-            }
-            if (longterm.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_longtermBucket))
-            {
-                await _writeApi.WritePointsAsync(longterm, _longtermBucket, _org);
-            }
-
-            if (primary.Count + longterm.Count > 0)
-            {
-                _logger.LogDebug(
-                    "Flushed {Primary} points to {Bucket}, {Longterm} to {LongtermBucket}",
-                    primary.Count, _bucket, longterm.Count, _longtermBucket);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+            await FlushBufferedPointsBestEffortAsync();
         }
         finally
         {
             _flushSemaphore.Release();
         }
+    }
+
+    private async Task FlushBufferedPointsBestEffortAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await FlushBufferedPointsAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InfluxDB.Client.Core.Exceptions.HttpException) when (ct.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+        }
+    }
+
+    private async Task FlushBufferedPointsAsync(CancellationToken ct = default)
+    {
+        var primary = new List<PointData>();
+        var longterm = new List<PointData>();
+        while (_writeBuffer.TryDequeue(out var buffered))
+        {
+            if (buffered.Longterm) longterm.Add(buffered.Point);
+            else primary.Add(buffered.Point);
+        }
+
+        if (primary.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_bucket))
+            await _writeApi.WritePointsAsync(primary, _bucket, _org, ct);
+        if (longterm.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_longtermBucket))
+            await _writeApi.WritePointsAsync(longterm, _longtermBucket, _org, ct);
+
+        if (primary.Count + longterm.Count > 0)
+            _logger.LogDebug(
+                "Flushed {Primary} points to {Bucket}, {Longterm} to {LongtermBucket}",
+                primary.Count, _bucket, longterm.Count, _longtermBucket);
     }
 
     private async Task RunFlushLoopAsync(CancellationToken ct)
@@ -5829,6 +6057,7 @@ from(bucket: ""{_longtermBucket}"")
         // them writes artificial 100% loss to InfluxDB.
         await DisposeClientAsync();
         _timerCts.Dispose();
+        _backfillCancellation.Dispose();
         _flushSemaphore.Dispose();
         _configLock.Dispose();
         GC.SuppressFinalize(this);
@@ -5845,6 +6074,7 @@ from(bucket: ""{_longtermBucket}"")
         }
         _client?.Dispose();
         _client = null;
+        _initialized = false;
         _writeApi = null;
         _rawQueryHttp?.Dispose();
         _rawQueryHttp = null;

@@ -39,6 +39,11 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
     private MonitoringInfluxRegistry _registry = null!;
     private WebApplication _server = null!;
     private int _writeStatus = StatusCodes.Status204NoContent;
+    private int _bucketReads;
+    private int _bucketStatus = StatusCodes.Status200OK;
+    private string _bucketId = "history-id";
+    private long _retentionSeconds;
+    private Func<HttpContext, Task>? _beforeWrite;
 
     public async Task InitializeAsync()
     {
@@ -68,7 +73,26 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         {
             using var reader = new StreamReader(context.Request.Body);
             _writes.Enqueue((context.Request.Query["bucket"].ToString(), await reader.ReadToEndAsync()));
+            if (_beforeWrite != null) await _beforeWrite(context);
             context.Response.StatusCode = _writeStatus;
+            if (_writeStatus != StatusCodes.Status204NoContent)
+                await context.Response.WriteAsJsonAsync(new { code = "unprocessable entity", message = "test write failure" });
+        });
+        _server.MapGet("/api/v2/buckets", async (HttpContext context) =>
+        {
+            Interlocked.Increment(ref _bucketReads);
+            context.Response.StatusCode = _bucketStatus;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                buckets = new[]
+                {
+                    new
+                    {
+                        id = _bucketId, name = context.Request.Query["name"].ToString(), orgID = "test-org-id",
+                        retentionRules = new[] { new { type = "expire", everySeconds = _retentionSeconds } }
+                    }
+                }
+            });
         });
         await _server.StartAsync();
 
@@ -95,11 +119,13 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             await db.SaveChangesAsync();
         }
 
+        var credentials = new Mock<ICredentialProtectionService>();
+        credentials.Setup(protection => protection.Decrypt(It.IsAny<string>()))
+            .Returns((string token) => token);
         _services = new ServiceCollection()
             .AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(_mainDbFactory)
             .AddSingleton(_siteDbFactory)
-            .AddSingleton(Mock.Of<ICredentialProtectionService>(
-                protection => protection.Decrypt(It.IsAny<string>()) == "test-token"))
+            .AddSingleton(credentials.Object)
             .AddSingleton(_influxLogger.Object)
             .BuildServiceProvider();
         _registry = new MonitoringInfluxRegistry(_services, NullLogger<MonitoringInfluxRegistry>.Instance);
@@ -803,6 +829,857 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         new(_mainDbFactory, _siteDbFactory, registry ?? _registry, site, result, failTest, logger);
 
     [Theory]
+    [InlineData("main", "history")]
+    [InlineData("branch", "branch-history")]
+    public async Task Backfill_AllDirectionsUsesOriginatingBucketAndPersistsCompletion(string site, string bucket)
+    {
+        var results = Enum.GetValues<SpeedTestDirection>().Select(direction =>
+        {
+            var result = Result();
+            result.Direction = direction;
+            result.TestTime = DateTime.UtcNow.AddDays(-2).AddSeconds((int)direction);
+            result.Success = direction != SpeedTestDirection.CloudflareWanGateway;
+            result.DeviceName = "Historical target";
+            result.ExternalServerName = "External WAN";
+            return result;
+        }).ToArray();
+        await SaveHistoryAsync(site, results);
+
+        (await BackfillAsync(site)).Should().BeTrue();
+
+        var write = _writes.Should().ContainSingle().Subject;
+        write.Bucket.Should().Be(bucket);
+        var lines = write.Body.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        lines.Should().HaveCount(results.Length);
+        foreach (var result in results)
+        {
+            var line = lines.Single(line => line.Contains($"result_id={result.Id}i,"));
+            line.Should().Contain("runner=").And.Contain("provider=").And.NotContain("direction=");
+            if (!result.Success)
+                line.Should().NotContain("server_name").And.NotContain("target_name");
+            else if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+                line.Should().Contain("server_name=\"External WAN\"").And.NotContain("target_name");
+            else if (result.Direction is SpeedTestDirection.CloudflareWan or SpeedTestDirection.CloudflareWanGateway
+                or SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway)
+                line.Should().Contain("server_name=\"Historical target\"").And.NotContain("target_name");
+            else
+                line.Should().Contain("target_name=\"Historical target\"");
+            line.Should().Contain($"success={result.Success.ToString().ToLowerInvariant()}");
+            line.Should().EndWith(((result.TestTime.Ticks - DateTime.UnixEpoch.Ticks) * 100).ToString());
+        }
+        var marker = (await BackfillMarkersAsync(site)).Should().ContainSingle().Subject;
+        marker.Key.Length.Should().BeLessThanOrEqualTo(100);
+        marker.Value.Should().NotContain("test-token");
+
+        await using var restarted = new MonitoringInfluxClient(_mainDbFactory,
+            _services.GetRequiredService<ICredentialProtectionService>(), _influxLogger.Object,
+            _siteDbFactory, site == "main" ? null : site);
+        try
+        {
+            await restarted.ReconfigureAsync();
+            (await restarted.BackfillSpeedTestResultsAsync()).Should().BeTrue();
+            _writes.Should().ContainSingle();
+        }
+        finally { await restarted.DisposeOwnedAsync(); }
+    }
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{\"RetentionSeconds\":\"invalid\"}")]
+    public async Task Backfill_InvalidCompletionMarkerIsLoggedAndRepairedAfterAcknowledgedReplay(string invalidValue)
+    {
+        await SaveHistoryAsync("main", Result());
+        (await BackfillAsync()).Should().BeTrue();
+        var original = (await BackfillMarkersAsync()).Single();
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.SystemSettings.FindAsync(original.Key))!.Value = invalidValue;
+            await db.SaveChangesAsync();
+        }
+        _writeStatus = StatusCodes.Status422UnprocessableEntity;
+
+        await Assert.ThrowsAnyAsync<Exception>(() => BackfillAsync());
+
+        VerifyLog(_influxLogger, LogLevel.Warning, "Invalid speed test InfluxDB backfill marker");
+        (await BackfillMarkersAsync()).Single().Value.Should().Be(invalidValue);
+        _writeStatus = StatusCodes.Status204NoContent;
+
+        (await BackfillAsync()).Should().BeTrue();
+
+        var repaired = (await BackfillMarkersAsync()).Should().ContainSingle().Subject;
+        repaired.Key.Should().Be(original.Key);
+        repaired.Value.Should().Contain("\"BucketId\":\"history-id\"").And.Contain("\"Exported\":1");
+        _writes.Should().HaveCount(3);
+        _writes.Select(write => write.Body).Distinct().Should().ContainSingle();
+
+        (await BackfillAsync()).Should().BeTrue();
+        _writes.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task Backfill_EmptyHistoryDoesNotContactInfluxOrMarkComplete()
+    {
+        (await BackfillAsync()).Should().BeTrue();
+
+        _bucketReads.Should().Be(0);
+        _writes.Should().BeEmpty();
+        (await BackfillMarkersAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Backfill_FailedSecondBatchRemainsPendingAndReplaysAcknowledgedBatch()
+    {
+        await SaveHistoryAsync("main", Enumerable.Range(0, 501).Select(i =>
+        {
+            var result = Result();
+            result.TestTime = DateTime.UtcNow.AddDays(-1).AddSeconds(i);
+            return result;
+        }).ToArray());
+        _beforeWrite = _ =>
+        {
+            if (_writes.Count == 2) _writeStatus = StatusCodes.Status422UnprocessableEntity;
+            return Task.CompletedTask;
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(() => BackfillAsync());
+        (await BackfillMarkersAsync()).Should().BeEmpty();
+        _writes.Select(w => w.Body.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length)
+            .Should().Equal(500, 1);
+        var firstBatch = _writes.First().Body;
+        _beforeWrite = null;
+        _writeStatus = StatusCodes.Status204NoContent;
+
+        (await BackfillAsync()).Should().BeTrue();
+
+        _writes.Should().HaveCount(4);
+        _writes.ElementAt(2).Body.Should().Be(firstBatch);
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Backfill_RespectsRetentionAndSkipsMalformedRows()
+    {
+        _retentionSeconds = 86400;
+        var expired = Result();
+        expired.TestTime = DateTime.UtcNow.AddDays(-2);
+        var valid = Result();
+        valid.TestTime = DateTime.UtcNow.AddHours(-1);
+        var invalid = Result();
+        invalid.TestTime = valid.TestTime;
+        invalid.Direction = SpeedTestDirection.ClientToServer;
+        invalid.DeviceHost = "";
+        var unsupported = Result();
+        unsupported.TestTime = valid.TestTime;
+        unsupported.Direction = (SpeedTestDirection)99;
+        var nonFinite = Result();
+        nonFinite.TestTime = valid.TestTime;
+        nonFinite.DownloadBitsPerSecond = double.PositiveInfinity;
+        var invalidTimestamp = Result();
+        invalidTimestamp.TestTime = DateTime.MaxValue;
+        await SaveHistoryAsync("main", expired, valid, invalid, unsupported, nonFinite, invalidTimestamp);
+
+        (await BackfillAsync()).Should().BeTrue();
+
+        _writes.Should().ContainSingle().Which.Body.Should().Contain($"result_id={valid.Id}i,")
+            .And.NotContain($"result_id={expired.Id}i,");
+        var marker = (await BackfillMarkersAsync()).Single().Value;
+        marker.Should().Contain("\"Exported\":1").And.Contain("\"Skipped\":5");
+        VerifyLog(_influxLogger, LogLevel.Warning, $"historical speed test {invalid.Id}");
+        VerifyLog(_influxLogger, LogLevel.Warning, $"historical speed test {unsupported.Id}");
+        VerifyLog(_influxLogger, LogLevel.Warning, $"historical speed test {nonFinite.Id}");
+        VerifyLog(_influxLogger, LogLevel.Warning, $"historical speed test {invalidTimestamp.Id}");
+    }
+
+    [Fact]
+    public async Task Backfill_RetentionIncreaseAndRecreatedBucketReplayHistory()
+    {
+        var result = Result();
+        result.TestTime = DateTime.UtcNow.AddDays(-2);
+        await SaveHistoryAsync("main", result);
+        _retentionSeconds = 86400;
+        (await BackfillAsync()).Should().BeTrue();
+        _writes.Should().BeEmpty();
+
+        _retentionSeconds = 0;
+        (await BackfillAsync()).Should().BeTrue();
+        _writes.Should().ContainSingle();
+
+        _bucketId = "recreated-history";
+        (await BackfillAsync()).Should().BeTrue();
+        _writes.Should().HaveCount(2);
+        (await BackfillMarkersAsync()).Should().ContainSingle().Which.Value.Should().Contain(_bucketId);
+    }
+
+    [Fact]
+    public async Task Backfill_ChangedDestinationGetsIndependentCompletionMarker()
+    {
+        await SaveHistoryAsync("main", Result());
+        (await BackfillAsync()).Should().BeTrue();
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.MonitoringSettings.SingleAsync()).InfluxDbLongtermBucket = "new-history";
+            await db.SaveChangesAsync();
+        }
+
+        (await BackfillAsync()).Should().BeTrue();
+
+        _writes.Select(write => write.Bucket).Should().Equal("history", "new-history");
+        (await BackfillMarkersAsync()).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Backfill_TokenRotationDoesNotReplayCompletedHistory()
+    {
+        await SaveHistoryAsync("main", Result());
+        (await BackfillAsync()).Should().BeTrue();
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.MonitoringSettings.SingleAsync()).InfluxDbToken = "rotated-token";
+            await db.SaveChangesAsync();
+        }
+
+        (await BackfillAsync()).Should().BeTrue();
+
+        _writes.Should().ContainSingle();
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Backfill_RemovedAndRestoredSettingsRebuildClientWithoutReplayingHistory()
+    {
+        await SaveHistoryAsync("main", Result());
+        (await BackfillAsync()).Should().BeTrue();
+        MonitoringSettings settings;
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            settings = await db.MonitoringSettings.AsNoTracking().SingleAsync();
+            await db.MonitoringSettings.ExecuteDeleteAsync();
+        }
+        var client = _registry.GetDefault();
+        (await client.ReconfigureAsync()).Should().BeFalse();
+        client.IsConfigured.Should().BeFalse();
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            db.MonitoringSettings.Add(settings);
+            await db.SaveChangesAsync();
+        }
+
+        (await BackfillAsync()).Should().BeTrue();
+
+        client.IsConfigured.Should().BeTrue();
+        _writes.Should().ContainSingle();
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData("main", "metrics")]
+    [InlineData("branch", "branch-metrics")]
+    public async Task Backfill_MissingLongtermBucketUsesResolvedPrimaryBucket(string site, string bucket)
+    {
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.MonitoringSettings.SingleAsync()).InfluxDbLongtermBucket = "";
+            await db.SaveChangesAsync();
+        }
+        await using (var db = _siteDbFactory.CreateForSite(site))
+        {
+            (await db.MonitoringSettings.SingleAsync()).InfluxDbLongtermBucket = "";
+            await db.SaveChangesAsync();
+        }
+        await SaveHistoryAsync(site, Result());
+
+        (await BackfillAsync(site)).Should().BeTrue();
+
+        _writes.Should().ContainSingle().Which.Bucket.Should().Be(bucket);
+    }
+
+    [Fact]
+    public async Task Backfill_MetadataFailureDoesNotMarkOrWriteHistory()
+    {
+        await SaveHistoryAsync("main", Result());
+        _bucketStatus = StatusCodes.Status403Forbidden;
+
+        await Assert.ThrowsAnyAsync<Exception>(() => BackfillAsync());
+
+        _writes.Should().BeEmpty();
+        (await BackfillMarkersAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Backfill_SixThousandResultsAreWrittenInBoundedBatches()
+    {
+        await SaveHistoryAsync("main", Enumerable.Range(0, 6000).Select(i =>
+        {
+            var result = Result();
+            result.TestTime = DateTime.UtcNow.AddDays(-7).AddSeconds(i);
+            return result;
+        }).ToArray());
+
+        (await BackfillAsync()).Should().BeTrue();
+
+        _writes.Should().HaveCount(12);
+        _writes.Should().OnlyContain(write => write.Body.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 500);
+        (await BackfillMarkersAsync()).Single().Value.Should().Contain("\"Exported\":6000");
+    }
+
+    [Fact]
+    public async Task Backfill_ExplicitReconfigurationCancelsPendingWriteWithoutMarkingOriginalDestinationComplete()
+    {
+        await SaveHistoryAsync("main", Result());
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeWrite = async context =>
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, context.RequestAborted);
+        };
+        var backfill = BackfillAsync();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            await using (var db = _mainDbFactory.CreateDbContext())
+            {
+                (await db.MonitoringSettings.SingleAsync()).InfluxDbLongtermBucket = "new-history";
+                await db.SaveChangesAsync();
+            }
+            (await _registry.GetDefault().ReconfigureAsync().WaitAsync(TimeSpan.FromSeconds(10))).Should().BeTrue();
+            (await backfill.WaitAsync(TimeSpan.FromSeconds(10))).Should().BeFalse();
+            (await BackfillMarkersAsync()).Should().BeEmpty();
+        }
+        finally
+        {
+            _beforeWrite = null;
+        }
+        _writes.Should().ContainSingle().Which.Bucket.Should().Be("history");
+        (await _registry.GetDefault().BackfillSpeedTestResultsAsync()).Should().BeTrue();
+        _writes.Last().Bucket.Should().Be("new-history");
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Backfill_LifecycleReconfigurationDoesNotCancelPendingWrite()
+    {
+        await SaveHistoryAsync("main", Result());
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeWrite = async context =>
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(context.RequestAborted);
+        };
+        var backfill = BackfillAsync();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Task<bool> reconfiguration;
+        try
+        {
+            reconfiguration = _registry.GetDefault().ReconfigureAsync(refreshSpeedTestBackfill: false);
+            reconfiguration.IsCompleted.Should().BeFalse();
+            backfill.IsCompleted.Should().BeFalse();
+        }
+        finally
+        {
+            _beforeWrite = null;
+            release.TrySetResult();
+        }
+        (await backfill.WaitAsync(TimeSpan.FromSeconds(10))).Should().BeTrue();
+        (await reconfiguration.WaitAsync(TimeSpan.FromSeconds(10))).Should().BeTrue();
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Backfill_PendingExplicitRefreshPreventsNewPassAndAllowsRetryAfterwards(bool cancelRefresh)
+    {
+        await SaveHistoryAsync("main", Result());
+        var client = _registry.GetDefault();
+        await client.ReconfigureAsync();
+        var gate = (SemaphoreSlim)GetField(client, "_flushSemaphore")!;
+        using var cancellation = new CancellationTokenSource();
+        await gate.WaitAsync();
+        Task<bool> refresh;
+        try
+        {
+            refresh = client.ReconfigureAsync(cancellation.Token);
+            refresh.IsCompleted.Should().BeFalse();
+
+            (await client.BackfillSpeedTestResultsAsync().WaitAsync(TimeSpan.FromSeconds(10))).Should().BeFalse();
+            (await BackfillMarkersAsync()).Should().BeEmpty();
+            _writes.Should().BeEmpty();
+            if (cancelRefresh) await cancellation.CancelAsync();
+        }
+        finally
+        {
+            gate.Release();
+        }
+        if (cancelRefresh)
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => refresh);
+        else
+            (await refresh).Should().BeTrue();
+
+        (await client.BackfillSpeedTestResultsAsync()).Should().BeTrue();
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(SpeedTestDirection.ServerToDevice)]
+    [InlineData(SpeedTestDirection.ClientToServer)]
+    [InlineData(SpeedTestDirection.BrowserToServer)]
+    [InlineData(SpeedTestDirection.CloudflareWan)]
+    [InlineData(SpeedTestDirection.CloudflareWanGateway)]
+    [InlineData(SpeedTestDirection.UwnWan)]
+    [InlineData(SpeedTestDirection.UwnWanGateway)]
+    [InlineData(SpeedTestDirection.OpenSpeedTestWan)]
+    public async Task Backfill_FullyPopulatedHistoryMatchesLiveExport(SpeedTestDirection direction)
+    {
+        var result = Result();
+        result.Direction = direction;
+        result.DeviceName = "Test target";
+        result.DeviceType = "Gateway";
+        result.WanName = "Test WAN";
+        result.ExternalServerName = "Browser WAN server";
+        result.DurationSeconds = 17;
+        result.ParallelStreams = 4;
+        result.PingMs = 3.5;
+        result.JitterMs = 0.5;
+        result.DownloadLatencyMs = 13.5;
+        result.DownloadJitterMs = 1.5;
+        result.UploadLatencyMs = 23.5;
+        result.UploadJitterMs = 2.5;
+        await SaveHistoryAsync("main", result);
+        var client = _registry.GetDefault();
+        await client.ReconfigureAsync();
+        await client.WriteSpeedTestResultAsync(result);
+        await client.FlushAsync();
+        var live = _writes.Should().ContainSingle().Subject;
+
+        (await client.BackfillSpeedTestResultsAsync()).Should().BeTrue();
+
+        _writes.Should().HaveCount(2);
+        _writes.Last().Should().Be(live);
+    }
+
+    [Fact]
+    public async Task Backfill_ConcurrentMergeAndMetadataAreWrittenAfterHistoricalSnapshot()
+    {
+        var result = Result();
+        result.Direction = SpeedTestDirection.ClientToServer;
+        result.UploadBitsPerSecond = 0;
+        await SaveHistoryAsync("main", result);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeWrite = async context =>
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(context.RequestAborted);
+        };
+        var backfill = BackfillAsync();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            await using (var db = _mainDbFactory.CreateDbContext())
+            {
+                var merged = await db.Iperf3Results.SingleAsync();
+                merged.UploadBitsPerSecond = 123_000_000;
+                merged.DeviceName = "Enriched target";
+                await db.SaveChangesAsync();
+                await _registry.GetDefault().WriteSpeedTestResultAsync(merged);
+                await _registry.GetDefault().WriteSpeedTestMetadataAsync(merged);
+            }
+            await _registry.GetDefault().FlushAsync();
+            _writes.Should().ContainSingle();
+            (await BackfillMarkersAsync()).Should().BeEmpty();
+        }
+        finally
+        {
+            _beforeWrite = null;
+            release.TrySetResult();
+        }
+        (await backfill).Should().BeTrue();
+        await _registry.GetDefault().FlushAsync();
+
+        _writes.Should().HaveCount(2);
+        _writes.First().Body.Should().Contain("upload_bps=0");
+        _writes.Last().Body.Should().Contain("upload_bps=123000000")
+            .And.Contain("target_name=\"Enriched target\"");
+        var lines = _writes.SelectMany(write => write.Body.Split('\n', StringSplitOptions.RemoveEmptyEntries)).ToArray();
+        lines.Select(line => line.Split(' ')[0]).Distinct().Should().ContainSingle();
+        lines.Select(line => line.Split(' ')[^1]).Distinct().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Backfill_PreexistingBufferedWriteIsDrainedBeforeCurrentHistory()
+    {
+        var result = Result();
+        result.UploadBitsPerSecond = 0;
+        await SaveHistoryAsync("main", result);
+        var client = _registry.GetDefault();
+        await client.ReconfigureAsync();
+        await client.WriteSpeedTestResultAsync(result);
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.Iperf3Results.SingleAsync()).UploadBitsPerSecond = 321_000_000;
+            await db.SaveChangesAsync();
+        }
+
+        (await client.BackfillSpeedTestResultsAsync()).Should().BeTrue();
+
+        _writes.Should().HaveCount(2);
+        _writes.First().Body.Should().Contain("upload_bps=0");
+        _writes.Last().Body.Should().Contain("upload_bps=321000000");
+    }
+
+    [Fact]
+    public async Task Backfill_CancellationLeavesMarkerUnsetAndCanRetry()
+    {
+        await SaveHistoryAsync("main", Result());
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeWrite = async context =>
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, context.RequestAborted);
+        };
+        using var cancellation = new CancellationTokenSource();
+        var backfill = BackfillAsync(ct: cancellation.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => backfill);
+        (await BackfillMarkersAsync()).Should().BeEmpty();
+        _beforeWrite = null;
+        (await BackfillAsync()).Should().BeTrue();
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task BackfillScheduler_ConfiguredLaterExportsWithoutMonitoringOrRestart()
+    {
+        await SaveHistoryAsync("main", Result());
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.MonitoringSettings.SingleAsync()).InfluxDbToken = null;
+            await db.SaveChangesAsync();
+        }
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var scheduler = new MonitoringCollectionRegistry(
+            schedulingServices,
+            _mainDbFactory, null!, NullLogger<MonitoringCollectionRegistry>.Instance);
+        try
+        {
+            await ScheduleBackfillAsync(scheduler);
+            _writes.Should().BeEmpty();
+            (await BackfillMarkersAsync()).Should().BeEmpty();
+
+            await using (var db = _mainDbFactory.CreateDbContext())
+            {
+                (await db.MonitoringSettings.SingleAsync()).InfluxDbToken = "test-token";
+                await db.SaveChangesAsync();
+            }
+            await _registry.ReconfigureAllAsync();
+            await ScheduleBackfillAsync(scheduler);
+            _writes.Should().ContainSingle();
+            var bucketReads = _bucketReads;
+
+            await ScheduleBackfillAsync(scheduler);
+            _bucketReads.Should().Be(bucketReads);
+            _writes.Should().ContainSingle();
+        }
+        finally
+        {
+            await scheduler.StopForSiteAsync("main");
+            scheduler.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task BackfillScheduler_FailureIsThrottledAndUnfinishedWorkRetries()
+    {
+        await SaveHistoryAsync("main", Result());
+        _writeStatus = StatusCodes.Status503ServiceUnavailable;
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var logger = new Mock<ILogger<MonitoringCollectionRegistry>>();
+        var scheduler = new MonitoringCollectionRegistry(schedulingServices, _mainDbFactory, null!, logger.Object);
+        try
+        {
+            await ScheduleBackfillAsync(scheduler);
+            VerifyLog(logger, LogLevel.Warning, "backfill failed");
+            (await BackfillMarkersAsync()).Should().BeEmpty();
+            _writes.Should().ContainSingle();
+
+            await ScheduleBackfillAsync(scheduler);
+            _writes.Should().ContainSingle();
+            SetBackfillState(scheduler, "RetryAfter", DateTime.MinValue);
+            _writeStatus = StatusCodes.Status204NoContent;
+
+            await ScheduleBackfillAsync(scheduler);
+            _writes.Should().HaveCount(2);
+            (await BackfillMarkersAsync()).Should().ContainSingle();
+        }
+        finally
+        {
+            await scheduler.StopForSiteAsync("main");
+            scheduler.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Backfill_FailedBufferedMonitoringWriteDoesNotBlockHistoricalCompletion()
+    {
+        await SaveHistoryAsync("main", Result());
+        var client = _registry.GetDefault();
+        await client.ReconfigureAsync();
+        await client.WriteCustomFieldsAsync("device_health", "aa:bb:cc:dd:ee:ff",
+            new Dictionary<string, object> { ["temperature"] = 40.0 }, null, null, null, DateTime.UtcNow);
+        _beforeWrite = context =>
+        {
+            _writeStatus = context.Request.Query["bucket"] == "metrics"
+                ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status204NoContent;
+            return Task.CompletedTask;
+        };
+
+        (await client.BackfillSpeedTestResultsAsync()).Should().BeTrue();
+
+        _writes.Select(write => write.Bucket).Should().Equal("metrics", "history");
+        (await BackfillMarkersAsync()).Should().ContainSingle();
+        VerifyLog(_influxLogger, LogLevel.Error, "points dropped");
+    }
+
+    [Fact]
+    public async Task BackfillScheduler_ConfigurationReadFailureIsThrottledUntilExplicitRefresh()
+    {
+        await SaveHistoryAsync("main", Result());
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var logger = new Mock<ILogger<MonitoringCollectionRegistry>>();
+        var scheduler = new MonitoringCollectionRegistry(schedulingServices, _mainDbFactory, null!, logger.Object);
+        try
+        {
+            _mainDbFactory.FailCreation = true;
+            await ScheduleBackfillAsync(scheduler);
+            VerifyLog(logger, LogLevel.Warning, "backfill failed");
+            _mainDbFactory.FailCreation = false;
+
+            await ScheduleBackfillAsync(scheduler);
+            _bucketReads.Should().Be(0);
+            _writes.Should().BeEmpty();
+            (await BackfillMarkersAsync()).Should().BeEmpty();
+            VerifyLog(logger, LogLevel.Warning, "backfill failed");
+
+            await _registry.ReconfigureAllAsync();
+            await ScheduleBackfillAsync(scheduler);
+
+            _writes.Should().ContainSingle();
+            (await BackfillMarkersAsync()).Should().ContainSingle();
+        }
+        finally
+        {
+            _mainDbFactory.FailCreation = false;
+            await scheduler.StopForSiteAsync("main");
+            scheduler.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task BackfillScheduler_CompletedAndThrottledPassesDoNotReconfigureClients()
+    {
+        await SaveHistoryAsync("main", Result());
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var scheduler = new MonitoringCollectionRegistry(schedulingServices, _mainDbFactory, null!,
+            NullLogger<MonitoringCollectionRegistry>.Instance);
+        try
+        {
+            await ScheduleBackfillAsync(scheduler);
+            var client = _registry.GetDefault();
+            var configGate = (SemaphoreSlim)GetField(client, "_configLock")!;
+            await configGate.WaitAsync();
+            try
+            {
+                await ScheduleBackfillAsync(scheduler);
+                SetBackfillState(scheduler, "Completed", false);
+                await ScheduleBackfillAsync(scheduler);
+            }
+            finally { configGate.Release(); }
+            _bucketReads.Should().Be(1);
+            _writes.Should().ContainSingle();
+        }
+        finally
+        {
+            await scheduler.StopForSiteAsync("main");
+            scheduler.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData("main")]
+    [InlineData("branch")]
+    public async Task BackfillScheduler_EmptyUnconfiguredSiteRechecksAfterExplicitSetup(string site)
+    {
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.MonitoringSettings.SingleAsync()).InfluxDbToken = null;
+            await db.SaveChangesAsync();
+        }
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var scheduler = new MonitoringCollectionRegistry(schedulingServices, _mainDbFactory, null!,
+            NullLogger<MonitoringCollectionRegistry>.Instance);
+        try
+        {
+            await ScheduleBackfillAsync(scheduler, site);
+            _bucketReads.Should().Be(0);
+            await SaveHistoryAsync(site, Result());
+            await using (var db = _mainDbFactory.CreateDbContext())
+            {
+                (await db.MonitoringSettings.SingleAsync()).InfluxDbToken = "test-token";
+                await db.SaveChangesAsync();
+            }
+            await _registry.ReconfigureAllAsync();
+
+            await ScheduleBackfillAsync(scheduler, site);
+
+            _writes.Should().ContainSingle().Which.Bucket.Should().Be(site == "main" ? "history" : "branch-history");
+            (await BackfillMarkersAsync(site)).Should().ContainSingle();
+        }
+        finally
+        {
+            await scheduler.StopForSiteAsync(site);
+            scheduler.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task BackfillScheduler_SharedDestinationRefreshInvalidatesCompletedSecondarySite()
+    {
+        await SaveHistoryAsync("branch", Result());
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var scheduler = new MonitoringCollectionRegistry(schedulingServices, _mainDbFactory, null!,
+            NullLogger<MonitoringCollectionRegistry>.Instance);
+        try
+        {
+            await ScheduleBackfillAsync(scheduler, "branch");
+            await using (var db = _mainDbFactory.CreateDbContext())
+            {
+                (await db.MonitoringSettings.SingleAsync()).InfluxDbOrg = "new-org";
+                await db.SaveChangesAsync();
+            }
+            await _registry.ReconfigureAllAsync();
+
+            await ScheduleBackfillAsync(scheduler, "branch");
+
+            _writes.Should().HaveCount(2);
+            _writes.Should().OnlyContain(write => write.Bucket == "branch-history");
+            (await BackfillMarkersAsync("branch")).Should().HaveCount(2);
+        }
+        finally
+        {
+            await scheduler.StopForSiteAsync("branch");
+            scheduler.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task BackfillScheduler_UnconfiguredSiteProbesSettingsWhenRetryBecomesDue()
+    {
+        await using (var db = _mainDbFactory.CreateDbContext())
+        {
+            (await db.MonitoringSettings.SingleAsync()).InfluxDbToken = null;
+            await db.SaveChangesAsync();
+        }
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var scheduler = new MonitoringCollectionRegistry(schedulingServices, _mainDbFactory, null!,
+            NullLogger<MonitoringCollectionRegistry>.Instance);
+        try
+        {
+            await ScheduleBackfillAsync(scheduler);
+            await SaveHistoryAsync("main", Result());
+            await using (var db = _mainDbFactory.CreateDbContext())
+            {
+                (await db.MonitoringSettings.SingleAsync()).InfluxDbToken = "test-token";
+                await db.SaveChangesAsync();
+            }
+            await ScheduleBackfillAsync(scheduler);
+            _writes.Should().BeEmpty();
+            SetBackfillState(scheduler, "RetryAfter", DateTime.MinValue);
+
+            await ScheduleBackfillAsync(scheduler);
+
+            _writes.Should().ContainSingle();
+            (await BackfillMarkersAsync()).Should().ContainSingle();
+        }
+        finally
+        {
+            await scheduler.StopForSiteAsync("main");
+            scheduler.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task BackfillScheduler_StoppingSiteCancelsAndAwaitsPendingWrite()
+    {
+        await SaveHistoryAsync("main", Result());
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeWrite = async context =>
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, context.RequestAborted);
+        };
+        using var schedulingServices = new ServiceCollection().AddSingleton(_registry).BuildServiceProvider();
+        var scheduler = new MonitoringCollectionRegistry(
+            schedulingServices, _mainDbFactory, null!, NullLogger<MonitoringCollectionRegistry>.Instance);
+        try
+        {
+            var scheduled = ScheduleBackfillAsync(scheduler);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            await scheduler.StopForSiteAsync("main").WaitAsync(TimeSpan.FromSeconds(10));
+            await scheduled;
+
+            (await BackfillMarkersAsync()).Should().BeEmpty();
+            ((System.Collections.IDictionary)GetField(scheduler, "_backfills")!).Count.Should().Be(0);
+        }
+        finally
+        {
+            await scheduler.StopForSiteAsync("main");
+            scheduler.Dispose();
+        }
+    }
+
+    private static void SetBackfillState(MonitoringCollectionRegistry scheduler, string property, object value)
+    {
+        var state = ((System.Collections.IDictionary)GetField(scheduler, "_backfills")!)["main"]!;
+        state.GetType().GetProperty(property)!.SetValue(state, value);
+    }
+
+    private static async Task ScheduleBackfillAsync(MonitoringCollectionRegistry scheduler, string site = "main")
+    {
+        var running = (HashSet<string>)GetField(scheduler, "_running")!;
+        running.Add(site);
+        scheduler.GetType().GetMethod("ScheduleSpeedTestBackfill", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, new object[] { site });
+        var states = (System.Collections.IDictionary)GetField(scheduler, "_backfills")!;
+        var state = states[site]!;
+        await ((Task)state.GetType().GetProperty("Task")!.GetValue(state)!).WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private async Task<bool> BackfillAsync(string site = "main", CancellationToken ct = default)
+    {
+        var client = _registry.GetFor(site);
+        await client.ReconfigureAsync(ct);
+        return await client.BackfillSpeedTestResultsAsync(ct);
+    }
+
+    private async Task SaveHistoryAsync(string site, params Iperf3Result[] results)
+    {
+        await using var db = _siteDbFactory.CreateForSite(site);
+        db.Iperf3Results.AddRange(results);
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<List<SystemSetting>> BackfillMarkersAsync(string site = "main")
+    {
+        await using var db = _siteDbFactory.CreateForSite(site);
+        return await db.SystemSettings.Where(setting =>
+            setting.Key.StartsWith(SystemSettingKeys.SpeedTestInfluxBackfillPrefix)).ToListAsync();
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
     public async Task LanMissingTarget_LogsSkippedExportWithoutChangingSavedResult(string host)
@@ -850,7 +1727,10 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
     private sealed class TestDbFactory(DbContextOptions<NetworkOptimizerDbContext> options)
         : IDbContextFactory<NetworkOptimizerDbContext>
     {
-        public NetworkOptimizerDbContext CreateDbContext() => new(options);
+        public bool FailCreation { get; set; }
+        public NetworkOptimizerDbContext CreateDbContext() => FailCreation
+            ? throw new InvalidOperationException("SQLite configuration is temporarily unavailable")
+            : new(options);
     }
 
     private sealed class FailingSaveDbContext(DbContextOptions<NetworkOptimizerDbContext> options)

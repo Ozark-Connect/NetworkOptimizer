@@ -22,13 +22,15 @@ This is the only thing in the project that touches `InfluxDB.Client`, which is w
 
 ### Speed test export
 
-Saved WAN and LAN speed tests, including browser and client-initiated iperf3 results, automatically export to the `speed_test` measurement when InfluxDB is configured. Manual and scheduled runs use the same paths; unsaved ephemeral probes are excluded. There is no separate toggle, and disabling monitoring collection does not disable export. Each site's client writes to its existing long-term bucket (365 days by default), falling back to the primary bucket when unset. Export does not change retention.
+Saved WAN and LAN speed tests, including browser and client-initiated iperf3 results, automatically export to `speed_test` when InfluxDB is configured, even with monitoring collection disabled. Each site uses its existing long-term bucket (365 days by default), falling back to the primary bucket when unset. Unsaved probes are excluded; export does not change retention.
 
 Points keep the saved UTC `TestTime`. Tags are `test_type` (`wan` or `lan`), `runner` (`server`, `gateway`, or `client`), `provider` (`cloudflare`, `uwn`, `iperf3`, or `openspeedtest`), and either `wan_network_group` or LAN `target_host`. On-Site Agent runs use `server`. Fields include success, throughput in bps, available latency/jitter in ms, and descriptive names. WAN rates use the usual internet perspective; LAN download is device to NO, and upload is NO to device. Browser WAN results identify the external server and use the sole WAN group when known; multi-WAN sites omit the group. Successful WAN descriptions use `server_host`/`server_name`; LAN uses `target_name`/`target_type`. Failed results omit descriptions. Raw payloads and detailed client metadata stay in SQLite.
 
 Client iperf3 results export immediately. Merges update the same point; enrichment updates LAN names/types without overwriting rates or changing browser WAN server identity. Browser WAN results record the sole active WAN interface's group at test time regardless of InfluxDB configuration; ambiguous or unavailable groups remain unset. UWN provider-name fallbacks are omitted from server descriptions.
 
-SQLite remains authoritative. Delivery uses the existing buffer and flush timer: errors are logged without failing tests, failed writes are dropped, and shutdown discards unflushed points (normally up to five seconds of data). There is no backfill, persistent retry queue, or synchronization of SQLite edits/deletions.
+Existing history is backfilled at startup or when InfluxDB is configured later. Completion is recorded per destination in SQLite after acknowledged writes; unfinished passes retry. Failures in unrelated buffered monitoring writes do not block historical export. Backfill respects bucket retention and checks destination or retention changes on restart or connection refresh.
+
+SQLite remains authoritative, and export failures never fail a test. Live writes use the existing buffer: failed batches and unflushed shutdown data are dropped. There is no durable live-delivery queue or synchronization of SQLite edits/deletions.
 
 A Grafana Flux query for WAN download throughput (use the site's actual long-term bucket):
 
