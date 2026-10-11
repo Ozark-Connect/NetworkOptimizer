@@ -11,6 +11,7 @@
 @inject IWafConnectionAdmin WafAdmin
 @inject NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor ThreatSettings
 @inject IJSRuntime JS
+@implements IDisposable
 
 <PageTitle>Web Application Firewall - Network Optimizer</PageTitle>
 
@@ -348,7 +349,36 @@ else if (_tab == "setup")
         _summary = await DashboardService.GetWafSummaryAsync(from, to);
         _week = await DashboardService.GetWafSummaryAsync(to.AddDays(-7), to);
         await LoadEvents();
+        WatchForFirstReport();
     }
+
+    private System.Threading.Timer? _firstReportTimer;
+
+    // Connected but not reported yet: re-check every 5 seconds until the first report lands.
+    private void WatchForFirstReport()
+    {
+        if (_status != null || !_configured)
+        {
+            _firstReportTimer?.Dispose();
+            _firstReportTimer = null;
+            return;
+        }
+        _firstReportTimer ??= new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                if (CollectionService.WafStatusFor(SiteContext.Slug) == null) return;
+                await InvokeAsync(async () =>
+                {
+                    await Load();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    public void Dispose() => _firstReportTimer?.Dispose();
 
     private async Task LoadEvents()
     {
