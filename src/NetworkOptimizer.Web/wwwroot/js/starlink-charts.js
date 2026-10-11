@@ -6,7 +6,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
 import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=17';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
-import { createAxisDateCaption } from './chart-axis-date.js?v=3';
+import { createAxisDateCaption } from './chart-axis-date.js?v=4';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';

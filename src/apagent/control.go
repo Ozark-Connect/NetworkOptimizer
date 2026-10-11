@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// This file is the agent's only mutating surface. Everything else reads. A BSS Transition request
+// This file implements the legacy ubus mutating surface. A BSS Transition request
 // is a request: the client decides, and hostapd exposes only the disassoc-imminent variant, so a
 // client that declines is disassociated when the timer expires and reassociates on its own.
 
@@ -40,6 +40,9 @@ type NeighborReport struct {
 	Ssid  string `json:"ssid"`
 	// Element is the hex neighbor report element passed straight through to a BTM candidate list.
 	Element string `json:"element"`
+	// Public security metadata is optional: legacy ubus callers still use the raw report, but
+	// native voluntary steering refuses destinations with unknown or different security.
+	Security *BssSecurity `json:"security,omitempty"`
 }
 
 // RoamRequest asks one associated client to move. Candidates are neighbor report elements, and
@@ -74,7 +77,7 @@ func ubusCall(ctx context.Context, object, method, args string) (string, error) 
 }
 
 // neighborReports collects each VAP's own neighbor report element.
-func neighborReports(ctx context.Context, vaps []string) []NeighborReport {
+func neighborReports(ctx context.Context, vaps []string, dirs ...string) []NeighborReport {
 	reports := make([]NeighborReport, 0, len(vaps))
 
 	for _, vap := range vaps {
@@ -90,11 +93,21 @@ func neighborReports(ctx context.Context, vaps []string) []NeighborReport {
 			continue
 		}
 
+		var security *BssSecurity
+		if len(dirs) > 0 && dirs[0] != "" {
+			if config, err := nativeControl(ctx, dirs[0], vap, "GET_CONFIG"); err == nil {
+				ssid, bssid, parsed := publicBssConfig(config)
+				if ssid == payload.Value[1] && strings.EqualFold(bssid, payload.Value[0]) {
+					security = parsed
+				}
+			}
+		}
 		reports = append(reports, NeighborReport{
-			Vap:     vap,
-			Bssid:   strings.ToLower(payload.Value[0]),
-			Ssid:    payload.Value[1],
-			Element: payload.Value[2],
+			Vap:      vap,
+			Bssid:    strings.ToLower(payload.Value[0]),
+			Ssid:     payload.Value[1],
+			Element:  payload.Value[2],
+			Security: security,
 		})
 	}
 
@@ -129,26 +142,27 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 		duration = defaultBtmDurationTbtt
 	}
 
-	// hostapd keys its station table per link, so an MLO client is not addressable there by its MLD
-	// MAC: ubus answers "Not found" and the whole request fails. Substituted only when a different
-	// link address is actually known for this VAP, so a non-MLO request is unchanged.
-	addr := mac
-	if link := table.LinkAddrForVap(mac, vap); link != "" {
-		addr = link
+	err := sendBtm(ctx, table, vap, mac, duration, req)
+	if err != nil && isUbusNotFound(err) {
+		// After a band hop on this access point the table still holds the radio the client left for
+		// a few seconds. "Not found" means hostapd sent nothing, so ask it where the client is and
+		// retry there once.
+		others := make([]string, 0, len(vaps))
+		for _, v := range vaps {
+			if v != vap {
+				others = append(others, v)
+			}
+		}
+		moved := vapHoldingClient(ctx, others, mac)
+		if moved == "" {
+			return nil, notFound("client %s is not associated to this access point", mac)
+		}
+		slog.Info("client was not on the expected VAP, sending on the one holding it",
+			"mac", mac, "expected", vap, "vap", moved)
+		vap = moved
+		err = sendBtm(ctx, table, vap, mac, duration, req)
 	}
-
-	args := map[string]any{
-		"addr":      addr,
-		"duration":  duration,
-		"abridged":  req.Abridged,
-		"neighbors": req.Candidates,
-	}
-	encoded, err := json.Marshal(args)
 	if err != nil {
-		return nil, err
-	}
-
-	if _, err := ubusCall(ctx, "hostapd."+vap, "wnm_disassoc_imminent", string(encoded)); err != nil {
 		return nil, fmt.Errorf("BTM request failed on %s: %w", vap, err)
 	}
 
@@ -162,6 +176,34 @@ func sendRoam(ctx context.Context, table *Table, vaps []string, req RoamRequest)
 		Candidates: len(req.Candidates),
 		SentAt:     time.Now().UTC(),
 	}, nil
+}
+
+// sendBtm issues one disassoc-imminent BSS Transition request on vap.
+func sendBtm(ctx context.Context, table *Table, vap, mac string, duration int, req RoamRequest) error {
+	// hostapd keys its station table per link, so an MLO client is not addressable there by its MLD
+	// MAC: ubus answers "Not found" and the whole request fails. Substituted only when a different
+	// link address is actually known for this VAP, so a non-MLO request is unchanged.
+	addr := mac
+	if link := table.LinkAddrForVap(mac, vap); link != "" {
+		addr = link
+	}
+
+	encoded, err := json.Marshal(map[string]any{
+		"addr":      addr,
+		"duration":  duration,
+		"abridged":  req.Abridged,
+		"neighbors": req.Candidates,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = ubusCall(ctx, "hostapd."+vap, "wnm_disassoc_imminent", string(encoded))
+	return err
+}
+
+// isUbusNotFound reports ubus refusing a call because the station is not on that VAP.
+func isUbusNotFound(err error) bool {
+	return strings.Contains(err.Error(), "(Not found)")
 }
 
 // guardDeparture applies the bounce guard once the client has actually left: a ban on a plain RSN

@@ -777,7 +777,7 @@ public class MonitoringCollectionAgent : BackgroundService
             var row = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (row == null) return;
             var before = row.SnmpDetectionState;
-            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection);
+            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection, _siteSlug);
             row.LastSnmpDetection = DateTime.UtcNow;
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -2339,6 +2339,8 @@ public class MonitoringCollectionAgent : BackgroundService
                 cfg.AuthenticationPassword = string.IsNullOrEmpty(settings.SnmpV3AuthPassword)
                     ? string.Empty
                     : _credentialProtection.Decrypt(settings.SnmpV3AuthPassword);
+                // UniFi's v3 user is authPriv, SHA and AES, both keyed by the one password it shows.
+                cfg.PrivacyPassword = cfg.AuthenticationPassword;
                 if (string.IsNullOrEmpty(cfg.Username))
                 {
                     _logger.LogDebug("SNMP v3 selected but no username available");

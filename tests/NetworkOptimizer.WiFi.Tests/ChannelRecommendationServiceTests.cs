@@ -2237,6 +2237,86 @@ public class ChannelRecommendationServiceTests
         }
     }
 
+    /// <summary>
+    /// Four 2.4 GHz APs, weights as measured on a real site. The best plan rotates three of them:
+    /// A (6 -> 11) gains little itself but vacates ch6 for B (1 -> 6), whose ch1 is jammed, and B
+    /// vacates ch1 for C (6 -> 1). D holds ch11 and hears B, so B cannot escape to ch11 on its own.
+    /// </summary>
+    private InterferenceGraph EnablerGraph(double aExternalOn11)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-A", RadioBand.Band2_4GHz, 6, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-B", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-C", RadioBand.Band2_4GHz, 6, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:04", "AP-D", RadioBand.Band2_4GHz, 11, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, null);
+        for (int a = 0; a < 4; a++)
+        {
+            for (int b = 0; b < 4; b++)
+            {
+                graph.InternalWeights[a, b] = 0;
+                graph.DirectionalWeights[a, b] = 0;
+            }
+            graph.DirectlyObservedChannels[a] = new() { 1, 6, 11 };
+        }
+        void Hear(int a, int b, double w)
+        {
+            graph.InternalWeights[a, b] = graph.InternalWeights[b, a] = w;
+            graph.DirectionalWeights[a, b] = graph.DirectionalWeights[b, a] = w;
+        }
+        Hear(0, 1, 0.844);
+        Hear(1, 2, 0.75);
+        Hear(2, 3, 0.719);
+        Hear(1, 3, 0.375);
+        Hear(0, 3, 0.094);
+        Hear(0, 2, 0.156);
+        graph.ExternalLoad[0] = new() { { 1, 6.0 }, { 6, 2.5 }, { 11, aExternalOn11 } };
+        graph.ExternalLoad[1] = new() { { 1, 5.0 }, { 6, 1.0 }, { 11, 3.0 } };
+        graph.ExternalLoad[2] = new() { { 1, 1.5 }, { 6, 3.0 }, { 11, 3.0 } };
+        graph.ExternalLoad[3] = new() { { 1, 3.0 }, { 6, 3.0 }, { 11, 1.0 } };
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_SmallGainMoveThatEnablesNeighbors_IsKept()
+    {
+        // A's own gain on ch11 is far under the per-AP gate. Vetoing it put B back on A's channel
+        // and the whole plan collapsed; it is kept because the plan it unlocks clears the band's bar.
+        var plan = _service.Optimize(EnablerGraph(aExternalOn11: 2.4), RadioBand.Band2_4GHz, null);
+
+        var byName = plan.Recommendations.ToDictionary(r => r.ApName);
+        byName["AP-A"].RecommendedChannel.Should().Be(11);
+        byName["AP-B"].RecommendedChannel.Should().Be(6);
+        byName["AP-C"].RecommendedChannel.Should().Be(1);
+        foreach (var rec in plan.Recommendations.Where(r => r.IsChanged))
+            rec.RecommendedScore.Should().BeLessThan(rec.CurrentScore, $"{rec.ApName} must improve, A included");
+    }
+
+    [Fact]
+    public void Optimize_SmallGainMoveThatMakesTheApWorse_IsNotKept()
+    {
+        // Same layout, but ch11 is worse for A than ch6: A is never moved for its neighbors' sake.
+        var plan = _service.Optimize(EnablerGraph(aExternalOn11: 5.0), RadioBand.Band2_4GHz, null);
+
+        plan.Recommendations.Single(r => r.ApName == "AP-A").RecommendedChannel.Should().Be(6);
+    }
+
+    [Fact]
+    public void Optimize_SmallGainMoveNothingDependsOn_IsStillVetoed()
+    {
+        // A lone AP with a slightly quieter channel: no neighbor needs it to move, so the gate holds.
+        var aps = new List<AccessPointSnapshot> { CreateAp("aa:bb:cc:dd:ee:01", "AP-A", RadioBand.Band2_4GHz, 6, width: 20) };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, null);
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[0] = new() { { 1, 6.0 }, { 6, 2.5 }, { 11, 2.4 } };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, null);
+
+        plan.Recommendations.Single().RecommendedChannel.Should().Be(6);
+    }
+
     // --- Soak-period suppression ---
 
     /// <summary>

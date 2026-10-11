@@ -2429,6 +2429,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double?>("AeTxPowerHighDbm")
                         .HasColumnType("REAL");
 
+                    b.Property<bool>("CmErrorCountersLast24h")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -2494,6 +2497,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int>("MediumPollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("OntErrorCountersLast24h")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("PhysicalLinkSourceKey")

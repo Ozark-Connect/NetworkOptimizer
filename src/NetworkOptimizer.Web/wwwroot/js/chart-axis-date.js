@@ -5,8 +5,9 @@
 // showing. There is no option for stamping the date once, and a caption is the one place that
 // holds still: the tick that would carry it moves with the chart's width.
 
-// Above a day the ticks carry dates themselves, so the caption would only repeat them.
-const SUPPRESS_AT_MS = 24 * 3600000;
+// Above two days the ticks carry dates themselves, so the caption would only repeat them. A 24h
+// window gets at most one midnight tick, which label thinning can drop, so it keeps the caption.
+const SUPPRESS_ABOVE_MS = 48 * 3600000;
 
 // The tick labels' own style, so the caption reads as one of them rather than as a heading under
 // them. ApexCharts renders x-axis labels at 12px/600 in this family; the color is the shared
@@ -30,7 +31,7 @@ export function createAxisDateCaption({ charts, window: getWindow }) {
 
     function text() {
         const { from, to } = getWindow() || {};
-        if (!from || !to || to - from >= SUPPRESS_AT_MS) return '';
+        if (!from || !to || to - from > SUPPRESS_ABOVE_MS) return '';
         // Zero-padded to match a day tick, which datetimeFormatter draws as "MMM dd".
         const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: '2-digit' });
         const start = fmt(from), end = fmt(to);

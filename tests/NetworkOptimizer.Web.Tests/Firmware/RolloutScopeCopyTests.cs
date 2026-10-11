@@ -79,4 +79,44 @@ public class RolloutScopeCopyTests
         RolloutScopeCopy.Sentence("UniFi OS").Should().Be("UniFi OS");
         RolloutScopeCopy.Sentence("").Should().BeEmpty();
     }
+
+    private static TimeZoneInfo Zone(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);
+
+    [Fact]
+    public void ASiteAnHourAheadOfTheServer_ReadsTheStartInSiteHours()
+    {
+        var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+
+        RolloutScopeCopy.SiteAside("America/New_York", start, Zone("America/Chicago"))
+            .Should().Be(" (7:00 AM at-site)");
+    }
+
+    [Fact]
+    public void ASiteOnTheServersClock_SaysNothing()
+    {
+        var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+
+        RolloutScopeCopy.SiteAside("America/Chicago", start, Zone("America/Chicago")).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ZonesSharingABaseOffset_DifferOnlyWhileOneIsOnDst()
+    {
+        // Phoenix keeps MST all year; Denver is on MDT in July, so the clocks differ by an hour.
+        var july = new DateTime(2026, 7, 15, 14, 0, 0, DateTimeKind.Utc);
+        var january = new DateTime(2026, 1, 15, 14, 0, 0, DateTimeKind.Utc);
+
+        RolloutScopeCopy.SiteAside("America/Phoenix", july, Zone("America/Denver"))
+            .Should().Be(" (7:00 AM at-site)");
+        RolloutScopeCopy.SiteAside("America/Phoenix", january, Zone("America/Denver")).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Not/AZone")]
+    public void AMissingOrUnknownSiteZone_SaysNothing(string? zone)
+    {
+        RolloutScopeCopy.SiteAside(zone, DateTime.UtcNow, Zone("America/Chicago")).Should().BeEmpty();
+    }
 }

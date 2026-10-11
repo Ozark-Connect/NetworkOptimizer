@@ -122,7 +122,7 @@ public class UniFiSshService : IUniFiSshService
         // Encrypt password if provided and not already encrypted
         if (!string.IsNullOrEmpty(settings.Password) && !_credentialProtection.IsEncrypted(settings.Password))
         {
-            settings.Password = _credentialProtection.Encrypt(settings.Password);
+            settings.Password = _credentialProtection.EncryptForSite(settings.Password, _siteSlug);
         }
 
         await repository.SaveUniFiSshSettingsAsync(settings);
@@ -425,7 +425,7 @@ public class UniFiSshService : IUniFiSshService
         // Encrypt password if provided and not already encrypted
         if (!string.IsNullOrEmpty(device.SshPassword) && !_credentialProtection.IsEncrypted(device.SshPassword))
         {
-            device.SshPassword = _credentialProtection.Encrypt(device.SshPassword);
+            device.SshPassword = _credentialProtection.EncryptForSite(device.SshPassword, _siteSlug);
         }
 
         await repository.SaveDeviceSshConfigurationAsync(device);

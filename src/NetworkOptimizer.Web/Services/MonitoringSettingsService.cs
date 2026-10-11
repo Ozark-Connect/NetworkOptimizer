@@ -109,6 +109,24 @@ public class MonitoringSettingsService : IMonitoringSettingsService
             };
         });
 
+    /// <inheritdoc />
+    public Task<MonitoringSettings> SetOntErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default) =>
+        SaveAsync(ct, s =>
+        {
+            var before = s.OntErrorCountersLast24h;
+            s.OntErrorCountersLast24h = enabled;
+            return before == enabled ? null : new { field = "OntErrorCountersLast24h", from = before, to = enabled };
+        });
+
+    /// <inheritdoc />
+    public Task<MonitoringSettings> SetCmErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default) =>
+        SaveAsync(ct, s =>
+        {
+            var before = s.CmErrorCountersLast24h;
+            s.CmErrorCountersLast24h = enabled;
+            return before == enabled ? null : new { field = "CmErrorCountersLast24h", from = before, to = enabled };
+        });
+
     private static (double?, double?, double?, double?, double?, double?, double?, bool) Snapshot(MonitoringSettings s) =>
         (s.PonTempHighC, s.PonRxPowerLowDbm, s.PonTxPowerHighDbm,
          s.AeTempHighC, s.AeRxPowerLowDbm, s.AeTxPowerHighDbm, s.SfpTempHighGenericC, s.IgnoreSfpDdmSpikes);

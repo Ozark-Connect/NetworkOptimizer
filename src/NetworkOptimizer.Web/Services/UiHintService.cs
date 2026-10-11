@@ -173,4 +173,11 @@ public static class UiHintKeys
     /// only while no gateway agent can capture. Dismissed rather than counted down.
     /// </summary>
     public const string UciAgentOffer = "uci-agent-offer";
+
+    /// <summary>
+    /// Prefix for the app-wide optional On-Site Agent update banner, suffixed with the
+    /// LatestAgentVersion it announces so each release's notice is dismissed on its own. The
+    /// required-update banner has no key: it cannot be dismissed.
+    /// </summary>
+    public const string AgentUpdateAvailablePrefix = "agent-update-available:";
 }

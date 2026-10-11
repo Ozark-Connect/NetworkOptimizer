@@ -208,16 +208,30 @@ public class ChannelPlanApplyTests
     }
 
     [Fact]
-    public void HasArrived_TheWrittenConfigVersion_CountsBeforeTheLiveStatsCatchUp()
+    public void HasArrived_ANewConfigVersion_CountsBeforeTheLiveStatsCatchUp()
     {
         // The console's live radio stats lag the AP by up to a minute; known_cfgversion lands in seconds.
+        const string previous = "303b3b7cda998d8b";
         var device = Device(sixGhzChannel: 101);
-        device.CfgVersion = "e2b88e58343d3316";
-        device.KnownCfgVersion = "e2b88e58343d3316";
+        device.CfgVersion = "a242c6950b4a4501";
+        device.KnownCfgVersion = "a242c6950b4a4501";
 
-        ChannelPlanApply.HasArrived(Item(), device, "e2b88e58343d3316").Should().BeTrue();
-        ChannelPlanApply.HasArrived(Item(), device, "77864cf970f04dd8").Should().BeFalse("the AP still runs an older config");
+        ChannelPlanApply.HasArrived(Item(), device, previous).Should().BeTrue();
         device.State = 5;
-        ChannelPlanApply.HasArrived(Item(), device, "e2b88e58343d3316").Should().BeFalse("provisioning is not arrival");
+        ChannelPlanApply.HasArrived(Item(), device, previous).Should().BeFalse("provisioning is not arrival");
+    }
+
+    [Fact]
+    public void HasArrived_ThePreviousConfigVersion_IsNotArrival()
+    {
+        // The write's response still carries the old cfgversion, so a match on it means nothing has moved.
+        const string previous = "303b3b7cda998d8b";
+        var device = Device(sixGhzChannel: 101);
+        device.CfgVersion = previous;
+        device.KnownCfgVersion = previous;
+        ChannelPlanApply.HasArrived(Item(), device, previous).Should().BeFalse("the console has not provisioned yet");
+
+        device.CfgVersion = "a242c6950b4a4501";
+        ChannelPlanApply.HasArrived(Item(), device, previous).Should().BeFalse("the AP still runs the old config");
     }
 }

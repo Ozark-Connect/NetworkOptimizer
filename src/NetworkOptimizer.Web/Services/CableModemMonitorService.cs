@@ -147,7 +147,7 @@ public sealed class CableModemMonitorService : ICableModemService, IDisposable
     {
         if (!string.IsNullOrEmpty(config.Password) && !_credentialProtection.IsEncrypted(config.Password))
         {
-            config.Password = _credentialProtection.Encrypt(config.Password);
+            config.Password = _credentialProtection.EncryptForSite(config.Password, _siteSlug);
         }
 
         var isNew = config.Id == 0;

@@ -159,22 +159,33 @@
         @* Too-long community shows even when the gateway is still polling - gateways
            often tolerate a long Community String while the switches silently drop. *@
         var unpolledKeyDevices = GetUnpolledKeyDevices();
-        if (unpolledKeyDevices.Count > 0 || CommunityTooLong)
+        var v3PasswordMissing = _snmpV3PasswordMissing && _snmpState == SnmpDetectionState.EnabledV3Only;
+        var communityMissing = _snmpCommunityMissing && _snmpState == SnmpDetectionState.EnabledV2c;
+        var credentialWithheld = v3PasswordMissing || communityMissing;
+        if (unpolledKeyDevices.Count > 0 || CommunityTooLong || credentialWithheld)
         {
+            @* Keep the gateway-down specifics when a console-side cause is known - only the
+               device-table pointer is useless then, not the who's-affected detail. *@
+            var prefix = unpolledKeyDevices.Count == 1
+                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
+                : unpolledKeyDevices.Count > 1
+                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
+                    : "The ";
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
                 <div class="banner-content">
                     <span class="banner-icon banner-icon-warning">!</span>
                     <div class="banner-text" style="flex: 1;">
                         @if (CommunityTooLong)
                         {
-                            @* Keep the gateway-down specifics when both conditions hold - only the
-                               device-table pointer is useless here, not the who's-affected detail. *@
-                            var prefix = unpolledKeyDevices.Count == 1
-                                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
-                                : unpolledKeyDevices.Count > 1
-                                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
-                                    : "The ";
                             @($"{prefix}SNMP Community String is too long. UniFi devices only reliably support 20 characters; shorten it in UniFi Network.")
+                        }
+                        else if (communityMissing)
+                        {
+                            @($"{prefix}UniFi Console isn't returning the SNMP Community String to Network Optimizer's account.")
+                        }
+                        else if (v3PasswordMissing)
+                        {
+                            @($"{prefix}UniFi Console isn't returning the SNMPv3 password to Network Optimizer's account.")
                         }
                         else if (unpolledKeyDevices.Count == 1)
                         {
@@ -187,7 +198,11 @@
                         }
                     </div>
                     <div class="banner-actions">
-                        @if (!CommunityTooLong)
+                        @if (credentialWithheld && !CommunityTooLong)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick='() => SetActiveTab("setup")'>Open Setup</button>
+                        }
+                        else if (!CommunityTooLong)
                         {
                             <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
                         }
@@ -1574,7 +1589,7 @@
                             <p>Devices without SNMP enabled will not report port-level traffic or health metrics.</p>
 
                             <h4>Recommended configuration</h4>
-                            <p><strong>SNMP v1/v2c</strong> with a unique Community String is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
+                            <p><strong>SNMP v1/v2c</strong> with a unique Community String on a <strong>management VLAN</strong> is recommended unless compliance (PCI, HIPAA) requires an encrypted management plane. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices.</p>
                         </div>
                     </details>
 
@@ -1635,12 +1650,47 @@
                 </div>
             }
 
-            @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
+            @if (_snmpCommunityMissing && _snmpState == SnmpDetectionState.EnabledV2c)
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+                    <strong>SNMP Community String not returned.</strong>
+                    UniFi withholds it from View accounts.
+                    Give Network Optimizer's account Full, or switch to an API Key (limits Firmware Rollout).
+                    <div style="margin-top: 0.75rem;">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            else if (_snmpV3PasswordMissing && _snmpState == SnmpDetectionState.EnabledV3Only)
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+                    <strong>SNMPv3 password not returned.</strong>
+                    UniFi withholds it from View Only accounts.
+                    Give Network Optimizer's account Site Admin / Full Management, switch to an API Key (limits Firmware Rollout),
+                    or enable SNMP v1/v2c (recommended for lower Network Device load).
+                    <div style="margin-top: 0.75rem;">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            else if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
             {
                 <div class="alert alert-info" style="margin-bottom: 1.5rem;">
                     <strong>SNMPv3 detected.</strong>
-                    Consider switching to v1/v2c - the per-packet crypto adds CPU load to your network devices. The recommended security posture is a management VLAN, not v3 encryption.
-                    <button class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+                    Unless compliance (PCI, HIPAA) requires an encrypted management plane, consider v1/v2c on a management VLAN: v3's per-packet crypto adds CPU load to your network devices.
+                    <div style="margin-top: 0.75rem;">
+                        <button class="btn btn-sm btn-contrast" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+                    </div>
                 </div>
             }
 
@@ -1925,6 +1975,8 @@
     private SnmpDetectionState _snmpState = SnmpDetectionState.NotChecked;
     private bool _detecting;
     private bool _showV3Recommendation = true;
+    private bool _snmpV3PasswordMissing;
+    private bool _snmpCommunityMissing;
     private string? _detectionError;
     private bool _snmpCommunityTooLong;
     private int _snmpCommunityLength;
@@ -3117,6 +3169,8 @@
 
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
+        _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
+        _snmpCommunityMissing = settings.SnmpCommunityMissing;
         await RefreshInfluxStateAsync(settings);
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
@@ -3240,6 +3294,11 @@
                 && !SetupEditInFlight)
             {
                 _snmpState = settings.SnmpDetectionState;
+            }
+            if (!_detecting && _detectionError == null)
+            {
+                _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
+                _snmpCommunityMissing = settings.SnmpCommunityMissing;
             }
 
             await LoadSiteAgentAsync();
@@ -3559,6 +3618,8 @@
             await SnmpDetection.SaveDetectionResultAsync(result);
             var settings = await SnmpDetection.GetOrCreateSettingsAsync();
             _snmpState = settings.SnmpDetectionState;
+            _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
+            _snmpCommunityMissing = settings.SnmpCommunityMissing;
             _snmpCommunityTooLong = result.CommunityTooLong;
             _snmpCommunityLength = result.Community?.Length ?? 0;
             // Fresh console read beats the agent's cached self-heal sighting - otherwise a

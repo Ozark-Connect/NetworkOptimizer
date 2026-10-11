@@ -1,0 +1,170 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.Authorization
+@inject IAgentEnrollmentService AgentEnrollment
+@inject ISiteManagementService SiteManagement
+@inject AgentTunnelRegistry TunnelRegistry
+@inject IAuthorizationService Authz
+@inject UiHintService UiHints
+@implements IDisposable
+
+@if (_requiredSites.Count > 0)
+{
+    <div class="connection-banner pwa-banner">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: var(--warning-color); color: white;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+            </span>
+            <div class="banner-text">
+                <strong style="color: var(--warning-color);">On-Site Agent update required</strong>
+                <span style="color: var(--text-secondary);">
+                    The On-Site Agent on @SiteList(_requiredSites) is older than this version of Network Optimizer needs. Update it to v@(LatestDisplay).
+                </span>
+            </div>
+            <div class="banner-actions">
+                <a href="@UpdateHref(_requiredSites)" class="btn-pwa-action">Update Agent</a>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_optionalSites.Count > 0)
+{
+    <div class="connection-banner pwa-banner">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: var(--info-color); color: white;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+            </span>
+            <div class="banner-text">
+                <strong style="color: var(--info-color);">On-Site Agent update available</strong>
+                <span style="color: var(--text-secondary);">
+                    Agent v@(LatestDisplay) is available for @SiteList(_optionalSites). Updating is optional, see <a href="@ReleaseNotesHref" target="_blank" rel="noopener">GitHub release notes</a> for details.
+                </span>
+            </div>
+            <div class="banner-actions">
+                <a href="@UpdateHref(_optionalSites)" class="btn-pwa-action">Update Agent</a>
+                <button class="btn-pwa-dismiss" @onclick="DismissOptionalAsync">Dismiss</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<Site> _requiredSites = new();
+    private List<Site> _optionalSites = new();
+
+    private static string LatestDisplay => AppVersionInfo.AgentVersionForDisplay(AppVersionInfo.LatestAgentVersion);
+
+    // The release that carries the agent change is the one whose notes say what it adds.
+    private static string ReleaseNotesHref =>
+        $"https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v{AppVersionInfo.LatestAgentVersion}";
+
+    // Keyed to the version it announces, so a dismissal retires this notice only: the next
+    // LatestAgentVersion bump is a new notice and shows again.
+    private static string OptionalHintKey => $"{UiHintKeys.AgentUpdateAvailablePrefix}{AppVersionInfo.LatestAgentVersion}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RefreshAsync();
+        // An upgrade restarts the agent, so its reconnect is when the banner can change.
+        TunnelRegistry.AgentConnected += OnAgentConnected;
+    }
+
+    private void OnAgentConnected(int agentId) => _ = InvokeAsync(RefreshAsync);
+
+    public void Dispose() => TunnelRegistry.AgentConnected -= OnAgentConnected;
+
+    private async Task RefreshAsync()
+    {
+        if (AuthState is null) return;
+        try
+        {
+            var user = (await AuthState).User;
+            var sites = (await SiteManagement.GetSitesAsync()).ToDictionary(s => s.Id);
+
+            // Same rule as the Settings - Multi-Site badges: only a live agent reports a version
+            // worth acting on, and the Upgrade button there needs it online.
+            var live = (await AgentEnrollment.GetAllAgentsAsync())
+                .Where(a => a.Enabled && a.EnrolledAt != null && TunnelRegistry.IsAgentLive(a));
+
+            var required = new HashSet<int>();
+            var optional = new HashSet<int>();
+            foreach (var agent in live)
+            {
+                if (VersionUtilities.IsOlderThan(agent.LastVersion, AppVersionInfo.RequiredAgentVersion))
+                    required.Add(agent.SiteId);
+                else if (VersionUtilities.IsOlderThan(agent.LastVersion, AppVersionInfo.LatestAgentVersion))
+                    optional.Add(agent.SiteId);
+            }
+            optional.ExceptWith(required);
+
+            // Only sites this user can update an agent on: upgrading is a Site Admin action.
+            var requiredSites = await ManageableAsync(user, required, sites);
+            var optionalSites = await ManageableAsync(user, optional, sites);
+            if (optionalSites.Count > 0 && !await UiHints.ShouldShowAsync(OptionalHintKey))
+                optionalSites = new();
+
+            _requiredSites = requiredSites;
+            _optionalSites = optionalSites;
+            StateHasChanged();
+        }
+        catch
+        {
+            // Non-critical: a notice nobody sees is better than a page that failed to load.
+        }
+    }
+
+    private async Task<List<Site>> ManageableAsync(
+        System.Security.Claims.ClaimsPrincipal user, HashSet<int> siteIds, Dictionary<int, Site> sites)
+    {
+        var result = new List<Site>();
+        foreach (var id in siteIds)
+        {
+            if (!sites.TryGetValue(id, out var site) || !site.Enabled) continue;
+            if ((await Authz.AuthorizeAsync(user, site.Slug, Policies.SiteAdmin)).Succeeded)
+                result.Add(site);
+        }
+        return result.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static string SiteList(List<Site> sites) =>
+        sites.Count switch
+        {
+            1 => sites[0].Name,
+            2 => $"{sites[0].Name} and {sites[1].Name}",
+            _ => $"{string.Join(", ", sites.Take(sites.Count - 1).Select(s => s.Name))}, and {sites[^1].Name}"
+        };
+
+    // One site opens its row; several land on the tab, where each row carries its own badge.
+    private static string UpdateHref(List<Site> sites) =>
+        sites.Count == 1
+            ? $"/settings?tab=multisite&configure={Uri.EscapeDataString(sites[0].Slug)}"
+            : "/settings?tab=multisite";
+
+    private async Task DismissOptionalAsync()
+    {
+        _optionalSites = new();
+        try
+        {
+            await UiHints.DismissAsync(OptionalHintKey);
+        }
+        catch
+        {
+            // Still hide it for this visit.
+        }
+    }
+}

@@ -1170,11 +1170,38 @@ ls -la /var/config/run-syslog.sh</code></pre>
     {
         PtrState.RefreshCallback = () => LoadStatusAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
+        // An On-Site Agent coming online reconnects the site's Console, so this covers both.
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
         await LoadStatusAsync();
     }
 
+    private async void OnConnectionChanged()
+    {
+        // Fires from a background thread; async void, so nothing may escape.
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (_deployingTweakId == null && _removingTweakId == null)
+                    await LoadStatusAsync();
+            });
+        }
+        catch { /* component may be disposed */ }
+    }
+
+    private bool _loadInFlight;
+    private bool _reloadPending;
+
     private async Task LoadStatusAsync()
     {
+        // A load already running may have started before the connection came up: run once more after it.
+        if (_loadInFlight)
+        {
+            _reloadPending = true;
+            return;
+        }
+
+        _loadInFlight = true;
         _isLoading = true;
         StateHasChanged();
 
@@ -1203,8 +1230,15 @@ ls -la /var/config/run-syslog.sh</code></pre>
         }
         finally
         {
+            _loadInFlight = false;
             _isLoading = false;
             StateHasChanged();
+        }
+
+        if (_reloadPending)
+        {
+            _reloadPending = false;
+            await LoadStatusAsync();
         }
     }
 
@@ -1401,6 +1435,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
     public void Dispose()
     {
         // PullToRefreshState is scoped - no cleanup needed
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _backendRecheck?.Dispose();
     }
 
