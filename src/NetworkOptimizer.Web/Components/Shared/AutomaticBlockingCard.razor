@@ -133,6 +133,18 @@
                         }
                     </div>
                 }
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_form.FeedsOutbound" />
+                        <span>Also block devices from reaching these addresses (outbound)</span>
+                    </label>
+                    <small class="form-help">
+                        Optional, on the gateway. Stops a device on your networks from connecting to a listed address, such as a botnet's command server.
+                        This supplements UniFi's CyberSecure IPS, which carries Feodo Tracker and DShield too: its Suricata runs in pcap mode, so it reacts
+                        after a connection has started and blocks for 5 minutes at a time. A Network List policy drops the first packet, costs no inspection
+                        CPU, and holds while the address is listed. Needs gateway blocking set up.
+                    </small>
+                </div>
             </div>
 
             <div class="ab-section">
@@ -266,6 +278,7 @@
         public int MaxEntries { get; set; }
         public bool Share { get; set; }
         public HashSet<string> Feeds { get; set; } = [];
+        public bool FeedsOutbound { get; set; }
         public bool TargetGateway { get; set; }
         public bool TargetWaf { get; set; }
         public bool TargetCloudflare { get; set; }
@@ -301,6 +314,7 @@
             MaxEntries = _saved.MaxEntries,
             Share = _saved.Share,
             Feeds = _saved.Feeds.ToHashSet(),
+            FeedsOutbound = _saved.FeedsOutbound,
             TargetGateway = _saved.TargetGateway,
             TargetWaf = _saved.TargetWaf,
             TargetCloudflare = _saved.TargetCloudflare,
@@ -376,6 +390,7 @@
             Allowlist = _saved?.Allowlist ?? "",
             Share = f.Share,
             Feeds = PublicBlockLists.All.Select(l => l.Id).Where(f.Feeds.Contains).ToList(),
+            FeedsOutbound = f.FeedsOutbound,
             TargetGateway = f.TargetGateway,
             TargetWaf = f.TargetWaf,
             TargetCloudflare = f.TargetCloudflare,

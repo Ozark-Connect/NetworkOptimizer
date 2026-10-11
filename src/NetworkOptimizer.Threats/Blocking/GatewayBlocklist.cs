@@ -19,9 +19,12 @@ public sealed class GatewayBlocklistState
     public string? FeedsV6Id { get; set; }
 
     public List<GatewayBlockPolicyRef> Policies { get; set; } = [];
+
+    /// <summary>The optional outbound policies: each internal zone to the public lists in External.</summary>
+    public List<GatewayBlockPolicyRef> OutboundPolicies { get; set; } = [];
 }
 
-/// <summary>One Block policy: External to <see cref="ZoneId"/> for one IP version.</summary>
+/// <summary>One Block policy: External to <see cref="ZoneId"/> for one IP version (outbound: <see cref="ZoneId"/> to External).</summary>
 public sealed record GatewayBlockPolicyRef(string Id, string ZoneId, string IpVersion);
 
 /// <summary>What Set Up found or created.</summary>
@@ -42,6 +45,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     public const string FeedsNameV6 = "Net. Opt. Public Lists (IPv6)";
     public const string FeedsPolicyName = "Net. Opt. Public Lists";
     public const string FeedsDescription = "Managed by Network Optimizer: the public block lists chosen in Automatic Blocking. Changes here are overwritten.";
+    public const string FeedsOutboundPolicyName = "Net. Opt. Public Lists (Outbound)";
+    public const string FeedsOutboundDescription = "Managed by Network Optimizer: stops devices reaching the public block lists' addresses. Changes here are overwritten.";
 
     private readonly IUniFiClientAccessor _clients;
     private readonly IThreatSettingsAccessor _settings;
@@ -151,6 +156,65 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     }
 
     /// <summary>
+    /// Adds or removes the outbound policies that stop devices on every internal zone (not the
+    /// gateway itself) from reaching the public lists' addresses. Needs Set Up first. Returns how
+    /// many policies now exist.
+    /// </summary>
+    public async Task<int> SetFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state?.FeedsV4Id == null || state.FeedsV6Id == null)
+        {
+            if (!enabled) return 0;
+            throw new InvalidOperationException("Set up gateway blocking first.");
+        }
+        var client = Client(site);
+        var policies = await client.GetFirewallPoliciesAsync(ct);
+
+        if (!enabled)
+        {
+            var feeds = new HashSet<string> { state.FeedsV4Id, state.FeedsV6Id };
+            var ids = state.OutboundPolicies.Select(p => p.Id)
+                .Concat(policies.Where(p => !p.Predefined && feeds.Contains(p.Destination.IpGroupId ?? "")).Select(p => p.Id))
+                .Distinct().ToList();
+            foreach (var id in ids)
+                await client.DeleteFirewallPolicyAsync(id, ct);
+            state.OutboundPolicies = [];
+            await SaveStateAsync(site, state, ct);
+            return 0;
+        }
+
+        var zones = await client.GetFirewallZonesAsync(ct);
+        var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External)
+            ?? throw new InvalidOperationException("Could not read the firewall zones from the UniFi Console.");
+        var refs = new List<GatewayBlockPolicyRef>();
+        foreach (var zone in zones.Where(z => z.Id != external.Id && z.ZoneKey != FirewallZoneKeys.Gateway))
+        {
+            foreach (var (version, groupId) in new[] { ("IPV4", state.FeedsV4Id), ("IPV6", state.FeedsV6Id) })
+            {
+                var existing = policies.FirstOrDefault(p => !p.Predefined
+                    && p.Source.ZoneId == zone.Id && p.Destination.ZoneId == external.Id && p.Destination.IpGroupId == groupId);
+                var id = existing?.Id ?? (await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.CreateToGroup(
+                    FeedsOutboundPolicyName, FeedsOutboundDescription, version, zone.Id, external.Id, groupId), ct)).Id;
+                refs.Add(new GatewayBlockPolicyRef(id, zone.Id, version));
+            }
+        }
+        state.OutboundPolicies = refs;
+        await SaveStateAsync(site, state, ct);
+
+        // Ahead of any custom ALLOW to External in each zone pair, as with the inbound ones.
+        var current = await client.GetFirewallPoliciesAsync(ct);
+        foreach (var pair in refs.GroupBy(r => r.ZoneId))
+        {
+            var (before, after) = OrderWithOursFirst(current, pair.Key, external.Id, pair.Select(r => r.Id).ToHashSet());
+            if (before.Count > 0)
+                await client.ReorderFirewallPoliciesAsync(pair.Key, external.Id, before, after, ct);
+        }
+        _logger.LogInformation("Public lists outbound blocking set up: {Count} policies", refs.Count);
+        return refs.Count;
+    }
+
+    /// <summary>
     /// The batch-reorder lists for one zone pair: custom policies that run before UniFi's predefined
     /// ones with ours first and the rest in their current order, and those that run after, untouched.
     /// Port-forward policies (custom, index 30000-39999) are UniFi's to place and are left out.
@@ -182,8 +246,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var policies = await client.GetFirewallPoliciesAsync(ct);
         var groupIds = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }
             .Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
-        var policyIds = state.Policies.Select(p => p.Id)
-            .Concat(policies.Where(p => !p.Predefined && groupIds.Contains(p.Source.IpGroupId ?? "")).Select(p => p.Id))
+        var policyIds = state.Policies.Concat(state.OutboundPolicies).Select(p => p.Id)
+            .Concat(policies.Where(p => !p.Predefined
+                && (groupIds.Contains(p.Source.IpGroupId ?? "") || groupIds.Contains(p.Destination.IpGroupId ?? ""))).Select(p => p.Id))
             .Distinct();
         foreach (var id in policyIds)
             await client.DeleteFirewallPolicyAsync(id, ct);
@@ -280,8 +345,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         if (state == null) return null;
         var policies = await Client(site).GetFirewallPoliciesAsync(ct);
         var byId = policies.ToDictionary(p => p.Id);
-        var missing = state.Policies.Count(r => !byId.ContainsKey(r.Id));
-        var disabled = state.Policies.Count(r => byId.TryGetValue(r.Id, out var p) && !p.Enabled);
+        var all = state.Policies.Concat(state.OutboundPolicies).ToList();
+        var missing = all.Count(r => !byId.ContainsKey(r.Id));
+        var disabled = all.Count(r => byId.TryGetValue(r.Id, out var p) && !p.Enabled);
         if (missing > 0) return $"{missing} of Network Optimizer's Block policies were removed in UniFi Network. Run Set Up again.";
         if (state.FeedsV4Id == null) return "Run Set Up again to add the public block lists to the gateway.";
         if (disabled > 0) return $"{disabled} of Network Optimizer's Block policies are disabled in UniFi Network.";
