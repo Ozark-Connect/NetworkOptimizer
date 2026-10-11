@@ -39,7 +39,7 @@ public class TrustedSourcesTests
     public void Observe_ReplacedAddress_StaysForSevenDays()
     {
         var stored = new[] { Seen("203.0.113.10", Now.AddDays(-6), replacedAt: Now.AddDays(-6)), Seen("203.0.113.20", Now) };
-        TrustedAddressBook.Observe(stored, ["203.0.113.20"], Now).Should().BeNull();
+        TrustedAddressBook.Observe(stored, ["203.0.113.20"], Now)!.Should().Contain(a => a.Address == "203.0.113.10" && a.ReplacedAt == Now.AddDays(-6));
     }
 
     [Fact]
@@ -59,9 +59,10 @@ public class TrustedSourcesTests
     }
 
     [Fact]
-    public void Observe_UnchangedWithinTheHour_WritesNothing()
+    public void Observe_EveryRead_RefreshesLastSeen()
     {
-        TrustedAddressBook.Observe([Seen("203.0.113.10", Now.AddMinutes(-20))], ["203.0.113.10"], Now).Should().BeNull();
+        TrustedAddressBook.Observe([Seen("203.0.113.10", Now.AddMinutes(-10))], ["203.0.113.10"], Now)!
+            .Single().LastSeen.Should().Be(Now);
     }
 
     // Shapes from the main site's gateway captures: WAN IPv6 as bare addresses, PD prefixes plural

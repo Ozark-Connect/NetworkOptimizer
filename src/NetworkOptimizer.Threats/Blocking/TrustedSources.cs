@@ -52,8 +52,8 @@ public static class TrustedAddressBook
     public static readonly TimeSpan ReplacedRetention = TimeSpan.FromDays(7);
 
     /// <summary>
-    /// Folds one successful read into a site's list. Returns the new list, or null when nothing
-    /// changed that needs saving (LastSeen is refreshed at most hourly to keep writes down).
+    /// Folds one successful read into a site's list. Returns the new list; null only when the read
+    /// was empty, which changes nothing. Every read refreshes LastSeen on the addresses it saw.
     /// </summary>
     public static List<TrustedAddress>? Observe(IReadOnlyList<TrustedAddress> stored, IReadOnlyCollection<string> current, DateTime now)
     {
@@ -65,9 +65,8 @@ public static class TrustedAddressBook
         {
             if (seen.Remove(a.Address))
             {
-                var fresh = a.ReplacedAt != null || now - a.LastSeen > TimeSpan.FromHours(1);
-                changed |= fresh;
-                result.Add(fresh ? a with { LastSeen = now, ReplacedAt = null } : a);
+                changed = true;
+                result.Add(a with { LastSeen = now, ReplacedAt = null });
             }
             else if (a.ReplacedAt is { } replaced && now - replaced > ReplacedRetention)
             {

@@ -56,7 +56,7 @@
                     </li>
                     <li class="@StepClass(_status.SiteAddresses > 0)">
                         <span class="protection-step-text">
-                            Trusted Sources: @Plural(_status.SiteAddresses, "site address", "site addresses"), @Plural(_status.ExtraAddresses, "extra address", "extra addresses"). Never blocked.
+                            Trusted Sources: @Plural(_status.TrustedSites, "site", "sites"), @Plural(_status.TrustedAddresses, "address", "addresses"), @Plural(_status.ExtraAddresses, "extra address", "extra addresses"). Never blocked.
                         </span>
                         <SiteAdminOnly>
                             <a class="btn btn-sm btn-contrast" href="/settings#trusted-sources">Review</a>
