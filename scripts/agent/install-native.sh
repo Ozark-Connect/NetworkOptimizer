@@ -21,7 +21,7 @@
 #   --release TAG    Install this release (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --force-native   Skip the UniFi gateway refusal (this installer targets a
 #                    separate box; on a UniFi OS gateway use install-agent-gateway.sh)
-#   --dir PATH       Install directory (default: /opt/netopt-agent)
+#   --dir PATH       Install directory (default: the existing install's, else /opt/netopt-agent)
 #   --uninstall      Stop and remove the agent, its services, install dir, and any
 #                    AppArmor override this installer added, then exit
 #   --configure-apparmor  With --lan-speed-test: add a persistent AppArmor exception
@@ -39,6 +39,7 @@ UNINSTALL=false
 FORCE_NATIVE=false
 CONFIGURE_APPARMOR=false
 INSTALL_DIR="/opt/netopt-agent"
+DIR_REQUESTED=false
 SERVICE_NAME="netopt-agent"
 SPEEDTEST_SERVICE="netopt-speedtest-nginx"
 RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
@@ -54,7 +55,7 @@ while [ $# -gt 0 ]; do
         --uninstall) UNINSTALL=true; shift ;;
         --force-native) FORCE_NATIVE=true; shift ;;
         --configure-apparmor) CONFIGURE_APPARMOR=true; shift ;;
-        --dir) INSTALL_DIR="$2"; shift 2 ;;
+        --dir) INSTALL_DIR="$2"; DIR_REQUESTED=true; shift 2 ;;
         --release) RELEASE_TAG="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -71,6 +72,17 @@ if [ -n "$RELEASE_TAG" ]; then
         *[!A-Za-z0-9.-]*) echo "Invalid --release tag: $RELEASE_TAG" >&2; exit 1 ;;
     esac
     RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/download/${RELEASE_TAG}"
+fi
+
+# An existing install stays where it is. The server's upgrade command passes no --dir, so without
+# this an install in a custom directory got a second copy in the default one (or failed where that
+# is read-only) while the running agent stayed on the old binary.
+if [ "$DIR_REQUESTED" != true ] && [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
+    EXISTING_DIR=$(sed -n 's#^ExecStart=\(/.*\)/NetworkOptimizer\.Agent[[:space:]]*$#\1#p' "/etc/systemd/system/${SERVICE_NAME}.service" | head -1)
+    if [ -n "$EXISTING_DIR" ] && [ "$EXISTING_DIR" != "$INSTALL_DIR" ] && [ -d "$EXISTING_DIR" ]; then
+        INSTALL_DIR="$EXISTING_DIR"
+        echo "Using the existing install directory ${INSTALL_DIR} (pass --dir to override)."
+    fi
 fi
 
 # An install that already serves the LAN speed test keeps serving it, whether or not the flag was
