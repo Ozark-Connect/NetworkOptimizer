@@ -33,8 +33,11 @@
         {
             <div class="form-group">
                 <label class="form-label">WAF URL</label>
-                <input type="text" class="form-control" @bind="_url" @bind:event="oninput" placeholder="http://127.0.0.1:8044" />
-                <small class="form-help">Where netopt-waf listens. http://127.0.0.1:8044 when the proxy runs beside @(SiteContext.IsDefault ? "Network Optimizer" : "this site's On-Site Agent").</small>
+                <input type="text" class="form-control" @bind="_url" @bind:event="oninput" placeholder="http://127.0.0.1:8044 or https://waf.example.com" />
+                <small class="form-help">
+                    Where netopt-waf listens. http://127.0.0.1:8044 when the proxy runs beside @(SiteContext.IsDefault ? "Network Optimizer" : "this site's On-Site Agent").
+                    From another host, use the proxy's HTTPS management host instead, such as https://waf.example.com (the <code>waf-api</code> router in NetworkOptimizer-Proxy).
+                </small>
                 @if (PlainHttpOffHost(_url))
                 {
                     <small class="form-error">This sends the API token unencrypted across the network. Keep the WAF on 127.0.0.1, or reach it through an HTTPS host in Traefik (see the NetworkOptimizer-Proxy README).</small>
