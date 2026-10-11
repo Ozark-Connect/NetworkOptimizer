@@ -1402,7 +1402,7 @@ cd /opt/network-optimizer/docker/influxdb   # or wherever you deployed
 docker compose up -d
 ```
 
-InfluxDB will be available at `http://localhost:8086`. Open the UI to create an admin user and an all-access API token, then go to Network Optimizer's Monitoring page to finish setup.
+InfluxDB will be available at `http://<docker-host>:8086` (the IP or hostname of the machine running Docker). Open the UI to create an admin user and an all-access API token, then go to Network Optimizer's Monitoring page to finish setup.
 
 ### Option B: Proxmox LXC
 
