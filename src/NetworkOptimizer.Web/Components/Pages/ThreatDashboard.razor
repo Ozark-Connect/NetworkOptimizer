@@ -722,55 +722,9 @@ else
                             <div class="threat-stat-label">Requests Inspected Since WAF Start</div>
                         </div>
                     </div>
-                    @if ((_wafSummary?.Total ?? 0) > 0)
-                    {
-                        <div class="threat-two-chart-row">
-                            <div class="table-responsive">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Top Rules</th>
-                                            <th>Events</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var rule in _wafSummary!.TopRules)
-                                        {
-                                            <tr>
-                                                <td class="text-truncate-300"><code>@rule.RuleId</code> @rule.Message</td>
-                                                <td>@FormatNumber(rule.Count)</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Top Hosts</th>
-                                            <th>Events</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var host in _wafSummary!.TopHosts)
-                                        {
-                                            <tr>
-                                                <td class="text-truncate-300">@host.Host</td>
-                                                <td>@FormatNumber(host.Count)</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="empty-state">
-                            <p>No requests crossed the WAF's threshold in this period.</p>
-                        </div>
-                    }
+                    <div class="action-buttons">
+                        <a class="btn btn-contrast" href="/threats/waf">Open Web Application Firewall</a>
+                    </div>
                 </div>
             </div>
         }

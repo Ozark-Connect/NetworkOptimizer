@@ -1057,6 +1057,23 @@ public class ThreatDashboardService : IThreatFilterAdminService
         }
     }
 
+    /// <summary>The WAF events page: newest first, noise filters applied, optionally searched.</summary>
+    public async Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetWafEventsAsync(from, to, search, limit, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAF events");
+            return [];
+        }
+    }
+
     // --- Noise Filter Management ---
 
     public async Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default)

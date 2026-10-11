@@ -7382,6 +7382,15 @@ a.path-hop.hop-clickable:hover {
     min-width: 0;
 }
 
+/* Threat Intelligence - Web Application Firewall page */
+.waf-tabs {
+    margin-bottom: 1rem;
+}
+
+.waf-range {
+    margin-bottom: 1rem;
+}
+
 /* Settings - Multi-Site: a site's Automatic Blocking in its Configuration panel */
 .site-blocking .site-blocking-mode {
     display: flex;

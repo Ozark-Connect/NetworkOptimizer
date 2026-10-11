@@ -894,6 +894,23 @@ public class ThreatRepository : IThreatRepository
 
     #endregion
 
+    public async Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var query = BaseQuery(from, to).Where(e => e.EventSource == EventSource.Waf);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            var ruleId = long.TryParse(term, out var id) ? id : (long?)null;
+            query = query.Where(e => e.SourceIp.Contains(term)
+                || (e.Domain != null && e.Domain.Contains(term))
+                || (e.Service != null && e.Service.Contains(term))
+                || e.SignatureName.Contains(term)
+                || (ruleId != null && e.SignatureId == ruleId));
+        }
+        return await query.OrderByDescending(e => e.Timestamp).Take(limit).ToListAsync(cancellationToken);
+    }
+
     #region Automatic Blocking
 
     public async Task<Dictionary<string, int>> GetWafEventCountsBySourceAsync(DateTime from, DateTime to,
