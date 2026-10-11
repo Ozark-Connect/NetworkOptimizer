@@ -15,8 +15,8 @@ public static class TrustedSourcesKeys
     public const string Addresses = "trusted.addresses";
 
     /// <summary>
-    /// Extra trusted addresses: never blocked, and in the UniFi groups and the WAF list. Never-block-only
-    /// addresses are <see cref="BlockingSettingKeys.Allowlist"/>, which grants no access.
+    /// Extra trusted addresses: never blocked, and in the UniFi groups and the WAF list. Blocking exceptions
+    /// are <see cref="BlockingSettingKeys.Allowlist"/>, which grants no access.
     /// </summary>
     public const string Extras = "trusted.extras";
 

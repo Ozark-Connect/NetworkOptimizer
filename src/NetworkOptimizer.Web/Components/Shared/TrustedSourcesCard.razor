@@ -144,9 +144,9 @@
             }
 
             <div class="form-group">
-                <label class="form-label">Never Block Only</label>
+                <label class="form-label">Blocking Exceptions</label>
                 <textarea class="form-control" rows="2" @bind="_neverBlock" placeholder="198.51.100.20"></textarea>
-                <small class="form-help">Never blocked, but not trusted: kept out of the UniFi groups and the WAF's list. For a monitoring service or a scanner you expect. Trusted User and Infrastructure filters are never blocked either.</small>
+                <small class="form-help">Never blocked by Automatic Blocking, and never trusted: the WAF still inspects every request. For a scanner or monitor you run that would otherwise look like an attacker. Trusted User and Infrastructure filters are never blocked either.</small>
             </div>
             <div class="action-buttons">
                 <button class="btn btn-primary" disabled="@_busy" @onclick="Save">
