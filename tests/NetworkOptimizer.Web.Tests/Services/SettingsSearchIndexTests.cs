@@ -103,6 +103,11 @@ public class SettingsSearchIndexTests
     [InlineData("enrollment token", "multi-site")]
     [InlineData("pre-release", "application-settings")]
     [InlineData("clear cache", "data-management")]
+    [InlineData("automatic blocking", "automatic-blocking")]
+    [InlineData("blocklist", "automatic-blocking")]
+    [InlineData("cloudflare", "automatic-blocking")]
+    [InlineData("dry run", "automatic-blocking")]
+    [InlineData("waf url", "waf")]
     // Typed the hardware they own rather than the card that monitors it.
     [InlineData("xfinity", "cable-modem")]
     [InlineData("quantum fiber", "ont-monitoring")]
@@ -302,7 +307,8 @@ public class SettingsSearchIndexTests
         foreach (var file in ComponentFiles())
         foreach (Match match in Regex.Matches(
                      File.ReadAllText(file),
-                     @"class=""card settings-tab-[a-z]+""\s+id=""([A-Za-z0-9_-]+)"""))
+                     // Extra classes after the tab one are allowed; an exact match skipped such cards.
+                     @"class=""card settings-tab-[a-z]+(?: [^""]*)?""\s+id=""([A-Za-z0-9_-]+)"""))
             ids.Add(match.Groups[1].Value);
 
         return ids;

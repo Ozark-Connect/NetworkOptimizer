@@ -293,6 +293,16 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["netopt-waf", "networkoptimizer-proxy", "waf url", "api token", "web attacks", "sql injection",
              "test connection"], Reach.DefaultSite),
 
+        // Per site: every site has its own gateway and may have its own Cloudflare account.
+        Entry("security", "Security & Alerts", "automatic-blocking",
+            "Automatic Blocking",
+            ["Blocklist", "ban list", "block list", "IP blocking"],
+            ["dry run", "enforce", "turn on recommended", "waf events", "scan sweep", "brute force",
+             "exploit campaign", "first block", "most blocked sources", "never block", "allowlist",
+             "share blocks with other sites", "gateway", "zone-based firewall", "address group",
+             "block policy", "set up", "web application firewall", "cloudflare", "account id",
+             "api token", "netopt_blocklist", "custom rule", "release"]),
+
         Entry("application", "Application", "admin-password",
             "Admin Password",
             ["app password", "application password", "passwords", "change password"],
