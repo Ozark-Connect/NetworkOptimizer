@@ -7370,6 +7370,10 @@ a.path-hop.hop-clickable:hover {
     margin: 0 0 1rem;
 }
 
+.automatic-blocking .ab-setup-hidden .form-help {
+    margin: 0 0 0.5rem;
+}
+
 .automatic-blocking .ab-list {
     margin-bottom: 1rem;
 }

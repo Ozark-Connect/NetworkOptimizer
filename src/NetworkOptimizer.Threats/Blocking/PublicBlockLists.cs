@@ -67,6 +67,22 @@ public static class PublicBlockLists
 
     public static PublicBlockList? Find(string id) => All.FirstOrDefault(l => l.Id == id);
 
+    /// <summary>
+    /// The note under Turn On Recommended naming the lists it will apply, or null when none are chosen:
+    /// Enforce writes them to the gateway, which the button should never do unannounced.
+    /// </summary>
+    public static string? RecommendedNote(IEnumerable<string> ids)
+    {
+        var names = ids.Select(Find).OfType<PublicBlockList>().Select(l => l.Name).ToList();
+        return names.Count switch
+        {
+            0 => null,
+            1 => $"Includes the public block list {names[0]}.",
+            2 => $"Includes the public block lists {names[0]} and {names[1]}.",
+            _ => $"Includes the public block lists {string.Join(", ", names[..^1])}, and {names[^1]}.",
+        };
+    }
+
     /// <summary>The lists a site uses before it chooses.</summary>
     public static IReadOnlyList<string> DefaultIds => All.Where(l => l.DefaultOn).Select(l => l.Id).ToList();
 

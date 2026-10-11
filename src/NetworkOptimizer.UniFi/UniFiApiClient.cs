@@ -1683,6 +1683,13 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok" && response.Data.Count > 0)
             return response.Data[0];
+        // Network 10.6 answers an update that changes nothing with rc ok and no data: accepted as is.
+        if (response?.Meta.Rc == "ok" && group.Id != null)
+            return new UniFiFirewallGroup
+            {
+                Id = group.Id, Name = group.Name, GroupType = group.GroupType,
+                GroupMembers = [.. group.GroupMembers], Description = group.Description, Source = group.Source,
+            };
         throw new InvalidOperationException("The UniFi Console did not confirm the firewall group change.");
     }
 

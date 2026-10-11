@@ -27,7 +27,10 @@ public static class BlockingSettingKeys
     public const string UsePatterns = "blocking.use_patterns";
     public const string BanMinutes = "blocking.ban_minutes";
     public const string MaxEntries = "blocking.max_entries";
-    /// <summary>Addresses and ranges never blocked, one per line or comma-separated.</summary>
+    /// <summary>
+    /// Addresses and ranges never blocked that grant no access (unlike Trusted Sources' extra
+    /// addresses), one per line or comma-separated.
+    /// </summary>
     public const string Allowlist = "blocking.allowlist";
     /// <summary>"true" to contribute this site's blocks to, and enforce, the shared group's.</summary>
     public const string Share = "blocking.share";

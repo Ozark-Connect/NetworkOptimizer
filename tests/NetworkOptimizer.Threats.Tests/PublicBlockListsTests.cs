@@ -80,4 +80,15 @@ public class PublicBlockListsTests
         v4.Should().Equal("198.51.100.0/24", "203.0.113.5");
         v6.Should().Equal("2001:db8::/32");
     }
+
+    [Fact]
+    public void RecommendedNote_NamesTheChosenLists()
+    {
+        PublicBlockLists.RecommendedNote([]).Should().BeNull();
+        PublicBlockLists.RecommendedNote([PublicBlockLists.Feodo]).Should().Be("Includes the public block list abuse.ch Feodo Tracker.");
+        PublicBlockLists.RecommendedNote(PublicBlockLists.DefaultIds)
+            .Should().Be("Includes the public block lists Spamhaus DROP and abuse.ch Feodo Tracker.");
+        PublicBlockLists.RecommendedNote([PublicBlockLists.SpamhausDrop, PublicBlockLists.Feodo, PublicBlockLists.DShield])
+            .Should().Be("Includes the public block lists Spamhaus DROP, abuse.ch Feodo Tracker, and DShield Top 20.");
+    }
 }

@@ -33,6 +33,10 @@
             <div class="site-agent-actions">
                 <button type="button" class="btn btn-primary btn-sm" disabled="@_busy" @onclick="TurnOnRecommended">Turn On Recommended</button>
             </div>
+            @if (_summary.RecommendedNote != null)
+            {
+                <p class="form-help">@_summary.RecommendedNote</p>
+            }
         }
         @if (_message != null)
         {

@@ -307,7 +307,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("security", "Security & Alerts", "trusted-sources",
             "Trusted Sources",
             ["Allowlist", "whitelist", "trusted IPs", "never block"],
-            ["extra addresses", "site addresses", "wan ip", "ipv6 prefix", "port forward", "source limit",
+            ["extra trusted addresses", "never block only", "site addresses", "wan ip", "ipv6 prefix", "port forward", "source limit",
              "address group", "network optimizer trusted sources", "last seen", "stale address", "remove"]),
 
         Entry("application", "Application", "admin-password",
