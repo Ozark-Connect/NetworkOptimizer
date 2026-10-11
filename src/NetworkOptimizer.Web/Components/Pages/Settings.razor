@@ -3252,7 +3252,7 @@
                 </div>
             }
 
-            <div class="action-buttons" style="margin-top: 1rem;">
+            <div class="action-buttons">
                 <button class="btn btn-primary" @onclick="SaveWafSettings" disabled="@savingWafSettings">
                     @if (savingWafSettings)
                     {
@@ -3282,7 +3282,7 @@
 
             @if (!string.IsNullOrEmpty(wafMessage))
             {
-                <div class="alert alert-@wafMessageClass" style="margin-top: 1rem;">
+                <div class="alert alert-@wafMessageClass">
                     @wafMessage
                 </div>
             }
