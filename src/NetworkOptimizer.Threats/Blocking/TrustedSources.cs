@@ -22,6 +22,9 @@ public static class TrustedSourcesKeys
 
     /// <summary>JSON <see cref="TrustedSourcesGroupState"/>.</summary>
     public const string UniFiGroupState = "trusted.unifi.state";
+
+    /// <summary>The WAF allow list the members are pushed as; routes opt in with /check?allow=trusted.</summary>
+    public const string WafListName = "trusted";
 }
 
 /// <summary>

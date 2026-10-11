@@ -47,8 +47,8 @@ public sealed class ThreatBlockingService : BackgroundService
     // The public list entries last written to each site's gateway, keyed by site.
     private readonly Dictionary<string, (string Fingerprint, string Lists, DateTime At, bool Ok)> _feedsSent = new();
     // The Trusted Sources members last written to each site's console.
-    private readonly Dictionary<string, (string Fingerprint, DateTime At, bool Ok)> _trustedSent = new();
-    private readonly ConcurrentDictionary<string, BlockTargetStatus> _trustedStatus = new();
+    private readonly Dictionary<(string Site, BlockTargetKind Kind), (string Fingerprint, DateTime At, bool Ok)> _trustedSent = new();
+    private readonly ConcurrentDictionary<(string Site, BlockTargetKind Kind), BlockTargetStatus> _trustedStatus = new();
 
     public ThreatBlockingService(
         IServiceScopeFactory scopeFactory,
@@ -79,8 +79,9 @@ public sealed class ThreatBlockingService : BackgroundService
     public IReadOnlyList<BlockTargetStatus> TargetStatus(string? site) =>
         _status.Where(kv => kv.Key.Site == Key(site)).Select(kv => kv.Value).OrderBy(s => s.Kind).ToList();
 
-    /// <summary>The last Trusted Sources sync to a site's console, or null (null site = default site).</summary>
-    public BlockTargetStatus? TrustedSourcesStatus(string? site) => _trustedStatus.TryGetValue(Key(site), out var s) ? s : null;
+    /// <summary>The last Trusted Sources sync to a site's console (Gateway) or WAF, or null (null site = default site).</summary>
+    public BlockTargetStatus? TrustedSourcesStatus(string? site, BlockTargetKind kind) =>
+        _trustedStatus.TryGetValue((Key(site), kind), out var s) ? s : null;
 
     private static string Key(string? site) => site ?? "";
 
@@ -364,22 +365,48 @@ public sealed class ThreatBlockingService : BackgroundService
         using var scope = ScopeFor(site);
         var services = scope.ServiceProvider;
         var accessor = services.GetRequiredService<IThreatSettingsAccessor>();
-        if (!await TrustedSourcesSettings.UniFiGroupEnabledAsync(accessor, site, ct)) return;
+        var uniFi = await TrustedSourcesSettings.UniFiGroupEnabledAsync(accessor, site, ct);
+        var waf = await BlockingSettings.WafConnectedAsync(k => accessor.GetSettingAsync(k, ct), site);
+        if (!uniFi && !waf) return;
 
+        // Never sent empty: an empty list would close every route that uses it.
         var members = await TrustedMembersAsync(services, site, ct);
         if (members.Count == 0) return;
         var fingerprint = string.Join(",", members);
-        if (_trustedSent.TryGetValue(Key(site), out var last) && last.Fingerprint == fingerprint
-            && now - last.At < (last.Ok ? Resync : TimeSpan.FromMinutes(5)))
-            return;
+        bool Due(BlockTargetKind kind) =>
+            !_trustedSent.TryGetValue((Key(site), kind), out var last) || last.Fingerprint != fingerprint
+            || now - last.At >= (last.Ok ? Resync : TimeSpan.FromMinutes(5));
 
-        var writer = services.GetService<TrustedSourcesGroup>();
-        if (writer == null) return;
-        var result = await writer.SyncAsync(site, members, ct);
-        _trustedSent[Key(site)] = (fingerprint, now, result.Ok);
-        _trustedStatus[Key(site)] = new BlockTargetStatus(BlockTargetKind.Gateway, now, result.Ok, result.Count, result.Error);
-        if (!result.Ok)
-            _logger.LogWarning("Trusted Sources: sync failed on {Site}: {Error}", site ?? "main", result.Error);
+        if (uniFi && Due(BlockTargetKind.Gateway) && services.GetService<TrustedSourcesGroup>() is { } writer)
+            Record(BlockTargetKind.Gateway, await writer.SyncAsync(site, members, ct));
+
+        // The WAF's "trusted" list, for routes that use /check?allow=trusted. Pushed whatever the
+        // blocking mode: it is an access list the operator opted routes into, not a block.
+        if (waf && Due(BlockTargetKind.Waf))
+        {
+            var url = await accessor.GetSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Url, site), ct);
+            var token = await accessor.GetDecryptedSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Token, site), ct);
+            var http = services.GetService<ISiteHttpClientProvider>() is { } provider
+                ? await provider.GetClientAsync(site, ct) : _httpClientFactory.CreateClient("Waf");
+            BlockTargetResult result;
+            try
+            {
+                result = BlockTargetResult.Success(await new WafClient(http).PutAllowListAsync(url!, token!, TrustedSourcesKeys.WafListName, members, ct));
+            }
+            catch (WafClientException ex)
+            {
+                result = BlockTargetResult.Failure(ex.Message);
+            }
+            Record(BlockTargetKind.Waf, result);
+        }
+
+        void Record(BlockTargetKind kind, BlockTargetResult result)
+        {
+            _trustedSent[(Key(site), kind)] = (fingerprint, now, result.Ok);
+            _trustedStatus[(Key(site), kind)] = new BlockTargetStatus(kind, now, result.Ok, result.Count, result.Error);
+            if (!result.Ok)
+                _logger.LogWarning("Trusted Sources: {Target} sync failed on {Site}: {Error}", kind, site ?? "main", result.Error);
+        }
     }
 
     /// <summary>A site's Trusted Sources: every address of the sites it trusts, plus its extra addresses.</summary>

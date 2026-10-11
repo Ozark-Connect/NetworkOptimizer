@@ -113,6 +113,20 @@
                 }
             </div>
 
+            @if (_overview.WafStatus is { } waf)
+            {
+                <div class="form-group">
+                    <label class="form-label">Web Application Firewall</label>
+                    <small class="form-help">
+                        Sent to this site's WAF as the list <code>@TrustedSourcesKeys.WafListName</code>. A route that uses the <code>waf-trusted</code> middleware
+                        takes only these addresses and LAN sources; other routes are not affected.
+                    </small>
+                    <small class="@(waf.Ok ? "form-help ab-status" : "form-error")">
+                        @(waf.Ok ? $"{waf.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(waf.At)}." : waf.Error)
+                    </small>
+                </div>
+            }
+
             <div class="action-buttons">
                 <button class="btn btn-primary" disabled="@_busy" @onclick="Save">
                     @if (_busy)

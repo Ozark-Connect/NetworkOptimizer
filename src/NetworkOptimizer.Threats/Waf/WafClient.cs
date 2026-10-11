@@ -41,6 +41,19 @@ public sealed class WafClient
         return page.Count;
     }
 
+    /// <summary>
+    /// Replaces one of the WAF's allow lists (routes opt in with <c>/check?allow=name</c>) and
+    /// returns how many entries it holds. Throws <see cref="WafClientException"/> on any failure.
+    /// </summary>
+    public async Task<int> PutAllowListAsync(string baseUrl, string token, string name, IReadOnlyList<string> entries,
+        CancellationToken cancellationToken)
+    {
+        var lists = await SendAsync<List<WafAllowList>>(HttpMethod.Put, baseUrl, $"/api/allowlists/{Uri.EscapeDataString(name)}", token,
+            JsonContent.Create(new { entries }),
+            "The WAF does not support allow lists. Update NetworkOptimizer-Proxy.", cancellationToken);
+        return lists.FirstOrDefault(l => l.Name == name)?.Entries.Count ?? 0;
+    }
+
     private async Task<T> SendAsync<T>(HttpMethod method, string baseUrl, string pathAndQuery, string token,
         HttpContent? content, string wrongShapeMessage, CancellationToken cancellationToken)
     {
@@ -93,6 +106,13 @@ public sealed class WafClient
 public sealed record WafBan(
     [property: JsonPropertyName("ip")] string Ip,
     [property: JsonPropertyName("expires")] DateTimeOffset Expires);
+
+/// <summary>One allow list in netopt-waf's GET/PUT /api/allowlists response.</summary>
+public sealed class WafAllowList
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("entries")] public List<string> Entries { get; set; } = [];
+}
 
 /// <summary>netopt-waf's GET/PUT /api/bans response.</summary>
 public sealed class WafBanPage
