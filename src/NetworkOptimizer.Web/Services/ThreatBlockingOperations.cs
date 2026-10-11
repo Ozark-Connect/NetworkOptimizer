@@ -395,6 +395,13 @@ public sealed class ThreatBlockingOperations
         _blocking.Trigger();
     }
 
+    /// <summary>A site's current public addresses, single IPs only (prefixes cannot be probed).</summary>
+    public async Task<IReadOnlyList<string>> GetCurrentSiteAddressesAsync(string slug, CancellationToken ct) =>
+        (await TrustedAddressBook.LoadAsync(_settings, Site(slug), ct))
+            .Where(a => a.ReplacedAt == null && !a.Address.Contains('/'))
+            .Select(a => a.Address)
+            .ToList();
+
     /// <summary>
     /// Forgets an address a site no longer reports. Refused for a current one: the next read would
     /// add it straight back.

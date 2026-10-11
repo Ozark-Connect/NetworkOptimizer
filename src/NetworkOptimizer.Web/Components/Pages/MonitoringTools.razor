@@ -30,6 +30,8 @@
 @inject DmesgDiagnosticsService DmesgDiagnostics
 @inject ISupportFileService SupportFile
 @inject NetworkOptimizer.Web.Services.Ssh.IGatewaySshService GatewaySsh
+@inject IThreatBlockingSiteAdmin SiteBlocking
+@inject ISiteManagementService SiteManagement
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -144,6 +146,15 @@
                         <option value="ext:1.1.1.1">Cloudflare DNS (1.1.1.1)</option>
                         <option value="ext:8.8.8.8">Google DNS (8.8.8.8)</option>
                     </optgroup>
+                    @if (_otherSites.Any())
+                    {
+                        <optgroup label="Other Sites">
+                            @foreach (var (name, address) in _otherSites)
+                            {
+                                <option value="@($"site:{address}")">@name WAN (@address)</option>
+                            }
+                        </optgroup>
+                    }
                     @if (_devices.Any())
                     {
                         <optgroup label="Infrastructure">
@@ -852,6 +863,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private bool _sshCredentialsMissing;
 
     private List<DiscoveredDevice> _devices = new();
+    // Other sites' current WAN addresses, from Trusted Sources: only sites this user can open.
+    private List<(string Name, string Address)> _otherSites = new();
     private List<WanInterfaceInfo> _wanInterfaces = new();
     private string _selectedWanInterface = "";
     private bool _isGatewaySelected;
@@ -918,7 +931,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         var devicesTask = LoadDevicesAsync();
         var wanTask = LoadWanInterfacesAsync();
         var gatewaySshTask = LoadGatewaySshStateAsync();
-        await Task.WhenAll(capTask, devicesTask, wanTask, gatewaySshTask);
+        var otherSitesTask = LoadOtherSitesAsync();
+        await Task.WhenAll(capTask, devicesTask, wanTask, gatewaySshTask, otherSitesTask);
         _localCapabilities = capTask.Result.Describe();
         _consoleDataLoaded = ConnectionService.IsConnected;
 
@@ -929,6 +943,27 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
+    }
+
+    private async Task LoadOtherSitesAsync()
+    {
+        try
+        {
+            if (!await SiteManagement.IsMultiSiteEnabledAsync()) return;
+            var user = AuthState is null ? null : (await AuthState).User;
+            var list = new List<(string, string)>();
+            foreach (var site in (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled && s.Slug != SiteContext.Slug))
+            {
+                if (user != null && !(await Authz.AuthorizeAsync(user, site.Slug, Policies.SiteViewer)).Succeeded) continue;
+                foreach (var address in await SiteBlocking.GetSiteAddressesAsync(site.Slug))
+                    list.Add((site.Name, address));
+            }
+            _otherSites = list;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
+        {
+            _otherSites = new();
+        }
     }
 
     private async Task WaitForConnectionThenReloadAsync()
@@ -1386,6 +1421,11 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (v.StartsWith("ext:"))
         {
             _targetAddress = v.Substring(4);
+            _probeMode = ProbeMode.Icmp;
+        }
+        else if (v.StartsWith("site:"))
+        {
+            _targetAddress = v.Substring(5);
             _probeMode = ProbeMode.Icmp;
         }
         else if (v.StartsWith("dev:"))
