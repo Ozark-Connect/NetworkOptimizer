@@ -18,6 +18,9 @@ public sealed record BlockingOverview(
     IReadOnlyList<SharedBlock> Shared,
     IReadOnlyList<BlockTargetStatus> Targets);
 
+/// <summary>What Turn On Recommended enabled. <see cref="GatewayError"/> says why the gateway was left out.</summary>
+public sealed record RecommendedResult(bool Gateway, string? GatewayError, bool Waf);
+
 /// <summary>Cloudflare target state for the Settings card.</summary>
 public sealed record CloudflareBlockingStatus(bool HasToken, string? AccountId, CloudflareList? List, string? Error);
 
@@ -35,6 +38,15 @@ public interface IThreatBlockingAdmin
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
     Task SaveSettingsAsync(BlockingSettings settings, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One click from Dry Run (the default) to the setup a homelab wants: Enforce, patterns on,
+    /// sharing on, the gateway set up and used, and the WAF used when one is connected. Cloudflare
+    /// is left as it is: it needs a token.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
+    Task<RecommendedResult> TurnOnRecommendedAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Ends one of this site's blocks now; the next sync, which this triggers, removes it everywhere.</summary>
     [RequireRole(Roles.Admin)]
@@ -151,6 +163,34 @@ public sealed class ThreatBlockingAdminService : IThreatBlockingAdmin
         await Set(BlockingSettingKeys.TargetWaf, (s.TargetWaf && Site == null).ToString());
         await Set(BlockingSettingKeys.TargetCloudflare, s.TargetCloudflare.ToString());
         _blocking.Trigger();
+    }
+
+    public async Task<RecommendedResult> TurnOnRecommendedAsync(CancellationToken cancellationToken = default)
+    {
+        var current = await BlockingSettings.LoadAsync(k => _settings.GetSettingAsync(k, cancellationToken), Site);
+
+        string? gatewayError = null;
+        try
+        {
+            await _gateway.SetUpAsync(Site, cancellationToken);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException
+                                   or NetworkOptimizer.UniFi.UniFiApiErrorException or NetworkOptimizer.UniFi.UniFiPermissionException)
+        {
+            gatewayError = ex.Message;
+        }
+        var waf = Site == null && await BlockingSettings.WafConnectedAsync(k => _settings.GetSettingAsync(k, cancellationToken));
+
+        // Called on this instance, not through the gate: the one audit entry for this call covers it.
+        await SaveSettingsAsync(current with
+        {
+            Mode = BlockingMode.Enforce,
+            UsePatterns = true,
+            Share = true,
+            TargetGateway = gatewayError == null,
+            TargetWaf = waf,
+        }, cancellationToken);
+        return new RecommendedResult(gatewayError == null, gatewayError, waf);
     }
 
     public async Task<bool> ReleaseAsync(int blockId, string releasedBy, CancellationToken cancellationToken = default)

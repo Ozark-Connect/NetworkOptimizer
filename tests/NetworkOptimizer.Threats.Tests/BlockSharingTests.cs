@@ -165,14 +165,42 @@ public class BlockSharingTests
     }
 
     [Fact]
-    public async Task Scope_ReturnsOnlySharingSites_DefaultAsNull()
+    public async Task Scope_SharesByDefault_UntilASiteOptsOut_DefaultAsNull()
     {
         var settings = new FakeSettings();
-        settings.Values[BlockingSettingKeys.Share] = "true";
-        settings.Values[BlockingSettingKeys.ForSite(BlockingSettingKeys.Share, "b")] = "true";
+        settings.Values[BlockingSettingKeys.ForSite(BlockingSettingKeys.Share, "c")] = "false";
         var scope = new InstanceBlockSharingScope(settings, new FakeSites(DefaultKey, "b", "c"));
 
         (await scope.GetPeerSitesAsync(null, CancellationToken.None)).Should().Equal(null, "b");
         (await scope.GetPeerSitesAsync("c", CancellationToken.None)).Should().Equal("c");
+    }
+
+    [Fact]
+    public async Task Settings_WafTargetFollowsTheConnection_UntilSetExplicitly()
+    {
+        var settings = new FakeSettings();
+        Task<string?> Get(string k) => settings.GetSettingAsync(k);
+
+        (await BlockingSettings.LoadAsync(Get, null)).TargetWaf.Should().BeFalse();
+
+        settings.Values[NetworkOptimizer.Threats.Waf.WafSettingKeys.Enabled] = "true";
+        settings.Values[NetworkOptimizer.Threats.Waf.WafSettingKeys.Url] = "http://127.0.0.1:8044";
+        settings.Values[NetworkOptimizer.Threats.Waf.WafSettingKeys.Token] = "enc";
+        (await BlockingSettings.LoadAsync(Get, null)).TargetWaf.Should().BeTrue();
+        (await BlockingSettings.LoadAsync(Get, "b")).TargetWaf.Should().BeFalse(); // the WAF is the default site's
+
+        settings.Values[BlockingSettingKeys.TargetWaf] = "false";
+        (await BlockingSettings.LoadAsync(Get, null)).TargetWaf.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Settings_DefaultToDryRunAndSharing()
+    {
+        var s = await BlockingSettings.LoadAsync(_ => Task.FromResult<string?>(null), null);
+
+        s.Mode.Should().Be(BlockingMode.DryRun);
+        s.Share.Should().BeTrue();
+        s.TargetGateway.Should().BeFalse();
+        s.TargetCloudflare.Should().BeFalse();
     }
 }

@@ -7352,6 +7352,63 @@ a.path-hop.hop-clickable:hover {
     gap: 0.625rem;
 }
 
+/* Settings - Automatic Blocking: divided sections like .audit-options, one target per block */
+.automatic-blocking .ab-section {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1.25rem;
+}
+
+.automatic-blocking .ab-section-title {
+    font-size: 1rem;
+    margin: 0 0 1rem;
+}
+
+.automatic-blocking .ab-target {
+    margin-bottom: 1.5rem;
+}
+
+.automatic-blocking .ab-status {
+    color: var(--text-secondary);
+}
+
+.automatic-blocking .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.automatic-blocking .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+/* Threat Intelligence - Blocked Sources */
+.blocked-sources .blocked-sources-subtitle {
+    font-size: 0.95rem;
+    margin: 1.5rem 0 0.75rem;
+}
+
+.blocked-sources .blocked-sources-dry,
+.blocked-sources .blocked-sources-strikes {
+    margin-left: 0.5rem;
+}
+
+.blocked-sources .blocked-sources-strikes {
+    color: var(--warning-color);
+    font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+    .automatic-blocking .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .automatic-blocking .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+}
+
 /* Security Audit: row counts for the threat tables in a downloaded PDF.
    Its own divided group, matching .audit-options, so it does not read as an audit option. */
 .audit-pdf-rows {

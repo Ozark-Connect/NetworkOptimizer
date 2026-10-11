@@ -13,7 +13,18 @@
         <div class="card-body">
             @if (_overview.Settings.Mode == BlockingMode.DryRun)
             {
-                <p class="section-description">Dry Run: these sources would be blocked in Enforce mode. Nothing is sent to the gateway, the WAF, or Cloudflare.</p>
+                <div class="alert alert-info">
+                    <div class="banner-content">
+                        <div class="banner-text">
+                            <span>Dry Run: these sources would be blocked. Nothing is sent to the gateway, the WAF, or Cloudflare yet.</span>
+                        </div>
+                        <SiteAdminOnly>
+                            <div class="banner-actions">
+                                <button class="btn btn-sm btn-primary" disabled="@_turningOn" @onclick="TurnOnRecommended">Turn On Recommended</button>
+                            </div>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
             }
             @foreach (var t in _overview.Targets.Where(t => !t.Ok))
             {
@@ -113,6 +124,29 @@
         {
             // A Viewer read: if it fails the card simply stays hidden.
             _overview = null;
+        }
+    }
+
+    private bool _turningOn;
+
+    private async Task TurnOnRecommended()
+    {
+        _turningOn = true;
+        _message = null;
+        try
+        {
+            var r = await Blocking.TurnOnRecommendedAsync();
+            if (r.GatewayError != null)
+                _message = $"Blocking is on, but the gateway was not set up: {r.GatewayError}";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not turn on blocking: {ex.Message}";
+        }
+        finally
+        {
+            _turningOn = false;
         }
     }
 

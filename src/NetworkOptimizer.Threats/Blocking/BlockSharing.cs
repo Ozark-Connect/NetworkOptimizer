@@ -47,8 +47,9 @@ public sealed class InstanceBlockSharingScope : IBlockSharingScope
         return peers;
     }
 
+    // Same default as BlockingSettings.Share: on unless the site opted out.
     private async Task<bool> SharesAsync(string? site, CancellationToken ct) =>
-        bool.TryParse(await _settings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Share, site), ct), out var on) && on;
+        !bool.TryParse(await _settings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Share, site), ct), out var on) || on;
 }
 
 /// <summary>A site's public WAN addresses, which no site sharing blocks with it may ever block.</summary>
