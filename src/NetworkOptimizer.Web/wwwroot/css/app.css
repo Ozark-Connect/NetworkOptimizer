@@ -7384,6 +7384,12 @@ a.path-hop.hop-clickable:hover {
     margin-left: 1.625rem;
 }
 
+/* The card's Save, set off from the last target's own buttons like a section. */
+.automatic-blocking .ab-save {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1.25rem;
+}
+
 .automatic-blocking .ab-list {
     margin-bottom: 1rem;
 }
