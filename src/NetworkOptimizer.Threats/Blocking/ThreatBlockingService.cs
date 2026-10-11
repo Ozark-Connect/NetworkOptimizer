@@ -223,6 +223,9 @@ public sealed class ThreatBlockingService : BackgroundService
             var union = new List<ThreatBlock>();
             foreach (var peer in peers)
             {
+                // A peer switched Off neither contributes nor enforces; its old blocks stay with it.
+                if (peer != site && (await BlockingSettings.LoadAsync(k => accessor.GetSettingAsync(k, ct), peer)).Mode == BlockingMode.Off)
+                    continue;
                 using var peerScope = peer == site ? null : ScopeFor(peer);
                 var repo = (peerScope?.ServiceProvider ?? services).GetRequiredService<IThreatRepository>();
                 union.AddRange(await repo.GetBlocksAsync(now, now, ct));

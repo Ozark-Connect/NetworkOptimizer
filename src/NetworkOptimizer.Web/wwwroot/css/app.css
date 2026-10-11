@@ -7382,6 +7382,60 @@ a.path-hop.hop-clickable:hover {
     min-width: 0;
 }
 
+/* Threat Intelligence stat tiles and paired tables: shared by the main page and the WAF page, so
+   they live here rather than in either page's style block. */
+.threat-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.threat-summary-grid .card {
+    margin-bottom: 1.5rem;
+}
+
+.threat-summary-grid-compact .card {
+    margin-bottom: 0.75rem;
+}
+
+.threat-stat-card {
+    text-align: center;
+    padding: 1.25rem 1rem;
+}
+
+.threat-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.threat-stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.waf-stats {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.threat-two-chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .threat-summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .threat-two-chart-row {
+        grid-template-columns: 1fr;
+        margin-bottom: 1rem;
+    }
+}
+
 /* Threat Intelligence - Web Application Firewall page */
 .waf-tabs {
     margin-bottom: 1rem;
@@ -7389,6 +7443,11 @@ a.path-hop.hop-clickable:hover {
 
 .waf-range {
     margin-bottom: 1rem;
+}
+
+/* The tiles' own 0.75rem margin plus this is the 1.5rem rhythm to the link. */
+.waf-card-link {
+    margin-top: 0.75rem;
 }
 
 /* Settings - Multi-Site: a site's Automatic Blocking in its Configuration panel */
@@ -7405,6 +7464,11 @@ a.path-hop.hop-clickable:hover {
 
 .site-blocking .site-blocking-mode .form-control {
     width: auto;
+}
+
+/* The status line is its own row, not the toggle's help. */
+.site-blocking .form-help {
+    margin: 0.5rem 0;
 }
 
 /* Threat Intelligence - block one address from its details */

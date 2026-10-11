@@ -1637,6 +1637,21 @@ public class UniFiApiClient : IDisposable
         return new List<UniFiFirewallGroup>();
     }
 
+    /// <summary>
+    /// GET rest/firewallgroup for a caller that writes groups: throws when the read fails instead of
+    /// returning an empty list, which would look like "the groups are gone" and lead to duplicates.
+    /// </summary>
+    public async Task<List<UniFiFirewallGroup>> GetFirewallGroupsOrThrowAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+            () => _httpClient!.GetAsync(BuildApiPath("rest/firewallgroup"), cancellationToken),
+            cancellationToken,
+            throwOnApiError: true);
+        if (response?.Meta.Rc == "ok")
+            return response.Data;
+        throw new InvalidOperationException("Could not read the firewall groups from the UniFi Console.");
+    }
+
     private const string FirewallPermissionMessage =
         "The UniFi account lacks permission to change firewall settings. In UniFi Network, give this " +
         "account Network: Full (Site Admin in older versions), then try again.";
