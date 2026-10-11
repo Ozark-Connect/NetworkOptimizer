@@ -119,8 +119,7 @@ public sealed class ThreatBlockingOperations
         await Set(BlockingSettingKeys.Allowlist, string.Join("\n", BlockAllowlist.ParseList(s.Allowlist)));
         await Set(BlockingSettingKeys.Share, s.Share.ToString());
         await Set(BlockingSettingKeys.TargetGateway, s.TargetGateway.ToString());
-        // The WAF is read on the default site only.
-        await Set(BlockingSettingKeys.TargetWaf, (s.TargetWaf && Site(slug) == null).ToString());
+        await Set(BlockingSettingKeys.TargetWaf, s.TargetWaf.ToString());
         await Set(BlockingSettingKeys.TargetCloudflare, s.TargetCloudflare.ToString());
         _blocking.Trigger();
     }
@@ -138,7 +137,7 @@ public sealed class ThreatBlockingOperations
         {
             gatewayError = ex.Message;
         }
-        var waf = Site(slug) == null && await BlockingSettings.WafConnectedAsync(k => _settings.GetSettingAsync(k, ct));
+        var waf = await BlockingSettings.WafConnectedAsync(k => _settings.GetSettingAsync(k, ct), Site(slug));
 
         await SaveSettingsAsync(slug, current with
         {

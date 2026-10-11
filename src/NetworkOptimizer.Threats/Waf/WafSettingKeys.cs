@@ -1,10 +1,14 @@
 namespace NetworkOptimizer.Threats.Waf;
 
 /// <summary>
-/// Instance-wide SystemSettings keys for the netopt-waf connection (main database).
+/// SystemSettings keys for a site's netopt-waf connection (main database). Each site may run its
+/// own WAF; use <see cref="ForSite"/>. The default site keeps the bare keys.
 /// </summary>
 public static class WafSettingKeys
 {
+    /// <summary>The key for a site. Null or empty is the default site, which keeps the bare key.</summary>
+    public static string ForSite(string key, string? site) => string.IsNullOrEmpty(site) ? key : $"{key}:{site}";
+
     /// <summary>"true" when Network Optimizer reads the WAF.</summary>
     public const string Enabled = "waf.enabled";
 

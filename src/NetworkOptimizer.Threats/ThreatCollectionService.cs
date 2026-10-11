@@ -42,8 +42,9 @@ public class ThreatCollectionService : BackgroundService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _collectedSites = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset?> _backfillCursorBySite = new();
 
-    // netopt-waf as of the last poll; only the default site reads a WAF.
-    private volatile WafStatus? _wafStatus;
+    // Each site's netopt-waf as of its last poll, keyed like _collectedSites ("" = default site).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, WafStatus> _wafStatus = new();
+    private readonly ISiteHttpClientProvider? _siteHttp;
 
     // Geo database staleness check (24h cooldown to avoid checking every cycle)
     private DateTimeOffset _lastGeoCheck = DateTimeOffset.MinValue;
@@ -72,9 +73,11 @@ public class ThreatCollectionService : BackgroundService
         IUniFiClientAccessor uniFiClientAccessor,
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
         NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
-        IThreatSystemAudit? systemAudit = null)
+        IThreatSystemAudit? systemAudit = null,
+        ISiteHttpClientProvider? siteHttp = null)
     {
         _systemAudit = systemAudit;
+        _siteHttp = siteHttp;
         _siteWorkGate = siteWorkGate;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -121,10 +124,9 @@ public class ThreatCollectionService : BackgroundService
         _backfillCursorBySite.TryGetValue(NormalizeSite(siteSlug), out var cursor) ? cursor : null;
 
     /// <summary>
-    /// netopt-waf as of the last poll, or null when no WAF is configured.
-    /// Only the default site reads a WAF; other sites always get null.
+    /// The site's netopt-waf as of its last poll, or null when the site has no WAF configured.
     /// </summary>
-    public WafStatus? WafStatusFor(string? siteSlug) => NormalizeSite(siteSlug).Length == 0 ? _wafStatus : null;
+    public WafStatus? WafStatusFor(string? siteSlug) => _wafStatus.TryGetValue(NormalizeSite(siteSlug), out var status) ? status : null;
 
     /// <summary>
     /// Collapses the default site's various identifiers (null, empty, and the configured default
@@ -221,9 +223,8 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        // The WAF sits beside the default site's proxy and does not need the console.
-        if (NormalizeSite(siteKey).Length == 0)
-            await CollectWafAsync(repository, settings, siteKey, cancellationToken);
+        // A site's WAF sits beside its proxy (reached through its agent when routed that way) and does not need the console.
+        await CollectWafAsync(repository, settings, siteKey, cancellationToken);
 
         var apiClient = _uniFiClientAccessor.GetClient(siteKey);
         if (apiClient == null)
@@ -862,17 +863,21 @@ public class ThreatCollectionService : BackgroundService
     private async Task CollectWafAsync(IThreatRepository repository, IThreatSettingsAccessor settings,
         string? siteKey, CancellationToken cancellationToken)
     {
-        var enabled = await settings.GetSettingAsync(WafSettingKeys.Enabled, cancellationToken);
-        var url = await settings.GetSettingAsync(WafSettingKeys.Url, cancellationToken);
-        var token = await settings.GetDecryptedSettingAsync(WafSettingKeys.Token, cancellationToken);
+        var statusKey = NormalizeSite(siteKey);
+        var site = statusKey.Length == 0 ? null : statusKey;
+        var enabled = await settings.GetSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Enabled, site), cancellationToken);
+        var url = await settings.GetSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Url, site), cancellationToken);
+        var token = await settings.GetDecryptedSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Token, site), cancellationToken);
         if (enabled != "true" || string.IsNullOrWhiteSpace(url) || string.IsNullOrEmpty(token))
         {
-            _wafStatus = null;
+            _wafStatus.TryRemove(statusKey, out _);
             return;
         }
 
-        var (instance, since) = ParseWafCursor(await settings.GetSettingAsync(WafSettingKeys.Cursor, cancellationToken));
-        var client = new WafClient(_httpClientFactory.CreateClient());
+        var cursorKey = WafSettingKeys.ForSite(WafSettingKeys.Cursor, site);
+        var (instance, since) = ParseWafCursor(await settings.GetSettingAsync(cursorKey, cancellationToken));
+        var http = _siteHttp != null ? await _siteHttp.GetClientAsync(site, cancellationToken) : _httpClientFactory.CreateClient();
+        var client = new WafClient(http);
         try
         {
             // A few pages per cycle; a backlog drains over the next cycles.
@@ -890,17 +895,18 @@ public class ThreatCollectionService : BackgroundService
                 var events = _normalizer.NormalizeWafEvents(page);
                 await ProcessAndSaveAsync(events, repository, settings, siteKey, cancellationToken);
                 since = page.Next;
-                await settings.SaveSettingAsync(WafSettingKeys.Cursor, $"{instance}:{since}", cancellationToken);
-                _wafStatus = new WafStatus(DateTimeOffset.UtcNow, page.Mode, page.Paranoia, page.Started, page.Stats, null);
+                await settings.SaveSettingAsync(cursorKey, $"{instance}:{since}", cancellationToken);
+                _wafStatus[statusKey] = new WafStatus(DateTimeOffset.UtcNow, page.Mode, page.Paranoia, page.Started, page.Stats, null);
 
                 if (page.Events.Count < WafClient.PageSize) break;
             }
         }
         catch (WafClientException ex)
         {
-            _wafStatus = new WafStatus(DateTimeOffset.UtcNow, _wafStatus?.Mode, _wafStatus?.Paranoia ?? 0,
-                _wafStatus?.Started, _wafStatus?.Stats, ex.Message);
-            _logger.LogDebug("WAF poll failed: {Message}", ex.Message);
+            _wafStatus.TryGetValue(statusKey, out var last);
+            _wafStatus[statusKey] = new WafStatus(DateTimeOffset.UtcNow, last?.Mode, last?.Paranoia ?? 0,
+                last?.Started, last?.Stats, ex.Message);
+            _logger.LogDebug("WAF poll failed for site {Site}: {Message}", site ?? "main", ex.Message);
         }
         // A WAF failure must never cost the site its IPS and flow collection, which runs next.
         catch (Exception ex) when (ex is not OperationCanceledException)

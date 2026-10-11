@@ -30,7 +30,7 @@
                 <div class="alert alert-info">
                     <div class="banner-content">
                         <div class="banner-text">
-                            <span>Start blocking repeat attackers in one click: on the gateway@(SiteContext.IsDefault ? ", in the WAF," : "") and across your sites. Cloudflare stays off until you add a token.</span>
+                            <span>Start blocking repeat attackers in one click: on the gateway, in the WAF when one is connected, and across your sites. Cloudflare stays off until you add a token.</span>
                         </div>
                         <div class="banner-actions">
                             <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="TurnOnRecommended">Turn On Recommended</button>
@@ -128,18 +128,15 @@
                     </div>
                 </div>
 
-                @if (SiteContext.IsDefault)
-                {
-                    <div class="ab-target">
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" @bind="_form.TargetWaf" />
-                                <span>Web Application Firewall</span>
-                            </label>
-                            <small class="form-help">Refuses blocked sources on every route the WAF covers, including hosts behind Cloudflare's proxy, where the gateway only sees Cloudflare. Needs the WAF connected above.</small>
-                        </div>
+                <div class="ab-target">
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_form.TargetWaf" />
+                            <span>Web Application Firewall</span>
+                        </label>
+                        <small class="form-help">Refuses blocked sources on every route the WAF covers, including hosts behind Cloudflare's proxy, where the gateway only sees Cloudflare. Needs the WAF connected above.</small>
                     </div>
-                }
+                </div>
 
                 <div class="ab-target">
                     <div class="form-group">

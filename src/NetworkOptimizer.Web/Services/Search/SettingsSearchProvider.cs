@@ -291,7 +291,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Web Application Firewall",
             ["WAF", "Coraza", "OWASP CRS"],
             ["netopt-waf", "networkoptimizer-proxy", "waf url", "api token", "web attacks", "sql injection",
-             "test connection"], Reach.DefaultSite),
+             "test connection", "on-site agent", "per site"]),
 
         // Per site: every site has its own gateway and may have its own Cloudflare account.
         Entry("security", "Security & Alerts", "automatic-blocking",
