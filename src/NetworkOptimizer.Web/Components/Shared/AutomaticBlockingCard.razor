@@ -145,7 +145,7 @@
                             <input type="checkbox" @bind="_form.TargetGateway" />
                             <span>Gateway</span>
                         </label>
-                        <small class="form-help">A Network List and a Block policy from External to every other zone in UniFi Network's zone-based firewall. Set Up creates them; they are named <strong>@GatewayBlocklist.PolicyName</strong>.</small>
+                        <small class="form-help">A Network List and a Block policy from External to every other zone in UniFi Network's zone-based firewall. <strong>Set Up Gateway</strong> creates them; they are named <strong>@GatewayBlocklist.PolicyName</strong>.</small>
                         @if (_gatewayStatus != null)
                         {
                             <small class="form-help ab-status @(_gatewayOk ? "is-ok" : _gatewaySetUp ? "is-warning" : "")">@if (_gatewayOk)
@@ -174,7 +174,7 @@
                         }
                         else
                         {
-                            <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpGateway">Set Up</button>
+                            <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpGateway">Set Up Gateway</button>
                         }
                     </div>
                 </div>
@@ -197,7 +197,7 @@
                         </label>
                         <small class="form-help">
                             Refuses blocked sources at Cloudflare's edge, before they reach any site Cloudflare proxies for you. On your end: create an API token
-                            (steps below), enter it with your Account ID and select Set Up, then add one custom rule in each domain that blocks the list.
+                            (steps below), enter it with your Account ID and select <strong>Set Up Cloudflare</strong>, then add one custom rule in each domain that blocks the list.
                             Network Optimizer creates the list, <code>@CloudflareListClient.ListName</code>, and keeps it current.
                         </small>
                         @if (_form.TargetCloudflare && _cf?.List != null)
@@ -247,13 +247,13 @@
                             <div class="alert alert-danger">@_cf.Error</div>
                         }
                         <div class="action-buttons">
-                            <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpCloudflare">@(_cf?.List != null ? "Update" : "Set Up")</button>
+                            <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpCloudflare">@(_cf?.List != null ? "Update Cloudflare" : "Set Up Cloudflare")</button>
                         </div>
                     }
                 </div>
             </div>
 
-            <div class="action-buttons">
+            <div class="action-buttons ab-save">
                 <button class="btn btn-primary" disabled="@_busy" @onclick="Save">
                     @if (_busy)
                     {
