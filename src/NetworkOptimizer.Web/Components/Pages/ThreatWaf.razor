@@ -94,7 +94,10 @@
         <div class="card card-spaced">
             <div class="card-header">
                 <h3 class="card-title">Mode</h3>
-                <span class="status-badge @(_status.Mode == "block" ? "status-active" : "")">@(_status.Mode == "block" ? "Blocking" : "Detection Only")</span>
+                <div class="waf-card-mode">
+                    <span class="waf-meta">Paranoia Level @_status.Paranoia</span>
+                    <span class="status-badge @(_status.Mode == "block" ? "status-active" : "")">@(_status.Mode == "block" ? "Blocking" : "Detection Only")</span>
+                </div>
             </div>
             <div class="card-body">
                 @if (_status.Mode != "block" && DetectDays >= 7)
@@ -113,18 +116,20 @@
                         </div>
                     </div>
                 }
-                <dl class="waf-mode-facts">
-                    <dt>Mode</dt>
-                    <dd>@(_status.Mode == "block" ? "Blocking" : "Detection Only")@(SinceText)</dd>
-                    <dt>Effect</dt>
-                    <dd>@(_status.Mode == "block" ? "Requests that cross the CRS anomaly threshold get a 403." : "Attacks are logged and let through.")</dd>
-                    <dt>Paranoia level</dt>
-                    <dd>@_status.Paranoia <span class="waf-mode-note">set in the proxy's .env as <code>WAF_PARANOIA</code></span></dd>
-                </dl>
-                @if (_status.Mode != "block" && DetectDays < 7)
-                {
-                    <p class="waf-mode-next">Run it for a week, review <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>, then switch to Block.</p>
-                }
+                <p class="section-description">
+                    @if (_status.Mode == "block")
+                    {
+                        <text>Blocking@(SinceText). A request that crosses the CRS anomaly threshold gets a 403.</text>
+                    }
+                    else if (DetectDays >= 7)
+                    {
+                        <text>Detection Only@(SinceText). Attacks are logged and let through.</text>
+                    }
+                    else
+                    {
+                        <text>Detection Only@(SinceText). Attacks are logged and let through. Run it for a week, review <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>, then switch to Block.</text>
+                    }
+                </p>
                 @if (_status.Mode == "block" || DetectDays < 7)
                 {
                     <SiteAdminOnly>
@@ -139,7 +144,8 @@
                             }
                         </div>
                     </SiteAdminOnly>
-                }                @if (_modeMessage != null)
+                }
+                @if (_modeMessage != null)
                 {
                     <div class="alert alert-@_modeMessageClass">@_modeMessage</div>
                 }
@@ -212,7 +218,7 @@ else if (_tab == "events")
                                     <td><span class="status-badge @(e.Action == ThreatAction.Blocked ? "status-error" : "")">@(e.Action == ThreatAction.Blocked ? "Blocked" : "Detected")</span></td>
                                     <td>
                                         <SiteAdminOnly>
-                                            <button class="btn btn-sm btn-contrast" @onclick="() => ShowExclusion(e)">Exclusion</button>
+                                            <button class="btn btn-sm btn-contrast" @onclick="() => ShowExclusion(e)">@(_exclusionFor == e.Id ? "Hide Exclusion" : "Show Exclusion")</button>
                                         </SiteAdminOnly>
                                     </td>
                                 </tr>
