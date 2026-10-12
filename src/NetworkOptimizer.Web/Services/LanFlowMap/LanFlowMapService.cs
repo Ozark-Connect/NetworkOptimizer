@@ -154,7 +154,7 @@ public class LanFlowMapService
         CompactBuildingFloors(snapshot.Buildings, anchors);
 
         var nameMaps = await LoadInterfaceNameMaps(ct);
-        snapshot.PortIfNames = nameMaps.ToDictionary(kv => kv.Key, kv => kv.Value.IfName);
+        snapshot.PortNameMaps = nameMaps;
 
         // Raw device list with PortTable for direct UniFi-side port speed/name lookups.
         // Used as the immediate-fallback path for wired client link speed when the
@@ -1805,6 +1805,10 @@ public class LanFlowMapService
             if (!deviceNodeIds.Contains(parentId)) return;
 
             var band = wired ? null : NormalizeBand(p.Band);
+            var portMap = wired && p.Port is > 0
+                ? snapshot.PortNameMaps.GetValueOrDefault((NormalizeMac(p.ApMac), p.Port.Value))
+                : null;
+            var portSpeedMbps = portMap?.SpeedMbps is > 0 ? portMap.SpeedMbps : null;
             var node = new LanNode
             {
                 Id = nodeId,
@@ -1820,7 +1824,10 @@ public class LanFlowMapService
                 SignalDbm = wired ? null : p.SignalDbm,
                 PhyTxKbps = wired ? null : p.TxRateKbps,
                 PhyRxKbps = wired ? null : p.RxRateKbps,
-                SwitchPortName = wired && p.Port is > 0 ? $"Port {p.Port}" : null,
+                // Same label and speed a connected leaf on this port takes from the name map.
+                SwitchPortName = !string.IsNullOrEmpty(portMap?.FriendlyName) ? portMap.FriendlyName
+                    : wired && p.Port is > 0 ? $"Port {p.Port}" : null,
+                WiredLinkSpeedMbps = portSpeedMbps,
                 // A client the user has placed keeps that position even at instants it was offline;
                 // rebuilding it without one dropped it back to the force layout mid-playback.
                 Placement = snapshot.AnchorsByMac.GetValueOrDefault(clientMac),
@@ -1835,6 +1842,7 @@ public class LanFlowMapService
                 ToNodeId = nodeId,
                 Kind = wired ? LanLinkKind.WiredClient : LanLinkKind.WifiClient,
                 Band = band,
+                CapacityBps = portSpeedMbps * 1_000_000L,
             });
 
             // The rate pass above walks the snapshot's links, and this one is not in it - so
@@ -1855,7 +1863,8 @@ public class LanFlowMapService
         {
             if (p.Port is not > 0 || string.IsNullOrEmpty(p.ApMac)) return null;
             var switchMac = NormalizeMac(p.ApMac);
-            if (!snapshot.PortIfNames.TryGetValue((switchMac, p.Port.Value), out var ifName)) return null;
+            if (!snapshot.PortNameMaps.TryGetValue((switchMac, p.Port.Value), out var map)) return null;
+            var ifName = map.IfName;
             if (livePortKeys.Contains(PortKey(switchMac, ifName))) return null;
             if (wiredPortClientCounts.GetValueOrDefault((switchMac, p.Port.Value)) > 1) return null;
             if (!ratesByDevice.TryGetValue(switchMac, out var pts)) return null;
