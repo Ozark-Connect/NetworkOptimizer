@@ -288,6 +288,8 @@ export function startPolling(intervalMs = 3000) {
     const signal = _pollAbort.signal;
     _fetchSnapshot(signal).catch(() => {});
     _pollTimer = setInterval(() => {
+        // A hidden page polls nothing; the next tick after it returns catches up.
+        if (document.hidden) return;
         // The topology snapshot is fetched once at start, then again whenever it wasn't ready
         // (console connection came up after the mount) or a live tick reported a generation the
         // store does not hold - a rebuild that dropped or gained clients server-side.
