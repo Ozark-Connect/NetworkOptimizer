@@ -200,7 +200,7 @@ else if (_tab == "events")
                             <tr>
                                 <th>Time</th>
                                 <th>Source</th>
-                                <th class="hide-mobile">Host</th>
+                                <th>Host</th>
                                 <th>Request</th>
                                 <th>Rule</th>
                                 <th>Action</th>
@@ -213,7 +213,7 @@ else if (_tab == "events")
                                 <tr>
                                     <td>@e.Timestamp.ToLocalTime().ToString("MMM d HH:mm")</td>
                                     <td><a href="/threats?tab=drilldown&ip=@Uri.EscapeDataString(e.SourceIp)"><code>@e.SourceIp</code></a></td>
-                                    <td class="hide-mobile text-truncate-300">@e.Domain</td>
+                                    <td class="text-truncate-300">@e.Domain</td>
                                     <td class="text-truncate-300"><code>@e.Service</code></td>
                                     <td class="text-truncate-300" data-tooltip="@e.SignatureName"><code>@e.SignatureId</code> @e.SignatureName</td>
                                     <td><span class="status-badge @(e.Action == ThreatAction.Blocked ? "status-error" : "")">@(e.Action == ThreatAction.Blocked ? "Blocked" : "Detected")</span></td>
