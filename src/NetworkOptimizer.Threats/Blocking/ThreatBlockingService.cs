@@ -178,8 +178,53 @@ public sealed class ThreatBlockingService : BackgroundService
             {
                 _logger.LogError(ex, "Trusted Sources failed to sync site {Site}", site ?? "main");
             }
+            try
+            {
+                await SyncWafExclusionsAsync(site, now, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "WAF exclusions failed to sync site {Site}", site ?? "main");
+            }
         }
     }
+
+    private readonly ConcurrentDictionary<string, (string Fingerprint, DateTime At, bool Ok)> _exclusionsSent = new();
+
+    // Re-sends a site's managed exclusions to its WAF on change and hourly, so a replaced WAF gets
+    // them back. A site that never had any is skipped, which keeps an older WAF from logging a failure.
+    private async Task SyncWafExclusionsAsync(string? site, DateTime now, CancellationToken ct)
+    {
+        using var scope = ScopeFor(site);
+        var services = scope.ServiceProvider;
+        var accessor = services.GetRequiredService<IThreatSettingsAccessor>();
+        if (!await BlockingSettings.WafConnectedAsync(k => accessor.GetSettingAsync(k, ct), site)) return;
+
+        var list = await WafRuleExclusions.LoadAsync(accessor, site, ct);
+        var fingerprint = WafRuleExclusions.Fingerprint(list);
+        var sent = _exclusionsSent.TryGetValue(Key(site), out var last);
+        if (!sent && list.Count == 0) return;
+        if (sent && last.Fingerprint == fingerprint && now - last.At < (last.Ok ? Resync : TimeSpan.FromMinutes(5))) return;
+
+        var url = await accessor.GetSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Url, site), ct);
+        var token = await accessor.GetDecryptedSettingAsync(WafSettingKeys.ForSite(WafSettingKeys.Token, site), ct);
+        var http = services.GetService<ISiteHttpClientProvider>() is { } provider
+            ? await provider.GetClientAsync(site, ct) : _httpClientFactory.CreateClient("Waf");
+        try
+        {
+            await new WafClient(http).PutExclusionsAsync(url!, token!, list, ct);
+            _exclusionsSent[Key(site)] = (fingerprint, now, true);
+        }
+        catch (WafClientException ex)
+        {
+            _exclusionsSent[Key(site)] = (fingerprint, now, false);
+            _logger.LogWarning("WAF exclusions: sync failed on {Site}: {Error}", site ?? "main", ex.Message);
+        }
+    }
+
+    /// <summary>Records a push the caller already made, so the next sync does not repeat it.</summary>
+    public void RecordExclusionsSent(string? site, IEnumerable<WafRuleExclusion> list) =>
+        _exclusionsSent[Key(site)] = (WafRuleExclusions.Fingerprint(list), DateTime.UtcNow, true);
 
     // Pass 1: this site's own decisions, expiry audit, and pruning.
     private async Task<BlockingSettings> DecideAsync(string? site, DateTime now, CancellationToken ct)

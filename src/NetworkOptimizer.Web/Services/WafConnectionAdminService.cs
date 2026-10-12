@@ -5,6 +5,7 @@ using NetworkOptimizer.Threats.Blocking;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Waf;
 using NetworkOptimizer.Web.Services.Gates;
+using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -35,7 +36,30 @@ public interface IWafConnectionAdmin
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "waf_mode")]
     Task<WafModeState> SetModeAsync(string mode, CancellationToken cancellationToken = default);
+
+    /// <summary>The site's managed exclusions, plus the built-in app sets its WAF loads when it answers.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<WafExclusionsView> GetExclusionsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns one CRS rule off for requests matching every field given, pushing the new set to the
+    /// WAF before saving it. An exclusion with the same rule and scope is returned as it is.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "waf_exclusion")]
+    Task<WafRuleExclusion> AddExclusionAsync(long ruleId, string? host, string? method, string? path, string? note,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Removes an exclusion from the WAF and the site; false when there is none with that ID.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "waf_exclusion")]
+    Task<bool> RemoveExclusionAsync(string id, CancellationToken cancellationToken = default);
 }
+
+/// <summary>A site's managed exclusions, and what its WAF reports when it answers.</summary>
+/// <param name="Apps">The WAF's built-in app sets; null when it did not answer.</param>
+/// <param name="WafError">Why the WAF did not answer, or null.</param>
+public sealed record WafExclusionsView(IReadOnlyList<WafRuleExclusion> Exclusions, IReadOnlyList<string>? Apps, string? WafError);
 
 public sealed class WafConnectionAdminService(
     IThreatSettingsAccessor settings,
@@ -43,8 +67,11 @@ public sealed class WafConnectionAdminService(
     ISiteHttpClientProvider http,
     ThreatCollectionService collector,
     ThreatBlockingService blocking,
-    SiteContextService siteContext) : IWafConnectionAdmin
+    SiteContextService siteContext,
+    ICallerContext caller) : IWafConnectionAdmin
 {
+    private static readonly HashSet<string> Methods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
     private string? Site => siteContext.IsDefault ? null : siteContext.Slug;
     private string Key(string key) => WafSettingKeys.ForSite(key, Site);
 
@@ -95,4 +122,85 @@ public sealed class WafConnectionAdminService(
             throw new InvalidOperationException(ex.Message, ex);
         }
     }
+
+    public async Task<WafExclusionsView> GetExclusionsAsync(CancellationToken ct = default)
+    {
+        var list = await WafRuleExclusions.LoadAsync(settings, Site, ct);
+        var (client, url, token) = await ConnectionAsync(ct);
+        if (client == null) return new WafExclusionsView(list, null, null);
+        try
+        {
+            var set = await client.GetExclusionsAsync(url, token, ct);
+            return new WafExclusionsView(list, set.Apps, null);
+        }
+        catch (WafClientException ex)
+        {
+            return new WafExclusionsView(list, null, ex.Message);
+        }
+    }
+
+    public async Task<WafRuleExclusion> AddExclusionAsync(long ruleId, string? host, string? method, string? path, string? note,
+        CancellationToken ct = default)
+    {
+        var candidate = new WafRuleExclusion
+        {
+            Id = Guid.NewGuid().ToString("N")[..12],
+            RuleId = ruleId,
+            Host = Blank(host)?.ToLowerInvariant(),
+            Method = Blank(method)?.ToUpperInvariant(),
+            Path = Blank(path?.Split('?', '#')[0]),
+            Note = Blank(note) is { } n && n.Length > 200 ? n[..200] : Blank(note),
+            CreatedBy = caller.Current?.ActorName,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        if (ruleId is < 900000 or > 999999)
+            throw new ArgumentException($"{ruleId} is not an OWASP CRS rule ID.");
+        if (candidate.Host == null && candidate.Path == null)
+            throw new ArgumentException("Set a host or a path. An exclusion for every request goes in after-crs.conf by hand.");
+        if (candidate.Method != null && !Methods.Contains(candidate.Method))
+            throw new ArgumentException($"{candidate.Method} is not an HTTP method the WAF matches.");
+        if (candidate.Path != null && (!candidate.Path.StartsWith('/') || candidate.Path.Any(c => char.IsWhiteSpace(c) || c is '"' or '\\')))
+            throw new ArgumentException("The path starts with / and holds no spaces, quotes, or backslashes.");
+
+        var list = await WafRuleExclusions.LoadAsync(settings, Site, ct);
+        if (list.FirstOrDefault(x => x.SameScope(candidate)) is { } existing) return existing;
+        list.Add(candidate);
+        await PushAndSaveAsync(list, ct);
+        return candidate;
+    }
+
+    public async Task<bool> RemoveExclusionAsync(string id, CancellationToken ct = default)
+    {
+        var list = await WafRuleExclusions.LoadAsync(settings, Site, ct);
+        if (list.RemoveAll(x => x.Id == id) == 0) return false;
+        await PushAndSaveAsync(list, ct);
+        return true;
+    }
+
+    // The WAF builds the set first and refuses one it cannot build, so nothing is saved that it rejected.
+    private async Task PushAndSaveAsync(List<WafRuleExclusion> list, CancellationToken ct)
+    {
+        var (client, url, token) = await ConnectionAsync(ct);
+        if (client == null) throw new ArgumentException("Connect the WAF first.");
+        try
+        {
+            await client.PutExclusionsAsync(url, token, list, ct);
+        }
+        catch (WafClientException ex)
+        {
+            throw new InvalidOperationException(ex.Message, ex);
+        }
+        await WafRuleExclusions.SaveAsync(settings, Site, list, ct);
+        blocking.RecordExclusionsSent(Site, list);
+    }
+
+    private async Task<(WafClient? Client, string Url, string Token)> ConnectionAsync(CancellationToken ct)
+    {
+        var url = await settings.GetSettingAsync(Key(WafSettingKeys.Url), ct);
+        var token = await settings.GetDecryptedSettingAsync(Key(WafSettingKeys.Token), ct);
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(token)) return (null, "", "");
+        return (new WafClient(await http.GetClientAsync(Site, ct)), url.Trim(), token);
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

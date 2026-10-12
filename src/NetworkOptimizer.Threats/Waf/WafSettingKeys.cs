@@ -20,4 +20,7 @@ public static class WafSettingKeys
 
     /// <summary>"{instance}:{next}" read position; not user-facing.</summary>
     public const string Cursor = "waf.cursor";
+
+    /// <summary>The site's managed exclusions, a JSON array of <see cref="WafRuleExclusion"/>.</summary>
+    public const string Exclusions = "waf.exclusions";
 }
