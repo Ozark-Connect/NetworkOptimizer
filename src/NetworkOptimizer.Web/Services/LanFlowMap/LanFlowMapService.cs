@@ -1030,7 +1030,7 @@ public class LanFlowMapService
                         // The console kept listing the client, so its telemetry says present; the
                         // switch's own sample at the instant says the port was down, and a down
                         // port had nobody on it.
-                        if (PortLinkDownAt(cached.LinkStateByDevice, deviceMac, ifName, at))
+                        if (PortLinkDownAt(cached.LinkStateByDevice, ratesByDevice, deviceMac, ifName, at))
                             update.PresentClientIds.Remove(link.ToNodeId);
                         if (ratesByDevice.TryGetValue(deviceMac, out var pts))
                         {
@@ -1817,7 +1817,7 @@ public class LanFlowMapService
 
             // The console keeps listing a wired client for minutes after its port goes down; the
             // switch's sample at the instant wins, as it does for a connected leaf.
-            if (portMap != null && PortLinkDownAt(linkStateByDevice, NormalizeMac(p.ApMac), portMap.IfName, update.At))
+            if (portMap != null && PortLinkDownAt(linkStateByDevice, ratesByDevice, NormalizeMac(p.ApMac), portMap.IfName, update.At))
                 update.PresentClientIds.Remove(nodeId);
             // A leaf absent at the instant is not handed over at all: the 3D map draws every
             // leaf it receives, where the 2D map filters by the present set.
@@ -2782,14 +2782,26 @@ public class LanFlowMapService
     // Internal helpers
     // ---------------------------------------------------------------------------------
 
-    /// <summary>Whether the switch's link-state sample nearest <paramref name="at"/> says the port was down.</summary>
+    /// <summary>
+    /// Whether the switch's link-state sample nearest <paramref name="at"/> says the port was down.
+    /// Inbound traffic within <see cref="MonitoringLiveStats.InboundProvesLink"/> before the instant
+    /// says up, as it does live: ifOperStatus is read every 30 s and repeated on every sample between.
+    /// </summary>
     private static bool PortLinkDownAt(
         Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceLinkStatePoint>> linkStateByDevice,
-        string deviceMac, string ifName, DateTime at) =>
-        linkStateByDevice.TryGetValue(deviceMac, out var states)
-        && ClosestLinkState(states, ifName, at) is { } state
-        && (state.Time - at).Duration() <= ClientPresenceTolerance
-        && MonitoringLiveStats.LinkDownFromOperStatus(state.OperStatus) == true;
+        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> ratesByDevice,
+        string deviceMac, string ifName, DateTime at)
+    {
+        if (!linkStateByDevice.TryGetValue(deviceMac, out var states)
+            || ClosestLinkState(states, ifName, at) is not { } state
+            || (state.Time - at).Duration() > ClientPresenceTolerance
+            || MonitoringLiveStats.LinkDownFromOperStatus(state.OperStatus) != true)
+            return false;
+        return !(ratesByDevice.TryGetValue(deviceMac, out var rates)
+            && rates.Any(p => p.RateInBps is > 0 && p.Time <= at && at - p.Time <= MonitoringLiveStats.InboundProvesLink
+                && (string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(p.PortId, ifName, StringComparison.OrdinalIgnoreCase))));
+    }
 
     /// <summary>The port's negotiated speed from the sample nearest <paramref name="at"/> that carries one, within the online window.</summary>
     private static int? SpeedMbpsAt(

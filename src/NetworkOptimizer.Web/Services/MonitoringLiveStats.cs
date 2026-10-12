@@ -259,14 +259,27 @@ public class MonitoringLiveStats
     // When each port's rate was last computed rather than carried, for the hold above.
     private readonly ConcurrentDictionary<(string DeviceMac, string IfName), DateTime> _portRateAt = new();
 
+    /// <summary>
+    /// How recent inbound traffic on a port has to be to outweigh an ifOperStatus that says down.
+    /// Only the host behind a port can send into it, so inbound bytes prove the link is up; the
+    /// poller reads ifOperStatus every 30 s, while the counters behind the rate are read every poll.
+    /// </summary>
+    public static readonly TimeSpan InboundProvesLink = TimeSpan.FromSeconds(15);
+
+    // When each port last computed a nonzero inbound rate, recorded before a down link zeroes it.
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), DateTime> _portInboundAt = new();
+
     public void RecordPortStats(MonitoringInfluxClient.PortStatsPoint point)
     {
         if (string.IsNullOrEmpty(point.DeviceMac) || string.IsNullOrEmpty(point.IfName)) return;
         var key = (Normalize(point.DeviceMac), point.IfName);
         if (point.RateInBps.HasValue || point.RateOutBps.HasValue) _portRateAt[key] = point.Time;
+        var inbound = point.RateInBps is > 0;
+        if (inbound) _portInboundAt[key] = point.Time;
         // A down link carries nothing, and a rate held past its window is a port that went quiet,
-        // not one whose device has yet to refresh its counters.
-        var linkDown = point.OperStatus is { } oper && oper != 1;
+        // not one whose device has yet to refresh its counters. A sample that moved inbound bytes is
+        // not a down link, whatever the cached ifOperStatus says.
+        var linkDown = point.OperStatus is { } oper && oper != 1 && !inbound;
         var heldTooLong = !point.RateInBps.HasValue && !point.RateOutBps.HasValue
             && (!_portRateAt.TryGetValue(key, out var rateAt) || point.Time - rateAt > PortRateHold);
         if (linkDown || heldTooLong)
@@ -321,14 +334,19 @@ public class MonitoringLiveStats
     /// <summary>
     /// <see cref="IsPortLinkDown"/> with the sample it was read from. Down is ifOperStatus 2 (down)
     /// or 7 (lowerLayerDown) only; testing, unknown, dormant, and notPresent say nothing either way.
+    /// Inbound traffic within <see cref="InboundProvesLink"/> of the sample reads as up regardless.
     /// </summary>
     public PortLinkSample? PortLinkState(string deviceMac, string ifName, DateTime now, TimeSpan maxAge, DateTime? notBefore = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
-        if (!_portStats.TryGetValue((Normalize(deviceMac), ifName), out var row)) return null;
+        var key = (Normalize(deviceMac), ifName);
+        if (!_portStats.TryGetValue(key, out var row)) return null;
         if (row.OperStatus is not { } oper || now - row.Time > maxAge) return null;
         if (notBefore is { } floor && row.Time <= floor) return null;
-        return LinkDownFromOperStatus(oper) is { } down ? new PortLinkSample(down, oper, row.Time) : null;
+        if (LinkDownFromOperStatus(oper) is not { } down) return null;
+        if (down && _portInboundAt.TryGetValue(key, out var inboundAt) && row.Time - inboundAt <= InboundProvesLink)
+            down = false;
+        return new PortLinkSample(down, oper, row.Time);
     }
 
     /// <summary>
