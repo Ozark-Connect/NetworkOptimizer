@@ -424,6 +424,9 @@ public class NodeClientStats
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
 
+    /// <summary>A wired client's negotiated port speed at the instant, from its switch port sample.</summary>
+    public int? WiredLinkSpeedMbps { get; set; }
+
     /// <summary>
     /// The same per-band class and bar count the snapshot node carries. A client's signal often
     /// arrives on the live tick before the snapshot rebuild catches up, and reading the class off

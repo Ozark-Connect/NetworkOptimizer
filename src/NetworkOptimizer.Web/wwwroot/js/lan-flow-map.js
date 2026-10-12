@@ -3988,8 +3988,9 @@ export class LanFlowMap {
 
         // Negotiated link speed (wired port or wireless PHY rate), shown directly
         // above the live throughput so the capable rate sits over the actual rate.
-        if (node.wiredLinkSpeedMbps) {
-            rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
+        const wiredSpeed = cs?.wiredLinkSpeedMbps ?? node.wiredLinkSpeedMbps;
+        if (wiredSpeed) {
+            rows.push(['Link speed', formatLinkSpeed(wiredSpeed)]);
         } else if (node.phyTxKbps || node.phyRxKbps || cs?.phyTxKbps || cs?.phyRxKbps) {
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
             // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap. Prefer

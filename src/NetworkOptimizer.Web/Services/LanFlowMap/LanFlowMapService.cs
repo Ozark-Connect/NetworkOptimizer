@@ -881,7 +881,7 @@ public class LanFlowMapService
             };
         }
 
-        AddHistoricOnlyClients(snapshot, update, wifiClientRates, wiredClientRates, ratesByDevice);
+        AddHistoricOnlyClients(snapshot, update, wifiClientRates, wiredClientRates, ratesByDevice, cached.LinkStateByDevice);
 
         // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
         foreach (var link in snapshot.Links)
@@ -1030,16 +1030,16 @@ public class LanFlowMapService
                         // The console kept listing the client, so its telemetry says present; the
                         // switch's own sample at the instant says the port was down, and a down
                         // port had nobody on it.
-                        if (cached.LinkStateByDevice.TryGetValue(deviceMac, out var states)
-                            && ClosestLinkState(states, ifName, at) is { } state
-                            && (state.Time - at).Duration() <= ClientPresenceTolerance
-                            && MonitoringLiveStats.LinkDownFromOperStatus(state.OperStatus) == true)
+                        if (PortLinkDownAt(cached.LinkStateByDevice, deviceMac, ifName, at))
                             update.PresentClientIds.Remove(link.ToNodeId);
                         if (ratesByDevice.TryGetValue(deviceMac, out var pts))
                         {
                             var closest = ClosestPortPoint(pts, ifName, at);
                             if (closest != null)
                                 rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
+                            // The snapshot's link speed is today's; the port's sample says what it was then.
+                            if (SpeedMbpsAt(pts, ifName, at) is { } mbps)
+                                ClientStatsFor(update, link.ToNodeId).WiredLinkSpeedMbps = mbps;
                         }
                     }
                     // UDB bridged leaf: the client's own wired counters are always zero, so source
@@ -1773,7 +1773,8 @@ public class LanFlowMapService
         LanFlowMapHistoricUpdate update,
         Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint> wifiClientRates,
         Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint> wiredClientRates,
-        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> ratesByDevice)
+        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> ratesByDevice,
+        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceLinkStatePoint>> linkStateByDevice)
     {
         var liveNodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
         var livePortKeys = new HashSet<string>(
@@ -1810,10 +1811,23 @@ public class LanFlowMapService
                 : null;
             // Speed negotiated at the instant, which changes with the host's state (a WOL port idles
             // at 100 Mbps while the host is off). The name map holds only the latest value.
-            var sampledSpeedBps = portMap == null ? null
-                : NearestPortSample(p, portMap, s => s.SpeedBps is > 0)?.SpeedBps;
-            var portSpeedMbps = sampledSpeedBps is > 0 ? (int)(sampledSpeedBps.Value / 1_000_000L)
-                : portMap?.SpeedMbps is > 0 ? portMap.SpeedMbps : null;
+            var sampledMbps = portMap != null && ratesByDevice.TryGetValue(NormalizeMac(p.ApMac), out var portPts)
+                ? SpeedMbpsAt(portPts, portMap.IfName, update.At) : null;
+            var portSpeedMbps = sampledMbps ?? (portMap?.SpeedMbps is > 0 ? portMap.SpeedMbps : null);
+
+            // The console keeps listing a wired client for minutes after its port goes down; the
+            // switch's sample at the instant wins, as it does for a connected leaf.
+            if (portMap != null && PortLinkDownAt(linkStateByDevice, NormalizeMac(p.ApMac), portMap.IfName, update.At))
+                update.PresentClientIds.Remove(nodeId);
+            // A leaf absent at the instant is not handed over at all: the 3D map draws every
+            // leaf it receives, where the 2D map filters by the present set.
+            if (!update.PresentClientIds.Contains(nodeId)) return;
+
+            // Renderers keep a rebuilt leaf's node as first drawn, so per-instant speed rides
+            // in the client stats the way Wi-Fi PHY rate does.
+            if (wired && portSpeedMbps.HasValue)
+                ClientStatsFor(update, nodeId).WiredLinkSpeedMbps = portSpeedMbps;
+
             var node = new LanNode
             {
                 Id = nodeId,
@@ -1869,8 +1883,9 @@ public class LanFlowMapService
             var switchMac = NormalizeMac(p.ApMac);
             if (livePortKeys.Contains(PortKey(switchMac, map.IfName))) return null;
             if (wiredPortClientCounts.GetValueOrDefault((switchMac, p.Port!.Value)) > 1) return null;
-            var closest = NearestPortSample(p, map, _ => true);
-            if (closest == null) return null;
+            if (!ratesByDevice.TryGetValue(switchMac, out var pts)) return null;
+            var closest = ClosestPortPoint(pts, map.IfName, update.At);
+            if (closest == null || Math.Abs((closest.Time - update.At).TotalSeconds) > HistoricOnlineWindowSeconds) return null;
             // Same orientation as MapPortToLinkRates for a client port: the switch's TX is the download.
             return new LinkLiveRates
             {
@@ -1878,17 +1893,6 @@ public class LanFlowMapService
                 UpstreamBps = closest.RateInBps ?? 0,
                 AsOf = closest.Time,
             };
-        }
-
-        // The client's switch port sample nearest the instant, within the online window.
-        MonitoringInfluxClient.InterfaceRatePoint? NearestPortSample(
-            MonitoringInfluxClient.ClientThroughputPoint p, InterfaceNameMap map,
-            Func<MonitoringInfluxClient.InterfaceRatePoint, bool> where)
-        {
-            if (!ratesByDevice.TryGetValue(NormalizeMac(p.ApMac), out var pts)) return null;
-            var closest = ClosestPortPoint(pts.Where(where), map.IfName, update.At);
-            return closest != null && Math.Abs((closest.Time - update.At).TotalSeconds) <= HistoricOnlineWindowSeconds
-                ? closest : null;
         }
 
         foreach (var (mac, p) in wiredClientRates) Add(mac, p, wired: true);
@@ -2777,6 +2781,32 @@ public class LanFlowMapService
     // ---------------------------------------------------------------------------------
     // Internal helpers
     // ---------------------------------------------------------------------------------
+
+    /// <summary>Whether the switch's link-state sample nearest <paramref name="at"/> says the port was down.</summary>
+    private static bool PortLinkDownAt(
+        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceLinkStatePoint>> linkStateByDevice,
+        string deviceMac, string ifName, DateTime at) =>
+        linkStateByDevice.TryGetValue(deviceMac, out var states)
+        && ClosestLinkState(states, ifName, at) is { } state
+        && (state.Time - at).Duration() <= ClientPresenceTolerance
+        && MonitoringLiveStats.LinkDownFromOperStatus(state.OperStatus) == true;
+
+    /// <summary>The port's negotiated speed from the sample nearest <paramref name="at"/> that carries one, within the online window.</summary>
+    private static int? SpeedMbpsAt(
+        IEnumerable<MonitoringInfluxClient.InterfaceRatePoint> points, string ifName, DateTime at)
+    {
+        var sample = ClosestPortPoint(points.Where(p => p.SpeedBps is > 0), ifName, at);
+        return sample != null && Math.Abs((sample.Time - at).TotalSeconds) <= HistoricOnlineWindowSeconds
+            ? (int)(sample.SpeedBps!.Value / 1_000_000L) : null;
+    }
+
+    /// <summary>The playback client stats for a node, created on first use.</summary>
+    private static NodeClientStats ClientStatsFor(LanFlowMapHistoricUpdate update, string nodeId)
+    {
+        if (!update.ClientStats.TryGetValue(nodeId, out var stats))
+            update.ClientStats[nodeId] = stats = new NodeClientStats();
+        return stats;
+    }
 
     /// <summary>
     /// The point a port key names, nearest <paramref name="at"/>. Matches the raw port_id tag as

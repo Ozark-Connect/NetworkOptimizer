@@ -1220,7 +1220,8 @@ class LanFlowMap2D {
         for(const e of this._edges){if(e.lk.toNodeId===d.id&&e.lk.kind===LK.MeshBackhaul){isMeshUplink=true;break;}}
 
         // Negotiated link speed (wired port or wireless PHY), directly above throughput.
-        if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
+        const wiredSpeed=cs?.wiredLinkSpeedMbps??d.wiredLinkSpeedMbps;
+        if(wiredSpeed)rows.push(['Link speed',formatSpeed(wiredSpeed)]);
         else if(cs?.phyTxKbps||cs?.phyRxKbps||d.phyTxKbps||d.phyRxKbps){
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
             // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap.
