@@ -288,8 +288,8 @@ else if (_tab == "setup")
     private int DetectDays => _status?.ModeSince is { } since ? (int)(DateTimeOffset.UtcNow - since).TotalDays : 0;
 
     private string SinceText => _status?.ModeSince is { } since
-        ? $" for {TimeFormatHelper.FormatDurationCompact(DateTimeOffset.UtcNow - since)}"
-        : "";
+        ? $" has been running for {TimeFormatHelper.FormatDurationCompact(DateTimeOffset.UtcNow - since)}"
+        : " is on";
 
     private async Task SetMode(string mode)
     {
