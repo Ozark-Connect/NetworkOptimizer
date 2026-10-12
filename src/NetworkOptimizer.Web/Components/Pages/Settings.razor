@@ -2590,6 +2590,18 @@
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="form-label">PDF: Top Threat Sources rows</label>
+                <input type="number" class="form-control" @bind="pdfTopSourcesRows" @bind:event="oninput" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" style="width: 120px;" />
+                <small class="form-help">Rows in the Top Threat Sources table of the downloaded PDF. Default: @NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">PDF: rows per filter category</label>
+                <input type="number" class="form-control" @bind="pdfCategoryRows" @bind:event="oninput" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" style="width: 120px;" />
+                <small class="form-help">Rows in each filter category table of the downloaded PDF. Default: @NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">DNAT DNS Coverage: Excluded VLANs (optional)</label>
                 <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" placeholder="e.g., 100, 200" style="width: 240px;" />
                 <small class="form-help">Comma-separated VLAN IDs to exclude from DNAT DNS coverage checks. Use this for networks that intentionally bypass DNS redirection (e.g., management VLANs).</small>
@@ -5272,6 +5284,8 @@
     private string trustedDnsRedirectTargets = "";
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
+    private int pdfTopSourcesRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
+    private int pdfCategoryRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows;
     private bool savingAuditSettings = false;
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
@@ -8245,6 +8259,8 @@
             var trustedTargets = await SystemSettings.GetAsync("audit:trustedDnsRedirectTargets");
             var unusedPortDays = await SystemSettings.GetAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await SystemSettings.GetAsync("audit:namedPortInactivityDays");
+            var topSourcesRows = await SystemSettings.GetAsync(ThreatReportRows.TopSourcesSettingKey);
+            var categoryRows = await SystemSettings.GetAsync(ThreatReportRows.CategoryRowsSettingKey);
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -8262,6 +8278,10 @@
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
+            pdfTopSourcesRows = int.TryParse(topSourcesRows, out var topRows) && topRows > 0
+                ? topRows : NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
+            pdfCategoryRows = int.TryParse(categoryRows, out var catRows) && catRows > 0
+                ? catRows : NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows;
         }
         catch (Exception ex)
         {
@@ -8300,6 +8320,10 @@
             await SystemSettings.SetAsync("audit:trustedDnsRedirectTargets", trustedDnsRedirectTargets ?? "");
             await SystemSettings.SetAsync("audit:unusedPortInactivityDays", unusedPortInactivityDays.ToString());
             await SystemSettings.SetAsync("audit:namedPortInactivityDays", namedPortInactivityDays.ToString());
+            pdfTopSourcesRows = Math.Clamp(pdfTopSourcesRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
+            pdfCategoryRows = Math.Clamp(pdfCategoryRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
+            await SystemSettings.SetAsync(ThreatReportRows.TopSourcesSettingKey, pdfTopSourcesRows.ToString());
+            await SystemSettings.SetAsync(ThreatReportRows.CategoryRowsSettingKey, pdfCategoryRows.ToString());
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";

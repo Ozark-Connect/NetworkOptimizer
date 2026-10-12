@@ -7763,27 +7763,6 @@ a.path-hop.hop-clickable:hover {
     }
 }
 
-/* Security Audit: row counts for the threat tables in a downloaded PDF.
-   Its own divided group, matching .audit-options, so it does not read as an audit option. */
-.audit-pdf-rows {
-    width: 100%;
-    margin-top: 1rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--border-color);
-}
-
-.audit-pdf-rows .form-row {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-}
-
-.audit-pdf-rows .form-row > .form-group {
-    flex: 0 1 220px;
-    min-width: 0;
-    margin-bottom: 0;
-}
-
 @media (max-width: 768px) {
     .audit-controls,
     .gateway-actions {
@@ -7800,16 +7779,6 @@ a.path-hop.hop-clickable:hover {
     .diagnostics-options {
         justify-content: center;
         margin-top: 0.5rem;
-    }
-
-    /* Stacked: the 1.5rem form rhythm between fields, none after the last (nothing follows it). */
-    .audit-pdf-rows .form-row {
-        flex-direction: column;
-        gap: 1.5rem;
-    }
-
-    .audit-pdf-rows .form-row > .form-group {
-        flex: 0 0 auto;
     }
 }
 
