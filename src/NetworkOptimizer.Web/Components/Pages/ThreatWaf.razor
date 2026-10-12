@@ -219,7 +219,7 @@ else if (_tab == "events")
                                     <td><span class="status-badge @(e.Action == ThreatAction.Blocked ? "status-error" : "")">@(e.Action == ThreatAction.Blocked ? "Blocked" : "Detected")</span></td>
                                     <td>
                                         <SiteAdminOnly>
-                                            <button class="btn btn-sm btn-contrast" @onclick="() => ShowExclusion(e)">@(_exclusionFor == e.Id ? "Hide Exclusion" : "Show Exclusion")</button>
+                                            <button class="btn btn-sm btn-contrast" @onclick="() => ShowExclusion(e)">@(_exclusionFor == e.Id ? "Hide" : "Add Exclusion")</button>
                                         </SiteAdminOnly>
                                     </td>
                                 </tr>
@@ -229,9 +229,48 @@ else if (_tab == "events")
                                         <td colspan="7">
                                             <div class="expand-wrapper expanded">
                                                 <div class="expand-content">
-                                                    <div class="site-config-panel">
-                                                        <p class="section-description">If this request was legitimate, add this to <code>waf-rules/before-crs.conf</code> beside the proxy and restart netopt-waf. It turns rule @e.SignatureId off for this host and path only.</p>
-                                                        <CopyableCommand Text="@_exclusionText" Tooltip="Copy the exclusion" />
+                                                    <div class="site-config-panel waf-exclusion-form">
+                                                        @if (_added != null)
+                                                        {
+                                                            <div class="alert alert-success">Exclusion added: rule @_added.RuleId is off for @ScopeText(_added).</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <p class="section-description">Turn rule @e.SignatureId off for requests like this one. The WAF applies it right away, with no restart.</p>
+                                                            <div class="form-row">
+                                                                <div class="form-group">
+                                                                    <label class="form-label" for="ex-host">Host</label>
+                                                                    <input id="ex-host" class="form-control" @bind="_exHost" />
+                                                                </div>
+                                                                <div class="form-group">
+                                                                    <label class="form-label" for="ex-method">Method</label>
+                                                                    <select id="ex-method" class="form-control" @bind="_exMethod">
+                                                                        <option value="">Any</option>
+                                                                        @foreach (var m in Methods)
+                                                                        {
+                                                                            <option value="@m">@m</option>
+                                                                        }
+                                                                    </select>
+                                                                </div>
+                                                                <div class="form-group">
+                                                                    <label class="form-label" for="ex-path">Path starts with</label>
+                                                                    <input id="ex-path" class="form-control" @bind="_exPath" />
+                                                                </div>
+                                                            </div>
+                                                            <div class="form-group">
+                                                                <label class="form-label" for="ex-note">Note (optional)</label>
+                                                                <input id="ex-note" class="form-control" maxlength="200" @bind="_exNote" />
+                                                                <small class="form-help">Narrow the path to the part of the app that sends this request. Leave Host empty to cover every host behind the WAF.</small>
+                                                            </div>
+                                                            @if (_exError != null)
+                                                            {
+                                                                <p class="form-error">@_exError</p>
+                                                            }
+                                                            <div class="action-buttons">
+                                                                <button class="btn btn-primary" disabled="@_exBusy" @onclick="() => AddExclusion(e)">Add Exclusion</button>
+                                                                <button class="btn btn-contrast" @onclick="() => _exclusionFor = null">Cancel</button>
+                                                            </div>
+                                                        }
                                                     </div>
                                                 </div>
                                             </div>
@@ -242,6 +281,69 @@ else if (_tab == "events")
                         </tbody>
                     </table>
                 </div>
+            }
+        </div>
+    </div>
+}
+else if (_tab == "exclusions")
+{
+    <div class="card">
+        <div class="card-body">
+            @if (_exView?.WafError != null)
+            {
+                <div class="alert alert-warning">@_exView.WafError</div>
+            }
+            @if (_removeError != null)
+            {
+                <p class="form-error">@_removeError</p>
+            }
+            @if (_exView == null)
+            {
+                <span class="spinner spinner-sm"></span>
+            }
+            else if (_exView.Exclusions.Count == 0)
+            {
+                <div class="empty-state"><p>No exclusions. Add one from an event on <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>.</p></div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Rule</th>
+                                <th>Host</th>
+                                <th>Method</th>
+                                <th>Path</th>
+                                <th>Note</th>
+                                <th>Added</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var x in _exView.Exclusions)
+                            {
+                                <tr>
+                                    <td><code>@x.RuleId</code></td>
+                                    <td class="text-truncate-300">@(x.Host ?? "Any")</td>
+                                    <td>@(x.Method ?? "Any")</td>
+                                    <td class="text-truncate-300">@if (x.Path != null) { <code>@x.Path</code> } else { <text>Any</text> }</td>
+                                    <td class="text-truncate-300">@x.Note</td>
+                                    <td>@x.CreatedAt.ToLocalTime().ToString("MMM d")@(x.CreatedBy != null ? $" by {x.CreatedBy}" : "")</td>
+                                    <td>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-sm btn-contrast" disabled="@_exBusy" @onclick="() => RemoveExclusion(x.Id)">Remove</button>
+                                        </SiteAdminOnly>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            @if (_exView?.Apps?.Contains("grafana") == true)
+            {
+                <p class="form-help">The WAF also has built-in exclusions for Grafana, on routers that use the waf-grafana middleware.</p>
             }
         </div>
     </div>
@@ -267,7 +369,9 @@ else if (_tab == "setup")
 
 @code {
     private static readonly (string Id, string Label)[] Tabs =
-        [("overview", "Overview"), ("events", "Events"), ("blocking", "Blocking"), ("setup", "Setup")];
+        [("overview", "Overview"), ("events", "Events"), ("exclusions", "Exclusions"), ("blocking", "Blocking"), ("setup", "Setup")];
+
+    private static readonly string[] Methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
@@ -318,7 +422,15 @@ else if (_tab == "setup")
     private List<ThreatEvent> _events = [];
     private string _search = "";
     private int? _exclusionFor;
-    private string _exclusionText = "";
+    private string? _exHost;
+    private string _exMethod = "";
+    private string? _exPath;
+    private string? _exNote;
+    private string? _exError;
+    private bool _exBusy;
+    private WafRuleExclusion? _added;
+    private WafExclusionsView? _exView;
+    private string? _removeError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -364,6 +476,8 @@ else if (_tab == "setup")
         _summary = await DashboardService.GetWafSummaryAsync(from, to);
         _week = await DashboardService.GetWafSummaryAsync(to.AddDays(-7), to);
         await LoadEvents();
+        // Only on its tab: the list asks the WAF which built-in sets it has.
+        if (_tab == "exclusions") _exView = await WafAdmin.GetExclusionsAsync();
         WatchForFirstReport();
     }
 
@@ -408,7 +522,57 @@ else if (_tab == "setup")
             _exclusionFor = null;
             return;
         }
+        // Prefilled from the event: its host, method, and path without the query string.
         _exclusionFor = e.Id;
-        _exclusionText = WafExclusion.ForRule(e.SignatureId, e.Domain, WafExclusion.PathOf(e.Service));
+        _added = null;
+        _exError = null;
+        _exHost = e.Domain;
+        var method = e.Service?.Split(' ', 2)[0].ToUpperInvariant() ?? "";
+        _exMethod = Methods.Contains(method) ? method : "";
+        _exPath = WafExclusion.PathOf(e.Service)?.Split('?', '#')[0];
+        _exNote = null;
+    }
+
+    private async Task AddExclusion(ThreatEvent e)
+    {
+        _exBusy = true;
+        _exError = null;
+        try
+        {
+            _added = await WafAdmin.AddExclusionAsync(e.SignatureId, _exHost, _exMethod, _exPath, _exNote);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _exError = ex.Message;
+        }
+        finally
+        {
+            _exBusy = false;
+        }
+    }
+
+    private async Task RemoveExclusion(string id)
+    {
+        _exBusy = true;
+        _removeError = null;
+        try
+        {
+            await WafAdmin.RemoveExclusionAsync(id);
+            _exView = await WafAdmin.GetExclusionsAsync();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _removeError = ex.Message;
+        }
+        finally
+        {
+            _exBusy = false;
+        }
+    }
+
+    private static string ScopeText(WafRuleExclusion x)
+    {
+        var target = x.Host != null ? $"{x.Host}{x.Path}" : $"{x.Path} on every host";
+        return x.Method != null ? $"{x.Method} {target}" : target;
     }
 }
