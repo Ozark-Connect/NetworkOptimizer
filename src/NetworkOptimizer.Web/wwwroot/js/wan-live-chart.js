@@ -537,26 +537,26 @@ function updateChart() {
     // and rebuilding the array to a fixed length of four truncated the axes for three or more
     // WANs and stamped an RTT-sized ceiling (~10) onto a throughput axis for two - which is what
     // clipped the taller WAN's line. Comparison axes are set at mount and left alone.
-    // One updateOptions carrying the series: ApexCharts rebuilds the SVG on every update call,
-    // and this runs four times a second. updateSeries would also un-collapse legend-hidden
-    // series, which this chart cannot have (no legend), so the single call draws the same.
     chart.updateOptions(comparing()
         ? {
             xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
             annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
-            series: compareSeries(),
         }
         : {
             xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
             yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
             annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
-            series: [
-                { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.download })) },
-                { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.upload })) },
-                { name: 'Loss',     data: pts.map(p => ({ x: p.time, y: p.loss })) },
-                { name: 'RTT',      data: pts.map(p => ({ x: p.time, y: p.rtt })) },
-            ],
         }, false, false, false);
+    if (comparing()) {
+        chart.updateSeries(compareSeries(), false);
+        return;
+    }
+    chart.updateSeries([
+        { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.download })) },
+        { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.upload })) },
+        { name: 'Loss',     data: pts.map(p => ({ x: p.time, y: p.loss })) },
+        { name: 'RTT',      data: pts.map(p => ({ x: p.time, y: p.rtt })) },
+    ], false);
 }
 
 // Which WAN's counters this chart is showing. Null is the primary, which is what every caller
@@ -1161,21 +1161,25 @@ function renderHistoric(at, force = false) {
         xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
         annotations: { xaxis: [...buildTimeTicks(maxTime - HISTORY_MINUTES * 60000, maxTime), playhead] },
     };
-    // Scrubbing while comparing draws every WAN at the parked instant - the point of comparing is
-    // to read them against each other, and freezing the time only makes that easier. One update
-    // call, as in updateChart.
     chart.updateOptions(comparing()
-        ? { ...histWindow, series: compareSeries() }
+        ? histWindow
         : {
             ...histWindow,
             yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
-            series: [
-                { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
-                { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
-                { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
-                { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
-            ],
         }, false, false, false);
+
+    // Scrubbing while comparing draws every WAN at the parked instant - the point of comparing is
+    // to read them against each other, and freezing the time only makes that easier.
+    if (comparing()) {
+        chart.updateSeries(compareSeries(), false);
+        return;
+    }
+    chart.updateSeries([
+        { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
+        { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
+        { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
+        { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
+    ], false);
 }
 
 // Historic playback only seeks once per second (the map's playback tick), so
