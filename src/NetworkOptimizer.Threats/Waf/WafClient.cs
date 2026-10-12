@@ -62,6 +62,24 @@ public sealed class WafClient
         return lists.FirstOrDefault(l => l.Name == name)?.Entries.Count ?? 0;
     }
 
+    /// <summary>
+    /// Reads the WAF's built-in app sets and managed exclusions. Throws <see cref="WafClientException"/>
+    /// on any failure, including a WAF too old to manage exclusions.
+    /// </summary>
+    public Task<WafExclusionSet> GetExclusionsAsync(string baseUrl, string token, CancellationToken cancellationToken) =>
+        SendAsync<WafExclusionSet>(HttpMethod.Get, baseUrl, "/api/exclusions", token, null, ExclusionsUnsupported, cancellationToken);
+
+    /// <summary>
+    /// Replaces the WAF's managed exclusions. The WAF refuses a set it cannot build and keeps the
+    /// one it has. Throws <see cref="WafClientException"/> on any failure.
+    /// </summary>
+    public Task<WafExclusionSet> PutExclusionsAsync(string baseUrl, string token, IReadOnlyList<WafRuleExclusion> exclusions,
+        CancellationToken cancellationToken) =>
+        SendAsync<WafExclusionSet>(HttpMethod.Put, baseUrl, "/api/exclusions", token,
+            JsonContent.Create(new { exclusions = exclusions.Select(x => x.ForWaf()) }), ExclusionsUnsupported, cancellationToken);
+
+    private const string ExclusionsUnsupported = "The WAF cannot manage exclusions. Update NetworkOptimizer-Proxy.";
+
     private async Task<T> SendAsync<T>(HttpMethod method, string baseUrl, string pathAndQuery, string token,
         HttpContent? content, string wrongShapeMessage, CancellationToken cancellationToken)
     {
@@ -95,6 +113,12 @@ public sealed class WafClient
             // An older netopt-waf has no /api/bans: its mux answers 404 or 405.
             if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
                 throw new WafClientException(wrongShapeMessage);
+            // netopt-waf says why it refused a request in the body.
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                var reason = (await response.Content.ReadAsStringAsync(cts.Token)).Trim();
+                throw new WafClientException(reason.Length is > 0 and <= 300 ? $"The WAF refused it: {reason}" : "The WAF refused the request.");
+            }
             if (!response.IsSuccessStatusCode)
                 throw new WafClientException($"The WAF answered HTTP {(int)response.StatusCode}.");
             try

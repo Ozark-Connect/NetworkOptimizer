@@ -103,15 +103,62 @@ public class WafIngestionTests
     private sealed class StubHandler(HttpStatusCode status, string body) : HttpMessageHandler
     {
         public HttpRequestMessage? Request { get; private set; }
+        public string? RequestBody { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Request = request;
-            return Task.FromResult(new HttpResponseMessage(status)
+            // Read now: the client disposes the request, and its content with it, once it returns.
+            RequestBody = request.Content == null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(status)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json")
-            });
+            };
         }
+    }
+
+    [Fact]
+    public async Task Client_PutExclusions_SendsOnlyWhatTheWafTakes()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, """{"apps":["grafana"],"exclusions":[]}""");
+        var client = new WafClient(new HttpClient(handler));
+        var exclusion = new WafRuleExclusion
+        {
+            Id = "x1", RuleId = 932130, Host = "monitor.example.com", Method = "POST", Path = "/api/ds/query",
+            Note = "Grafana", CreatedBy = "admin", CreatedAt = DateTimeOffset.UnixEpoch
+        };
+
+        var set = await client.PutExclusionsAsync("http://127.0.0.1:8044", "tok", [exclusion], default);
+
+        set.Apps.Should().Equal("grafana");
+        handler.Request!.Method.Should().Be(HttpMethod.Put);
+        handler.Request.RequestUri!.AbsolutePath.Should().Be("/api/exclusions");
+        handler.RequestBody.Should().Be(
+            """{"exclusions":[{"id":"x1","ruleId":932130,"host":"monitor.example.com","method":"POST","path":"/api/ds/query"}]}""");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, "path \"x\" must start with /\n", "The WAF refused it: path \"x\" must start with /")]
+    [InlineData(HttpStatusCode.NotFound, "404 page not found", "Update NetworkOptimizer-Proxy")]
+    public async Task Client_PutExclusions_FailuresSayWhy(HttpStatusCode status, string body, string expected)
+    {
+        var client = new WafClient(new HttpClient(new StubHandler(status, body)));
+
+        var act = () => client.PutExclusionsAsync("http://127.0.0.1:8044", "tok", [], default);
+
+        (await act.Should().ThrowAsync<WafClientException>()).Which.Message.Should().Be(
+            status == HttpStatusCode.NotFound ? "The WAF cannot manage exclusions. Update NetworkOptimizer-Proxy." : expected);
+    }
+
+    [Fact]
+    public void Exclusion_SameScope_IgnoresNoteAuthorAndCase()
+    {
+        var a = new WafRuleExclusion { Id = "a", RuleId = 932130, Host = "Monitor.example.com", Method = "post", Path = "/api/ds/query", Note = "x" };
+        var b = new WafRuleExclusion { Id = "b", RuleId = 932130, Host = "monitor.example.com", Method = "POST", Path = "/api/ds/query" };
+
+        a.SameScope(b).Should().BeTrue();
+        a.SameScope(b with { Path = "/api/ds/" }).Should().BeFalse();
+        a.SameScope(b with { RuleId = 942100 }).Should().BeFalse();
     }
 
     [Fact]
