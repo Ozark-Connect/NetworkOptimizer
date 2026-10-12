@@ -51,6 +51,15 @@ public class ThreatRepository : IThreatRepository
     }
 
     /// <summary>
+    /// WAF events in the range, with no noise or severity filter. The noise filters describe IPS
+    /// flows: "my phone, port 443" hid every WAF event from that phone. Any WAF filter is its own.
+    /// </summary>
+    private IQueryable<ThreatEvent> WafQuery(DateTime from, DateTime to) =>
+        _context.ThreatEvents
+            .AsNoTracking()
+            .Where(e => e.Timestamp >= from && e.Timestamp <= to && e.EventSource == EventSource.Waf);
+
+    /// <summary>
     /// Apply noise filter exclusions to an IQueryable. Each filter adds a WHERE clause
     /// that excludes events matching all non-null filter fields.
     /// Supports CIDR notation (e.g. "10.0.0.0/8") for /8, /16, /24 subnets.
@@ -897,7 +906,7 @@ public class ThreatRepository : IThreatRepository
     public async Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit,
         CancellationToken cancellationToken = default)
     {
-        var query = BaseQuery(from, to).Where(e => e.EventSource == EventSource.Waf);
+        var query = WafQuery(from, to);
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -991,7 +1000,7 @@ public class ThreatRepository : IThreatRepository
     public async Task<NetworkOptimizer.Threats.Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to,
         int top = 5, CancellationToken cancellationToken = default)
     {
-        var waf = BaseQuery(from, to).Where(e => e.EventSource == EventSource.Waf);
+        var waf = WafQuery(from, to);
         var counts = await waf
             .GroupBy(e => e.Action)
             .Select(g => new { Action = g.Key, Count = g.Count() })

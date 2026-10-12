@@ -66,7 +66,7 @@ public class ThreatRepositoryWafTests : IDisposable
     }
 
     [Fact]
-    public async Task Summary_HonorsNoiseFilters()
+    public async Task Summary_IgnoresIpsNoiseFilters()
     {
         _context.ThreatEvents.AddRange(
             Waf("203.0.113.1", 942100, "a.example.com", ThreatAction.Blocked),
@@ -76,6 +76,6 @@ public class ThreatRepositoryWafTests : IDisposable
 
         var summary = await _repository.GetWafSummaryAsync(_now.AddHours(-1), _now.AddHours(1));
 
-        summary.Total.Should().Be(1);
+        summary.Total.Should().Be(2);
     }
 }
