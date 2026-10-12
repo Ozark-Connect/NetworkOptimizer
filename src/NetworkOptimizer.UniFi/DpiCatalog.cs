@@ -4,10 +4,11 @@ namespace NetworkOptimizer.UniFi;
 
 /// <summary>
 /// Names for UniFi Network's DPI application and category ids, which no API serves. Taken from the
-/// table the Network app ships for its own UI (<c>dynamic.dpi.js</c>, catalog version 1.406): names,
-/// and for the few applications that have one, the domain whose favicon the app shows and the Font
-/// Awesome brand class it uses (mapped to Font Awesome 6 names). Refresh by re-parsing a newer
-/// bundle into <c>Resources/dpi-catalog.json</c>.
+/// tables the Network app ships for its own UI: the legacy <c>dynamic.dpi.js</c> (catalog 1.406), with
+/// names and categories from the React UI's newer catalog (2.128) layered on top, since that one drops
+/// ids older signatures still report. The legacy table also gives, for the few applications that have
+/// one, the domain whose favicon the app shows and the Font Awesome brand class it uses (mapped to
+/// Font Awesome 6 names). Refresh by re-parsing newer bundles into <c>Resources/dpi-catalog.json</c>.
 ///
 /// An application key packs the category into the high half: <c>(category &lt;&lt; 16) | application</c>,
 /// which is how the traffic endpoints' separate <c>category</c> / <c>application</c> ids map onto it.
