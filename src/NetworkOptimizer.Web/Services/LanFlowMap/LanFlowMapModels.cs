@@ -51,6 +51,14 @@ public class LanFlowMapSnapshot
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Dictionary<string, LanPlacement> AnchorsByMac { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// SNMP ifName per (device MAC, port number), from the interface name maps. Server-side only:
+    /// a wired client rebuilt for a historic instant has no snapshot link, so this is how it finds
+    /// its port's rate series.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Dictionary<(string Mac, int Port), string> PortIfNames { get; set; } = new();
 }
 
 public enum LanNodeKind

@@ -154,6 +154,7 @@ public class LanFlowMapService
         CompactBuildingFloors(snapshot.Buildings, anchors);
 
         var nameMaps = await LoadInterfaceNameMaps(ct);
+        snapshot.PortIfNames = nameMaps.ToDictionary(kv => kv.Key, kv => kv.Value.IfName);
 
         // Raw device list with PortTable for direct UniFi-side port speed/name lookups.
         // Used as the immediate-fallback path for wired client link speed when the
@@ -880,7 +881,7 @@ public class LanFlowMapService
             };
         }
 
-        AddHistoricOnlyClients(snapshot, update, wifiClientRates, wiredClientRates);
+        AddHistoricOnlyClients(snapshot, update, wifiClientRates, wiredClientRates, ratesByDevice);
 
         // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
         foreach (var link in snapshot.Links)
@@ -1771,9 +1772,17 @@ public class LanFlowMapService
         LanFlowMapSnapshot snapshot,
         LanFlowMapHistoricUpdate update,
         Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint> wifiClientRates,
-        Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint> wiredClientRates)
+        Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint> wiredClientRates,
+        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> ratesByDevice)
     {
         var liveNodeIds = new HashSet<string>(snapshot.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+        var livePortKeys = new HashSet<string>(
+            snapshot.Links.Where(l => !string.IsNullOrEmpty(l.PortKey)).Select(l => l.PortKey!),
+            StringComparer.OrdinalIgnoreCase);
+        var wiredPortClientCounts = wiredClientRates.Values
+            .Where(p => p.Port is > 0 && !string.IsNullOrEmpty(p.ApMac))
+            .GroupBy(p => (NormalizeMac(p.ApMac), p.Port!.Value))
+            .ToDictionary(g => g.Key, g => g.Count());
         // Infrastructure nodes are exactly the "dev-{mac}" ids, which is what a telemetry
         // device_mac resolves to - matching on the id form avoids tracking the kind list.
         var deviceNodeIds = new HashSet<string>(
@@ -1831,11 +1840,33 @@ public class LanFlowMapService
             // The rate pass above walks the snapshot's links, and this one is not in it - so
             // without this a client rebuilt for an instant drew a dead line while its throughput
             // sat right here in the same telemetry point.
-            update.LinkRates[linkId] = new LinkLiveRates
+            update.LinkRates[linkId] = (wired ? PortRate(p) : null) ?? new LinkLiveRates
             {
                 DownstreamBps = p.TxThroughputBps ?? 0,
                 UpstreamBps = p.RxThroughputBps ?? 0,
                 AsOf = p.Time,
+            };
+        }
+
+        // A wired leaf's own row is written every 30 s; its switch port is sampled every few
+        // seconds, which is what a live leaf reads. Only for a port this client had to itself: a
+        // shared port's rate belongs to every MAC behind it, so each would draw the whole port.
+        LinkLiveRates? PortRate(MonitoringInfluxClient.ClientThroughputPoint p)
+        {
+            if (p.Port is not > 0 || string.IsNullOrEmpty(p.ApMac)) return null;
+            var switchMac = NormalizeMac(p.ApMac);
+            if (!snapshot.PortIfNames.TryGetValue((switchMac, p.Port.Value), out var ifName)) return null;
+            if (livePortKeys.Contains(PortKey(switchMac, ifName))) return null;
+            if (wiredPortClientCounts.GetValueOrDefault((switchMac, p.Port.Value)) > 1) return null;
+            if (!ratesByDevice.TryGetValue(switchMac, out var pts)) return null;
+            var closest = ClosestPortPoint(pts, ifName, update.At);
+            if (closest == null || Math.Abs((closest.Time - update.At).TotalSeconds) > HistoricOnlineWindowSeconds) return null;
+            // Same orientation as MapPortToLinkRates for a client port: the switch's TX is the download.
+            return new LinkLiveRates
+            {
+                DownstreamBps = closest.RateOutBps ?? 0,
+                UpstreamBps = closest.RateInBps ?? 0,
+                AsOf = closest.Time,
             };
         }
 
