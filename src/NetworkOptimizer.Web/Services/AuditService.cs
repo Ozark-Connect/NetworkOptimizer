@@ -1107,6 +1107,7 @@ public class AuditService : IAuditScanService
     /// </summary>
     private async Task<(byte[]? PdfBytes, string? FileName)> GetPdfForAuditAsync(StorageAuditResult audit, ThreatReportRows? rows)
     {
+        rows ??= await GetConfiguredThreatReportRowsAsync();
         byte[]? pdfBytes;
         if (rows is { IsDefault: false })
         {
@@ -1131,6 +1132,15 @@ public class AuditService : IAuditScanService
         var fileName = $"NetworkAudit_{audit.AuditDate:yyyyMMdd_HHmmss}.pdf";
         return (pdfBytes, fileName);
     }
+
+    /// <summary>
+    /// Threat table row counts saved in Settings - Security Audit, clamped to the allowed range.
+    /// Unset or invalid values fall back to the defaults.
+    /// </summary>
+    private async Task<ThreatReportRows> GetConfiguredThreatReportRowsAsync() =>
+        ThreatReportRows.FromSettings(
+            await _settingsRepository.GetSystemSettingAsync(ThreatReportRows.TopSourcesSettingKey),
+            await _settingsRepository.GetSystemSettingAsync(ThreatReportRows.CategoryRowsSettingKey));
 
     /// <summary>
     /// Regenerates a PDF from the stored audit data (ReportDataJson and FindingsJson).
@@ -2499,6 +2509,26 @@ public class OfflineClientReference
 /// </summary>
 public sealed record ThreatReportRows(int TopSources, int CategoryRows)
 {
+    /// <summary>System setting holding the Top Threat Sources row count.</summary>
+    public const string TopSourcesSettingKey = "audit:pdfTopSourcesRows";
+
+    /// <summary>System setting holding the rows per filter category.</summary>
+    public const string CategoryRowsSettingKey = "audit:pdfCategoryRows";
+
+    /// <summary>
+    /// Row counts from stored setting values, clamped to 1..MaxRows. Unset or non-numeric values
+    /// fall back to the defaults.
+    /// </summary>
+    public static ThreatReportRows FromSettings(string? topSources, string? categoryRows)
+    {
+        static int Parse(string? value, int fallback) =>
+            int.TryParse(value, out var n) ? Math.Clamp(n, 1, Reports.ThreatSummaryData.MaxRows) : fallback;
+
+        return new ThreatReportRows(
+            Parse(topSources, Reports.ThreatSummaryData.DefaultTopSourcesRows),
+            Parse(categoryRows, Reports.ThreatSummaryData.DefaultCategoryRows));
+    }
+
     /// <summary>True when both counts match the stored PDF, so the stored copy can be served.</summary>
     public bool IsDefault =>
         TopSources == Reports.ThreatSummaryData.DefaultTopSourcesRows &&

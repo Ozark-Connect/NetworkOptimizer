@@ -110,19 +110,6 @@
                         <span>DNS Security</span>
                     </label>
                 </div>
-
-                <div class="audit-pdf-rows">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">PDF: Top Threat Sources rows</label>
-                            <input type="number" class="form-control" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" @bind="_pdfTopSourcesRows" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">PDF: rows per filter category</label>
-                            <input type="number" class="form-control" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" @bind="_pdfCategoryRows" />
-                        </div>
-                    </div>
-                </div>
             </div>
 
             @if (!string.IsNullOrEmpty(exportError))
@@ -1098,15 +1085,8 @@
 
     private string? exportError;
 
-    private int _pdfTopSourcesRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
-    private int _pdfCategoryRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows;
-
-    // Default row counts serve the stored PDF; anything else regenerates it on the server.
-    private string LatestPdfUrl =>
-        _pdfTopSourcesRows == NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows &&
-        _pdfCategoryRows == NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows
-            ? "/api/reports/latest/pdf"
-            : $"/api/reports/latest/pdf?topSources={_pdfTopSourcesRows}&categoryRows={_pdfCategoryRows}";
+    // Threat table row counts come from Settings - Security Audit on the server.
+    private const string LatestPdfUrl = "/api/reports/latest/pdf";
 
     private async Task DownloadLatestPdf()
     {
