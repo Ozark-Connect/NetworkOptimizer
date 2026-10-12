@@ -417,7 +417,7 @@ public class ThreatCollectionService : BackgroundService
                         Title = pattern.Description,
                         Message = $"{pattern.PatternType} pattern detected: {pattern.EventCount} events, confidence {pattern.Confidence:P0}",
                         DeviceIp = firstSourceIp,
-                        SourceUrl = "/threats",
+                        SourceUrl = IpDrilldownUrl(sourceIps.FirstOrDefault()),
                         Context = new Dictionary<string, string>
                         {
                             ["pattern_type"] = pattern.PatternType.ToString(),
@@ -537,7 +537,7 @@ public class ThreatCollectionService : BackgroundService
                     Title = $"Attack chain: {stageNames}",
                     Message = message,
                     DeviceIp = seq.SourceIp,
-                    SourceUrl = "/threats",
+                    SourceUrl = IpDrilldownUrl(seq.SourceIp),
                     Context = new Dictionary<string, string>
                     {
                         ["stages"] = stageNames,
@@ -601,7 +601,7 @@ public class ThreatCollectionService : BackgroundService
                     Message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} early kill chain stages with {totalEvents} events. " +
                               "This may indicate a blocked attack or reconnaissance activity that did not reach exploitation.",
                     DeviceIp = seq.SourceIp,
-                    SourceUrl = "/threats",
+                    SourceUrl = IpDrilldownUrl(seq.SourceIp),
                     Context = new Dictionary<string, string>
                     {
                         ["stages"] = stageNames,
@@ -649,7 +649,7 @@ public class ThreatCollectionService : BackgroundService
                     Title = $"{titlePrefix}: {evt.SignatureName}",
                     Message = $"{evt.Action} {evt.Protocol} from {evt.SourceIp}:{evt.SourcePort} to {evt.DestIp}:{evt.DestPort} - {evt.Category}",
                     DeviceIp = evt.SourceIp,
-                    SourceUrl = "/threats",
+                    SourceUrl = IpDrilldownUrl(evt.SourceIp),
                     Context = new Dictionary<string, string>
                     {
                         ["signature_id"] = evt.SignatureId.ToString(),
@@ -665,6 +665,15 @@ public class ThreatCollectionService : BackgroundService
             }
         }
     }
+
+    /// <summary>
+    /// Threat Intelligence deep link that opens the drilldown for a source IP,
+    /// or the page itself when the IP is unknown.
+    /// </summary>
+    private static string IpDrilldownUrl(string? ip) =>
+        string.IsNullOrEmpty(ip) || ip == "unknown"
+            ? "/threats"
+            : "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(ip);
 
     /// <summary>
     /// Two-pass flow collection:
