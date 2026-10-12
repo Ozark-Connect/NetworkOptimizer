@@ -112,6 +112,12 @@ public static class DpiCatalog
         ["Bitcoin Core"] = "fa-brands fa-bitcoin",
         ["CPanel"] = "fa-brands fa-cpanel",
         ["Blackberry(SSL)"] = "fa-brands fa-blackberry",
+        ["Mozilla Firefox"] = "fa-brands fa-firefox",
+        ["Sony PlayStation"] = "fa-brands fa-playstation",
+        ["APP Store Connect"] = "fa-brands fa-app-store",
+        ["Yandex.Disk"] = "fa-brands fa-yandex",
+        ["Yandex.Mail"] = "fa-brands fa-yandex",
+        ["Yandex.Browser"] = "fa-brands fa-yandex",
     };
 
     /// <summary>A brand word anywhere in the name ("Microsoft.com", "Google Drive") is that brand's mark.</summary>
