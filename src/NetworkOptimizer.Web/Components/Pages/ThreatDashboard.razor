@@ -1199,13 +1199,25 @@ else
                                 @foreach (var dest in _drilldownData.Destinations)
                                 {
                                     <tr>
-                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        @if (string.IsNullOrEmpty(dest.Ip))
+                                        {
+                                            <td><code>@(dest.Domain ?? "-")</code></td>
+                                        }
+                                        else
+                                        {
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        }
                                         <td class="hide-mobile">@(dest.Domain ?? "-")</td>
                                         <td><code class="code-sm">@dest.PortRanges</code></td>
                                         <td class="hide-mobile">@FormatServices(dest.Services)</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
                                         <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
+                                        <td class="hide-mobile">
+                                            @if (!string.IsNullOrEmpty(dest.Ip))
+                                            {
+                                                <button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button>
+                                            }
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -1524,7 +1536,14 @@ else
                                 @foreach (var dest in _portDrilldownData.TopDestinations)
                                 {
                                     <tr>
-                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        @if (string.IsNullOrEmpty(dest.Ip))
+                                        {
+                                            <td><code>@(dest.Host ?? "-")</code></td>
+                                        }
+                                        else
+                                        {
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        }
                                         <td>@dest.EventCount</td>
                                         <td>@dest.BlockedCount</td>
                                         <td>@dest.UniqueSourceIps</td>
