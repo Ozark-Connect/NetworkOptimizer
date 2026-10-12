@@ -97,6 +97,56 @@ public class GatewayManagementAccessTests
         Check([StockAllowAll(), blockAll], guest).Should().BeEmpty();
     }
 
+    [Fact]
+    public void HotspotZone_FullPredefinedSet_Passes()
+    {
+        // Newer UniFi Network reports Portal Redirects as TCP to any port; the gateway enforces
+        // it against the redirector ports only
+        var guest = Network("Guest", NetworkPurpose.Guest, 30, zone: HotspotZone);
+        List<FirewallRule> rules =
+        [
+            Rule("Allow mDNS", "allow", index: 30000, sourceZone: HotspotZone, protocol: "udp", port: "5353",
+                destTarget: "IP", destIps: ["224.0.0.251", "ff02::fb"], predefined: true),
+            Rule("Allow DNS", "allow", index: 30001, sourceZone: HotspotZone, protocol: "tcp_udp", port: "53", predefined: true),
+            Rule("Allow ICMP", "allow", index: 30002, sourceZone: HotspotZone, protocol: "icmp", ipVersion: "IPV4", predefined: true),
+            Rule("Allow DHCP", "allow", index: 30003, sourceZone: HotspotZone, protocol: "udp", port: "67",
+                sourcePort: "68", ipVersion: "IPV4", predefined: true),
+            Rule("Allow Hotspot Portal Authentication", "allow", index: 30004, sourceZone: HotspotZone, protocol: "all",
+                port: "8880,8843", destTarget: "IP", destIps: ["192.168.30.1"], ipVersion: "IPV4", predefined: true),
+            Rule("Allow Hotspot Portal Redirects", "allow", index: 30005, sourceZone: HotspotZone, protocol: "tcp",
+                ipVersion: "IPV4", predefined: true),
+            Rule("Allow ICMPv6", "allow", index: 30006, sourceZone: HotspotZone, protocol: "icmpv6", ipVersion: "IPV6", predefined: true),
+            Rule("Allow DHCPv6", "allow", index: 30007, sourceZone: HotspotZone, protocol: "udp", port: "547",
+                sourcePort: "546", ipVersion: "IPV6", predefined: true),
+            Rule("Allow Return Traffic", "allow", index: 30008, sourceZone: HotspotZone, protocol: "all",
+                connectionState: "RESPOND_ONLY", predefined: true),
+            Rule("Block All Traffic", "block", index: 30009, sourceZone: HotspotZone, protocol: "all", predefined: true)
+        ];
+
+        Check(rules, guest).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void UserRuleNamedLikePortalRedirects_StillCounts()
+    {
+        var guest = Network("Guest", NetworkPurpose.Guest, 30, zone: HotspotZone);
+        var allow = Rule("Allow Hotspot Portal Redirects", "allow", index: 1, sourceZone: HotspotZone, protocol: "tcp");
+        var block = Rule("Block All Traffic", "block", index: 30009, sourceZone: HotspotZone, protocol: "all", predefined: true);
+
+        Check([allow, block], guest).Should().ContainSingle()
+            .Which.Message.Should().Contain("through rule 'Allow Hotspot Portal Redirects'");
+    }
+
+    [Fact]
+    public void PredefinedTcpAnyAllowWithOtherName_StillCounts()
+    {
+        var guest = Network("Guest", NetworkPurpose.Guest, 30, zone: HotspotZone);
+        var allow = Rule("Some Other Predefined", "allow", index: 30005, sourceZone: HotspotZone, protocol: "tcp", predefined: true);
+        var block = Rule("Block All Traffic", "block", index: 30009, sourceZone: HotspotZone, protocol: "all", predefined: true);
+
+        Check([allow, block], guest).Should().ContainSingle();
+    }
+
     #endregion
 
     #region Block rules

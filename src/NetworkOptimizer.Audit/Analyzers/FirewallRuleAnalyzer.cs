@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -1264,6 +1265,8 @@ public class FirewallRuleAnalyzer
             return false;
         if (!rule.AppliesToSourceNetwork(network, family))
             return false;
+        if (IsHotspotPortalRedirectRule(rule))
+            return false;
 
         if (rule.ActionType.IsBlockAction())
             return FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, port, "tcp");
@@ -1273,6 +1276,16 @@ public class FirewallRuleAnalyzer
             FirewallGroupHelper.IncludesPort(rule.DestinationPort, port) != rule.DestinationMatchOppositePorts;
         return portCovered && FirewallGroupHelper.AllowsProtocol(rule.Protocol, rule.MatchOppositeProtocol, "tcp");
     }
+
+    /// <summary>
+    /// UniFi's predefined Hotspot -> Gateway "Allow Hotspot Portal Redirects" rule. Newer UniFi Network
+    /// reports it as TCP to any port, but the gateway enforces it against the portal redirector ports
+    /// (ipset UBIOS_guest_portal_redirector_p: 39080, 39443) only. The API carries no field for that, and
+    /// origin_id differs per install, so the predefined flag and name are the only stable identity.
+    /// </summary>
+    [VendorSpecific("UniFi", "Predefined policy name; API omits the redirector ipset restriction")]
+    private static bool IsHotspotPortalRedirectRule(FirewallRule rule) =>
+        rule.Predefined && string.Equals(rule.Name, "Allow Hotspot Portal Redirects", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check for networks with internet disabled but that have allow rules permitting broad external access.
