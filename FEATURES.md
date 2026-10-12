@@ -353,6 +353,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - Score out of 100 from Firewall Rules, VLAN Security, Port Security, DNS Security, and UPnP Security checks, plus a hardening bonus
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
+  - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
 - **VLAN Security** - IoT, printers, cameras, NVRs, and security systems on the wrong VLAN
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
@@ -362,7 +363,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
 - **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
 - Threat-aware check for actively targeted port forwards
-- **Acknowledge** false positives; override a network's **Purpose**
+- **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
 - **Download PDF** report
 - Allow-lists in Settings: streaming devices, media players, TVs, printers, grace periods, trusted DNS redirects

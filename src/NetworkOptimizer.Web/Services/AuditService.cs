@@ -1892,7 +1892,8 @@ public class AuditService : IAuditScanService
         Audit.IssueTypes.FwAnyAny or
         Audit.IssueTypes.AllowSubvertsDeny or Audit.IssueTypes.AllowExceptionPattern or Audit.IssueTypes.DenyShadowsAllow or
         Audit.IssueTypes.PermissiveRule or Audit.IssueTypes.BroadRule or Audit.IssueTypes.OrphanedRule or
-        Audit.IssueTypes.MissingIsolation or Audit.IssueTypes.IsolationBypassed => "Firewall Rules",
+        Audit.IssueTypes.MissingIsolation or Audit.IssueTypes.IsolationBypassed or
+        Audit.IssueTypes.GatewayManagementExposed => "Firewall Rules",
         var t when t.StartsWith("FW-") => "Firewall Rules",
 
         // VLAN security issues (includes device placement - putting devices on correct VLAN)
@@ -1951,6 +1952,7 @@ public class AuditService : IAuditScanService
             Audit.IssueTypes.IsolationBypassed => "Firewall: VLAN Isolation Bypassed",
             Audit.IssueTypes.NetworkIsolationException => $"Firewall: VLAN Isolation Exception{(!string.IsNullOrEmpty(description) ? $" ({description})" : "")}",
             Audit.IssueTypes.InternetBlockBypassed => "Firewall: Internet Block Bypassed",
+            Audit.IssueTypes.GatewayManagementExposed => "Firewall: Gateway Management Exposed",
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
 
@@ -2158,6 +2160,7 @@ public class AuditService : IAuditScanService
         Audit.IssueTypes.BroadRule => "Restrict the source or destination to specific networks or devices.",
         Audit.IssueTypes.InternetBlockBypassed => "Remove the allow rule, or narrow internet access to specific IPs, MACs, or devices that need it to operate.",
         Audit.IssueTypes.IsolationBypassed => "Delete this rule or restrict to specific ports/protocols if necessary.",
+        Audit.IssueTypes.GatewayManagementExposed => "Block TCP 22, 80, and 443 from this network to the Gateway zone.",
         Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects.",
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low.",
         Audit.IssueTypes.PortLock => "Enable Lock Port to UniFi Device on ports that carry a UniFi device.",
