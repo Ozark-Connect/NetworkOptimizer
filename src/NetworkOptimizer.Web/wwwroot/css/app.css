@@ -20625,6 +20625,41 @@ body.kiosk-mode .status-indicators {
     margin: 0;
 }
 
+/* The exclusion form keeps the form-group rhythm, so the panel's flex gap is off here */
+.waf-events .waf-exclusion-form {
+    gap: 0;
+}
+
+.waf-events .waf-exclusion-form > .section-description {
+    margin: 0 0 1rem;
+}
+
+.waf-events .waf-exclusion-form > .alert {
+    margin: 0;
+}
+
+.waf-exclusion-form .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.waf-exclusion-form .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    .waf-exclusion-form .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .waf-exclusion-form .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+}
+
 .waf-events tr:not(.history-details-row) > td:first-child {
     white-space: nowrap;
 }
