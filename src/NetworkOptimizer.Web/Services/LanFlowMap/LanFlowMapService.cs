@@ -1808,7 +1808,12 @@ public class LanFlowMapService
             var portMap = wired && p.Port is > 0
                 ? snapshot.PortNameMaps.GetValueOrDefault((NormalizeMac(p.ApMac), p.Port.Value))
                 : null;
-            var portSpeedMbps = portMap?.SpeedMbps is > 0 ? portMap.SpeedMbps : null;
+            // Speed negotiated at the instant, which changes with the host's state (a WOL port idles
+            // at 100 Mbps while the host is off). The name map holds only the latest value.
+            var sampledSpeedBps = portMap == null ? null
+                : NearestPortSample(p, portMap, s => s.SpeedBps is > 0)?.SpeedBps;
+            var portSpeedMbps = sampledSpeedBps is > 0 ? (int)(sampledSpeedBps.Value / 1_000_000L)
+                : portMap?.SpeedMbps is > 0 ? portMap.SpeedMbps : null;
             var node = new LanNode
             {
                 Id = nodeId,
@@ -1824,7 +1829,7 @@ public class LanFlowMapService
                 SignalDbm = wired ? null : p.SignalDbm,
                 PhyTxKbps = wired ? null : p.TxRateKbps,
                 PhyRxKbps = wired ? null : p.RxRateKbps,
-                // Same label and speed a connected leaf on this port takes from the name map.
+                // Same label a connected leaf on this port takes from the name map.
                 SwitchPortName = !string.IsNullOrEmpty(portMap?.FriendlyName) ? portMap.FriendlyName
                     : wired && p.Port is > 0 ? $"Port {p.Port}" : null,
                 WiredLinkSpeedMbps = portSpeedMbps,
@@ -1848,7 +1853,7 @@ public class LanFlowMapService
             // The rate pass above walks the snapshot's links, and this one is not in it - so
             // without this a client rebuilt for an instant drew a dead line while its throughput
             // sat right here in the same telemetry point.
-            update.LinkRates[linkId] = (wired ? PortRate(p) : null) ?? new LinkLiveRates
+            update.LinkRates[linkId] = (portMap != null ? PortRate(p, portMap) : null) ?? new LinkLiveRates
             {
                 DownstreamBps = p.TxThroughputBps ?? 0,
                 UpstreamBps = p.RxThroughputBps ?? 0,
@@ -1859,17 +1864,13 @@ public class LanFlowMapService
         // A wired leaf's own row is written every 30 s; its switch port is sampled every few
         // seconds, which is what a live leaf reads. Only for a port this client had to itself: a
         // shared port's rate belongs to every MAC behind it, so each would draw the whole port.
-        LinkLiveRates? PortRate(MonitoringInfluxClient.ClientThroughputPoint p)
+        LinkLiveRates? PortRate(MonitoringInfluxClient.ClientThroughputPoint p, InterfaceNameMap map)
         {
-            if (p.Port is not > 0 || string.IsNullOrEmpty(p.ApMac)) return null;
             var switchMac = NormalizeMac(p.ApMac);
-            if (!snapshot.PortNameMaps.TryGetValue((switchMac, p.Port.Value), out var map)) return null;
-            var ifName = map.IfName;
-            if (livePortKeys.Contains(PortKey(switchMac, ifName))) return null;
-            if (wiredPortClientCounts.GetValueOrDefault((switchMac, p.Port.Value)) > 1) return null;
-            if (!ratesByDevice.TryGetValue(switchMac, out var pts)) return null;
-            var closest = ClosestPortPoint(pts, ifName, update.At);
-            if (closest == null || Math.Abs((closest.Time - update.At).TotalSeconds) > HistoricOnlineWindowSeconds) return null;
+            if (livePortKeys.Contains(PortKey(switchMac, map.IfName))) return null;
+            if (wiredPortClientCounts.GetValueOrDefault((switchMac, p.Port!.Value)) > 1) return null;
+            var closest = NearestPortSample(p, map, _ => true);
+            if (closest == null) return null;
             // Same orientation as MapPortToLinkRates for a client port: the switch's TX is the download.
             return new LinkLiveRates
             {
@@ -1877,6 +1878,17 @@ public class LanFlowMapService
                 UpstreamBps = closest.RateInBps ?? 0,
                 AsOf = closest.Time,
             };
+        }
+
+        // The client's switch port sample nearest the instant, within the online window.
+        MonitoringInfluxClient.InterfaceRatePoint? NearestPortSample(
+            MonitoringInfluxClient.ClientThroughputPoint p, InterfaceNameMap map,
+            Func<MonitoringInfluxClient.InterfaceRatePoint, bool> where)
+        {
+            if (!ratesByDevice.TryGetValue(NormalizeMac(p.ApMac), out var pts)) return null;
+            var closest = ClosestPortPoint(pts.Where(where), map.IfName, update.At);
+            return closest != null && Math.Abs((closest.Time - update.At).TotalSeconds) <= HistoricOnlineWindowSeconds
+                ? closest : null;
         }
 
         foreach (var (mac, p) in wiredClientRates) Add(mac, p, wired: true);

@@ -2175,10 +2175,11 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"")
 ";
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
+        var speeds = new Dictionary<(string ifName, long ticks), long>();
         var times = new Dictionary<(string ifName, long ticks), DateTime>();
         var portIds = new Dictionary<(string ifName, long ticks), string?>();
 
@@ -2191,6 +2192,9 @@ from(bucket: ""{_bucket}"")
             if (value == null) continue;
 
             var key = (ifName, time.Ticks);
+            // Speed only annotates a rate sample. A sample with speed and no rate must not become
+            // a point, or a nearest-point reader would take it as a zero rate.
+            if (field == "speed_bps") { speeds[key] = (long)value.Value; continue; }
             times[key] = time;
             portIds[key] = record.GetValueByKey("port_id") as string;
             if (field == "rate_in_bps") rateIn[key] = value.Value;
@@ -2209,6 +2213,7 @@ from(bucket: ""{_bucket}"")
                 PortId = portIds.TryGetValue(key, out var pid) ? pid : null,
                 RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
                 RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
+                SpeedBps = speeds.TryGetValue(key, out var sp) ? sp : null,
             });
         }
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
@@ -5440,6 +5445,8 @@ from(bucket: ""{_longtermBucket}"")
         public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+        /// <summary>Negotiated link speed at this sample. Set by the raw query only.</summary>
+        public long? SpeedBps { get; init; }
     }
 
     /// <summary>One interface's link state at one sample: ifOperStatus, 1 for up.</summary>
