@@ -660,10 +660,11 @@ public class ThreatDashboardService : IThreatFilterAdminService
             var asSource = events.Where(e => e.SourceIp == ip).ToList();
             var asDest = events.Where(e => e.DestIp == ip).ToList();
 
-            // Peer groups: destinations when IP is source
+            // Peer groups: destinations when IP is source. WAF events carry the requested host and
+            // no destination address, so those group per host.
             var destinations = asSource
-                .GroupBy(e => e.DestIp)
-                .Select(g => BuildPeerGroup(g.Key, g.ToList()))
+                .GroupBy(e => (Ip: e.DestIp ?? "", Host: string.IsNullOrEmpty(e.DestIp) ? e.Domain : null))
+                .Select(g => BuildPeerGroup(g.Key.Ip, g.ToList()))
                 .OrderByDescending(p => p.EventCount)
                 .ToList();
 
@@ -740,10 +741,11 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
             // Top destination IPs (what's being targeted on this port)
             var topDestinations = events
-                .GroupBy(e => e.DestIp)
+                .GroupBy(e => (Ip: e.DestIp ?? "", Host: string.IsNullOrEmpty(e.DestIp) ? e.Domain : null))
                 .Select(g => new PortDrilldownDest
                 {
-                    Ip = g.Key,
+                    Ip = g.Key.Ip,
+                    Host = g.Key.Host,
                     EventCount = g.Count(),
                     BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
                     UniqueSourceIps = g.Select(e => e.SourceIp).Distinct().Count()
@@ -1256,6 +1258,8 @@ public class PortDrilldownSource
 public class PortDrilldownDest
 {
     public string Ip { get; set; } = string.Empty;
+    /// <summary>The requested host, for WAF events, which record no destination address.</summary>
+    public string? Host { get; set; }
     public int EventCount { get; set; }
     public int BlockedCount { get; set; }
     public int UniqueSourceIps { get; set; }
