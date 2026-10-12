@@ -2850,9 +2850,15 @@ public class UniFiApiClient : IDisposable
     private static readonly System.Text.RegularExpressions.Regex DpiIconDomainPattern =
         new("^[a-z0-9][a-z0-9.-]*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
+    private static readonly System.Text.RegularExpressions.Regex NetworkUiBuildPattern =
+        new("angular/(g[0-9a-f]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    // The Network app's UI build segment (angular/<build>/), which changes with every Network version.
+    private string? _networkUiBuild;
+
     /// <summary>
-    /// GET dpi_icons/{domain}/favicon.ico - the favicon the Network app shows for a DPI application,
-    /// served by the console itself. Null when the console has none.
+    /// GET manage/angular/{build}/images/dpi/{domain}/favicon.ico - the favicon the Network app shows
+    /// for a DPI application, served by the console itself. Null when the console has none.
     /// </summary>
     public async Task<(byte[] Bytes, string ContentType)?> GetDpiIconAsync(string domain, CancellationToken cancellationToken = default)
     {
@@ -2862,10 +2868,20 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        var url = BuildNetworkAppPath($"dpi_icons/{domain}/favicon.ico");
         return await ExecuteRequestAsync<(byte[] Bytes, string ContentType)?>(async () =>
         {
-            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            var cached = _networkUiBuild;
+            var build = cached ?? await ReadNetworkUiBuildAsync(cancellationToken);
+            if (build == null) return null;
+
+            var response = await _httpClient!.GetAsync(DpiIconPath(build, domain), cancellationToken);
+            // A cached build goes stale when the Network app upgrades: read it again once.
+            if (response.StatusCode == HttpStatusCode.NotFound && cached != null
+                && await ReadNetworkUiBuildAsync(cancellationToken) is { } fresh && fresh != cached)
+            {
+                response = await _httpClient!.GetAsync(DpiIconPath(fresh, domain), cancellationToken);
+            }
+
             var type = response.Content.Headers.ContentType?.MediaType ?? "";
             if (!response.IsSuccessStatusCode || !type.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             {
@@ -2875,6 +2891,24 @@ public class UniFiApiClient : IDisposable
             var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             return bytes.Length == 0 ? null : (bytes, type);
         });
+    }
+
+    private string DpiIconPath(string build, string domain) =>
+        BuildNetworkAppPath($"manage/angular/{build}/images/dpi/{domain}/favicon.ico");
+
+    /// <summary>Reads the UI build segment from the Network app's login page, which names it in its asset URLs.</summary>
+    private async Task<string?> ReadNetworkUiBuildAsync(CancellationToken cancellationToken)
+    {
+        var response = await _httpClient!.GetAsync(BuildNetworkAppPath("manage/account/login"), cancellationToken);
+        var match = response.IsSuccessStatusCode
+            ? NetworkUiBuildPattern.Match(await response.Content.ReadAsStringAsync(cancellationToken))
+            : null;
+        if (match is not { Success: true })
+        {
+            _logger.LogDebug("Network app UI build not found on its login page: {StatusCode}", (int)response.StatusCode);
+            return null;
+        }
+        return _networkUiBuild = match.Groups[1].Value;
     }
 
     /// <summary>
