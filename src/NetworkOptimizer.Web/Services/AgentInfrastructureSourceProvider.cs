@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Threats.Interfaces;
 
@@ -8,7 +9,9 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// A site's enrolled, enabled On-Site Agents by LAN IPv4, for the collector's Infrastructure filters.
-/// Offline agents count: an agent's address is still its own while its tunnel is down.
+/// Offline agents count: an agent's address is still its own while its tunnel is down. Only private
+/// (RFC 1918) addresses count: an on-gateway agent reports its WAN or Tailscale address, which is
+/// not where it dials devices from.
 /// </summary>
 public sealed class AgentInfrastructureSourceProvider(IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory)
     : IInfrastructureSourceProvider
@@ -28,9 +31,9 @@ public sealed class AgentInfrastructureSourceProvider(IDbContextFactory<NetworkO
             .ToListAsync(cancellationToken);
 
         return agents
-            .Where(a => IPAddress.TryParse(a.LanIp, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork)
-            .Select(a => new InfrastructureSource(a.LanIp!,
-                string.IsNullOrWhiteSpace(a.Name) ? "On-Site Agent" : $"On-Site Agent {a.Name}"))
+            .Where(a => IPAddress.TryParse(a.LanIp, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork &&
+                        NetworkUtilities.IsRfc1918(ip))
+            .Select(a => new InfrastructureSource(a.LanIp!, string.IsNullOrWhiteSpace(a.Name) ? "On-Site Agent" : a.Name))
             .ToList();
     }
 }
