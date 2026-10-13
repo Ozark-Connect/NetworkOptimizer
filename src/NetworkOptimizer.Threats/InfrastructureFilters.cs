@@ -8,9 +8,8 @@ namespace NetworkOptimizer.Threats;
 
 /// <summary>
 /// The system Infrastructure filters for a site's management hosts (this host on the default site,
-/// each On-Site Agent on its site). One filter per device-management port, never a source-wide
-/// filter: anything else such a host does is still analyzed, alerted on, and blockable, so a
-/// compromised Network Optimizer or agent host does not go dark.
+/// each separate-box On-Site Agent on its site), one per device-management port. Never source-wide:
+/// that would hide every alert a compromised host raised.
 /// </summary>
 public static class InfrastructureFilters
 {
