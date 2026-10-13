@@ -11,6 +11,7 @@
 @inject IWafConnectionAdmin WafAdmin
 @inject NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor ThreatSettings
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 @implements IDisposable
 
 <PageTitle>Web Application Firewall - Network Optimizer</PageTitle>
@@ -464,11 +465,25 @@ else if (_tab == "setup")
     private WafExclusionsView? _exView;
     private string? _removeError;
 
+    // The URL the page last pushed or applied; a different one means Back, Forward, or a link.
+    private string? _lastTabParam;
+    private string? _lastSearchParam;
+
     protected override async Task OnInitializedAsync()
     {
         if (Tabs.Any(t => t.Id == TabParam)) _tab = TabParam!;
         if (!string.IsNullOrWhiteSpace(SearchParam)) _search = SearchParam;
+        (_lastTabParam, _lastSearchParam) = (TabParam, SearchParam);
         await Load();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (TabParam == _lastTabParam && SearchParam == _lastSearchParam) return;
+        (_lastTabParam, _lastSearchParam) = (TabParam, SearchParam);
+        var tab = Tabs.Any(t => t.Id == TabParam) ? TabParam! : "overview";
+        if (tab == "events") _search = SearchParam ?? "";
+        await SetTab(tab, pushHistory: false);
     }
 
     private static string EventsUrl(string search) => $"/threats/waf?tab=events&search={Uri.EscapeDataString(search)}";
@@ -493,9 +508,16 @@ else if (_tab == "setup")
     }
 
     // Re-read on every view tab: a connection saved on Setup shows up without a page reload.
-    private async Task SetTab(string id)
+    // Each switch is a history entry, so Back returns to the previous tab and a tab can be linked.
+    private async Task SetTab(string id, bool pushHistory = true)
     {
         _tab = id;
+        if (pushHistory)
+        {
+            var search = id == "events" && !string.IsNullOrWhiteSpace(_search) ? _search : null;
+            (_lastTabParam, _lastSearchParam) = (id, search);
+            NavigationManager.NavigateTo(search != null ? EventsUrl(search) : $"/threats/waf?tab={id}");
+        }
         if (id != "setup") await Load();
     }
 
