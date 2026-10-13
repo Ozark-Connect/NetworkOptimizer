@@ -81,7 +81,7 @@
                     <div class="banner-text">
                         <span><strong>netopt-waf @AppVersionInfo.LatestWafVersion is available.</strong>
                             @(_status.Version is { Length: > 0 } v ? $"This WAF runs {v}." : "This WAF predates version reporting.")
-                            New releases carry newer OWASP CRS rules.</span>
+                            Updating brings newer OWASP CRS rules, which recognize newer attacks and flag fewer legitimate requests.</span>
                     </div>
                     <div class="banner-actions">
                         <a class="btn btn-sm btn-secondary" href="@AppVersionInfo.WafUpdateUrl" target="_blank" rel="noopener">How to Update</a>
