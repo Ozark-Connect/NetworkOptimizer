@@ -341,7 +341,11 @@ else if (_tab == "exclusions")
                     </table>
                 </div>
             }
-            @if (_exView?.Apps?.Contains("grafana") == true)
+            @if (_exView?.Apps?.Contains("jellyfin") == true)
+            {
+                <p class="form-help">The WAF also has built-in exclusions for Grafana and Jellyfin, on routers that use the waf-grafana or waf-jellyfin middleware.</p>
+            }
+            else if (_exView?.Apps?.Contains("grafana") == true)
             {
                 <p class="form-help">The WAF also has built-in exclusions for Grafana, on routers that use the waf-grafana middleware.</p>
             }
