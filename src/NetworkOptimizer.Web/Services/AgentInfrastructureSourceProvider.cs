@@ -10,8 +10,8 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// A site's enrolled, enabled On-Site Agents by LAN IPv4, for the collector's Infrastructure filters.
 /// Offline agents count: an agent's address is still its own while its tunnel is down. Only private
-/// (RFC 1918) addresses count: an on-gateway agent reports its default-route WAN address (public,
-/// or CGNAT behind Starlink), which is not where it dials devices from.
+/// (RFC 1918) addresses count: an on-gateway agent can report one of the gateway's WAN addresses,
+/// which is not where it dials devices from.
 /// </summary>
 public sealed class AgentInfrastructureSourceProvider(IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory)
     : IInfrastructureSourceProvider
