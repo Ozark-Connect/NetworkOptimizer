@@ -458,6 +458,8 @@
     {
         var list = await Blocking.SetUpCloudflareAsync(string.IsNullOrWhiteSpace(_cfToken) ? null : _cfToken, _cfAccount);
         _cfToken = "";
+        _form!.TargetCloudflare = true;
+        if (_saved != null) _saved = _saved with { TargetCloudflare = true };
         _cf = await Blocking.GetCloudflareStatusAsync();
         return $"Cloudflare list {list.Name} is ready.";
     });
