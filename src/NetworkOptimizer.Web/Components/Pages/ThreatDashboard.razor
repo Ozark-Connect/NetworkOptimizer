@@ -247,12 +247,12 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var filter in _noiseFilters)
+                                @foreach (var (filter, ports) in FilterRows())
                                 {
                                     <tr style="@(filter.Enabled ? "" : "opacity:0.5;")">
                                         <td><code>@(filter.SourceIp ?? "*")</code></td>
                                         <td><code>@(filter.DestIp ?? "*")</code></td>
-                                        <td><code>@(filter.DestPort?.ToString() ?? "*")</code></td>
+                                        <td><code>@ports</code></td>
                                         <td>@FormatCategory(filter.Category)</td>
                                         <td>@(filter.Label ?? "")</td>
                                         <td>
@@ -2239,6 +2239,12 @@ else
 
     // Noise filter state
     private List<ThreatNoiseFilter> _noiseFilters = [];
+
+    // System Infrastructure filters come one per port; the table shows each host's set as one row.
+    private IEnumerable<(ThreatNoiseFilter Filter, string Ports)> FilterRows() =>
+        _noiseFilters
+            .GroupBy(f => f.IsSystem && f.Category == ThreatFilterCategory.Infrastructure ? $"{f.SourceIp}|{f.Label}|{f.Enabled}" : $"#{f.Id}")
+            .Select(g => (g.First(), g.All(f => f.DestPort != null) ? string.Join(", ", g.Select(f => f.DestPort)) : "*"));
     private bool _filtersActive = true;
     private bool? _filtersActiveBeforeDrilldown;
     private string? _timeRangeBeforeDrilldown;

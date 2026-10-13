@@ -60,7 +60,7 @@ public static class InfrastructureFilters
             DestPort = d.Key.Port,
             Category = ThreatFilterCategory.Infrastructure,
             Label = $"{d.Value.Name} {LabelSuffix}",
-            Description = $"Auto-created. {d.Value.Name}'s {ManagementPorts[d.Key.Port]} traffic to port {d.Key.Port} is expected. Everything else it does is still analyzed and alerted on.",
+            Description = "Auto-created: SSH, AP Agent, SNMP, iperf3",
             IsSystem = true,
             Enabled = true,
         }).ToList();
