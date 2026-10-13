@@ -13,7 +13,6 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.WiredPortPresence;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
@@ -23,6 +22,7 @@ using NetworkOptimizer.Web.Services.Licensing;
 using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.SqmLearning;
 using NetworkOptimizer.Web.Services.Ssh;
+using NetworkOptimizer.Web.Services.WiredPortPresence;
 using Serilog;
 using Serilog.Events;
 
@@ -82,8 +82,11 @@ var loggerConfig = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
 
-// Add file logging for Windows (in the logs folder under install directory)
-if (OperatingSystem.IsWindows())
+// File logging beside the console sink, in the logs folder under the install directory: the
+// Windows service dir, /app/logs in Docker (bind-mounted by every compose file, so it outlives a
+// container rebuild; `docker logs` is lost to every recreate and holds hours at Debug), and the
+// install dir on native macOS and Linux. Capped so a Debug site cannot fill a disk.
+try
 {
     var logFolder = Path.Combine(AppContext.BaseDirectory, "logs");
     Directory.CreateDirectory(logFolder);
@@ -92,8 +95,15 @@ if (OperatingSystem.IsWindows())
     loggerConfig.WriteTo.File(
         logPath,
         rollingInterval: RollingInterval.Day,
+        fileSizeLimitBytes: 200L * 1024 * 1024,
+        rollOnFileSizeLimit: true,
         retainedFileCountLimit: 7,
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
+}
+catch (Exception ex)
+{
+    // A read-only install dir loses the file, not the app; the console sink still carries the log.
+    Console.Error.WriteLine($"File logging disabled: {ex.Message}");
 }
 
 Log.Logger = loggerConfig.CreateLogger();
