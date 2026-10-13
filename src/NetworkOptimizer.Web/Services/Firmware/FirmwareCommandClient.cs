@@ -382,7 +382,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         if (networkAppChannel == null && unifiOsChannel == null) return true;
 
         var client = await ConnectedClientAsync(cancellationToken);
-        if (client == null) return false;
+        if (client == null)
+        {
+            _logger.LogWarning(
+                "Cannot set the console update channels on site {Site} (Network application: {App}, UniFi OS: {Os}): the UniFi Console is not connected",
+                _siteSlug, networkAppChannel ?? "unchanged", unifiOsChannel ?? "unchanged");
+            return false;
+        }
 
         try
         {

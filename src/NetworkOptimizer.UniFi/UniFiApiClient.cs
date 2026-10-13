@@ -3456,6 +3456,7 @@ public class UniFiApiClient : IDisposable
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
+            _logger.LogWarning("Cannot set the console update channels: not authenticated to the UniFi Console");
             return false;
         }
 

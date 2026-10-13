@@ -169,6 +169,23 @@ public class FirmwareRolloutServiceTests
         preview.NetworkApplication.UpdateAvailable.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task BuildPreviewAsync_LeavesOutAConsoleSurfaceTheConsoleWouldNotMoveToThePlannedChannel()
+    {
+        using var harness = HarnessWithTwoAps();
+        harness.Commands.ConsoleInfo!.NetworkApplication!.ReleaseChannel = "beta";
+        harness.Commands.ConsoleChannelsAccepted = false;
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(s =>
+        {
+            s.IncludeUniFiNetwork = true;
+            s.GlobalChannel = FirmwareChannels.ReleaseCandidate;
+        }));
+
+        preview.Plan.IncludesUniFiNetworkUpdate.Should().BeFalse("the console still offers beta's build, not the planned channel's");
+        preview.Plan.Notes.Should().ContainSingle(n => n.Contains("left out of this rollout"));
+    }
+
     // --- Shared device builds -------------------------------------------------------------------
 
     private static Task SeedSharedDeviceBuildAsync(RolloutHarness harness, string version) =>

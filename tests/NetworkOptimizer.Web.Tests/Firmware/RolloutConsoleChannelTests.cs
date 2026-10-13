@@ -107,6 +107,47 @@ public class RolloutConsoleChannelTests
     }
 
     [Fact]
+    public async Task ARefusedNetworkAppChannelSwitch_DoesNotInstallAnotherChannelsBuild()
+    {
+        // The console stays on beta and offers beta's 11.0.83; the plan was built for RC's 11.0.82.
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = Console(appChannel: "beta", appUpdateAvailable: "11.0.83", appVersion: "11.0.81");
+        harness.Commands.ConsoleChannelsAccepted = false;
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.ReleaseCandidate);
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.TargetVersion = "11.0.82";
+        var plan = await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.NetworkAppUpdateCalls.Should().Be(0);
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.NetworkAppUpdateRefused);
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.NetworkAppUpdate.Outcome.Should().Be("refused");
+        stored.NetworkAppUpdate.Error.Should().Contain("11.0.83");
+        stored.ConsoleChannels.NetworkAppChannel.Should().BeNull("a refused switch is not one this rollout put in force");
+    }
+
+    [Fact]
+    public async Task ARefusedNetworkAppChannelSwitch_StillInstallsTheConsolesBuildWhenItIsThePlannedOne()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = Console(appChannel: "beta", appUpdateAvailable: "11.0.83", appVersion: "11.0.81");
+        harness.Commands.ConsoleChannelsAccepted = false;
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.ReleaseCandidate);
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.TargetVersion = "11.0.83";
+        await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.NetworkAppUpdateCalls.Should().Be(1, "the console is offering exactly the build the plan captured");
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.NetworkAppUpdateRefused);
+    }
+
+    [Fact]
     public async Task AnApplicationLeftOutOfTheRollout_KeepsItsChannel()
     {
         using var harness = new RolloutHarness();

@@ -769,6 +769,17 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            // Same refusal for the UniFi Network application: the console stayed on its own channel
+            // and offers that channel's build, which the plan did not choose.
+            Name = "Firmware Rollout: Network Application Update Refused",
+            IsEnabled = true,
+            EventTypePattern = "rollout.network_app_update_refused",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Heavier After Upgrade",
             IsEnabled = true,
             EventTypePattern = "rollout.resource_regression",

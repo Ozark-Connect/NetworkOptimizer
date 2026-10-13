@@ -763,8 +763,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // them, so a rollout that skipped it would command devices the console has nothing ready for.
         await RefreshCatalogAsync(force: true, cancellationToken);
 
-        await ApplyNetworkAppChannelAsync(plan, document, settings, cancellationToken);
-        await TriggerNetworkAppUpdateAsync(document, cancellationToken);
+        var appChannelInForce = await ApplyNetworkAppChannelAsync(plan, document, settings, cancellationToken);
+        await TriggerNetworkAppUpdateAsync(document, appChannelInForce, cancellationToken);
 
         // The first advance pass is a full tick away and the application can drop inside it, so
         // the suppression window opens at the trigger rather than on the next pass.
@@ -1141,7 +1141,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Commands the UniFi Network application update once, at rollout start. A console with nothing
     /// to install says so by refusing, which is not a failure of anything.
     /// </summary>
-    private async Task TriggerNetworkAppUpdateAsync(RolloutPlanDocument document, CancellationToken cancellationToken)
+    private async Task TriggerNetworkAppUpdateAsync(RolloutPlanDocument document, bool channelInForce, CancellationToken cancellationToken)
     {
         var state = document.NetworkAppUpdate;
         if (!document.IncludesUniFiNetworkUpdate)
@@ -1196,7 +1196,28 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
         }
 
-        var apiPathAvailable = application is not { HasUpdate: false }
+        // A console that refused the channel switch offers whichever build its own channel carries.
+        // Only the build the plan captured may go through the API then, as on the UniFi OS step.
+        var offerIsPlanned = channelInForce
+            || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(application?.UpdateAvailable, state.TargetVersion);
+        var declined = false;
+        if (!state.Pinned && application is { HasUpdate: true } && !offerIsPlanned)
+        {
+            declined = true;
+            state.Error = $"The Console stayed on its own channel and offers {ShortVersion(application.UpdateAvailable) ?? application.UpdateAvailable}, not the planned {ShortVersion(state.TargetVersion) ?? "build"}.";
+            _logger.LogError(
+                "Declining the UniFi Network update on site {Site}: the console would not take the planned channel and offers {Offered}, not the planned {Planned}",
+                _siteSlug, application.UpdateAvailable, state.TargetVersion ?? "build");
+            await PublishAsync(
+                RolloutAlerts.NetworkAppUpdateRefused,
+                AlertSeverity.Warning,
+                $"UniFi Network Update Declined{_siteSuffix}",
+                $"The Console would not switch to the planned UniFi Network channel and is offering {ShortVersion(application.UpdateAvailable) ?? application.UpdateAvailable} instead of the planned {ShortVersion(state.TargetVersion) ?? "build"}. It was not installed.",
+                document.ConsoleMac, document.ConsoleName, cancellationToken);
+        }
+
+        var apiPathAvailable = !declined
+            && application is not { HasUpdate: false }
             && !string.IsNullOrWhiteSpace(application?.Version)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version);
 
@@ -1243,6 +1264,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 state.Triggered = true;
                 state.ViaSsh = true;
                 state.TriggeredAt = Now;
+                state.Error = null;
                 _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
                 return;
             }
@@ -1251,10 +1273,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             state.Error = ConsoleStepError(ssh.Message);
         }
 
-        // A chosen build, or an SSH install that was tried and failed, is a refusal, not nothing to do:
-        // the report and the history must not read it as a clean run. The console's API declining an
-        // unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
-        var refused = state.Pinned || sshAttempted;
+        // A chosen build, an SSH install that was tried and failed, or a declined offer is a refusal,
+        // not nothing to do: the report and the history must not read it as a clean run. The console's
+        // API declining an unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
+        var refused = state.Pinned || sshAttempted || declined;
         state.Settled = true;
         state.Outcome = refused ? "refused" : "nothing-to-update";
         if (refused)
@@ -3167,24 +3189,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Puts the UniFi Network application on the channel this rollout wants, before the wave-0
     /// update reads what that channel is offering. A surface the rollout does not update is a
     /// surface it does not re-channel, so this only runs when the application is included.
+    /// False only when the console refused the switch: it is then offering its own channel's build.
     /// </summary>
-    private async Task ApplyNetworkAppChannelAsync(
+    private async Task<bool> ApplyNetworkAppChannelAsync(
         FirmwareRolloutPlan plan,
         RolloutPlanDocument document,
         FirmwareRolloutSettings settings,
         CancellationToken cancellationToken)
     {
         if (!document.IncludesUniFiNetworkUpdate || document.ConsoleChannels.NetworkAppChannel != null)
-            return;
+            return true;
 
         var channel = settings.EffectiveNetworkAppChannel;
         if (string.IsNullOrWhiteSpace(channel))
-            return;
+            return true;
 
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         var current = console?.NetworkApplication?.ReleaseChannel;
         if (RolloutChannelManager.AlreadyOn(current, channel))
-            return;
+            return true;
 
         if (string.IsNullOrWhiteSpace(current))
         {
@@ -3193,7 +3216,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             _logger.LogWarning(
                 "Leaving the UniFi Network application channel alone on site {Site}: the console does not report the one it is on",
                 _siteSlug);
-            return;
+            return true;
         }
 
         plan.OriginalChannelSettingsJson = await _channels.CaptureAsync(
@@ -3201,10 +3224,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PersistDocumentAsync(plan, document, cancellationToken);
 
         if (!await _channels.ApplyNetworkAppChannelAsync(channel, cancellationToken))
-            return;
+            return false;
 
         document.ConsoleChannels.NetworkAppChannel = channel;
         await PersistDocumentAsync(plan, document, cancellationToken);
+        return true;
     }
 
     /// <summary>

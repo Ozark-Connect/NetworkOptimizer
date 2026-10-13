@@ -51,6 +51,12 @@ public static class RolloutAlerts
     /// </summary>
     public const string UniFiOsUpdateRefused = "rollout.unifi_os_update_refused";
 
+    /// <summary>
+    /// The console would not take the UniFi Network application channel the plan needs, and the
+    /// build it offers instead is another channel's. Nothing is installed through the API then.
+    /// </summary>
+    public const string NetworkAppUpdateRefused = "rollout.network_app_update_refused";
+
     /// <summary>A device's CPU or memory use moved appreciably up after the upgrade.</summary>
     public const string ResourceRegression = "rollout.resource_regression";
 
