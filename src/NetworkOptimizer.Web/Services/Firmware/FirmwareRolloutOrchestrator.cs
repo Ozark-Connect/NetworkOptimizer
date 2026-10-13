@@ -1547,6 +1547,24 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 return true;
             }
 
+            // A detached SSH install is judged by its own log, not by the console's progress state,
+            // which an fwupdate started from the shell does not drive: a failed exit says why, and
+            // anything else gets the whole budget, since the reboot that proves it is still ahead.
+            if (state.ViaSsh)
+            {
+                var log = await ReadOsInstallLogAsync(cancellationToken);
+                if (log is { ExitCode: > 0 })
+                {
+                    state.Error = ConsoleStepError(log.Output);
+                    await SettleUniFiOsAsync(plan, document, "refused", cancellationToken);
+                    _logger.LogWarning(
+                        "SSH install of UniFi OS {Version} failed on site {Site}: {Reason}", state.TargetVersion, _siteSlug, state.Error);
+                    return true;
+                }
+                if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
+                    return false;
+            }
+
             if (!UniFiOsUpdateInProgress(info))
             {
                 await SettleUniFiOsAsync(plan, document, "unchanged", cancellationToken);
@@ -1657,7 +1675,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
         }
 
-        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
+        // A build chosen by hand installs by URL, since the API installs the console's newest. When
+        // the console's newest IS the chosen build, the API is the fallback for a failed SSH start.
         if (document.UniFiOsUpdate.Pinned)
         {
             var pinnedNewer = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(
@@ -1665,6 +1684,20 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (pinnedNewer && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
                 && await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken))
                 return false;
+
+            var consoleOffersPin = apiPathAvailable && pending?.Version != null
+                && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(pending.Version, document.UniFiOsUpdate.TargetVersion);
+            if (pinnedNewer && consoleOffersPin && await _commands.TriggerUniFiOsUpdateAsync(cancellationToken))
+            {
+                document.UniFiOsUpdate.Error = null;
+                document.UniFiOsUpdate.Triggered = true;
+                document.UniFiOsUpdate.TriggeredAt = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
+                _logger.LogInformation(
+                    "Installing the chosen UniFi OS {Version} through the console on site {Site}, which offers that build itself; expect it to go dark",
+                    pending!.Version, _siteSlug);
+                return false;
+            }
 
             await SettleUniFiOsAsync(plan, document, pinnedNewer ? "refused" : "nothing-to-update", cancellationToken);
             return true;
@@ -1731,34 +1764,73 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             "Installing UniFi OS {Version} over SSH on site {Site} ({Url})",
             document.UniFiOsUpdate.TargetVersion, _siteSlug, document.UniFiOsUpdate.Url);
 
-        // The command returns only after the gateway has downloaded the image, so the step shows as
-        // upgrading from the moment it is sent rather than a minute or more later.
         document.UniFiOsUpdate.SendingAt = Now;
         await PersistDocumentAsync(plan, document, cancellationToken);
 
+        var attemptId = Guid.NewGuid().ToString("N")[..12];
         FirmwareCommandResult ssh;
         try
         {
-            ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, cancellationToken);
+            ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, attemptId, cancellationToken);
         }
         finally
         {
             document.UniFiOsUpdate.SendingAt = null;
         }
 
-        if (ssh.IsOk)
+        // A failed call is not a failed start: the session can drop (an agent tunnel reset) after
+        // the gateway took the command. The install log's start line is the gateway's own answer.
+        var accepted = ssh.IsOk || await SshUniFiOsStartLoggedAsync(attemptId, cancellationToken);
+        if (accepted)
         {
             document.UniFiOsUpdate.Triggered = true;
+            document.UniFiOsUpdate.ViaSsh = true;
             document.UniFiOsUpdate.TriggeredAt = Now;
             await PersistDocumentAsync(plan, document, cancellationToken);
             _logger.LogInformation(
-                "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
+                ssh.IsOk
+                    ? "SSH UniFi OS update started on site {Site}; expect it to go dark"
+                    : "The SSH session for the UniFi OS update on site {Site} dropped, but the gateway logged the start; the command took",
+                _siteSlug);
             return true;
         }
 
+        document.UniFiOsUpdate.Error = ConsoleStepError(ssh.Message);
         await PersistDocumentAsync(plan, document, cancellationToken);
         _logger.LogWarning("SSH UniFi OS update failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
         return false;
+    }
+
+    /// <summary>
+    /// Whether the gateway's install log names this attempt, re-read for up to
+    /// <see cref="SshDropSettleWindow"/>: the read goes over the same SSH route that just dropped.
+    /// </summary>
+    private async Task<bool> SshUniFiOsStartLoggedAsync(string attemptId, CancellationToken cancellationToken)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var log = await _commands.ReadSshUniFiOsInstallLogAsync(cancellationToken);
+            if (string.Equals(log?.AttemptId, attemptId, StringComparison.Ordinal))
+                return true;
+
+            if (waited.Elapsed >= SshDropSettleWindow)
+                return false;
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+    }
+
+    private DateTime _lastOsInstallLogRead = DateTime.MinValue;
+
+    /// <summary>
+    /// How a detached UniFi OS install stands, read at most once a minute while the console still
+    /// answers on its old version. Null when the log cannot be read, or was read too recently.
+    /// </summary>
+    private async Task<UniFiOsInstallLog?> ReadOsInstallLogAsync(CancellationToken cancellationToken)
+    {
+        if (Now - _lastOsInstallLogRead < InstallLogReadInterval) return null;
+        _lastOsInstallLogRead = Now;
+        return await _commands.ReadSshUniFiOsInstallLogAsync(cancellationToken);
     }
 
     private async Task SettleUniFiOsAsync(
@@ -3675,11 +3747,20 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 parts.Add("The Console has not answered since its UniFi OS update.");
                 break;
             case "refused":
-                parts.Add("The Console would not take its UniFi OS update.");
+                parts.Add(UniFiOsRefusedSummary(document));
                 break;
         }
 
         return parts.Count == 0 ? "" : " " + string.Join(" ", parts);
+    }
+
+    /// <summary>The refusal with its reason when one was recorded, for the alert and the report alike.</summary>
+    internal static string UniFiOsRefusedSummary(RolloutPlanDocument document)
+    {
+        var error = document.UniFiOsUpdate.Error;
+        return string.IsNullOrWhiteSpace(error)
+            ? "The Console would not take its UniFi OS update."
+            : $"The Console would not take its UniFi OS update: {error}";
     }
 
     private async Task PersistDocumentAsync(

@@ -276,11 +276,27 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     /// <summary>Runs while the SSH UniFi OS install is in flight, before it returns.</summary>
     public Func<Task>? DuringSshUniFiOsUpdate { get; set; }
 
-    public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default)
+    /// <summary>The attempt id the last SSH UniFi OS install was started with.</summary>
+    public string? LastSshUniFiOsAttemptId { get; private set; }
+
+    /// <summary>
+    /// What the gateway's install log reads. Null: unreadable. A function, so a test can answer
+    /// with the attempt id the orchestrator generated.
+    /// </summary>
+    public Func<UniFiOsInstallLog?>? SshUniFiOsLog { get; set; }
+
+    public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, string attemptId, CancellationToken cancellationToken = default)
     {
         Calls.Add("ssh-unifi-os-update");
+        LastSshUniFiOsAttemptId = attemptId;
         if (DuringSshUniFiOsUpdate != null) await DuringSshUniFiOsUpdate();
         return SshUniFiOsResult;
+    }
+
+    public Task<UniFiOsInstallLog?> ReadSshUniFiOsInstallLogAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-unifi-os-log");
+        return Task.FromResult(SshUniFiOsLog?.Invoke());
     }
 
     public bool GatewaySshConfigured { get; set; } = true;

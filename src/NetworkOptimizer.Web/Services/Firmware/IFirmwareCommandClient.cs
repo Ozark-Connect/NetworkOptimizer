@@ -206,10 +206,21 @@ public interface IFirmwareCommandClient
     Task<FirmwareCommandResult> TriggerSshNetworkAppUpdateAsync(string debUrl, IReadOnlyList<string>? companionUrls = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// SSH fallback: install a UniFi OS firmware image on the gateway via
-    /// <c>ubnt-systool fwupdate</c>. The gateway host is resolved from the controller URL.
+    /// SSH: starts a detached <c>ubnt-systool fwupdate</c> of a UniFi OS image on the gateway and
+    /// returns once it is running, so a dropped session (an agent tunnel reset mid-write) does not
+    /// take the writer with it. <see cref="ReadSshUniFiOsInstallLogAsync"/> says whether it started
+    /// and how it ended. The gateway host is resolved from the controller URL.
     /// </summary>
-    Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default);
+    /// <param name="firmwareUrl">The image to install.</param>
+    /// <param name="attemptId">Stamped into the install log, so a later read can tell this attempt from an older one.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, string attemptId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Over gateway SSH: where the detached UniFi OS install that
+    /// <see cref="TriggerSshUniFiOsUpdateAsync"/> started stands. Null when it cannot be read.
+    /// </summary>
+    Task<UniFiOsInstallLog?> ReadSshUniFiOsInstallLogAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Whether this site has gateway SSH configured and enabled - the only way to install a build
@@ -235,6 +246,12 @@ public interface IFirmwareCommandClient
 /// <param name="ExitCode">The install script's exit code; null while it is still running.</param>
 /// <param name="Output">What it printed (curl and apt-get), for the reason when it failed.</param>
 public sealed record NetworkInstallLog(int? ExitCode, string Output);
+
+/// <summary>Where a detached SSH UniFi OS install stands.</summary>
+/// <param name="AttemptId">The attempt that wrote the log, or null when the log has no start line.</param>
+/// <param name="ExitCode">The <c>fwupdate</c> exit code; null while it is still running.</param>
+/// <param name="Output">What it printed, for the reason when it failed.</param>
+public sealed record UniFiOsInstallLog(string? AttemptId, int? ExitCode, string Output);
 
 /// <summary>A console's Network package platform and the packages it has downloaded.</summary>
 /// <param name="Platform">Debian release and architecture, e.g. <c>uos-deb13-arm64</c>; null when unreadable.</param>
