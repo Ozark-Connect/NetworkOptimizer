@@ -88,7 +88,7 @@
 
             <div class="form-group">
                 <label class="form-label">Extra Trusted Addresses</label>
-                <textarea class="form-control" rows="3" @bind="_extras" placeholder="203.0.113.10, 198.51.100.0/24, 2001:db8::/48"></textarea>
+                <textarea class="form-control" rows="3" @bind="_extras" placeholder="Example: 203.0.113.10, 198.51.100.0/24, 2001:db8::/48"></textarea>
                 <small class="form-help">Addresses you trust like your own sites: never blocked, and in the Network Lists and the WAF's list. IP addresses and CIDR ranges, IPv4 or IPv6, one per line or comma-separated.</small>
             </div>
 
@@ -145,7 +145,7 @@
 
             <div class="form-group">
                 <label class="form-label">Blocking Exceptions</label>
-                <textarea class="form-control" rows="2" @bind="_neverBlock" placeholder="198.51.100.20"></textarea>
+                <textarea class="form-control" rows="2" @bind="_neverBlock" placeholder="Example: 198.51.100.20"></textarea>
                 <small class="form-help">Never blocked by Automatic Blocking, and never trusted: the WAF still inspects every request. For a scanner or monitor you run that would otherwise look like an attacker. Trusted User and Infrastructure filters are never blocked either.</small>
             </div>
             <div class="action-buttons">
