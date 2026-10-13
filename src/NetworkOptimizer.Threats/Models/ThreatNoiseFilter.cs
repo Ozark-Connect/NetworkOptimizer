@@ -42,14 +42,14 @@ public class ThreatNoiseFilter
 
     /// <summary>
     /// Optional short label shown alongside the IP in categorized sub-tables
-    /// (e.g., "Network Optimizer (self)", "DNS proxy"). Distinct from
+    /// (e.g., "Network Optimizer (device management)", "DNS proxy"). Distinct from
     /// Description, which is shown in the management UI.
     /// </summary>
     public string? Label { get; set; }
 
     /// <summary>
-    /// System-managed entry that the UI prevents deleting or disabling. Used for
-    /// the auto-detected self entry created at startup.
+    /// System-managed entry that the UI prevents deleting or disabling: the per-port
+    /// Infrastructure filters the collector keeps for this host and each On-Site Agent.
     /// </summary>
     public bool IsSystem { get; set; }
 

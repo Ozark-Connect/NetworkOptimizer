@@ -609,7 +609,7 @@ public class ThreatSourceEntry
 
     /// <summary>
     /// Human-readable label from the matching noise filter for categorized
-    /// sub-tables (e.g., "Network Optimizer (self)"). Null for the main
+    /// sub-tables (e.g., "Network Optimizer (device management)"). Null for the main
     /// Top Threat Sources table.
     /// </summary>
     public string? Label { get; set; }

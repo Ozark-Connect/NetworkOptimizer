@@ -589,6 +589,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.KillChainClassif
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ThreatPatternAnalyzer>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ExposureValidator>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IThreatSystemAudit, NetworkOptimizer.Web.Services.ThreatSystemAudit>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IInfrastructureSourceProvider, NetworkOptimizer.Web.Services.AgentInfrastructureSourceProvider>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
