@@ -37,6 +37,16 @@ public static class AppVersionInfo
     /// </summary>
     public const string LatestAgentVersion = "2.10.0-preview1";
 
+    /// <summary>
+    /// The newest netopt-waf release (NetworkOptimizer-Proxy, waf/VERSION). Bumped MANUALLY when a
+    /// netopt-waf release ships; a site's WAF reporting an older version, or none, is offered the update
+    /// on the Web Application Firewall page. The WAF releases on its own schedule, not NO's.
+    /// </summary>
+    public const string LatestWafVersion = "1.0.0";
+
+    /// <summary>Where a netopt-waf update is explained, per install type.</summary>
+    public const string WafUpdateUrl = "https://github.com/Ozark-Connect/NetworkOptimizer-Proxy#updating";
+
     /// <summary>Full informational version (e.g. "1.4.2" or "0.0.0-alpha.0.12").</summary>
     public static string Informational { get; }
 

@@ -10,6 +10,10 @@ public sealed class WafEventPage
     /// <summary>Changes on every WAF restart; a cursor from another instance is void.</summary>
     [JsonPropertyName("instance")] public string Instance { get; set; } = "";
     [JsonPropertyName("started")] public DateTimeOffset Started { get; set; }
+    /// <summary>The netopt-waf release (X.Y.Z); absent from WAFs that predate version reporting.</summary>
+    [JsonPropertyName("version")] public string? Version { get; set; }
+    /// <summary>The OWASP CRS release compiled into it.</summary>
+    [JsonPropertyName("crs")] public string? Crs { get; set; }
     [JsonPropertyName("mode")] public string Mode { get; set; } = "";
     /// <summary>When the current mode took effect; absent from WAFs that predate mode switching.</summary>
     [JsonPropertyName("modeSince")] public DateTimeOffset? ModeSince { get; set; }
@@ -82,7 +86,9 @@ public sealed record WafStatus(
     DateTimeOffset? Started,
     WafStats? Stats,
     string? Error,
-    DateTimeOffset? ModeSince = null);
+    DateTimeOffset? ModeSince = null,
+    string? Version = null,
+    string? Crs = null);
 
 /// <summary>netopt-waf's GET/PUT /api/mode response.</summary>
 public sealed class WafModeState

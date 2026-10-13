@@ -217,7 +217,9 @@
         {
             var page = await WafAdmin.TestAsync(_url, _token);
             var mode = page.Mode == "block" ? "blocking" : "detection only";
-            _message = $"Connected: {mode}, paranoia level {page.Paranoia}, {page.Stats.Inspected:N0} requests inspected since it started.";
+            var crs = string.IsNullOrEmpty(page.Crs) ? "" : $" (CRS {page.Crs})";
+            var version = string.IsNullOrEmpty(page.Version) ? "" : $"netopt-waf {page.Version}{crs}, ";
+            _message = $"Connected: {version}{mode}, paranoia level {page.Paranoia}, {page.Stats.Inspected:N0} requests inspected since it started.";
             _messageClass = "success";
         }
         catch (WafClientException ex)

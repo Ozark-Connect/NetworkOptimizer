@@ -896,7 +896,8 @@ public class ThreatCollectionService : BackgroundService
                 await ProcessAndSaveAsync(events, repository, settings, siteKey, cancellationToken);
                 since = page.Next;
                 await settings.SaveSettingAsync(cursorKey, $"{instance}:{since}", cancellationToken);
-                _wafStatus[statusKey] = new WafStatus(DateTimeOffset.UtcNow, page.Mode, page.Paranoia, page.Started, page.Stats, null, page.ModeSince);
+                _wafStatus[statusKey] = new WafStatus(DateTimeOffset.UtcNow, page.Mode, page.Paranoia, page.Started, page.Stats, null, page.ModeSince,
+                    page.Version, page.Crs);
 
                 if (page.Events.Count < WafClient.PageSize) break;
             }
@@ -905,7 +906,7 @@ public class ThreatCollectionService : BackgroundService
         {
             _wafStatus.TryGetValue(statusKey, out var last);
             _wafStatus[statusKey] = new WafStatus(DateTimeOffset.UtcNow, last?.Mode, last?.Paranoia ?? 0,
-                last?.Started, last?.Stats, ex.Message, last?.ModeSince);
+                last?.Started, last?.Stats, ex.Message, last?.ModeSince, last?.Version, last?.Crs);
             _logger.LogDebug("WAF poll failed for site {Site}: {Message}", site ?? "main", ex.Message);
         }
         // A WAF failure must never cost the site its IPS and flow collection, which runs next.
