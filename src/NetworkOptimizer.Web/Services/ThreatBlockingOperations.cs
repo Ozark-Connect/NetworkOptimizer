@@ -319,6 +319,8 @@ public sealed class ThreatBlockingOperations
             await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareToken), _credentials.Encrypt(useToken), ct);
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareAccountId), accountId, ct);
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareListId), list.Id, ct);
+        // Setting up the target enables it, so it does not depend on a separate Save of the card.
+        await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.TargetCloudflare), true.ToString(), ct);
         _blocking.Trigger();
         return list;
     }
