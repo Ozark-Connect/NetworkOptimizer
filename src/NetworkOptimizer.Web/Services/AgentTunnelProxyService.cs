@@ -218,6 +218,7 @@ public class AgentTunnelProxyService : IDisposable
             using var openTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             openTimeout.CancelAfter(OpenTimeout);
             string? openError;
+            var timedOut = false;
             try
             {
                 openError = await connection.OpenResult.Task.WaitAsync(openTimeout.Token);
@@ -227,6 +228,7 @@ public class AgentTunnelProxyService : IDisposable
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 openError = "open timed out";
+                timedOut = true;
                 // Trip the breaker so the opens queued behind this one fast-fail
                 // instead of each blocking the full OpenTimeout.
                 var wasTripped = _openBreaker.TryGetValue(target.SiteSlug, out var prev)
@@ -238,12 +240,18 @@ public class AgentTunnelProxyService : IDisposable
                 // short-circuit console calls instead of each dialing the dead proxy
                 // and paying the retry backoff.
                 //
-                // Only when the tunnel itself looks silent. An agent that has messaged
-                // recently is demonstrably alive, so a target that did not answer says
-                // nothing about the tunnel - and tearing the console down for it takes
-                // the site offline over one unreachable device.
+                // For any other target, only when the tunnel itself looks silent. An agent
+                // that has messaged recently is demonstrably alive, so a device that did not
+                // answer says nothing about the tunnel - and tearing the console down for it
+                // takes the site offline over one unreachable device.
+                //
+                // For the console target, always. The agent answers every open inside its own
+                // 5 s dial timeout, so 8 s of nothing is the tunnel not delivering, whatever
+                // LastMessageAt says: an agent whose socket engine is wedged still sends and
+                // never receives, so the tunnel reads live while every open goes unanswered.
+                // Counting those as console failures raised a Console alert on a healthy console.
                 var tunnelSilent = DateTime.UtcNow - agent.LastMessageAt > AgentTunnelConnection.StaleThreshold;
-                if (!wasTripped && tunnelSilent)
+                if (target.IsConsole || (!wasTripped && tunnelSilent))
                     FlipConsoleAwaitingAgent(target.SiteSlug);
             }
             if (openError != null)
@@ -251,9 +259,10 @@ public class AgentTunnelProxyService : IDisposable
                 _logger.LogDebug("Proxy open {Host}:{Port} via agent {AgentId} failed: {Error}",
                     target.Host, target.Port, agent.AgentId, openError);
 
-                // The console's own endpoint failing IS the console being down - the flip above only
-                // covers a silent tunnel. Two strikes so one blip can't mark a healthy console down.
-                if (target.IsConsole
+                // The console's own endpoint failing IS the console being down, but only when the
+                // agent answered the open: a timeout is tunnel evidence and was handled above.
+                // Two strikes so one blip can't mark a healthy console down.
+                if (target.IsConsole && !timedOut
                     && _consoleOpenFailures.AddOrUpdate(target.SiteSlug, 1, (_, n) => n + 1) >= ConsoleFailuresBeforeUnreachable)
                 {
                     NoteConsoleUnreachable(target.SiteSlug);
