@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -60,6 +58,7 @@ public class ThreatCollectionService : BackgroundService
     private readonly NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? _siteContext;
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
     private readonly IThreatSystemAudit? _systemAudit;
+    private readonly IInfrastructureSourceProvider? _infrastructureSources;
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -74,9 +73,11 @@ public class ThreatCollectionService : BackgroundService
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
         NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
         IThreatSystemAudit? systemAudit = null,
-        ISiteHttpClientProvider? siteHttp = null)
+        ISiteHttpClientProvider? siteHttp = null,
+        IInfrastructureSourceProvider? infrastructureSources = null)
     {
         _systemAudit = systemAudit;
+        _infrastructureSources = infrastructureSources;
         _siteHttp = siteHttp;
         _siteWorkGate = siteWorkGate;
         _scopeFactory = scopeFactory;
@@ -145,11 +146,6 @@ public class ThreatCollectionService : BackgroundService
         // Attempt auto-download of MaxMind databases if configured and missing/stale
         await TryAutoDownloadGeoDatabasesAsync(stoppingToken);
 
-        // Ensure a locked Infrastructure-category noise filter exists for our own IP
-        // so the optimizer's own scanning traffic does not dominate the audit report's
-        // Top Threat Sources table.
-        await EnsureSelfInfrastructureFilterAsync(stoppingToken);
-
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -211,6 +207,8 @@ public class ThreatCollectionService : BackgroundService
         var settings = scope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
 
         await LoadConfigAsync(settings, cancellationToken);
+
+        await EnsureInfrastructureFiltersAsync(siteKey, repository, cancellationToken);
 
         // Per-site enable flag (bare key for the default site, so single-site installs are
         // unchanged): each site opts in/out of collection independently. Unset defaults to
@@ -923,115 +921,46 @@ public class ThreatCollectionService : BackgroundService
     }
 
     /// <summary>
-    /// Ensures an enabled, system-managed Infrastructure filter exists for this host's IPv4 on the
-    /// default site, so Network Optimizer's own traffic lands in its own table instead of Top Sources.
-    /// On an IP change the old entry is demoted and disabled but kept; a returning IP re-promotes it.
+    /// Keeps the site's system Infrastructure filters in line with its management hosts: this host on
+    /// the default site and each On-Site Agent on its own site, one filter per device-management port.
+    /// A filter for a host that left is demoted and disabled but kept; a returning host re-promotes it.
     /// </summary>
-    private async Task EnsureSelfInfrastructureFilterAsync(CancellationToken cancellationToken)
+    private async Task EnsureInfrastructureFiltersAsync(string? siteKey, IThreatRepository repository, CancellationToken cancellationToken)
     {
         try
         {
-            var selfIp = DetectSelfIpv4();
-            if (string.IsNullOrEmpty(selfIp))
-            {
-                _logger.LogDebug("Could not determine this host's LAN IPv4, skipping self-filter registration");
-                return;
-            }
-
-            using var scope = _scopeFactory.CreateScope();
+            var sources = new List<InfrastructureSource>();
             // This host's address only means something on the default site's LAN.
-            _siteContext?.PinScope(scope, DefaultSiteKey);
-            var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
+            if (NormalizeSite(siteKey) == "" && InfrastructureFilters.DetectSelfIpv4() is { } selfIp)
+                sources.Add(new InfrastructureSource(selfIp, "Network Optimizer"));
+            if (_infrastructureSources != null)
+                sources.AddRange(await _infrastructureSources.GetAgentSourcesAsync(siteKey ?? DefaultSiteKey, cancellationToken));
 
-            var existing = await repository.GetNoiseFiltersAsync(cancellationToken);
-
-            var activeSystemMatch = existing.FirstOrDefault(f =>
-                f.IsSystem &&
-                f.Enabled &&
-                f.Category == ThreatFilterCategory.Infrastructure &&
-                string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal));
-            if (activeSystemMatch != null)
-                return;
-
-            var staleSystemEntries = existing
-                .Where(f => f.IsSystem &&
-                            f.Category == ThreatFilterCategory.Infrastructure &&
-                            IsSelfLabel(f.Label) &&
-                            !string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal))
-                .ToList();
-
-            foreach (var stale in staleSystemEntries)
+            var changes = InfrastructureFilters.Plan(await repository.GetNoiseFiltersAsync(cancellationToken), sources);
+            var site = NormalizeSite(siteKey) == "" ? null : siteKey;
+            foreach (var f in changes.Retire)
             {
-                await repository.DemoteAndDisableSystemFilterAsync(stale.Id, cancellationToken);
-                _systemAudit?.NoiseFilterChanged("self_filter_demoted", stale.SourceIp ?? "", null,
-                    $"This host's address changed to {selfIp}");
-                _logger.LogInformation(
-                    "Demoted stale system self-filter for {OldIp} (IP changed to {NewIp})",
-                    stale.SourceIp, selfIp);
+                await repository.DemoteAndDisableSystemFilterAsync(f.Id, cancellationToken);
+                _systemAudit?.NoiseFilterChanged("infrastructure_filter_retired", f.SourceIp ?? "", site,
+                    $"No management host on port {f.DestPort?.ToString() ?? "any"} at this address any more");
             }
-
-            var revivable = existing.FirstOrDefault(f =>
-                f.Category == ThreatFilterCategory.Infrastructure &&
-                string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal) &&
-                IsSelfLabel(f.Label));
-
-            if (revivable != null)
+            foreach (var f in changes.Promote)
             {
-                await repository.PromoteToSystemFilterAsync(revivable.Id, cancellationToken);
-                _systemAudit?.NoiseFilterChanged("self_filter_promoted", selfIp, null,
-                    "This host is back on a previous address");
-                _logger.LogInformation("Re-promoted existing self-filter for {SelfIp}", selfIp);
-                return;
+                await repository.PromoteToSystemFilterAsync(f.Id, cancellationToken);
+                _systemAudit?.NoiseFilterChanged("infrastructure_filter_promoted", f.SourceIp ?? "", site,
+                    $"A management host is back on this address (port {f.DestPort})");
             }
-
-            var filter = new ThreatNoiseFilter
+            foreach (var f in changes.Add)
             {
-                SourceIp = selfIp,
-                Category = ThreatFilterCategory.Infrastructure,
-                Label = SelfFilterLabel,
-                Description = "Auto-detected. Suppresses the optimizer's own scanning traffic from threat tables.",
-                IsSystem = true,
-                Enabled = true
-            };
-
-            await repository.SaveNoiseFilterAsync(filter, cancellationToken);
-            _systemAudit?.NoiseFilterChanged("self_filter_created", selfIp, null,
-                "Detected this host's LAN address");
-            _logger.LogInformation("Registered system Infrastructure filter for self IP {SelfIp}", selfIp);
+                await repository.SaveNoiseFilterAsync(f, cancellationToken);
+                _systemAudit?.NoiseFilterChanged("infrastructure_filter_created", f.SourceIp ?? "", site,
+                    $"{f.Label}: port {f.DestPort}");
+            }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Failed to ensure self infrastructure filter");
+            _logger.LogWarning(ex, "Failed to update infrastructure filters for site {Site}", siteKey ?? "main");
         }
-    }
-
-    internal const string SelfFilterLabel = "Network Optimizer (self)";
-
-    private static bool IsSelfLabel(string? label) =>
-        (label ?? string.Empty).Contains("(self)", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// This host's LAN IPv4, or null when it cannot be known. HOST_IP wins when set. A container
-    /// that sees a single interface is on bridge networking, where that address is the container's.
-    /// </summary>
-    internal static string? DetectSelfIpv4(
-        Func<string, string?>? getEnv = null,
-        Func<IReadOnlyList<string>>? localAddresses = null,
-        Func<string?>? detectLocalIp = null)
-    {
-        getEnv ??= Environment.GetEnvironmentVariable;
-        localAddresses ??= NetworkUtilities.LocalUnicastAddresses;
-        detectLocalIp ??= NetworkUtilities.DetectLocalIp;
-
-        var inContainer = string.Equals(getEnv("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase);
-        var hostIpSet = !string.IsNullOrWhiteSpace(getEnv("HOST_IP"));
-        if (inContainer && !hostIpSet && localAddresses().Count <= 1)
-            return null;
-
-        var ip = detectLocalIp();
-        return IPAddress.TryParse(ip, out var address) && address.AddressFamily == AddressFamily.InterNetwork
-            ? address.ToString()
-            : null;
     }
 
     private async Task TryAutoDownloadGeoDatabasesAsync(CancellationToken cancellationToken)

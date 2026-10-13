@@ -45,7 +45,7 @@ public sealed class BlockAllowlist
     private readonly HashSet<string> _exact = new(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="userList">The site's own allowlist setting.</param>
-    /// <param name="filters">The site's noise filters; Trusted User and Infrastructure ones exempt their source.</param>
+    /// <param name="filters">The site's noise filters; source-wide Trusted User and Infrastructure ones exempt their source.</param>
     /// <param name="wanAddresses">WAN addresses of this site and every site it shares blocks with.</param>
     /// <param name="cloudflareRanges">Cloudflare's current ranges; the built-in copy when null.</param>
     public BlockAllowlist(string? userList, IEnumerable<ThreatNoiseFilter>? filters = null,
@@ -53,9 +53,12 @@ public sealed class BlockAllowlist
     {
         foreach (var entry in (cloudflareRanges ?? CloudflareRanges).Concat(ParseList(userList)).Concat(wanAddresses ?? []))
             Add(entry);
+        // Only a filter on the whole source exempts it: one scoped to a port or destination vouches
+        // for that traffic alone.
         foreach (var f in filters ?? [])
         {
-            if (f.Enabled && f.Category != ThreatFilterCategory.Noise && !string.IsNullOrWhiteSpace(f.SourceIp))
+            if (f.Enabled && f.Category != ThreatFilterCategory.Noise && !string.IsNullOrWhiteSpace(f.SourceIp) &&
+                f.DestIp == null && f.DestPort == null)
                 Add(f.SourceIp.Trim());
         }
     }

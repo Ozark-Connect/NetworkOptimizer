@@ -121,7 +121,7 @@ public class ThreatRepositoryCategoryTests : IDisposable
         {
             SourceIp = "192.0.2.10",
             Category = ThreatFilterCategory.Infrastructure,
-            Label = "Network Optimizer (self)",
+            Label = "Network Optimizer (device management)",
             Description = "self",
             Enabled = true
         });
@@ -133,7 +133,7 @@ public class ThreatRepositoryCategoryTests : IDisposable
         result.Should().HaveCount(1);
         result[0].SourceIp.Should().Be("192.0.2.10");
         result[0].EventCount.Should().Be(2);
-        result[0].Label.Should().Be("Network Optimizer (self)");
+        result[0].Label.Should().Be("Network Optimizer (device management)");
         result[0].MatchedFilterCategory.Should().Be(ThreatFilterCategory.Infrastructure);
     }
 

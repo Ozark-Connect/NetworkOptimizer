@@ -106,17 +106,15 @@ public interface IThreatRepository
     Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Demote a system filter (IsSystem=false) and disable it (Enabled=false). Used when
-    /// the optimizer's self-IP changes - the prior entry is no longer "the optimizer's
-    /// own IP" so we strip the system lock and disable it, but keep the row for audit
-    /// history. User can delete via UI when ready.
+    /// Demote a system filter (IsSystem=false) and disable it (Enabled=false). Used when a
+    /// management host (this host or an On-Site Agent) leaves an address: the row is kept for
+    /// audit history, and the user can delete it.
     /// </summary>
     Task DemoteAndDisableSystemFilterAsync(int filterId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Re-promote a demoted filter back to IsSystem=true and re-enable it. Used when the
-    /// optimizer's self-IP changes back to a previously-known address rather than creating
-    /// a duplicate row.
+    /// Re-promote a demoted filter back to IsSystem=true and re-enable it. Used when a
+    /// management host returns to an address it had, rather than creating a duplicate row.
     /// </summary>
     Task PromoteToSystemFilterAsync(int filterId, CancellationToken cancellationToken = default);
 
@@ -153,7 +151,7 @@ public record SourceIpSummary
 
     /// <summary>
     /// When returned from GetSourcesByCategoryAsync, the human-readable label from
-    /// the matching noise filter (e.g., "Network Optimizer (self)").
+    /// the matching noise filter (e.g., "Network Optimizer (device management)").
     /// </summary>
     public string? Label { get; set; }
 

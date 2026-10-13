@@ -38,7 +38,7 @@ public class ThreatNoiseFilterPersistenceTests : IDisposable
         {
             SourceIp = "192.0.2.10",
             Category = ThreatFilterCategory.Infrastructure,
-            Label = "Network Optimizer (self)",
+            Label = "Network Optimizer (device management)",
             Description = "Auto-detected.",
             IsSystem = true,
             Enabled = true
@@ -48,7 +48,7 @@ public class ThreatNoiseFilterPersistenceTests : IDisposable
 
         var stored = (await _repository.GetNoiseFiltersAsync()).Single();
         stored.Category.Should().Be(ThreatFilterCategory.Infrastructure);
-        stored.Label.Should().Be("Network Optimizer (self)");
+        stored.Label.Should().Be("Network Optimizer (device management)");
         stored.IsSystem.Should().BeTrue();
     }
 
@@ -79,7 +79,7 @@ public class ThreatNoiseFilterPersistenceTests : IDisposable
         {
             SourceIp = "192.0.2.10",
             Category = ThreatFilterCategory.Infrastructure,
-            Label = "Network Optimizer (self)",
+            Label = "Network Optimizer (device management)",
             Description = "self",
             IsSystem = true,
             Enabled = true
@@ -93,7 +93,7 @@ public class ThreatNoiseFilterPersistenceTests : IDisposable
         after.IsSystem.Should().BeFalse("system lock removed so user can manage it");
         after.Enabled.Should().BeFalse("disabled since the IP no longer represents this host");
         after.SourceIp.Should().Be("192.0.2.10", "row is kept in the table for audit history");
-        after.Label.Should().Be("Network Optimizer (self)", "label preserved so user knows what it was");
+        after.Label.Should().Be("Network Optimizer (device management)", "label preserved so user knows what it was");
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public class ThreatNoiseFilterPersistenceTests : IDisposable
         {
             SourceIp = "192.0.2.10",
             Category = ThreatFilterCategory.Infrastructure,
-            Label = "Network Optimizer (self)",
+            Label = "Network Optimizer (device management)",
             Description = "self",
             IsSystem = false,
             Enabled = false

@@ -96,15 +96,17 @@ public class BlockDecisionEngineTests
             new() { SourceIp = "203.0.113.20", Category = ThreatFilterCategory.TrustedUser, Enabled = true },
             new() { SourceIp = "203.0.113.21", Category = ThreatFilterCategory.Noise, Enabled = true },        // Noise hides, it does not trust
             new() { SourceIp = "203.0.113.22", Category = ThreatFilterCategory.Infrastructure, Enabled = false }, // disabled
+            new() { SourceIp = "203.0.113.23", DestPort = 22, Category = ThreatFilterCategory.Infrastructure, Enabled = true }, // one port only
         };
         var allowlist = new BlockAllowlist("198.51.100.0/24, 203.0.113.9", filters);
 
         var blocks = Decide(new Dictionary<string, int>
         {
             ["198.51.100.77"] = 9, ["203.0.113.9"] = 9, ["203.0.113.20"] = 9, ["203.0.113.21"] = 9, ["203.0.113.22"] = 9,
+            ["203.0.113.23"] = 9,
         }, allowlist: allowlist);
 
-        blocks.Select(b => b.SourceIp).Should().BeEquivalentTo(["203.0.113.21", "203.0.113.22"]);
+        blocks.Select(b => b.SourceIp).Should().BeEquivalentTo(["203.0.113.21", "203.0.113.22", "203.0.113.23"]);
     }
 
     [Fact]
