@@ -111,6 +111,16 @@ public class SettingsSearchIndexTests
     [InlineData("trusted sources", "trusted-sources")]
     [InlineData("port forward", "trusted-sources")]
     [InlineData("waf url", "waf")]
+    // Typed a field label from inside a card.
+    [InlineData("pdf rows", "security-audit")]
+    [InlineData("top threat sources rows", "security-audit")]
+    [InlineData("unifi cable internet", "cable-modem")]
+    [InlineData("uci", "cable-modem")]
+    [InlineData("remove site", "multi-site")]
+    [InlineData("waf allow list", "trusted-sources")]
+    [InlineData("provisioning", "identity-sign-in")]
+    [InlineData("entity id", "identity-sign-in")]
+    [InlineData("global channels", "alert-channels")]
     // Typed the hardware they own rather than the card that monitors it.
     [InlineData("xfinity", "cable-modem")]
     [InlineData("quantum fiber", "ont-monitoring")]

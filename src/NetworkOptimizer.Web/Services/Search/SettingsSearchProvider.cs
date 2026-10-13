@@ -210,7 +210,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["docsis", "snr", "error rates", "signal quality", "provider", "host", "status page path",
              "polling interval", "show the cm stats tab", "arris surfboard", "hnap", "motorola",
              "netgear nighthawk cm", "technicolor cga", "vodafone station", "xfinity gateway", "cox",
-             "comcast business", "cga4332", "xb8", "xb10", "cgm4981"]),
+             "comcast business", "cga4332", "xb8", "xb10", "cgm4981", "unifi cable internet", "uci"]),
 
         Entry("monitoring", "Monitoring", "ont-monitoring",
             "ONT Device Monitoring",
@@ -258,6 +258,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "roku", "fire tv", "chromecast", "smart tv", "media players", "printers",
              "unused port grace period", "named port grace period", "dnat dns coverage",
              "excluded vlans", "trusted dns redirect targets", "third-party dns management",
+             "pdf", "top threat sources rows", "rows per filter category", "report rows",
              "pi-hole", "adguard home", "technitium"]),
 
         Entry("security", "Security & Alerts", "alert-channels",
@@ -265,7 +266,8 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["Notification Channels", "Site-Specific Alert Channels"],
             ["email", "smtp host", "smtp port", "from address", "to addresses", "webhook url",
              "slack", "discord", "microsoft teams", "ntfy", "topic", "access token",
-             "hmac signature", "minimum severity", "digest frequency", "day of week", "alert engine"]),
+             "hmac signature", "minimum severity", "digest frequency", "day of week", "alert engine",
+             "global channels", "inherited channels"]),
 
         Entry("security", "Security & Alerts", "threat-intelligence",
             "Threat Intelligence",
@@ -308,7 +310,8 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "Trusted Sources",
             ["Allowlist", "whitelist", "trusted IPs", "never block"],
             ["extra trusted addresses", "blocking exceptions", "site addresses", "wan ip", "ipv6 prefix", "port forward", "source limit",
-             "network list", "address group", "net. opt. trusted sources", "trusted sources + cloudflare", "last seen", "stale address", "remove"]),
+             "network list", "address group", "net. opt. trusted sources", "trusted sources + cloudflare", "last seen", "stale address", "remove",
+             "web application firewall", "waf allow list", "waf-trusted", "only your sites"]),
 
         Entry("application", "Application", "admin-password",
             "Admin Password",
@@ -388,7 +391,8 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["identity provider", "federation", "federated", "oidc", "openid connect",
              "saml", "unifi identity", "multi-factor authentication", "2fa", "authenticator app",
              "passkey", "authority", "client id", "client secret", "scopes", "claim mapping",
-             "login button label", "create on first sign-in", "local sign-in",
+             "login button label", "create on first sign-in", "local sign-in", "provisioning", "new users",
+             "service provider entity id", "entity id", "subject claim", "username claim", "email claim",
              "assertion consumer service", "acs", "idp metadata url", "groups claim"], Reach.InstanceWide),
 
         // No anchor: the tab holds the log and nothing else, so selecting the tab has already
@@ -406,7 +410,8 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "set up agent", "update agent", "upgrade agent", "switch to site", "rename site", "site users",
              "site configuration", "unifi console through the agent tunnel", "ssh via agent",
              "lan speed test server", "client speed test target override", "agent collects for this site",
-             "multi-wan vantage", "disable multi-site management", "on-site agent"], Reach.MultiSite),
+             "multi-wan vantage", "disable multi-site management", "on-site agent", "disable site", "remove site",
+             "delete site"], Reach.MultiSite),
 
         Entry("multisite", "Multi-Site", "trusted-sources-matrix",
             "Trusted Sources",
