@@ -108,7 +108,7 @@
                         data-tooltip-hover-only>
                     <span>Filters</span>
                     @{
-                        var activeCount = _noiseFilters.Count(f => f.Enabled);
+                        var activeCount = FilterRows().Count(r => r.Filter.Enabled);
                     }
                     @if (activeCount > 0)
                     {
