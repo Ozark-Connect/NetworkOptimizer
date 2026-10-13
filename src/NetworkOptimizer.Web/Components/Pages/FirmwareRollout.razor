@@ -270,7 +270,9 @@ else if (_wizardOpen)
 
                 <FirmwareChannelConfig
                     Settings="_settings"
-                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true"
+                    DeviceEarlyAccessAvailable="_preview?.Channels.DeviceEarlyAccessAvailable == true"
+                    NetworkAppEarlyAccessAvailable="_preview?.Channels.NetworkAppEarlyAccessAvailable == true"
+                    UniFiOsEarlyAccessAvailable="_preview?.Channels.UniFiOsEarlyAccessAvailable == true"
                     ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
                     HasCloudGateway="_preview?.HasCloudGateway == true"
                     ShowSequenceHint="true"
@@ -291,7 +293,9 @@ else if (_wizardOpen)
                     ToggleSku="ToggleSku"
                     OnChanged="StateHasChanged">
                     <ChannelHelpText>
-                        Everything in this rollout follows this channel@(ConsoleSurfacesLabel).@(_preview != null && !_preview.Channels.EarlyAccessAvailable
+                        Everything in this rollout follows this channel@(ConsoleSurfacesLabel).@(_preview != null && !_preview.Channels.DeviceEarlyAccessAvailable
+                              && !_preview.Channels.NetworkAppEarlyAccessAvailable
+                              && !_preview.Channels.UniFiOsEarlyAccessAvailable
                             ? " Early Access is enabled through your Ubiquiti account, so it only appears here once the console offers it."
                             : "")
                     </ChannelHelpText>
@@ -599,7 +603,9 @@ else
                 {
                 <FirmwareChannelConfig
                     Settings="_settings"
-                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true || _settings.GlobalChannel == FirmwareChannels.Beta"
+                    DeviceEarlyAccessAvailable="_preview?.Channels.DeviceEarlyAccessAvailable == true"
+                    NetworkAppEarlyAccessAvailable="_preview?.Channels.NetworkAppEarlyAccessAvailable == true"
+                    UniFiOsEarlyAccessAvailable="_preview?.Channels.UniFiOsEarlyAccessAvailable == true"
                     ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
                     HasCloudGateway="_preview?.HasCloudGateway == true || _preview?.HasCloudGatewayHardware == true"
                     ShowConsolePermissionNote="false"

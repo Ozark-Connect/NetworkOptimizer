@@ -264,7 +264,11 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         if (console != null)
         {
             availability.CurrentUniFiOsChannel = console.Firmware?.ReleaseChannel;
-            availability.AvailableUniFiOsChannels = console.Firmware?.Channels ?? [];
+            // A channel the console holds a build for is offered, whether or not channels lists it.
+            availability.AvailableUniFiOsChannels = (console.Firmware?.Channels ?? [])
+                .Concat(console.Firmware?.LatestByChannel?.Keys ?? Enumerable.Empty<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             availability.CurrentNetworkAppChannel = console.NetworkApplication?.ReleaseChannel;
             availability.CurrentNetworkAppVersion = console.NetworkApplication?.Version;
         }
@@ -286,19 +290,22 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             : "none";
 
         _logger.LogInformation(
-            "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}), os={Os}, osByChannel=[{OsByChannel}]",
+            "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}, offers {AppOptions}), os={Os} (offers {OsOptions}), osByChannel=[{OsByChannel}]",
             _siteSlug,
             availability.CurrentDeviceChannel ?? "unknown",
-            availability.AvailableDeviceChannels.Count > 0
-                ? string.Join("/", availability.AvailableDeviceChannels)
-                : "unreadable",
+            OptionsSummary(availability.AvailableDeviceChannels),
             availability.CurrentNetworkAppChannel ?? "unknown",
             availability.CurrentNetworkAppVersion ?? "unknown",
+            OptionsSummary(availability.AvailableNetworkAppChannels),
             availability.CurrentUniFiOsChannel ?? "unknown",
+            OptionsSummary(availability.AvailableUniFiOsChannels),
             osByChannelSummary);
 
         return availability;
     }
+
+    private static string OptionsSummary(List<string> options) =>
+        options.Count > 0 ? string.Join("/", options) : "unreadable";
 
     /// <inheritdoc />
     public async Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)

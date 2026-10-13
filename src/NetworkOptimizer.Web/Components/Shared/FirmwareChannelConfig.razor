@@ -8,7 +8,7 @@
         <select class="form-control firmware-rollout-select" value="@Settings.GlobalChannel" @onchange="SetGlobalChannel">
             <option value="@FirmwareChannels.Release">Official (GA)</option>
             <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
-            @if (EarlyAccessAvailable)
+            @if (GlobalEarlyAccess)
             {
                 <option value="@FirmwareChannels.Beta">Early Access</option>
             }
@@ -50,7 +50,7 @@
                             <option value="">Same as everything else</option>
                             <option value="@FirmwareChannels.Release">Official (GA)</option>
                             <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
-                            @if (EarlyAccessAvailable)
+                            @if (ShowBeta(NetworkAppEarlyAccessAvailable, Settings.NetworkAppChannel))
                             {
                                 <option value="@FirmwareChannels.Beta">Early Access</option>
                             }
@@ -65,7 +65,7 @@
                             <option value="">Same as everything else</option>
                             <option value="@FirmwareChannels.Release">Official (GA)</option>
                             <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
-                            @if (EarlyAccessAvailable)
+                            @if (ShowBeta(UniFiOsEarlyAccessAvailable, Settings.UniFiOsChannel))
                             {
                                 <option value="@FirmwareChannels.Beta">Early Access</option>
                             }
@@ -87,7 +87,7 @@
                         <option value="">Same as everything else</option>
                         <option value="@FirmwareChannels.Release">Official (GA)</option>
                         <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
-                        @if (EarlyAccessAvailable)
+                        @if (ShowBeta(DeviceEarlyAccessAvailable, TypeChannel(code)))
                         {
                             <option value="@FirmwareChannels.Beta">Early Access</option>
                         }
@@ -108,7 +108,7 @@
                         <option value="">Same as its device type</option>
                         <option value="@FirmwareChannels.Release">Official (GA)</option>
                         <option value="@FirmwareChannels.ReleaseCandidate">Release Candidate</option>
-                        @if (EarlyAccessAvailable)
+                        @if (ShowBeta(DeviceEarlyAccessAvailable, SkuChannel(model.Code)))
                         {
                             <option value="@FirmwareChannels.Beta">Early Access</option>
                         }
@@ -159,7 +159,14 @@
 
 @code {
     [Parameter, EditorRequired] public FirmwareRolloutSettings Settings { get; set; } = null!;
-    [Parameter] public bool EarlyAccessAvailable { get; set; }
+    /// <summary>Whether the console offers Early Access for device firmware.</summary>
+    [Parameter] public bool DeviceEarlyAccessAvailable { get; set; }
+
+    /// <summary>Whether the console offers Early Access for the UniFi Network application.</summary>
+    [Parameter] public bool NetworkAppEarlyAccessAvailable { get; set; }
+
+    /// <summary>Whether the console offers Early Access for UniFi OS.</summary>
+    [Parameter] public bool UniFiOsEarlyAccessAvailable { get; set; }
     [Parameter] public bool ConsoleApiAvailable { get; set; } = true;
     [Parameter] public bool HasCloudGateway { get; set; }
     [Parameter] public bool ShowConsolePermissionNote { get; set; } = true;
@@ -203,6 +210,17 @@
         : Settings.IncludeUniFiNetwork ? "UniFi Network" : "UniFi OS";
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    // A saved Early Access choice stays selectable, so the select never shows a value it has no option for.
+    private static bool ShowBeta(bool offered, string? current) =>
+        offered || string.Equals(current, FirmwareChannels.Beta, StringComparison.OrdinalIgnoreCase);
+
+    // The release channel drives every surface in the rollout, so any one offering Early Access is enough.
+    private bool GlobalEarlyAccess => ShowBeta(
+        DeviceEarlyAccessAvailable
+            || (ConsoleApiAvailable && Settings.IncludeUniFiNetwork && NetworkAppEarlyAccessAvailable)
+            || (ConsoleApiAvailable && Settings.IncludeUniFiOs && HasCloudGateway && UniFiOsEarlyAccessAvailable),
+        Settings.GlobalChannel);
 
     /// <summary>Raised after any edit, so an owner rendering a Save button can re-evaluate.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
