@@ -196,7 +196,7 @@
                             <span>Cloudflare Edge Blocking</span>
                         </label>
                         <small class="form-help">
-                            Refuses blocked sources at Cloudflare's edge, before they reach any site Cloudflare proxies for you. On your end: create an API token
+                            Refuses this site's blocked sources at Cloudflare's edge, on every domain whose custom rule uses the list. On your end: create an API token
                             (steps below), enter it with your Account ID and select <strong>Set Up Cloudflare</strong>, then add one custom rule in each domain that blocks the list.
                             Network Optimizer creates the list, <code>@CloudflareListClient.ListName</code>, and keeps it current.
                         </small>
