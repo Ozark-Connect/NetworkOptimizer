@@ -172,8 +172,8 @@ public class TourPredicateResolverTests : IDisposable
     public async Task EveryPredicateHoldsExactlyWhereItsDataSays()
     {
         await SeedSitesAsync(multiSite: true);
-        await SeedSiteDbAsync(Main, ispHealth: true, sqm: true);
-        await SeedSiteDbAsync(SiteA, monitoringOnWithTarget: true, starlink: true);
+        await SeedSiteDbAsync(Main, ispHealth: true, sqm: true, realtekStandalone: true);
+        await SeedSiteDbAsync(SiteA, monitoringOnWithTarget: true, starlink: true, realtekAttached: true);
         await SeedSiteDbAsync(SiteB, monitoringOffWithTarget: true, cellular: true, cableModem: true);
         await SeedAgentAsync(SiteA);
         var resolver = Resolver(new SubsetAccess(null));
@@ -195,6 +195,7 @@ public class TourPredicateResolverTests : IDisposable
             [R.Starlink] = [SiteA],
             [R.Cellular] = [SiteB],
             [R.CableModem] = [SiteB],
+            [R.RealtekOnt] = [Main], // SiteA's stick is attached already, so it has nothing to act on
             [R.MultiWan] = [Main],
             [R.SmartQueues] = [Main],
         }.ToDictionary(kv => kv.Key, kv => kv.Value.ToHashSet(StringComparer.OrdinalIgnoreCase)));
@@ -296,9 +297,15 @@ public class TourPredicateResolverTests : IDisposable
 
     private async Task SeedSiteDbAsync(string slug, bool ispHealth = false, bool monitoringOnWithTarget = false,
         bool monitoringOffWithTarget = false, bool sqm = false, bool starlink = false, bool cellular = false,
-        bool cableModem = false)
+        bool cableModem = false, bool realtekStandalone = false, bool realtekAttached = false)
     {
         await using var db = _siteDbFactory.CreateForSite(slug, slug == Main);
+        if (realtekStandalone || realtekAttached)
+            db.OntConfigurations.Add(new OntConfiguration
+            {
+                Name = "Stick", Host = "192.0.2.1", Provider = "realtek-ont", Enabled = true,
+                AttachedSfpId = realtekAttached ? 1 : null,
+            });
         if (ispHealth || monitoringOnWithTarget || monitoringOffWithTarget)
             db.MonitoringSettings.Add(new MonitoringSettings { Enabled = !monitoringOffWithTarget });
         if (ispHealth)

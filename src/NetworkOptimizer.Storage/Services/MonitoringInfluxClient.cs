@@ -1273,6 +1273,8 @@ from(bucket: ""{_longtermBucket}"")
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
+        "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
+        "olt_equipment_id", "olt_version",
     };
 
     private static readonly string PonFieldFilter =
@@ -1310,6 +1312,12 @@ from(bucket: ""{_longtermBucket}"")
             LanRxFcsErrors = AsLongOrNull(record.GetValueByKey("lan_rx_fcs_err")),
             LanTxDropEvents = AsLongOrNull(record.GetValueByKey("lan_tx_drop_events")),
             LanBufferOverflow = AsLongOrNull(record.GetValueByKey("lan_buffer_overflow")),
+            OltVendorId = record.GetValueByKey("olt_vendor_id") as string,
+            RegistrationStatus = record.GetValueByKey("registration_status") as string,
+            KeyExchangeStatus = record.GetValueByKey("key_exchange_status") as string,
+            FirmwareVersion = record.GetValueByKey("firmware_version") as string,
+            OltModel = record.GetValueByKey("olt_equipment_id") as string,
+            OltVersion = record.GetValueByKey("olt_version") as string,
         };
     }
 
@@ -1357,6 +1365,14 @@ from(bucket: ""{_longtermBucket}"")
         if (stats.LanRxFcsErrors.HasValue) point = point.Field("lan_rx_fcs_err", stats.LanRxFcsErrors.Value);
         if (stats.LanBufferOverflow.HasValue) point = point.Field("lan_buffer_overflow", stats.LanBufferOverflow.Value);
         if (stats.SfpUptimeS.HasValue) point = point.Field("sfp_uptime_s", stats.SfpUptimeS.Value);
+        // A field, not the ont measurement's olt_vendor tag: the sfp series key must not change.
+        if (!string.IsNullOrEmpty(stats.OltVendorId)) point = point.Field("olt_vendor_id", stats.OltVendorId);
+        if (!string.IsNullOrEmpty(stats.RegistrationStatus)) point = point.Field("registration_status", stats.RegistrationStatus);
+        if (!string.IsNullOrEmpty(stats.KeyExchangeStatus)) point = point.Field("key_exchange_status", stats.KeyExchangeStatus);
+        if (!string.IsNullOrEmpty(stats.FirmwareVersion)) point = point.Field("firmware_version", stats.FirmwareVersion);
+        // Not "olt_model": the ont measurement already has a tag by that name, and a field may not share it.
+        if (!string.IsNullOrEmpty(stats.OltModel)) point = point.Field("olt_equipment_id", stats.OltModel);
+        if (!string.IsNullOrEmpty(stats.OltVersion)) point = point.Field("olt_version", stats.OltVersion);
         return point;
     }
 
@@ -1374,6 +1390,9 @@ from(bucket: ""{_longtermBucket}"")
 
 
         point = WritePonFields(point, stats);
+        // The ONT's own sensor, kept apart from the host device's DDM temperature_c on the same series:
+        // the two can sit well over 10 C apart on one stick.
+        if (stats.TemperatureC.HasValue) point = point.Field("ont_temperature_c", stats.TemperatureC.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -3124,6 +3143,12 @@ from(bucket: ""{_longtermBucket}"")
         public long? LanRxFcsErrors { get; set; }
         public long? LanTxDropEvents { get; set; }
         public long? LanBufferOverflow { get; set; }
+        public string? OltVendorId { get; set; }
+        public string? RegistrationStatus { get; set; }
+        public string? KeyExchangeStatus { get; set; }
+        public string? FirmwareVersion { get; set; }
+        public string? OltModel { get; set; }
+        public string? OltVersion { get; set; }
     }
 
     /// <summary>

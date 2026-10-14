@@ -236,6 +236,65 @@ public class OntAlertEvaluatorTests
         bus.Events.Count(e => e.EventType == "ont.fec_errors").Should().Be(1);
     }
 
+    [Fact]
+    public async Task UptimeGoesBackwards_PublishesRebootedOnce()
+    {
+        var (evaluator, bus) = Create();
+
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, uptimeSeconds: 5000);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, uptimeSeconds: 5300);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, uptimeSeconds: 40);
+        await evaluator.EvaluateAsync(1, "ONT", SafeRx, PonLinkState.Operation, null, uptimeSeconds: 340);
+
+        var reboot = bus.Events.Where(e => e.EventType == "ont.rebooted").ToList();
+        reboot.Should().HaveCount(1, "the first reading is a baseline and only the drop is a reboot");
+        reboot[0].MetricValue.Should().Be(40);
+    }
+
+    [Fact]
+    public async Task ManagementUnresponsive_FiresAfterThreeFailedPollsWithLight()
+    {
+        var (evaluator, bus) = Create();
+
+        for (var i = 0; i < PonThresholds.OntManagementFailedPolls - 1; i++)
+            await evaluator.EvaluateManagementAsync(1, "ONT", pollSucceeded: false, ddmRxPowerDbm: -20, rxPowerLowDbm: -25);
+        bus.Events.Should().BeEmpty("one or two misses are a slow page, not a hang");
+
+        await evaluator.EvaluateManagementAsync(1, "ONT", pollSucceeded: false, ddmRxPowerDbm: -20, rxPowerLowDbm: -25);
+        await evaluator.EvaluateManagementAsync(1, "ONT", pollSucceeded: false, ddmRxPowerDbm: -20, rxPowerLowDbm: -25);
+
+        bus.Events.Count(e => e.EventType == "ont.management_unresponsive").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ManagementUnresponsive_NoLight_IsAFiberFaultAndDoesNotFire()
+    {
+        var (evaluator, bus) = Create();
+
+        for (var i = 0; i < 5; i++)
+            await evaluator.EvaluateManagementAsync(1, "ONT", pollSucceeded: false, ddmRxPowerDbm: -30, rxPowerLowDbm: -25);
+        for (var i = 0; i < 5; i++)
+            await evaluator.EvaluateManagementAsync(2, "ONT2", pollSucceeded: false, ddmRxPowerDbm: null, rxPowerLowDbm: -25);
+
+        bus.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ManagementUnresponsive_SuccessResets_ThenCanFireAgain()
+    {
+        var (evaluator, bus) = Create();
+
+        for (var i = 0; i < 3; i++)
+            await evaluator.EvaluateManagementAsync(1, "ONT", false, -20, -25);
+        await evaluator.EvaluateManagementAsync(1, "ONT", true, -20, -25);
+        for (var i = 0; i < 2; i++)
+            await evaluator.EvaluateManagementAsync(1, "ONT", false, -20, -25);
+        bus.Events.Count.Should().Be(1, "the count restarts after a successful poll");
+
+        await evaluator.EvaluateManagementAsync(1, "ONT", false, -20, -25);
+        bus.Events.Count(e => e.EventType == "ont.management_unresponsive").Should().Be(2);
+    }
+
     private sealed class CapturingBus : IAlertEventBus
     {
         public List<AlertEvent> Events { get; } = new();

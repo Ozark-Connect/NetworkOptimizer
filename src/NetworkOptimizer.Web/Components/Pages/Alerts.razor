@@ -1936,6 +1936,8 @@
                         <div @onclick='() => SelectEventType("ont.pon_link_down")'><code>ont.pon_link_down</code> <span>PON link lost</span></div>
                         <div @onclick='() => SelectEventType("ont.fec_errors")'><code>ont.fec_errors</code> <span>FEC error rate spike</span></div>
                         <div @onclick='() => SelectEventType("ont.high_temperature")'><code>ont.high_temperature</code> <span>Temperature above threshold</span></div>
+                        <div @onclick='() => SelectEventType("ont.management_unresponsive")'><code>ont.management_unresponsive</code> <span>ONT page not answering while its SFP module reads light</span></div>
+                        <div @onclick='() => SelectEventType("ont.rebooted")'><code>ont.rebooted</code> <span>ONT uptime went backwards</span></div>
                         <div @onclick='() => SelectEventType("ont.*")'><code>ont.*</code> <span>All ONT events</span></div>
                     </div>
                 </div>

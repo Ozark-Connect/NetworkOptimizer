@@ -555,6 +555,27 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes
         },
+        new AlertRule
+        {
+            // An ONT attached to an SFP module whose DDM still reads light while its own page
+            // stops answering: the module's management side hung. Enabled once an ONT is attached.
+            Name = "ONT: Management Unresponsive",
+            IsEnabled = false,
+            EventTypePattern = "ont.management_unresponsive",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            // The ONT's uptime went backwards. Opt-in: only providers that report uptime trip it.
+            Name = "ONT: Rebooted",
+            IsEnabled = false,
+            EventTypePattern = "ont.rebooted",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
 
         // --- Cellular modem (disabled until user configures a cellular modem) ---
         new AlertRule
