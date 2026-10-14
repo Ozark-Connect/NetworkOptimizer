@@ -7226,7 +7226,7 @@
             await ModemService.DeleteModemAsync(modem.Id);
             if (editingModem.Id == modem.Id) CancelEditModem();
             modemMessage = $"Deleted modem: {modem.Name}";
-            modemMessageClass = "success";
+            modemMessageClass = "info";
             await LoadModemConfigs();
         }
         catch (Exception ex)
@@ -7409,7 +7409,7 @@
             await CmMonitorService.DeleteCmAsync(id);
             if (_editingCm.Id == id) CancelEditCm();
             _cmTestResult = "Cable modem deleted.";
-            _cmTestResultClass = "success";
+            _cmTestResultClass = "info";
             await LoadCmSettings();
         }
         catch (Exception ex)
@@ -7666,7 +7666,7 @@
             await OntMonitorService.DeleteOntAsync(id);
             if (_editingOnt.Id == id) CancelEditOnt();
             _ontTestResult = "ONT deleted.";
-            _ontTestResultClass = "success";
+            _ontTestResultClass = "info";
             await LoadOntSettings();
         }
         catch (Exception ex)
@@ -7918,7 +7918,7 @@
             await StarlinkMonitor.DeleteStarlinkAsync(id);
             if (_editingStarlink.Id == id) CancelEditStarlink();
             _starlinkTestResult = "Starlink terminal deleted.";
-            _starlinkTestResultClass = "success";
+            _starlinkTestResultClass = "info";
             await LoadStarlinkSettings();
         }
         catch (Exception ex)
