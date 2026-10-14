@@ -689,12 +689,14 @@ public class MonitoringLiveStats
     public void RecordSfpPon(string deviceMac, string portName, string? ponLinkStatus,
         long? bipErrors, long? fecErrors, long? hecUncorrected, bool? fecEnabled,
         long? gemRxDropped, DateTime timestamp,
-        string? registrationStatus = null, string? keyExchangeStatus = null, double? ontTemperatureC = null)
+        string? registrationStatus = null, string? keyExchangeStatus = null, double? ontTemperatureC = null,
+        string? oltVendorId = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
         if (string.IsNullOrEmpty(ponLinkStatus) && !bipErrors.HasValue && !fecErrors.HasValue
             && !hecUncorrected.HasValue && !gemRxDropped.HasValue
-            && string.IsNullOrEmpty(registrationStatus) && !ontTemperatureC.HasValue)
+            && string.IsNullOrEmpty(registrationStatus) && !ontTemperatureC.HasValue
+            && string.IsNullOrEmpty(oltVendorId))
             return;
 
         var key = (Normalize(deviceMac), portName);
@@ -711,6 +713,7 @@ public class MonitoringLiveStats
                 RegistrationStatus = registrationStatus,
                 KeyExchangeStatus = keyExchangeStatus,
                 OntTemperatureC = ontTemperatureC,
+                OltVendorId = oltVendorId,
                 LastUpdate = timestamp
             },
             (_, prior) => prior with
@@ -724,6 +727,7 @@ public class MonitoringLiveStats
                 RegistrationStatus = registrationStatus ?? prior.RegistrationStatus,
                 KeyExchangeStatus = keyExchangeStatus ?? prior.KeyExchangeStatus,
                 OntTemperatureC = ontTemperatureC ?? prior.OntTemperatureC,
+                OltVendorId = oltVendorId ?? prior.OltVendorId,
             });
     }
 
@@ -1280,6 +1284,8 @@ public record SfpLiveStats
     /// <summary>The ONT's own temperature sensor. Set only when the host device's DDM read its own
     /// <see cref="TemperatureC"/> too; otherwise that field already holds this reading.</summary>
     public double? OntTemperatureC { get; init; }
+    /// <summary>OLT vendor ID the attached ONT reports (e.g. "CALX"), raw.</summary>
+    public string? OltVendorId { get; init; }
 }
 
 public record PortLiveRate

@@ -227,6 +227,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         LanRxFcsErrors = p.LanCounters?.RxFcsErr,
         LanBufferOverflow = p.LanCounters?.BufferOverflow,
         SfpUptimeS = p.SfpUptimeS,
+        OltVendorId = string.IsNullOrWhiteSpace(p.OltVendorId) ? null : p.OltVendorId.Trim(),
     };
 
     /// <summary>
@@ -245,6 +246,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         PonLinkStatus = ToPonLinkState(p.Ploam?.CurrState),
         FecErrors = p.GtcCounters?.FecWordsUncorr,
         BipErrors = p.GtcCounters?.Bip,
+        OltVendor = string.IsNullOrWhiteSpace(p.OltVendorId) ? null : p.OltVendorId.Trim(),
         // Standalone gets the same PON detail as an attached module: same endpoint, same payload,
         // so the only difference between the two modes should be which tab it lands on.
         Pon = MapToSupplemental(p),
@@ -301,6 +303,10 @@ public class NetOptCustomPonPayload
     /// <summary>Seconds since the ONT module booted.</summary>
     [JsonPropertyName("sfp_uptime_s")]
     public long? SfpUptimeS { get; set; }
+
+    /// <summary>OLT vendor ID as the ONT reports it (e.g. "CALX"). Decoded for display only.</summary>
+    [JsonPropertyName("olt_vendor_id")]
+    public string? OltVendorId { get; set; }
 
     /// <summary>
     /// DDM optics readings, in the same units as SFP DDM (dBm / degrees C / volts).

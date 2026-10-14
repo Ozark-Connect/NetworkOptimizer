@@ -74,6 +74,7 @@ else if (IsShowingExternal && _externalOntStats != null)
                     </div>
                 }
                 @RegisteredRow(_externalOntStats.Pon?.RegistrationStatus, _externalOntStats.Pon?.KeyExchangeStatus)
+                @OltRow(_externalOntStats.OltVendor ?? _externalOntStats.Pon?.OltVendorId, _externalOntStats.OltModel)
                 @if (_externalOntStats.BwpSpeedMbps.HasValue)
                 {
                     <div class="metric-row">
@@ -281,6 +282,7 @@ else
                     </div>
                 }
                 @RegisteredRow(stats?.RegistrationStatus, stats?.KeyExchangeStatus)
+                @OltRow(stats?.OltVendorId, null)
                 @if (current.LinkSpeedMbps.HasValue)
                 {
                     <div class="metric-row">
@@ -701,6 +703,17 @@ else
         if (text == null) return;
         <div class="metric-row">
             <span class="metric-label">Registered:</span>
+            <span class="metric-value">@text</span>
+        </div>
+    };
+
+    /// <summary>The OLT the ONT reports, decoded ("Calix (CALX)"); hidden for providers that do not report it.</summary>
+    private static RenderFragment OltRow(string? vendorId, string? model) => __builder =>
+    {
+        var text = NetworkOptimizer.Core.Helpers.DisplayFormatters.FormatOltVendor(vendorId, model);
+        if (text == null) return;
+        <div class="metric-row">
+            <span class="metric-label">OLT:</span>
             <span class="metric-value">@text</span>
         </div>
     };

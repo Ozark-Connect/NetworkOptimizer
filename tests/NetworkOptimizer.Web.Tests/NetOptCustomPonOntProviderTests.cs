@@ -114,6 +114,19 @@ public class NetOptCustomPonOntProviderTests
     }
 
     [Fact]
+    public void OltVendorId_MapsToBothModes_AndIsOptional()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload("""{ "ploam": { "curr_state": 5 }, "olt_vendor_id": " CALX " }""")!;
+
+        NetOptCustomPonOntProvider.MapToSupplemental(p).OltVendorId.Should().Be("CALX");
+        NetOptCustomPonOntProvider.MapToOntStats(p).OltVendor.Should().Be("CALX", "standalone, it rides the ont measurement's olt_vendor tag");
+
+        var without = NetOptCustomPonOntProvider.ParsePayload(SamplePayload)!;
+        NetOptCustomPonOntProvider.MapToSupplemental(without).OltVendorId.Should().BeNull();
+        NetOptCustomPonOntProvider.MapToOntStats(without).OltVendor.Should().BeNull();
+    }
+
+    [Fact]
     public void ParsePayload_ErrorShape_SurfacesErrorCode()
     {
         var p = NetOptCustomPonOntProvider.ParsePayload(
