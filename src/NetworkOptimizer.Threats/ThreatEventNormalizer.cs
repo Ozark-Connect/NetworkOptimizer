@@ -273,10 +273,22 @@ public class ThreatEventNormalizer
                 EventSource = EventSource.Waf,
                 Domain = string.IsNullOrEmpty(e.Host) ? null : e.Host,
                 Direction = "incoming",
-                Service = $"{e.Method} {(path.Length > 200 ? path[..200] : path)}"
+                Service = $"{e.Method} {(path.Length > 200 ? path[..200] : path)}",
+                MatchedData = WafMatched(top)
             });
         }
         return results;
+    }
+
+    /// <summary>"VARIABLE:key=value" per match, joined by " | "; null when the WAF sent none (before 1.0.1).</summary>
+    internal static string? WafMatched(Waf.WafRuleHit rule)
+    {
+        if (rule.Matched.Count == 0) return null;
+        return string.Join(" | ", rule.Matched.Select(m =>
+        {
+            var name = string.IsNullOrEmpty(m.Key) ? m.Variable : $"{m.Variable}:{m.Key}";
+            return string.IsNullOrEmpty(m.Value) ? name : $"{name}={m.Value}";
+        }));
     }
 
     // CRS tags each detection rule with its family: attack-sqli, attack-rce, attack-protocol, ...

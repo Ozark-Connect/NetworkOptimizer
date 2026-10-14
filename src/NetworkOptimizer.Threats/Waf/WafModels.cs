@@ -58,6 +58,16 @@ public sealed class WafRuleHit
     /// <summary>CRS severity: CRITICAL, ERROR, WARNING, or NOTICE.</summary>
     [JsonPropertyName("severity")] public string Severity { get; set; } = "";
     [JsonPropertyName("tags")] public List<string> Tags { get; set; } = [];
+    /// <summary>What the rule matched, at most three per rule. Absent from WAFs before 1.0.1.</summary>
+    [JsonPropertyName("matched")] public List<WafMatchedData> Matched { get; set; } = [];
+}
+
+/// <summary>One match a CRS rule made: the variable it read, the key inside it, and the value, cut to 200 characters by the WAF.</summary>
+public sealed class WafMatchedData
+{
+    [JsonPropertyName("variable")] public string Variable { get; set; } = "";
+    [JsonPropertyName("key")] public string? Key { get; set; }
+    [JsonPropertyName("value")] public string? Value { get; set; }
 }
 
 /// <summary>WAF events stored for a time range.</summary>
