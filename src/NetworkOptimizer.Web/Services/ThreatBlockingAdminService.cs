@@ -108,8 +108,13 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
         ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, neverBlock, uniFiGroup, uniFiCloudflare, ct);
 }
 
-/// <summary>One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site.</summary>
-public sealed record BlockingSiteSummary(BlockingMode Mode, bool Share, bool GatewaySetUp, int ActiveBlocks, string? RecommendedNote);
+/// <summary>
+/// One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site.
+/// <see cref="ActiveBlocks"/> includes <see cref="SharedBlocks"/>, the sources other sites raised;
+/// <see cref="FeedEntries"/> is null until the site's gateway has had a public list write.
+/// </summary>
+public sealed record BlockingSiteSummary(BlockingMode Mode, bool Share, bool GatewaySetUp, int ActiveBlocks, string? RecommendedNote,
+    int SharedBlocks = 0, int? FeedEntries = null);
 
 /// <summary>
 /// Automatic Blocking for a named site, for Settings - Multi-Site, which lists every site rather than
@@ -160,9 +165,14 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops)
     public async Task<BlockingSiteSummary> GetSummaryAsync(string siteSlug, CancellationToken ct = default)
     {
         var overview = await ops.GetOverviewAsync(siteSlug, ct);
+        // A source this site and a peer both raised is one source on the gateway.
+        var own = overview.Active.Where(b => b.Enforced).Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var shared = overview.Shared.Select(s => s.Block.SourceIp).Where(ip => !own.Contains(ip))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count();
         return new BlockingSiteSummary(overview.Settings.Mode, overview.Settings.Share,
-            await ops.IsGatewaySetUpAsync(siteSlug, ct), overview.Active.Count(b => b.Enforced),
-            PublicBlockLists.RecommendedNote(overview.Settings.Feeds));
+            await ops.IsGatewaySetUpAsync(siteSlug, ct), own.Count + shared,
+            PublicBlockLists.RecommendedNote(overview.Settings.Feeds),
+            shared, ops.GatewayFeedEntries(siteSlug));
     }
 
     public async Task SetModeAsync(string siteSlug, BlockingMode mode, CancellationToken ct = default)

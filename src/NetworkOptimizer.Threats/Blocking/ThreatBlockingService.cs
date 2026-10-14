@@ -47,6 +47,8 @@ public sealed class ThreatBlockingService : BackgroundService
     private readonly Dictionary<string, DateTime> _lastObserved = new();
     // The public list entries last written to each site's gateway, keyed by site.
     private readonly Dictionary<string, (string Fingerprint, string Lists, DateTime At, bool Ok)> _feedsSent = new();
+    // Entries on each site's gateway after its last successful public list write, for the UI.
+    private readonly ConcurrentDictionary<string, int> _feedEntries = new();
     // The Trusted Sources members last written to each site's console.
     private readonly Dictionary<(string Site, BlockTargetKind Kind), (string Fingerprint, DateTime At, bool Ok)> _trustedSent = new();
     private readonly ConcurrentDictionary<(string Site, BlockTargetKind Kind), BlockTargetStatus> _trustedStatus = new();
@@ -83,6 +85,13 @@ public sealed class ThreatBlockingService : BackgroundService
     /// <summary>The last Trusted Sources sync to a site's console (Gateway) or WAF, or null (null site = default site).</summary>
     public BlockTargetStatus? TrustedSourcesStatus(string? site, BlockTargetKind kind) =>
         _trustedStatus.TryGetValue((Key(site), kind), out var s) ? s : null;
+
+    /// <summary>
+    /// Public list entries on a site's gateway after its last successful write since this process
+    /// started, or null before the first one (null site = default site).
+    /// </summary>
+    public int? GatewayFeedEntries(string? site) =>
+        _feedEntries.TryGetValue(Key(site), out var n) ? n : null;
 
     private static string Key(string? site) => site ?? "";
 
@@ -364,13 +373,15 @@ public sealed class ThreatBlockingService : BackgroundService
         var fingerprint = string.Join(",", wanted);
         var known = _feedsSent.TryGetValue(Key(site), out var last);
         if (known && last.Ok && last.Fingerprint == fingerprint) return;
-        if (!known && wanted.Count == 0) { _feedsSent[Key(site)] = (fingerprint, lists, now, true); return; }
+        if (!known && wanted.Count == 0) { _feedsSent[Key(site)] = (fingerprint, lists, now, true); _feedEntries[Key(site)] = 0; return; }
         if (known && last.Ok && last.Lists == lists && now - last.At < FeedWriteEvery) return;
         if (known && !last.Ok && now - last.At < TimeSpan.FromMinutes(30)) return;
         if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
 
         var result = await writer.SyncFeedsAsync(site, wanted, ct);
         _feedsSent[Key(site)] = (fingerprint, lists, now, result.Ok);
+        if (result.Ok)
+            _feedEntries[Key(site)] = result.Count;
         if (!result.Ok)
             _logger.LogWarning("Automatic Blocking: public lists not written to the gateway on {Site}: {Error}", site ?? "main", result.Error);
         else if (wanted.Count > 0)
