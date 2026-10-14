@@ -88,6 +88,7 @@ public sealed class ThreatBlockingOperations
     private readonly PublicBlockListCache _lists;
     private readonly TrustedSourcesGroup _trustedGroup;
     private readonly NetworkOptimizer.Threats.ThreatCollectionService _collector;
+    private readonly SiteConnectionRegistry? _connections;
 
     public ThreatBlockingOperations(
         IThreatSettingsAccessor settings,
@@ -100,8 +101,10 @@ public sealed class ThreatBlockingOperations
         PublicBlockListCache lists,
         TrustedSourcesGroup trustedGroup,
         NetworkOptimizer.Threats.ThreatCollectionService collector,
-        NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null)
+        NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
+        SiteConnectionRegistry? connections = null)
     {
+        _connections = connections;
         _collector = collector;
         _lists = lists;
         _trustedGroup = trustedGroup;
@@ -127,6 +130,9 @@ public sealed class ThreatBlockingOperations
         _siteContext?.PinScope(scope, site ?? _siteContext.DefaultKey);
         return scope;
     }
+
+    /// <summary>Public list entries on the site's gateway, or null before the first write since startup.</summary>
+    public int? GatewayFeedEntries(string slug) => _blocking.GatewayFeedEntries(Site(slug));
 
     public Task<BlockingSettings> GetSettingsAsync(string slug, CancellationToken ct) =>
         BlockingSettings.LoadAsync(k => _settings.GetSettingAsync(k, ct), Site(slug));
@@ -290,6 +296,10 @@ public sealed class ThreatBlockingOperations
     {
         if (!await IsGatewaySetUpAsync(slug, ct))
             return "Not set up yet.";
+        // A configured console that is still (re)connecting, as after a restart, is not a missing one.
+        if (_connections?.GetFor(slug) is { } connection && !await connection.WaitForConnectionAsync()
+            && await connection.GetSettingsAsync() is { IsConfigured: true, HasCredentials: true })
+            return "The UniFi Console connection is not up yet. Select Check once it is.";
         try
         {
             return await _gateway.VerifyAsync(Site(slug), ct);
