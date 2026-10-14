@@ -197,7 +197,7 @@
                         </label>
                         <small class="form-help">
                             Refuses this site's blocked sources at Cloudflare's edge, on every domain whose custom rule uses the list. On your end: create an API token
-                            (steps below), enter it with your Account ID and select <strong>Set Up Cloudflare</strong>, then add one custom rule in each domain that blocks the list.
+                            (steps below), enter it with your Account ID and select <strong>Set Up Cloudflare</strong>, then add the custom rule to <strong>every domain</strong> you want protected (steps in <strong>Add the rule to each domain</strong> below).
                             Network Optimizer creates the list, <code>@CloudflareListClient.ListName</code>, and keeps it current.
                         </small>
                         @if (_form.TargetCloudflare && _cf?.List != null)
@@ -246,11 +246,11 @@
                            Rules filters and reads 0 with custom rules deployed. Seeing the rules needs zone access. *@
                         @if (_cf?.List != null)
                         {
-                            <details class="setup-guide">
-                                <summary>Add the rule</summary>
+                            <details class="setup-guide" open="@_cfRuleOpen">
+                                <summary>Add the rule to each domain</summary>
                                 <div class="setup-guide-content">
                                     <p>
-                                        In each domain: <strong>Security rules</strong> - <strong>Create rule</strong> - <strong>Custom rules</strong>,
+                                        Cloudflare blocks only on domains that have this rule, so repeat this in each one you want protected: <strong>Security rules</strong> - <strong>Create rule</strong> - <strong>Custom rules</strong>,
                                         select <strong>Edit expression</strong>, enter <code>@CloudflareListClient.RuleExpression</code>, choose the <strong>Block</strong> action, and <strong>Deploy</strong>.
                                     </p>
                                 </div>
@@ -263,6 +263,10 @@
                         <div class="action-buttons">
                             <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpCloudflare">@(_cf?.List != null ? "Update Cloudflare" : "Set Up Cloudflare")</button>
                         </div>
+                        @if (_cfMessage != null)
+                        {
+                            <div class="alert alert-@_cfMessageClass">@_cfMessage</div>
+                        }
                     }
                 </div>
             </div>
@@ -316,6 +320,10 @@
     private string _cfToken = "";
     private string? _message;
     private string _messageClass = "info";
+    // Cloudflare setup reports beside its button, where the rule guide it points to sits just above.
+    private MarkupString? _cfMessage;
+    private string _cfMessageClass = "success";
+    private bool _cfRuleOpen;
 
     protected override async Task OnInitializedAsync()
     {
@@ -458,13 +466,31 @@
         return "Removed Network Optimizer's policies and Network Lists from UniFi Network.";
     });
 
-    private Task SetUpCloudflare() => Run(async () =>
+    private async Task SetUpCloudflare()
     {
-        var list = await Blocking.SetUpCloudflareAsync(string.IsNullOrWhiteSpace(_cfToken) ? null : _cfToken, _cfAccount);
-        _cfToken = "";
-        _form!.TargetCloudflare = true;
-        if (_saved != null) _saved = _saved with { TargetCloudflare = true };
-        _cf = await Blocking.GetCloudflareStatusAsync();
-        return $"Cloudflare list {list.Name} is ready.";
-    });
+        _busy = true;
+        _message = null;
+        _cfMessage = null;
+        try
+        {
+            var list = await Blocking.SetUpCloudflareAsync(string.IsNullOrWhiteSpace(_cfToken) ? null : _cfToken, _cfAccount);
+            _cfToken = "";
+            _form!.TargetCloudflare = true;
+            if (_saved != null) _saved = _saved with { TargetCloudflare = true };
+            _cf = await Blocking.GetCloudflareStatusAsync();
+            _cfRuleOpen = true;
+            var name = System.Net.WebUtility.HtmlEncode(list.Name);
+            _cfMessage = new MarkupString($"Cloudflare list <code>{name}</code> is ready. Next, add the custom rule to every domain you want protected: the steps are in <strong>Add the rule to each domain</strong> above.");
+            _cfMessageClass = "success";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or HttpRequestException or CloudflareException)
+        {
+            _cfMessage = new MarkupString(System.Net.WebUtility.HtmlEncode(ex.Message));
+            _cfMessageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 }
