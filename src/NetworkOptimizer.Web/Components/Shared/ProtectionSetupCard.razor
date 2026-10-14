@@ -12,7 +12,7 @@
     {
         <div class="protection-setup-done">
             <span class="status-dot online"></span>
-            <span>Protection: enforcing on @EnforcingOn.</span>
+            <span>Protection: blocking on @EnforcingOn.</span>
             <a href="/settings#automatic-blocking">Settings</a>
         </div>
     }
@@ -41,7 +41,7 @@
                         <span class="protection-step-text">
                             @if (_status.WafConnected && _status.WafDetectDays >= 7)
                             {
-                                <text>Web Application Firewall: @_status.WafDetectDays days in Detection Only. Review its detections, then switch to Block.</text>
+                                <text>Web Application Firewall: @_status.WafDetectDays days in Detection Only. Review its detections, then switch to Blocking.</text>
                             }
                             else if (_status.WafConnected)
                             {
@@ -62,7 +62,7 @@
                         {
                             <a class="btn btn-sm btn-contrast" href="/threats/waf?tab=events">Review</a>
                             <SiteAdminOnly>
-                                <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SwitchWafToBlock">Switch to Block</button>
+                                <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SwitchWafToBlock">Switch to Blocking</button>
                             </SiteAdminOnly>
                         }
                     </li>
@@ -142,8 +142,8 @@
 
     private string ModeText => _status!.Mode switch
     {
-        BlockingMode.Enforce => "enforcing",
-        BlockingMode.DryRun => _status.WouldBlock == 1 ? "Dry Run, 1 source would be blocked now" : $"Dry Run, {_status.WouldBlock} sources would be blocked now",
+        BlockingMode.Enforce => "Blocking",
+        BlockingMode.DryRun => _status.WouldBlock == 1 ? "Detection Only, 1 source would be blocked now" : $"Detection Only, {_status.WouldBlock} sources would be blocked now",
         _ => "off"
     };
 
@@ -160,7 +160,7 @@
         {
             var r = await Blocking.TurnOnRecommendedAsync();
             _status = await Blocking.GetProtectionStatusAsync();
-            _message = r.GatewayError == null ? null : $"Enforcing, but the gateway was not set up: {r.GatewayError}";
+            _message = r.GatewayError == null ? null : $"Blocking, but the gateway was not set up: {r.GatewayError}";
             _messageClass = "warning";
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)

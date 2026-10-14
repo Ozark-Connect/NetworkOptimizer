@@ -10,7 +10,7 @@
         <h2 class="card-title">Automatic Blocking</h2>
         @if (_saved != null && _saved.Mode != BlockingMode.Off)
         {
-            <span class="status-badge @(_saved.Mode == BlockingMode.Enforce ? "status-active" : "")">@(_saved.Mode == BlockingMode.Enforce ? "Enforcing" : "Dry Run")</span>
+            <span class="status-badge @(_saved.Mode == BlockingMode.Enforce ? "status-active" : "")">@(_saved.Mode == BlockingMode.Enforce ? "Blocking" : "Detection Only")</span>
         }
     </div>
     <div class="card-body">
@@ -64,7 +64,7 @@
                         </label>
                     }
                 </div>
-                <small class="form-help">Start with Dry Run: Threat Intelligence lists what would be blocked, and nothing is.</small>
+                <small class="form-help">Start in Detection Only. Review what it would block in <strong>Blocked Sources</strong> on Threat Intelligence, then switch to Blocking.</small>
             </div>
 
             <div class="ab-section">
@@ -111,7 +111,7 @@
 
             <div class="ab-section">
                 <h3 class="ab-section-title">Public Block Lists</h3>
-                <p class="form-help">Known-bad networks from public lists, blocked on the gateway and in the WAF while Automatic Blocking enforces. Never sent to Cloudflare, which has its own. Entries that overlap private space or Trusted Sources are skipped.</p>
+                <p class="form-help">Known-bad networks from public lists, blocked on the gateway and in the WAF while Automatic Blocking is in Blocking mode. Never sent to Cloudflare, which has its own. Entries that overlap private space or Trusted Sources are skipped.</p>
                 @foreach (var view in _lists)
                 {
                     <div class="form-group ab-list">
@@ -364,8 +364,8 @@
 
     private static string ModeOption(BlockingMode mode) => mode switch
     {
-        BlockingMode.DryRun => "Dry Run: record what would be blocked",
-        BlockingMode.Enforce => "Enforce: block on the targets below",
+        BlockingMode.DryRun => "Detection Only: record what would be blocked",
+        BlockingMode.Enforce => "Blocking: block on the targets below",
         _ => "Off"
     };
 
@@ -430,7 +430,7 @@
         var where = new List<string>();
         if (r.Gateway) where.Add("the gateway");
         if (r.Waf) where.Add("the WAF");
-        var on = where.Count > 0 ? $"Blocking on {string.Join(" and ", where)}." : "Enforce is on, but there is nowhere to block yet.";
+        var on = where.Count > 0 ? $"Blocking on {string.Join(" and ", where)}." : "Blocking is on, but there is nowhere to block yet.";
         return r.GatewayError == null ? on : $"{on} The gateway was not set up: {r.GatewayError}";
     });
 

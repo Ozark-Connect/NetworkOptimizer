@@ -22,7 +22,7 @@
         {
             @if (_active != null)
             {
-                <span class="status-badge" data-tooltip="Dry Run would block this address: @_active.Reason">Dry Run</span>
+                <span class="status-badge" data-tooltip="Would be blocked: @_active.Reason">Detection Only</span>
             }
             <SiteAdminOnly>
                 <select class="form-control ip-block-duration" @bind="_minutes" aria-label="Block for">

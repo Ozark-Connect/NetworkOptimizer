@@ -16,8 +16,8 @@
             <label class="form-label" for="blocking-mode-@SiteSlug">Mode</label>
             <select id="blocking-mode-@SiteSlug" class="form-control" value="@_summary.Mode" @onchange="SetMode" disabled="@_busy">
                 <option value="@BlockingMode.Off">Off</option>
-                <option value="@BlockingMode.DryRun">Dry Run</option>
-                <option value="@BlockingMode.Enforce">Enforce</option>
+                <option value="@BlockingMode.DryRun">Detection Only</option>
+                <option value="@BlockingMode.Enforce">Blocking</option>
             </select>
         </div>
         <label class="checkbox-toggle">
@@ -109,6 +109,6 @@
     private Task TurnOnRecommended() => Act(async () =>
     {
         var r = await SiteBlocking.TurnOnRecommendedAsync(SiteSlug);
-        return r.GatewayError == null ? null : $"Enforcing, but the gateway was not set up: {r.GatewayError}";
+        return r.GatewayError == null ? null : $"Blocking, but the gateway was not set up: {r.GatewayError}";
     });
 }
