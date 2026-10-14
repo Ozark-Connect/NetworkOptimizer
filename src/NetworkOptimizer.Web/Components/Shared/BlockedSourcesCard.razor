@@ -16,7 +16,7 @@
                 <div class="alert alert-info">
                     <div class="banner-content">
                         <div class="banner-text">
-                            <span>Dry Run: these sources would be blocked. Nothing is sent to the gateway, the WAF, or Cloudflare yet.</span>
+                            <span>Detection Only: these sources would be blocked. Nothing is sent to the gateway, the WAF, or Cloudflare yet.</span>
                             @if (PublicBlockLists.RecommendedNote(_overview.Settings.Feeds) is { } listNote)
                             {
                                 <small class="form-help">@listNote</small>
@@ -57,7 +57,7 @@
                             @foreach (var b in _overview.Active)
                             {
                                 <tr>
-                                    <td><code>@b.SourceIp</code>@if (!b.Enforced) {<span class="status-badge blocked-sources-dry">Dry Run</span>}</td>
+                                    <td><code>@b.SourceIp</code>@if (!b.Enforced) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
                                     <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
                                     <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt)</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
@@ -177,8 +177,8 @@
 
     private static string ModeLabel(BlockingMode mode) => mode switch
     {
-        BlockingMode.Enforce => "Enforcing",
-        BlockingMode.DryRun => "Dry Run",
+        BlockingMode.Enforce => "Blocking",
+        BlockingMode.DryRun => "Detection Only",
         _ => "Off"
     };
 

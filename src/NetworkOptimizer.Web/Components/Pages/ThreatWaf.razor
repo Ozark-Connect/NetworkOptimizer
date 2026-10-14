@@ -127,11 +127,11 @@
                         <div class="banner-content">
                             <div class="banner-text">
                                 <span><strong>@DetectDays days in Detection Only.</strong> In the last 7 days it flagged @(_week?.Detected ?? 0) requests.
-                                    Review them on Events and add exclusions for anything legitimate, then switch to Block.</span>
+                                    Review them on Events and add exclusions for anything legitimate, then switch to Blocking.</span>
                             </div>
                             <SiteAdminOnly>
                                 <div class="banner-actions">
-                                    <button class="btn btn-sm btn-primary" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
+                                    <button class="btn btn-sm btn-primary" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Blocking</button>
                                 </div>
                             </SiteAdminOnly>
                         </div>
@@ -148,7 +148,7 @@
                     }
                     else
                     {
-                        <text>Detection Only@(SinceText). Attacks are logged and let through. Run it for a week, review <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>, then switch to Block.</text>
+                        <text>Detection Only@(SinceText). Attacks are logged and let through. Run it for a week, review <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>, then switch to Blocking.</text>
                     }
                 </p>
                 @if (_status.Mode == "block" || DetectDays < 7)
@@ -161,7 +161,7 @@
                             }
                             else
                             {
-                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Block</button>
+                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Blocking</button>
                             }
                         </div>
                     </SiteAdminOnly>
@@ -439,7 +439,7 @@ else if (_tab == "setup")
             var state = await WafAdmin.SetModeAsync(mode);
             _status = _status! with { Mode = state.Mode, ModeSince = state.Since };
             _modeMessage = (state.Mode == "block"
-                ? "Switched to Block. Requests that cross the CRS anomaly threshold now get a 403. If a legitimate app breaks, add an exclusion from Events or switch back here."
+                ? "Switched to Blocking. Requests that cross the CRS anomaly threshold now get a 403. If a legitimate app breaks, add an exclusion from Events or switch back here."
                 : "Switched to Detection Only. CRS rule matches are now logged and let through. Bans and the trusted list still refuse what they did before.")
                 + (state.Persisted ? "" : " This WAF has no state directory, so a restart returns it to the mode in its WAF_MODE setting. Update NetworkOptimizer-Proxy to keep the switch.");
             _modeMessageClass = state.Persisted ? "success" : "warning";

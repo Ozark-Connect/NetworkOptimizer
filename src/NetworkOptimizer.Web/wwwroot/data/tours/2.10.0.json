@@ -33,7 +33,7 @@
       "selector": "[data-tour=\"automatic-blocking\"]",
       "title": "Automatic Blocking",
       "listLabel": "Block repeat attackers on your gateway, the WAF, and Cloudflare",
-      "body": "Four Public Block Lists, from Spamhaus, abuse.ch, DShield, and blocklist.de, block known-bad networks before they try, and can stop an infected device from reaching its botnet's command server. Start in **Dry Run** to see what would be blocked.",
+      "body": "Four Public Block Lists, from Spamhaus, abuse.ch, DShield, and blocklist.de, block known-bad networks before they try, and can stop an infected device from reaching its botnet's command server. Start in **Detection Only** to see what would be blocked.",
       "placement": "top",
       "optional": true
     }

@@ -148,7 +148,7 @@
             // The WAF ban list follows the connection unless Automatic Blocking set it explicitly.
             var targetSet = await ThreatSettings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.TargetWaf, Site)) != null;
             _message = _enabled && !targetSet
-                ? "WAF settings saved. When Automatic Blocking is enforcing, the WAF also refuses the sources it blocks."
+                ? "WAF settings saved. When Automatic Blocking is in Blocking mode, the WAF also refuses the sources it blocks."
                 : "WAF settings saved.";
             _messageClass = "success";
             _offerRecommended = false;
@@ -216,7 +216,7 @@
         try
         {
             var page = await WafAdmin.TestAsync(_url, _token);
-            var mode = page.Mode == "block" ? "blocking" : "detection only";
+            var mode = page.Mode == "block" ? "Blocking" : "Detection Only";
             var crs = string.IsNullOrEmpty(page.Crs) ? "" : $" (CRS {page.Crs})";
             var version = string.IsNullOrEmpty(page.Version) ? "" : $"netopt-waf {page.Version}{crs}, ";
             _message = $"Connected: {version}{mode}, paranoia level {page.Paranoia}, {page.Stats.Inspected:N0} requests inspected since it started.";
