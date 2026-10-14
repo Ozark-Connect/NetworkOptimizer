@@ -1824,7 +1824,7 @@
     </div>
 
     <!-- ONT Device Monitoring -->
-    <div class="card settings-tab-monitoring" id="ont-monitoring">
+    <div class="card settings-tab-monitoring" id="ont-monitoring" data-tour="ont-monitoring">
         <div class="card-header">
             <div class="card-header-left">
                 <h2 class="card-title">ONT Device Monitoring</h2>
@@ -1951,7 +1951,7 @@
                         </div>
                     </div>
 
-                    @if (_editingOnt.Provider == "netopt-custom")
+                    @if (SfpAttachableOntProviders.Contains(_editingOnt.Provider))
                     {
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
@@ -1964,7 +1964,7 @@
                                     }
                                 </select>
                                 <small class="form-help">
-                                    Attached ONTs are polled with the gateway SFP cycle and their PON stats merge into
+                                    Attached ONTs are polled with the SFP collection cycle and their PON stats merge into
                                     the selected module's SFP Stats series; the polling interval below is ignored.
                                     Standalone ONTs show on ONT Stats instead.
                                 </small>
@@ -7731,9 +7731,12 @@
 
         // SFP attachment is only meaningful for providers that support it; clear a
         // stale association so it can't linger invisibly after a provider switch.
-        if (provider != "netopt-custom")
+        if (!SfpAttachableOntProviders.Contains(provider))
             _editingOnt.AttachedSfpId = null;
     }
+
+    /// <summary>Providers implementing ISfpSupplementalOntProvider, which can merge into a monitored SFP module.</summary>
+    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont" };
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {

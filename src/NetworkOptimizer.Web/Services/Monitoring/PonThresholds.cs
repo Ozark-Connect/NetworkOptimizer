@@ -53,6 +53,10 @@ public static class PonThresholds
     /// <summary>Per-day BIP/uncorrectable-FEC count above which the link is poor (and an issue is raised).</summary>
     public const double PonErrorsPerDayPoor = 50.0;
 
+    /// <summary>Consecutive failed polls of an attached ONT, while its module's DDM still reads light,
+    /// before its management side counts as unresponsive. One miss is a slow page, not a hang.</summary>
+    public const int OntManagementFailedPolls = 3;
+
     // --- Hysteresis ---
     public const double PowerHysteresisDbm = 2.0;
     public const double TempHysteresisC = 5.0;

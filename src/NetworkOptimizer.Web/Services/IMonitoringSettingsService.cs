@@ -78,4 +78,11 @@ public sealed record SfpThresholdEdit
     public double? AeTxPowerHighDbm { get; init; }
     public double? SfpTempHighGenericC { get; init; }
     public bool IgnoreSfpDdmSpikes { get; init; }
+
+    /// <summary>
+    /// Per-module temperature source for the SFP temperature alert, keyed by MonitoredSfp id:
+    /// true reads the attached ONT's own sensor, false the host device's DDM. Modules left out keep
+    /// their stored choice.
+    /// </summary>
+    public IReadOnlyDictionary<int, bool>? UseOntTemperatureByModule { get; init; }
 }

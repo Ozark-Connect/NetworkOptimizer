@@ -688,11 +688,15 @@ public class MonitoringLiveStats
     /// </summary>
     public void RecordSfpPon(string deviceMac, string portName, string? ponLinkStatus,
         long? bipErrors, long? fecErrors, long? hecUncorrected, bool? fecEnabled,
-        long? gemRxDropped, DateTime timestamp)
+        long? gemRxDropped, DateTime timestamp,
+        string? registrationStatus = null, string? keyExchangeStatus = null, double? ontTemperatureC = null,
+        string? oltVendorId = null, string? oltModel = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
         if (string.IsNullOrEmpty(ponLinkStatus) && !bipErrors.HasValue && !fecErrors.HasValue
-            && !hecUncorrected.HasValue && !gemRxDropped.HasValue)
+            && !hecUncorrected.HasValue && !gemRxDropped.HasValue
+            && string.IsNullOrEmpty(registrationStatus) && !ontTemperatureC.HasValue
+            && string.IsNullOrEmpty(oltVendorId))
             return;
 
         var key = (Normalize(deviceMac), portName);
@@ -706,6 +710,11 @@ public class MonitoringLiveStats
                 HecUncorrected = hecUncorrected,
                 FecEnabled = fecEnabled,
                 GemRxDropped = gemRxDropped,
+                RegistrationStatus = registrationStatus,
+                KeyExchangeStatus = keyExchangeStatus,
+                OntTemperatureC = ontTemperatureC,
+                OltVendorId = oltVendorId,
+                OltModel = oltModel,
                 LastUpdate = timestamp
             },
             (_, prior) => prior with
@@ -716,6 +725,11 @@ public class MonitoringLiveStats
                 HecUncorrected = hecUncorrected ?? prior.HecUncorrected,
                 FecEnabled = fecEnabled ?? prior.FecEnabled,
                 GemRxDropped = gemRxDropped ?? prior.GemRxDropped,
+                RegistrationStatus = registrationStatus ?? prior.RegistrationStatus,
+                KeyExchangeStatus = keyExchangeStatus ?? prior.KeyExchangeStatus,
+                OntTemperatureC = ontTemperatureC ?? prior.OntTemperatureC,
+                OltVendorId = oltVendorId ?? prior.OltVendorId,
+                OltModel = oltModel ?? prior.OltModel,
             });
     }
 
@@ -1265,6 +1279,17 @@ public record SfpLiveStats
     public bool? FecEnabled { get; init; }
     /// <summary>Absolute (cumulative) dropped GEM frames from the PON supplement.</summary>
     public long? GemRxDropped { get; init; }
+    /// <summary>ONT registration with the OLT, as the attached provider words it.</summary>
+    public string? RegistrationStatus { get; init; }
+    /// <summary>OLT key exchange result, as the attached provider words it.</summary>
+    public string? KeyExchangeStatus { get; init; }
+    /// <summary>The ONT's own temperature sensor. Set only when the host device's DDM read its own
+    /// <see cref="TemperatureC"/> too; otherwise that field already holds this reading.</summary>
+    public double? OntTemperatureC { get; init; }
+    /// <summary>OLT vendor ID the attached ONT reports (e.g. "CALX"), raw.</summary>
+    public string? OltVendorId { get; init; }
+    /// <summary>OLT model the attached ONT reports (e.g. "E7").</summary>
+    public string? OltModel { get; init; }
 }
 
 public record PortLiveRate

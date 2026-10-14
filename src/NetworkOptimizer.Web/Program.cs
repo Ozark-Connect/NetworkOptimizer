@@ -784,6 +784,7 @@ builder.Services.AddSiteScopedRegistry<MonitoringCollectionRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+builder.Services.AddMutatingService<ISfpModulePollService, SfpModulePollService>();
 // Firmware Rollout executors — the per-device upgrade state machine, canary holds, channel
 // group switches and rollout alerts. One instance per site, owned by the registry on the same
 // terms as monitoring collection (default always runs; non-default sites start/stop on site
@@ -1259,6 +1260,8 @@ using (var scope = app.Services.CreateScope())
 
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cable_modem", siteSeededPatterns, () => siteDb.CmConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "ont", siteSeededPatterns, () => siteDb.OntConfigurations.Any());
+                AlertRuleAutoEnable.EnableFreshlySeededWhen(siteDb, "ont.management_unresponsive", siteSeededPatterns,
+                    () => siteDb.OntConfigurations.Any(o => o.AttachedSfpId != null));
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cellular", siteSeededPatterns, () => siteDb.ModemConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "starlink", siteSeededPatterns, () => siteDb.StarlinkConfigurations.Any());
             }
@@ -1336,6 +1339,8 @@ using (var scope = app.Services.CreateScope())
 
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
+            AlertRuleAutoEnable.EnableFreshlySeededWhen(db, "ont.management_unresponsive", seededPatterns,
+                () => db.OntConfigurations.Any(o => o.AttachedSfpId != null));
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "starlink", seededPatterns, () => db.StarlinkConfigurations.Any());
         }
