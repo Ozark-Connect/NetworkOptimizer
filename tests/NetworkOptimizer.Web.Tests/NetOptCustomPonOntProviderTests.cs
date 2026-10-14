@@ -127,6 +127,18 @@ public class NetOptCustomPonOntProviderTests
     }
 
     [Fact]
+    public void SfpFwVersion_MapsToFirmwareVersionInBothModes_AndIsOptional()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload("""{ "ploam": { "curr_state": 5 }, "sfp_fw_version": " V1.0-220923 " }""")!;
+
+        NetOptCustomPonOntProvider.MapToSupplemental(p).FirmwareVersion.Should().Be("V1.0-220923");
+        NetOptCustomPonOntProvider.MapToOntStats(p).Pon!.FirmwareVersion.Should().Be("V1.0-220923", "standalone carries the same PON detail");
+
+        var without = NetOptCustomPonOntProvider.ParsePayload(SamplePayload)!;
+        NetOptCustomPonOntProvider.MapToSupplemental(without).FirmwareVersion.Should().BeNull();
+    }
+
+    [Fact]
     public void ParsePayload_ErrorShape_SurfacesErrorCode()
     {
         var p = NetOptCustomPonOntProvider.ParsePayload(

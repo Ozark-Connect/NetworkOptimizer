@@ -228,6 +228,7 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         LanBufferOverflow = p.LanCounters?.BufferOverflow,
         SfpUptimeS = p.SfpUptimeS,
         OltVendorId = string.IsNullOrWhiteSpace(p.OltVendorId) ? null : p.OltVendorId.Trim(),
+        FirmwareVersion = string.IsNullOrWhiteSpace(p.SfpFwVersion) ? null : p.SfpFwVersion.Trim(),
     };
 
     /// <summary>
@@ -307,6 +308,10 @@ public class NetOptCustomPonPayload
     /// <summary>OLT vendor ID as the ONT reports it (e.g. "CALX"). Decoded for display only.</summary>
     [JsonPropertyName("olt_vendor_id")]
     public string? OltVendorId { get; set; }
+
+    /// <summary>The ONT module's firmware version, as the module reports it.</summary>
+    [JsonPropertyName("sfp_fw_version")]
+    public string? SfpFwVersion { get; set; }
 
     /// <summary>
     /// DDM optics readings, in the same units as SFP DDM (dBm / degrees C / volts).

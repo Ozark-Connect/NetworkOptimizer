@@ -121,7 +121,8 @@ numeric strings; 64-bit counters are expected.
     "learning_discard": 0
   },
   "sfp_uptime_s": 358825,   // seconds since the ONT module booted (counter-reset anchor)
-  "olt_vendor_id": "CALX"   // OLT vendor ID (4 letters, as the ONT reports it); shown decoded, e.g. "Calix (CALX)"
+  "olt_vendor_id": "CALX",  // OLT vendor ID (4 letters, as the ONT reports it); shown decoded, e.g. "Calix (CALX)"
+  "sfp_fw_version": "V1.0-220923"  // the ONT module's firmware version, shown as-is
 }
 ```
 
@@ -154,6 +155,7 @@ onto Network Optimizer's existing schema:
 | `lan_counters.*` | `lan_tx_frames`, `lan_rx_frames`, `lan_tx_drop_events`, `lan_rx_fcs_err`, `lan_buffer_overflow` | |
 | `sfp_uptime_s` | `sfp_uptime_s` | |
 | `olt_vendor_id` | `olt_vendor_id` | raw ID; decoded for display only. Standalone, also the `ont` measurement's `olt_vendor` tag |
+| `sfp_fw_version` | `firmware_version` | string, recorded as-is |
 
 Not recorded: `lan.phy_duplex` (static config), GEM byte counters
 (32-bit wrap), `drop` / `omci_drop` / `rx_oversized_frames`,
