@@ -162,7 +162,7 @@
         {
             var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name ?? "a user";
             if (!await Blocking.ReleaseAsync(block.Id, user))
-                _message = $"{block.SourceIp} was no longer blocked.";
+                _message = $"{block.SourceIp} is no longer blocked.";
             await Load();
         }
         catch (Exception ex)
