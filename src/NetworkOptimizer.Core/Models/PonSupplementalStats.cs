@@ -144,4 +144,7 @@ public class PonSupplementalStats
 
     /// <summary>Encryption key exchange with the OLT, as the device words it (e.g. "success").</summary>
     public string? KeyExchangeStatus { get; set; }
+
+    /// <summary>The ONT's firmware version, as the device reports it.</summary>
+    public string? FirmwareVersion { get; set; }
 }

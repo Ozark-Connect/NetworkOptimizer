@@ -55,6 +55,22 @@ public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
             var ponHtml = await client.GetStringAsync($"{baseUrl}/status_pon.asp", cancellationToken);
             var stats = ParseStatusPon(ponHtml, context);
 
+            // Uptime and firmware live on the device status page. Best effort: the optics and PON
+            // state above are the poll, and a firmware without this page must not fail it.
+            if (stats.Pon != null)
+            {
+                try
+                {
+                    var statusHtml = await client.GetStringAsync($"{baseUrl}/admin/status.asp", cancellationToken);
+                    ParseStatusPage(statusHtml, stats.Pon);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Realtek ONT {Name}: status.asp not read", context.Name);
+                }
+            }
+
             try { await client.GetAsync($"{baseUrl}/admin/logout.asp", cancellationToken); }
             catch { }
 
@@ -239,23 +255,14 @@ public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
             DeviceModel = "Realtek ONT",
         };
 
-        var doc = new HtmlDocument();
-        doc.LoadHtml(html);
-
-        var rows = doc.DocumentNode.SelectNodes("//tr[@bgcolor='#DDDDDD']");
-        if (rows == null) return stats;
+        var rows = LabelValueRows(html);
+        if (rows.Count == 0) return stats;
 
         long? onuId = null;
         string? registration = null, keyExchange = null;
 
-        foreach (var row in rows)
+        foreach (var (label, value) in rows)
         {
-            var cells = row.SelectNodes("td");
-            if (cells == null || cells.Count < 2) continue;
-
-            var label = cells[0].InnerText.Trim();
-            var value = cells[1].InnerText.Trim();
-
             if (label.Contains("Temperature", StringComparison.OrdinalIgnoreCase))
             {
                 stats.TemperatureC = ParseDouble(value);
@@ -328,6 +335,65 @@ public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
             OnuId = onuId,
             OltVendorId = stats.OltVendor,
         };
+    }
+
+    /// <summary>
+    /// The Boa pages' label/value rows: any row with two cells. Never select by the row's
+    /// bgcolor: the pages stripe #DDDDDD and #EEEEEE, and status.asp puts Firmware Version on
+    /// an #EEEEEE row. Rows inside HTML comments are not parsed as elements, so they never match.
+    /// </summary>
+    private static List<(string Label, string Value)> LabelValueRows(string html)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        var rows = doc.DocumentNode.SelectNodes("//tr");
+        var result = new List<(string, string)>();
+        if (rows == null) return result;
+        foreach (var row in rows)
+        {
+            var cells = row.SelectNodes("td");
+            if (cells == null || cells.Count < 2) continue;
+            result.Add((cells[0].InnerText.Trim(), cells[1].InnerText.Trim()));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Parses the Boa <c>admin/status.asp</c> System table onto the PON detail: Uptime (the
+    /// ONT's boot uptime, which anchors reboot detection) and Firmware Version.
+    /// </summary>
+    internal static void ParseStatusPage(string html, PonSupplementalStats pon)
+    {
+        foreach (var (label, value) in LabelValueRows(html))
+        {
+            if (label.Equals("Uptime", StringComparison.OrdinalIgnoreCase))
+                pon.SfpUptimeS = ParseUptime(value);
+            else if (label.Equals("Firmware Version", StringComparison.OrdinalIgnoreCase))
+                pon.FirmwareVersion = NullIfEmpty(value);
+        }
+    }
+
+    private static readonly Regex UptimeClock = new(@"^(?:(\d+)\s*days?,\s*)?(\d+):(\d{2})$", RegexOptions.IgnoreCase);
+    private static readonly Regex UptimeMinutes = new(@"^(?:(\d+)\s*days?,\s*)?(\d+)\s*min$", RegexOptions.IgnoreCase);
+    private static readonly Regex UptimeDays = new(@"^(\d+)\s*days?$", RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// The page's minute-resolution uptime ("4 days, 21:04", "467 days,  4:55") in seconds. Also
+    /// reads the shorter Linux uptime shapes ("21:04", "37 min", "2 days"); anything else is null
+    /// rather than a guess.
+    /// </summary>
+    internal static long? ParseUptime(string text)
+    {
+        var s = Regex.Replace(text.Trim(), @"\s+", " ");
+        if (UptimeClock.Match(s) is { Success: true } c)
+            return Days(c.Groups[1]) + long.Parse(c.Groups[2].Value) * 3600 + long.Parse(c.Groups[3].Value) * 60;
+        if (UptimeMinutes.Match(s) is { Success: true } m)
+            return Days(m.Groups[1]) + long.Parse(m.Groups[2].Value) * 60;
+        if (UptimeDays.Match(s) is { Success: true } d)
+            return long.Parse(d.Groups[1].Value) * 86400;
+        return null;
+
+        static long Days(Group g) => g.Success ? long.Parse(g.Value) * 86400 : 0;
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value;

@@ -43,6 +43,7 @@ public static class PonChartSeries
                 lanMode = p.LanMode,
                 olt = DisplayFormatters.FormatOltVendor(p.OltVendorId),
                 registered = DisplayFormatters.FormatPonRegistration(p.RegistrationStatus, p.KeyExchangeStatus),
+                firmware = p.FirmwareVersion,
                 bip = Delta(p.BipErrors, prev?.BipErrors),
                 fec = Delta(p.FecErrors, prev?.FecErrors),
                 fecCorr = Delta(p.FecCorrectedWords, prev?.FecCorrectedWords),

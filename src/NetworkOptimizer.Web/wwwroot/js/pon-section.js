@@ -114,6 +114,7 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
             cell: item => { const l = lastOf(item); return l.lanLink == null && l.lanMode == null ? null : `${l.lanLink ?? '-'} / ${l.lanMode ?? '-'}`; },
         },
         { header: 'ONT Uptime', cell: item => fmtUptime(lastOf(item).uptime ?? item.linkUptime) },
+        { header: 'Firmware', cell: item => { const f = lastWith(item, 'firmware'); return f == null ? null : escapeHtml(f); } },
         ...extras,
     ]);
 }

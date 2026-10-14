@@ -1273,7 +1273,7 @@ from(bucket: ""{_longtermBucket}"")
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
-        "olt_vendor_id", "registration_status", "key_exchange_status",
+        "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
     };
 
     private static readonly string PonFieldFilter =
@@ -1314,6 +1314,7 @@ from(bucket: ""{_longtermBucket}"")
             OltVendorId = record.GetValueByKey("olt_vendor_id") as string,
             RegistrationStatus = record.GetValueByKey("registration_status") as string,
             KeyExchangeStatus = record.GetValueByKey("key_exchange_status") as string,
+            FirmwareVersion = record.GetValueByKey("firmware_version") as string,
         };
     }
 
@@ -1365,6 +1366,7 @@ from(bucket: ""{_longtermBucket}"")
         if (!string.IsNullOrEmpty(stats.OltVendorId)) point = point.Field("olt_vendor_id", stats.OltVendorId);
         if (!string.IsNullOrEmpty(stats.RegistrationStatus)) point = point.Field("registration_status", stats.RegistrationStatus);
         if (!string.IsNullOrEmpty(stats.KeyExchangeStatus)) point = point.Field("key_exchange_status", stats.KeyExchangeStatus);
+        if (!string.IsNullOrEmpty(stats.FirmwareVersion)) point = point.Field("firmware_version", stats.FirmwareVersion);
         return point;
     }
 
@@ -3138,6 +3140,7 @@ from(bucket: ""{_longtermBucket}"")
         public string? OltVendorId { get; set; }
         public string? RegistrationStatus { get; set; }
         public string? KeyExchangeStatus { get; set; }
+        public string? FirmwareVersion { get; set; }
     }
 
     /// <summary>
