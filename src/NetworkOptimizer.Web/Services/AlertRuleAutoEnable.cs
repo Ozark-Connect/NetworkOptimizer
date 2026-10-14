@@ -12,6 +12,13 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public static class AlertRuleAutoEnable
 {
+    /// <summary>
+    /// Rules the source-wide enables never touch. Each has its own trigger (an ONT attached to an
+    /// SFP module) or stays off until a user turns it on, so configuring any ONT must not enable it.
+    /// </summary>
+    public static readonly IReadOnlySet<string> OptInOnlyPatterns =
+        new HashSet<string> { "ont.management_unresponsive", "ont.rebooted" };
+
     public static async Task EnableBySourceAsync(IServiceScope scope, string source, ILogger logger)
     {
         try
@@ -22,9 +29,11 @@ public static class AlertRuleAutoEnable
                 .AnyAsync(r => r.Source == source && r.IsEnabled);
             if (anyEnabled) return;
 
-            var disabled = await db.AlertRules
+            var disabled = (await db.AlertRules
                 .Where(r => r.Source == source && !r.IsEnabled)
-                .ToListAsync();
+                .ToListAsync())
+                .Where(r => !OptInOnlyPatterns.Contains(r.EventTypePattern))
+                .ToList();
 
             if (disabled.Count == 0) return;
 
@@ -119,12 +128,26 @@ public static class AlertRuleAutoEnable
         var freshlySeeded = db.AlertRules
             .Where(r => r.Source == source && !r.IsEnabled)
             .ToList()
-            .Where(r => seededPatterns.Contains(r.EventTypePattern))
+            .Where(r => seededPatterns.Contains(r.EventTypePattern) && !OptInOnlyPatterns.Contains(r.EventTypePattern))
             .ToList();
         if (freshlySeeded.Count > 0 && hasConfigs())
         {
             foreach (var rule in freshlySeeded) rule.IsEnabled = true;
             db.SaveChanges();
         }
+    }
+
+    /// <summary>
+    /// Enables ONE just-seeded opt-in rule when its own prerequisite already holds on this database.
+    /// Runs only in the seed pass that inserted it, so a user's later choice is never overridden.
+    /// </summary>
+    public static void EnableFreshlySeededWhen(
+        NetworkOptimizerDbContext db, string pattern, ISet<string> seededPatterns, Func<bool> prerequisite)
+    {
+        if (!seededPatterns.Contains(pattern)) return;
+        var rule = db.AlertRules.FirstOrDefault(r => r.EventTypePattern == pattern);
+        if (rule == null || rule.IsEnabled || !prerequisite()) return;
+        rule.IsEnabled = true;
+        db.SaveChanges();
     }
 }

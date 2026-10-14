@@ -176,7 +176,11 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         // enable them immediately (any save that lands an attachment, new or edited), so an
         // existing-ONT user doesn't have to wait for the next startup's freshly-seeded pass.
         if (config.AttachedSfpId.HasValue)
+        {
             await AlertRuleAutoEnable.EnablePatternsAsync(scope, AugmentedOntAlertPatterns, _logger);
+            // Its own call: it needs the attachment, not BIP/HEC, and must not wait on their state.
+            await AlertRuleAutoEnable.EnablePatternsAsync(scope, ["ont.management_unresponsive"], _logger);
+        }
     }
 
     /// <summary>PON error alerts unlocked by augmented (SFP-attached) ONT polling.</summary>
@@ -322,7 +326,8 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                     hecErrors: stats.Pon?.HecUncorrected,
                     fecEnabled: fecEnabled,
                     sourceUrl: NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.HardwareStats(
-                        "ont", DateTime.UtcNow, $"&ont={config.Id}"));
+                        "ont", DateTime.UtcNow, $"&ont={config.Id}"),
+                    uptimeSeconds: stats.Pon?.SfpUptimeS);
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

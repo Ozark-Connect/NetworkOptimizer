@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Endpoints;
@@ -40,6 +41,8 @@ public static class PonChartSeries
                 ploamMs = p.PloamElapsedMs,
                 lanLink = p.LanLinkStatus,
                 lanMode = p.LanMode,
+                olt = DisplayFormatters.FormatOltVendor(p.OltVendorId),
+                registered = DisplayFormatters.FormatPonRegistration(p.RegistrationStatus, p.KeyExchangeStatus),
                 bip = Delta(p.BipErrors, prev?.BipErrors),
                 fec = Delta(p.FecErrors, prev?.FecErrors),
                 fecCorr = Delta(p.FecCorrectedWords, prev?.FecCorrectedWords),

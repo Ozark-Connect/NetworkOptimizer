@@ -1089,7 +1089,8 @@ public class MonitoringCollectionAgent : BackgroundService
         // Supplemental PON stats: poll ONT configs attached to a monitored SFP module
         // (Network Optimizer Custom endpoints, Realtek sticks) so their PON-layer metrics can merge into
         // the sfp measurement alongside the DDM values below.
-        var ponSupplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, ct);
+        var attachedPolls = new List<AttachedOntPoll>();
+        var ponSupplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, attachedPolls, ct);
 
         // SFP collection (spec 5.9): write DDM values to the sfp measurement for every port
         // where UniFi reports sfp_found, and reconcile the MonitoredSfps relational row.
@@ -1115,15 +1116,36 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (string.IsNullOrEmpty(sfpPortName)) continue;
                 var sfpCategory = existingSfps.TryGetValue((sfpMac, sfpPortName), out var sfpRow)
                     ? sfpRow.Category : SfpCategory.Standard;
+                // The module's chosen sensor; DDM whenever the attached ONT reported none this cycle.
+                var alertTempC = sfpRow?.UseOntTemperature == true
+                    && ponSupplemental.TryGetValue((sfpMac, sfpPortName), out var sfpPon)
+                    && sfpPon.TemperatureC.HasValue
+                        ? sfpPon.TemperatureC
+                        : port.SfpTemperature;
                 try
                 {
                     await _sfpAlertEvaluator.EvaluateAsync(
                         sfpMac, sfpPortName, device.Name, sfpCategory,
-                        port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, sfpThresholds, ct);
+                        port.SfpRxPower, port.SfpTxPower, alertTempC, sfpThresholds, ct);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex, "SFP alert evaluation failed for {Mac} port {Port}", sfpMac, sfpPortName);
+                }
+
+                // The module's own DDM RX, never the ONT's fallback: the question is whether the
+                // optics still read light while the ONT's page has stopped answering.
+                foreach (var poll in attachedPolls.Where(p => p.DeviceMac == sfpMac && p.PortName == sfpPortName))
+                {
+                    try
+                    {
+                        await _ontAlertEvaluator.EvaluateManagementAsync(poll.OntId, poll.Name, poll.Succeeded,
+                            port.SfpRxPower, sfpThresholds.PonRxPowerLowDbm, poll.SourceUrl, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "ONT management alert evaluation failed for {Name}", poll.Name);
+                    }
                 }
             }
         }
@@ -2583,6 +2605,7 @@ public class MonitoringCollectionAgent : BackgroundService
         NetworkOptimizerDbContext db,
         Dictionary<(string DeviceMac, string PortName), MonitoredSfp> sfps,
         MonitoringSettings settings,
+        List<AttachedOntPoll> outcomes,
         CancellationToken ct)
     {
         var result = new Dictionary<(string, string), PonSupplementalStats>();
@@ -2618,6 +2641,10 @@ public class MonitoringCollectionAgent : BackgroundService
                 continue;
             }
 
+            // Attached ONTs surface on SFP Stats, so their alerts link to that module.
+            var sfpUrl = Monitoring.MonitoringLinks.HardwareStats("sfp", DateTime.UtcNow,
+                $"&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}");
+            var succeeded = false;
             try
             {
                 // Same dialer the standalone ONT poll path uses, so attached endpoints on
@@ -2644,6 +2671,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 var stats = await provider.PollSupplementalAsync(context, ct);
                 if (stats != null)
                 {
+                    succeeded = true;
                     result[(sfp.DeviceMac, sfp.PortName)] = stats;
                     config.LastPolled = DateTime.UtcNow;
                     config.LastError = null;
@@ -2656,9 +2684,6 @@ public class MonitoringCollectionAgent : BackgroundService
                     bool? fecEnabled = stats.DsFecEnabled.HasValue || stats.UsFecEnabled.HasValue
                         ? stats.DsFecEnabled == 1 || stats.UsFecEnabled == 1
                         : null;
-                    // Attached ONTs surface on SFP Stats, so link the alert to that module.
-                    var sfpUrl = Monitoring.MonitoringLinks.HardwareStats("sfp", DateTime.UtcNow,
-                        $"&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}");
                     try
                     {
                         await _ontAlertEvaluator.EvaluateAsync(
@@ -2672,6 +2697,7 @@ public class MonitoringCollectionAgent : BackgroundService
                             hecErrors: stats.HecUncorrected,
                             fecEnabled: fecEnabled,
                             sourceUrl: sfpUrl,
+                            uptimeSeconds: stats.SfpUptimeS,
                             ct: ct);
                     }
                     catch (Exception ex)
@@ -2691,9 +2717,13 @@ public class MonitoringCollectionAgent : BackgroundService
                 config.LastError = ex.Message;
                 config.UpdatedAt = DateTime.UtcNow;
             }
+            outcomes.Add(new AttachedOntPoll(config.Id, config.Name, sfp.DeviceMac, sfp.PortName, succeeded, sfpUrl));
         }
         return result;
     }
+
+    /// <summary>One attached ONT's poll this cycle, judged against its module's DDM once that is read.</summary>
+    private sealed record AttachedOntPoll(int OntId, string Name, string DeviceMac, string PortName, bool Succeeded, string SourceUrl);
 
     private void CollectSfpForDevice(
         UniFiDeviceResponse device,
@@ -2752,7 +2782,9 @@ public class MonitoringCollectionAgent : BackgroundService
                     : null;
                 _liveStats.RecordSfpPon(mac, portName, ponStats.PonLinkStatus,
                     ponStats.BipErrors, ponStats.FecErrors, ponStats.HecUncorrected, fecEnabled,
-                    ponStats.GemRxDropped, timestamp);
+                    ponStats.GemRxDropped, timestamp,
+                    ponStats.RegistrationStatus, ponStats.KeyExchangeStatus,
+                    ontTemperatureC: port.SfpTemperature.HasValue ? ponStats.TemperatureC : null);
             }
 
             // Mirror the values into the live-stats cache so the dashboard SFP card can

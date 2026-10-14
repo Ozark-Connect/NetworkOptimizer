@@ -13,9 +13,10 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 /// T&amp;W TWCGPON657, etc.) that expose a web UI with form-based login and status_pon.asp
 /// for DDM data. Tries HTTP first, falls back to HTTPS with self-signed cert bypass.
 ///
-/// The stick usually sits in a gateway SFP slot, so it can also be attached to that monitored
-/// module (ISfpSupplementalOntProvider): the page's PON state and ONU ID then merge into the
-/// module's sfp series, and its optics only fill gaps the gateway's DDM read leaves.
+/// The stick sits in a UniFi device's SFP slot (a gateway, or a switch VLAN'd back to it), so it
+/// can also be attached to that monitored module (ISfpSupplementalOntProvider): the page's PON
+/// state and ONU ID then merge into the module's sfp series, and its optics only fill gaps the
+/// device's DDM read leaves.
 /// </summary>
 public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
 {
@@ -245,6 +246,7 @@ public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
         if (rows == null) return stats;
 
         long? onuId = null;
+        string? registration = null, keyExchange = null;
 
         foreach (var row in rows)
         {
@@ -284,10 +286,26 @@ public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
             {
                 onuId = id;
             }
+            // Registered / Mackey / Olt VendorId are on the DFP-34X-2IY3 SFU firmware's page,
+            // not the 2C2's, so each is optional.
+            else if (label.Contains("Registered", StringComparison.OrdinalIgnoreCase))
+            {
+                registration = NullIfEmpty(value);
+            }
+            else if (label.Contains("Mackey", StringComparison.OrdinalIgnoreCase))
+            {
+                keyExchange = NullIfEmpty(value);
+            }
+            else if (label.Contains("VendorId", StringComparison.OrdinalIgnoreCase))
+            {
+                stats.OltVendor = NullIfEmpty(value);
+            }
         }
 
         stats.PonType = "GPON";
         stats.Pon = ToSupplemental(stats, onuId);
+        stats.Pon.RegistrationStatus = registration;
+        stats.Pon.KeyExchangeStatus = keyExchange;
 
         return stats;
     }
@@ -308,8 +326,11 @@ public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
             PloamStateRaw = known ? (int)stats.PonLinkStatus : null,
             PonLinkStatus = known ? stats.PonLinkStatus.ToInfluxValue() : null,
             OnuId = onuId,
+            OltVendorId = stats.OltVendor,
         };
     }
+
+    private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static double? ParseDouble(string text)
     {

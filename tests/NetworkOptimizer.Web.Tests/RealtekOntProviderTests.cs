@@ -139,9 +139,44 @@ public class RealtekOntProviderTests
         stats.Pon!.PloamStateRaw.Should().Be(5);
         stats.Pon.PonLinkStatus.Should().Be("operation");
         stats.Pon.OnuId.Should().Be(0, "ONU ID 0 is a real assignment, not a missing value");
-        stats.Pon.RxPowerDbm.Should().Be(stats.RxPowerDbm, "optics are the fallback when the gateway cannot read DDM");
+        stats.Pon.RxPowerDbm.Should().Be(stats.RxPowerDbm, "optics are the fallback when the host device cannot read DDM");
         stats.Pon.TemperatureC.Should().Be(stats.TemperatureC);
         stats.Pon.BipErrors.Should().BeNull("the page serves no error counters");
+    }
+
+    // The DFP-34X-2IY3 SFU firmware adds Registered Status and Olt VendorId rows (issue #1273).
+    // No markup capture exists: labels and values are from the reporter's screenshot, in the same
+    // Boa row shape as the captured 2C2 above.
+    private const string Odi2Iy3ExtraRows = """
+    <html><body><table>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>Registered Status</b></td><td><font size=2>Registered</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>Mackey Status</b></td><td><font size=2>success</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>ONU State</b></td><td><font size=2>O5</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>ONU ID</b></td><td><font size=2>63</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>Olt VendorId</b></td><td><font size=2>ALCL</td></tr>
+    </table></body></html>
+    """;
+
+    [Fact]
+    public void ParseStatusPon_2Iy3Rows_MapRegistrationAndOltVendor()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(Odi2Iy3ExtraRows, Context());
+
+        stats.OltVendor.Should().Be("ALCL", "kept raw; decoding is display-only");
+        stats.Pon!.OltVendorId.Should().Be("ALCL");
+        stats.Pon.RegistrationStatus.Should().Be("Registered");
+        stats.Pon.KeyExchangeStatus.Should().Be("success");
+        stats.Pon.OnuId.Should().Be(63);
+    }
+
+    [Fact]
+    public void ParseStatusPon_2C2Page_HasNoRegistrationOrOlt()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(OdiStatusPon, Context());
+
+        stats.OltVendor.Should().BeNull();
+        stats.Pon!.RegistrationStatus.Should().BeNull("LOID Status is not the registration row");
+        stats.Pon.KeyExchangeStatus.Should().BeNull();
     }
 
     [Fact]

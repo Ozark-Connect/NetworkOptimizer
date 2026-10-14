@@ -2323,6 +2323,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("UseOntTemperature")
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IsMonitoredOnt");

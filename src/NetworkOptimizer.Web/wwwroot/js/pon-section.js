@@ -91,6 +91,8 @@ export function updatePonCard(container, cardSelector, chart, series, prepare = 
 /// A column no ONT fills is dropped rather than printed as a row of dashes.
 export function ponDetailsHtml(items, labelHeader, extras = []) {
     const lastOf = item => [...item.pon].reverse().find(p => p.state != null) || item.pon[item.pon.length - 1];
+    // Identity fields can ride on a different point than the state, so each takes its own latest.
+    const lastWith = (item, key) => [...item.pon].reverse().find(p => p[key] != null)?.[key] ?? null;
 
     const nameCol = items.length > 1
         ? [{ header: escapeHtml(labelHeader), cell: item => escapeHtml(item.label), always: true }]
@@ -100,6 +102,8 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
         { header: 'PLOAM State', cell: item => { const l = lastOf(item); return l.state == null ? null : escapeHtml(PLOAM_LABELS[l.state] || l.state); } },
         { header: 'PLOAM Uptime', cell: item => fmtUptimeMs(lastOf(item).ploamMs) },
         { header: 'ONU ID', cell: item => lastOf(item).onuId },
+        { header: 'Registered', cell: item => { const r = lastWith(item, 'registered'); return r == null ? null : escapeHtml(r); } },
+        { header: 'OLT', cell: item => { const o = lastWith(item, 'olt') ?? item.olt; return o == null ? null : escapeHtml(o); } },
         {
             header: 'FEC DS / US',
             cell: item => { const l = lastOf(item); return l.dsFec == null && l.usFec == null ? null : `${l.dsFec ? 'on' : 'off'} / ${l.usFec ? 'on' : 'off'}`; },

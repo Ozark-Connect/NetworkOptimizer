@@ -135,4 +135,13 @@ public class PonSupplementalStats
 
     /// <summary>Seconds since the ONT module booted. Anchors counter-reset detection.</summary>
     public long? SfpUptimeS { get; set; }
+
+    /// <summary>OLT vendor ID the ONT reports (e.g. "ALCL"), raw. Decoded for display only.</summary>
+    public string? OltVendorId { get; set; }
+
+    /// <summary>ONT registration with the OLT, as the device words it (e.g. "Registered").</summary>
+    public string? RegistrationStatus { get; set; }
+
+    /// <summary>Encryption key exchange with the OLT, as the device words it (e.g. "success").</summary>
+    public string? KeyExchangeStatus { get; set; }
 }
