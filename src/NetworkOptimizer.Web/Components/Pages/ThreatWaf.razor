@@ -235,7 +235,13 @@ else if (_tab == "events")
                                     <td><a href="/threats?tab=drilldown&ip=@Uri.EscapeDataString(e.SourceIp)"><code>@e.SourceIp</code></a></td>
                                     <td class="text-truncate-300">@e.Domain</td>
                                     <td class="text-truncate-300"><code>@e.Service</code></td>
-                                    <td class="text-truncate-300" data-tooltip="@e.SignatureName" data-tooltip-truncated><code>@e.SignatureId</code> @e.SignatureName</td>
+                                    <td>
+                                        <div class="text-truncate-300" data-tooltip="@e.SignatureName" data-tooltip-truncated><code>@e.SignatureId</code> @e.SignatureName</div>
+                                        @if (!string.IsNullOrEmpty(e.MatchedData))
+                                        {
+                                            <div class="waf-matched text-truncate-300" data-tooltip="@e.MatchedData" data-tooltip-truncated>Matched <code>@e.MatchedData</code></div>
+                                        }
+                                    </td>
                                     <td><span class="status-badge @(e.Action == ThreatAction.Blocked ? "status-error" : "")">@(e.Action == ThreatAction.Blocked ? "Blocked" : "Detected")</span></td>
                                     <td>
                                         <SiteAdminOnly>

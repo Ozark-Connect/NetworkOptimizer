@@ -125,6 +125,12 @@ public class ThreatEvent
     public string? RiskLevel { get; set; }
 
     /// <summary>
+    /// WAF events: what the top rule matched, as "VARIABLE:key=value" entries joined by " | ",
+    /// values cut by the WAF to 200 characters. Null for IPS and flow events.
+    /// </summary>
+    public string? MatchedData { get; set; }
+
+    /// <summary>
     /// FK to a detected ThreatPattern if this event is part of one.
     /// </summary>
     public int? PatternId { get; set; }

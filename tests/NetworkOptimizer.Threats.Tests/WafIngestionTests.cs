@@ -60,6 +60,29 @@ public class WafIngestionTests
     }
 
     [Fact]
+    public void Normalize_CarriesWhatTheTopRuleMatched()
+    {
+        var normalizer = new ThreatEventNormalizer(NullLogger<ThreatEventNormalizer>.Instance);
+        var top = Rule(930120, "CRITICAL", "attack-lfi");
+        top.Matched.Add(new WafMatchedData { Variable = "ARGS", Key = "rootFolder", Value = "/etc/media" });
+        top.Matched.Add(new WafMatchedData { Variable = "REQUEST_BODY" });
+        var other = Rule(920350, "WARNING", "attack-protocol");
+        other.Matched.Add(new WafMatchedData { Variable = "REQUEST_HEADERS", Key = "Host", Value = "203.0.113.9" });
+
+        var e = normalizer.NormalizeWafEvents(Page(Event("detected", top, other))).Should().ContainSingle().Subject;
+
+        e.MatchedData.Should().Be("ARGS:rootFolder=/etc/media | REQUEST_BODY");
+    }
+
+    [Fact]
+    public void Normalize_NoMatchedDataFromAnOlderWaf()
+    {
+        var normalizer = new ThreatEventNormalizer(NullLogger<ThreatEventNormalizer>.Instance);
+        var e = normalizer.NormalizeWafEvents(Page(Event("detected", Rule(942100, "CRITICAL", "attack-sqli")))).Should().ContainSingle().Subject;
+        e.MatchedData.Should().BeNull();
+    }
+
+    [Fact]
     public void Normalize_SkipsEventsWithoutRulesOrSource()
     {
         var normalizer = new ThreatEventNormalizer(NullLogger<ThreatEventNormalizer>.Instance);

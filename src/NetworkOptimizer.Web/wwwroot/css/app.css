@@ -20574,6 +20574,12 @@ body.kiosk-mode .status-indicators {
    into its scroll overflow, taking anything at its right edge - the command copy buttons - with
    it. Capped to the scroller's own inline size instead. */
 .table-responsive:has(> .sites-table),
+.waf-events .waf-matched {
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
 .table-responsive:has(> .waf-events) {
     container-type: inline-size;
 }
