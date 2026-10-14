@@ -2606,7 +2606,9 @@ public class MonitoringCollectionAgent : BackgroundService
         Dictionary<(string DeviceMac, string PortName), MonitoredSfp> sfps,
         MonitoringSettings settings,
         List<AttachedOntPoll> outcomes,
-        CancellationToken ct)
+        CancellationToken ct,
+        (string DeviceMac, string PortName)? onlyModule = null,
+        bool evaluateAlerts = true)
     {
         var result = new Dictionary<(string, string), PonSupplementalStats>();
         List<OntConfiguration> attached;
@@ -2630,10 +2632,15 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             if (!sfpById.TryGetValue(config.AttachedSfpId!.Value, out var sfp))
             {
-                config.LastError = "Attached SFP module no longer exists";
-                config.UpdatedAt = DateTime.UtcNow;
+                if (onlyModule == null)
+                {
+                    config.LastError = "Attached SFP module no longer exists";
+                    config.UpdatedAt = DateTime.UtcNow;
+                }
                 continue;
             }
+            if (onlyModule is { } only && (sfp.DeviceMac != only.DeviceMac || sfp.PortName != only.PortName))
+                continue;
             if (!_supplementalOntProviders.TryGetValue(config.Provider, out var provider))
             {
                 config.LastError = $"Provider '{config.Provider}' does not support SFP module attachment";
@@ -2684,25 +2691,30 @@ public class MonitoringCollectionAgent : BackgroundService
                     bool? fecEnabled = stats.DsFecEnabled.HasValue || stats.UsFecEnabled.HasValue
                         ? stats.DsFecEnabled == 1 || stats.UsFecEnabled == 1
                         : null;
-                    try
+                    // A manual refresh skips alerts: an extra poll mid-cycle would shrink the
+                    // per-poll error deltas the spike thresholds are sized for.
+                    if (evaluateAlerts)
                     {
-                        await _ontAlertEvaluator.EvaluateAsync(
-                            config.Id, config.Name,
-                            rxPowerDbm: null,
-                            NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
-                            stats.FecErrors,
-                            temperatureC: null,
-                            thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
-                            bipErrors: stats.BipErrors,
-                            hecErrors: stats.HecUncorrected,
-                            fecEnabled: fecEnabled,
-                            sourceUrl: sfpUrl,
-                            uptimeSeconds: stats.SfpUptimeS,
-                            ct: ct);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "PON alert evaluation failed for {Name}", config.Name);
+                        try
+                        {
+                            await _ontAlertEvaluator.EvaluateAsync(
+                                config.Id, config.Name,
+                                rxPowerDbm: null,
+                                NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
+                                stats.FecErrors,
+                                temperatureC: null,
+                                thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
+                                bipErrors: stats.BipErrors,
+                                hecErrors: stats.HecUncorrected,
+                                fecEnabled: fecEnabled,
+                                sourceUrl: sfpUrl,
+                                uptimeSeconds: stats.SfpUptimeS,
+                                ct: ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "PON alert evaluation failed for {Name}", config.Name);
+                        }
                     }
                 }
                 else
@@ -2720,6 +2732,42 @@ public class MonitoringCollectionAgent : BackgroundService
             outcomes.Add(new AttachedOntPoll(config.Id, config.Name, sfp.DeviceMac, sfp.PortName, succeeded, sfpUrl));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Reads one module's DDM from the UniFi Console now and polls the ONT attached to it, if any,
+    /// through the same write path as the slow tier. Alerts are left to the tier. Callers go through
+    /// the gated <see cref="ISfpModulePollService"/>. Returns why the read fell short, or null.
+    /// </summary>
+    public async Task<string?> PollModuleAsync(string deviceMac, string portName, CancellationToken ct = default)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return "The UniFi Console is not connected.";
+
+        var mac = NormalizeMac(deviceMac);
+        // Straight from the console, not the device cache: the point of a refresh is a fresh DDM read.
+        var devices = await _connectionService.Client.GetDevicesAsync(ct);
+        var device = devices?.FirstOrDefault(d => NormalizeMac(d.Mac) == mac);
+        if (device == null)
+            return "The device this module sits in was not found on the UniFi Console.";
+
+        await using var db = await CreateSiteDbAsync(ct);
+        var existingSfps = await db.MonitoredSfps.ToDictionaryAsync(s => (s.DeviceMac, s.PortName), s => s, ct);
+        var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new MonitoringSettings();
+
+        var polls = new List<AttachedOntPoll>();
+        var supplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, polls, ct,
+            onlyModule: (mac, portName), evaluateAlerts: false);
+        CollectSfpForDevice(device, db, existingSfps, supplemental, DateTime.UtcNow);
+        await db.SaveChangesAsync(ct);
+
+        var failed = polls.FirstOrDefault(p => !p.Succeeded);
+        if (failed != null)
+        {
+            var error = db.OntConfigurations.Local.FirstOrDefault(o => o.Id == failed.OntId)?.LastError;
+            return $"DDM refreshed, but the attached ONT did not answer{(string.IsNullOrEmpty(error) ? "." : $": {error}")}";
+        }
+        return null;
     }
 
     /// <summary>One attached ONT's poll this cycle, judged against its module's DDM once that is read.</summary>

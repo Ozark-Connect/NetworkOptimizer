@@ -630,21 +630,6 @@ public static class DisplayFormatters
     #region PON
 
     /// <summary>
-    /// GPON/XGS-PON vendor IDs (the 4-letter prefix of an ONT/OLT serial) mapped to the vendor's
-    /// current name. Only IDs whose owner is certain belong here; an unlisted ID shows as-is.
-    /// </summary>
-    private static readonly Dictionary<string, string> PonVendorIds = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["ALCL"] = "Nokia",
-        ["HWTC"] = "Huawei",
-        ["ZTEG"] = "ZTE",
-        ["CALX"] = "Calix",
-        ["ADTN"] = "Adtran",
-        ["FHTT"] = "FiberHome",
-        ["UBNT"] = "Ubiquiti",
-    };
-
-    /// <summary>
     /// The OLT an ONT reports, as "Nokia (ALCL)" or "Calix E7 (CALX)". The raw ID stays visible
     /// because it is what the ONT and the ISP's tooling show. Null when neither part is known.
     /// </summary>
@@ -655,7 +640,8 @@ public static class DisplayFormatters
         if (string.IsNullOrEmpty(id))
             return string.IsNullOrEmpty(mdl) ? null : mdl;
 
-        var head = PonVendorIds.TryGetValue(id, out var name) ? name : id;
+        var name = NetworkFormatHelpers.PonVendorName(id);
+        var head = name ?? id;
         if (!string.IsNullOrEmpty(mdl)) head = $"{head} {mdl}";
         return name != null ? $"{head} ({id.ToUpperInvariant()})" : head;
     }

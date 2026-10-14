@@ -784,6 +784,7 @@ builder.Services.AddSiteScopedRegistry<MonitoringCollectionRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+builder.Services.AddMutatingService<ISfpModulePollService, SfpModulePollService>();
 // Firmware Rollout executors — the per-device upgrade state machine, canary holds, channel
 // group switches and rollout alerts. One instance per site, owned by the registry on the same
 // terms as monitoring collection (default always runs; non-default sites start/stop on site

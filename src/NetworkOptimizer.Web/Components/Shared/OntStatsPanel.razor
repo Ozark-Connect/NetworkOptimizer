@@ -10,6 +10,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IOntMonitorService ExternalOntService
 @inject IErrorCounterWindowService ErrorWindow
+@inject ISfpModulePollService SfpPoller
 
 @if (_isLoading)
 {
@@ -363,6 +364,13 @@ else
     }
 
     <div class="sqm-actions">
+        <button class="btn btn-secondary" @onclick="RefreshSfp" @onclick:stopPropagation disabled="@_isRefreshing">
+            @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+        </button>
+        @if (_attachedSfpIds.Contains(current.Id))
+        {
+            <SiteAdminOnly><a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a></SiteAdminOnly>
+        }
         <a href="@SfpMonitoringUrl" class="btn btn-primary" @onclick:stopPropagation>SFP Monitoring</a>
     </div>
 }
@@ -428,7 +436,7 @@ else
                 {
                     try
                     {
-                        _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
+                        await LoadOntConfigsAsync();
                         if (_currentIndex >= TotalCount) _currentIndex = 0;
                     }
                     catch { }
@@ -456,7 +464,7 @@ else
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.RetiredAt == null)
                 .ToListAsync();
-            _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
+            await LoadOntConfigsAsync();
             if (_currentIndex >= TotalCount) _currentIndex = 0;
             await RefreshExternalStatsAsync();
             _limitErrorsTo24h = (await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync())?.OntErrorCountersLast24h ?? true;
@@ -476,6 +484,40 @@ else
         finally { _isLoading = false; }
     }
 
+    /// <summary>SFP modules with an ONT config attached; their card also links to ONT Settings.</summary>
+    private HashSet<int> _attachedSfpIds = new();
+
+    /// <summary>One config read feeds both the standalone carousel and the attached-module set.</summary>
+    private async Task LoadOntConfigsAsync()
+    {
+        var configs = await ExternalOntService.GetConfigsAsync();
+        _externalOnts = configs.Where(c => c.AttachedSfpId == null).ToList();
+        _attachedSfpIds = configs.Where(c => c.AttachedSfpId != null).Select(c => c.AttachedSfpId!.Value).ToHashSet();
+    }
+
+    /// <summary>Reads this module's DDM now, and its attached ONT if any, instead of waiting for the next cycle.</summary>
+    private async Task RefreshSfp()
+    {
+        if (_isRefreshing || IsShowingExternal || _currentIndex >= _monitoredOnts.Count) return;
+        var sfp = _monitoredOnts[_currentIndex];
+        _isRefreshing = true;
+        StateHasChanged();
+        try
+        {
+            _pollError = await SfpPoller.PollModuleAsync(sfp.DeviceMac, sfp.PortName);
+            await RefreshErrorTotalsAsync();
+        }
+        catch (Exception ex)
+        {
+            _pollError = ex.Message;
+        }
+        finally
+        {
+            _isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
     private string ResolveDeviceName(string deviceMac)
     {
         if (string.IsNullOrEmpty(deviceMac)) return deviceMac;
@@ -488,13 +530,13 @@ else
 
     private async Task Previous()
     {
-        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
+        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
         StateHasChanged();
     }
 
     private async Task Next()
     {
-        if (_currentIndex < TotalCount - 1) { _currentIndex++; _errorTotals = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
+        if (_currentIndex < TotalCount - 1) { _currentIndex++; _errorTotals = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
         StateHasChanged();
     }
 
