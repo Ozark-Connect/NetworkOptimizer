@@ -1364,7 +1364,18 @@
                                                 <span>@(modem.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteModem(modem)">Delete</button>
+                                        @if (_confirmDeleteKey == $"modem:{modem.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteModem(modem)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"modem:{modem.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -1653,7 +1664,18 @@
                                                 <span>@(cm.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteCm(cm.Id)">Delete</button>
+                                        @if (_confirmDeleteKey == $"cm:{cm.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteCm(cm.Id)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"cm:{cm.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -1913,7 +1935,18 @@
                                                 <span>@(ont.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteOnt(ont.Id)">Delete</button>
+                                        @if (_confirmDeleteKey == $"ont:{ont.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteOnt(ont.Id)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"ont:{ont.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -2154,7 +2187,18 @@
                                                 <span>@(terminal.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteStarlink(terminal.Id)">Delete</button>
+                                        @if (_confirmDeleteKey == $"starlink:{terminal.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteStarlink(terminal.Id)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"starlink:{terminal.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -7167,8 +7211,16 @@
         }
     }
 
+    // Settings - Monitoring row awaiting delete confirmation, as "<card>:<id>". One at a time across the cards.
+    private string? _confirmDeleteKey;
+
+    private void ConfirmDelete(string key) => _confirmDeleteKey = key;
+
+    private void CancelConfirmDelete() => _confirmDeleteKey = null;
+
     private async Task DeleteModem(ModemConfiguration modem)
     {
+        _confirmDeleteKey = null;
         try
         {
             await ModemService.DeleteModemAsync(modem.Id);
@@ -7351,6 +7403,7 @@
 
     private async Task DeleteCm(int id)
     {
+        _confirmDeleteKey = null;
         try
         {
             await CmMonitorService.DeleteCmAsync(id);
@@ -7607,6 +7660,7 @@
 
     private async Task DeleteOnt(int id)
     {
+        _confirmDeleteKey = null;
         try
         {
             await OntMonitorService.DeleteOntAsync(id);
@@ -7858,6 +7912,7 @@
 
     private async Task DeleteStarlink(int id)
     {
+        _confirmDeleteKey = null;
         try
         {
             await StarlinkMonitor.DeleteStarlinkAsync(id);
