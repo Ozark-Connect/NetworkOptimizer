@@ -202,7 +202,7 @@
                         </small>
                         @if (_form.TargetCloudflare && _cf?.List != null)
                         {
-                            <small class="form-help ab-status is-ok"><svg class="ab-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>List <code>@_cf.List.Name</code>: @_cf.List.NumItems blocked, used by @_cf.List.NumReferencingFilters rule(s).</small>
+                            <small class="form-help ab-status is-ok"><svg class="ab-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>List <code>@_cf.List.Name</code>: @_cf.List.NumItems blocked.</small>
                         }
                     </div>
                     @if (_form.TargetCloudflare)
@@ -242,15 +242,19 @@
                             </ol>
                             </div>
                         </details>
+                        @* No "no rule uses the list" warning: num_referencing_filters counts only legacy Firewall
+                           Rules filters and reads 0 with custom rules deployed. Seeing the rules needs zone access. *@
                         @if (_cf?.List != null)
                         {
-                            @if (_cf.List.NumReferencingFilters == 0)
-                            {
-                                <div class="alert alert-warning">
-                                    No rule uses the list yet, so Cloudflare blocks nothing. In each domain: <strong>Security rules</strong> - <strong>Create rule</strong> - <strong>Custom rules</strong>,
-                                    select <strong>Edit expression</strong>, enter <code>@CloudflareListClient.RuleExpression</code>, choose the <strong>Block</strong> action, and <strong>Deploy</strong>.
+                            <details class="setup-guide">
+                                <summary>Add the rule</summary>
+                                <div class="setup-guide-content">
+                                    <p>
+                                        In each domain: <strong>Security rules</strong> - <strong>Create rule</strong> - <strong>Custom rules</strong>,
+                                        select <strong>Edit expression</strong>, enter <code>@CloudflareListClient.RuleExpression</code>, choose the <strong>Block</strong> action, and <strong>Deploy</strong>.
+                                    </p>
                                 </div>
-                            }
+                            </details>
                         }
                         else if (_cf?.Error != null)
                         {
