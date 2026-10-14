@@ -991,14 +991,14 @@
                 @if (dualTempModules.Count > 0)
                 {
                     <h3 class="chart-title" style="margin-top: 1rem;">SFP ONT temperature source</h3>
-                    <p class="form-help">
+                    <p class="form-help sfp-ddm-help">
                         These SFP ONTs report two temperatures: the DDM reading from the device they sit in, and
                         the ONT's own sensor. The two can differ by 10 &deg;C or more. Choose which one the
                         PON temperature high alert checks.
                     </p>
                     @foreach (var (module, ddmC, ontC) in dualTempModules)
                     {
-                        <div class="form-group">
+                        <div class="form-group" style="margin-top: 0.75rem;">
                             <label class="form-label">@TemperatureSourceLabel(module)</label>
                             <div class="radio-group">
                                 <label class="radio-label">
