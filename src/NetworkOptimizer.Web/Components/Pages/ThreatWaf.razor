@@ -367,13 +367,9 @@ else if (_tab == "exclusions")
                     </table>
                 </div>
             }
-            @if (_exView?.Apps?.Contains("jellyfin") == true)
+            @if (_exView?.Apps?.Any() == true)
             {
-                <p class="form-help">The WAF also has built-in exclusions for Grafana and Jellyfin, on routers that use the waf-grafana or waf-jellyfin middleware.</p>
-            }
-            else if (_exView?.Apps?.Contains("grafana") == true)
-            {
-                <p class="form-help">The WAF also has built-in exclusions for Grafana, on routers that use the waf-grafana middleware.</p>
+                <p class="form-help">The WAF also has built-in exclusions for Grafana and other common homelab services, on routers that use the matching waf-&lt;app&gt; middleware (see the NetworkOptimizer-Proxy README).</p>
             }
         </div>
     </div>
