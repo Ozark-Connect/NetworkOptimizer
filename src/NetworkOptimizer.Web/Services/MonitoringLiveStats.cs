@@ -690,7 +690,7 @@ public class MonitoringLiveStats
         long? bipErrors, long? fecErrors, long? hecUncorrected, bool? fecEnabled,
         long? gemRxDropped, DateTime timestamp,
         string? registrationStatus = null, string? keyExchangeStatus = null, double? ontTemperatureC = null,
-        string? oltVendorId = null)
+        string? oltVendorId = null, string? oltModel = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
         if (string.IsNullOrEmpty(ponLinkStatus) && !bipErrors.HasValue && !fecErrors.HasValue
@@ -714,6 +714,7 @@ public class MonitoringLiveStats
                 KeyExchangeStatus = keyExchangeStatus,
                 OntTemperatureC = ontTemperatureC,
                 OltVendorId = oltVendorId,
+                OltModel = oltModel,
                 LastUpdate = timestamp
             },
             (_, prior) => prior with
@@ -728,6 +729,7 @@ public class MonitoringLiveStats
                 KeyExchangeStatus = keyExchangeStatus ?? prior.KeyExchangeStatus,
                 OntTemperatureC = ontTemperatureC ?? prior.OntTemperatureC,
                 OltVendorId = oltVendorId ?? prior.OltVendorId,
+                OltModel = oltModel ?? prior.OltModel,
             });
     }
 
@@ -1286,6 +1288,8 @@ public record SfpLiveStats
     public double? OntTemperatureC { get; init; }
     /// <summary>OLT vendor ID the attached ONT reports (e.g. "CALX"), raw.</summary>
     public string? OltVendorId { get; init; }
+    /// <summary>OLT model the attached ONT reports (e.g. "E7").</summary>
+    public string? OltModel { get; init; }
 }
 
 public record PortLiveRate

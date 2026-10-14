@@ -139,6 +139,22 @@ public class NetOptCustomPonOntProviderTests
     }
 
     [Fact]
+    public void OltModelAndVersion_MapToBothModes_AndAreOptional()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload(
+            """{ "olt_vendor_id": "CALX", "olt_model": " E7 ", "olt_version": "1.2.3" }""")!;
+
+        var s = NetOptCustomPonOntProvider.MapToSupplemental(p);
+        s.OltModel.Should().Be("E7");
+        s.OltVersion.Should().Be("1.2.3");
+        NetOptCustomPonOntProvider.MapToOntStats(p).OltModel.Should().Be("E7", "standalone, it rides the ont measurement's olt_model tag");
+
+        var without = NetOptCustomPonOntProvider.MapToSupplemental(NetOptCustomPonOntProvider.ParsePayload(SamplePayload)!);
+        without.OltModel.Should().BeNull();
+        without.OltVersion.Should().BeNull();
+    }
+
+    [Fact]
     public void ParsePayload_ErrorShape_SurfacesErrorCode()
     {
         var p = NetOptCustomPonOntProvider.ParsePayload(

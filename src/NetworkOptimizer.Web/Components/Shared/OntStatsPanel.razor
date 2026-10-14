@@ -282,7 +282,7 @@ else
                     </div>
                 }
                 @RegisteredRow(stats?.RegistrationStatus, stats?.KeyExchangeStatus)
-                @OltRow(stats?.OltVendorId, null)
+                @OltRow(stats?.OltVendorId, stats?.OltModel)
                 @if (current.LinkSpeedMbps.HasValue)
                 {
                     <div class="metric-row">

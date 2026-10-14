@@ -147,4 +147,10 @@ public class PonSupplementalStats
 
     /// <summary>The ONT's firmware version, as the device reports it.</summary>
     public string? FirmwareVersion { get; set; }
+
+    /// <summary>OLT model (OMCI OLT-G equipment ID, e.g. "E7"), as the ONT reports it.</summary>
+    public string? OltModel { get; set; }
+
+    /// <summary>OLT software version (OMCI OLT-G version), as the ONT reports it.</summary>
+    public string? OltVersion { get; set; }
 }

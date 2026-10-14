@@ -2833,7 +2833,7 @@ public class MonitoringCollectionAgent : BackgroundService
                     ponStats.GemRxDropped, timestamp,
                     ponStats.RegistrationStatus, ponStats.KeyExchangeStatus,
                     ontTemperatureC: port.SfpTemperature.HasValue ? ponStats.TemperatureC : null,
-                    oltVendorId: ponStats.OltVendorId);
+                    oltVendorId: ponStats.OltVendorId, oltModel: ponStats.OltModel);
             }
 
             // Mirror the values into the live-stats cache so the dashboard SFP card can

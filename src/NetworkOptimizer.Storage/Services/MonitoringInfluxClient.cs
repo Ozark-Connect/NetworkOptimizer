@@ -1274,6 +1274,7 @@ from(bucket: ""{_longtermBucket}"")
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
+        "olt_equipment_id", "olt_version",
     };
 
     private static readonly string PonFieldFilter =
@@ -1315,6 +1316,8 @@ from(bucket: ""{_longtermBucket}"")
             RegistrationStatus = record.GetValueByKey("registration_status") as string,
             KeyExchangeStatus = record.GetValueByKey("key_exchange_status") as string,
             FirmwareVersion = record.GetValueByKey("firmware_version") as string,
+            OltModel = record.GetValueByKey("olt_equipment_id") as string,
+            OltVersion = record.GetValueByKey("olt_version") as string,
         };
     }
 
@@ -1367,6 +1370,9 @@ from(bucket: ""{_longtermBucket}"")
         if (!string.IsNullOrEmpty(stats.RegistrationStatus)) point = point.Field("registration_status", stats.RegistrationStatus);
         if (!string.IsNullOrEmpty(stats.KeyExchangeStatus)) point = point.Field("key_exchange_status", stats.KeyExchangeStatus);
         if (!string.IsNullOrEmpty(stats.FirmwareVersion)) point = point.Field("firmware_version", stats.FirmwareVersion);
+        // Not "olt_model": the ont measurement already has a tag by that name, and a field may not share it.
+        if (!string.IsNullOrEmpty(stats.OltModel)) point = point.Field("olt_equipment_id", stats.OltModel);
+        if (!string.IsNullOrEmpty(stats.OltVersion)) point = point.Field("olt_version", stats.OltVersion);
         return point;
     }
 
@@ -3141,6 +3147,8 @@ from(bucket: ""{_longtermBucket}"")
         public string? RegistrationStatus { get; set; }
         public string? KeyExchangeStatus { get; set; }
         public string? FirmwareVersion { get; set; }
+        public string? OltModel { get; set; }
+        public string? OltVersion { get; set; }
     }
 
     /// <summary>

@@ -104,6 +104,7 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
         { header: 'ONU ID', cell: item => lastOf(item).onuId },
         { header: 'Registered', cell: item => { const r = lastWith(item, 'registered'); return r == null ? null : escapeHtml(r); } },
         { header: 'OLT', cell: item => { const o = lastWith(item, 'olt') ?? item.olt; return o == null ? null : escapeHtml(o); } },
+        { header: 'OLT Version', cell: item => { const v = lastWith(item, 'oltVersion'); return v == null ? null : escapeHtml(v); } },
         {
             header: 'FEC DS / US',
             cell: item => { const l = lastOf(item); return l.dsFec == null && l.usFec == null ? null : `${l.dsFec ? 'on' : 'off'} / ${l.usFec ? 'on' : 'off'}`; },
