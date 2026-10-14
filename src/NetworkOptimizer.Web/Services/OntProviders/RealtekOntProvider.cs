@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.Monitoring;
@@ -11,8 +12,12 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 /// ONT provider for Realtek RTL960x GPON stick modules (ODI DFP-34X-2C2, V-SOL V2801F,
 /// T&amp;W TWCGPON657, etc.) that expose a web UI with form-based login and status_pon.asp
 /// for DDM data. Tries HTTP first, falls back to HTTPS with self-signed cert bypass.
+///
+/// The stick usually sits in a gateway SFP slot, so it can also be attached to that monitored
+/// module (ISfpSupplementalOntProvider): the page's PON state and ONU ID then merge into the
+/// module's sfp series, and its optics only fill gaps the gateway's DDM read leaves.
 /// </summary>
-public sealed class RealtekOntProvider : IOntProvider
+public sealed class RealtekOntProvider : ISfpSupplementalOntProvider
 {
     public string ProviderKey => "realtek-ont";
     public string DisplayName => "Realtek ONT Stick (HTTP)";
@@ -65,6 +70,13 @@ public sealed class RealtekOntProvider : IOntProvider
             _logger.LogWarning(ex, "Error polling Realtek ONT {Name} at {Host}", context.Name, context.Host);
             return PollResult<OntStats>.Failed(HttpFailureSummary.Describe(ex, context.Host));
         }
+    }
+
+    public async Task<PonSupplementalStats?> PollSupplementalAsync(
+        OntPollContext context, CancellationToken cancellationToken = default)
+    {
+        var result = await PollAsync(context, cancellationToken);
+        return result.Stats?.Pon;
     }
 
     public async Task<(bool Success, string Message)> TestConnectionAsync(
@@ -232,6 +244,8 @@ public sealed class RealtekOntProvider : IOntProvider
         var rows = doc.DocumentNode.SelectNodes("//tr[@bgcolor='#DDDDDD']");
         if (rows == null) return stats;
 
+        long? onuId = null;
+
         foreach (var row in rows)
         {
             var cells = row.SelectNodes("td");
@@ -263,12 +277,38 @@ public sealed class RealtekOntProvider : IOntProvider
             else if (label.Contains("ONU State", StringComparison.OrdinalIgnoreCase))
             {
                 stats.LinkState = value;
+                stats.PonLinkStatus = PonLinkStateExtensions.ParsePonLinkState(value);
+            }
+            else if (label.Contains("ONU ID", StringComparison.OrdinalIgnoreCase)
+                && long.TryParse(value, out var id))
+            {
+                onuId = id;
             }
         }
 
         stats.PonType = "GPON";
+        stats.Pon = ToSupplemental(stats, onuId);
 
         return stats;
+    }
+
+    /// <summary>
+    /// The PON detail both modes record: standalone on the ont measurement, attached on the
+    /// module's sfp measurement. Optics ride along as the fallback the attached merge expects.
+    /// </summary>
+    private static PonSupplementalStats ToSupplemental(OntStats stats, long? onuId)
+    {
+        var known = stats.PonLinkStatus != PonLinkState.Unknown;
+        return new PonSupplementalStats
+        {
+            RxPowerDbm = stats.RxPowerDbm,
+            TxPowerDbm = stats.TxPowerDbm,
+            TemperatureC = stats.TemperatureC,
+            VoltageV = stats.VoltageV,
+            PloamStateRaw = known ? (int)stats.PonLinkStatus : null,
+            PonLinkStatus = known ? stats.PonLinkStatus.ToInfluxValue() : null,
+            OnuId = onuId,
+        };
     }
 
     private static double? ParseDouble(string text)

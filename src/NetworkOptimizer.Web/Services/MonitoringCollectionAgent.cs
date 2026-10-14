@@ -1087,7 +1087,7 @@ public class MonitoringCollectionAgent : BackgroundService
             s => (s.DeviceMac, s.PortName), s => s, ct);
 
         // Supplemental PON stats: poll ONT configs attached to a monitored SFP module
-        // (Network Optimizer Custom endpoints) so their PON-layer metrics can merge into
+        // (Network Optimizer Custom endpoints, Realtek sticks) so their PON-layer metrics can merge into
         // the sfp measurement alongside the DDM values below.
         var ponSupplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, ct);
 
@@ -2622,6 +2622,12 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 // Same dialer the standalone ONT poll path uses, so attached endpoints on
                 // agent sites are reached through the site's agent.
+                string? password = null;
+                if (!string.IsNullOrEmpty(config.Password))
+                {
+                    try { password = _credentialProtection.Decrypt(config.Password); }
+                    catch { password = config.Password; }
+                }
                 var context = new OntPollContext
                 {
                     Id = config.Id,
@@ -2630,6 +2636,9 @@ public class MonitoringCollectionAgent : BackgroundService
                     Host = config.Host,
                     Port = config.Port,
                     Dialer = _tunnelRouting.DialerFor(_siteSlug),
+                    // Web-UI sticks (Realtek) log in; the JSON contract ignores these.
+                    Username = string.IsNullOrEmpty(config.Username) ? null : config.Username,
+                    Password = password,
                 };
 
                 var stats = await provider.PollSupplementalAsync(context, ct);

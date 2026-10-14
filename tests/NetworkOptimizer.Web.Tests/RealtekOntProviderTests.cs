@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.OntProviders;
 using Xunit;
@@ -65,6 +66,92 @@ public class RealtekOntProviderTests
         stats.DeviceModel.Should().Be("Realtek ONT");
         stats.DeviceHost.Should().Be("192.168.1.1");
         stats.DeviceName.Should().Be("Luleey WAN ONT");
+    }
+
+    // Verbatim status_pon.asp tables from a captured ODI DFP-34X-2C2 HAR. The Vendor Name / Part
+    // Number rows sit inside an HTML comment on this firmware and must not parse.
+    private const string OdiStatusPon = """
+    <html><body>
+    <table width=400 border=0>
+      <tr>
+        <td width=100% colspan="2" bgcolor="#008000"><font color="#FFFFFF" size=2><b>PON Status</b></font></td>
+      </tr>
+    <!--
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Vendor Name</b></td>
+        <td width=60%><font size=2>ODI             </td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Part Number</b></td>
+        <td width=60%><font size=2>DFP-34X-2C2</td>
+      </tr>
+    -->
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Temperature</b></td>
+        <td width=60%><font size=2>36.597656 C</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Voltage</b></td>
+        <td width=60%><font size=2>3.232700 V</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Tx Power</b></td>
+        <td width=60%><font size=2>2.759563  dBm</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Rx Power</b></td>
+        <td width=60%><font size=2>-11.152046  dBm</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Bias Current</b></td>
+        <td width=60%><font size=2>11.350000 mA</td>
+      </tr>
+    </table>
+    <br>
+    <table width=400 border=0>
+      <tr> <td width=100% colspan="2" bgcolor="#008000"><font color="#FFFFFF" size=2><b>GPON Status</b></font></td> </tr><tr bgcolor="#DDDDDD"><td width="30%"><font size=2><b>ONU State</b></td><td width="70%"><font size=2>O5</td> </tr>
+    <tr bgcolor="#DDDDDD"><td width="30%"><font size=2><b>ONU ID</b></td><td width="70%"><font size=2>0</td> </tr>
+    <tr bgcolor="#DDDDDD"><td width="30%"><font size=2><b>LOID Status</b></td><td width="70%"><font size=2>Initial Status</td> </tr>
+    
+    </table>
+    <table width=400 border=0>
+      
+    </table>
+    </body></html>
+    """;
+
+    [Fact]
+    public void ParseStatusPon_OnuState_SetsPonLinkStatus()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(OdiStatusPon, Context());
+
+        stats.PonLinkStatus.Should().Be(PonLinkState.Operation, "the PON Status row and the card's dot read this, not LinkState");
+        stats.LinkState.Should().Be("O5");
+        stats.RxPowerDbm.Should().BeApproximately(-11.152046, 1e-9);
+    }
+
+    [Fact]
+    public void ParseStatusPon_BuildsSupplementalForAttachedAndStandaloneModes()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(OdiStatusPon, Context());
+
+        stats.Pon.Should().NotBeNull();
+        stats.Pon!.PloamStateRaw.Should().Be(5);
+        stats.Pon.PonLinkStatus.Should().Be("operation");
+        stats.Pon.OnuId.Should().Be(0, "ONU ID 0 is a real assignment, not a missing value");
+        stats.Pon.RxPowerDbm.Should().Be(stats.RxPowerDbm, "optics are the fallback when the gateway cannot read DDM");
+        stats.Pon.TemperatureC.Should().Be(stats.TemperatureC);
+        stats.Pon.BipErrors.Should().BeNull("the page serves no error counters");
+    }
+
+    [Fact]
+    public void ParseStatusPon_NoOnuState_LeavesPonStateUnset()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(LuleeyStatusPon.Replace("O5", ""), Context());
+
+        stats.PonLinkStatus.Should().Be(PonLinkState.Unknown);
+        stats.Pon!.PloamStateRaw.Should().BeNull();
+        stats.Pon.PonLinkStatus.Should().BeNull();
     }
 
     [Fact]

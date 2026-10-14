@@ -1951,7 +1951,7 @@
                         </div>
                     </div>
 
-                    @if (_editingOnt.Provider == "netopt-custom")
+                    @if (SfpAttachableOntProviders.Contains(_editingOnt.Provider))
                     {
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
@@ -7731,9 +7731,12 @@
 
         // SFP attachment is only meaningful for providers that support it; clear a
         // stale association so it can't linger invisibly after a provider switch.
-        if (provider != "netopt-custom")
+        if (!SfpAttachableOntProviders.Contains(provider))
             _editingOnt.AttachedSfpId = null;
     }
+
+    /// <summary>Providers implementing ISfpSupplementalOntProvider, which can merge into a monitored SFP module.</summary>
+    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont" };
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {

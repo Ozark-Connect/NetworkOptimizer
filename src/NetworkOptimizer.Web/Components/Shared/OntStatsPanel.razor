@@ -22,7 +22,7 @@ else if (IsShowingExternal && _externalOntStats != null)
 {
     <div class="sqm-header">
         <div class="sqm-status">
-            <span class="status-indicator status-@(_externalOntStats.LinkState?.Contains("Up", StringComparison.OrdinalIgnoreCase) == true ? "active" : "warning")"></span>
+            <span class="status-indicator status-@(ExternalLinkUp() ? "active" : "warning")"></span>
             <span class="status-label">@_externalOntStats.DeviceName</span>
         </div>
         @if (_externalOntStats.Timestamp.Year > 1)
@@ -530,6 +530,11 @@ else
             StateHasChanged();
         }
     }
+
+    /// <summary>A known PON state decides (only O5 is up); providers that report none fall back to their Up/Down link state.</summary>
+    private bool ExternalLinkUp() => _externalOntStats?.PonLinkStatus is { } pon && pon != PonLinkState.Unknown
+        ? pon == PonLinkState.Operation
+        : _externalOntStats?.LinkState?.Contains("Up", StringComparison.OrdinalIgnoreCase) == true;
 
     private string ExternalRxClass()
     {
