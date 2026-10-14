@@ -3898,6 +3898,10 @@
                                                                 </label>
                                                             }
                                                         </div>
+
+                                                        <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="blockingAdmin">
+                                                            <SiteBlockingSection SiteSlug="@site.Slug" />
+                                                        </AuthorizeView>
                                                     }
                                                     else
                                                     {
