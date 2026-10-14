@@ -244,22 +244,19 @@
                         </details>
                         @* No "no rule uses the list" warning: num_referencing_filters counts only legacy Firewall
                            Rules filters and reads 0 with custom rules deployed. Seeing the rules needs zone access. *@
-                        @if (_cf?.List != null)
-                        {
-                            <details class="setup-guide" open="@_cfRuleOpen">
-                                <summary>Add the rule to each domain</summary>
-                                <div class="setup-guide-content">
-                                    <p>
-                                        Cloudflare blocks only on domains that have this rule, so repeat this in each one you want protected: <strong>Security rules</strong> - <strong>Create rule</strong> - <strong>Custom rules</strong>,
-                                        select <strong>Edit expression</strong>, enter <code>@CloudflareListClient.RuleExpression</code>, choose the <strong>Block</strong> action, and <strong>Deploy</strong>.
-                                    </p>
-                                </div>
-                            </details>
-                        }
-                        else if (_cf?.Error != null)
+                        @if (_cf?.List == null && _cf?.Error != null)
                         {
                             <div class="alert alert-danger">@_cf.Error</div>
                         }
+                        <details class="setup-guide" open="@_cfRuleOpen">
+                            <summary>Add the rule to each domain</summary>
+                            <div class="setup-guide-content">
+                                <p>
+                                    Cloudflare blocks only on domains that have this rule, so repeat this in each one you want protected: <strong>Security rules</strong> - <strong>Create rule</strong> - <strong>Custom rules</strong>,
+                                    select <strong>Edit expression</strong>, enter <code>@CloudflareListClient.RuleExpression</code>, choose the <strong>Block</strong> action, and <strong>Deploy</strong>.
+                                </p>
+                            </div>
+                        </details>
                         <div class="action-buttons">
                             <button class="btn btn-contrast" disabled="@_busy" @onclick="SetUpCloudflare">@(_cf?.List != null ? "Update Cloudflare" : "Set Up Cloudflare")</button>
                         </div>
