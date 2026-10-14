@@ -36,6 +36,19 @@
       "body": "Four Public Block Lists, from Spamhaus, abuse.ch, DShield, and blocklist.de, block known-bad networks before they try, and can stop an infected device from reaching its botnet's command server. Start in **Detection Only** to see what would be blocked.",
       "placement": "top",
       "optional": true
+    },
+    {
+      "id": "realtek-ont-attach",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/settings?tab=monitoring#ont-monitoring",
+      "selector": "[data-tour=\"ont-monitoring\"]",
+      "requires": ["realtek-ont"],
+      "title": "Realtek ONT Stick, One Card",
+      "listLabel": "Merge your Realtek stick into its SFP port's card, with an alert if it hangs",
+      "body": "Attach your Realtek stick to its SFP port for one card with its PON state, OLT, uptime, and firmware, plus an alert if its page stops answering while the light stays on. **Edit** it here and pick the port under **Attach to SFP Module**.",
+      "placement": "top",
+      "optional": true
     }
   ]
 }
