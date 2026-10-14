@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Interfaces;
@@ -167,6 +165,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
 
         using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
+        var wasAttached = !isNew && (await repository.GetOntConfigurationAsync(config.Id))?.AttachedSfpId != null;
         await repository.SaveOntConfigurationAsync(config);
 
         if (isNew)
@@ -178,8 +177,10 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         if (config.AttachedSfpId.HasValue)
         {
             await AlertRuleAutoEnable.EnablePatternsAsync(scope, AugmentedOntAlertPatterns, _logger);
-            // Its own call: it needs the attachment, not BIP/HEC, and must not wait on their state.
-            await AlertRuleAutoEnable.EnablePatternsAsync(scope, ["ont.management_unresponsive"], _logger);
+            // Its own call: it needs the attachment, not BIP/HEC. Only when the attachment is new, so
+            // re-saving an attached ONT never re-enables a rule the user turned off.
+            if (!wasAttached)
+                await AlertRuleAutoEnable.EnablePatternsAsync(scope, ["ont.management_unresponsive"], _logger);
         }
     }
 
