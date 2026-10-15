@@ -28,6 +28,7 @@ public class MonitoringCollectionRegistry : BackgroundService, ISiteScopedRegist
     // _lifecycleLock so a reconcile pass and shutdown never race a start/stop.
     private readonly HashSet<string> _running = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
+    private readonly Dictionary<string, SpeedTestBackfillState> _backfills = new(StringComparer.OrdinalIgnoreCase);
 
     public MonitoringCollectionRegistry(
         IServiceProvider serviceProvider,
@@ -153,12 +154,17 @@ public class MonitoringCollectionRegistry : BackgroundService, ISiteScopedRegist
         await _lifecycleLock.WaitAsync(ct);
         try
         {
-            if (_running.Contains(slug)) return;
+            if (_running.Contains(slug))
+            {
+                ScheduleSpeedTestBackfill(slug);
+                return;
+            }
             var instance = GetFor(slug);
             // CancellationToken.None: the token passed here becomes linked into the
             // instance's stopping token, and this one only guards startup.
             await instance.StartAsync(CancellationToken.None);
             _running.Add(slug);
+            ScheduleSpeedTestBackfill(slug);
             if (slug != SiteManagementService.DefaultSiteSlug)
                 _logger.LogInformation("Started monitoring collection for site {Slug}", slug);
         }
@@ -171,17 +177,25 @@ public class MonitoringCollectionRegistry : BackgroundService, ISiteScopedRegist
     private async Task StopInstanceAsync(string slug, CancellationToken ct)
     {
         MonitoringCollectionAgent? instance = null;
+        SpeedTestBackfillState? backfill = null;
         await _lifecycleLock.WaitAsync(ct);
         try
         {
             if (!_running.Remove(slug)) return;
             _instances.TryGetValue(slug, out instance);
+            _backfills.Remove(slug, out backfill);
         }
         finally
         {
             _lifecycleLock.Release();
         }
 
+        if (backfill != null)
+        {
+            await backfill.Cancellation.CancelAsync();
+            await backfill.Task;
+            backfill.Cancellation.Dispose();
+        }
         if (instance == null) return;
         try
         {
@@ -192,5 +206,49 @@ public class MonitoringCollectionRegistry : BackgroundService, ISiteScopedRegist
         {
             _logger.LogWarning(ex, "Failed to stop monitoring collection for site {Slug}", slug);
         }
+    }
+
+    private void ScheduleSpeedTestBackfill(string slug)
+    {
+        if (!_backfills.TryGetValue(slug, out var state))
+        {
+            state = new SpeedTestBackfillState();
+            _backfills.Add(slug, state);
+        }
+        if (!state.Task.IsCompleted) return;
+        state.Task = Task.Run(async () =>
+        {
+            var ct = state.Cancellation.Token;
+            try
+            {
+                var client = _serviceProvider.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug);
+                var version = client.ConfigurationVersion;
+                if (state.ConfigurationVersion == version
+                    && ((state.Completed && client.IsConfigured) || DateTime.UtcNow < state.RetryAfter))
+                    return;
+
+                state.ConfigurationVersion = version;
+                await client.ReconfigureAsync(ct, refreshSpeedTestBackfill: false);
+                state.ConfigurationVersion = client.ConfigurationVersion;
+                state.Completed = await client.BackfillSpeedTestResultsAsync(ct);
+                state.RetryAfter = DateTime.UtcNow.AddMinutes(5);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                state.Completed = false;
+                state.RetryAfter = DateTime.UtcNow.AddMinutes(5);
+                _logger.LogWarning(ex, "Speed test InfluxDB backfill failed for site {Site}; will retry", slug);
+            }
+        });
+    }
+
+    private sealed class SpeedTestBackfillState
+    {
+        public CancellationTokenSource Cancellation { get; } = new();
+        public Task Task { get; set; } = Task.CompletedTask;
+        public long ConfigurationVersion { get; set; } = -1;
+        public bool Completed { get; set; }
+        public DateTime RetryAfter { get; set; }
     }
 }

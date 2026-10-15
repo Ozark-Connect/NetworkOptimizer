@@ -26,6 +26,7 @@ public static class SystemSettingKeys
 {
     public const string Iperf3Duration = "iperf3.duration_seconds";
     public const string Iperf3Port = "iperf3.port";
+    public const string SpeedTestInfluxBackfillPrefix = "speedtest.influx_backfill.v1.";
 
     // Per-device-type parallel stream settings
     public const string Iperf3GatewayParallelStreams = "iperf3.gateway_parallel_streams";
