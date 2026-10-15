@@ -13,16 +13,57 @@ public static class StepChangeDetector
 {
     public static List<PathShiftEvent> Detect(IReadOnlyList<AsnSeries> allSeries, IspHealthOptions options)
     {
+        // Detect down to the corroborated floor; a step under the lone floor is flagged and
+        // CorrelateAcrossSeries keeps it only when another series moved with it.
+        var floor = new StepFloor(
+            Math.Min(options.StepMinDeltaMs, options.StepCorrelatedMinDeltaMs),
+            Math.Min(options.StepMinRelativeChange, options.StepCorrelatedMinRelativeChange));
         var events = new List<PathShiftEvent>();
         foreach (var series in allSeries)
         {
-            events.AddRange(DetectForSeries(series, options));
+            events.AddRange(DetectForSeries(series, options, floor));
         }
+        CorroborateFromMembers(events, allSeries, floor, options);
         return CorrelateAcrossSeries(events, options);
     }
 
+    /// <summary>
+    /// Clears <see cref="PathShiftEvent.NeedsCorroboration"/> on a small step when a member of
+    /// another series' cluster, read on its own, steps the same way at the same boundary. A
+    /// cluster whose members sit at different RTTs straddles two levels and fails the IQR gate,
+    /// so its own step never surfaces to correlate with.
+    /// </summary>
+    private static void CorroborateFromMembers(
+        List<PathShiftEvent> events, IReadOnlyList<AsnSeries> allSeries, StepFloor floor, IspHealthOptions options)
+    {
+        var pending = events.Where(e => e.NeedsCorroboration).ToList();
+        if (pending.Count == 0) return;
+
+        var memberSteps = allSeries
+            .SelectMany(s => s.SamplesByTarget)
+            .SelectMany(m => DetectForSeries(
+                new AsnSeries { TargetIds = new List<string> { m.Key }, Samples = m.Value }, options, floor))
+            .ToList();
+        if (memberSteps.Count == 0) return;
+
+        var tolerance = TimeSpan.FromMinutes(options.StepWindowMinutes);
+        foreach (var e in pending)
+        {
+            e.NeedsCorroboration = !memberSteps.Any(m =>
+                m.Direction == e.Direction
+                && (m.Time - e.Time).Duration() <= tolerance
+                && !e.TargetIds.Contains(m.TargetIds[0], StringComparer.OrdinalIgnoreCase));
+        }
+    }
+
     /// <summary>Detects step changes within a single series. Exposed for replay against exported data.</summary>
-    public static List<PathShiftEvent> DetectForSeries(AsnSeries series, IspHealthOptions options)
+    public static List<PathShiftEvent> DetectForSeries(AsnSeries series, IspHealthOptions options) =>
+        DetectForSeries(series, options, new StepFloor(options.StepMinDeltaMs, options.StepMinRelativeChange));
+
+    /// <summary>The smallest step detected: max(Ms, Relative x the before level).</summary>
+    private readonly record struct StepFloor(double Ms, double Relative);
+
+    private static List<PathShiftEvent> DetectForSeries(AsnSeries series, IspHealthOptions options, StepFloor floor)
     {
         var samples = series.Samples.Where(s => s.RttAvgMs.HasValue).OrderBy(s => s.Time).ToList();
         if (samples.Count == 0) return new List<PathShiftEvent>();
@@ -46,10 +87,11 @@ public static class StepChangeDetector
             // (seen in real data). So also try comparing against the window after it,
             // rejecting the skipped window only when it is a stable level outside the
             // two step levels (a genuine third level, not a transition).
-            var detected = TryDetectStep(windows, i, afterIndex: i + 1, options)
-                ?? TryDetectStep(windows, i, afterIndex: i + 2, options);
+            var detected = TryDetectStep(windows, i, afterIndex: i + 1, floor, options)
+                ?? TryDetectStep(windows, i, afterIndex: i + 2, floor, options);
             if (detected == null) continue;
             var (afterIdx, before, after) = detected.Value;
+            var needsCorroboration = Math.Abs(after.MedianMs - before.MedianMs) < LoneMinDeltaMs(before, options);
 
             var crossing = FindCrossingTime(samples, before, after,
                 searchStart: windows[i + 1].Start,
@@ -64,10 +106,11 @@ public static class StepChangeDetector
                 TargetIds = series.TargetIds.ToList(),
                 BeforeMedianMs = before.MedianMs,
                 AfterMedianMs = after.MedianMs,
-                IsDestination = series.IsDestination
+                IsDestination = series.IsDestination,
+                NeedsCorroboration = needsCorroboration
             });
 
-            var revert = TryDetectRevert(windows, samples, before, after, afterIdx, windowSize, series, options);
+            var revert = TryDetectRevert(windows, samples, before, after, afterIdx, windowSize, series, needsCorroboration, options);
             if (revert != null)
             {
                 events.Add(revert.Value.Event);
@@ -81,14 +124,18 @@ public static class StepChangeDetector
         return events;
     }
 
+    /// <summary>The smallest step a series may report without another series moving with it.</summary>
+    private static double LoneMinDeltaMs(Window before, IspHealthOptions options) =>
+        Math.Max(options.StepMinDeltaMs, options.StepMinRelativeChange * before.MedianMs);
+
     private static (int AfterIdx, Window Before, Window After)? TryDetectStep(
-        List<Window> windows, int beforeIndex, int afterIndex, IspHealthOptions options)
+        List<Window> windows, int beforeIndex, int afterIndex, StepFloor floor, IspHealthOptions options)
     {
         if (afterIndex >= windows.Count) return null;
         var before = windows[beforeIndex];
         var after = windows[afterIndex];
         var delta = after.MedianMs - before.MedianMs;
-        var minDelta = Math.Max(options.StepMinDeltaMs, options.StepMinRelativeChange * before.MedianMs);
+        var minDelta = Math.Max(floor.Ms, floor.Relative * before.MedianMs);
         if (Math.Abs(delta) < minDelta) return null;
         if (IqrsOverlap(before.Iqr, after.Iqr)) return null;
         if (!IsStableLevel(before, options) || !IsStableLevel(after, options)) return null;
@@ -202,7 +249,7 @@ public static class StepChangeDetector
     private static (PathShiftEvent Event, int SkipTo)? TryDetectRevert(
         List<Window> windows, List<LatencySample> samples,
         Window stepBefore, Window stepAfter, int stepAfterIdx,
-        TimeSpan windowSize, AsnSeries series, IspHealthOptions options)
+        TimeSpan windowSize, AsnSeries series, bool needsCorroboration, IspHealthOptions options)
     {
         var midpoint = (stepBefore.MedianMs + stepAfter.MedianMs) / 2.0;
         var wentUp = stepAfter.MedianMs > stepBefore.MedianMs;
@@ -254,7 +301,8 @@ public static class StepChangeDetector
                 TargetIds = series.TargetIds.ToList(),
                 BeforeMedianMs = revertBefore.MedianMs,
                 AfterMedianMs = revertAfter.MedianMs,
-                IsDestination = series.IsDestination
+                IsDestination = series.IsDestination,
+                NeedsCorroboration = needsCorroboration
             };
 
             return (evt, lastRequired);
@@ -274,7 +322,7 @@ public static class StepChangeDetector
     /// </summary>
     public static List<PathShiftEvent> CorrelateAcrossSeries(List<PathShiftEvent> events, IspHealthOptions options)
     {
-        if (events.Count <= 1) return events;
+        if (events.Count == 0) return events;
         var tolerance = TimeSpan.FromMinutes(options.StepWindowMinutes);
 
         var merged = new List<PathShiftEvent>();
@@ -289,6 +337,9 @@ public static class StepChangeDetector
 
         foreach (var group in groups)
         {
+            // A step under the lone floor stands only with another series behind it.
+            if (group.Count == 1 && group[0].NeedsCorroboration) continue;
+
             // Prefer an on-path ISP/transit hop over an internet/CDN destination. Destination
             // is set from the DB TargetType (InternetService), not the target_id - prefixes
             // lie: transit hops are often custom-named and "transit-as7018" is actually an
