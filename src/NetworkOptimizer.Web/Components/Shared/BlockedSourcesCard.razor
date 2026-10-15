@@ -3,7 +3,7 @@
 @inject IThreatBlockingAdmin Blocking
 @inject AuthenticationStateProvider AuthState
 
-@if (_overview != null && (_overview.Settings.Mode != BlockingMode.Off || _overview.Active.Count > 0 || _overview.Shared.Count > 0))
+@if (_overview != null && (ShowWhenOff || _overview.Settings.Mode != BlockingMode.Off || _overview.Active.Count > 0 || _overview.Shared.Count > 0))
 {
     <div class="card card-spaced blocked-sources" data-tour="threats-blocked-sources">
         <div class="card-header">
@@ -57,7 +57,7 @@
                             @foreach (var b in _overview.Active)
                             {
                                 <tr>
-                                    <td><code>@b.SourceIp</code>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
+                                    <td><a href="@DrilldownUrl(b.SourceIp)"><code>@b.SourceIp</code></a>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
                                     <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
                                     <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt)</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
@@ -89,7 +89,7 @@
                             @foreach (var s in _overview.Shared)
                             {
                                 <tr>
-                                    <td><code>@s.Block.SourceIp</code></td>
+                                    <td><a href="@DrilldownUrl(s.Block.SourceIp)"><code>@s.Block.SourceIp</code></a></td>
                                     <td>@s.SiteSlug</td>
                                     <td class="hide-mobile">@s.Block.Reason</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(s.Block.ExpiresAt - DateTime.UtcNow)</td>
@@ -112,6 +112,9 @@
 }
 
 @code {
+    /// <summary>Render even when Automatic Blocking is Off with nothing blocked (the Blocking tab, which would otherwise be blank).</summary>
+    [Parameter] public bool ShowWhenOff { get; set; }
+
     private BlockingOverview? _overview;
     private int? _releasing;
     private string? _message;
@@ -185,6 +188,8 @@
     /// <summary>Whether the block goes to the targets: Detection Only sends manual blocks only, even ones made in Blocking mode.</summary>
     private bool IsSent(ThreatBlock b) =>
         b.Enforced && (_overview!.Settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual);
+
+    private static string DrilldownUrl(string ip) => "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(ip);
 
     internal static string TargetLabel(BlockTargetKind kind) => kind switch
     {
