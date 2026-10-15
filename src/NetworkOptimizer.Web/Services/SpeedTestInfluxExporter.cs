@@ -6,6 +6,19 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>Best-effort export after a speed test result has been saved to its site's SQLite database.</summary>
 public static class SpeedTestInfluxExporter
 {
+    /// <summary>
+    /// Best-effort removal of the pre-edit Influx identity after a SQLite mutation,
+    /// followed by export of the current row if it still exists.
+    /// </summary>
+    public static Task SynchronizeMutationAsync(MonitoringInfluxRegistry? registry, string siteSlug,
+        Iperf3Result original, ILogger logger) => ExportCoreAsync(registry, siteSlug, original, logger,
+            static (client, saved) => client.SynchronizeSpeedTestMutationAsync(saved));
+
+    public static Task ClearHistoryAsync(MonitoringInfluxRegistry? registry, string siteSlug,
+        IReadOnlyList<Iperf3Result> cleared, ILogger logger) => cleared.Count == 0 ? Task.CompletedTask
+        : ExportCoreAsync(registry, siteSlug, cleared[0], logger,
+            (client, _) => client.ClearSpeedTestHistoryAsync(cleared));
+
     public static Task ExportAsync(
         MonitoringInfluxRegistry? registry,
         string siteSlug,

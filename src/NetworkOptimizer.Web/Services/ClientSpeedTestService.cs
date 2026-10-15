@@ -265,29 +265,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
             LocationAccuracyMeters = locationAccuracy
         };
 
-        if (isWan)
-        {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
-                using var caller = Identity.SystemScope.Enter(scope.ServiceProvider, "speedtest:wan");
-                var wans = await scope.ServiceProvider.GetRequiredService<ISqmService>().GetWanInterfacesFromControllerAsync();
-                if (wans.Count == 1)
-                    result.WanNetworkGroup = wans[0].NetworkGroup;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not identify the sole WAN for browser speed test on site {Site}", _siteSlug);
-            }
-        }
-
         // Save immediately so client doesn't wait for enrichment.
         await using var db = await CreateSiteDbAsync();
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
         var resultId = result.Id;
-        await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
+        if (!isWan)
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
 
         _logger.LogInformation(
             "Recorded OpenSpeedTest{Wan} result (site {Site}): {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps{Server}",
@@ -577,6 +561,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
         db.Iperf3Results.Remove(result);
         await db.SaveChangesAsync();
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, result, _logger);
         _logger.LogInformation("Deleted speed test result {Id} for {DeviceHost}", id, result.DeviceHost);
         return true;
     }
@@ -1059,6 +1044,28 @@ public class ClientSpeedTestService : IClientSpeedTestService
             {
                 _logger.LogWarning("Result {Id} not found for background enrichment", resultId);
                 return;
+            }
+
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+            {
+                var original = (Iperf3Result)db.Entry(result).CurrentValues.Clone().ToObject();
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+                    using var caller = Identity.SystemScope.Enter(scope.ServiceProvider, "speedtest:wan");
+                    var wans = await scope.ServiceProvider.GetRequiredService<ISqmService>().GetWanInterfacesFromControllerAsync();
+                    if (wans.Count == 1) result.WanNetworkGroup = wans[0].NetworkGroup;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not identify the sole WAN for browser speed test on site {Site}", _siteSlug);
+                }
+                await db.SaveChangesAsync();
+                if (result.WanNetworkGroup != original.WanNetworkGroup)
+                    await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, original, _logger);
+                else
+                    await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
             }
 
             // An IPv6 source is matched to its device first, so the lookup below can go by MAC

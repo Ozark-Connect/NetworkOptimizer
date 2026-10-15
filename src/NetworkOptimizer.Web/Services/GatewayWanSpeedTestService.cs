@@ -703,6 +703,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         db.Iperf3Results.Remove(result);
         await db.SaveChangesAsync();
         _logger.LogInformation("Deleted gateway WAN speed test result {Id}", id);
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, result, _logger);
         return true;
     }
 
@@ -733,12 +734,14 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                             && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
+        var original = (Iperf3Result)db.Entry(result).CurrentValues.Clone().ToObject();
         result.WanNetworkGroup = wanNetworkGroup;
         result.WanName = wanName;
         result.PathAnalysisJson = null;
         await db.SaveChangesAsync();
 
         _logger.LogInformation("Reassigned WAN for gateway result {Id} to {Group} ({Name})", id, wanNetworkGroup, wanName);
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, original, _logger);
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(id, resolvedWanGroup: wanNetworkGroup), CancellationToken.None);
 
         return true;

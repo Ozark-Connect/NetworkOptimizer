@@ -33,6 +33,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private readonly ILogger<MonitoringInfluxClient> _logger;
 
     private readonly SemaphoreSlim _configLock = new(1, 1);
+    private readonly SemaphoreSlim _speedTestMutationLock = new(1, 1);
     private readonly ConcurrentQueue<BufferedPoint> _writeBuffer = new();
     private readonly SemaphoreSlim _flushSemaphore = new(1, 1);
     private readonly CancellationTokenSource _timerCts = new();
@@ -596,11 +597,103 @@ public class MonitoringInfluxClient : IAsyncDisposable
         string BucketId, long RetentionSeconds, DateTime CompletedAt, int Exported, int Skipped);
 
     /// <summary>Export a saved speed test to the existing long-term bucket.</summary>
-    public Task WriteSpeedTestResultAsync(Iperf3Result result)
+    public Task WriteSpeedTestResultAsync(Iperf3Result result) =>
+        EnqueueSpeedTestAsync(result, BuildSpeedTestPoint);
+
+    private async Task EnqueueSpeedTestAsync(Iperf3Result result, Func<Iperf3Result, PointData?> build)
     {
-        if (!IsConfigured) return Task.CompletedTask;
-        Enqueue(BuildSpeedTestPoint(result), longterm: true);
-        return Task.CompletedTask;
+        await _speedTestMutationLock.WaitAsync();
+        try
+        {
+            if (!IsConfigured) return;
+            await using var db = await CreateSettingsContextAsync(CancellationToken.None);
+            var current = await db.Iperf3Results.AsNoTracking().Where(r => r.Id == result.Id)
+                .Select(r => new { r.Direction, r.DeviceHost, r.WanNetworkGroup, r.TestTime }).SingleOrDefaultAsync();
+            if (current == null || current.Direction != result.Direction || current.DeviceHost != result.DeviceHost
+                || current.WanNetworkGroup != result.WanNetworkGroup
+                || DateTimeUtilities.AsUtc(current.TestTime) != DateTimeUtilities.AsUtc(result.TestTime))
+                return;
+            var point = build(result);
+            if (point != null) Enqueue(point, longterm: true);
+        }
+        finally { _speedTestMutationLock.Release(); }
+    }
+
+    public async Task SynchronizeSpeedTestMutationAsync(Iperf3Result original)
+    {
+        await _configLock.WaitAsync();
+        try
+        {
+            if (!IsConfigured || _client == null || _writeApi == null) return;
+            await _speedTestMutationLock.WaitAsync();
+            try
+            {
+                await _flushSemaphore.WaitAsync();
+                try
+                {
+                    await FlushBufferedPointsBestEffortAsync();
+                    var (testType, runner, provider) = SpeedTestTags(original.Direction);
+                    static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+                    var predicate = $"_measurement=\"speed_test\" AND test_type={Quote(testType)} AND runner={Quote(runner)} AND provider={Quote(provider)}";
+                    if (testType == "lan")
+                        predicate += $" AND target_host={Quote(original.DeviceHost)}";
+                    else if (!string.IsNullOrWhiteSpace(original.WanNetworkGroup) || original.Direction != SpeedTestDirection.OpenSpeedTestWan)
+                        predicate += $" AND wan_network_group={Quote(string.IsNullOrWhiteSpace(original.WanNetworkGroup) ? "unknown" : original.WanNetworkGroup)}";
+                    var time = DateTimeUtilities.AsUtc(original.TestTime);
+                    await _client.GetDeleteApi().Delete(time, time.AddTicks(1), predicate, _longtermBucket, _org);
+                    await using var db = await CreateSettingsContextAsync(CancellationToken.None);
+                    var current = await db.Iperf3Results.AsNoTracking().SingleOrDefaultAsync(r => r.Id == original.Id);
+                    if (current != null)
+                        await _writeApi.WritePointsAsync(new List<PointData> { BuildSpeedTestPoint(current) }, _longtermBucket, _org);
+                }
+                finally { _flushSemaphore.Release(); }
+            }
+            finally { _speedTestMutationLock.Release(); }
+        }
+        finally { _configLock.Release(); }
+    }
+
+    public async Task ClearSpeedTestHistoryAsync(IReadOnlyList<Iperf3Result> cleared)
+    {
+        if (cleared.Count == 0) return;
+        var from = cleared.Min(r => DateTimeUtilities.AsUtc(r.TestTime));
+        var to = cleared.Max(r => DateTimeUtilities.AsUtc(r.TestTime)).AddTicks(1);
+        await _configLock.WaitAsync();
+        try
+        {
+            if (!IsConfigured || _client == null || _writeApi == null) return;
+            await _speedTestMutationLock.WaitAsync();
+            try
+            {
+                await _flushSemaphore.WaitAsync();
+                try
+                {
+                    await FlushBufferedPointsBestEffortAsync();
+                    await _client.GetDeleteApi().Delete(from, to, "_measurement=\"speed_test\" AND test_type=\"lan\"",
+                        _longtermBucket, _org);
+                    // A concurrent SQLite save may fall inside the cleared time range.
+                    // Restore survivors before queued live exports are allowed to resume.
+                    await using var db = await CreateSettingsContextAsync(CancellationToken.None);
+                    var lastId = await db.Iperf3Results.MaxAsync(r => (int?)r.Id) ?? 0;
+                    var cursor = 0;
+                    while (true)
+                    {
+                        var survivors = await db.Iperf3Results.AsNoTracking()
+                            .Where(r => r.Id > cursor && r.Id <= lastId && r.TestTime >= from && r.TestTime < to
+                                && (r.Direction == SpeedTestDirection.ServerToDevice
+                                    || r.Direction == SpeedTestDirection.ClientToServer
+                                    || r.Direction == SpeedTestDirection.BrowserToServer))
+                            .OrderBy(r => r.Id).Take(500).ToListAsync();
+                        if (survivors.Count == 0) break;
+                        cursor = survivors[^1].Id;
+                        await _writeApi.WritePointsAsync(survivors.Select(BuildSpeedTestPoint).ToList(), _longtermBucket, _org);
+                    }
+                }
+                finally { _flushSemaphore.Release(); }
+            }
+            finally { _speedTestMutationLock.Release(); }
+        }
+        finally { _configLock.Release(); }
     }
 
     internal static PointData BuildSpeedTestPoint(Iperf3Result result)
@@ -647,13 +740,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return point;
     }
 
-    public Task WriteSpeedTestBackgroundLoadAsync(Iperf3Result result)
-    {
-        if (!IsConfigured) return Task.CompletedTask;
-        var point = BuildSpeedTestBackgroundLoadPoint(result);
-        if (point != null) Enqueue(point, longterm: true);
-        return Task.CompletedTask;
-    }
+    public Task WriteSpeedTestBackgroundLoadAsync(Iperf3Result result) =>
+        EnqueueSpeedTestAsync(result, BuildSpeedTestBackgroundLoadPoint);
 
     internal static PointData? BuildSpeedTestBackgroundLoadPoint(Iperf3Result result)
     {
@@ -681,13 +769,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return point;
     }
 
-    public Task WriteSpeedTestMetadataAsync(Iperf3Result result)
-    {
-        if (!IsConfigured) return Task.CompletedTask;
-        var point = BuildSpeedTestMetadataPoint(result);
-        if (point != null) Enqueue(point, longterm: true);
-        return Task.CompletedTask;
-    }
+    public Task WriteSpeedTestMetadataAsync(Iperf3Result result) =>
+        EnqueueSpeedTestAsync(result, BuildSpeedTestMetadataPoint);
 
     internal static PointData? BuildSpeedTestMetadataPoint(Iperf3Result result)
     {
@@ -724,19 +807,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     private static PointData BuildSpeedTestIdentity(Iperf3Result result, out bool isWan)
     {
-        var (testType, runner, provider) = result.Direction switch
-        {
-            SpeedTestDirection.CloudflareWan => ("wan", "server", "cloudflare"),
-            SpeedTestDirection.CloudflareWanGateway => ("wan", "gateway", "cloudflare"),
-            SpeedTestDirection.UwnWan => ("wan", "server", "uwn"),
-            SpeedTestDirection.UwnWanGateway => ("wan", "gateway", "uwn"),
-            SpeedTestDirection.OpenSpeedTestWan => ("wan", "client", "openspeedtest"),
-            SpeedTestDirection.ServerToDevice => ("lan", "server", "iperf3"),
-            SpeedTestDirection.ClientToServer => ("lan", "client", "iperf3"),
-            SpeedTestDirection.BrowserToServer => ("lan", "client", "openspeedtest"),
-            _ => throw new ArgumentOutOfRangeException(nameof(result), result.Direction,
-                "Unsupported speed test direction.")
-        };
+        var (testType, runner, provider) = SpeedTestTags(result.Direction);
         isWan = testType == "wan";
         // SQLite reads UTC timestamps back with Unspecified kind.
         var timestamp = DateTimeUtilities.AsUtc(result.TestTime);
@@ -761,6 +832,21 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
         return point;
     }
+
+    private static (string TestType, string Runner, string Provider) SpeedTestTags(SpeedTestDirection direction) =>
+        direction switch
+        {
+            SpeedTestDirection.CloudflareWan => ("wan", "server", "cloudflare"),
+            SpeedTestDirection.CloudflareWanGateway => ("wan", "gateway", "cloudflare"),
+            SpeedTestDirection.UwnWan => ("wan", "server", "uwn"),
+            SpeedTestDirection.UwnWanGateway => ("wan", "gateway", "uwn"),
+            SpeedTestDirection.OpenSpeedTestWan => ("wan", "client", "openspeedtest"),
+            SpeedTestDirection.ServerToDevice => ("lan", "server", "iperf3"),
+            SpeedTestDirection.ClientToServer => ("lan", "client", "iperf3"),
+            SpeedTestDirection.BrowserToServer => ("lan", "client", "openspeedtest"),
+            _ => throw new ArgumentOutOfRangeException(nameof(direction), direction,
+                "Unsupported speed test direction.")
+        };
 
     public Task WriteInterfaceCountersAsync(
         string deviceMac,
@@ -6058,6 +6144,7 @@ from(bucket: ""{_longtermBucket}"")
         }
     }
 
+    // Caller must hold _flushSemaphore; neither flush helper acquires it.
     private async Task FlushBufferedPointsBestEffortAsync(CancellationToken ct = default)
     {
         try
@@ -6145,6 +6232,7 @@ from(bucket: ""{_longtermBucket}"")
         _backfillCancellation.Dispose();
         _flushSemaphore.Dispose();
         _configLock.Dispose();
+        _speedTestMutationLock.Dispose();
         GC.SuppressFinalize(this);
     }
 

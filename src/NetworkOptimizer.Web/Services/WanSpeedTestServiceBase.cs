@@ -354,6 +354,7 @@ public abstract class WanSpeedTestServiceBase
 
         db.Iperf3Results.Remove(result);
         await db.SaveChangesAsync();
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, SiteSlug, result, Logger);
         Logger.LogInformation("Deleted WAN speed test result {Id}", id);
         return true;
     }
@@ -366,12 +367,14 @@ public abstract class WanSpeedTestServiceBase
         if (result == null || !OwnedDirections.Contains(result.Direction))
             return false;
 
+        var original = (Iperf3Result)db.Entry(result).CurrentValues.Clone().ToObject();
         result.WanNetworkGroup = wanNetworkGroup;
         result.WanName = wanName;
         result.PathAnalysisJson = null;
         await db.SaveChangesAsync();
 
         Logger.LogInformation("Reassigned WAN for result {Id} to {Group} ({Name})", id, wanNetworkGroup, wanName);
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, SiteSlug, original, Logger);
         PathAnalysisRetryGate.Forget(GetType().Name, id);
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(id, resolvedWanGroup: wanNetworkGroup), CancellationToken.None);
 

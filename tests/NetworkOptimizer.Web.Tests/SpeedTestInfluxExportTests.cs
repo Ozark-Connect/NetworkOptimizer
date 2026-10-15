@@ -30,6 +30,9 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
 {
     private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("no-speed-export-");
     private readonly ConcurrentQueue<(string Bucket, string Body)> _writes = new();
+    private readonly ConcurrentQueue<(string Bucket, string Body, int WritesBefore)> _deletes = new();
+    private int _deleteStatus = StatusCodes.Status204NoContent;
+    private Func<Task>? _beforeDelete;
     private readonly Mock<ILogger<MonitoringInfluxClient>> _influxLogger = new();
     private readonly Mock<ILogger<ClientSpeedTestService>> _clientLogger = new();
     private readonly ConcurrentDictionary<int, TaskCompletionSource> _clientEnrichment = new();
@@ -83,6 +86,15 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         {
             context.Response.ContentType = "text/csv";
             await context.Response.WriteAsync(_queryCsv ?? "");
+        });
+        _server.MapPost("/api/v2/delete", async (HttpContext context) =>
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            _deletes.Enqueue((context.Request.Query["bucket"].ToString(), await reader.ReadToEndAsync(), _writes.Count));
+            if (_beforeDelete != null) await _beforeDelete();
+            context.Response.StatusCode = _deleteStatus;
+            if (_deleteStatus != StatusCodes.Status204NoContent)
+                await context.Response.WriteAsJsonAsync(new { code = "internal error", message = "test delete failure" });
         });
         _server.MapGet("/api/v2/buckets", async (HttpContext context) =>
         {
@@ -454,6 +466,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         await WaitForClientEnrichmentAsync(result.Id);
 
         await using var db = _siteDbFactory.CreateForSite(site);
+        await _registry.GetFor(site).FlushAsync();
         var saved = await db.Iperf3Results.SingleAsync();
         saved.Direction.Should().Be(wan ? SpeedTestDirection.OpenSpeedTestWan : SpeedTestDirection.BrowserToServer);
         saved.DownloadBitsPerSecond.Should().Be(wan ? 500_000_000 : 50_000_000);
@@ -645,7 +658,8 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
     }
 
     private ServiceProvider ProductionServices(string? enrichedName = null,
-        Dictionary<string, List<WanInterfaceInfo>>? activeWans = null, bool failWanLookup = false)
+        Dictionary<string, List<WanInterfaceInfo>>? activeWans = null, bool failWanLookup = false,
+        Func<Task<List<WanInterfaceInfo>>>? wanLookup = null)
     {
         // Avoid the console connection's constructor-triggered network initialization, matching
         // ClientDashboardIdentificationTests. The real speed-test constructors still run.
@@ -676,6 +690,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
                 {
                     sp.GetRequiredService<NetworkOptimizer.Web.Services.Identity.ICallerContext>().Require().IsSystem.Should().BeTrue();
                     if (failWanLookup) throw new InvalidOperationException("WAN lookup unavailable");
+                    if (wanLookup != null) return wanLookup();
                     var slug = sp.GetRequiredService<SiteContextService>().Slug;
                     return Task.FromResult(activeWans != null && activeWans.TryGetValue(slug, out var wans)
                         ? wans : new List<WanInterfaceInfo>());
@@ -821,6 +836,216 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         _writes.Should().ContainSingle().Which.Body.Should().Contain("server_name=\"vps-test\"")
             .And.NotContain("wan_network_group");
         VerifyLog(_clientLogger, LogLevel.Warning, "Could not identify the sole WAN");
+    }
+
+    [Fact]
+    public async Task BrowserWan_StalledLookupDoesNotDelaySaveOrCreateAnUntaggedPoint()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<List<WanInterfaceInfo>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var services = ProductionServices(wanLookup: () =>
+        {
+            started.TrySetResult();
+            return release.Task;
+        });
+        var service = ActivatorUtilities.CreateInstance<ClientSpeedTestService>(services, "main");
+        var result = await service.RecordOpenSpeedTestResultAsync("192.0.2.50", 500, 50, 1, 1, 100, 10, null,
+            externalServerId: "vps-test").WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await using var db = _mainDbFactory.CreateDbContext();
+            (await db.Iperf3Results.SingleAsync()).Id.Should().Be(result.Id);
+            await _registry.GetDefault().FlushAsync();
+            _writes.Should().BeEmpty();
+        }
+        finally { release.TrySetResult(new() { new() { NetworkGroup = "WAN" } }); }
+        await WaitForClientEnrichmentAsync(result.Id);
+        await _registry.GetDefault().FlushAsync();
+        _writes.Should().ContainSingle().Which.Body.Should().Contain("wan_network_group=WAN");
+    }
+
+    [Theory]
+    [InlineData("main", false)]
+    [InlineData("branch", false)]
+    [InlineData("main", true)]
+    [InlineData("branch", true)]
+    public async Task WanMutation_DrainsQueuedPointDeletesExactIdentityAndRejectsLateSnapshots(string site, bool reassign)
+    {
+        var result = Result();
+        await SaveHistoryAsync(site, result);
+        await SpeedTestInfluxExporter.ExportAsync(_registry, site, result, _clientLogger.Object);
+        var service = Service(site, result);
+
+        if (reassign)
+            (await service.UpdateWanAssignmentAsync(result.Id, "WAN3", "New WAN")).Should().BeTrue();
+        else
+            (await service.DeleteResultAsync(result.Id)).Should().BeTrue();
+
+        var deletion = _deletes.Should().ContainSingle().Subject;
+        deletion.Bucket.Should().Be(site == "main" ? "history" : "branch-history");
+        deletion.WritesBefore.Should().Be(1);
+        using var body = System.Text.Json.JsonDocument.Parse(deletion.Body);
+        body.RootElement.GetProperty("predicate").GetString().Should().Be(
+            "_measurement=\"speed_test\" AND test_type=\"wan\" AND runner=\"server\" AND provider=\"uwn\" AND wan_network_group=\"WAN2\"");
+        var from = body.RootElement.GetProperty("start").GetDateTime();
+        var to = body.RootElement.GetProperty("stop").GetDateTime();
+        from.Should().Be(result.TestTime);
+        to.Should().Be(result.TestTime.AddTicks(1));
+        await SpeedTestInfluxExporter.ExportAsync(_registry, site, result, _clientLogger.Object);
+        result.BackgroundDownloadMbps = 42;
+        await SpeedTestInfluxExporter.ExportBackgroundLoadAsync(_registry, site, result, _clientLogger.Object);
+        await _registry.GetFor(site).FlushAsync();
+        _writes.Should().HaveCount(reassign ? 2 : 1);
+        if (reassign) _writes.Last().Body.Should().Contain("wan_network_group=WAN3");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WanMutation_InfluxFailureDoesNotUndoSqliteChange(bool reassign)
+    {
+        var result = Result();
+        await SaveHistoryAsync("main", result);
+        _deleteStatus = StatusCodes.Status503ServiceUnavailable;
+        var logger = new Mock<ILogger>();
+        var service = Service("main", result, logger: logger.Object);
+
+        var success = reassign
+            ? await service.UpdateWanAssignmentAsync(result.Id, "WAN3", "New WAN")
+            : await service.DeleteResultAsync(result.Id);
+
+        success.Should().BeTrue();
+        await using var db = _mainDbFactory.CreateDbContext();
+        var saved = await db.Iperf3Results.SingleOrDefaultAsync();
+        if (reassign) saved!.WanNetworkGroup.Should().Be("WAN3");
+        else saved.Should().BeNull();
+        VerifyLog(logger, LogLevel.Warning, "Failed to export speed test result");
+    }
+
+    [Theory]
+    [InlineData("main", "gateway")]
+    [InlineData("branch", "gateway")]
+    [InlineData("main", "client")]
+    [InlineData("branch", "client")]
+    [InlineData("main", "lan")]
+    [InlineData("branch", "lan")]
+    [InlineData("main", "clear-lan")]
+    [InlineData("branch", "clear-lan")]
+    public async Task HistoryDeletion_AllServicePathsRemoveQueuedInfluxPoint(string site, string path)
+    {
+        var result = Result();
+        result.Direction = path == "gateway" ? SpeedTestDirection.UwnWanGateway : SpeedTestDirection.ServerToDevice;
+        await SaveHistoryAsync(site, result);
+        await SpeedTestInfluxExporter.ExportAsync(_registry, site, result, _clientLogger.Object);
+        await using var services = ProductionServices();
+
+        if (path == "gateway")
+            (await ActivatorUtilities.CreateInstance<GatewayWanSpeedTestService>(services, site)
+                .DeleteResultAsync(result.Id)).Should().BeTrue();
+        else if (path == "client")
+            (await ActivatorUtilities.CreateInstance<ClientSpeedTestService>(services, site)
+                .DeleteResultAsync(result.Id)).Should().BeTrue();
+        else
+        {
+            var lan = ActivatorUtilities.CreateInstance<Iperf3SpeedTestService>(services, site);
+            if (path == "clear-lan") (await lan.ClearHistoryAsync()).Should().Be(1);
+            else (await lan.DeleteResultAsync(result.Id)).Should().BeTrue();
+        }
+
+        await _registry.GetFor(site).FlushAsync();
+        _writes.Should().ContainSingle();
+        var deletion = _deletes.Should().ContainSingle().Subject;
+        deletion.Bucket.Should().Be(site == "main" ? "history" : "branch-history");
+        deletion.WritesBefore.Should().Be(1);
+        await using var db = _siteDbFactory.CreateForSite(site);
+        (await db.Iperf3Results.AnyAsync()).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task BrowserWan_LookupRemovesUntaggedPointWrittenByConcurrentBackfill()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<List<WanInterfaceInfo>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var services = ProductionServices(wanLookup: () =>
+        {
+            started.TrySetResult();
+            return release.Task;
+        });
+        var service = ActivatorUtilities.CreateInstance<ClientSpeedTestService>(services, "main");
+        var result = await service.RecordOpenSpeedTestResultAsync("192.0.2.50", 500, 50, 1, 1, 100, 10, null,
+            externalServerId: "vps-test");
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            (await BackfillAsync()).Should().BeTrue();
+            _writes.Should().ContainSingle().Which.Body.Should().NotContain("wan_network_group");
+        }
+        finally { release.TrySetResult(new() { new() { NetworkGroup = "WAN" } }); }
+        await WaitForClientEnrichmentAsync(result.Id);
+        var deletion = _deletes.Should().ContainSingle().Subject;
+        deletion.Body.Should().Contain("openspeedtest");
+        _writes.Should().HaveCount(2);
+        _writes.Last().Body.Should().Contain("wan_network_group=WAN");
+    }
+
+    [Theory]
+    [InlineData("main", false)]
+    [InlineData("branch", false)]
+    [InlineData("main", true)]
+    public async Task ClearHistory_UsesOneBoundedDeleteAndPreservesWanAndConcurrentResults(string site, bool failDelete)
+    {
+        var start = DateTime.UtcNow.AddDays(-1);
+        var history = Enumerable.Range(0, 6000).Select(i => new Iperf3Result
+        {
+            Direction = SpeedTestDirection.ServerToDevice, DeviceHost = "192.0.2.50",
+            TestTime = start.AddSeconds(i), Success = true
+        }).ToArray();
+        await SaveHistoryAsync(site, history);
+        var wan = Result();
+        wan.TestTime = start.AddSeconds(5);
+        await SaveHistoryAsync(site, wan);
+        await SpeedTestInfluxExporter.ExportAsync(_registry, site, history[0], _clientLogger.Object);
+        var survivor = new Iperf3Result
+        {
+            Direction = SpeedTestDirection.BrowserToServer, DeviceHost = "192.0.2.99",
+            TestTime = start.AddSeconds(10), Success = true
+        };
+        _beforeDelete = () => SaveHistoryAsync(site, survivor);
+        if (failDelete) _deleteStatus = StatusCodes.Status503ServiceUnavailable;
+        await using var services = ProductionServices();
+        var service = ActivatorUtilities.CreateInstance<Iperf3SpeedTestService>(services, site);
+
+        (await service.ClearHistoryAsync()).Should().Be(6000);
+
+        var deletion = _deletes.Should().ContainSingle().Subject;
+        deletion.Bucket.Should().Be(site == "main" ? "history" : "branch-history");
+        deletion.WritesBefore.Should().Be(1);
+        using var body = System.Text.Json.JsonDocument.Parse(deletion.Body);
+        body.RootElement.GetProperty("predicate").GetString().Should().Be("_measurement=\"speed_test\" AND test_type=\"lan\"");
+        body.RootElement.GetProperty("start").GetDateTime().Should().Be(start);
+        body.RootElement.GetProperty("stop").GetDateTime().Should().Be(start.AddSeconds(5999).AddTicks(1));
+        await using var db = _siteDbFactory.CreateForSite(site);
+        (await db.Iperf3Results.CountAsync()).Should().Be(2);
+        (await db.Iperf3Results.AnyAsync(r => r.Id == survivor.Id)).Should().BeTrue();
+        (await db.Iperf3Results.AnyAsync(r => r.Id == wan.Id)).Should().BeTrue();
+        _writes.Should().HaveCount(failDelete ? 1 : 2);
+        if (!failDelete)
+            _writes.Last().Body.Should().Contain($"result_id={survivor.Id}i").And.Contain("target_host=192.0.2.99");
+    }
+
+    [Fact]
+    public async Task ClearHistory_WithoutLanResultsDoesNotDeleteInfluxData()
+    {
+        await SaveHistoryAsync("main", Result());
+        await using var services = ProductionServices();
+        var service = ActivatorUtilities.CreateInstance<Iperf3SpeedTestService>(services, "main");
+
+        (await service.ClearHistoryAsync()).Should().Be(0);
+
+        _deletes.Should().BeEmpty();
+        await using var db = _mainDbFactory.CreateDbContext();
+        (await db.Iperf3Results.CountAsync()).Should().Be(1);
     }
 
     private static object? GetField(object target, string name) =>

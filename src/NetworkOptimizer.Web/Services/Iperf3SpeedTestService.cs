@@ -676,7 +676,12 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     {
         using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
-        return await repository.DeleteIperf3ResultAsync(id);
+        await using var db = await CreateSiteDbAsync();
+        var result = await db.Iperf3Results.FindAsync(id);
+        var deleted = await repository.DeleteIperf3ResultAsync(id);
+        if (deleted && result != null)
+            await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, result, _logger);
+        return deleted;
     }
 
     /// <summary>
@@ -694,11 +699,18 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     /// </summary>
     public async Task<int> ClearHistoryAsync()
     {
-        using var scope = CreateSiteScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
-        var results = await repository.GetRecentIperf3ResultsAsync(int.MaxValue);
+        await using var db = await CreateSiteDbAsync();
+        var results = await db.Iperf3Results
+            .Where(r => r.Direction != SpeedTestDirection.CloudflareWan
+                && r.Direction != SpeedTestDirection.CloudflareWanGateway
+                && r.Direction != SpeedTestDirection.UwnWan
+                && r.Direction != SpeedTestDirection.UwnWanGateway
+                && r.Direction != SpeedTestDirection.OpenSpeedTestWan).ToListAsync();
         var count = results.Count;
-        await repository.ClearIperf3HistoryAsync();
+        db.Iperf3Results.RemoveRange(results);
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Cleared {Count} LAN speed test results", count);
+        await SpeedTestInfluxExporter.ClearHistoryAsync(_influxRegistry, _siteSlug, results, _logger);
         return count;
     }
 
