@@ -324,6 +324,25 @@ public class ThreatBlockingServiceTests
     }
 
     [Fact]
+    public async Task Enforce_BlocksASourceStillActiveFromDryRun_AndDryRunKeepsOneRecord()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "DryRun");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.WafCounts["203.0.113.7"] = 6;
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+        await h.Service.RunCycleAsync(Now.AddMinutes(1), CancellationToken.None);
+        h.Blocks.Should().ContainSingle().Which.Enforced.Should().BeFalse();
+
+        h.Set(BlockingSettingKeys.Mode, "Enforce");
+        await h.Service.RunCycleAsync(Now.AddMinutes(2), CancellationToken.None);
+
+        h.Blocks.Should().HaveCount(2).And.ContainSingle(b => b.Enforced);
+        h.Gateway.Syncs.Last().Should().Equal("203.0.113.7");
+    }
+
+    [Fact]
     public async Task SourcePolicies_CheckedHourly_AndAuditedOnlyWhenChanged()
     {
         var h = new Harness();
