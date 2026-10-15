@@ -716,6 +716,46 @@ public class IspHealthScorerTests
         LoadedLossValueText(WithLossyProbesUnderDownLoad()).Should().StartWith("0% down");
     }
 
+    private static SpeedTestSample LossyTest(double downMbps, SpeedTestLoss? down = null, SpeedTestLoss? idle = null) =>
+        new(TestSeries.Start.AddHours(6), downMbps, 490, IdleLoss: idle, DownloadLoss: down);
+
+    [Fact]
+    public void Speed_test_loaded_loss_joins_a_clean_monitoring_pool()
+    {
+        var inputs = BuildInputs(speedTests: [LossyTest(980, down: new SpeedTestLoss(2.0, 400))]);
+
+        LoadedLossValueText(inputs).Should().NotStartWith("0% down").And.NotStartWith("n/a down");
+    }
+
+    [Fact]
+    public void Speed_test_that_did_not_fill_the_pipe_adds_no_loaded_loss()
+    {
+        var inputs = BuildInputs(speedTests: [LossyTest(500, down: new SpeedTestLoss(2.0, 400))]);
+
+        LoadedLossValueText(inputs).Should().StartWith("0% down");
+    }
+
+    [Fact]
+    public void Speed_tests_alone_grade_loaded_loss_on_a_line_never_loaded_otherwise()
+    {
+        var inputs = BuildInputs(lineIdle: true, speedTests: [LossyTest(980, down: new SpeedTestLoss(1.0, 400))]);
+
+        LoadedLossValueText(inputs).Should().NotStartWith("n/a down");
+    }
+
+    [Fact]
+    public void Speed_test_idle_loss_joins_packet_loss()
+    {
+        int? PacketLossScore(SpeedTestSample test) => new IspHealthScorer(Options)
+            .Score(BuildInputs(lineIdle: true, speedTests: [test]), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Packet Loss").Score;
+
+        var clean = PacketLossScore(LossyTest(980, idle: new SpeedTestLoss(0, 500)));
+        var lossy = PacketLossScore(LossyTest(980, idle: new SpeedTestLoss(2.0, 500)));
+
+        lossy.Should().BeLessThan(clean!.Value);
+    }
+
     [Fact]
     public void A_direction_that_never_reported_costs_the_factor_half_its_weight()
     {

@@ -82,7 +82,7 @@ public class IspHealthScorer
         var avgLoad = ComputeAverageLoad(inputs);
         var (speedVsPlan, bestSpeedTest, typicalDownMbps, typicalUpMbps) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
-        var packetLoss = ScorePacketLoss(inputs.LossPoolSeries, profile, avgLoad);
+        var packetLoss = ScorePacketLoss(inputs, profile, avgLoad);
         var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows);
 
         // The path jitter floor: the quietest median jitter measured anywhere along the
@@ -864,7 +864,7 @@ public class IspHealthScorer
         };
     }
 
-    private IspScoreFactor ScorePacketLoss(List<List<LatencySample>> lossPool, AccessProfile profile, double avgLoad)
+    private IspScoreFactor ScorePacketLoss(IspHealthInputs inputs, AccessProfile profile, double avgLoad)
     {
         // Steady loss is graded on samples OUTSIDE any outage span, so the number reflects
         // true physical-layer loss rather than a discrete internet-down event. Outages are
@@ -873,9 +873,12 @@ public class IspHealthScorer
         // selects a genuinely idle baseline) - the load-calibrated ceiling below compensates
         // for load-driven loss instead. Loaded Loss then re-grades just the loaded subset
         // against the profile's loaded band.
-        var losses = lossPool.SelectMany(series => series)
+        // WAN speed tests' idle phases join the pool weighted by their probe count.
+        var bursts = SpeedTestLossBursts(inputs, upstream: null);
+        var losses = inputs.LossPoolSeries.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
-            .Select(s => _gatewayFloor.Apply(s.LossPercent!.Value, s.Time))
+            .Select(s => (Value: _gatewayFloor.Apply(s.LossPercent!.Value, s.Time), Weight: 1.0))
+            .Concat(bursts.Select(b => (b.Value, Weight: SamplesWorth(b.Probes))))
             .ToList();
         if (losses.Count == 0)
         {
@@ -887,7 +890,7 @@ public class IspHealthScorer
             };
         }
 
-        var meanLoss = losses.Average();
+        var meanLoss = SeriesStats.WeightedMean(losses) ?? 0;
         // Calibrate the acceptable loss ceiling to the average load over the window. An idle
         // line should drop ~nothing; loss only climbs as utilization approaches saturation,
         // so the ceiling rises QUADRATICALLY in load - staying near the idle threshold at low
@@ -910,7 +913,7 @@ public class IspHealthScorer
             Score = (int)Math.Round(score),
             Weight = _options.PacketLossWeight,
             ValueText = FormatPct(meanLoss),
-            Description = $"Average loss across ISP, transit, and anycast DNS targets vs the {FormatPct(acceptable)} ceiling for {profile.DisplayName} at {avgLoad.ToString("0%", CultureInfo.InvariantCulture)} average load."
+            Description = $"Average loss across ISP, transit, and anycast DNS targets{(bursts.Count > 0 ? ", and WAN speed tests" : "")} vs the {FormatPct(acceptable)} ceiling for {profile.DisplayName} at {avgLoad.ToString("0%", CultureInfo.InvariantCulture)} average load."
         };
     }
 
@@ -1194,13 +1197,45 @@ public class IspHealthScorer
             SpeedTestFrom(DateTime.MinValue)));
     }
 
+    /// <summary>
+    /// One phase's packet loss from each WAN speed test in the window: idle when
+    /// <paramref name="upstream"/> is null, otherwise the loaded phase in that direction. A loaded
+    /// phase counts only when the test filled the pipe, the gate loaded latency applies. Floored by
+    /// gateway loss like a monitoring sample.
+    /// </summary>
+    private List<(DateTime Time, double Value, int Probes, int Lost)> SpeedTestLossBursts(IspHealthInputs inputs, bool? upstream)
+    {
+        var found = new List<(DateTime Time, double Value, int Probes, int Lost)>();
+        foreach (var test in inputs.WanSpeedTests)
+        {
+            if (test.Time < inputs.WindowStart || test.Time > inputs.WindowEnd || InOutage(test.Time)) continue;
+            var loss = upstream switch { null => test.IdleLoss, true => test.UploadLoss, false => test.DownloadLoss };
+            if (loss == null || loss.Probes < _options.SpeedTestLossMinProbes) continue;
+
+            if (upstream is bool up)
+            {
+                var achieved = up ? test.UploadMbps : test.DownloadMbps;
+                var expected = up ? inputs.ExpectedUploadMbps : inputs.ExpectedDownloadMbps;
+                if (!(expected > 0) || achieved < expected * _options.LoadedLatencySpeedTestMinPlanFraction)
+                    continue;
+            }
+            found.Add((test.Time, _gatewayFloor.Apply(loss.Percent, test.Time), loss.Probes, loss.Lost));
+        }
+        return found;
+    }
+
+    /// <summary>How many monitoring loss samples a speed test burst of this many probes is worth.</summary>
+    private double SamplesWorth(int probes) => (double)probes / Math.Max(1, _options.LossSamplePings);
+
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
         IspHealthInputs inputs,
         List<List<LatencySample>> lossPool,
         Dictionary<DateTime, LoadWindow> loadWindows,
         AccessProfile profile)
     {
-        if (loadWindows.Count == 0)
+        if (loadWindows.Count == 0
+            && SpeedTestLossBursts(inputs, upstream: false).Count == 0
+            && SpeedTestLossBursts(inputs, upstream: true).Count == 0)
         {
             return (new IspScoreFactor
             {
@@ -1328,15 +1363,24 @@ public class IspHealthScorer
                 Weight: SeriesStats.RecencyWeight(inputs.WindowEnd - s.Time, _options.LoadedLatencyRecencyHalfLifeHours)
                     * loadWeight(s.Key) * s.Coverage))
             .ToList();
+
+        // WAN speed tests: each is a saturated episode by definition (no load weighting), worth its
+        // probes in monitoring samples. They fill in where passive load episodes are rare.
+        var bursts = SpeedTestLossBursts(inputs, upstream);
+        foreach (var b in bursts)
+            weighted.Add((b.Value,
+                SeriesStats.RecencyWeight(inputs.WindowEnd - b.Time, _options.LoadedLatencyRecencyHalfLifeHours)
+                    * SamplesWorth(b.Probes)));
         var weightedMean = SeriesStats.WeightedMean(weighted);
 
-        var lossy = losses.Count(l => l > 0);
+        var lossy = losses.Count(l => l > 0) + bursts.Sum(b => b.Lost);
         // Counted at the RATE series' own spacing, not LoadWindowSeconds. On a long window the rates
         // are aggregated coarser than the window, so loaded keys are never adjacent and one six-hour
         // saturation counts as hundreds of episodes.
         var episodes = SeriesStats
             .LoadEpisodeStarts(loaded.Keys, EpisodeGroupSeconds(inputs))
-            .Values.Distinct().Count();
+            .Values.Distinct().Count() + bursts.Count;
+        var sampleCount = losses.Count + bursts.Sum(b => SamplesWorth(b.Probes));
         // Both means, because the reported one is the WEIGHTED one: the raw mean alone read 0.63%
         // for a figure the panel showed as 2.1%. The heaviest sample's weight share explains that
         // gap - it says when the credibility weighting handed one sample the whole answer.
@@ -1352,15 +1396,15 @@ public class IspHealthScorer
             }
             _logger.LogDebug(
                 "ISP Health: loaded loss {Direction} pool {Count} sample(s) from {Windows} loaded window key(s) over "
-                + "{Episodes} episode(s), {Lossy} with loss, {Dark} at/above 99%; {Mean}% raw mean -> {Weighted}% "
-                + "weighted, heaviest sample holds {Share}% of the weight",
-                direction, losses.Count, loaded.Keys.Count, episodes, lossy, losses.Count(l => l >= 99.0),
+                + "{Episodes} episode(s) incl. {Tests} WAN speed test(s), {Lossy} with loss, {Dark} at/above 99%; "
+                + "{Mean}% raw mean -> {Weighted}% weighted, heaviest sample holds {Share}% of the weight",
+                direction, losses.Count, loaded.Keys.Count, episodes, bursts.Count, lossy, losses.Count(l => l >= 99.0),
                 losses.Count > 0 ? losses.Average().ToString("0.##", CultureInfo.InvariantCulture) : "n/a",
                 weightedMean?.ToString("0.##", CultureInfo.InvariantCulture) ?? "n/a",
                 (totalWeight > 0 ? topWeight / totalWeight * 100 : 0).ToString("0.#", CultureInfo.InvariantCulture));
         }
 
-        if (losses.Count < _options.MinLoadedSamples) return null;
+        if (sampleCount < _options.MinLoadedSamples) return null;
 
         // A rate needs more than one observation. A five-ping probe quantizes to 20% steps, so one
         // dropped ping in one scheduled speed test can otherwise be the entire figure - and the
@@ -1376,7 +1420,7 @@ public class IspHealthScorer
             return null;
         }
 
-        return weightedMean ?? losses.Average();
+        return weightedMean ?? losses.Concat(bursts.Select(b => b.Value)).Average();
     }
 
     // Loaded window keys per direction for the current report. Both lists are filled on the first
