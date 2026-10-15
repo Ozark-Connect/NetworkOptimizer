@@ -60,6 +60,19 @@ public class RolloutSnapshotBuilderTests
         planner.IpAddress.Should().Be("192.0.2.10");
     }
 
+    [Theory]
+    [InlineData(0, true)]   // Disconnected
+    [InlineData(1, false)]  // Connected
+    [InlineData(4, false)]  // Upgrading
+    [InlineData(6, false)]  // HeartbeatMissed
+    public void FromDevices_OnlyADisconnectedDevice_IsOffline(int state, bool offline)
+    {
+        var device = Discovered();
+        device.State = state;
+
+        RolloutSnapshotBuilder.FromDevices([device]).Single().Offline.Should().Be(offline);
+    }
+
     [Fact]
     public void FromDevices_UnnamedDevice_FallsBackToTheFriendlyModelName()
     {

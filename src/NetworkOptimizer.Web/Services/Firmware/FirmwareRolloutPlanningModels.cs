@@ -55,6 +55,12 @@ public class PlannerDevice
     /// <summary>Effective device type (UniFi re-classification already applied).</summary>
     public DeviceType Type { get; init; }
 
+    /// <summary>
+    /// Disconnected from the Console at plan time, so it covers nothing while others upgrade.
+    /// Opt-in rather than "connected" so a snapshot that never set it counts the device as up.
+    /// </summary>
+    public bool Offline { get; init; }
+
     /// <summary>Whether the console offers an upgrade for this device.</summary>
     /// <remarks>Cleared during the gather when the planned channel offers nothing newer.</remarks>
     public bool Upgradable { get; set; }
@@ -191,14 +197,14 @@ public class ResolvedSpacing
 
     /// <summary>
     /// Share of the site's APs that may upgrade together when real placement data backs the
-    /// coverage answer. The flat cap is a floor, so small sites are unchanged; a large site stops
-    /// being throttled to a handful at a time when the oracle can prove the set is neighbor-free.
+    /// coverage answer. A large site stops being throttled to a handful at a time when the oracle
+    /// can prove the set is neighbor-free.
     /// </summary>
     public int ApCoveragePercent { get; init; }
 
     /// <summary>
     /// Share of the site's APs that may upgrade together when no placement data says which ones
-    /// overlap. Always a share, never a count, so a small site keeps most of its coverage up.
+    /// overlap, so a small site keeps most of its coverage up. The flat cap still bounds it.
     /// </summary>
     public double ApUnplacedPercent { get; init; }
 
@@ -403,6 +409,18 @@ public class RolloutPlanDocument
     /// starts - so it has to survive a restart mid-rollout.
     /// </summary>
     public DateTime? LastWaveCommandedAt { get; set; }
+
+    /// <summary>
+    /// Every AP on the site at plan time, upgrading or not. The executor holds a wave that would
+    /// take the last one still up. Empty on plans built before that check, which skip it.
+    /// </summary>
+    public List<string> SiteApMacs { get; set; } = [];
+
+    /// <summary>
+    /// When the executor started holding a wave because it would take the last AP still up.
+    /// Persisted so the timeout that skips the wave survives a restart.
+    /// </summary>
+    public DateTime? LastApHoldSince { get; set; }
 
     /// <summary>Human-readable assumptions and fallbacks used (shown in the preview).</summary>
     public List<string> Notes { get; set; } = [];

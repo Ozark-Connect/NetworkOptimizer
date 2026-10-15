@@ -2492,6 +2492,38 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
         }
 
+        // A failed AP that stays offline has settled, so the cap no longer counts it. Hold a wave
+        // that would take the last AP still up, then skip it rather than leave the site without Wi-Fi.
+        if (!inFlightWaves.Contains(wave))
+        {
+            if (TakesLastApUp(document, steps, waveSteps, byMac))
+            {
+                document.LastApHoldSince ??= Now;
+                if (Now - document.LastApHoldSince.Value >= LastApHoldTimeout)
+                {
+                    foreach (var step in waveSteps.Where(s => !IsSettled(s) && IsAccessPointStep(s)))
+                    {
+                        step.State = FirmwareRolloutStepState.AbortedSku;
+                        step.Error = "Skipped: it was the last access point still online";
+                        await PersistStepAsync(step, cancellationToken);
+                        _logger.LogWarning(
+                            "Skipped {Ap} on site {Site}: it was the last access point still online",
+                            step.DeviceName, _siteSlug);
+                    }
+                    document.LastApHoldSince = null;
+                }
+                plan.PlanJson = JsonSerializer.Serialize(document);
+                await PersistPlanAsync(plan, cancellationToken);
+                return;
+            }
+            if (document.LastApHoldSince != null)
+            {
+                document.LastApHoldSince = null;
+                plan.PlanJson = JsonSerializer.Serialize(document);
+                await PersistPlanAsync(plan, cancellationToken);
+            }
+        }
+
         if (waveSteps.All(s => s.State == FirmwareRolloutStepState.Held))
         {
             // Nothing in this wave can move and no canary is left to release it. Rather than stall
@@ -3488,6 +3520,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var type = FirmwareDeviceTypes.Parse(step.DeviceType);
         return FirmwareTimingEstimator.OfflineBudgetSeconds(
             FirmwareTimingEstimator.Classify(type, step.Model, step.Model));
+    }
+
+    /// <summary>How long a wave waits on an offline AP before it is skipped as the last one up.</summary>
+    internal static readonly TimeSpan LastApHoldTimeout = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Whether commanding this wave leaves no AP on the site online. False on plans without the
+    /// site's AP list, and while the Console is dark: nothing it says can be judged then.
+    /// </summary>
+    private static bool TakesLastApUp(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        List<FirmwareRolloutStep> waveSteps,
+        Dictionary<string, RolloutDeviceObservation> byMac)
+    {
+        if (document.SiteApMacs.Count < 2 || byMac.Count == 0)
+            return false;
+
+        var going = waveSteps.Where(IsAccessPointStep)
+            .Concat(steps.Where(IsInFlight))
+            .Select(s => s.DeviceMac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!waveSteps.Any(IsAccessPointStep))
+            return false;
+
+        return !document.SiteApMacs.Any(mac => !going.Contains(mac)
+            && byMac.TryGetValue(mac, out var seen)
+            && seen.State != (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Disconnected);
     }
 
     private static int InFlightCount(IEnumerable<FirmwareRolloutStep> steps, DeviceType type) =>

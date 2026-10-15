@@ -201,47 +201,61 @@ public class RolloutPlannerTests
     }
 
     [Fact]
-    public void ApCap_WithPlacementData_IsNeverBelowTheUnplacedShare()
+    public void ApCap_WithPlacementData_ScalesWithTheFleet()
     {
-        // 40 placed APs, none neighbors: the placement-backed 10% is 4, but a Signal Map must not
-        // make the rollout slower than the same site without one (a third, so 13).
+        // 40 placed APs, none neighbors: Balanced allows 10% of the fleet, above the flat 3.
         var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 40);
 
         var doc = Plan(ApFleet(40, "11"), neighbors: oracle).Document;
-
-        doc.Waves[0].Steps.Count.Should().Be(13);
-    }
-
-    [Fact]
-    public void ApCap_LargeFleetWithoutPlacementData_IsAShareOfTheFleet()
-    {
-        var oracle = new ApNeighborOracle(hasPlacementData: false);
-
-        var doc = Plan(ApFleet(40, "12"), neighbors: oracle).Document;
-
-        doc.Waves[0].Steps.Count.Should().Be(13);
-    }
-
-    [Fact]
-    public void ApCap_SmallFleetWithoutPlacementData_IsAShareOfTheFleet()
-    {
-        var oracle = new ApNeighborOracle(hasPlacementData: false);
-
-        var doc = Plan(ApFleet(12, "13"), neighbors: oracle).Document;
 
         doc.Waves[0].Steps.Count.Should().Be(4);
     }
 
     [Fact]
-    public void ApCap_BarelyPlacedFleet_StillGetsTheUnplacedShare()
+    public void ApCap_WithPlacementData_IsNeverBelowTheUnplacedCap()
     {
-        // Two placed APs out of 40 earn almost none of the placement-backed share, so the unplaced
-        // share decides.
+        // The flat cap is raised to 20, so the unplaced cap is the third (13): a Signal Map that
+        // earns only 10% must not make the rollout slower than having none.
+        var settings = Settings(advancedSpacingJson: """{"maxApParallelism":20}""");
+        var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 2);
+
+        var doc = Plan(ApFleet(40, "1c"), settings, neighbors: oracle).Document;
+
+        doc.MaxApsInFlight.Should().Be(20);
+        Plan(ApFleet(40, "1d"), settings).Document.MaxApsInFlight.Should().Be(13);
+    }
+
+    [Fact]
+    public void ApCap_LargeFleetWithoutPlacementData_KeepsTheLargeFleetCount()
+    {
+        // A third would be 13; the large-fleet 10% (4) is the ceiling, as it was before the share.
+        var oracle = new ApNeighborOracle(hasPlacementData: false);
+
+        var doc = Plan(ApFleet(40, "12"), neighbors: oracle).Document;
+
+        doc.Waves[0].Steps.Count.Should().Be(4);
+    }
+
+    [Fact]
+    public void ApCap_MidFleetWithoutPlacementData_KeepsTheFlatCount()
+    {
+        // A third would be 4; the flat 3 is the ceiling.
+        var oracle = new ApNeighborOracle(hasPlacementData: false);
+
+        var doc = Plan(ApFleet(12, "13"), neighbors: oracle).Document;
+
+        doc.Waves[0].Steps.Count.Should().Be(3);
+    }
+
+    [Fact]
+    public void ApCap_BarelyPlacedFleet_GetsTheUnplacedCap()
+    {
+        // Two placed APs out of 40 earn almost none of the placement-backed share.
         var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 2);
 
         var doc = Plan(ApFleet(40, "14"), neighbors: oracle).Document;
 
-        doc.Waves[0].Steps.Count.Should().Be(13);
+        doc.Waves[0].Steps.Count.Should().Be(4);
     }
 
     [Theory]
@@ -270,17 +284,32 @@ public class RolloutPlannerTests
     }
 
     [Fact]
-    public void ApCap_TwoPlacedApsThatDoNotOverlap_MayGoDownTogether()
+    public void ApCap_TwoPlacedApsThatDoNotOverlap_NeverGoDownTogether()
     {
+        // Not neighbors, so nothing keeps them apart but the cap: both down is no Wi-Fi anywhere.
         var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 2);
 
         var doc = Plan(ApFleet(2, "17"), neighbors: oracle).Document;
 
-        doc.Waves[0].Steps.Should().HaveCount(2);
+        doc.Waves.Should().OnlyContain(w => w.Steps.Count == 1);
+        doc.Waves[1].MayOverlapWaves.Should().BeEmpty();
     }
 
     [Theory]
-    [InlineData(FirmwareSpacingProfile.Conservative, 10, 2)]
+    [InlineData(FirmwareSpacingProfile.Balanced, 3, 2)]
+    [InlineData(FirmwareSpacingProfile.Fast, 6, 5)]
+    [InlineData(FirmwareSpacingProfile.Fast, 7, 6)]
+    public void ApCap_PlacedSite_NeverTakesEveryApAtOnce(FirmwareSpacingProfile profile, int aps, int expected)
+    {
+        var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: aps);
+
+        var doc = Plan(ApFleet(aps, "1a"), Settings(profile: profile), neighbors: oracle).Document;
+
+        doc.MaxApsInFlight.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(FirmwareSpacingProfile.Conservative, 10, 1)]
     [InlineData(FirmwareSpacingProfile.Balanced, 6, 2)]
     [InlineData(FirmwareSpacingProfile.Fast, 4, 2)]
     [InlineData(FirmwareSpacingProfile.Fast, 3, 1)]
@@ -289,6 +318,123 @@ public class RolloutPlannerTests
         var doc = Plan(ApFleet(aps, "18"), Settings(profile: profile)).Document;
 
         doc.MaxApsInFlight.Should().Be(expected);
+    }
+
+    /// <summary>A current gateway, one current switch per entry, and that many APs on each.</summary>
+    private static List<PlannerDevice> SwitchedFleet(params int[] apsPerSwitch)
+    {
+        var devices = new List<PlannerDevice> { Gw(upgradable: false) };
+        for (var s = 0; s < apsPerSwitch.Length; s++)
+        {
+            var sw = $"aa:bb:cc:dd:30:{s:x2}";
+            devices.Add(Sw(sw, $"Switch-{s}", $"SKU-SW{s}", GatewayMac, upgradable: false));
+            for (var i = 0; i < apsPerSwitch[s]; i++)
+                devices.Add(Ap($"aa:bb:cc:{s:x2}:31:{i:x2}", $"AP-{s}-{i}", $"SKU-AP{s}-{i}", sw));
+        }
+        return devices;
+    }
+
+    private static Dictionary<string, int> ApsPerSwitch(PlanWave wave, List<PlannerDevice> devices) => wave.Steps
+        .Select(s => devices.Single(d => d.Mac == s.Mac))
+        .Where(d => d.Type == DeviceType.AccessPoint)
+        .GroupBy(d => d.UplinkMac!)
+        .ToDictionary(g => g.Key, g => g.Count());
+
+    // The spread tests raise the flat cap so the site-wide cap is the third, and the per-switch
+    // limit is what binds.
+    private static FirmwareRolloutSettings WideOpen() =>
+        Settings(advancedSpacingJson: """{"maxApParallelism":20}""");
+
+    [Fact]
+    public void Spread_Unplaced_EachSwitchKeepsItsShareUp()
+    {
+        // Four switches of ten: the site-wide cap is 13, but no switch may lose more than 3.
+        var devices = SwitchedFleet(10, 10, 10, 10);
+
+        var doc = Plan(devices, WideOpen()).Document;
+
+        doc.Waves[0].Steps.Should().HaveCount(12);
+        foreach (var wave in doc.Waves)
+            ApsPerSwitch(wave, devices).Values.Should().OnlyContain(n => n <= 3);
+    }
+
+    [Fact]
+    public void Spread_Unplaced_EachSwitchUsesItsOwnShare()
+    {
+        var devices = SwitchedFleet(30, 10);
+
+        var doc = Plan(devices, WideOpen()).Document;
+
+        var first = ApsPerSwitch(doc.Waves[0], devices);
+        first["aa:bb:cc:dd:30:00"].Should().Be(10);
+        first["aa:bb:cc:dd:30:01"].Should().Be(3);
+    }
+
+    [Fact]
+    public void Spread_Unplaced_OneSwitchFallsBackToTheSiteShare()
+    {
+        var doc = Plan(SwitchedFleet(8)).Document;
+
+        doc.Waves.Select(w => w.Steps.Count).Should().Equal(2, 2, 2, 2);
+    }
+
+    [Fact]
+    public void Spread_Unplaced_WavesOnOneSwitchNeverOverlap()
+    {
+        var devices = SwitchedFleet(10, 10);
+
+        var doc = Plan(devices, WideOpen()).Document;
+
+        foreach (var wave in doc.Waves)
+        {
+            foreach (var earlier in wave.MayOverlapWaves.Select(n => doc.Waves.Single(w => w.Number == n)))
+            {
+                ApsPerSwitch(wave, devices).Keys.Should().NotIntersectWith(ApsPerSwitch(earlier, devices).Keys);
+            }
+        }
+    }
+
+    [Fact]
+    public void Spread_Placed_DoesNotApply()
+    {
+        // The propagation model separates placed APs, so one switch may fill the whole cap.
+        var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 40);
+
+        var doc = Plan(SwitchedFleet(40), WideOpen(), neighbors: oracle).Document;
+
+        doc.Waves[0].Steps.Should().HaveCount(20);
+    }
+
+    [Fact]
+    public void ApCap_OfflineAp_DoesNotCountAsTheOneThatStaysUp()
+    {
+        // Three placed APs, one offline: the two online ones must not go down together.
+        var oracle = new ApNeighborOracle(hasPlacementData: true, placedApCount: 3);
+        var devices = new List<PlannerDevice>
+        {
+            Gw(upgradable: false),
+            Ap("aa:bb:cc:dd:32:01", "AP-1", "SKU-AP1"),
+            Ap("aa:bb:cc:dd:32:02", "AP-2", "SKU-AP2"),
+            new()
+            {
+                Mac = "aa:bb:cc:dd:32:03", Name = "AP-3", Model = "SKU-AP3", DisplayModel = "SKU-AP3",
+                Type = DeviceType.AccessPoint, Offline = true,
+            },
+        };
+
+        var doc = Plan(devices, neighbors: oracle).Document;
+
+        doc.MaxApsInFlight.Should().Be(1);
+    }
+
+    [Fact]
+    public void ApCap_UnplacedShareOverride_StillNeverTakesEveryAp()
+    {
+        var settings = Settings(advancedSpacingJson: """{"apUnplacedPercent":100}""");
+
+        var doc = Plan(ApFleet(4, "1b"), settings).Document;
+
+        doc.MaxApsInFlight.Should().Be(3);
     }
 
     [Fact]
@@ -1372,7 +1518,7 @@ public class RolloutPlannerTests
     {
         var doc = Plan(ApFleet(2, "20")).Document;
 
-        doc.Notes.Should().Contain("No AP placement or roaming data, so at most 1 of the 2 APs upgrade at once.");
+        doc.Notes.Should().Contain("No AP placement or roaming data, so no more than one of this site's 2 APs will be down at once.");
     }
 
     [Fact]
