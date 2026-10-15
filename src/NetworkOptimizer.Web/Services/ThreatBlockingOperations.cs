@@ -162,8 +162,11 @@ public sealed class ThreatBlockingOperations
             }
         }
 
+        // A Detection Only record whose source now has a real block is superseded by it.
+        var active = blocks.Where(b => b.IsActive(now)).ToList();
+        var enforced = active.Where(b => b.Enforced).Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return new BlockingOverview(config,
-            blocks.Where(b => b.IsActive(now)).ToList(),
+            active.Where(b => b.Enforced || !enforced.Contains(b.SourceIp)).ToList(),
             blocks.Where(b => !b.IsActive(now)).ToList(),
             shared,
             _blocking.TargetStatus(site));

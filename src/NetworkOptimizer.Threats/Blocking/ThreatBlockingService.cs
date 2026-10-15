@@ -252,7 +252,9 @@ public sealed class ThreatBlockingService : BackgroundService
             var counts = await repository.GetWafEventCountsBySourceAsync(windowStart, now, ct);
             var patterns = settings.UsePatterns ? await repository.GetPatternsSeenAsync(windowStart, now, ct) : [];
             var current = await repository.GetBlocksAsync(now, now, ct);
-            var active = current.Where(b => b.IsActive(now)).Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // In Blocking mode a Detection Only record is not a block: a source still attacking gets a real one.
+            var active = current.Where(b => b.IsActive(now) && (b.Enforced || settings.Mode != BlockingMode.Enforce))
+                .Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var strikes = await repository.GetBlockCountsBySourceAsync(now - BlockDecisionEngine.StrikeWindow, ct);
 
             var decided = BlockDecisionEngine.Decide(settings, now, counts, patterns, active, strikes, allowlist);
