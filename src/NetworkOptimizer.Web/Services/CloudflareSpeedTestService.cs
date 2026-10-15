@@ -53,8 +53,9 @@ public partial class CloudflareSpeedTestService : WanSpeedTestServiceBase
         IConfiguration configuration,
         Iperf3ServerService iperf3ServerService,
         Licensing.LicenseStateService licenseState,
-        IAlertEventBus? alertEventBus = null)
-        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus, licenseState: licenseState)
+        IAlertEventBus? alertEventBus = null,
+        MonitoringInfluxRegistry? influxRegistry = null)
+        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus, licenseState: licenseState, influxRegistry: influxRegistry)
     {
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;

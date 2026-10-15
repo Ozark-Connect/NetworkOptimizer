@@ -27,6 +27,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly NetworkOptimizer.Storage.Services.MonitoringInfluxClient? _influx;
+    private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly ApAgent.ApAgentTargetDirectory? _apAgents;
     private readonly Licensing.LicenseStateService? _licenseState;
     private readonly Monitoring.SiteVantageDnsResolver? _dnsResolver;
@@ -35,6 +36,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly string _siteSlug;
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     /// <summary>
     /// Throws when this site is license-restricted. New client speed test
@@ -54,6 +56,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         ITopologySnapshotService snapshotService,
         IConfiguration configuration,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        IServiceScopeFactory scopeFactory,
         MonitoringInfluxRegistry? influxRegistry = null,
         ApAgent.ApAgentTargetDirectory? apAgents = null,
         Licensing.LicenseStateService? licenseState = null,
@@ -77,7 +80,9 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _configuration = configuration;
         _alertEventBus = alertEventBus;
         _siteDbFactory = siteDbFactory;
+        _scopeFactory = scopeFactory;
         _influx = influxRegistry?.GetFor(_siteSlug);
+        _influxRegistry = influxRegistry;
         _apAgents = apAgents;
         _neighborTable = gatewaySshRegistry?.GetNeighborTableFor(_siteSlug);
     }
@@ -260,11 +265,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
             LocationAccuracyMeters = locationAccuracy
         };
 
-        // Save immediately so client doesn't wait
+        // Save immediately so client doesn't wait for enrichment.
         await using var db = await CreateSiteDbAsync();
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
         var resultId = result.Id;
+        if (!isWan)
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
 
         _logger.LogInformation(
             "Recorded OpenSpeedTest{Wan} result (site {Site}): {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps{Server}",
@@ -358,6 +365,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 _snapshotService.RemoveSnapshot(_siteSlug, clientIp);
 
             await db.SaveChangesAsync();
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, recentResult, _logger);
 
             _logger.LogInformation(
                 "Merged iperf3 result: {ClientIp} ({ClientName}) - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
@@ -390,6 +398,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
         var resultId = result.Id;
+        await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
 
         _logger.LogInformation(
             "Recorded iperf3 client result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
@@ -552,6 +561,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
 
         db.Iperf3Results.Remove(result);
         await db.SaveChangesAsync();
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, result, _logger);
         _logger.LogInformation("Deleted speed test result {Id} for {DeviceHost}", id, result.DeviceHost);
         return true;
     }
@@ -1036,6 +1046,28 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 return;
             }
 
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+            {
+                var original = (Iperf3Result)db.Entry(result).CurrentValues.Clone().ToObject();
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+                    using var caller = Identity.SystemScope.Enter(scope.ServiceProvider, "speedtest:wan");
+                    var wans = await scope.ServiceProvider.GetRequiredService<ISqmService>().GetWanInterfacesFromControllerAsync();
+                    if (wans.Count == 1) result.WanNetworkGroup = wans[0].NetworkGroup;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not identify the sole WAN for browser speed test on site {Site}", _siteSlug);
+                }
+                await db.SaveChangesAsync();
+                if (result.WanNetworkGroup != original.WanNetworkGroup)
+                    await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, original, _logger);
+                else
+                    await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, result, _logger);
+            }
+
             // An IPv6 source is matched to its device first, so the lookup below can go by MAC
             await ResolveIpv6ClientMacAsync(result);
 
@@ -1066,6 +1098,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 _snapshotService.RemoveSnapshot(_siteSlug, result.DeviceHost);
 
             await db.SaveChangesAsync();
+
+            await SpeedTestInfluxExporter.ExportMetadataAsync(_influxRegistry, _siteSlug, result, _logger);
 
             _logger.LogDebug("Background enrichment complete for result {Id}: {DeviceName}",
                 resultId, result.DeviceName ?? result.DeviceHost);
