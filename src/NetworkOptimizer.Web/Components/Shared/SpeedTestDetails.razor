@@ -113,6 +113,10 @@
             </div>
         }
     </div>
+    @if (Result != null && WanTestBackgroundCheck.InvalidMessage(Result) is { } invalidMessage)
+    {
+        <div class="alert alert-warning speedtest-invalid-alert">@invalidMessage</div>
+    }
     @if (DownloadRetransmits > 0 || UploadRetransmits > 0)
     {
         <div class="retransmits-info">
@@ -164,16 +168,20 @@
         {
             <span>Jitter <code>@(JitterMs.Value.ToString("F1")) ms</code></span>
         }
+        @if (_idleLossPercent.HasValue)
+        {
+            <span>Loss <code>@(_idleLossPercent.Value.ToString("F2"))%</code></span>
+        }
         @if (First.LatencyMs.HasValue)
         {
             <span data-tooltip="Latency measured while downloading (link saturated). High values indicate bufferbloat.">
-                Loaded ↓ <code>@(First.LatencyMs.Value.ToString("F1")) ms@(First.JitterMs is > 0 ? $" ({First.JitterMs.Value:F1} jitter)" : "")</code>
+                Loaded ↓ <code>@(First.LatencyMs.Value.ToString("F1")) ms@(LoadedExtras(First))</code>
             </span>
         }
         @if (Second.LatencyMs.HasValue)
         {
             <span data-tooltip="Latency measured while uploading (link saturated). High values indicate bufferbloat.">
-                Loaded ↑ <code>@(Second.LatencyMs.Value.ToString("F1")) ms@(Second.JitterMs is > 0 ? $" ({Second.JitterMs.Value:F1} jitter)" : "")</code>
+                Loaded ↑ <code>@(Second.LatencyMs.Value.ToString("F1")) ms@(LoadedExtras(Second))</code>
             </span>
         }
     </div>
@@ -549,13 +557,27 @@
 
     /// <summary>One side of the pair as this perspective shows it.</summary>
     private readonly record struct Figure(string Label, string Short, string Tip, double Mbps, long Bytes,
-        int Retransmits, double? LatencyMs, double? JitterMs, bool IsFromDevice);
+        int Retransmits, double? LatencyMs, double? JitterMs, double? LossPercent, bool IsFromDevice);
 
     private Figure FromDevice(string label, string shortLabel, string tip) => new(label, shortLabel, tip,
-        DownloadMbps, DownloadBytes, DownloadRetransmits, DownloadLatencyMs, DownloadJitterMs, IsFromDevice: true);
+        DownloadMbps, DownloadBytes, DownloadRetransmits, DownloadLatencyMs, DownloadJitterMs, _downloadLossPercent, IsFromDevice: true);
 
     private Figure ToDevice(string label, string shortLabel, string tip) => new(label, shortLabel, tip,
-        UploadMbps, UploadBytes, UploadRetransmits, UploadLatencyMs, UploadJitterMs, IsFromDevice: false);
+        UploadMbps, UploadBytes, UploadRetransmits, UploadLatencyMs, UploadJitterMs, _uploadLossPercent, IsFromDevice: false);
+
+    // Packet loss from UWN WAN tests; null for every other result and for binaries before loss probing.
+    private double? _idleLossPercent;
+    private double? _downloadLossPercent;
+    private double? _uploadLossPercent;
+
+    /// <summary>The parenthetical after a loaded latency: its jitter and packet loss, when measured.</summary>
+    private static string LoadedExtras(Figure figure)
+    {
+        var parts = new List<string>();
+        if (figure.JitterMs is > 0) parts.Add($"{figure.JitterMs.Value:F1} jitter");
+        if (figure.LossPercent.HasValue) parts.Add($"{figure.LossPercent.Value:F2}% loss");
+        return parts.Count > 0 ? $" ({string.Join(", ", parts)})" : "";
+    }
 
     /// <summary>
     /// Whether the trace reads in the device's frame: TX to the device is its download and comes
@@ -703,6 +725,9 @@
             DownloadJitterMs = Result.DownloadJitterMs;
             UploadLatencyMs = Result.UploadLatencyMs;
             UploadJitterMs = Result.UploadJitterMs;
+            _idleLossPercent = Result.IdleLossPercent;
+            _downloadLossPercent = Result.DownloadLossPercent;
+            _uploadLossPercent = Result.UploadLossPercent;
 
             // Sync PathAnalysis from Result when Result changes
             // This ensures we don't show stale analysis from a previous test
