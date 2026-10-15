@@ -162,7 +162,7 @@ public static class PortStatsEndpoints
                                     friendlyName = liveStats.GetInterfaceLabel(mac, p.IfName)
                                         ?? ResolveFriendly(mac, p.IfName),
                                     isSfp = nm?.IsSfp ?? parent?.IsSfp,
-                                    linkSpeedMbps = nm?.SpeedMbps,
+                                    linkSpeedMbps = LinkSpeedAt(p, type, historic: at.HasValue) ?? nm?.SpeedMbps,
                                     operStatus = p.OperStatus,
                                     rateInBps = p.RateInBps,
                                     rateOutBps = p.RateOutBps,
@@ -201,6 +201,21 @@ public static class PortStatsEndpoints
     // table (see JunkSwitchInterface). Callers gate this on device type == "switch".
     private static bool IsJunkSwitchInterface(string? ifName) =>
         !string.IsNullOrEmpty(ifName) && JunkSwitchInterface.IsMatch(ifName);
+
+    /// <summary>
+    /// A historic scrub's link speed at the instant, or null to fall back to the name map (today's
+    /// speed). Gateways use only the console-recorded speed: their built-in switch ports report the
+    /// 10G switch conduit over SNMP. Switches and APs report correctly, so their SNMP sample counts
+    /// while the port is up.
+    /// </summary>
+    internal static int? LinkSpeedAt(MonitoringInfluxClient.PortStatsPoint p, string deviceType, bool historic)
+    {
+        if (!historic) return null;
+        if (p.LinkSpeedMbps is > 0) return p.LinkSpeedMbps;
+        if (deviceType is "switch" or "ap" && p.OperStatus == 1 && p.SpeedBps is > 0)
+            return (int)(p.SpeedBps.Value / 1_000_000L);
+        return null;
+    }
 
     private static string NormalizeType(string? autoLabel) => (autoLabel ?? "").ToLowerInvariant() switch
     {

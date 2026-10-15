@@ -902,6 +902,37 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Writes a port's negotiated link speed as the UniFi Console reports it, on the interface's
+    /// own series. Separate from <c>speed_bps</c>, which stays raw SNMP: on a gateway's built-in
+    /// switch ports SNMP reports the 10G switch conduit, never the port's negotiated rate.
+    /// </summary>
+    /// <param name="deviceMac">Device the port belongs to.</param>
+    /// <param name="ifName">Interface name, matching the SNMP series' <c>if_name</c>.</param>
+    /// <param name="linkSpeedMbps">Negotiated speed in Mbps.</param>
+    /// <param name="fullDuplex">Negotiated duplex, when the console reports it.</param>
+    /// <param name="timestamp">When the snapshot was taken, on this server's clock.</param>
+    public Task WriteLinkSpeedAsync(
+        string deviceMac,
+        string ifName,
+        int linkSpeedMbps,
+        bool? fullDuplex,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("interface_counters")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("if_name", ifName)
+            .Tag("port_id", ifName)
+            .Tag("direction", "unknown")
+            .Field(InfluxFieldNames.LinkSpeedMbps, linkSpeedMbps)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        if (fullDuplex.HasValue) point = point.Field(InfluxFieldNames.LinkFullDuplex, fullDuplex.Value);
+
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
     public Task WriteDeviceHealthAsync(
         string deviceMac,
         string deviceType,
@@ -2651,6 +2682,81 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// The console link speed sample nearest <paramref name="at"/> for one interface, when one lies
+    /// within a console poll or so of it. Further away it may describe a different negotiation.
+    /// </summary>
+    private static int? NearestLinkSpeed(
+        Dictionary<string, List<(DateTime Time, int Mbps)>> linkSpeeds, string ifName, DateTime at)
+    {
+        if (!linkSpeeds.TryGetValue(ifName, out var samples) || samples.Count == 0) return null;
+        var nearest = samples.MinBy(s => (s.Time - at).Duration());
+        return (nearest.Time - at).Duration() <= TimeSpan.FromSeconds(90) ? nearest.Mbps : null;
+    }
+
+    /// <summary>
+    /// The fastest console-reported link speed one port reached over a window, or null when none
+    /// was recorded. Negotiated speed cannot read higher than the link really reached, so the
+    /// maximum is what the port is capable of with its current partner.
+    /// </summary>
+    public async Task<int?> QueryMaxLinkSpeedAsync(
+        string deviceMac,
+        string ifName,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return null;
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
+  |> filter(fn: (r) => r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
+  |> max()
+";
+        int? max = null;
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsIntOrNull(record.GetValueByKey("_value")) is { } v && v > (max ?? 0)) max = v;
+        }
+        return max;
+    }
+
+    /// <summary>
+    /// One port's console-reported link speed over a window, as the slowest speed in each
+    /// <paramref name="window"/>. A window holding any downshift reads as the downshifted speed.
+    /// Windows with no snapshot are absent.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Time, int MinMbps)>> QueryLinkSpeedWindowsAsync(
+        string deviceMac,
+        string ifName,
+        DateTime from,
+        DateTime to,
+        TimeSpan window,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, int)>();
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
+  |> filter(fn: (r) => r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
+";
+        var results = new List<(DateTime Time, int MinMbps)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsIntOrNull(record.GetValueByKey("_value")) is not { } v) continue;
+            results.Add((ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), v));
+        }
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    /// <summary>
     /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
     /// Returns raw rate_in_bps and rate_out_bps points paired in C#. Much cheaper
     /// than the aggregated variant for short-range playback where data is already
@@ -2669,13 +2775,14 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
 ";
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
         var speeds = new Dictionary<(string ifName, long ticks), long>();
         var times = new Dictionary<(string ifName, long ticks), DateTime>();
         var portIds = new Dictionary<(string ifName, long ticks), string?>();
+        var linkSpeeds = new Dictionary<string, List<(DateTime Time, int Mbps)>>(StringComparer.OrdinalIgnoreCase);
 
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -2689,6 +2796,14 @@ from(bucket: ""{_bucket}"")
             // Speed only annotates a rate sample. A sample with speed and no rate must not become
             // a point, or a nearest-point reader would take it as a zero rate.
             if (field == "speed_bps") { speeds[key] = (long)value.Value; continue; }
+            // Console link speed lands on its own timestamps, so it is matched to rate samples by
+            // nearness below rather than by key.
+            if (field == InfluxFieldNames.LinkSpeedMbps)
+            {
+                if (!linkSpeeds.TryGetValue(ifName, out var list)) linkSpeeds[ifName] = list = new();
+                list.Add((time, (int)value.Value));
+                continue;
+            }
             times[key] = time;
             portIds[key] = record.GetValueByKey("port_id") as string;
             if (field == "rate_in_bps") rateIn[key] = value.Value;
@@ -2708,6 +2823,7 @@ from(bucket: ""{_bucket}"")
                 RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
                 RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
                 SpeedBps = speeds.TryGetValue(key, out var sp) ? sp : null,
+                LinkSpeedMbps = NearestLinkSpeed(linkSpeeds, key.ifName, time),
             });
         }
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
@@ -2870,9 +2986,16 @@ from(bucket: ""{_bucket}"")
                 ErrorsOut = AsLongOrNull(record.GetValueByKey("errors_out")),
                 DiscardsIn = AsLongOrNull(record.GetValueByKey("discards_in")),
                 DiscardsOut = AsLongOrNull(record.GetValueByKey("discards_out")),
+                LinkSpeedMbps = AsIntOrNull(record.GetValueByKey(InfluxFieldNames.LinkSpeedMbps)),
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
             });
         }
+
+        // Console link-speed points land on their own timestamps and carry nothing else. Keep them
+        // out of the coalescing below so they never decide a row's time or create a row on their own
+        // (a gateway with SNMP off has only these), and attach the best one to the row afterwards.
+        var linkOnly = raw.Where(IsLinkSpeedOnly).ToList();
+        raw = raw.Where(p => !IsLinkSpeedOnly(p)).ToList();
 
         // Different fields can land on different timestamps - rate_in/out are only
         // written when a rate is computable, so a fresh point may carry oper_status
@@ -2913,11 +3036,27 @@ from(bucket: ""{_bucket}"")
                     ErrorsOut = FirstLong(p => p.ErrorsOut),
                     DiscardsIn = FirstLong(p => p.DiscardsIn),
                     DiscardsOut = FirstLong(p => p.DiscardsOut),
+                    LinkSpeedMbps = ordered.Select(p => p.LinkSpeedMbps)
+                        .Concat(BestLinkSpeed(g.Key.DeviceMac, g.Key.IfName))
+                        .FirstOrDefault(v => v.HasValue),
                     Time = ordered[0].Time,
                 };
             })
             .ToList();
+
+        IEnumerable<int?> BestLinkSpeed(string mac, string ifName)
+        {
+            var points = linkOnly.Where(p => TupleMacIfComparer.Equals((p.DeviceMac, p.IfName), (mac, ifName)));
+            var ordered = atUtc.HasValue
+                ? points.OrderBy(p => Math.Abs((p.Time - atUtc.Value).Ticks))
+                : points.OrderByDescending(p => p.Time);
+            return ordered.Select(p => p.LinkSpeedMbps).Take(1);
+        }
     }
+
+    private static bool IsLinkSpeedOnly(PortStatsPoint p) =>
+        p.LinkSpeedMbps.HasValue && p.OperStatus == null && p.SpeedBps == null
+        && p.BytesIn == null && p.BytesOut == null && p.RateInBps == null && p.RateOutBps == null;
 
     private static readonly IEqualityComparer<(string DeviceMac, string IfName)> TupleMacIfComparer =
         new MacIfTupleComparer();
@@ -5947,6 +6086,11 @@ from(bucket: ""{_longtermBucket}"")
         public double? RateOutBps { get; init; }
         /// <summary>Negotiated link speed at this sample. Set by the raw query only.</summary>
         public long? SpeedBps { get; init; }
+        /// <summary>
+        /// The console-reported link speed nearest this sample (gateways only). Set by the raw query
+        /// only. Prefer it over <see cref="SpeedBps"/>, which reads the switch conduit on a gateway.
+        /// </summary>
+        public int? LinkSpeedMbps { get; init; }
     }
 
     /// <summary>One interface's link state at one sample: ifOperStatus, 1 for up.</summary>
@@ -5984,6 +6128,8 @@ from(bucket: ""{_longtermBucket}"")
         public string PortId { get; init; } = "";
         public int? OperStatus { get; init; }
         public long? SpeedBps { get; init; }
+        /// <summary>Console-reported negotiated speed (gateways only); null where none was recorded.</summary>
+        public int? LinkSpeedMbps { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
         public long? BytesIn { get; init; }

@@ -164,7 +164,7 @@ public class AlertProcessingService : BackgroundService
         }
     }
 
-    // --- WAN outage alerts: one of two open/close families, unlike the rest of the alert catalog ---
+    // --- WAN outage alerts: one of the open/close families, unlike the rest of the alert catalog ---
     //
     // The three monitoring.wan_* event types maintain at most one open alert per (WAN, kind).
     // A WAN raises a partial outage while part of the path out is unreachable but traffic still
@@ -175,8 +175,8 @@ public class AlertProcessingService : BackgroundService
     // than stacking a second open alert on the same WAN.
     //
     // Per-target monitoring alerts (monitoring.target_offline and friends) have no such pairing and
-    // stay open until a user resolves them, so this closing step applies to the two families that
-    // do: monitoring.wan_* here and starlink.* below.
+    // stay open until a user resolves them, so this closing step applies only to the families that
+    // do: monitoring.wan_* here, and starlink.* and the WAN link speed pair below.
 
     internal const string WanOutageEventType = "monitoring.wan_outage";
     internal const string WanOutagePartialEventType = "monitoring.wan_outage_partial";
@@ -221,7 +221,7 @@ public class AlertProcessingService : BackgroundService
         return targets;
     }
 
-    // --- Starlink dish alerts: the other open/close family ---
+    // --- Starlink dish alerts: an open/close family ---
     //
     // The dish poll keeps at most one open alert per (dish, condition). A condition that is
     // already alerting republishes only on new evidence, and a starlink.recovered event names the
@@ -268,6 +268,28 @@ public class AlertProcessingService : BackgroundService
         return targets;
     }
 
+    // --- WAN link speed alerts: an open/close pair ---
+    //
+    // At most one open alert per gateway WAN port. A recovery closes it, and a re-publish (new
+    // evidence, e.g. a further downshift) supersedes it, so its rule needs cooldown 0 like Starlink's.
+
+    internal const string WanLinkSpeedDegradedEventType = "wan.link_speed_degraded";
+    internal const string WanLinkSpeedRecoveredEventType = "wan.link_speed_recovered";
+
+    /// <summary>
+    /// Which open WAN link speed alerts an incoming event closes: the degraded alert on the same
+    /// port (DeviceId), for both the recovery and a re-publish. Empty for every other event.
+    /// </summary>
+    internal static List<(string[] EventTypes, string? DeviceId)> GetWanLinkSpeedAlertsToResolve(string eventType, string? deviceId)
+    {
+        var targets = new List<(string[] EventTypes, string? DeviceId)>();
+        var portKey = deviceId?.Trim();
+        if (string.IsNullOrEmpty(portKey)) return targets;
+        if (eventType is WanLinkSpeedDegradedEventType or WanLinkSpeedRecoveredEventType)
+            targets.Add(([WanLinkSpeedDegradedEventType], portKey));
+        return targets;
+    }
+
     /// <summary>
     /// Closes the open alerts this event supersedes and re-derives the status of any incident they
     /// belonged to. Failures are logged and swallowed: resolution is housekeeping and must never
@@ -281,6 +303,7 @@ public class AlertProcessingService : BackgroundService
         var targets = GetWanAlertsToResolve(alertEvent.EventType, alertEvent.DeviceId);
         targets.AddRange(GetStarlinkAlertsToResolve(
             alertEvent.EventType, alertEvent.DeviceId, alertEvent.Context));
+        targets.AddRange(GetWanLinkSpeedAlertsToResolve(alertEvent.EventType, alertEvent.DeviceId));
         if (targets.Count == 0)
             return;
 

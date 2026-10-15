@@ -53,6 +53,8 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly Monitoring.RebootReason.DeviceRebootTracker _rebootTracker;
     private readonly Monitoring.DeviceTransitionTracker _deviceTransitions;
     private readonly Monitoring.DeviceStateAlertEvaluator _deviceStateAlertEvaluator;
+    private readonly Monitoring.WanLinkSpeedAlertEvaluator _wanLinkSpeedAlertEvaluator;
+    private readonly Monitoring.GatewayLinkSpeedSnapshots _linkSpeedSnapshots = new();
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
@@ -192,6 +194,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _sfpAlertEvaluator = evaluators.Sfp;
         _deviceHealthAlertEvaluator = evaluators.DeviceHealth;
         _deviceStateAlertEvaluator = evaluators.DeviceState;
+        _wanLinkSpeedAlertEvaluator = evaluators.WanLinkSpeed;
         _ontAlertEvaluator = evaluators.Ont;
         _supplementalOntProviders = ontProviders
             .OfType<ISfpSupplementalOntProvider>()
@@ -2484,6 +2487,98 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 _logger.LogDebug(ex, "Device state alert evaluation failed for {Device}", device.Mac);
             }
+        }
+
+        try
+        {
+            await RecordGatewayLinkSpeedsAsync(all, now, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Gateway link speed pass failed for site {Slug}", _siteSlug);
+        }
+    }
+
+    // WAN profiles for the link speed pass, re-read on a throttle: they change only when the
+    // console's WAN config does.
+    private IReadOnlyList<WanProfile> _wanProfiles = Array.Empty<WanProfile>();
+    private DateTime _wanProfilesLoadedAt = DateTime.MinValue;
+    private static readonly TimeSpan WanProfilesTtl = TimeSpan.FromMinutes(5);
+
+    // Per WAN port: the fastest speed recorded over the baseline window, re-queried on a throttle,
+    // and the fastest seen since that query (already in InfluxDB, so a refresh folds it in).
+    private readonly Dictionary<string, (int? Max, DateTime ComputedAt)> _linkSpeedBaselines = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _linkSpeedMaxSinceBaseline = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan LinkSpeedBaselineRefresh = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// Records each gateway port's console-reported link speed and feeds the WAN ports to the link
+    /// speed alert. Gateways only: their built-in switch ports read the 10G switch conduit over
+    /// SNMP, while every other device's SNMP speed is already correct in <c>speed_bps</c>.
+    /// </summary>
+    private async Task RecordGatewayLinkSpeedsAsync(IReadOnlyList<UniFiDeviceResponse> devices, DateTime now, CancellationToken ct)
+    {
+        var readings = _linkSpeedSnapshots.Take(devices);
+        if (readings.Count == 0) return;
+
+        foreach (var r in readings)
+        {
+            if (r.SpeedMbps is int speed)
+                _ = _influx.WriteLinkSpeedAsync(r.DeviceMac, r.IfName, speed, r.FullDuplex, now);
+        }
+
+        if (DateTime.UtcNow - _wanProfilesLoadedAt > WanProfilesTtl)
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            _wanProfiles = await db.WanProfiles.AsNoTracking().ToListAsync(ct);
+            _wanProfilesLoadedAt = DateTime.UtcNow;
+        }
+
+        foreach (var r in readings)
+        {
+            var wan = Monitoring.WanLinkSpeedExpectations.MatchWan(r.DeviceMac, r.IfName, r.NetworkName, _wanProfiles);
+            if (!Monitoring.WanLinkSpeedExpectations.IsWanPort(r.NetworkName, wan)) continue;
+
+            var key = Monitoring.WanLinkSpeedAlertEvaluator.PortKey(r.DeviceMac, r.IfName);
+            var baseline = await GetLinkSpeedBaselineAsync(key, r.DeviceMac, r.IfName, now, ct);
+            if (r.SpeedMbps is int speed && speed > _linkSpeedMaxSinceBaseline.GetValueOrDefault(key))
+                _linkSpeedMaxSinceBaseline[key] = speed;
+
+            var seenExpected = Monitoring.WanLinkSpeedExpectations.Expected(
+                baseline, _linkSpeedMaxSinceBaseline.TryGetValue(key, out var seen) ? seen : null);
+            var planFloor = Monitoring.WanLinkSpeedExpectations.PlanFloorMbps(wan, r.Media);
+
+            await _wanLinkSpeedAlertEvaluator.EvaluateAsync(new Monitoring.WanLinkSpeedObservation(
+                r.DeviceMac, r.DeviceName, r.IfName, r.PortName, wan?.Name,
+                r.SpeedMbps, r.FullDuplex, r.Autoneg,
+                Monitoring.WanLinkSpeedExpectations.Expected(seenExpected, planFloor),
+                ExpectedFromPlan: planFloor > (seenExpected ?? 0)), now, ct);
+        }
+    }
+
+    private async Task<int?> GetLinkSpeedBaselineAsync(string key, string mac, string ifName, DateTime now, CancellationToken ct)
+    {
+        if (_linkSpeedBaselines.TryGetValue(key, out var cached) && now - cached.ComputedAt < LinkSpeedBaselineRefresh)
+            return cached.Max;
+        if (!_influx.IsConfigured) return cached.Max;
+
+        try
+        {
+            using var queryCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            queryCts.CancelAfter(TimeSpan.FromSeconds(10));
+            var max = await _influx.QueryMaxLinkSpeedAsync(
+                mac, ifName, now - Monitoring.WanLinkSpeedExpectations.BaselineWindow, now, queryCts.Token);
+            _linkSpeedBaselines[key] = (max, now);
+            // Everything seen so far is in the window just queried.
+            _linkSpeedMaxSinceBaseline.Remove(key);
+            return max;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            // Keep the last baseline and try again next refresh rather than every pass.
+            _linkSpeedBaselines[key] = (cached.Max, now);
+            _logger.LogDebug(ex, "Link speed baseline query failed for {Mac} {IfName}", mac, ifName);
+            return cached.Max;
         }
     }
 
