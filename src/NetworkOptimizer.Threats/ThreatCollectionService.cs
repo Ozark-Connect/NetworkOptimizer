@@ -770,6 +770,8 @@ public class ThreatCollectionService : BackgroundService
                 var flowsToNormalize = new List<JsonElement>();
                 foreach (var flow in data.EnumerateArray())
                 {
+                    if (Analysis.FlowInterestFilter.IsInvalidStateDrop(flow))
+                        continue;
                     if (!applyInterestFilter || Analysis.FlowInterestFilter.IsInteresting(flow))
                         flowsToNormalize.Add(flow);
                 }

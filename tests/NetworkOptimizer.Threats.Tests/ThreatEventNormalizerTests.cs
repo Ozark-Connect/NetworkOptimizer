@@ -334,6 +334,36 @@ public class ThreatEventNormalizerTests
 
     // --- NormalizeFlowEvents ---
 
+    [Theory]
+    [InlineData("External", "Gateway", "outgoing", "incoming")]
+    [InlineData("Internal", "External", "incoming", "outgoing")]
+    [InlineData("Internal", "Gateway", "outgoing", "outgoing")]
+    public void NormalizeFlowEvents_DirectionFollowsTheExternalZone(string sourceZone, string destZone, string unifiDirection, string expected)
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            data = new object[]
+            {
+                new
+                {
+                    id = "flow-zone",
+                    time = 1700000000000L,
+                    source = new { ip = "203.0.113.9", port = 443, zone_name = sourceZone },
+                    destination = new { ip = "198.51.100.1", port = 55000, zone_name = destZone },
+                    protocol = "TCP",
+                    action = "blocked",
+                    risk = "low",
+                    direction = unifiDirection,
+                    service = "OTHER",
+                }
+            }
+        });
+
+        var results = _normalizer.NormalizeFlowEvents(JsonDocument.Parse(json).RootElement);
+
+        Assert.Equal(expected, Assert.Single(results).Direction);
+    }
+
     [Fact]
     public void NormalizeFlowEvents_ValidFlow_ReturnsNormalizedEvent()
     {

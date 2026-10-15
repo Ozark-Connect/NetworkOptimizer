@@ -293,8 +293,8 @@ public sealed class ThreatBlockingService : BackgroundService
         List<ThreatBlock> desired = [];
         IReadOnlyList<string> feeds = [];
 
-        // Off sends nothing. Dry Run sends only Enforced blocks, which there are the manual ones,
-        // and no public lists: they are automatic blocking too.
+        // Off sends nothing. Dry Run sends only manual blocks and no public lists: automatic blocks
+        // enforced before the switch to Dry Run stay Enforced in the table, so Enforced alone is not enough.
         if (settings.Mode != BlockingMode.Off)
         {
             var sharing = services.GetService<IBlockSharingScope>();
@@ -311,7 +311,8 @@ public sealed class ThreatBlockingService : BackgroundService
             }
             // This site's own allowlist governs what it enforces, whoever raised the block.
             var allowlist = await BuildAllowlistAsync(services, site, settings, now, ct, peers);
-            desired = BlockDecisionEngine.DesiredSet(union.Where(b => allowlist.Exempts(b.SourceIp) == null), now, settings.MaxEntries);
+            desired = BlockDecisionEngine.DesiredSet(union.Where(b => allowlist.Exempts(b.SourceIp) == null
+                && (settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual)), now, settings.MaxEntries);
             if (settings.Mode == BlockingMode.Enforce)
                 feeds = await FeedEntriesAsync(accessor, settings, allowlist, now, ct);
             else if (_lists != null)

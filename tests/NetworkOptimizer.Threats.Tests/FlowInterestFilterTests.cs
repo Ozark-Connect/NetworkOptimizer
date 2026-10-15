@@ -9,6 +9,34 @@ public class FlowInterestFilterTests
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
     [Fact]
+    public void IsInvalidStateDrop_OnlyPredefinedInvalidTraffic_ReturnsTrue()
+    {
+        var flow = Parse("""{"action": "blocked", "policies": [{"internal_type": "PREDEFINED_FIREWALL_RULE", "name": "Block Invalid Traffic", "type": "FIREWALL"}]}""");
+        Assert.True(FlowInterestFilter.IsInvalidStateDrop(flow));
+    }
+
+    [Fact]
+    public void IsInvalidStateDrop_AlsoBlockedByAnotherPolicy_ReturnsFalse()
+    {
+        var flow = Parse("""{"action": "blocked", "policies": [{"internal_type": "PREDEFINED_FIREWALL_RULE", "name": "Block Invalid Traffic"}, {"internal_type": "PREDEFINED_FIREWALL_RULE", "name": "Block All Traffic"}]}""");
+        Assert.False(FlowInterestFilter.IsInvalidStateDrop(flow));
+    }
+
+    [Fact]
+    public void IsInvalidStateDrop_CustomPolicyWithTheSameName_ReturnsFalse()
+    {
+        var flow = Parse("""{"action": "blocked", "policies": [{"internal_type": "FIREWALL_POLICY", "name": "Block Invalid Traffic"}]}""");
+        Assert.False(FlowInterestFilter.IsInvalidStateDrop(flow));
+    }
+
+    [Fact]
+    public void IsInvalidStateDrop_NoPolicies_ReturnsFalse()
+    {
+        Assert.False(FlowInterestFilter.IsInvalidStateDrop(Parse("""{"action": "blocked"}""")));
+        Assert.False(FlowInterestFilter.IsInvalidStateDrop(Parse("""{"action": "blocked", "policies": []}""")));
+    }
+
+    [Fact]
     public void IsInteresting_BlockedAction_ReturnsTrue()
     {
         var flow = Parse("""{"action": "blocked", "risk": "low", "direction": "incoming", "destination": {"port": 80}}""");
