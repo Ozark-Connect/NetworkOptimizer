@@ -197,6 +197,12 @@ public class ResolvedSpacing
     public int ApCoveragePercent { get; init; }
 
     /// <summary>
+    /// Share of the site's APs that may upgrade together when no placement data says which ones
+    /// overlap. Always a share, never a count, so a small site keeps most of its coverage up.
+    /// </summary>
+    public double ApUnplacedPercent { get; init; }
+
+    /// <summary>
     /// How many waves may be in flight together. A device's cool-down only holds up waves it has a
     /// topology relationship with, so this is the ceiling on how much of the site moves at once.
     /// Two on the most cautious profile: one settling device should never stall the whole rollout.
@@ -213,15 +219,16 @@ public class ResolvedSpacing
         [JsonPropertyName("maxSwitchParallelism")] public int? MaxSwitchParallelism { get; set; }
         [JsonPropertyName("maxWaveOverlap")] public int? MaxWaveOverlap { get; set; }
         [JsonPropertyName("apCoveragePercent")] public int? ApCoveragePercent { get; set; }
+        [JsonPropertyName("apUnplacedPercent")] public double? ApUnplacedPercent { get; set; }
     }
 
     public static ResolvedSpacing For(FirmwareSpacingProfile profile, string? advancedJson)
     {
-        var (apGap, swGap, gwGap, apPar, swPar, waveOverlap, apPct) = profile switch
+        var (apGap, swGap, gwGap, apPar, swPar, waveOverlap, apPct, apUnplacedPct) = profile switch
         {
-            FirmwareSpacingProfile.Conservative => (180, 300, 600, 1, 1, 2, 5),
-            FirmwareSpacingProfile.Fast => (60, 90, 120, 6, 4, 4, 20),
-            _ => (120, 180, 300, 3, 2, 3, 10),
+            FirmwareSpacingProfile.Conservative => (180, 300, 600, 1, 1, 2, 5, 20.0),
+            FirmwareSpacingProfile.Fast => (60, 90, 120, 6, 4, 4, 20, 50.0),
+            _ => (120, 180, 300, 3, 2, 3, 10, 100.0 / 3),
         };
 
         Overrides? o = null;
@@ -240,6 +247,7 @@ public class ResolvedSpacing
             MaxSwitchParallelism = Math.Max(1, o?.MaxSwitchParallelism ?? swPar),
             MaxWaveOverlap = Math.Max(1, o?.MaxWaveOverlap ?? waveOverlap),
             ApCoveragePercent = Math.Clamp(o?.ApCoveragePercent ?? apPct, 1, 100),
+            ApUnplacedPercent = Math.Clamp(o?.ApUnplacedPercent ?? apUnplacedPct, 1, 100),
         };
     }
 }
