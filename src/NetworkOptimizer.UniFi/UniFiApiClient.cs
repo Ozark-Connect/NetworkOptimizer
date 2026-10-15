@@ -1732,6 +1732,25 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// PUT v2/api/site/{site}/firewall-policies/{id} with the stored policy, changed only in the
+    /// connection states it matches ("CUSTOM" with <paramref name="states"/>). Read back from the
+    /// Console first so every field it keeps (report_flow, icmp names, ...) goes back unchanged.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "firewall-policies PUT takes the full stored object")]
+    public async Task SetFirewallPolicyConnectionStatesAsync(string policyId, IReadOnlyList<string> states,
+        CancellationToken cancellationToken = default)
+    {
+        var list = System.Text.Json.Nodes.JsonNode.Parse(
+            await ExecuteV2Async(HttpMethod.Get, "firewall-policies", null, cancellationToken)) as System.Text.Json.Nodes.JsonArray;
+        var policy = list?.OfType<System.Text.Json.Nodes.JsonObject>()
+                         .FirstOrDefault(p => (string?)p["_id"] == policyId)
+                     ?? throw new InvalidOperationException($"Firewall policy {policyId} is not on the UniFi Console.");
+        policy["connection_state_type"] = "CUSTOM";
+        policy["connection_states"] = new System.Text.Json.Nodes.JsonArray(states.Select(s => (System.Text.Json.Nodes.JsonNode?)s).ToArray());
+        await ExecuteV2Async(HttpMethod.Put, $"firewall-policies/{policyId}", policy.ToJsonString(), cancellationToken);
+    }
+
+    /// <summary>
     /// PUT v2/api/site/{site}/firewall-policies/batch-reorder: sets the order of the custom policies
     /// in one zone pair, those that run before UniFi's predefined ones and those after.
     /// </summary>

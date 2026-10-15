@@ -23,4 +23,7 @@ public interface IThreatSystemAudit
 
     /// <summary>A site's observed addresses changed in Trusted Sources: new ones seen, replaced ones aged out.</summary>
     void TrustedAddressesChanged(string? siteSlug, IReadOnlyList<string> added, IReadOnlyList<string> dropped);
+
+    /// <summary>A site's gateway blocklist policies were changed to match new connections only.</summary>
+    void GatewayPoliciesNarrowed(string? siteSlug, int policies);
 }

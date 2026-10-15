@@ -73,7 +73,7 @@
             <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
                 <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
                         @onclick='() => SetActiveTab("overview")'>Overview</button>
-                <button class="wifi-view-tab @(_activeTab == "blocking" ? "active" : "")"
+                <button class="wifi-view-tab @(_activeTab == "blocking" ? "active" : "")" data-tour="threats-blocking-tab"
                         @onclick='() => SetActiveTab("blocking")'>Blocking</button>
                 <button class="wifi-view-tab @(_activeTab == "exposure" ? "active" : "")"
                         @onclick='() => SetActiveTab("exposure")'>Exposure</button>

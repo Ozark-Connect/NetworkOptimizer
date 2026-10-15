@@ -49,6 +49,8 @@ public sealed class ThreatBlockingService : BackgroundService
     private readonly Dictionary<string, (string Fingerprint, string Lists, DateTime At, bool Ok)> _feedsSent = new();
     // Entries on each site's gateway after its last successful public list write, for the UI.
     private readonly ConcurrentDictionary<string, int> _feedEntries = new();
+    // When each site's blocklist policies were last checked for new-connections-only matching, and whether it worked.
+    private readonly Dictionary<string, (DateTime At, bool Ok)> _policiesChecked = new();
     // The Trusted Sources members last written to each site's console.
     private readonly Dictionary<(string Site, BlockTargetKind Kind), (string Fingerprint, DateTime At, bool Ok)> _trustedSent = new();
     private readonly ConcurrentDictionary<(string Site, BlockTargetKind Kind), BlockTargetStatus> _trustedStatus = new();
@@ -326,6 +328,28 @@ public sealed class ThreatBlockingService : BackgroundService
 
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, feeds, now, ct);
+        await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
+    }
+
+    // Consoles set up before new-connections-only matching, or policies edited back in UniFi Network,
+    // drop replies too. Checked hourly per site (one policy read); a failed check retries after 30 minutes.
+    private async Task EnsureSourcePoliciesNewOnlyAsync(string? site, IServiceProvider services, DateTime now, CancellationToken ct)
+    {
+        if (_policiesChecked.TryGetValue(Key(site), out var last)
+            && now - last.At < (last.Ok ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(30))) return;
+        if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
+        try
+        {
+            var changed = await writer.EnsureSourcePoliciesNewOnlyAsync(site, ct);
+            _policiesChecked[Key(site)] = (now, true);
+            if (changed > 0)
+                _audit?.GatewayPoliciesNarrowed(site, changed);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _policiesChecked[Key(site)] = (now, false);
+            _logger.LogWarning(ex, "Automatic Blocking: could not narrow the gateway blocklist policies on {Site}", site ?? "main");
+        }
     }
 
     /// <summary>

@@ -53,4 +53,14 @@ public sealed class ThreatSystemAudit : IThreatSystemAudit
             targetName: siteSlug ?? "default",
             siteSlug: siteSlug,
             details: new { added = string.Join(",", added), dropped = string.Join(",", dropped) }));
+
+    /// <inheritdoc />
+    public void GatewayPoliciesNarrowed(string? siteSlug, int policies) =>
+        _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
+            AuditCategories.Settings,
+            AuditActions.ThreatBlockingTargetSetUp,
+            targetType: "gateway",
+            targetName: siteSlug ?? "default",
+            siteSlug: siteSlug,
+            details: new { change = "blocklist_policies_new_connections_only", policies }));
 }

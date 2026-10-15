@@ -16,6 +16,17 @@ public class GatewayBlocklistOrderTests
         Destination = new UniFiFirewallPolicyEndpoint { ZoneId = dst },
     };
 
+    [Theory]
+    [InlineData("CUSTOM", new[] { "NEW" }, true)]
+    [InlineData("ALL", new string[0], false)]
+    [InlineData("CUSTOM", new[] { "NEW", "INVALID" }, false)]
+    [InlineData("CUSTOM", new[] { "INVALID" }, false)]
+    public void IsNewConnectionsOnly_OnlyExactlyNew(string type, string[] states, bool expected)
+    {
+        var policy = new UniFiFirewallPolicy { ConnectionStateType = type, ConnectionStates = [.. states] };
+        GatewayBlocklist.IsNewConnectionsOnly(policy).Should().Be(expected);
+    }
+
     [Fact]
     public void OursMoveToTheFront_OthersKeepTheirOrder()
     {

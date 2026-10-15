@@ -215,6 +215,19 @@ public class ThreatBlockingServiceTests
             FeedSyncs.Add(entries);
             return Task.FromResult(BlockTargetResult.Success(entries.Count));
         }
+
+        public int PolicyChecks { get; private set; }
+        public int StalePolicies { get; set; }
+        public bool FailPolicyCheck { get; set; }
+
+        public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct)
+        {
+            PolicyChecks++;
+            if (FailPolicyCheck) throw new InvalidOperationException("console unreachable");
+            var changed = StalePolicies;
+            StalePolicies = 0;
+            return Task.FromResult(changed);
+        }
     }
 
     private sealed class Harness
@@ -308,6 +321,42 @@ public class ThreatBlockingServiceTests
         await h.Service.RunCycleAsync(Now, CancellationToken.None);
 
         h.Gateway.Syncs.Last().Should().Equal("2001:db8::9");
+    }
+
+    [Fact]
+    public async Task SourcePolicies_CheckedHourly_AndAuditedOnlyWhenChanged()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "Enforce");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.Gateway.StalePolicies = 10;
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+        await h.Service.RunCycleAsync(Now.AddMinutes(1), CancellationToken.None);
+        h.Gateway.PolicyChecks.Should().Be(1);
+
+        h.Gateway.StalePolicies = 1; // someone set one back to every state in UniFi Network
+        await h.Service.RunCycleAsync(Now.AddMinutes(61), CancellationToken.None);
+
+        h.Gateway.PolicyChecks.Should().Be(2);
+        h.Audit.Verify(a => a.GatewayPoliciesNarrowed(null, 10), Times.Once);
+        h.Audit.Verify(a => a.GatewayPoliciesNarrowed(null, 1), Times.Once);
+    }
+
+    [Fact]
+    public async Task SourcePolicies_FailedCheck_RetriesAfterThirtyMinutes()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "Enforce");
+        h.Gateway.FailPolicyCheck = true;
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+        await h.Service.RunCycleAsync(Now.AddMinutes(10), CancellationToken.None);
+        h.Gateway.FailPolicyCheck = false;
+        await h.Service.RunCycleAsync(Now.AddMinutes(31), CancellationToken.None);
+
+        h.Gateway.PolicyChecks.Should().Be(2);
+        h.Audit.Verify(a => a.GatewayPoliciesNarrowed(It.IsAny<string?>(), It.IsAny<int>()), Times.Never);
     }
 
     [Fact]

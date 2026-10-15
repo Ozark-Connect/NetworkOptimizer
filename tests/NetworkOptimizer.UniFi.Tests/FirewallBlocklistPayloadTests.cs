@@ -41,6 +41,7 @@ public class FirewallBlocklistPayloadTests
         root.GetProperty("ip_version").GetString().Should().Be("IPV6");
         root.GetProperty("enabled").GetBoolean().Should().BeTrue();
         root.GetProperty("connection_state_type").GetString().Should().Be("ALL");
+        root.TryGetProperty("connection_states", out _).Should().BeFalse("the body is unchanged unless states are narrowed");
         root.GetProperty("schedule").GetProperty("mode").GetString().Should().Be("ALWAYS");
         root.TryGetProperty("report_flow", out _).Should().BeFalse("Network 10.x has no report_flow field");
 
@@ -52,6 +53,27 @@ public class FirewallBlocklistPayloadTests
         var destination = root.GetProperty("destination");
         destination.GetProperty("zone_id").GetString().Should().Be("int");
         destination.GetProperty("matching_target").GetString().Should().Be("ANY");
+    }
+
+    [Fact]
+    public void BlockPolicy_NewConnectionsOnly_UsesTheCustomStateShape()
+    {
+        // The shape UniFi Network stores for its predefined Block Invalid Traffic, with NEW instead.
+        var policy = UniFiGroupBlockPolicyWrite.Create("Blocklist", "d", "IPV4", "ext", "grp", "int", newConnectionsOnly: true);
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(policy));
+
+        doc.RootElement.GetProperty("connection_state_type").GetString().Should().Be("CUSTOM");
+        doc.RootElement.GetProperty("connection_states").EnumerateArray().Select(e => e.GetString()).Should().Equal("NEW");
+    }
+
+    [Fact]
+    public void PolicyRead_ParsesConnectionStates()
+    {
+        var p = JsonSerializer.Deserialize<UniFiFirewallPolicy>(
+            """{"_id":"x","connection_state_type":"CUSTOM","connection_states":["INVALID"],"source":{},"destination":{}}""")!;
+
+        p.ConnectionStateType.Should().Be("CUSTOM");
+        p.ConnectionStates.Should().Equal("INVALID");
     }
 
     [Fact]
