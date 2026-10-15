@@ -601,6 +601,7 @@ else
                 }
                 else
                 {
+                @AutoUpdateWarning
                 <FirmwareChannelConfig
                     Settings="_settings"
                     DeviceEarlyAccessAvailable="_preview?.Channels.DeviceEarlyAccessAvailable == true"
@@ -1567,8 +1568,8 @@ else
     private string? _autoUpdateNotice;
 
     /// <summary>
-    /// The warning about UniFi's own auto-updates, identical in every wizard step. It names only
-    /// the layers this rollout covers, as the wizard currently shows them.
+    /// The warning about UniFi's own auto-updates, identical in every wizard step and on the
+    /// Autopilot Configuration card. It names only the layers in scope, as currently edited.
     /// </summary>
     private RenderFragment AutoUpdateWarning => __builder =>
     {
