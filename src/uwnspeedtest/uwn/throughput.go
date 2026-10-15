@@ -235,6 +235,28 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 	loadedLatencies = loadedLatencies[:0]
 	latencyMu.Unlock()
 
+	// Loaded packet loss over the measurement window. Sending stops with the window; connects
+	// still in flight finish after the workers stop, which still catches their retransmits.
+	var loss *speedtest.LossResult
+	lossStop := make(chan struct{})
+	lossDone := make(chan struct{})
+	if cfg.NoLoss || cfg.LossTarget == "" {
+		close(lossDone)
+	} else {
+		go func() {
+			defer close(lossDone)
+			loss, _ = MeasureConnectLoss(ctx, cfg.LossTarget, cfg.Interface, duration, lossStop)
+		}()
+	}
+	defer func() {
+		select {
+		case <-lossStop:
+		default:
+			close(lossStop)
+		}
+		<-lossDone
+	}()
+
 	// Sample throughput at regular intervals
 	var mbpsSamples []float64
 	var lastBytes int64
@@ -264,12 +286,15 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 		lastTime = now
 	}
 
+	measuredFrom, measuredTo := start.UTC(), time.Now().UTC()
+	close(lossStop)
 	close(stopCh)
 	wg.Wait()
+	<-lossDone
 
 	finalBytes := totalBytes.Load()
 	if len(mbpsSamples) == 0 {
-		return &speedtest.ThroughputResult{Bytes: finalBytes}, nil
+		return &speedtest.ThroughputResult{Bytes: finalBytes, Loss: loss, StartedAt: &measuredFrom, EndedAt: &measuredTo}, nil
 	}
 
 	var sum float64
@@ -290,5 +315,8 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 		Bytes:           finalBytes,
 		LoadedLatencyMs: loadedMedian,
 		LoadedJitterMs:  loadedJitter,
+		Loss:            loss,
+		StartedAt:       &measuredFrom,
+		EndedAt:         &measuredTo,
 	}, nil
 }

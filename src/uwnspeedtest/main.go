@@ -15,7 +15,7 @@ import (
 	"github.com/Ozark-Connect/NetworkOptimizer/src/uwnspeedtest/uwn"
 )
 
-var version = "1.14.1-dev"
+var version = "1.15.0-dev"
 
 func main() {
 	streams := flag.Int("streams", 8, "Concurrent connections")
@@ -27,6 +27,8 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version")
 	serverCount := flag.Int("servers", 1, "Number of servers to use for throughput")
 	startAt := flag.Int64("start-at", 0, "Unix timestamp to start throughput (for synchronized parallel tests)")
+	lossSecs := flag.Int("loss-duration", 10, "Seconds of idle packet loss probing (0 = skip)")
+	noLoss := flag.Bool("no-loss", false, "Skip all packet loss probing")
 
 	flag.Parse()
 
@@ -44,6 +46,8 @@ func main() {
 		UploadOnly:   *uploadOnly,
 		TimeoutSecs:  *timeout,
 		StartAt:      *startAt,
+		LossSecs:     *lossSecs,
+		NoLoss:       *noLoss,
 	}
 
 	result := run(cfg)
@@ -176,6 +180,31 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	result.Latency = latency
 	fmt.Fprintf(os.Stderr, "Latency: %.1f ms (jitter: %.1f ms)\n", latency.UnloadedMs, latency.JitterMs)
 
+	// Packet loss target for the idle and loaded phases (non-fatal: the speed test stands without it)
+	neutralLossTarget := false
+	if !cfg.NoLoss {
+		target, neutral, err := uwn.SelectLossTarget(ctx, servers[0], cfg.Interface)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: packet loss target: %v\n", err)
+		} else {
+			cfg.LossTarget = target
+			neutralLossTarget = neutral
+			fmt.Fprintf(os.Stderr, "Packet loss target: %s\n", target)
+		}
+	}
+
+	lossWindow := uwn.IdleLossWindow(time.Duration(cfg.LossSecs)*time.Second, cfg.StartAt, time.Now())
+	if cfg.LossTarget != "" && lossWindow > 0 {
+		fmt.Fprintf(os.Stderr, "Measuring idle packet loss (%.0fs)...\n", lossWindow.Seconds())
+		loss, err := uwn.MeasureConnectLoss(ctx, cfg.LossTarget, cfg.Interface, lossWindow, nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: idle packet loss: %v\n", err)
+		} else {
+			result.IdleLoss = loss
+			fmt.Fprintf(os.Stderr, "Idle loss: %.2f%% (%d retried, %d failed of %d)\n", loss.LossPct, loss.Retried, loss.Failed, loss.Sent)
+		}
+	}
+
 	// Synchronized start: wait until the specified time before starting throughput
 	if cfg.StartAt > 0 {
 		startTime := time.Unix(cfg.StartAt, 0)
@@ -200,6 +229,7 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 		}
 		result.Download = dl
 		fmt.Fprintf(os.Stderr, "Download: %.1f Mbps\n", dl.Bps/1_000_000)
+		logLoadedLoss("Download", dl.Loss)
 	}
 
 	// Phase 5: Upload
@@ -211,6 +241,24 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 		}
 		result.Upload = ul
 		fmt.Fprintf(os.Stderr, "Upload: %.1f Mbps\n", ul.Bps/1_000_000)
+		logLoadedLoss("Upload", ul.Loss)
+	}
+
+	// The /ping probe rides the saturated test server; a neutral loss target's SYN timing bounds it.
+	if neutralLossTarget {
+		for _, p := range []struct {
+			name  string
+			phase *speedtest.ThroughputResult
+		}{{"download", result.Download}, {"upload", result.Upload}} {
+			var rawMs, rawJitter float64
+			if p.phase != nil {
+				rawMs, rawJitter = p.phase.LoadedLatencyMs, p.phase.LoadedJitterMs
+			}
+			if uwn.CorrectLoadedLatency(result.Latency.UnloadedMs, result.IdleLoss, p.phase) {
+				fmt.Fprintf(os.Stderr, "Corrected %s loaded latency: %.1f -> %.1f ms, jitter %.1f -> %.1f ms (SYN to %s)\n",
+					p.name, rawMs, p.phase.LoadedLatencyMs, rawJitter, p.phase.LoadedJitterMs, cfg.LossTarget)
+			}
+		}
 	}
 
 	result.Success = true
@@ -218,6 +266,13 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	result.DurationSeconds = cfg.DurationSecs
 
 	return result
+}
+
+func logLoadedLoss(phase string, loss *speedtest.LossResult) {
+	if loss == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s loss: %.2f%% (%d retried, %d failed of %d)\n", phase, loss.LossPct, loss.Retried, loss.Failed, loss.Sent)
 }
 
 func errorResult(msg string) speedtest.Result {
