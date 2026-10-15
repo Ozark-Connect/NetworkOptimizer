@@ -270,6 +270,15 @@ public class IspHealthOptions
     public int LoadedLossMinEpisodes { get; set; } = 2;
 
     /// <summary>
+    /// Pings in one monitoring loss sample: the unit a WAN speed test's loss probes are weighed in,
+    /// so a 400-probe test counts as 80 samples rather than one.
+    /// </summary>
+    public int LossSamplePings { get; set; } = 5;
+
+    /// <summary>Probes a WAN speed test phase needs before its loss joins Packet Loss or Loaded Loss.</summary>
+    public int SpeedTestLossMinProbes { get; set; } = 100;
+
+    /// <summary>
     /// Nominal seconds a loss probe spends measuring - the standard burst is five pings a second
     /// apart. Used as the floor for the interval a probe is matched on; the series' own cadence
     /// wins when it is coarser.
@@ -537,6 +546,20 @@ public class IspHealthOptions
 
     /// <summary>Absolute floor in ms for a step-change candidate delta.</summary>
     public double StepMinDeltaMs { get; set; } = 1.2;
+
+    /// <summary>
+    /// Lower absolute floor for a step that another series corroborates at the same boundary.
+    /// A routing change steps every path that crosses it, so two series moving together are
+    /// evidence a single series is not; a lone step still needs <see cref="StepMinDeltaMs"/>.
+    /// </summary>
+    public double StepCorrelatedMinDeltaMs { get; set; } = 0.8;
+
+    /// <summary>
+    /// Relative floor for a corroborated step, lowered in the same proportion as the absolute one.
+    /// Keeping the lone 6% here left a deeper hop (15-17 ms) needing ~1 ms to corroborate a 0.9 ms
+    /// shift it plainly took.
+    /// </summary>
+    public double StepCorrelatedMinRelativeChange { get; set; } = 0.04;
 
     /// <summary>Relative floor (fraction of the before-median) for a step-change candidate delta.</summary>
     public double StepMinRelativeChange { get; set; } = 0.06;
