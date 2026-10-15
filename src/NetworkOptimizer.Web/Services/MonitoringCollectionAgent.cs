@@ -2546,7 +2546,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             var seenExpected = Monitoring.WanLinkSpeedExpectations.Expected(
                 baseline, _linkSpeedMaxSinceBaseline.TryGetValue(key, out var seen) ? seen : null);
-            var planFloor = Monitoring.WanLinkSpeedExpectations.PlanFloorMbps(wan);
+            var planFloor = Monitoring.WanLinkSpeedExpectations.PlanFloorMbps(wan, r.Media);
 
             await _wanLinkSpeedAlertEvaluator.EvaluateAsync(new Monitoring.WanLinkSpeedObservation(
                 r.DeviceMac, r.DeviceName, r.IfName, r.PortName, wan?.Name,

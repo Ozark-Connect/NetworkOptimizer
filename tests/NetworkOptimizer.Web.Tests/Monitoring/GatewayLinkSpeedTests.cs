@@ -114,13 +114,24 @@ public class GatewayLinkSpeedTests
         WanLinkSpeedExpectations.IsWanPort(network, null).Should().Be(expected);
 
     [Theory]
-    [InlineData(null, null, null)]
-    [InlineData(100.0, 20.0, null)]
-    [InlineData(300.0, 30.0, 1000)]
-    [InlineData(2000.0, 2000.0, 1000)]
-    [InlineData(50.0, 500.0, 1000)]
-    public void PlanFloor_OnlyTheGigabitTier(double? down, double? up, int? expected) =>
-        WanLinkSpeedExpectations.PlanFloorMbps(new WanProfile { DownloadMbps = down, UploadMbps = up }).Should().Be(expected);
+    [InlineData(null, null, "10GE", null)]
+    [InlineData(100.0, 20.0, "10GE", null)]
+    [InlineData(300.0, 30.0, "GE", 1000)]
+    [InlineData(50.0, 500.0, "2.5GE", 1000)]
+    [InlineData(1000.0, 1000.0, "10GE", 1000)]
+    [InlineData(2000.0, 2000.0, "10GE", 2500)]
+    [InlineData(2000.0, 2000.0, "2.5GE", 2500)]
+    [InlineData(5000.0, 5000.0, "10GE", 5000)]
+    [InlineData(8000.0, 8000.0, "10GE", 10000)]
+    [InlineData(25000.0, 25000.0, "10GE", 10000)]
+    // A plan faster than the port is a hardware limit, never a standing alert.
+    [InlineData(2000.0, 2000.0, "GE", 1000)]
+    [InlineData(5000.0, 5000.0, "2.5GE", 2500)]
+    // SFP cages report the cage, not the module, and unknown media is treated the same.
+    [InlineData(2000.0, 2000.0, "SFP+", 1000)]
+    [InlineData(2000.0, 2000.0, null, 1000)]
+    public void PlanFloor_SlowestRateThatCarriesThePlan_CappedByThePort(double? down, double? up, string? media, int? expected) =>
+        WanLinkSpeedExpectations.PlanFloorMbps(new WanProfile { DownloadMbps = down, UploadMbps = up }, media).Should().Be(expected);
 
     [Fact]
     public void Expected_IsTheHighestKnown()

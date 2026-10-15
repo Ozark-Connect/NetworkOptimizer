@@ -67,6 +67,15 @@ public class WanLinkSpeedAlertEvaluatorTests
     }
 
     [Fact]
+    public async Task MultiGigPort_FallingToGigabit_Opens()
+    {
+        await Hold(Port(2500, expected: 2500), 3);
+        await Hold(Port(1000, expected: 2500), 10);
+
+        Degraded.Should().ContainSingle().Which.Message.Should().Contain("1000 Mbps").And.Contain("2500 Mbps");
+    }
+
+    [Fact]
     public async Task BriefDownshift_DuringRenegotiation_StaysSilent()
     {
         await Hold(Port(1000), 3);

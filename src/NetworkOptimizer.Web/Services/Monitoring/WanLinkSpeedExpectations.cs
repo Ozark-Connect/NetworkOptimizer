@@ -15,12 +15,11 @@ public static class WanLinkSpeedExpectations
     /// </summary>
     public static readonly TimeSpan BaselineWindow = TimeSpan.FromDays(7);
 
-    /// <summary>
-    /// Plan speed above which the port is expected to negotiate at least 1 Gbps. Only the 1 Gbps
-    /// tier is inferred from the plan: anything faster depends on the port and the ISP device, and
-    /// a 2 Gbps plan on a 1 Gbps port is a hardware limit, not a negotiation fault.
-    /// </summary>
-    private const double GigabitPlanThresholdMbps = 100;
+    /// <summary>Plan speed at or below which the plan implies nothing: 100 Mbps Ethernet carries it.</summary>
+    private const double PlanFloorThresholdMbps = 100;
+
+    /// <summary>Ethernet rates a plan can require, slowest first.</summary>
+    private static readonly int[] EthernetRatesMbps = [1000, 2500, 5000, 10000];
 
     /// <summary>The WAN profile a gateway port serves, or null when none matches.</summary>
     /// <param name="deviceMac">Gateway MAC.</param>
@@ -48,12 +47,34 @@ public static class WanLinkSpeedExpectations
     public static bool IsWanPort(string? networkName, WanProfile? match) =>
         match != null || (networkName != null && networkName.StartsWith("wan", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>The speed a WAN's plan implies at minimum: 1 Gbps for a plan above 100 Mbps, else none.</summary>
-    public static int? PlanFloorMbps(WanProfile? profile)
+    /// <summary>
+    /// The link speed a WAN's plan needs: the slowest Ethernet rate that carries it (a 2000 Mbps
+    /// plan needs 2.5 Gbps), capped at what the gateway port can negotiate. None for a plan of
+    /// 100 Mbps or less. The cap keeps a plan faster than the port from alerting forever: that
+    /// is a hardware limit, not a negotiation fault.
+    /// </summary>
+    /// <param name="profile">The WAN's profile, carrying the plan speeds.</param>
+    /// <param name="portMedia">The port's UniFi <c>media</c>, e.g. "GE", "2.5GE", "10GE", "SFP+".</param>
+    public static int? PlanFloorMbps(WanProfile? profile, string? portMedia)
     {
         var plan = Math.Max(profile?.DownloadMbps ?? 0, profile?.UploadMbps ?? 0);
-        return plan > GigabitPlanThresholdMbps ? 1000 : null;
+        if (plan <= PlanFloorThresholdMbps) return null;
+        var needed = EthernetRatesMbps.FirstOrDefault(r => r >= plan, EthernetRatesMbps[^1]);
+        return Math.Min(needed, PortMaxMbps(portMedia));
     }
+
+    /// <summary>
+    /// The fastest an RJ45 port's <c>media</c> says it negotiates. SFP cages report the cage, not
+    /// the module in it (a 10G cage often holds a 1G module), so they and anything unrecognized
+    /// count as 1 Gbps.
+    /// </summary>
+    internal static int PortMaxMbps(string? media) => media?.Trim().ToUpperInvariant() switch
+    {
+        "2.5GE" => 2500,
+        "5GE" => 5000,
+        "10GE" => 10000,
+        _ => 1000,
+    };
 
     /// <summary>The port's expected speed: the highest of what is known, or null when nothing is.</summary>
     public static int? Expected(params int?[] candidates)

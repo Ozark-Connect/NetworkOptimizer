@@ -33,6 +33,7 @@ public sealed class GatewayLinkSpeedSnapshots
     /// <param name="SpeedMbps">Negotiated speed; null when the port is down or reports none.</param>
     /// <param name="FullDuplex">Negotiated duplex, when reported and the port is up.</param>
     /// <param name="Autoneg">Whether the port auto-negotiates (false = speed forced in UniFi).</param>
+    /// <param name="Media">The port's UniFi <c>media</c>, e.g. "GE", "2.5GE", "10GE", "SFP+".</param>
     public sealed record PortReading(
         string DeviceMac,
         string DeviceName,
@@ -41,7 +42,8 @@ public sealed class GatewayLinkSpeedSnapshots
         string? NetworkName,
         int? SpeedMbps,
         bool? FullDuplex,
-        bool Autoneg);
+        bool Autoneg,
+        string? Media);
 
     /// <summary>
     /// The ports of every gateway with a new snapshot. Gateways with nothing new contribute nothing.
@@ -76,7 +78,8 @@ public sealed class GatewayLinkSpeedSnapshots
                     port.NetworkName,
                     up ? port.Speed : null,
                     up ? port.FullDuplex : null,
-                    port.Autoneg));
+                    port.Autoneg,
+                    port.Media));
             }
         }
         return readings;
