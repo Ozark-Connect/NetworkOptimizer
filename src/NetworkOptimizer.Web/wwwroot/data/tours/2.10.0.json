@@ -38,6 +38,19 @@
       "optional": true
     },
     {
+      "id": "wan-speedtest-loss",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/wan-speedtest",
+      "selector": "[data-tour=\"wan-latest-result\"]",
+      "alsoSelectors": ["[data-tour=\"wan-run-test\"]"],
+      "title": "Packet Loss in WAN Speed Test",
+      "listLabel": "Speed tests now measure packet loss, idle and under load",
+      "body": "Every WAN speed test now measures packet loss with your line idle and while it's saturated in each direction. You'll see it next to the latency in **Latest Result**, and over time on the **Packet Loss** tab of **WAN History**. When Monitoring sees enough other traffic on that WAN to explain a slow result, the test is marked **Invalid** and ISP Health leaves it out.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
       "id": "realtek-ont-attach",
       "level": "minor",
       "badge": "improved",
