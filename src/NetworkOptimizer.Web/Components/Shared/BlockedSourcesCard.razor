@@ -57,7 +57,7 @@
                             @foreach (var b in _overview.Active)
                             {
                                 <tr>
-                                    <td><code>@b.SourceIp</code>@if (!b.Enforced) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
+                                    <td><code>@b.SourceIp</code>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
                                     <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
                                     <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt)</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
@@ -181,6 +181,10 @@
         BlockingMode.DryRun => "Detection Only",
         _ => "Off"
     };
+
+    /// <summary>Whether the block goes to the targets: Detection Only sends manual blocks only, even ones made in Blocking mode.</summary>
+    private bool IsSent(ThreatBlock b) =>
+        b.Enforced && (_overview!.Settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual);
 
     internal static string TargetLabel(BlockTargetKind kind) => kind switch
     {
