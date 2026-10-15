@@ -311,6 +311,36 @@ public class ThreatBlockingServiceTests
     }
 
     [Fact]
+    public async Task DryRun_DropsAutomaticBlocksEnforcedBeforeTheSwitch()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "DryRun");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.Blocks.Add(new ThreatBlock
+        {
+            SourceIp = "203.0.113.20",
+            Trigger = BlockTrigger.Pattern,
+            Reason = "Scan sweep",
+            Enforced = true, // decided while the site was in Enforce
+            CreatedAt = Now.AddMinutes(-5),
+            ExpiresAt = Now.AddHours(1),
+        });
+        h.Blocks.Add(new ThreatBlock
+        {
+            SourceIp = "2001:db8::9",
+            Trigger = BlockTrigger.Manual,
+            Reason = "Blocked by admin",
+            Enforced = true,
+            CreatedAt = Now.AddMinutes(-1),
+            ExpiresAt = Now.AddHours(1),
+        });
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+
+        h.Gateway.Syncs.Last().Should().Equal("2001:db8::9");
+    }
+
+    [Fact]
     public async Task Off_SendsNothing_EvenManualBlocks()
     {
         var h = new Harness();

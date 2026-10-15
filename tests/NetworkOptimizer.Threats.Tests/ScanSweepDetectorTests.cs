@@ -54,6 +54,50 @@ public class ScanSweepDetectorTests
     }
 
     [Fact]
+    public void Detect_LateRepliesFromAServerPortToEphemeralPorts_DoesNotDetect()
+    {
+        var baseTime = new DateTime(2025, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        var events = Enumerable.Range(0, 8).Select(i =>
+        {
+            var e = CreateReconEvent("192.0.2.60", 50000 + i * 997, baseTime.AddMinutes(i));
+            e.SourcePort = 443;
+            return e;
+        }).ToList();
+
+        Assert.Empty(_detector.Detect(events));
+    }
+
+    [Fact]
+    public void Detect_UdpTracerouteProbes_DoesNotDetect()
+    {
+        var baseTime = new DateTime(2025, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        var events = Enumerable.Range(0, 10).Select(i =>
+        {
+            var e = CreateReconEvent("192.0.2.61", 33434 + i, baseTime.AddSeconds(i));
+            e.Protocol = "UDP";
+            e.SourcePort = 40000 + i;
+            return e;
+        }).ToList();
+
+        Assert.Empty(_detector.Detect(events));
+    }
+
+    [Fact]
+    public void Detect_ScanFromAServerSourcePortToServicePorts_StillDetects()
+    {
+        // A scanner using source port 443 still counts when it targets service ports.
+        var baseTime = new DateTime(2025, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        var events = new[] { 22, 23, 3389, 5900, 8080 }.Select((port, i) =>
+        {
+            var e = CreateReconEvent("192.0.2.62", port, baseTime.AddMinutes(i));
+            e.SourcePort = 443;
+            return e;
+        }).ToList();
+
+        Assert.Single(_detector.Detect(events));
+    }
+
+    [Fact]
     public void Detect_FourDistinctPorts_DoesNotDetect()
     {
         var baseTime = new DateTime(2025, 1, 15, 10, 0, 0, DateTimeKind.Utc);

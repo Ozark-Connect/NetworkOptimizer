@@ -157,7 +157,7 @@ public class ThreatEventNormalizer
                 var protocol = flow.GetPropertyOrDefault("protocol", "");
                 var action = flow.GetPropertyOrDefault("action", "");
                 var risk = flow.GetPropertyOrDefault("risk", "low");
-                var direction = flow.GetPropertyOrDefault("direction", "");
+                var direction = ZoneDirection(flow) ?? flow.GetPropertyOrDefault("direction", "");
                 var service = flow.GetPropertyOrDefault("service", "");
 
                 long? bytesTotal = null;
@@ -240,6 +240,21 @@ public class ThreatEventNormalizer
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// "incoming" when the flow comes from the External zone, "outgoing" when it goes to it, else null.
+    /// UniFi labels External-to-Gateway drops "outgoing", which put internet noise in the LAN's column.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows source/destination zone_name")]
+    private static string? ZoneDirection(JsonElement flow)
+    {
+        static string Zone(JsonElement flow, string side) =>
+            flow.TryGetProperty(side, out var end) ? end.GetPropertyOrDefault("zone_name", "") : "";
+
+        if (Zone(flow, "source").Equals("External", StringComparison.OrdinalIgnoreCase)) return "incoming";
+        if (Zone(flow, "destination").Equals("External", StringComparison.OrdinalIgnoreCase)) return "outgoing";
+        return null;
     }
 
     /// <summary>
