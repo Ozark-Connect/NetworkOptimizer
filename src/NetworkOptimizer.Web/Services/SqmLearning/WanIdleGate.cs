@@ -106,6 +106,37 @@ public class WanIdleGate
     }
 
     /// <summary>
+    /// The WAN's SNMP throughput at 5 s resolution over a past window, or null when monitoring is
+    /// off or the WAN's counter interface cannot be resolved. Reads the counter interface, so a
+    /// VLAN WAN (eth6.100) is measured on its port (eth6), where the rate is counted once.
+    /// </summary>
+    public async Task<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>?> ReadWindowAsync(
+        string wanNetworkGroup, DateTime from, DateTime to, CancellationToken ct)
+    {
+        try
+        {
+            await using (var db = _siteDb.CreateForSite(_siteContext.Slug, _siteContext.IsDefault))
+            {
+                var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+                if (settings is not { Enabled: true })
+                    return null;
+            }
+
+            var (mac, counter) = await ResolveCounterAsync(wanNetworkGroup, ct);
+            if (string.IsNullOrEmpty(mac) || string.IsNullOrEmpty(counter))
+                return null;
+
+            return await Influx.QueryGatewayWanRatesAsync(
+                mac, new[] { counter }, from, to, aggregateWindow: TimeSpan.FromSeconds(5), ct: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read monitored WAN traffic for {Group} over a past window", wanNetworkGroup);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Gateway MAC and counter interface for the WAN group: live from the console, else the WAN's
     /// remembered profile row. Never another WAN's - an unresolved WAN reads as unknown.
     /// </summary>

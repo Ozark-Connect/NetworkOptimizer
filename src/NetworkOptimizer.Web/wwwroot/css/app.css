@@ -2765,9 +2765,11 @@ a.stat-card-link:active {
     color: var(--danger-color);
 }
 
-.status-badge.status-provisioning {
+.status-badge.status-provisioning,
+.status-badge.status-warning {
     background: rgba(231, 150, 19, 0.2);
     color: var(--warning-color);
+    font-weight: 600;
 }
 
 .status-badge.status-info {
@@ -3592,6 +3594,10 @@ select.form-control {
     background: rgba(245, 158, 11, 0.1);
     border: 1px solid var(--warning-color);
     color: var(--warning-color);
+}
+
+.alert.speedtest-invalid-alert {
+    margin: 0 1rem 1rem;
 }
 
 .alert-warning a {
