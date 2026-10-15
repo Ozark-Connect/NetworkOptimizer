@@ -132,14 +132,18 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                     refs.Add(new GatewayBlockPolicyRef(existing.Id, zone.Id, version));
                     continue;
                 }
+                var isSourceBlock = groupId == state.GroupV4Id || groupId == state.GroupV6Id;
                 var policy = await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.Create(
-                    name, description, version, external.Id, groupId!, zone.Id), ct);
+                    name, description, version, external.Id, groupId!, zone.Id, newConnectionsOnly: isSourceBlock), ct);
                 created++;
                 refs.Add(new GatewayBlockPolicyRef(policy.Id, zone.Id, version));
             }
         }
         state.Policies = refs;
         await SaveStateAsync(site, state, ct);
+
+        // Adopted blocklist policies predate new-connections-only matching.
+        await EnsureSourcePoliciesNewOnlyAsync(site, ct);
 
         // New custom policies land after the ones already there, so a user ALLOW from External
         // would run first. Move ours to the front of each zone pair once; later ones land after.
@@ -154,6 +158,35 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             created, adopted, groupsCreated);
         return new GatewaySetUpResult(created, adopted, groupsCreated);
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// A source block exists to stop unsolicited inbound traffic. Matching every state also dropped
+    /// replies to connections LAN devices opened (our policies sit ahead of UniFi's Allow Return
+    /// Traffic), so a wrongly blocked CDN broke the apps using it. The public list policies keep
+    /// matching every state, paired with the optional outbound block.
+    /// </remarks>
+    public async Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state?.GroupV4Id == null || state.GroupV6Id == null) return 0;
+        var client = Client(site);
+        var groups = new HashSet<string> { state.GroupV4Id, state.GroupV6Id };
+        var stale = (await client.GetFirewallPoliciesAsync(ct))
+            .Where(p => !p.Predefined && groups.Contains(p.Source.IpGroupId ?? "") && !IsNewConnectionsOnly(p))
+            .ToList();
+        foreach (var policy in stale)
+            await client.SetFirewallPolicyConnectionStatesAsync(policy.Id, UniFiGroupBlockPolicyWrite.NewConnectionsOnly, ct);
+        if (stale.Count > 0)
+            _logger.LogInformation("Gateway blocking: {Count} blocklist policies now match new connections only", stale.Count);
+        return stale.Count;
+    }
+
+    /// <summary>Whether a policy matches exactly <see cref="UniFiGroupBlockPolicyWrite.NewConnectionsOnly"/>.</summary>
+    public static bool IsNewConnectionsOnly(UniFiFirewallPolicy policy) =>
+        string.Equals(policy.ConnectionStateType, "CUSTOM", StringComparison.OrdinalIgnoreCase)
+        && policy.ConnectionStates is { Count: 1 } states
+        && string.Equals(states[0], "NEW", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Adds or removes the outbound policies that stop devices on every internal zone (not the

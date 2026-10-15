@@ -41,6 +41,8 @@ public class BlockSharingTests
             FeedSyncs.Add(entries);
             return Task.FromResult(BlockTargetResult.Success(entries.Count));
         }
+
+        public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct) => Task.FromResult(0);
         public IReadOnlyList<string> LastFor(string? site) => Syncs.Last(s => s.Site == site).Ips;
     }
 

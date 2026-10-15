@@ -19,6 +19,10 @@ public class UniFiFirewallPolicy
     /// <summary>Evaluation order within a zone pair: user policies from 10000, predefined from 30000.</summary>
     [JsonPropertyName("index")] public long Index { get; set; }
     [JsonPropertyName("predefined")] public bool Predefined { get; set; }
+    /// <summary>"ALL", or "CUSTOM" with <see cref="ConnectionStates"/> naming the states matched.</summary>
+    [JsonPropertyName("connection_state_type")] public string? ConnectionStateType { get; set; }
+    /// <summary>"NEW", "ESTABLISHED", "RELATED", "INVALID" when <see cref="ConnectionStateType"/> is "CUSTOM".</summary>
+    [JsonPropertyName("connection_states")] public List<string>? ConnectionStates { get; set; }
     [JsonPropertyName("source")] public UniFiFirewallPolicyEndpoint Source { get; set; } = new();
     [JsonPropertyName("destination")] public UniFiFirewallPolicyEndpoint Destination { get; set; } = new();
 }
@@ -53,6 +57,10 @@ public sealed class UniFiGroupBlockPolicyWrite
     // No report_flow: 11.x's UI sends it, 10.x has no such field, and 11.x accepts the body without it.
     [JsonPropertyName("protocol")] public string Protocol { get; init; } = "all";
     [JsonPropertyName("connection_state_type")] public string ConnectionStateType { get; init; } = "ALL";
+    /// <summary>The states matched when <see cref="ConnectionStateType"/> is "CUSTOM"; left out of the body otherwise.</summary>
+    [JsonPropertyName("connection_states")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? ConnectionStates { get; init; }
     [JsonPropertyName("match_ip_sec")] public bool MatchIpSec { get; init; }
     [JsonPropertyName("schedule")] public object Schedule { get; init; } = new { mode = "ALWAYS" };
     [JsonPropertyName("source")] public required object Source { get; init; }
@@ -87,13 +95,22 @@ public sealed class UniFiGroupBlockPolicyWrite
         },
     };
 
-    /// <summary>Builds the policy for one zone pair.</summary>
+    /// <summary>The connection states a source block matches: new connections only, so replies to
+    /// connections the LAN opened still pass UniFi's own Allow Return Traffic.</summary>
+    public static readonly IReadOnlyList<string> NewConnectionsOnly = ["NEW"];
+
+    /// <summary>
+    /// Builds the policy for one zone pair. With <paramref name="newConnectionsOnly"/> it matches only
+    /// <see cref="NewConnectionsOnly"/>; otherwise every state.
+    /// </summary>
     public static UniFiGroupBlockPolicyWrite Create(string name, string description, string ipVersion,
-        string sourceZoneId, string groupId, string destinationZoneId) => new()
+        string sourceZoneId, string groupId, string destinationZoneId, bool newConnectionsOnly = false) => new()
     {
         Name = name,
         Description = description,
         IpVersion = ipVersion,
+        ConnectionStateType = newConnectionsOnly ? "CUSTOM" : "ALL",
+        ConnectionStates = newConnectionsOnly ? NewConnectionsOnly : null,
         Source = new Dictionary<string, object>
         {
             ["zone_id"] = sourceZoneId,

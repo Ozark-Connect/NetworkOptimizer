@@ -89,6 +89,12 @@ public interface IGatewayBlocklistWriter
 
     /// <summary>Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges).</summary>
     Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Narrows the site's blocklist policies to new connections where they still match every state.
+    /// Returns how many it changed; 0 when gateway blocking is not set up.
+    /// </summary>
+    Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken cancellationToken);
 }
 
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>
