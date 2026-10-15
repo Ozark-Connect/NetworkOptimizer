@@ -383,14 +383,21 @@ public sealed class ThreatBlockingOperations
 
     private string SlugOf(string? site) => site ?? _siteContext?.DefaultKey ?? "";
 
-    public async Task<TrustedSourcesOverview> GetTrustedSourcesAsync(string slug, CancellationToken ct)
+    /// <summary>
+    /// A site's Trusted Sources, listing only <paramref name="visible"/> sites (null = every site) and
+    /// always the site itself, so a Site Admin never sees another site's addresses.
+    /// </summary>
+    public async Task<TrustedSourcesOverview> GetTrustedSourcesAsync(string slug, IReadOnlySet<string>? visible, CancellationToken ct)
     {
         var site = Site(slug);
         var trusted = (await TrustedSourcesSettings.ResolveSitesAsync(_settings, _sharing, site, ct)).ToHashSet();
         var all = _siteContext == null ? [null] : (await _siteContext.GetSiteKeysAsync(ct)).Select(Site).ToList();
         var sites = new List<TrustedSite>();
         foreach (var s in all)
+        {
+            if (visible != null && s != site && !visible.Contains(SlugOf(s))) continue;
             sites.Add(new TrustedSite(SlugOf(s), trusted.Contains(s), await TrustedAddressBook.LoadAsync(_settings, s, ct)));
+        }
         return new TrustedSourcesOverview(
             sites,
             await _settings.GetSettingAsync(Key(slug, TrustedSourcesKeys.Extras), ct) ?? "",
@@ -405,13 +412,13 @@ public sealed class ThreatBlockingOperations
     /// The sites a site trusts (always itself), its extra trusted addresses, its blocking exceptions,
     /// and whether it keeps the UniFi groups.
     /// </summary>
-    public async Task SaveTrustedSourcesAsync(string slug, IReadOnlyList<string> trustedSlugs, string extras, string neverBlock,
-        bool uniFiGroup, bool uniFiCloudflare, CancellationToken ct)
+    public async Task SaveTrustedSourcesAsync(string slug, IReadOnlyList<string> trustedSlugs, IReadOnlySet<string>? visible,
+        string extras, string neverBlock, bool uniFiGroup, bool uniFiCloudflare, CancellationToken ct)
     {
         var invalid = BlockAllowlist.Invalid(extras).Concat(BlockAllowlist.Invalid(neverBlock)).ToList();
         if (invalid.Count > 0)
             throw new ArgumentException($"Not an IP address or CIDR range: {string.Join(", ", invalid.Take(5))}");
-        await SaveTrustedSitesAsync(slug, trustedSlugs, ct);
+        await SaveTrustedSitesAsync(slug, trustedSlugs, visible, ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.Extras), string.Join("\n", BlockAllowlist.ParseList(extras)), ct);
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), string.Join("\n", BlockAllowlist.ParseList(neverBlock)), ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiGroup), uniFiGroup.ToString(), ct);
@@ -419,9 +426,22 @@ public sealed class ThreatBlockingOperations
         _blocking.Trigger();
     }
 
-    public async Task SaveTrustedSitesAsync(string slug, IReadOnlyList<string> trustedSlugs, CancellationToken ct)
+    /// <summary>
+    /// Sets the sites a site trusts, as far as the caller can see (<paramref name="visible"/>, null =
+    /// every site): stored trust in sites outside it is kept, and the caller cannot add one.
+    /// </summary>
+    public async Task SaveTrustedSitesAsync(string slug, IReadOnlyList<string> trustedSlugs, IReadOnlySet<string>? visible,
+        CancellationToken ct)
     {
-        await TrustedSourcesSettings.SaveSitesAsync(_settings, Site(slug), trustedSlugs.Select(Site).Append(Site(slug)), ct);
+        var site = Site(slug);
+        IEnumerable<string> chosen = trustedSlugs;
+        if (visible != null)
+        {
+            var hidden = (await TrustedSourcesSettings.ResolveSitesAsync(_settings, _sharing, site, ct))
+                .Select(SlugOf).Where(s => !visible.Contains(s));
+            chosen = trustedSlugs.Where(visible.Contains).Concat(hidden);
+        }
+        await TrustedSourcesSettings.SaveSitesAsync(_settings, site, chosen.Select(Site).Append(site), ct);
         _blocking.Trigger();
     }
 
