@@ -44,6 +44,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
     private string _bucketId = "history-id";
     private long _retentionSeconds;
     private Func<HttpContext, Task>? _beforeWrite;
+    private string? _queryCsv;
 
     public async Task InitializeAsync()
     {
@@ -77,6 +78,11 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             context.Response.StatusCode = _writeStatus;
             if (_writeStatus != StatusCodes.Status204NoContent)
                 await context.Response.WriteAsJsonAsync(new { code = "unprocessable entity", message = "test write failure" });
+        });
+        _server.MapPost("/api/v2/query", async (HttpContext context) =>
+        {
+            context.Response.ContentType = "text/csv";
+            await context.Response.WriteAsync(_queryCsv ?? "");
         });
         _server.MapGet("/api/v2/buckets", async (HttpContext context) =>
         {
@@ -686,6 +692,8 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             .AddScoped<ISpeedTestRepository, SpeedTestRepository>()
             .AddSingleton(_registry)
             .AddSingleton(connections)
+            .AddScoped(sp => connections.GetFor(sp.GetRequiredService<SiteContextService>().Slug))
+            .AddScoped<NetworkOptimizer.Web.Services.SqmLearning.WanIdleGate>()
             .AddSingleton(speedTests)
             .AddSingleton(Mock.Of<ICredentialProtectionService>())
             .AddSingleton(pathAnalyzer)
@@ -1245,6 +1253,17 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
         result.DownloadJitterMs = 1.5;
         result.UploadLatencyMs = 23.5;
         result.UploadJitterMs = 2.5;
+        result.IdleLossPercent = 0;
+        result.IdleLossProbes = 500;
+        result.DownloadLossPercent = 0.5;
+        result.DownloadLossProbes = 400;
+        result.UploadLossPercent = 1.25;
+        result.UploadLossProbes = 350;
+        result.BackgroundDownloadMbps = 210;
+        result.BackgroundUploadMbps = 1.5;
+        result.ExpectedDownloadMbps = 1000;
+        result.ExpectedUploadMbps = 100;
+        result.BackgroundLoadInvalid = true;
         await SaveHistoryAsync("main", result);
         var client = _registry.GetDefault();
         await client.ReconfigureAsync();
@@ -1256,6 +1275,80 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
 
         _writes.Should().HaveCount(2);
         _writes.Last().Should().Be(live);
+    }
+
+    [Theory]
+    [InlineData("main", false)]
+    [InlineData("branch", false)]
+    [InlineData("main", true)]
+    [InlineData("branch", true)]
+    public async Task BackgroundCheck_SavesThenExportsOnlyQualityOnOriginalSitePoint(string site, bool failExport)
+    {
+        var result = Result();
+        result.WanNetworkGroup = "WAN2";
+        await SaveHistoryAsync(site, result);
+        await SpeedTestInfluxExporter.ExportAsync(_registry, site, result, _clientLogger.Object);
+        await _registry.GetFor(site).FlushAsync();
+        var now = DateTime.UtcNow.AddMinutes(-2);
+        _queryCsv = $"""
+            ,result,table,_time,rate_in_bps,rate_out_bps
+            ,_result,0,{now.AddSeconds(5):O},400000000,10000000
+            """;
+        await using (var db = _siteDbFactory.CreateForSite(site))
+        {
+            (await db.MonitoringSettings.SingleAsync()).Enabled = true;
+            db.WanProfiles.Add(new WanProfile
+            {
+                WanNetworkgroup = "WAN2", CounterInterface = "eth4", GatewayMac = "aa:bb:cc:dd:ee:ff",
+                DownloadMbps = 1000, UploadMbps = 100
+            });
+            await db.SaveChangesAsync();
+        }
+        await using var services = ProductionServices();
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        WanTestBackgroundCheck.Schedule(services.GetRequiredService<IServiceScopeFactory>(), site, result.Id, "WAN2",
+            new WanTestPhases((now, now.AddSeconds(10)), null, null),
+            () => Task.FromResult(_siteDbFactory.CreateForSite(site)),
+            _ => completed.TrySetResult(), _clientLogger.Object);
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        if (failExport) _writeStatus = StatusCodes.Status503ServiceUnavailable;
+        await _registry.GetFor(site).FlushAsync();
+
+        await using var savedDb = _siteDbFactory.CreateForSite(site);
+        var saved = await savedDb.Iperf3Results.SingleAsync();
+        saved.BackgroundLoadInvalid.Should().BeTrue();
+        saved.BackgroundDownloadMbps.Should().Be(400);
+        saved.Success.Should().BeTrue();
+        var writes = _writes.ToArray();
+        writes.Should().HaveCount(2);
+        writes.Should().OnlyContain(w => w.Bucket == (site == "main" ? "history" : "branch-history"));
+        var original = writes[0].Body.Trim();
+        var update = writes[1].Body.Trim();
+        update[..update.IndexOf(' ')].Should().Be(original[..original.IndexOf(' ')]);
+        update.Split(' ')[^1].Should().Be(original.Split(' ')[^1]);
+        update.Should().Contain("background_download_bps=400000000").And.Contain("expected_download_bps=1000000000")
+            .And.Contain("background_load_invalid=true").And.NotContain(",download_bps=").And.NotContain("success=")
+            .And.NotContain("ping_ms").And.NotContain("loss_percent");
+        if (failExport) VerifyLog(_influxLogger, LogLevel.Error, "points dropped");
+    }
+
+    [Fact]
+    public async Task StaleBackgroundUpdate_CannotOverwriteNewerMeasurements()
+    {
+        var result = Result();
+        await SaveHistoryAsync("main", result);
+        await SpeedTestInfluxExporter.ExportAsync(_registry, "main", result, _clientLogger.Object);
+        await _registry.GetDefault().FlushAsync();
+        result.DownloadBitsPerSecond = 1;
+        result.PingMs = 999;
+        result.Success = false;
+        result.BackgroundDownloadMbps = 25;
+        await SpeedTestInfluxExporter.ExportBackgroundLoadAsync(_registry, "main", result, _clientLogger.Object);
+        await _registry.GetDefault().FlushAsync();
+
+        _writes.Should().HaveCount(2);
+        _writes.Last().Body.Should().Contain("background_download_bps=25000000")
+            .And.NotContain(",download_bps=").And.NotContain("success=").And.NotContain("ping_ms");
     }
 
     [Fact]

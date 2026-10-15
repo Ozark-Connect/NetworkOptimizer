@@ -1,4 +1,5 @@
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -9,20 +10,29 @@ public static class SpeedTestInfluxExporter
         MonitoringInfluxRegistry? registry,
         string siteSlug,
         Iperf3Result result,
-        ILogger logger) => ExportCoreAsync(registry, siteSlug, result, logger, metadataOnly: false);
+        ILogger logger) => ExportCoreAsync(registry, siteSlug, result, logger,
+            static (client, saved) => client.WriteSpeedTestResultAsync(saved));
 
     public static Task ExportMetadataAsync(
         MonitoringInfluxRegistry? registry,
         string siteSlug,
         Iperf3Result result,
-        ILogger logger) => ExportCoreAsync(registry, siteSlug, result, logger, metadataOnly: true);
+        ILogger logger) => ExportCoreAsync(registry, siteSlug, result, logger,
+            static (client, saved) => client.WriteSpeedTestMetadataAsync(saved));
+
+    public static Task ExportBackgroundLoadAsync(
+        MonitoringInfluxRegistry? registry,
+        string siteSlug,
+        Iperf3Result result,
+        ILogger logger) => ExportCoreAsync(registry, siteSlug, result, logger,
+            static (client, saved) => client.WriteSpeedTestBackgroundLoadAsync(saved));
 
     private static async Task ExportCoreAsync(
         MonitoringInfluxRegistry? registry,
         string siteSlug,
         Iperf3Result result,
         ILogger logger,
-        bool metadataOnly)
+        Func<MonitoringInfluxClient, Iperf3Result, Task> write)
     {
         if (registry == null) return;
 
@@ -32,10 +42,7 @@ public static class SpeedTestInfluxExporter
             if (!client.IsConfigured && !await client.ReconfigureAsync())
                 return;
 
-            if (metadataOnly)
-                await client.WriteSpeedTestMetadataAsync(result);
-            else
-                await client.WriteSpeedTestResultAsync(result);
+            await write(client, result);
         }
         catch (Exception ex)
         {

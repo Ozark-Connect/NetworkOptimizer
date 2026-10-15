@@ -26,11 +26,13 @@ Saved WAN and LAN speed tests, including browser and client-initiated iperf3 res
 
 Points keep the saved UTC `TestTime`. Tags are `test_type` (`wan` or `lan`), `runner` (`server`, `gateway`, or `client`), `provider` (`cloudflare`, `uwn`, `iperf3`, or `openspeedtest`), and either `wan_network_group` or LAN `target_host`. On-Site Agent runs use `server`. Fields include success, throughput in bps, available latency/jitter in ms, and descriptive names. WAN rates use the usual internet perspective; LAN download is device to NO, and upload is NO to device. Browser WAN results identify the external server and use the sole WAN group when known; multi-WAN sites omit the group. Successful WAN descriptions use `server_host`/`server_name`; LAN uses `target_name`/`target_type`. Failed results omit descriptions. Raw payloads and detailed client metadata stay in SQLite.
 
+WAN quality fields include `idle_loss_percent`, `download_loss_percent`, and `upload_loss_percent`, with corresponding `*_loss_probes` counts when available. Background and expected speeds use `background_download_bps`, `background_upload_bps`, `expected_download_bps`, and `expected_upload_bps`. The delayed background check updates only these speeds and `background_load_invalid` on the original point, independently of test `success`. Unavailable values are omitted; expected speeds alone do not emit a false background-load flag.
+
 Client iperf3 results export immediately. Merges update the same point; enrichment updates LAN names/types without overwriting rates or changing browser WAN server identity. Browser WAN results record the sole active WAN interface's group at test time regardless of InfluxDB configuration; ambiguous or unavailable groups remain unset. UWN provider-name fallbacks are omitted from server descriptions.
 
 Existing history is backfilled at startup or when InfluxDB is configured later. Completion is recorded per destination in SQLite after acknowledged writes; unfinished passes retry. Failures in unrelated buffered monitoring writes do not block historical export. Backfill respects bucket retention and checks destination or retention changes on restart or connection refresh.
 
-SQLite remains authoritative, and export failures never fail a test. Live writes use the existing buffer: failed batches and unflushed shutdown data are dropped. There is no durable live-delivery queue or synchronization of SQLite edits/deletions.
+SQLite remains authoritative, and export failures never fail a test. Live writes use the existing buffer: failed batches and unflushed shutdown data are dropped. There is no durable live-delivery queue or synchronization of SQLite edits/deletions. Reassigning a saved test's WAN changes its point identity; a later backfill can create a second point without removing the original.
 
 A Grafana Flux query for WAN download throughput (use the site's actual long-term bucket):
 
@@ -40,6 +42,8 @@ from(bucket: "network_monitoring_longterm")
   |> filter(fn: (r) => r._measurement == "speed_test"
     and r.test_type == "wan" and r.runner != "client" and r._field == "download_bps")
 ```
+
+To exclude background-contaminated tests, pivot the throughput and `background_load_invalid` fields into the same row and filter out rows where the flag is true. A missing flag means unknown, not a confirmed clean test.
 
 ## Provisioning InfluxDB
 

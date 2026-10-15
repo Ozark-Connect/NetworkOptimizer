@@ -10,6 +10,94 @@ public class SpeedTestInfluxPointTests
 {
     private static readonly DateTime TestTime = new(2026, 10, 7, 12, 0, 0, DateTimeKind.Utc);
 
+    [Fact]
+    public void PlanOnlyBackgroundData_DoesNotImplyAnAssessment()
+    {
+        var result = new Iperf3Result
+        {
+            Direction = SpeedTestDirection.UwnWan, TestTime = TestTime, Success = true,
+            ExpectedDownloadMbps = 1000, ExpectedUploadMbps = 100
+        };
+
+        var summary = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
+        var background = MonitoringInfluxClient.BuildSpeedTestBackgroundLoadPoint(result)!.ToLineProtocol();
+
+        foreach (var line in new[] { summary, background })
+            line.Should().Contain("expected_download_bps=1000000000").And.Contain("expected_upload_bps=100000000")
+                .And.NotContain("background_load_invalid").And.NotContain("background_download_bps")
+                .And.NotContain("background_upload_bps");
+    }
+
+    [Fact]
+    public void ExplicitInvalidFlag_IsExportedWithoutBackgroundMeasurements()
+    {
+        var result = new Iperf3Result
+        {
+            Direction = SpeedTestDirection.UwnWan, TestTime = TestTime, BackgroundLoadInvalid = true
+        };
+
+        MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol()
+            .Should().Contain("background_load_invalid=true");
+        MonitoringInfluxClient.BuildSpeedTestBackgroundLoadPoint(result)!.ToLineProtocol()
+            .Should().Contain("background_load_invalid=true");
+    }
+
+    [Theory]
+    [InlineData(SpeedTestDirection.UwnWan)]
+    [InlineData(SpeedTestDirection.UwnWanGateway)]
+    public void WanQuality_ExportsLossAndBackgroundWithExplicitUnits(SpeedTestDirection direction)
+    {
+        var result = new Iperf3Result
+        {
+            Direction = direction, TestTime = TestTime, Success = true,
+            IdleLossPercent = 0, IdleLossProbes = 500,
+            DownloadLossPercent = 0.5, DownloadLossProbes = 400,
+            UploadLossPercent = 1.25, UploadLossProbes = 350,
+            BackgroundDownloadMbps = 210, BackgroundUploadMbps = 1.5,
+            ExpectedDownloadMbps = 1000, ExpectedUploadMbps = 100, BackgroundLoadInvalid = true
+        };
+
+        var summary = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
+        var background = MonitoringInfluxClient.BuildSpeedTestBackgroundLoadPoint(result)!.ToLineProtocol();
+
+        summary.Should().Contain("idle_loss_percent=0").And.Contain("idle_loss_probes=500i")
+            .And.Contain("download_loss_percent=0.5").And.Contain("download_loss_probes=400i")
+            .And.Contain("upload_loss_percent=1.25").And.Contain("upload_loss_probes=350i")
+            .And.Contain("background_download_bps=210000000").And.Contain("background_upload_bps=1500000")
+            .And.Contain("expected_download_bps=1000000000").And.Contain("expected_upload_bps=100000000")
+            .And.Contain("background_load_invalid=true").And.Contain("success=true");
+        background[..background.IndexOf(' ')].Should().Be(summary[..summary.IndexOf(' ')]);
+        background.Should().EndWith($" {TimestampNs(TestTime)}");
+        background.Should().Contain("background_load_invalid=true").And.NotContain("success=")
+            .And.NotContain("idle_loss").And.NotContain(",download_bps=").And.NotContain(" download_bps=").And.NotContain("ping_ms");
+    }
+
+    [Fact]
+    public void OldWanResult_OmitsUnavailableQualityInsteadOfReportingZeroOrValid()
+    {
+        var result = new Iperf3Result { Direction = SpeedTestDirection.UwnWan, TestTime = TestTime, Success = true };
+
+        var line = MonitoringInfluxClient.BuildSpeedTestPoint(result).ToLineProtocol();
+
+        line.Should().NotContain("_loss_").And.NotContain("background_").And.NotContain("expected_");
+        MonitoringInfluxClient.BuildSpeedTestBackgroundLoadPoint(result).Should().BeNull();
+    }
+
+    [Fact]
+    public void BackgroundLoad_ExportsMeasuredZeroAndFalseVerdict()
+    {
+        var result = new Iperf3Result
+        {
+            Direction = SpeedTestDirection.UwnWan, TestTime = TestTime,
+            BackgroundDownloadMbps = 0, BackgroundUploadMbps = 0, BackgroundLoadInvalid = false
+        };
+
+        var line = MonitoringInfluxClient.BuildSpeedTestBackgroundLoadPoint(result)!.ToLineProtocol();
+
+        line.Should().Contain("background_download_bps=0").And.Contain("background_upload_bps=0")
+            .And.Contain("background_load_invalid=false").And.NotContain("expected_");
+    }
+
     [Theory]
     [InlineData(SpeedTestDirection.CloudflareWan, "server", "cloudflare")]
     [InlineData(SpeedTestDirection.CloudflareWanGateway, "gateway", "cloudflare")]

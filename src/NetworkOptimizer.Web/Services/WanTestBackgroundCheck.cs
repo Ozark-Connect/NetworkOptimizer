@@ -98,6 +98,8 @@ internal static class WanTestBackgroundCheck
                 result.BackgroundLoadInvalid = IsInvalid(result.DownloadMbps, planDown, bgDown)
                     || IsInvalid(result.UploadMbps, planUp, bgUp);
                 await db.SaveChangesAsync();
+                await SpeedTestInfluxExporter.ExportBackgroundLoadAsync(
+                    scope.ServiceProvider.GetRequiredService<MonitoringInfluxRegistry>(), siteSlug, result, logger);
 
                 logger.LogInformation(
                     "WAN test {Id} background on {Group}: {BgDown:F0} down / {BgUp:F0} up Mbps vs plan {PlanDown} / {PlanUp} -> {Verdict}",

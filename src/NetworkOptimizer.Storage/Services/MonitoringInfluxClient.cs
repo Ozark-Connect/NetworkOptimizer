@@ -517,7 +517,13 @@ public class MonitoringInfluxClient : IAsyncDisposable
                             DurationSeconds = r.DurationSeconds, ParallelStreams = r.ParallelStreams,
                             PingMs = r.PingMs, JitterMs = r.JitterMs,
                             DownloadLatencyMs = r.DownloadLatencyMs, DownloadJitterMs = r.DownloadJitterMs,
-                            UploadLatencyMs = r.UploadLatencyMs, UploadJitterMs = r.UploadJitterMs
+                            UploadLatencyMs = r.UploadLatencyMs, UploadJitterMs = r.UploadJitterMs,
+                            IdleLossPercent = r.IdleLossPercent, IdleLossProbes = r.IdleLossProbes,
+                            DownloadLossPercent = r.DownloadLossPercent, DownloadLossProbes = r.DownloadLossProbes,
+                            UploadLossPercent = r.UploadLossPercent, UploadLossProbes = r.UploadLossProbes,
+                            BackgroundDownloadMbps = r.BackgroundDownloadMbps, BackgroundUploadMbps = r.BackgroundUploadMbps,
+                            ExpectedDownloadMbps = r.ExpectedDownloadMbps, ExpectedUploadMbps = r.ExpectedUploadMbps,
+                            BackgroundLoadInvalid = r.BackgroundLoadInvalid
                         }).ToListAsync(ct);
                     if (results.Count == 0) break;
                     cursor = results[^1].Id;
@@ -539,7 +545,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
                                 {
                                     result.DownloadBitsPerSecond, result.UploadBitsPerSecond,
                                     result.PingMs, result.JitterMs, result.DownloadLatencyMs,
-                                    result.DownloadJitterMs, result.UploadLatencyMs, result.UploadJitterMs
+                                    result.DownloadJitterMs, result.UploadLatencyMs, result.UploadJitterMs,
+                                    result.IdleLossPercent, result.DownloadLossPercent, result.UploadLossPercent,
+                                    result.BackgroundDownloadMbps * 1_000_000, result.BackgroundUploadMbps * 1_000_000,
+                                    result.ExpectedDownloadMbps * 1_000_000, result.ExpectedUploadMbps * 1_000_000
                                 }.Any(value => value.HasValue && !double.IsFinite(value.Value)))
                                 throw new ArgumentException("Historical speed test has an invalid timestamp or non-finite measurement.");
                             points.Add(BuildSpeedTestPoint(result));
@@ -625,6 +634,50 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (result.DownloadJitterMs.HasValue) point = point.Field("download_jitter_ms", result.DownloadJitterMs.Value);
         if (result.UploadLatencyMs.HasValue) point = point.Field("upload_latency_ms", result.UploadLatencyMs.Value);
         if (result.UploadJitterMs.HasValue) point = point.Field("upload_jitter_ms", result.UploadJitterMs.Value);
+        if (isWan)
+        {
+            if (result.IdleLossPercent.HasValue) point = point.Field("idle_loss_percent", result.IdleLossPercent.Value);
+            if (result.IdleLossProbes.HasValue) point = point.Field("idle_loss_probes", result.IdleLossProbes.Value);
+            if (result.DownloadLossPercent.HasValue) point = point.Field("download_loss_percent", result.DownloadLossPercent.Value);
+            if (result.DownloadLossProbes.HasValue) point = point.Field("download_loss_probes", result.DownloadLossProbes.Value);
+            if (result.UploadLossPercent.HasValue) point = point.Field("upload_loss_percent", result.UploadLossPercent.Value);
+            if (result.UploadLossProbes.HasValue) point = point.Field("upload_loss_probes", result.UploadLossProbes.Value);
+            if (HasSpeedTestBackgroundLoad(result)) point = AddSpeedTestBackgroundLoad(point, result);
+        }
+        return point;
+    }
+
+    public Task WriteSpeedTestBackgroundLoadAsync(Iperf3Result result)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = BuildSpeedTestBackgroundLoadPoint(result);
+        if (point != null) Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    internal static PointData? BuildSpeedTestBackgroundLoadPoint(Iperf3Result result)
+    {
+        if (!HasSpeedTestBackgroundLoad(result)) return null;
+        var point = BuildSpeedTestIdentity(result, out var isWan);
+        return isWan ? AddSpeedTestBackgroundLoad(point, result) : null;
+    }
+
+    private static bool HasSpeedTestBackgroundLoad(Iperf3Result result) =>
+        result.BackgroundDownloadMbps.HasValue || result.BackgroundUploadMbps.HasValue
+        || result.ExpectedDownloadMbps.HasValue || result.ExpectedUploadMbps.HasValue || result.BackgroundLoadInvalid;
+
+    private static PointData AddSpeedTestBackgroundLoad(PointData point, Iperf3Result result)
+    {
+        if (result.BackgroundDownloadMbps.HasValue)
+            point = point.Field("background_download_bps", result.BackgroundDownloadMbps.Value * 1_000_000);
+        if (result.BackgroundUploadMbps.HasValue)
+            point = point.Field("background_upload_bps", result.BackgroundUploadMbps.Value * 1_000_000);
+        if (result.ExpectedDownloadMbps.HasValue)
+            point = point.Field("expected_download_bps", result.ExpectedDownloadMbps.Value * 1_000_000);
+        if (result.ExpectedUploadMbps.HasValue)
+            point = point.Field("expected_upload_bps", result.ExpectedUploadMbps.Value * 1_000_000);
+        if (result.BackgroundDownloadMbps.HasValue || result.BackgroundUploadMbps.HasValue || result.BackgroundLoadInvalid)
+            point = point.Field("background_load_invalid", result.BackgroundLoadInvalid);
         return point;
     }
 
