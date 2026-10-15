@@ -390,43 +390,32 @@ public class RolloutPlanner
     }
 
     /// <summary>
-    /// A fleet big enough that upgrading APs a handful at a time is not a real option, whatever the
-    /// site has drawn on its Signal Map. Placement is optional and most large sites skip it.
-    /// </summary>
-    public const int LargeApFleet = 25;
-
-    /// <summary>
-    /// How many APs may be in one wave. Three inputs, and the largest wins.
+    /// How many APs may be in one wave.
     /// <para>
-    /// The profile's flat cap is the floor, so small sites behave exactly as they always have.
-    /// Placements raise it toward a share of the fleet, scaled by how much of the fleet is actually
-    /// placed: two placed APs out of forty prove nothing about the other thirty-eight, and the
-    /// oracle's silence on an unplaced pair is missing data rather than evidence they do not
-    /// overlap. A fleet past <see cref="LargeApFleet"/> gets that share whether or not it is
-    /// placed: Signal Map placement is optional, most large sites skip it, and the alternative is a
-    /// 200-AP site rolling three at a time for two days.
+    /// Without placements nothing proves which APs cover the same space, so the cap is a share of
+    /// the fleet, never a count: a flat count of three took a two-AP site's whole Wi-Fi down in one
+    /// wave. Roaming edges alone do not count as placement, because a pair no client roamed between
+    /// is missing data rather than evidence the two do not overlap.
+    /// </para>
+    /// <para>
+    /// With placements the oracle keeps neighbors apart on top, so the cap never drops below that
+    /// share - drawing a Signal Map must not slow a rollout down. The profile's flat cap and the
+    /// placement-backed share can raise it, the latter scaled by how much of the fleet is placed.
     /// </para>
     /// </summary>
     internal static int EffectiveApCap(RolloutPlanningInput input, ResolvedSpacing spacing)
     {
         var aps = input.Devices.Count(d => d.Type == DeviceType.AccessPoint);
-        var flat = spacing.MaxApParallelism;
-        if (aps <= flat) return flat;
+        // The epsilon keeps a third of six from flooring to one.
+        var share = Math.Max(1, (int)Math.Floor(aps * spacing.ApUnplacedPercent / 100.0 + 1e-9));
+        if (input.Neighbors?.HasPlacementData != true) return share;
 
-        var placed = input.Neighbors?.HasPlacementData == true ? input.Neighbors.PlacedApCount : 0;
+        var placed = input.Neighbors.PlacedApCount;
         var covered = placed >= 2
             ? (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0) * Math.Min(1.0, placed / (double)aps))
             : 0;
 
-        // Fleet size sets how many, placements set which ones: the oracle's job is keeping
-        // neighbors out of the same wave, not bounding the wave. So a large unplaced fleet gets the
-        // same share - the flat cap still holds below the threshold, where a bad guess costs a
-        // bigger fraction of the site's coverage.
-        var large = aps >= LargeApFleet
-            ? (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0))
-            : 0;
-
-        return Math.Max(flat, Math.Max(covered, large));
+        return Math.Max(spacing.MaxApParallelism, Math.Max(covered, share));
     }
 
     /// <summary>First-fit packing under a size cap and a pairwise compatibility predicate.</summary>
@@ -637,13 +626,14 @@ public class RolloutPlanner
 
     private static void AddNotes(RolloutPlanDocument doc, RolloutPlanningInput input, List<PlannerDevice> candidates)
     {
-        if (input.Neighbors == null)
+        var aps = input.Devices.Count(d => d.Type == DeviceType.AccessPoint);
+        if (aps >= 2 && input.Neighbors == null)
         {
-            doc.Notes.Add("No AP placement or roaming data - assumed uniform AP density, so APs run in parallel up to the cap.");
+            doc.Notes.Add($"No AP placement or roaming data, so at most {doc.MaxApsInFlight} of the {aps} APs upgrade at once.");
         }
-        else if (!input.Neighbors.HasPlacementData)
+        else if (aps >= 2 && input.Neighbors?.HasPlacementData == false)
         {
-            doc.Notes.Add("AP placements are not set - parallel APs were chosen from UniFi roaming neighbors only.");
+            doc.Notes.Add($"AP placements are not set - parallel APs were chosen from UniFi roaming neighbors, at most {doc.MaxApsInFlight} of the {aps} at once.");
         }
 
         if (candidates.Any(d => d.Type == DeviceType.Gateway))
