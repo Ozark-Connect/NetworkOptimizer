@@ -16,12 +16,14 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public static class WanSpeedTestProgressAnimator
 {
-    // Fine-grained timeline for the gateway run (shown directly). Total ~21.5s to roughly match a
+    // Fine-grained timeline for the gateway run (shown directly). Total ~33.5s to roughly match a
     // real run; the loop stops early whenever the task actually finishes.
     private static readonly (string Phase, int Percent, string Status, int DelayMs)[] Steps =
     {
         ("Discovering servers", 10, "Discovering servers...", 1500),
         ("Testing latency", 15, "Measuring latency...", 1000),
+        ("Testing packet loss", 16, "Measuring packet loss...", 6000),
+        ("Testing packet loss", 18, "Measuring packet loss...", 6000),
         ("Testing download", 22, "Testing download...", 1800),
         ("Testing download", 30, "Testing download...", 1800),
         ("Testing download", 38, "Testing download...", 1800),
@@ -64,6 +66,7 @@ public static class WanSpeedTestProgressAnimator
         {
             ("Discovering servers", 5, 2500),
             ("Testing latency", 10, 1500),
+            ("Testing packet loss", 15, 12000),
             ("Testing download", 20, phaseMs),
             ("Testing upload", 60, phaseMs),
         };
