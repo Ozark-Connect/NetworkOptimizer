@@ -31,6 +31,36 @@ public class BruteForceDetectorTests
     }
 
     [Fact]
+    public void Detect_ManyDestinationsOnOnePort_DoesNotDetect()
+    {
+        // A LAN device's dropped replies: 20 flows to 443, each to a different server.
+        var baseTime = new DateTime(2025, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        var events = Enumerable.Range(0, 20).Select(i =>
+        {
+            var e = CreateEvent("192.168.1.34", 443, baseTime.AddSeconds(i * 15));
+            e.DestIp = $"203.0.113.{i + 1}";
+            return e;
+        }).ToList();
+
+        Assert.Empty(_detector.Detect(events));
+    }
+
+    [Fact]
+    public void Detect_SpreadOverAFewWanAddresses_StillDetects()
+    {
+        // A multi-WAN site: the same attacker on each of its public addresses.
+        var baseTime = new DateTime(2025, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        var events = Enumerable.Range(0, 21).Select(i =>
+        {
+            var e = CreateEvent("192.0.2.50", 22, baseTime.AddSeconds(i * 15));
+            e.DestIp = $"198.51.100.{i % 3 + 1}";
+            return e;
+        }).ToList();
+
+        Assert.Single(_detector.Detect(events));
+    }
+
+    [Fact]
     public void Detect_TwentyEventsOnSshPortWithinTenMinutes_DetectsPattern()
     {
         var baseTime = new DateTime(2025, 1, 15, 10, 0, 0, DateTimeKind.Utc);

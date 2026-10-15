@@ -4,11 +4,17 @@ namespace NetworkOptimizer.Threats.Analysis;
 
 /// <summary>
 /// Detects brute force attempts: same source IP targeting the same destination port
-/// (22/23/3389/443/8443) with 20+ events in 10 minutes.
+/// (22/23/3389/443/8443) with 20+ events in 10 minutes, on at most <see cref="MaxTargets"/> hosts.
 /// </summary>
 public class BruteForceDetector
 {
     private const int MinEvents = 20;
+
+    /// <summary>
+    /// A brute force works one service: a site's WAN addresses, or a host or two. A LAN device with 20
+    /// blocked flows to 443 across a dozen CDNs is dropped return traffic, not an attack.
+    /// </summary>
+    private const int MaxTargets = 3;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(10);
     private static readonly HashSet<int> BruteForceTargetPorts = [22, 23, 3389, 443, 8443, 21, 25, 110, 143, 993, 995, 5900];
 
@@ -32,7 +38,8 @@ public class BruteForceDetector
                     windowStart++;
 
                 var windowCount = i - windowStart + 1;
-                if (windowCount >= MinEvents)
+                if (windowCount >= MinEvents
+                    && ordered.Skip(windowStart).Take(windowCount).Select(e => e.DestIp).Distinct().Count() <= MaxTargets)
                 {
                     patterns.Add(new ThreatPattern
                     {
