@@ -90,7 +90,7 @@
                             {
                                 <tr>
                                     <td><a href="@DrilldownUrl(s.Block.SourceIp)"><code>@s.Block.SourceIp</code></a></td>
-                                    <td>@s.SiteSlug</td>
+                                    <td>@(s.SiteSlug ?? "Another site")</td>
                                     <td class="hide-mobile">@s.Block.Reason</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(s.Block.ExpiresAt - DateTime.UtcNow)</td>
                                 </tr>

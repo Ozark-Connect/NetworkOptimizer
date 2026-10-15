@@ -89,7 +89,17 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
 {
     private string Slug => site.Slug;
 
-    public Task<BlockingOverview> GetOverviewAsync(CancellationToken ct = default) => ops.GetOverviewAsync(Slug, ct);
+    public async Task<BlockingOverview> GetOverviewAsync(CancellationToken ct = default)
+    {
+        var overview = await ops.GetOverviewAsync(Slug, ct);
+        if (await siteAccess.AuthorizedSlugsAsync() is not { } visible) return overview;
+        // Blocks from sites the caller cannot see stay listed, without the site or the user who made them.
+        return overview with
+        {
+            Shared = overview.Shared.Select(s => s.SiteSlug != null && visible.Contains(s.SiteSlug)
+                ? s : new SharedBlock(null, s.Block.ForOtherSites())).ToList()
+        };
+    }
     public Task SaveSettingsAsync(BlockingSettings settings, CancellationToken ct = default) => ops.SaveSettingsAsync(Slug, settings, ct);
     public Task<RecommendedResult> TurnOnRecommendedAsync(CancellationToken ct = default) => ops.TurnOnRecommendedAsync(Slug, ct);
     public Task<bool> ReleaseAsync(int blockId, string releasedBy, CancellationToken ct = default) => ops.ReleaseAsync(Slug, blockId, releasedBy, ct);

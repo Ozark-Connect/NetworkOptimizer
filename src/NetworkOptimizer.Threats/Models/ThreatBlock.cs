@@ -34,6 +34,27 @@ public class ThreatBlock
 
     /// <summary>Active at <paramref name="now"/>: not released and not yet expired.</summary>
     public bool IsActive(DateTime now) => ReleasedAt == null && ExpiresAt > now;
+
+    /// <summary>The reason a manual block shows outside its own site, where the user who made it stays private.</summary>
+    public const string ManualReasonElsewhere = "Blocked manually";
+
+    /// <summary>
+    /// An unsaved copy for showing outside its own site: a manual block's reason names the user who
+    /// made it, so it reads <see cref="ManualReasonElsewhere"/>. Automatic reasons name no one.
+    /// </summary>
+    public ThreatBlock ForOtherSites() => Trigger != BlockTrigger.Manual ? this : new ThreatBlock
+    {
+        Id = Id,
+        SourceIp = SourceIp,
+        Trigger = Trigger,
+        Reason = ManualReasonElsewhere,
+        Strikes = Strikes,
+        Enforced = Enforced,
+        CreatedAt = CreatedAt,
+        ExpiresAt = ExpiresAt,
+        ReleasedAt = ReleasedAt,
+        ReleasedBy = ReleasedBy,
+    };
 }
 
 /// <summary>What made Network Optimizer block a source.</summary>

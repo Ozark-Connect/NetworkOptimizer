@@ -5,8 +5,11 @@ using NetworkOptimizer.Threats.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
-/// <summary>A block this site enforces because another site in its sharing group raised it.</summary>
-public sealed record SharedBlock(string SiteSlug, ThreatBlock Block);
+/// <summary>
+/// A block this site enforces because another site in its sharing group raised it.
+/// <see cref="SiteSlug"/> is null when the caller cannot see that site.
+/// </summary>
+public sealed record SharedBlock(string? SiteSlug, ThreatBlock Block);
 
 /// <summary>What the Blocked Sources card and the Automatic Blocking card show for one site.</summary>
 public sealed record BlockingOverview(

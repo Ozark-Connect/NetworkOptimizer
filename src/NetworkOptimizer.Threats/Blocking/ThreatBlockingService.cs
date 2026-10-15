@@ -309,7 +309,9 @@ public sealed class ThreatBlockingService : BackgroundService
                     continue;
                 using var peerScope = peer == site ? null : ScopeFor(peer);
                 var repo = (peerScope?.ServiceProvider ?? services).GetRequiredService<IThreatRepository>();
-                union.AddRange(await repo.GetBlocksAsync(now, now, ct));
+                var blocks = await repo.GetBlocksAsync(now, now, ct);
+                // A peer's manual reason names its user, and the reason reaches this site's Cloudflare list.
+                union.AddRange(peer == site ? blocks : blocks.Select(b => b.ForOtherSites()));
             }
             // This site's own allowlist governs what it enforces, whoever raised the block.
             var allowlist = await BuildAllowlistAsync(services, site, settings, now, ct, peers);
