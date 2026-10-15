@@ -108,7 +108,7 @@
                         data-tooltip-hover-only>
                     <span>Filters</span>
                     @{
-                        var activeCount = _noiseFilters.Count(f => f.Enabled);
+                        var activeCount = FilterRows().Count(r => r.Filter.Enabled);
                     }
                     @if (activeCount > 0)
                     {
@@ -204,12 +204,25 @@
                                class="noise-filter-input" style="width:80px;" />
                     </div>
                     <div>
+                        <label class="noise-filter-label">Category</label>
+                        <select @bind="_newFilterCategory" class="noise-filter-input" style="width:140px;">
+                            <option value="@ThreatFilterCategory.Noise">Noise (hide)</option>
+                            <option value="@ThreatFilterCategory.Infrastructure">Infrastructure</option>
+                            <option value="@ThreatFilterCategory.TrustedUser">Trusted User</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="noise-filter-label">Label</label>
+                        <input type="text" @bind="_newFilterLabel" placeholder="optional - e.g. DNS proxy"
+                               class="noise-filter-input" style="width:200px;" />
+                    </div>
+                    <div>
                         <label class="noise-filter-label">Description</label>
                         <input type="text" @bind="_newFilterDescription" placeholder="optional"
                                class="noise-filter-input" style="width:200px;" />
                     </div>
                     <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
-                    @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription))
+                    @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription) || !string.IsNullOrEmpty(_newFilterLabel))
                     {
                         <button class="btn btn-sm btn-secondary" @onclick="ClearFilterForm">Clear</button>
                     }
@@ -227,27 +240,39 @@
                                     <th>Source IP</th>
                                     <th>Dest IP</th>
                                     <th>Dest Port</th>
+                                    <th>Category</th>
+                                    <th>Label</th>
                                     <th>Description</th>
-                                    <th style="width:100px;">Actions</th>
+                                    <th style="width:120px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var filter in _noiseFilters)
+                                @foreach (var (filter, ports) in FilterRows())
                                 {
                                     <tr style="@(filter.Enabled ? "" : "opacity:0.5;")">
                                         <td><code>@(filter.SourceIp ?? "*")</code></td>
                                         <td><code>@(filter.DestIp ?? "*")</code></td>
-                                        <td><code>@(filter.DestPort?.ToString() ?? "*")</code></td>
-                                        <td>@filter.Description</td>
+                                        <td><code>@ports</code></td>
+                                        <td>@FormatCategory(filter.Category)</td>
+                                        <td>@(filter.Label ?? "")</td>
+                                        <td>
+                                            @filter.Description
+                                            @if (filter.IsSystem)
+                                            {
+                                                <span class="category-badge category-neutral" style="margin-left:0.5rem;">system</span>
+                                            }
+                                        </td>
                                         <td>
                                             <div style="display:flex; gap:0.25rem;">
                                                 <SiteAdminOnly>
                                                     <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
-                                                            data-tooltip="@(filter.Enabled ? "Disable" : "Enable")" data-tooltip-hover-only>
+                                                            disabled="@filter.IsSystem"
+                                                            data-tooltip="@(filter.IsSystem ? "System entry - cannot disable" : (filter.Enabled ? "Disable" : "Enable"))" data-tooltip-hover-only>
                                                         @(filter.Enabled ? "On" : "Off")
                                                     </button>
                                                     <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
-                                                            data-tooltip="Delete filter" data-tooltip-hover-only>X</button>
+                                                            disabled="@filter.IsSystem"
+                                                            data-tooltip="@(filter.IsSystem ? "System entry - cannot delete" : "Delete filter")" data-tooltip-hover-only>X</button>
                                                 </SiteAdminOnly>
                                             </div>
                                         </td>
@@ -294,6 +319,8 @@ else
     @* ========== Overview Tab ========== *@
     @if (_activeTab == "overview")
     {
+        <ProtectionSetupCard />
+
         @* Summary stat cards *@
         <div class="threat-summary-grid threat-summary-grid-compact">
             <div class="card threat-stat-card">
@@ -469,6 +496,7 @@ else
                                     <th class="hide-mobile">ASN</th>
                                     <th>Events</th>
                                     <th>Severity</th>
+                                    <th>Category</th>
                                     @if (_crowdSecEnabled)
                                     {
                                         <th class="hide-mobile">Reputation</th>
@@ -486,6 +514,20 @@ else
                                         <td>
                                             <span class="severity-dot" style="background:@GetSeverityColor(source.MaxSeverity);"></span>
                                             @GetSeverityLabel(source.MaxSeverity)
+                                        </td>
+                                        <td>
+                                            @if (source.MatchedFilterCategory == ThreatFilterCategory.Infrastructure)
+                                            {
+                                                <span class="category-badge category-infrastructure" data-tooltip="@(source.Label ?? "Matches an Infrastructure filter")" data-tooltip-hover-only>Infrastructure</span>
+                                            }
+                                            else if (source.MatchedFilterCategory == ThreatFilterCategory.TrustedUser)
+                                            {
+                                                <span class="category-badge category-trusted-user" data-tooltip="@(source.Label ?? "Matches a Trusted User filter")" data-tooltip-hover-only>Trusted User</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted-sm">-</span>
+                                            }
                                         </td>
                                         @if (_crowdSecEnabled)
                                         {
@@ -648,6 +690,48 @@ else
                 }
             </div>
         </div>
+
+        @* Web Application Firewall: netopt-waf in NetworkOptimizer-Proxy, read by the threat collector *@
+        @if (_wafStatus != null || (_wafSummary?.Total ?? 0) > 0)
+        {
+            <div class="card card-spaced" data-tour="threats-waf">
+                <div class="card-header">
+                    <h3 class="card-title">Web Application Firewall</h3>
+                    @if (_wafStatus?.Mode != null)
+                    {
+                        <div class="waf-card-mode">
+                            <span class="waf-meta">Paranoia Level @_wafStatus.Paranoia</span>
+                            <span class="status-badge @(_wafStatus.Mode == "block" ? "status-active" : "")">@(_wafStatus.Mode == "block" ? "Blocking" : "Detection Only")</span>
+                        </div>
+                    }
+                </div>
+                <div class="card-body">
+                    @if (_wafStatus?.Error != null)
+                    {
+                        <div class="alert alert-warning">@_wafStatus.Error</div>
+                    }
+                    <div class="threat-summary-grid threat-summary-grid-compact waf-stats">
+                        <div class="card threat-stat-card">
+                            <div class="threat-stat-value" style="color:#ef4444;">@FormatNumber(_wafSummary?.Blocked ?? 0)</div>
+                            <div class="threat-stat-label">Blocked</div>
+                        </div>
+                        <div class="card threat-stat-card">
+                            <div class="threat-stat-value" style="color:#f59e0b;">@FormatNumber(_wafSummary?.Detected ?? 0)</div>
+                            <div class="threat-stat-label">Detected</div>
+                        </div>
+                        <div class="card threat-stat-card">
+                            <div class="threat-stat-value" style="color:var(--text-primary);">@(_wafStatus?.Stats != null ? FormatNumber((int)Math.Min(_wafStatus.Stats.Inspected, int.MaxValue)) : "-")</div>
+                            <div class="threat-stat-label">Requests Inspected Since WAF Start</div>
+                        </div>
+                    </div>
+                    <div class="action-buttons waf-card-link">
+                        <a class="btn btn-contrast" href="/threats/waf">Open Web Application Firewall</a>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <BlockedSourcesCard />
     }
 
     @* ========== Exposure Tab ========== *@
@@ -1045,6 +1129,7 @@ else
                     @_drilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
+            <IpBlockControl Ip="@_drilldownData.Ip" />
         </div>
 
         @* CTI details row (behaviors) when we have data *@
@@ -1114,13 +1199,25 @@ else
                                 @foreach (var dest in _drilldownData.Destinations)
                                 {
                                     <tr>
-                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        @if (string.IsNullOrEmpty(dest.Ip))
+                                        {
+                                            <td><code>@(dest.Domain ?? "-")</code></td>
+                                        }
+                                        else
+                                        {
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        }
                                         <td class="hide-mobile">@(dest.Domain ?? "-")</td>
                                         <td><code class="code-sm">@dest.PortRanges</code></td>
                                         <td class="hide-mobile">@FormatServices(dest.Services)</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
                                         <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
+                                        <td class="hide-mobile">
+                                            @if (!string.IsNullOrEmpty(dest.Ip))
+                                            {
+                                                <button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button>
+                                            }
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -1439,7 +1536,14 @@ else
                                 @foreach (var dest in _portDrilldownData.TopDestinations)
                                 {
                                     <tr>
-                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        @if (string.IsNullOrEmpty(dest.Ip))
+                                        {
+                                            <td><code>@(dest.Host ?? "-")</code></td>
+                                        }
+                                        else
+                                        {
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                        }
                                         <td>@dest.EventCount</td>
                                         <td>@dest.BlockedCount</td>
                                         <td>@dest.UniqueSourceIps</td>
@@ -1611,66 +1715,6 @@ else
 </div>
 
 <style>
-    .threat-header-bar {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-        min-height: 34px;
-    }
-
-    .threat-header-bar > .wifi-view-tabs-wrapper {
-        flex: 1 1 auto;
-        min-width: 200px;
-    }
-
-    .threat-header-bar > div:last-child {
-        margin-left: auto;
-    }
-
-    .threat-header-bar .wifi-tabs-scroll-btn {
-        border-bottom: none;
-        margin-top: 0.35rem;
-    }
-
-    .threat-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 1rem;
-    }
-
-    .threat-summary-grid .card {
-        margin-bottom: 1.5rem;
-    }
-    .threat-summary-grid-compact .card {
-        margin-bottom: 0.75rem;
-    }
-
-    .threat-stat-card {
-        text-align: center;
-        padding: 1.25rem 1rem;
-    }
-
-    .threat-stat-value {
-        font-size: 2rem;
-        font-weight: 700;
-        line-height: 1.3;
-    }
-
-    .threat-stat-label {
-        font-size: 0.85rem;
-        color: var(--text-muted);
-    }
-
-    .threat-two-chart-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        margin-bottom: 0.5rem;
-    }
-
     .threat-chart-body {
         padding-top: 16px;
     }
@@ -1767,6 +1811,8 @@ else
     .category-direction { background: rgba(59, 130, 246, 0.1); color: var(--text-secondary); }
     .category-type { background: rgba(255, 255, 255, 0.08); color: var(--text-secondary); }
     .category-neutral { background: rgba(255, 255, 255, 0.08); color: var(--text-secondary); }
+    .category-infrastructure { background: rgba(167, 139, 250, 0.15); color: #a78bfa; }
+    .category-trusted-user { background: rgba(43, 168, 154, 0.15); color: #2ba89a; }
 
     /* Noise filter active count badge */
     .noise-filter-badge {
@@ -1789,34 +1835,8 @@ else
     }
 
     @@media (max-width: 768px) {
-        .threat-header-bar {
-            flex-direction: column;
-            flex-wrap: nowrap;
-            align-items: stretch;
-            gap: 0.5rem;
-        }
-
-        .threat-header-bar > div:last-child {
-            margin-left: unset;
-            justify-content: space-between;
-        }
-
         .threat-custom-label {
             display: none;
-        }
-
-        .threat-time-preset {
-            padding: 0.35rem 0.5rem;
-            font-size: 0.75rem;
-        }
-
-        .threat-summary-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
-
-        .threat-two-chart-row {
-            grid-template-columns: 1fr;
-            margin-bottom: 1rem;
         }
 
         .threat-action-chart {
@@ -2030,12 +2050,6 @@ else
     }
 
     /* Header bar right-side controls */
-    .threat-controls {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
     /* Protocols list row in port drilldown */
     .protocols-row {
         display: flex;
@@ -2176,6 +2190,8 @@ else
     private bool _loading = true;
     private bool _hasLoadedOnce; // Once true, reloads don't destroy charts
     private ThreatDashboardData _dashboardData = new();
+    private NetworkOptimizer.Threats.Waf.WafStatus? _wafStatus;
+    private NetworkOptimizer.Threats.Waf.WafSummary? _wafSummary;
     private List<TimelineBucket> _timeline = [];
     private Dictionary<string, int> _geoDistribution = new();
     private ExposureReport? _exposureReport;
@@ -2223,6 +2239,12 @@ else
 
     // Noise filter state
     private List<ThreatNoiseFilter> _noiseFilters = [];
+
+    // System Infrastructure filters come one per port; the table shows each host's set as one row.
+    private IEnumerable<(ThreatNoiseFilter Filter, string Ports)> FilterRows() =>
+        _noiseFilters
+            .GroupBy(f => f.IsSystem && f.Category == ThreatFilterCategory.Infrastructure ? $"{f.SourceIp}|{f.Label}|{f.Enabled}" : $"#{f.Id}")
+            .Select(g => (g.First(), g.All(f => f.DestPort != null) ? string.Join(", ", g.Select(f => f.DestPort)) : "*"));
     private bool _filtersActive = true;
     private bool? _filtersActiveBeforeDrilldown;
     private string? _timeRangeBeforeDrilldown;
@@ -2233,6 +2255,8 @@ else
     private string _newFilterDestIp = "";
     private string _newFilterDestPort = "";
     private string _newFilterDescription = "";
+    private ThreatFilterCategory _newFilterCategory = ThreatFilterCategory.Noise;
+    private string _newFilterLabel = "";
 
     // Search state
     private string _searchText = "";
@@ -2607,6 +2631,8 @@ else
                 ScheduleHydrationRefresh(_dashboardData.CtiHydrationCount);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
+                _wafStatus = CollectionService.WafStatusFor(SiteContext.Slug);
+                _wafSummary = SiteContext.IsDefault ? await DashboardService.GetWafSummaryAsync(from, to) : null;
 
                 // Pin X-axis to the actual data extent (all severities) so toggling
                 // severity filters doesn't shrink/shift the visible date range.
@@ -3787,17 +3813,24 @@ else
             SourceIp = string.IsNullOrWhiteSpace(_newFilterSourceIp) ? null : _newFilterSourceIp.Trim(),
             DestIp = string.IsNullOrWhiteSpace(_newFilterDestIp) ? null : _newFilterDestIp.Trim(),
             DestPort = int.TryParse(_newFilterDestPort, out var p) ? p : null,
+            Category = _newFilterCategory,
+            Label = string.IsNullOrWhiteSpace(_newFilterLabel) ? null : _newFilterLabel.Trim(),
             Description = string.IsNullOrWhiteSpace(_newFilterDescription) ? BuildFilterDescription() : _newFilterDescription.Trim()
         };
 
         // Must have at least one field
         if (filter.SourceIp == null && filter.DestIp == null && filter.DestPort == null) return;
 
+        // Infrastructure and TrustedUser categories need a source IP to surface in their tables.
+        if (filter.Category != ThreatFilterCategory.Noise && filter.SourceIp == null) return;
+
         await ThreatFilterAdmin.SaveNoiseFilterAsync(filter);
         _newFilterSourceIp = "";
         _newFilterDestIp = "";
         _newFilterDestPort = "";
         _newFilterDescription = "";
+        _newFilterLabel = "";
+        _newFilterCategory = ThreatFilterCategory.Noise;
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
     }
@@ -3808,6 +3841,8 @@ else
         _newFilterDestIp = "";
         _newFilterDestPort = "";
         _newFilterDescription = "";
+        _newFilterLabel = "";
+        _newFilterCategory = ThreatFilterCategory.Noise;
     }
 
     private string BuildFilterDescription()
@@ -3821,17 +3856,26 @@ else
 
     private async Task ToggleFilterAsync(ThreatNoiseFilter filter)
     {
-        await DashboardService.ToggleNoiseFilterAsync(filter.Id, !filter.Enabled);
+        if (filter.IsSystem) return;
+        await ThreatFilterAdmin.ToggleNoiseFilterAsync(filter.Id, !filter.Enabled);
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
     }
 
     private async Task DeleteFilterAsync(ThreatNoiseFilter filter)
     {
+        if (filter.IsSystem) return;
         await ThreatFilterAdmin.DeleteNoiseFilterAsync(filter.Id);
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
     }
+
+    private static string FormatCategory(ThreatFilterCategory category) => category switch
+    {
+        ThreatFilterCategory.Infrastructure => "Infrastructure",
+        ThreatFilterCategory.TrustedUser => "Trusted User",
+        _ => "Noise"
+    };
 
     private async Task QuickFilterFromDrilldown(string? sourceIp, string? destIp, int? destPort)
     {

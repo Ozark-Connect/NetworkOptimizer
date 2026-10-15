@@ -106,6 +106,12 @@ public abstract class WanSpeedTestServiceBase
     /// </summary>
     public event Action<int>? OnPathAnalysisComplete;
 
+    /// <summary>Tells open pages a stored result changed and should be reloaded.</summary>
+    protected void RaiseResultUpdated(int resultId) => OnPathAnalysisComplete?.Invoke(resultId);
+
+    /// <summary>Runs after a result is stored, alongside path analysis. No-op by default.</summary>
+    protected virtual void OnResultSaved(Iperf3Result result) { }
+
     protected WanSpeedTestServiceBase(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
@@ -224,6 +230,8 @@ public abstract class WanSpeedTestServiceBase
             var wanIp = LastMetadata?.WanIp;
             var resolvedWanGroup = result.WanNetworkGroup;
             _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, wanIp, resolvedWanGroup), CancellationToken.None);
+
+            OnResultSaved(result);
 
             return result;
         }

@@ -23,7 +23,10 @@ public static class TourUrlTokens
     /// </summary>
     public const string WifiClientIp = "wifi-client-ip";
 
-    private static readonly string[] Names = [WifiClientIp];
+    /// <summary>An online client's address, wired or wireless, picked the same way as <see cref="WifiClientIp"/>.</summary>
+    public const string ClientIp = "client-ip";
+
+    private static readonly string[] Names = [WifiClientIp, ClientIp];
 
     /// <summary>One placeholder as it appears in a url.</summary>
     /// <param name="Placeholder">The literal text to substitute, braces included.</param>
@@ -79,7 +82,7 @@ public sealed class TourUrlTokenResolver
         _logger = loggerFactory.CreateLogger<TourUrlTokenResolver>();
     }
 
-    /// <summary>A wireless client in the running for <see cref="TourUrlTokens.WifiClientIp"/>.</summary>
+    /// <summary>A client in the running for <see cref="TourUrlTokens.WifiClientIp"/> or <see cref="TourUrlTokens.ClientIp"/>.</summary>
     /// <param name="Ip">The address the step would land on.</param>
     /// <param name="LanTests">LAN speed test results recorded against the client's MAC.</param>
     /// <param name="NamedPhone">The name or hostname says "phone".</param>
@@ -122,7 +125,8 @@ public sealed class TourUrlTokenResolver
         {
             values[name] = name switch
             {
-                TourUrlTokens.WifiClientIp => await WifiClientIpAsync(siteSlug),
+                TourUrlTokens.WifiClientIp => await ClientIpAsync(siteSlug, wirelessOnly: true),
+                TourUrlTokens.ClientIp => await ClientIpAsync(siteSlug, wirelessOnly: false),
                 _ => null,
             };
         }
@@ -162,7 +166,7 @@ public sealed class TourUrlTokenResolver
         return cleaned;
     }
 
-    private async Task<string?> WifiClientIpAsync(string siteSlug)
+    private async Task<string?> ClientIpAsync(string siteSlug, bool wirelessOnly)
     {
         try
         {
@@ -171,7 +175,7 @@ public sealed class TourUrlTokenResolver
                 return null;
 
             var clients = (await connection.Client.GetClientsAsync() ?? new List<UniFiClientResponse>())
-                .Where(c => !c.IsWired && !string.IsNullOrEmpty(c.BestIp))
+                .Where(c => (!wirelessOnly || !c.IsWired) && !string.IsNullOrEmpty(c.BestIp))
                 .ToList();
             if (clients.Count == 0)
                 return null;
@@ -192,7 +196,7 @@ public sealed class TourUrlTokenResolver
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Tour could not resolve a Wi-Fi client for site {Site}", siteSlug);
+            _logger.LogDebug(ex, "Tour could not resolve a client for site {Site}", siteSlug);
             return null;
         }
     }

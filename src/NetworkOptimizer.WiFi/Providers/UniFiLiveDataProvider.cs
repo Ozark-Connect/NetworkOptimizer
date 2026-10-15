@@ -1352,6 +1352,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                  : !string.IsNullOrEmpty(client.Hostname) ? client.Hostname
                  : client.Mac,
             Ip = client.Ip,
+            FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             ApMac = client.ApMac ?? "",
             ApName = apName,
             Essid = client.Essid ?? "",
@@ -1438,6 +1439,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                  : !string.IsNullOrEmpty(client.Hostname) ? client.Hostname
                  : client.Mac,
             Ip = client.BestIp,
+            FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             ApMac = client.LastUplinkMac ?? "",
             ApName = apName ?? client.LastUplinkName,
             IsOnline = false,

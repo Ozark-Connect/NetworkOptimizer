@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -459,8 +460,9 @@ public class FirewallRuleAnalyzer
 
         // SIMPLIFIED: Everything (except Management) should be blocked from reaching Management
         // This covers: Corporate, Home, IoT, Guest, Security, Printer, DMZ, Unknown → Management
+        // Management Access is exempt: the operator declared they manage devices from it.
         var networksToBlockFromManagement = networks
-            .Where(n => n.Purpose != NetworkPurpose.Management && !n.NetworkIsolationEnabled)
+            .Where(n => n.Purpose is not (NetworkPurpose.Management or NetworkPurpose.ManagementAccess) && !n.NetworkIsolationEnabled)
             .Where(n => n.Purpose != NetworkPurpose.Guest || !n.IsUniFiGuestNetwork) // Skip UniFi guest networks
             .ToList();
 
@@ -483,7 +485,9 @@ public class FirewallRuleAnalyzer
         var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
         var serverNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Server).ToList();
         var gamingNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Gaming).ToList();
-        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(gamingNetworks).Concat(serverNetworks).ToList();
+        var managementAccessNetworks = networks.Where(n => n.Purpose == NetworkPurpose.ManagementAccess).ToList();
+        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(gamingNetworks).Concat(serverNetworks)
+            .Concat(managementAccessNetworks).ToList();
 
         // IoT should be isolated from: Corporate, Home, Server
         // (IoT → Security and IoT → Management already covered above)
@@ -1128,11 +1132,12 @@ public class FirewallRuleAnalyzer
     /// </summary>
     private static bool IsCriticalIsolationMissing(NetworkPurpose purpose1, NetworkPurpose purpose2)
     {
-        // Guest to Corporate, Management, Security, or Server = Critical
+        // Guest to Corporate, Management, Security, Server, or Management Access = Critical
         if (purpose1 == NetworkPurpose.Guest || purpose2 == NetworkPurpose.Guest)
         {
             var other = purpose1 == NetworkPurpose.Guest ? purpose2 : purpose1;
-            if (other is NetworkPurpose.Corporate or NetworkPurpose.Management or NetworkPurpose.Security or NetworkPurpose.Server)
+            if (other is NetworkPurpose.Corporate or NetworkPurpose.Management or NetworkPurpose.Security or NetworkPurpose.Server
+                or NetworkPurpose.ManagementAccess)
                 return true;
         }
 
@@ -1147,6 +1152,140 @@ public class FirewallRuleAnalyzer
 
         return false;
     }
+
+    /// <summary>TCP ports of the gateway's own management services: SSH and the web UI.</summary>
+    private static readonly string[] GatewayManagementPorts = ["22", "80", "443"];
+
+    /// <summary>Purposes whose devices have no reason to reach the gateway's management services.</summary>
+    private static bool IsUntrustedForGatewayManagement(NetworkPurpose purpose) =>
+        purpose is NetworkPurpose.IoT or NetworkPurpose.Guest or NetworkPurpose.Security
+            or NetworkPurpose.Printer or NetworkPurpose.Media or NetworkPurpose.Dmz;
+
+    /// <summary>
+    /// Flags networks that can open TCP 22, 80, or 443 on the Gateway zone as a whole network.
+    /// Without a Management Access network only untrusted purposes are checked, so following a finding can never
+    /// lock the operator out. Once one is declared, every other network is checked.
+    /// Access limited to specific hosts or clients passes: those rules do not cover the network.
+    /// </summary>
+    /// <remarks>
+    /// Zone-based firewalls only: legacy LAN_LOCAL has no predefined rule to evaluate, so a missing
+    /// rule cannot be told apart from an unparsed one. Network Isolation does not cover the Gateway
+    /// zone (UniFi's "Isolated Networks" rules target other zones only), so isolated networks are checked.
+    /// </remarks>
+    /// <param name="rules">Firewall rules to analyze, including predefined rules</param>
+    /// <param name="networks">Network configurations, with purpose overrides applied</param>
+    /// <param name="gatewayZoneId">Gateway zone ID; null skips the check</param>
+    public List<AuditIssue> CheckGatewayManagementAccess(List<FirewallRule> rules, List<NetworkInfo> networks, string? gatewayZoneId)
+    {
+        var issues = new List<AuditIssue>();
+        if (string.IsNullOrEmpty(gatewayZoneId))
+            return issues;
+
+        var accessNetworks = networks.Where(n => n.Enabled && n.Purpose == NetworkPurpose.ManagementAccess).ToList();
+        var strict = accessNetworks.Count > 0;
+        var accessNames = string.Join(", ", accessNetworks.Select(n => n.Name));
+
+        var candidates = networks.Where(n => n.Enabled &&
+            (strict ? n.Purpose != NetworkPurpose.ManagementAccess : IsUntrustedForGatewayManagement(n.Purpose)));
+
+        foreach (var network in candidates)
+        {
+            var exposedPorts = new List<string>();
+            var exposedOverIpv4 = false;
+            FirewallRule? userAllowRule = null;
+
+            foreach (var family in network.EvaluableFamilies)
+            {
+                foreach (var port in GatewayManagementPorts)
+                {
+                    var result = FirewallRuleEvaluator.Evaluate(rules,
+                        r => MatchesGatewayManagementTraffic(r, network, gatewayZoneId, port, family),
+                        forNewConnections: true,
+                        family: family);
+                    if (!result.IsAllowed)
+                        continue;
+
+                    if (!exposedPorts.Contains(port))
+                        exposedPorts.Add(port);
+                    exposedOverIpv4 |= family == IpFamily.IPv4;
+                    if (!result.EffectiveRule!.Predefined)
+                        userAllowRule ??= result.EffectiveRule;
+                }
+            }
+
+            if (exposedPorts.Count == 0)
+                continue;
+
+            var ipv6Only = !exposedOverIpv4;
+            var critical = IsUntrustedForGatewayManagement(network.Purpose);
+            var portList = string.Join(", ", GatewayManagementPorts.Where(exposedPorts.Contains));
+            var via = userAllowRule != null ? $" through rule '{userAllowRule.Name}'" : "";
+
+            var action = $"Block TCP {portList} from {network.Name} to the Gateway zone.";
+            if (strict)
+                action += $" Allow access from {accessNames} (Management Access).";
+
+            issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.GatewayManagementExposed,
+                Severity = critical ? AuditSeverity.Critical : AuditSeverity.Recommended,
+                Message = $"{network.Name} ({network.Purpose.ToDisplayString()}) can reach the gateway's management on TCP {portList}{via}{IpFamilyText.Suffix(ipv6Only)}",
+                RecommendedAction = action,
+                Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                {
+                    { "source_network", network.Name },
+                    { "source_purpose", network.Purpose.ToString() },
+                    { "ports", portList },
+                    { "rule_name", userAllowRule?.Name ?? "" },
+                    { "management_access_networks", accessNames }
+                }, ipv6Only),
+                RuleId = "FW-GATEWAY-MGMT",
+                ScoreImpact = critical ? 12 : 7
+            });
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// True when the rule governs new TCP connections from the whole network to the given
+    /// management port on any Gateway zone address. Rules narrowed by source port, destination
+    /// address, app, or domain do not decide this traffic and are skipped.
+    /// </summary>
+    private static bool MatchesGatewayManagementTraffic(
+        FirewallRule rule, NetworkInfo network, string gatewayZoneId, string port, IpFamily family)
+    {
+        if (!string.Equals(rule.DestinationZoneId, gatewayZoneId, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrEmpty(rule.DestinationMatchingTarget) &&
+            !rule.DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrEmpty(rule.SourcePort) ||
+            rule.WebDomains is { Count: > 0 } || rule.AppIds is { Count: > 0 } || rule.AppCategoryIds is { Count: > 0 })
+            return false;
+        if (!rule.AppliesToSourceNetwork(network, family))
+            return false;
+        if (IsHotspotPortalRedirectRule(rule))
+            return false;
+
+        if (rule.ActionType.IsBlockAction())
+            return FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, port, "tcp");
+
+        // Allow: no port means every port; Match Opposite means every port except those listed
+        var portCovered = string.IsNullOrEmpty(rule.DestinationPort) ||
+            FirewallGroupHelper.IncludesPort(rule.DestinationPort, port) != rule.DestinationMatchOppositePorts;
+        return portCovered && FirewallGroupHelper.AllowsProtocol(rule.Protocol, rule.MatchOppositeProtocol, "tcp");
+    }
+
+    /// <summary>
+    /// UniFi's predefined Hotspot -> Gateway "Allow Hotspot Portal Redirects" rule. Newer UniFi Network
+    /// reports it as TCP to any port, but the gateway enforces it against the portal redirector ports
+    /// (ipset UBIOS_guest_portal_redirector_p: 39080, 39443) only. The API carries no field for that, and
+    /// origin_id differs per install, so the predefined flag and name are the only stable identity.
+    /// </summary>
+    [VendorSpecific("UniFi", "Predefined policy name; API omits the redirector ipset restriction")]
+    private static bool IsHotspotPortalRedirectRule(FirewallRule rule) =>
+        rule.Predefined && string.Equals(rule.Name, "Allow Hotspot Portal Redirects", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check for networks with internet disabled but that have allow rules permitting broad external access.
@@ -1443,6 +1582,7 @@ public class FirewallRuleAnalyzer
         issues.AddRange(CheckInterVlanIsolation(rules, networks, externalZoneId));
         issues.AddRange(CheckInternetDisabledBroadAllow(rules, networks, externalZoneId));
         issues.AddRange(DetectNetworkIsolationExceptions(rules, networks, externalZoneId));
+        issues.AddRange(CheckGatewayManagementAccess(rules, networks, zoneLookup?.GetZoneByKey(FirewallZoneKeys.Gateway)?.Id));
 
         _logger.LogInformation("Found {IssueCount} firewall issues", issues.Count);
 
@@ -1962,6 +2102,23 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// True when a rule's destination covers every External address: ANY, or an IP or network
+    /// list it inverts (match opposite). A plain IP list, such as a public block list, does not.
+    /// </summary>
+    private static bool HasBroadExternalDestination(FirewallRule rule)
+    {
+        if (rule.IsAnyDestination())
+            return true;
+
+        return rule.DestinationMatchingTarget?.ToUpperInvariant() switch
+        {
+            "IP" => rule.DestinationMatchOppositeIps,
+            "NETWORK" => rule.DestinationMatchOppositeNetworks,
+            _ => false
+        };
+    }
+
+    /// <summary>
     /// Checks if a specific allow rule is eclipsed by a block rule with lower index.
     /// A block rule eclipses the allow rule if it:
     /// 1. Has a lower index (higher priority)
@@ -2012,6 +2169,7 @@ public class FirewallRuleAnalyzer
             r.Index < allowRule.Index &&
             // WEB-based block rules target specific web domains, not arbitrary port/protocol traffic
             !string.Equals(r.DestinationMatchingTarget, "WEB", StringComparison.OrdinalIgnoreCase) &&
+            HasBroadExternalDestination(r) &&
             r.AppliesToSourceNetwork(sourceNetwork, family) &&
             TargetsExternalZone(r, externalZoneId) &&
             FirewallGroupHelper.RuleBlocksPortAndProtocol(r, port, protocol));
@@ -2100,7 +2258,10 @@ public class FirewallRuleAnalyzer
                         blockDomain.Contains(allowDomain, StringComparison.OrdinalIgnoreCase)));
             }
 
-            // For other destination types (ANY, NETWORK, IP), check if block rule would block HTTPS
+            // A block limited to listed IPs or networks (a block list) does not cover the allowed domains
+            if (!HasBroadExternalDestination(blockRule))
+                return false;
+
             // Web traffic uses TCP 443 - if block rule doesn't block that, it doesn't eclipse
             if (!FirewallGroupHelper.RuleBlocksPortAndProtocol(blockRule, "443", "tcp"))
                 return false;

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.OntProviders;
 using Xunit;
@@ -65,6 +66,231 @@ public class RealtekOntProviderTests
         stats.DeviceModel.Should().Be("Realtek ONT");
         stats.DeviceHost.Should().Be("192.168.1.1");
         stats.DeviceName.Should().Be("Luleey WAN ONT");
+    }
+
+    // Verbatim status_pon.asp tables from a captured ODI DFP-34X-2C2 HAR. The Vendor Name / Part
+    // Number rows sit inside an HTML comment on this firmware and must not parse.
+    private const string OdiStatusPon = """
+    <html><body>
+    <table width=400 border=0>
+      <tr>
+        <td width=100% colspan="2" bgcolor="#008000"><font color="#FFFFFF" size=2><b>PON Status</b></font></td>
+      </tr>
+    <!--
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Vendor Name</b></td>
+        <td width=60%><font size=2>ODI             </td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Part Number</b></td>
+        <td width=60%><font size=2>DFP-34X-2C2</td>
+      </tr>
+    -->
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Temperature</b></td>
+        <td width=60%><font size=2>36.597656 C</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Voltage</b></td>
+        <td width=60%><font size=2>3.232700 V</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Tx Power</b></td>
+        <td width=60%><font size=2>2.759563  dBm</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Rx Power</b></td>
+        <td width=60%><font size=2>-11.152046  dBm</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Bias Current</b></td>
+        <td width=60%><font size=2>11.350000 mA</td>
+      </tr>
+    </table>
+    <br>
+    <table width=400 border=0>
+      <tr> <td width=100% colspan="2" bgcolor="#008000"><font color="#FFFFFF" size=2><b>GPON Status</b></font></td> </tr><tr bgcolor="#DDDDDD"><td width="30%"><font size=2><b>ONU State</b></td><td width="70%"><font size=2>O5</td> </tr>
+    <tr bgcolor="#DDDDDD"><td width="30%"><font size=2><b>ONU ID</b></td><td width="70%"><font size=2>0</td> </tr>
+    <tr bgcolor="#DDDDDD"><td width="30%"><font size=2><b>LOID Status</b></td><td width="70%"><font size=2>Initial Status</td> </tr>
+    
+    </table>
+    <table width=400 border=0>
+      
+    </table>
+    </body></html>
+    """;
+
+    [Fact]
+    public void ParseStatusPon_OnuState_SetsPonLinkStatus()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(OdiStatusPon, Context());
+
+        stats.PonLinkStatus.Should().Be(PonLinkState.Operation, "the PON Status row and the card's dot read this, not LinkState");
+        stats.LinkState.Should().Be("O5");
+        stats.RxPowerDbm.Should().BeApproximately(-11.152046, 1e-9);
+    }
+
+    [Fact]
+    public void ParseStatusPon_BuildsSupplementalForAttachedAndStandaloneModes()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(OdiStatusPon, Context());
+
+        stats.Pon.Should().NotBeNull();
+        stats.Pon!.PloamStateRaw.Should().Be(5);
+        stats.Pon.PonLinkStatus.Should().Be("operation");
+        stats.Pon.OnuId.Should().Be(0, "ONU ID 0 is a real assignment, not a missing value");
+        stats.Pon.RxPowerDbm.Should().Be(stats.RxPowerDbm, "optics are the fallback when the host device cannot read DDM");
+        stats.Pon.TemperatureC.Should().Be(stats.TemperatureC);
+        stats.Pon.BipErrors.Should().BeNull("the page serves no error counters");
+    }
+
+    // The DFP-34X-2IY3 SFU firmware adds Registered Status and Olt VendorId rows (issue #1273).
+    // No markup capture exists: labels and values are from the reporter's screenshot, in the same
+    // Boa row shape as the captured 2C2 above.
+    private const string Odi2Iy3ExtraRows = """
+    <html><body><table>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>Registered Status</b></td><td><font size=2>Registered</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>Mackey Status</b></td><td><font size=2>success</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>ONU State</b></td><td><font size=2>O5</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>ONU ID</b></td><td><font size=2>63</td></tr>
+      <tr bgcolor="#DDDDDD"><td><font size=2><b>Olt VendorId</b></td><td><font size=2>ALCL</td></tr>
+    </table></body></html>
+    """;
+
+    [Fact]
+    public void ParseStatusPon_2Iy3Rows_MapRegistrationAndOltVendor()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(Odi2Iy3ExtraRows, Context());
+
+        stats.OltVendor.Should().Be("ALCL", "kept raw; decoding is display-only");
+        stats.Pon!.OltVendorId.Should().Be("ALCL");
+        stats.Pon.RegistrationStatus.Should().Be("Registered");
+        stats.Pon.KeyExchangeStatus.Should().Be("success");
+        stats.Pon.OnuId.Should().Be(63);
+    }
+
+    [Fact]
+    public void ParseStatusPon_2C2Page_HasNoRegistrationOrOlt()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(OdiStatusPon, Context());
+
+        stats.OltVendor.Should().BeNull();
+        stats.Pon!.RegistrationStatus.Should().BeNull("LOID Status is not the registration row");
+        stats.Pon.KeyExchangeStatus.Should().BeNull();
+    }
+
+    // Verbatim admin/status.asp System tables from the captured ODI DFP-34X-2C2 and Luleey LL-XS2510
+    // HARs. Firmware Version sits on an #EEEEEE row, and Date/Time is commented out.
+    private const string OdiStatusPage = """
+    <html><body>
+    <table width=400 border=0>
+      <tr>
+        <td width=100% colspan="2" bgcolor="#008000"><font color="#FFFFFF" size=2><b>System</b></font></td>
+      </tr>
+      <tr bgcolor="#EEEEEE">
+        <td width=40%><font size=2><b>Device Name</b></td>
+        <td width=60%><font size=2>IGD</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Uptime</b></td>
+        <td width=60%><font size=2>4 days, 21:04</td>
+      </tr>
+    <!--
+      <tr bgcolor="#EEEEEE">
+        <td width=40%><font size=2><b>Date/Time</b></td>
+        <td width=60%><font size=2>Mon Jan  5 21:04:09 UTC 1970</td>
+      </tr>
+    -->
+      <tr bgcolor="#EEEEEE">
+        <td width=40%><font size=2><b>Firmware Version</b></td>
+        <td width=60%><font size=2>V1.0-220923</td>
+      </tr>
+      <tr bgcolor="#EEEEEE">
+        <td width=40%><font size=2><b>CPU Usage</b></td>
+        <td width=60%><font size=2>0%</td>
+    </tr>
+    </table>
+    </body></html>
+    """;
+
+    private const string LuleeyStatusPage = """
+    <html><body>
+    <table width=400 border=0>
+      <tr bgcolor="#EEEEEE">
+        <td width=40%><font size=2><b>Vendor ID</b></td>
+        <td width=60%><font size=2>OEM</td>
+      </tr>
+      <tr bgcolor="#DDDDDD">
+        <td width=40%><font size=2><b>Uptime</b></td>
+        <td width=60%><font size=2>467 days,  4:55</td>
+      </tr>
+      <tr bgcolor="#EEEEEE">
+        <td width=40%><font size=2><b>Firmware Version</b></td>
+        <td width=60%><font size=2>V1.0.2-241026</td>
+      </tr>
+      <tr bgcolor="#EEEEEE">
+        <td width=40%><font size=2><b>Hardware Version</b></td>
+        <td width=60%><font size=2>V2.0</td>
+      </tr>
+    </table>
+    </body></html>
+    """;
+
+    [Fact]
+    public void ParseStatusPage_OdiAndLuleey_ReadUptimeAndFirmwareOffEitherStripe()
+    {
+        var odi = new NetworkOptimizer.Core.Models.PonSupplementalStats();
+        RealtekOntProvider.ParseStatusPage(OdiStatusPage, odi);
+        odi.SfpUptimeS.Should().Be(4 * 86400 + 21 * 3600 + 4 * 60);
+        odi.FirmwareVersion.Should().Be("V1.0-220923", "the row is #EEEEEE, which a #DDDDDD-only selector missed");
+
+        var luleey = new NetworkOptimizer.Core.Models.PonSupplementalStats();
+        RealtekOntProvider.ParseStatusPage(LuleeyStatusPage, luleey);
+        luleey.SfpUptimeS.Should().Be(467L * 86400 + 4 * 3600 + 55 * 60, "the double space after the comma is the page's own");
+        luleey.FirmwareVersion.Should().Be("V1.0.2-241026");
+    }
+
+    [Theory]
+    [InlineData("4 days, 21:04", 4 * 86400 + 21 * 3600 + 4 * 60)]
+    [InlineData("1 day, 0:07", 86400 + 7 * 60)]
+    [InlineData("21:04", 21 * 3600 + 4 * 60)]
+    [InlineData("37 min", 37 * 60)]
+    [InlineData("2 days, 5 min", 2 * 86400 + 5 * 60)]
+    [InlineData("3 days", 3 * 86400)]
+    public void ParseUptime_ReadsTheLinuxUptimeShapes(string text, long expected)
+    {
+        RealtekOntProvider.ParseUptime(text).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("unknown")]
+    [InlineData("Mon Jan  5 21:04:09 UTC 1970")]
+    public void ParseUptime_AnythingElse_IsNullNotAGuess(string text)
+    {
+        RealtekOntProvider.ParseUptime(text).Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseStatusPon_ReadsRowsOfEitherStripe()
+    {
+        // The 2C2's status_pon.asp is all #DDDDDD, but status.asp proves the firmware stripes;
+        // a striped PON page must not lose its #EEEEEE rows.
+        var striped = OdiStatusPon.Replace("""<tr bgcolor="#DDDDDD"><td width="30%"><font size=2><b>ONU ID</b>""",
+            """<tr bgcolor="#EEEEEE"><td width="30%"><font size=2><b>ONU ID</b>""");
+        striped.Should().NotBe(OdiStatusPon, "the fixture must actually change");
+
+        RealtekOntProvider.ParseStatusPon(striped, Context()).Pon!.OnuId.Should().Be(0);
+    }
+
+    [Fact]
+    public void ParseStatusPon_NoOnuState_LeavesPonStateUnset()
+    {
+        var stats = RealtekOntProvider.ParseStatusPon(LuleeyStatusPon.Replace("O5", ""), Context());
+
+        stats.PonLinkStatus.Should().Be(PonLinkState.Unknown);
+        stats.Pon!.PloamStateRaw.Should().BeNull();
+        stats.Pon.PonLinkStatus.Should().BeNull();
     }
 
     [Fact]

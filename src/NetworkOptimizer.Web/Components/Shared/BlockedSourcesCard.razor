@@ -1,0 +1,192 @@
+@using NetworkOptimizer.Threats.Blocking
+@using NetworkOptimizer.Threats.Models
+@inject IThreatBlockingAdmin Blocking
+@inject AuthenticationStateProvider AuthState
+
+@if (_overview != null && (_overview.Settings.Mode != BlockingMode.Off || _overview.Active.Count > 0 || _overview.Shared.Count > 0))
+{
+    <div class="card card-spaced blocked-sources" data-tour="threats-blocked-sources">
+        <div class="card-header">
+            <h3 class="card-title">Blocked Sources</h3>
+            <span class="status-badge @(_overview.Settings.Mode == BlockingMode.Enforce ? "status-active" : "")">@ModeLabel(_overview.Settings.Mode)</span>
+        </div>
+        <div class="card-body">
+            @if (_overview.Settings.Mode == BlockingMode.DryRun)
+            {
+                <div class="alert alert-info">
+                    <div class="banner-content">
+                        <div class="banner-text">
+                            <span>Detection Only: these sources would be blocked. Nothing is sent to the gateway, the WAF, or Cloudflare yet.</span>
+                            @if (PublicBlockLists.RecommendedNote(_overview.Settings.Feeds) is { } listNote)
+                            {
+                                <small class="form-help">@listNote</small>
+                            }
+                        </div>
+                        <SiteAdminOnly>
+                            <div class="banner-actions">
+                                <button class="btn btn-sm btn-primary" disabled="@_turningOn" @onclick="TurnOnRecommended">Turn On Recommended</button>
+                            </div>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            @foreach (var t in _overview.Targets.Where(t => !t.Ok))
+            {
+                <div class="alert alert-warning">@TargetLabel(t.Kind): @t.Error</div>
+            }
+            @if (_overview.Active.Count == 0)
+            {
+                <div class="empty-state">
+                    <p>Nothing is blocked right now.</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Source</th>
+                                <th>Reason</th>
+                                <th class="hide-mobile">Blocked</th>
+                                <th>Ends</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in _overview.Active)
+                            {
+                                <tr>
+                                    <td><code>@b.SourceIp</code>@if (!b.Enforced) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
+                                    <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
+                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt)</td>
+                                    <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
+                                    <td>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-contrast btn-sm" disabled="@(_releasing == b.Id)" @onclick="() => Release(b)">Release</button>
+                                        </SiteAdminOnly>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            @if (_overview.Shared.Count > 0)
+            {
+                <h4 class="blocked-sources-subtitle">Shared From Other Sites</h4>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Source</th>
+                                <th>Site</th>
+                                <th class="hide-mobile">Reason</th>
+                                <th>Ends</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in _overview.Shared)
+                            {
+                                <tr>
+                                    <td><code>@s.Block.SourceIp</code></td>
+                                    <td>@s.SiteSlug</td>
+                                    <td class="hide-mobile">@s.Block.Reason</td>
+                                    <td>in @TimeFormatHelper.FormatDurationCompact(s.Block.ExpiresAt - DateTime.UtcNow)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            @if (_overview.Recent.Count > 0)
+            {
+                <p class="form-help">@(_overview.Recent.Count == 1 ? "1 block" : $"{_overview.Recent.Count} blocks") ended in the last 24 hours.</p>
+            }
+            @if (_message != null)
+            {
+                <div class="alert alert-danger">@_message</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private BlockingOverview? _overview;
+    private int? _releasing;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            _overview = await Blocking.GetOverviewAsync();
+        }
+        catch (Exception)
+        {
+            // A Viewer read: if it fails the card simply stays hidden.
+            _overview = null;
+        }
+    }
+
+    private bool _turningOn;
+
+    private async Task TurnOnRecommended()
+    {
+        _turningOn = true;
+        _message = null;
+        try
+        {
+            var r = await Blocking.TurnOnRecommendedAsync();
+            if (r.GatewayError != null)
+                _message = $"Blocking is on, but the gateway was not set up: {r.GatewayError}";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not turn on blocking: {ex.Message}";
+        }
+        finally
+        {
+            _turningOn = false;
+        }
+    }
+
+    private async Task Release(ThreatBlock block)
+    {
+        _releasing = block.Id;
+        _message = null;
+        try
+        {
+            var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name ?? "a user";
+            if (!await Blocking.ReleaseAsync(block.Id, user))
+                _message = $"{block.SourceIp} is no longer blocked.";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not release {block.SourceIp}: {ex.Message}";
+        }
+        finally
+        {
+            _releasing = null;
+        }
+    }
+
+    private static string ModeLabel(BlockingMode mode) => mode switch
+    {
+        BlockingMode.Enforce => "Blocking",
+        BlockingMode.DryRun => "Detection Only",
+        _ => "Off"
+    };
+
+    internal static string TargetLabel(BlockTargetKind kind) => kind switch
+    {
+        BlockTargetKind.Gateway => "Gateway",
+        BlockTargetKind.Waf => "WAF",
+        BlockTargetKind.Cloudflare => "Cloudflare",
+        _ => kind.ToString()
+    };
+}

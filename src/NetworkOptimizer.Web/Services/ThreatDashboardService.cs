@@ -33,6 +33,10 @@ public interface IThreatFilterAdminService
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_noise_filter")]
     Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default);
+
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_noise_filter")]
+    Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default);
 }
 
 public class ThreatDashboardService : IThreatFilterAdminService
@@ -105,14 +109,22 @@ public class ThreatDashboardService : IThreatFilterAdminService
         try
         {
             using var scope = NewRepositoryScope(out var repo);
-            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+
+            // Top Sources applies only Noise filters, so Infrastructure / TrustedUser sources stay
+            // in the table with a badge. Every other widget below applies the full filter set.
+            var allEnabled = FiltersDisabled
+                ? new List<ThreatNoiseFilter>()
+                : await GetActiveFiltersAsync(repo, cancellationToken);
+            var nonNoiseFilters = allEnabled
+                .Where(f => f.Category != ThreatFilterCategory.Noise)
+                .ToList();
+            repo.SetNoiseFilters(allEnabled.Where(f => f.Category == ThreatFilterCategory.Noise).ToList());
             repo.SetSeverityFilter(SeverityFilter);
-            var summary = await repo.GetThreatSummaryAsync(from, to, cancellationToken);
-            var killChain = await repo.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topSources = await repo.GetTopSourcesAsync(from, to, 10, cancellationToken);
 
-            // Re-enrich geo data directly on source IPs.
-            // Event-level CountryCode/AsnOrg may reflect the destination for flow events with private sources.
+            // Re-enrich geo data directly on source IPs. Event-level CountryCode/AsnOrg
+            // is null for RFC1918 sources post-fix, but this also handles older rows
+            // that might still have stale values until the migration scrub runs.
             foreach (var source in topSources)
             {
                 var geo = _geoService.Enrich(source.SourceIp);
@@ -120,8 +132,24 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 source.City = geo.City;
                 source.Asn = geo.Asn;
                 source.AsnOrg = geo.AsnOrg;
+
+                // Attach matched category for badge rendering. Exact-match filters take
+                // precedence over CIDR matches when both apply.
+                var match = nonNoiseFilters
+                    .Where(f => f.Matches(source.SourceIp, null, null))
+                    .OrderBy(f => f.SourceIp != null && f.SourceIp.Contains('/') ? 1 : 0)
+                    .FirstOrDefault();
+                if (match != null)
+                {
+                    source.MatchedFilterCategory = match.Category;
+                    source.Label = match.Label;
+                }
             }
 
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            repo.SetSeverityFilter(SeverityFilter);
+            var summary = await repo.GetThreatSummaryAsync(from, to, cancellationToken);
+            var killChain = await repo.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topPorts = await repo.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
             var patterns = await repo.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
             repo.SetSeverityFilter(null);
@@ -632,10 +660,11 @@ public class ThreatDashboardService : IThreatFilterAdminService
             var asSource = events.Where(e => e.SourceIp == ip).ToList();
             var asDest = events.Where(e => e.DestIp == ip).ToList();
 
-            // Peer groups: destinations when IP is source
+            // Peer groups: destinations when IP is source. WAF events carry the requested host and
+            // no destination address, so those group per host.
             var destinations = asSource
-                .GroupBy(e => e.DestIp)
-                .Select(g => BuildPeerGroup(g.Key, g.ToList()))
+                .GroupBy(e => (Ip: e.DestIp ?? "", Host: string.IsNullOrEmpty(e.DestIp) ? e.Domain : null))
+                .Select(g => BuildPeerGroup(g.Key.Ip, g.ToList()))
                 .OrderByDescending(p => p.EventCount)
                 .ToList();
 
@@ -712,10 +741,11 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
             // Top destination IPs (what's being targeted on this port)
             var topDestinations = events
-                .GroupBy(e => e.DestIp)
+                .GroupBy(e => (Ip: e.DestIp ?? "", Host: string.IsNullOrEmpty(e.DestIp) ? e.Domain : null))
                 .Select(g => new PortDrilldownDest
                 {
-                    Ip = g.Key,
+                    Ip = g.Key.Ip,
+                    Host = g.Key.Host,
                     EventCount = g.Count(),
                     BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
                     UniqueSourceIps = g.Select(e => e.SourceIp).Distinct().Count()
@@ -1010,6 +1040,42 @@ public class ThreatDashboardService : IThreatFilterAdminService
         repository.SetSeverityFilter(null);
     }
 
+    /// <summary>
+    /// netopt-waf events in the range for the Web Application Firewall card, noise filters applied.
+    /// </summary>
+    public async Task<NetworkOptimizer.Threats.Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetWafSummaryAsync(from, to, 5, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAF summary");
+            return new NetworkOptimizer.Threats.Waf.WafSummary();
+        }
+    }
+
+    /// <summary>The WAF events page: newest first, noise filters applied, optionally searched.</summary>
+    public async Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetWafEventsAsync(from, to, search, limit, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAF events");
+            return [];
+        }
+    }
+
     // --- Noise Filter Management ---
 
     public async Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default)
@@ -1020,6 +1086,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
     public async Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default)
     {
+        // System entries are created only by the collector, never by a user save.
+        filter.IsSystem = false;
         using var scope = NewRepositoryScope(out var repo);
         await repo.SaveNoiseFilterAsync(filter, cancellationToken);
         _activeFilters = null; // Invalidate cache
@@ -1028,6 +1096,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public async Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default)
     {
         using var scope = NewRepositoryScope(out var repo);
+        if (await IsSystemFilterAsync(repo, filterId, cancellationToken))
+            throw new InvalidOperationException("System noise filters cannot be deleted.");
         await repo.DeleteNoiseFilterAsync(filterId, cancellationToken);
         _activeFilters = null;
     }
@@ -1035,9 +1105,14 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public async Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default)
     {
         using var scope = NewRepositoryScope(out var repo);
+        if (await IsSystemFilterAsync(repo, filterId, cancellationToken))
+            throw new InvalidOperationException("System noise filters cannot be disabled.");
         await repo.ToggleNoiseFilterAsync(filterId, enabled, cancellationToken);
         _activeFilters = null;
     }
+
+    private static async Task<bool> IsSystemFilterAsync(IThreatRepository repo, int filterId, CancellationToken cancellationToken) =>
+        (await repo.GetNoiseFiltersAsync(cancellationToken)).Any(f => f.Id == filterId && f.IsSystem);
 
     private async Task<List<ThreatNoiseFilter>> GetActiveFiltersAsync(IThreatRepository repository, CancellationToken cancellationToken = default)
     {
@@ -1183,6 +1258,8 @@ public class PortDrilldownSource
 public class PortDrilldownDest
 {
     public string Ip { get; set; } = string.Empty;
+    /// <summary>The requested host, for WAF events, which record no destination address.</summary>
+    public string? Host { get; set; }
     public int EventCount { get; set; }
     public int BlockedCount { get; set; }
     public int UniqueSourceIps { get; set; }

@@ -1,0 +1,67 @@
+{
+  "id": "2.10.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.10.0",
+  "summary": "Threat Intelligence goes from watching to blocking: a Web Application Firewall for your self-hosted apps, and Automatic Blocking on your gateway, the WAF, and Cloudflare.",
+  "steps": [
+    {
+      "id": "waf",
+      "level": "major",
+      "url": "/threats/waf",
+      "selector": "[data-tour=\"nav-waf\"]",
+      "title": "Web Application Firewall",
+      "listLabel": "Catch attacks hidden inside HTTPS with the companion reverse proxy",
+      "body": "See the probes and exploit attempts aimed at your self-hosted apps, which a gateway's IPS can't read inside HTTPS. It runs in **NetworkOptimizer-Proxy**, the companion Traefik reverse proxy: turn on its **netopt-waf**, clear false positives with **Add Exclusion**, then switch from Detection Only to **Block**.",
+      "placement": "right",
+      "menu": true
+    },
+    {
+      "id": "protection-setup",
+      "level": "major",
+      "url": "/threats",
+      "selector": "[data-tour=\"protection-setup\"]",
+      "title": "Protection Setup",
+      "listLabel": "Go from watching attacks to blocking them, one step at a time",
+      "body": "Each row shows where this site stands and the one action that finishes it, and **Turn On Recommended** does most of it in one click. **Trusted Sources** keeps your sites' own addresses from ever being blocked, and keeps UniFi Network Lists of them current, so a port forward can admit only your other sites as their WAN addresses change.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "automatic-blocking",
+      "level": "minor",
+      "url": "/settings?tab=security#automatic-blocking",
+      "selector": "[data-tour=\"automatic-blocking\"]",
+      "title": "Automatic Blocking",
+      "listLabel": "Block repeat attackers on your gateway, the WAF, and Cloudflare",
+      "body": "Four Public Block Lists, from Spamhaus, abuse.ch, DShield, and blocklist.de, block known-bad networks before they try, and can stop an infected device from reaching its botnet's command server. Start in **Detection Only** to see what would be blocked.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "wan-speedtest-loss",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/wan-speedtest",
+      "selector": "[data-tour=\"wan-latest-result\"]",
+      "alsoSelectors": ["[data-tour=\"wan-run-test\"]"],
+      "title": "Packet Loss in WAN Speed Test",
+      "listLabel": "Speed tests now measure packet loss, idle and under load",
+      "body": "Every WAN speed test now measures packet loss with your line idle and while it's saturated in each direction. You'll see it next to the latency in **Latest Result**, and over time on the **Packet Loss** tab of **WAN History**.\n\nWhen Monitoring sees enough other traffic on that WAN to explain a slow result, the test is marked **Invalid** and ISP Health leaves it out.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "realtek-ont-attach",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/settings?tab=monitoring#ont-monitoring",
+      "selector": "[data-tour=\"ont-monitoring\"]",
+      "requires": ["realtek-ont"],
+      "title": "Realtek ONT Stick, One Card",
+      "listLabel": "Merge your Realtek stick into its SFP port's card, with an alert if it hangs",
+      "body": "Attach your Realtek stick to its SFP port for one card with its PON state, OLT, uptime, and firmware, plus an alert if its page stops answering while the light stays on. **Edit** it here and pick the port under **Attach to SFP Module**.",
+      "placement": "top",
+      "optional": true
+    }
+  ]
+}

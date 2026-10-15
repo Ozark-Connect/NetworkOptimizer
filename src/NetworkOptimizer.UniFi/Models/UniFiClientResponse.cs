@@ -71,6 +71,15 @@ public class UniFiClientResponse
     [JsonPropertyName("fixed_ip")]
     public string? FixedIp { get; set; }
 
+    [JsonPropertyName("local_dns_record_enabled")]
+    public bool LocalDnsRecordEnabled { get; set; }
+
+    [JsonPropertyName("local_dns_record")]
+    public string? LocalDnsRecord { get; set; }
+
+    [JsonPropertyName("network_members_group_ids")]
+    public List<string>? NetworkMembersGroupIds { get; set; }
+
     [JsonPropertyName("last_ip")]
     public string? LastIp { get; set; }
 

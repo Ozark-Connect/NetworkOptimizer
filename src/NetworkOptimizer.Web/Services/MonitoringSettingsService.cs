@@ -75,7 +75,7 @@ public class MonitoringSettingsService : IMonitoringSettingsService
 
     /// <inheritdoc />
     public Task<MonitoringSettings> SaveSfpThresholdsAsync(SfpThresholdEdit edit, CancellationToken ct = default) =>
-        SaveAsync(ct, s =>
+        SaveAsync(ct, async (db, s) =>
         {
             var before = Snapshot(s);
             // Temperature must be positive; power thresholds may legitimately be
@@ -89,7 +89,26 @@ public class MonitoringSettingsService : IMonitoringSettingsService
             s.SfpTempHighGenericC = NormalizeTemp(edit.SfpTempHighGenericC);
             s.IgnoreSfpDdmSpikes = edit.IgnoreSfpDdmSpikes;
             var after = Snapshot(s);
-            return before == after ? null : new { from = before, to = after };
+
+            var sourceChanges = new List<object>();
+            if (edit.UseOntTemperatureByModule is { Count: > 0 } sources)
+            {
+                var ids = sources.Keys.ToList();
+                var modules = await db.MonitoredSfps.Where(m => ids.Contains(m.Id)).ToListAsync(ct);
+                foreach (var module in modules)
+                {
+                    var useOnt = sources[module.Id];
+                    if (module.UseOntTemperature == useOnt) continue;
+                    module.UseOntTemperature = useOnt;
+                    module.UpdatedAt = DateTime.UtcNow;
+                    sourceChanges.Add(new { module = $"{module.DeviceMac}:{module.PortName}", temperatureSource = useOnt ? "ont" : "ddm" });
+                }
+            }
+
+            if (before == after && sourceChanges.Count == 0) return null;
+            return sourceChanges.Count == 0
+                ? new { from = before, to = after }
+                : (object)new { from = before, to = after, temperatureSources = sourceChanges };
         });
 
     /// <inheritdoc />
@@ -109,6 +128,24 @@ public class MonitoringSettingsService : IMonitoringSettingsService
             };
         });
 
+    /// <inheritdoc />
+    public Task<MonitoringSettings> SetOntErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default) =>
+        SaveAsync(ct, s =>
+        {
+            var before = s.OntErrorCountersLast24h;
+            s.OntErrorCountersLast24h = enabled;
+            return before == enabled ? null : new { field = "OntErrorCountersLast24h", from = before, to = enabled };
+        });
+
+    /// <inheritdoc />
+    public Task<MonitoringSettings> SetCmErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default) =>
+        SaveAsync(ct, s =>
+        {
+            var before = s.CmErrorCountersLast24h;
+            s.CmErrorCountersLast24h = enabled;
+            return before == enabled ? null : new { field = "CmErrorCountersLast24h", from = before, to = enabled };
+        });
+
     private static (double?, double?, double?, double?, double?, double?, double?, bool) Snapshot(MonitoringSettings s) =>
         (s.PonTempHighC, s.PonRxPowerLowDbm, s.PonTxPowerHighDbm,
          s.AeTempHighC, s.AeRxPowerLowDbm, s.AeTxPowerHighDbm, s.SfpTempHighGenericC, s.IgnoreSfpDdmSpikes);
@@ -119,13 +156,18 @@ public class MonitoringSettingsService : IMonitoringSettingsService
     /// suppressed - saving a form whose values are already stored should not read as a
     /// configuration change.
     /// </summary>
-    private async Task<MonitoringSettings> SaveAsync(CancellationToken ct, Func<MonitoringSettings, object?> mutate)
+    private Task<MonitoringSettings> SaveAsync(CancellationToken ct, Func<MonitoringSettings, object?> mutate) =>
+        SaveAsync(ct, (_, s) => Task.FromResult(mutate(s)));
+
+    /// <summary>As above, for an edit that also writes other rows of the site's database in the same save.</summary>
+    private async Task<MonitoringSettings> SaveAsync(CancellationToken ct,
+        Func<NetworkOptimizerDbContext, MonitoringSettings, Task<object?>> mutate)
     {
         await using var db = _siteDb.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
         var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct) ?? new MonitoringSettings();
         if (settings.Id == 0) db.MonitoringSettings.Add(settings);
 
-        var change = mutate(settings);
+        var change = await mutate(db, settings);
         if (change == null && settings.Id != 0)
         {
             _audit.SuppressNoChange();

@@ -52,7 +52,7 @@ launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
 On first run, check the logs for the built-in **admin** account's auto-generated password, then sign in as **admin**:
 
 ```bash
-grep -A5 'AUTO-GENERATED' ~/network-optimizer/logs/stdout.log
+grep -A5 'AUTO-GENERATED' "$(ls -t ~/network-optimizer/logs/networkoptimizer-*.log | head -1)"
 ```
 
 ## Service Management
@@ -64,8 +64,8 @@ launchctl unload ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
 # Start
 launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
 
-# View logs
-tail -f ~/network-optimizer/logs/stdout.log
+# View logs (today's file)
+tail -f "$(ls -t ~/network-optimizer/logs/networkoptimizer-*.log | head -1)"
 ```
 
 ## Upgrading
@@ -92,17 +92,17 @@ Then re-run the install script to rebuild with the updated runtime.
 
 ## Logs and Debugging
 
-Application logs are in `~/network-optimizer/logs/`:
+Application logs are in `~/network-optimizer/logs/`: one `networkoptimizer-YYYYMMDD.log` per day, seven kept. `stderr.log` holds only what the runtime writes when the process dies.
 
 ```bash
 # Follow live logs
-tail -f ~/network-optimizer/logs/stdout.log
+tail -f "$(ls -t ~/network-optimizer/logs/networkoptimizer-*.log | head -1)"
 
-# View errors
+# View crash output
 tail -f ~/network-optimizer/logs/stderr.log
 
 # Search for specific events
-grep "UniFi" ~/network-optimizer/logs/stdout.log | tail -20
+grep "UniFi" ~/network-optimizer/logs/networkoptimizer-*.log | tail -20
 ```
 
 ### Enable Debug Logging
@@ -128,11 +128,10 @@ Remember to set it back to `Information` when done - debug logging is verbose.
 
 ### Log Rotation
 
-Logs are not rotated automatically. To clear them:
+The daily log files rotate on their own: seven days are kept, and no file grows past 200 MB. Installs made before v2.10.0 also have a `stdout.log` that launchd wrote without rotating; re-running the install script stops it, and the file can be deleted:
 
 ```bash
-# Truncate without restarting
-: > ~/network-optimizer/logs/stdout.log
+rm ~/network-optimizer/logs/stdout.log
 : > ~/network-optimizer/logs/stderr.log
 ```
 
@@ -174,7 +173,7 @@ sqlite3 ~/Library/Application\ Support/NetworkOptimizer/network_optimizer.db \
 launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
 
 # View the new password
-grep "Password:" ~/network-optimizer/logs/stdout.log | tail -1
+grep "Password:" "$(ls -t ~/network-optimizer/logs/networkoptimizer-*.log | head -1)" | tail -1
 ```
 
 ## Uninstalling

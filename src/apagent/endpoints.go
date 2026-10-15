@@ -259,7 +259,10 @@ func (s *State) neighborsPayload(r *http.Request) (any, error) {
 	table, _ := s.telemetry()
 	vaps := table.ControlVapNames()
 
-	reports := neighborReports(r.Context(), vaps)
+	s.mu.RLock()
+	dir := s.probes.HostapdDir
+	s.mu.RUnlock()
+	reports := neighborReports(r.Context(), vaps, dir)
 	return NeighborsPayload{
 		Ap:          table.Ap(),
 		Count:       len(reports),

@@ -339,6 +339,9 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             streams = Math.Clamp(options.Streams.Value, 1, 48);
         var duration = Math.Clamp(options.DurationSeconds, 2, 60);
         var binaryCommand = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} -duration {duration}";
+        // An ephemeral sample (SQM learning) skips the idle loss phase: it only holds the shaper lift longer.
+        if (options.Ephemeral)
+            binaryCommand += " -loss-duration 0";
 
         // With a shaper lift the binary runs inside a wrapper that raises the WAN's HTB roots to
         // the probe rates first and restores them from an EXIT trap, all in the one SSH session.
@@ -370,7 +373,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         }
 
         report("Parsing", 95, "Processing results...");
-        var testResult = ParseResult(result.output, interfaceName, wanNetworkGroup, wanName);
+        var testResult = ParseResult(result.output, interfaceName, wanNetworkGroup, wanName, out var phases);
 
         if (testResult == null)
         {
@@ -387,7 +390,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             return testResult;
         }
 
-        return await SaveAndCompleteResult(testResult, interfaceName, report, cancellationToken);
+        return await SaveAndCompleteResult(testResult, interfaceName, report, cancellationToken, phases);
     }
 
     /// <summary>
@@ -429,7 +432,8 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         // Launch parallel SSH commands, one per WAN interface
         // Synchronized start: all binaries do setup independently, then begin throughput at the same time
         // Split connections proportionally based on WAN count and max mode
-        var startAt = DateTimeOffset.UtcNow.AddSeconds(10).ToUnixTimeSeconds();
+        // 25 s covers setup plus the idle packet loss phase; the binary trims that phase to fit.
+        var startAt = DateTimeOffset.UtcNow.AddSeconds(25).ToUnixTimeSeconds();
         var (perWanServers, perWanStreams) = (interfaces.Count, maxMode) switch
         {
             (1, true) => (6, 24),
@@ -589,7 +593,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             .Select(r => !string.IsNullOrEmpty(r.wan.Name) ? r.wan.Name : r.wan.NetworkGroup ?? "WAN")
             .Distinct().OrderBy(n => n));
 
-        return new Iperf3Result
+        var aggregate = new Iperf3Result
         {
             Direction = SpeedTestDirection.UwnWanGateway,
             DeviceHost = primaryServerHost ?? "UWN Test",
@@ -613,13 +617,16 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             TestTime = DateTime.UtcNow,
             Success = true,
         };
+        WanLossMapper.Apply(aggregate, results.Select(r => r.json).ToList());
+        return aggregate;
     }
 
     private async Task<Iperf3Result?> SaveAndCompleteResult(
         Iperf3Result testResult,
         string interfaceLabel,
         Action<string, int, string?> report,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        WanTestPhases? phases = null)
     {
         report("Saving", 98, "Saving results...");
         await using var db = CreateSiteDb();
@@ -642,6 +649,11 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
 
         var resolvedWanGroup = testResult.WanNetworkGroup;
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
+
+        if (testResult.Success)
+            WanTestBackgroundCheck.Schedule(
+                _serviceProvider.GetRequiredService<IServiceScopeFactory>(), _siteSlug, resultId, resolvedWanGroup, phases,
+                () => Task.FromResult(CreateSiteDb()), id => OnPathAnalysisComplete?.Invoke(id), _logger);
 
         return testResult;
     }
@@ -732,8 +744,9 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         return true;
     }
 
-    private Iperf3Result? ParseResult(string jsonOutput, string interfaceName, string? wanNetworkGroup, string? wanName)
+    private Iperf3Result? ParseResult(string jsonOutput, string interfaceName, string? wanNetworkGroup, string? wanName, out WanTestPhases? phases)
     {
+        phases = null;
         try
         {
             var json = JsonSerializer.Deserialize<WanSpeedTestResult>(jsonOutput, JsonOptions);
@@ -760,7 +773,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var edgeInfo = !string.IsNullOrEmpty(serverInfo) ? serverInfo : "UWN";
             var serverHost = !string.IsNullOrEmpty(json.Metadata?.ServerHost) ? json.Metadata.ServerHost : "UWN Test";
 
-            return new Iperf3Result
+            var result = new Iperf3Result
             {
                 Direction = SpeedTestDirection.UwnWanGateway,
                 DeviceHost = serverHost,
@@ -783,6 +796,9 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                 TestTime = DateTime.UtcNow,
                 Success = true,
             };
+            WanLossMapper.Apply(result, [json]);
+            phases = WanTestPhases.From(json);
+            return result;
         }
         catch (JsonException ex)
         {
@@ -863,39 +879,4 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         Converters = { new JsonStringEnumConverter() }
     };
 
-    // JSON deserialization models matching the Go binary output
-    private sealed class WanSpeedTestResult
-    {
-        public bool Success { get; set; }
-        public string? Error { get; set; }
-        public WanMetadata? Metadata { get; set; }
-        public WanLatency? Latency { get; set; }
-        public WanThroughput? Download { get; set; }
-        public WanThroughput? Upload { get; set; }
-        public int Streams { get; set; }
-        public int DurationSeconds { get; set; }
-    }
-
-    private sealed class WanMetadata
-    {
-        public string Ip { get; set; } = "";
-        public string Colo { get; set; } = "";
-        public string Country { get; set; } = "";
-        public string ServerHost { get; set; } = "";
-        public List<string>? ServerIps { get; set; }
-    }
-
-    private sealed class WanLatency
-    {
-        public double UnloadedMs { get; set; }
-        public double JitterMs { get; set; }
-    }
-
-    private sealed class WanThroughput
-    {
-        public double Bps { get; set; }
-        public long Bytes { get; set; }
-        public double LoadedLatencyMs { get; set; }
-        public double LoadedJitterMs { get; set; }
-    }
 }

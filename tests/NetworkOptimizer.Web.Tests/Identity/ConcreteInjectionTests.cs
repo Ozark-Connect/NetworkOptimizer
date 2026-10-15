@@ -40,6 +40,8 @@ public class ConcreteInjectionTests
         "Monitoring.razor:DashboardLayoutService",
         "SpeedTest.razor:ApMapService",
         "ThreatDashboard.razor:ThreatDashboardService",
+        // The WAF page under Threat Intelligence: reads only (WAF summary and events), no filter writes.
+        "ThreatWaf.razor:ThreatDashboardService",
         "WiFiOptimizer.razor:ApMapService",
         "AirtimeFairness.razor:WiFiOptimizerService",
         "AlertsList.razor:AuditService",

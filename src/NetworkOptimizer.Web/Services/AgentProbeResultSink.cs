@@ -863,7 +863,8 @@ public class AgentProbeResultSink
                     config.AuthPassword = string.IsNullOrEmpty(settings.SnmpV3AuthPassword)
                         ? ""
                         : _credentialProtection.Decrypt(settings.SnmpV3AuthPassword);
-                    config.Enabled = true;
+                    // A withheld v3 password (View accounts) leaves nothing to authenticate with.
+                    config.Enabled = !string.IsNullOrEmpty(config.AuthPassword);
                 }
                 config.FastIntervalSeconds = Math.Max(2, settings.FastPollIntervalSeconds);
                 config.MediumIntervalSeconds = Math.Max(10, settings.MediumPollIntervalSeconds);
@@ -1068,7 +1069,7 @@ public class AgentProbeResultSink
             var row = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (row == null) return settings;
             var before = row.SnmpDetectionState;
-            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection);
+            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection, siteSlug);
             row.LastSnmpDetection = DateTime.UtcNow;
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);

@@ -631,6 +631,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private string? _rejectedSavedLogin;
     private DateTime _rejectedSavedLoginAt;
 
+    /// <summary>The login attempt limit hold, carried across the clients the automatic reconnects build.</summary>
+    private DateTime _loginLimitedUntil = DateTime.MinValue;
+    private TimeSpan _loginLimitBackoff = TimeSpan.Zero;
+
     /// <summary>
     /// True when this site's console is reached through its agent tunnel and that tunnel
     /// isn't up yet - a transient "waiting for the agent" state, not a misconfiguration.
@@ -812,8 +816,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client.AuthProbeCompleted += HandleAuthProbe;
             _client.ConsoleWentSilent += HandleConsoleWentSilent;
 
-            // Attempt to authenticate
+            // Attempt to authenticate. A Save is never held, but its 429 still holds the reconnects after it.
             var success = await _client.LoginAsync();
+            _loginLimitedUntil = _client.LoginLimitedUntil;
+            _loginLimitBackoff = _client.LoginLimitBackoff;
 
             if (success)
             {
@@ -939,7 +945,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 IgnoreControllerSSLErrors = settings.IgnoreControllerSSLErrors
             };
 
-            // Dispose existing client
+            // Dispose existing client, keeping its login attempt limit hold for the replacement
+            if (_client != null)
+            {
+                _loginLimitedUntil = _client.LoginLimitedUntil;
+                _loginLimitBackoff = _client.LoginLimitBackoff;
+            }
             _client?.Dispose();
             _client = null;
             _isConnected = false;
@@ -975,8 +986,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
             _client.ConsoleWentSilent += HandleConsoleWentSilent;
+            _client.CarryLoginLimit(_loginLimitedUntil, _loginLimitBackoff);
 
             var success = await _client.LoginAsync(cts.Token);
+            _loginLimitedUntil = _client.LoginLimitedUntil;
+            _loginLimitBackoff = _client.LoginLimitBackoff;
 
             if (!success && _client.PasswordRejected)
             {
@@ -1107,7 +1121,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // API key auth: save key, clear username/password
                 if (!string.IsNullOrEmpty(config.ApiKey))
                 {
-                    settings.ApiKey = _credentialProtection.Encrypt(config.ApiKey);
+                    settings.ApiKey = _credentialProtection.EncryptForSite(config.ApiKey, SiteSlug);
                 }
                 settings.Username = null;
                 settings.Password = null;
@@ -1117,7 +1131,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Username/password auth: save credentials, clear API key
                 if (!string.IsNullOrEmpty(config.Password))
                 {
-                    settings.Password = _credentialProtection.Encrypt(config.Password);
+                    settings.Password = _credentialProtection.EncryptForSite(config.Password, SiteSlug);
                 }
                 settings.ApiKey = null;
             }

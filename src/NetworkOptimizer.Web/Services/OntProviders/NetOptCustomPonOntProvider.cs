@@ -227,7 +227,13 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         LanRxFcsErrors = p.LanCounters?.RxFcsErr,
         LanBufferOverflow = p.LanCounters?.BufferOverflow,
         SfpUptimeS = p.SfpUptimeS,
+        OltVendorId = Clean(p.OltVendorId),
+        FirmwareVersion = Clean(p.SfpFwVersion),
+        OltModel = Clean(p.OltModel),
+        OltVersion = Clean(p.OltVersion),
     };
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>
     /// Standalone mapping: the standard OntStats fields this contract can serve.
@@ -245,6 +251,8 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         PonLinkStatus = ToPonLinkState(p.Ploam?.CurrState),
         FecErrors = p.GtcCounters?.FecWordsUncorr,
         BipErrors = p.GtcCounters?.Bip,
+        OltVendor = Clean(p.OltVendorId),
+        OltModel = Clean(p.OltModel),
         // Standalone gets the same PON detail as an attached module: same endpoint, same payload,
         // so the only difference between the two modes should be which tab it lands on.
         Pon = MapToSupplemental(p),
@@ -301,6 +309,22 @@ public class NetOptCustomPonPayload
     /// <summary>Seconds since the ONT module booted.</summary>
     [JsonPropertyName("sfp_uptime_s")]
     public long? SfpUptimeS { get; set; }
+
+    /// <summary>OLT vendor ID as the ONT reports it (e.g. "CALX"). Decoded for display only.</summary>
+    [JsonPropertyName("olt_vendor_id")]
+    public string? OltVendorId { get; set; }
+
+    /// <summary>The ONT module's firmware version, as the module reports it.</summary>
+    [JsonPropertyName("sfp_fw_version")]
+    public string? SfpFwVersion { get; set; }
+
+    /// <summary>OLT model, from OMCI OLT-G's equipment ID (e.g. "E7").</summary>
+    [JsonPropertyName("olt_model")]
+    public string? OltModel { get; set; }
+
+    /// <summary>OLT software version, from OMCI OLT-G's version attribute.</summary>
+    [JsonPropertyName("olt_version")]
+    public string? OltVersion { get; set; }
 
     /// <summary>
     /// DDM optics readings, in the same units as SFP DDM (dBm / degrees C / volts).

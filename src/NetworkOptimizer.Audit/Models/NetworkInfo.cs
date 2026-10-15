@@ -64,7 +64,13 @@ public enum NetworkPurpose
     /// <summary>
     /// Unknown or unclassified network
     /// </summary>
-    Unknown
+    Unknown,
+
+    /// <summary>
+    /// Network the operator manages UniFi from (admin workstations), as opposed to Management,
+    /// where the devices live. Set only by a purpose override, never by name.
+    /// </summary>
+    ManagementAccess
 }
 
 /// <summary>
@@ -89,6 +95,7 @@ public static class NetworkPurposeExtensions
         NetworkPurpose.Media => "Media",
         NetworkPurpose.Gaming => "Gaming",
         NetworkPurpose.Unknown => "Unclassified",
+        NetworkPurpose.ManagementAccess => "Management Access",
         _ => purpose.ToString()
     };
 }

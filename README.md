@@ -5,13 +5,13 @@
 # Network Optimizer for UniFi
 
 [![GitHub Release](https://img.shields.io/github/v/release/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
-[![Docker Pulls](https://img.shields.io/badge/docker_pulls-670k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
+[![Docker Pulls](https://img.shields.io/badge/docker_pulls-697k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
 [![Windows Downloads](https://img.shields.io/github/downloads/Ozark-Connect/NetworkOptimizer/total?label=windows%20downloads)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
 [![GitHub last commit](https://img.shields.io/github/last-commit/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/commits)
 [![GitHub Stars](https://img.shields.io/github/stars/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/stargazers)
 [![License](https://img.shields.io/badge/license-BSL_1.1-green)](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/LICENSE)
 
-**[Website](https://ozarkconnect.net/network-optimizer)** • **[Quick Start](#quick-start-linux-docker)** • **[Deployment Guide](docker/DEPLOYMENT.md)** • **[Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases)**
+**[Website](https://ozarkconnect.net/network-optimizer)** • **[Everything It Can Do](FEATURES.md)** • **[Quick Start](#quick-start-linux-docker)** • **[Deployment Guide](docker/DEPLOYMENT.md)** • **[Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases)**
 
 ## THANK YOU to all of my Sponsors
 
@@ -141,9 +141,11 @@ Network Optimizer answers those questions. It connects to your UniFi controller,
 
 ## Main Features
 
+These are the highlights. For the complete list, organized the way the app is navigated, see [Everything It Can Do](FEATURES.md).
+
 ### Wi-Fi Optimizer & Signal Map
 
-Site health scoring, RF environment analysis, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. The Channel Recommendation engine models pairwise AP interference using signal propagation, live RF scan data, and triangulated neighbor networks, then factors in historical channel stress (utilization, interference, TX retries) to find the lowest-interference channel assignment across your entire network. It respects mesh uplink constraints, DFS preferences, and regulatory channel availability, and validates every recommended move against improvement thresholds so it won’t suggest changes that aren’t worth the disruption. Apply Recommended Channels then writes the plan to UniFi Network for you: access points that hear each other move at different times, so a client always has a neighbor to roam to, and the run finishes on the server even if you leave the page.
+Site health scoring, RF environment analysis, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. Most channel pickers count nearby networks. Channel Recommendation models your RF physically: propagation from your floor plan, walls, and antenna patterns, each AP's real transmit power, and contention judged at the CCA threshold where radios actually defer. Add measured airtime, noise floor, triangulated neighbors, and months of how your own channels performed, and it solves for the least-interference plan across the whole site. Every move must clear its own improvement bar and never lands on a channel that measures worse, and mesh, DFS, and pins are respected. Apply Recommended Channels writes the plan to UniFi Network in waves, so a client always has a neighbor to roam to.
 
 On the client side, you get a sortable, searchable table view with online/offline filtering, per-client signal and roaming history, and band-segmented Wi-Fi generation breakdowns showing exactly where your airtime is going. Environmental correlation heatmaps surface interference patterns by time of day and day of week, and every recommendation includes the specific UniFi Network UI navigation path to apply the change.
 
@@ -219,7 +221,7 @@ Run speed tests and security audits on a schedule, and get told when something g
 
 ## Requirements
 
-- UniFi Console (aka Controller) - UDM, UCG, UDR, CloudKey, or self-hosted UniFi Network Server
+- UniFi Console (aka Controller) - UDM, UCG, UDR, UniFi Express, EFG, CloudKey, or self-hosted UniFi OS Server (or the legacy UniFi Network Server)
 - Network access to your UniFi Console API (HTTPS)
 - A box (bare metal, container(s), VM/LXC) to host Network Optimizer, see Installation section below for options. [Deployment Guide](docker/DEPLOYMENT.md) lists general hardware requirements. Do not attempt to install NO on the UniFi Gateway or Console itself unless it's UDM-Beast, EFG, or EF-Core class.
 - A box to host InfluxDB if you want to run Time-Series Monitoring features. This is the one that needs a little more horsepower, so I recommend putting it on your most capable local server.

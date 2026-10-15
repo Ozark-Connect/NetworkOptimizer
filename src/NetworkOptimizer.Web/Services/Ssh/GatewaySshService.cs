@@ -186,7 +186,7 @@ public class GatewaySshService : IGatewaySshService
         // Encrypt password if provided and not already encrypted
         if (!string.IsNullOrEmpty(settings.Password) && !_credentialProtection.IsEncrypted(settings.Password))
         {
-            settings.Password = _credentialProtection.Encrypt(settings.Password);
+            settings.Password = _credentialProtection.EncryptForSite(settings.Password, _siteSlug);
         }
 
         await repository.SaveGatewaySshSettingsAsync(settings);

@@ -51,6 +51,15 @@ public class ThreatRepository : IThreatRepository
     }
 
     /// <summary>
+    /// WAF events in the range, with no noise or severity filter. The noise filters describe IPS
+    /// flows: "my phone, port 443" hid every WAF event from that phone. Any WAF filter is its own.
+    /// </summary>
+    private IQueryable<ThreatEvent> WafQuery(DateTime from, DateTime to) =>
+        _context.ThreatEvents
+            .AsNoTracking()
+            .Where(e => e.Timestamp >= from && e.Timestamp <= to && e.EventSource == EventSource.Waf);
+
+    /// <summary>
     /// Apply noise filter exclusions to an IQueryable. Each filter adds a WHERE clause
     /// that excludes events matching all non-null filter fields.
     /// Supports CIDR notation (e.g. "10.0.0.0/8") for /8, /16, /24 subnets.
@@ -306,6 +315,111 @@ public class ThreatRepository : IThreatRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get top threat sources");
+            throw;
+        }
+    }
+
+    public async Task<List<SourceIpSummary>> GetSourcesByCategoryAsync(DateTime from, DateTime to,
+        ThreatFilterCategory category, int count = 20, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Load enabled filters of this category (bypasses _noiseFilters which would
+            // exclude them - we want to surface exactly these source IPs).
+            var filters = await _context.ThreatNoiseFilters
+                .AsNoTracking()
+                .Where(f => f.Enabled && f.Category == category && f.SourceIp != null)
+                .ToListAsync(cancellationToken);
+
+            if (filters.Count == 0)
+                return new List<SourceIpSummary>();
+
+            // Partition filter source IPs into exact matches and CIDR prefixes so the
+            // query can OR them in a single Where clause (translates to a small set
+            // of OR conditions on real providers and works on the in-memory provider).
+            var exactIps = filters
+                .Where(f => f.SourceIp != null && !f.SourceIp.Contains('/'))
+                .Select(f => f.SourceIp!)
+                .Distinct()
+                .ToList();
+
+            var cidrPrefixes = filters
+                .Select(f => ToCidrPrefix(f.SourceIp))
+                .Where(p => p != null)
+                .Select(p => p!)
+                .Distinct()
+                .ToList();
+
+            if (exactIps.Count == 0 && cidrPrefixes.Count == 0)
+                return new List<SourceIpSummary>();
+
+            // Build a base query that does NOT apply noise filtering (the whole point
+            // is to surface what was suppressed). Severity filter still applies if set.
+            var baseQ = _context.ThreatEvents
+                .AsNoTracking()
+                .Where(e => e.Timestamp >= from && e.Timestamp <= to);
+
+            if (_severityFilter is { Length: > 0 })
+                baseQ = baseQ.Where(e => _severityFilter.Contains(e.Severity));
+
+            // Build one sub-query per match shape (exact IPs in one Contains, then one
+            // Where per CIDR prefix) and Union them. cidrPrefixes.Any(p => e.SourceIp.StartsWith(p))
+            // would be more concise but the EF Core InMemory provider used by tests cannot
+            // translate that lambda pattern; per-prefix Union works on both InMemory and SQL.
+            var queries = new List<IQueryable<ThreatEvent>>();
+            if (exactIps.Count > 0)
+                queries.Add(baseQ.Where(e => exactIps.Contains(e.SourceIp)));
+            foreach (var prefix in cidrPrefixes)
+            {
+                var p = prefix; // capture per loop iteration
+                queries.Add(baseQ.Where(e => e.SourceIp.StartsWith(p)));
+            }
+
+            var matched = queries.Aggregate((a, b) => a.Union(b));
+
+            var rows = await matched
+                .GroupBy(e => e.SourceIp)
+                .Select(g => new
+                {
+                    SourceIp = g.Key,
+                    EventCount = g.Count(),
+                    CountryCode = g.First().CountryCode,
+                    City = g.First().City,
+                    Asn = g.First().Asn,
+                    AsnOrg = g.First().AsnOrg,
+                    MaxSeverity = g.Max(e => e.Severity)
+                })
+                .OrderByDescending(s => s.EventCount)
+                .Take(count)
+                .ToListAsync(cancellationToken);
+
+            // Attach the filter's label to each source by re-matching the IP locally.
+            // Exact-match filters take precedence over CIDR matches when both apply.
+            return rows.Select(r =>
+            {
+                var label = filters
+                    .Where(f => f.Matches(r.SourceIp, null, null))
+                    .OrderBy(f => f.SourceIp != null && f.SourceIp.Contains('/') ? 1 : 0)
+                    .Select(f => f.Label)
+                    .FirstOrDefault(l => !string.IsNullOrEmpty(l));
+
+                return new SourceIpSummary
+                {
+                    SourceIp = r.SourceIp,
+                    EventCount = r.EventCount,
+                    CountryCode = r.CountryCode,
+                    City = r.City,
+                    Asn = r.Asn,
+                    AsnOrg = r.AsnOrg,
+                    MaxSeverity = r.MaxSeverity,
+                    Label = label,
+                    MatchedFilterCategory = category
+                };
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get sources by category {Category}", category);
             throw;
         }
     }
@@ -698,9 +812,11 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            // Get events with null geo data (tracked so changes are saved)
+            // Pick events that have not yet been processed by the enrichment service.
+            // Pre-fix events (where GeoEnriched defaults to false) get a one-time pass;
+            // RFC1918 sources will end up with null source geo, which is correct.
             var events = await _context.ThreatEvents
-                .Where(e => e.CountryCode == null)
+                .Where(e => !e.GeoEnriched)
                 .OrderByDescending(e => e.Timestamp)
                 .Take(batchSize)
                 .ToListAsync(cancellationToken);
@@ -783,6 +899,136 @@ public class ThreatRepository : IThreatRepository
             _logger.LogError(ex, "Failed to get attack sequences");
             throw;
         }
+    }
+
+    #endregion
+
+    public async Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var query = WafQuery(from, to);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            var ruleId = long.TryParse(term, out var id) ? id : (long?)null;
+            query = query.Where(e => e.SourceIp.Contains(term)
+                || (e.Domain != null && e.Domain.Contains(term))
+                || (e.Service != null && e.Service.Contains(term))
+                || e.SignatureName.Contains(term)
+                || (ruleId != null && e.SignatureId == ruleId));
+        }
+        return await query.OrderByDescending(e => e.Timestamp).Take(limit).ToListAsync(cancellationToken);
+    }
+
+    #region Automatic Blocking
+
+    public async Task<Dictionary<string, int>> GetWafEventCountsBySourceAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _context.ThreatEvents
+            .AsNoTracking()
+            .Where(e => e.EventSource == EventSource.Waf && e.Timestamp >= from && e.Timestamp <= to)
+            .GroupBy(e => e.SourceIp)
+            .Select(g => new { Ip = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        return rows.ToDictionary(r => r.Ip, r => r.Count, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public Task<List<ThreatPattern>> GetPatternsSeenAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default) =>
+        _context.ThreatPatterns
+            .AsNoTracking()
+            .Where(p => p.LastSeen >= from && p.LastSeen <= to)
+            .ToListAsync(cancellationToken);
+
+    public Task<List<ThreatBlock>> GetBlocksAsync(DateTime now, DateTime createdSince,
+        CancellationToken cancellationToken = default) =>
+        _context.ThreatBlocks
+            .AsNoTracking()
+            .Where(b => (b.ReleasedAt == null && b.ExpiresAt > now) || b.CreatedAt >= createdSince)
+            .OrderByDescending(b => b.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+    public async Task<Dictionary<string, int>> GetBlockCountsBySourceAsync(DateTime since,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _context.ThreatBlocks
+            .AsNoTracking()
+            .Where(b => b.CreatedAt >= since)
+            .GroupBy(b => b.SourceIp)
+            .Select(g => new { Ip = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        return rows.ToDictionary(r => r.Ip, r => r.Count, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task AddBlocksAsync(List<ThreatBlock> blocks, CancellationToken cancellationToken = default)
+    {
+        if (blocks.Count == 0) return;
+        _context.ThreatBlocks.AddRange(blocks);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task<ThreatBlock?> GetBlockAsync(int id, CancellationToken cancellationToken = default) =>
+        _context.ThreatBlocks.AsNoTracking().FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+
+    public async Task<bool> ReleaseBlockAsync(int id, string releasedBy, DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        var block = await _context.ThreatBlocks.FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+        if (block == null || !block.IsActive(now)) return false;
+        block.ReleasedAt = now;
+        block.ReleasedBy = releasedBy;
+        await _context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<int> PruneBlocksAsync(DateTime olderThan, CancellationToken cancellationToken = default)
+    {
+        var old = await _context.ThreatBlocks
+            .Where(b => b.ExpiresAt < olderThan || (b.ReleasedAt != null && b.ReleasedAt < olderThan))
+            .ToListAsync(cancellationToken);
+        if (old.Count == 0) return 0;
+        _context.ThreatBlocks.RemoveRange(old);
+        await _context.SaveChangesAsync(cancellationToken);
+        return old.Count;
+    }
+
+    #endregion
+
+    #region WAF
+
+    public async Task<NetworkOptimizer.Threats.Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to,
+        int top = 5, CancellationToken cancellationToken = default)
+    {
+        var waf = WafQuery(from, to);
+        var counts = await waf
+            .GroupBy(e => e.Action)
+            .Select(g => new { Action = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var rules = await waf
+            .GroupBy(e => new { e.SignatureId, e.SignatureName })
+            .Select(g => new { g.Key.SignatureId, g.Key.SignatureName, Count = g.Count() })
+            .OrderByDescending(r => r.Count)
+            .Take(top)
+            .ToListAsync(cancellationToken);
+        var hosts = await waf
+            .Where(e => e.Domain != null)
+            .GroupBy(e => e.Domain!)
+            .Select(g => new { Host = g.Key, Count = g.Count() })
+            .OrderByDescending(h => h.Count)
+            .Take(top)
+            .ToListAsync(cancellationToken);
+
+        var blocked = counts.Where(c => c.Action == ThreatAction.Blocked).Sum(c => c.Count);
+        var detected = counts.Where(c => c.Action == ThreatAction.Detected).Sum(c => c.Count);
+        return new NetworkOptimizer.Threats.Waf.WafSummary
+        {
+            Total = blocked + detected,
+            Blocked = blocked,
+            Detected = detected,
+            TopRules = rules.Select(r => new NetworkOptimizer.Threats.Waf.WafRuleCount(r.SignatureId, r.SignatureName, r.Count)).ToList(),
+            TopHosts = hosts.Select(h => new NetworkOptimizer.Threats.Waf.WafHostCount(h.Host, h.Count)).ToList()
+        };
     }
 
     #endregion
@@ -974,6 +1220,30 @@ public class ThreatRepository : IThreatRepository
         await _context.ThreatNoiseFilters
             .Where(f => f.Id == filterId)
             .ExecuteUpdateAsync(s => s.SetProperty(f => f.Enabled, enabled), cancellationToken);
+    }
+
+    public async Task DemoteAndDisableSystemFilterAsync(int filterId, CancellationToken cancellationToken = default)
+    {
+        // Load-modify-save instead of ExecuteUpdateAsync: ExecuteUpdate is not
+        // supported by the EF Core InMemory provider used by the test suite.
+        // SQLite supports it in production but cross-provider compatibility wins
+        // here over the marginal efficiency of a single statement.
+        var filter = await _context.ThreatNoiseFilters
+            .FirstOrDefaultAsync(f => f.Id == filterId, cancellationToken);
+        if (filter == null) return;
+        filter.IsSystem = false;
+        filter.Enabled = false;
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task PromoteToSystemFilterAsync(int filterId, CancellationToken cancellationToken = default)
+    {
+        var filter = await _context.ThreatNoiseFilters
+            .FirstOrDefaultAsync(f => f.Id == filterId, cancellationToken);
+        if (filter == null) return;
+        filter.IsSystem = true;
+        filter.Enabled = true;
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     #endregion

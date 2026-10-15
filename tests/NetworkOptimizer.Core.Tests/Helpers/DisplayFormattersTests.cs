@@ -869,4 +869,34 @@ public class DisplayFormattersTests
     }
 
     #endregion
+
+    #region FormatOltVendor
+
+    [Theory]
+    [InlineData("ALCL", null, "Nokia (ALCL)")]
+    [InlineData("alcl", null, "Nokia (ALCL)")]
+    [InlineData("CALX", "E7", "Calix E7 (CALX)")]
+    [InlineData("HWTC", "", "Huawei (HWTC)")]
+    [InlineData("XYZW", null, "XYZW")]
+    [InlineData("XYZW", "M1", "XYZW M1")]
+    [InlineData(null, "E7", "E7")]
+    [InlineData(" ", null, null)]
+    [InlineData(null, null, null)]
+    public void FormatOltVendor_DecodesKnownIdsAndKeepsTheRawId(string? id, string? model, string? expected)
+    {
+        DisplayFormatters.FormatOltVendor(id, model).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Registered", "success", "Yes · key OK")]
+    [InlineData("Registered", null, "Yes")]
+    [InlineData("Unregistered", "fail", "Unregistered · key fail")]
+    [InlineData(null, "success", "key OK")]
+    [InlineData(" ", null, null)]
+    public void FormatPonRegistration_ReadsAsTheDeviceReportsIt(string? reg, string? key, string? expected)
+    {
+        DisplayFormatters.FormatPonRegistration(reg, key).Should().Be(expected);
+    }
+
+    #endregion
 }

@@ -159,22 +159,33 @@
         @* Too-long community shows even when the gateway is still polling - gateways
            often tolerate a long Community String while the switches silently drop. *@
         var unpolledKeyDevices = GetUnpolledKeyDevices();
-        if (unpolledKeyDevices.Count > 0 || CommunityTooLong)
+        var v3PasswordMissing = _snmpV3PasswordMissing && _snmpState == SnmpDetectionState.EnabledV3Only;
+        var communityMissing = _snmpCommunityMissing && _snmpState == SnmpDetectionState.EnabledV2c;
+        var credentialWithheld = v3PasswordMissing || communityMissing;
+        if (unpolledKeyDevices.Count > 0 || CommunityTooLong || credentialWithheld)
         {
+            @* Keep the gateway-down specifics when a console-side cause is known - only the
+               device-table pointer is useless then, not the who's-affected detail. *@
+            var prefix = unpolledKeyDevices.Count == 1
+                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
+                : unpolledKeyDevices.Count > 1
+                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
+                    : "The ";
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
                 <div class="banner-content">
                     <span class="banner-icon banner-icon-warning">!</span>
                     <div class="banner-text" style="flex: 1;">
                         @if (CommunityTooLong)
                         {
-                            @* Keep the gateway-down specifics when both conditions hold - only the
-                               device-table pointer is useless here, not the who's-affected detail. *@
-                            var prefix = unpolledKeyDevices.Count == 1
-                                ? $"{unpolledKeyDevices[0].Name} isn't being polled - the "
-                                : unpolledKeyDevices.Count > 1
-                                    ? $"{unpolledKeyDevices.Count} key devices aren't being polled - the "
-                                    : "The ";
                             @($"{prefix}SNMP Community String is too long. UniFi devices only reliably support 20 characters; shorten it in UniFi Network.")
+                        }
+                        else if (communityMissing)
+                        {
+                            @($"{prefix}UniFi Console isn't returning the SNMP Community String to Network Optimizer's account.")
+                        }
+                        else if (v3PasswordMissing)
+                        {
+                            @($"{prefix}UniFi Console isn't returning the SNMPv3 password to Network Optimizer's account.")
                         }
                         else if (unpolledKeyDevices.Count == 1)
                         {
@@ -187,7 +198,11 @@
                         }
                     </div>
                     <div class="banner-actions">
-                        @if (!CommunityTooLong)
+                        @if (credentialWithheld && !CommunityTooLong)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick='() => SetActiveTab("setup")'>Open Setup</button>
+                        }
+                        else if (!CommunityTooLong)
                         {
                             <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
                         }
@@ -972,6 +987,35 @@
                     that holds for two polls still alerts.
                 </p>
 
+                @{ var dualTempModules = DualTemperatureModules(); }
+                @if (dualTempModules.Count > 0)
+                {
+                    <h3 class="chart-title" style="margin-top: 1rem;">SFP ONT temperature source</h3>
+                    <p class="form-help sfp-ddm-help">
+                        These SFP ONTs report two temperatures: the DDM reading from the device they sit in, and
+                        the ONT's own sensor. The two can differ by 10 &deg;C or more. Choose which one the
+                        PON temperature high alert checks.
+                    </p>
+                    @foreach (var (module, ddmC, ontC) in dualTempModules)
+                    {
+                        <div class="form-group" style="margin-top: 0.75rem;">
+                            <label class="form-label">@TemperatureSourceLabel(module)</label>
+                            <div class="radio-group">
+                                <label class="radio-label">
+                                    <input type="radio" name="@($"temp-src-{module.Id}")" checked="@(!UsesOntTemperature(module))"
+                                           @onchange="() => SetTemperatureSource(module.Id, false)" />
+                                    <span>DDM (@($"{ddmC:0.0} °C"))</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="@($"temp-src-{module.Id}")" checked="@UsesOntTemperature(module)"
+                                           @onchange="() => SetTemperatureSource(module.Id, true)" />
+                                    <span>ONT (@($"{ontC:0.0} °C"))</span>
+                                </label>
+                            </div>
+                        </div>
+                    }
+                }
+
                 </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
                     <SiteOperatorOnly>
@@ -1574,7 +1618,7 @@
                             <p>Devices without SNMP enabled will not report port-level traffic or health metrics.</p>
 
                             <h4>Recommended configuration</h4>
-                            <p><strong>SNMP v1/v2c</strong> with a unique Community String is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
+                            <p><strong>SNMP v1/v2c</strong> with a unique Community String on a <strong>management VLAN</strong> is recommended unless compliance (PCI, HIPAA) requires an encrypted management plane. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices.</p>
                         </div>
                     </details>
 
@@ -1635,12 +1679,47 @@
                 </div>
             }
 
-            @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
+            @if (_snmpCommunityMissing && _snmpState == SnmpDetectionState.EnabledV2c)
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+                    <strong>SNMP Community String not returned.</strong>
+                    UniFi withholds it from View accounts.
+                    Give Network Optimizer's account Full, or switch to an API Key (limits Firmware Rollout).
+                    <div style="margin-top: 0.75rem;">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            else if (_snmpV3PasswordMissing && _snmpState == SnmpDetectionState.EnabledV3Only)
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+                    <strong>SNMPv3 password not returned.</strong>
+                    UniFi withholds it from View Only accounts.
+                    Give Network Optimizer's account Site Admin / Full Management, switch to an API Key (limits Firmware Rollout),
+                    or enable SNMP v1/v2c (recommended for lower Network Device load).
+                    <div style="margin-top: 0.75rem;">
+                        <SiteAdminOnly>
+                            <button class="btn btn-sm btn-secondary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            else if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
             {
                 <div class="alert alert-info" style="margin-bottom: 1.5rem;">
                     <strong>SNMPv3 detected.</strong>
-                    Consider switching to v1/v2c - the per-packet crypto adds CPU load to your network devices. The recommended security posture is a management VLAN, not v3 encryption.
-                    <button class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+                    Unless compliance (PCI, HIPAA) requires an encrypted management plane, consider v1/v2c on a management VLAN: v3's per-packet crypto adds CPU load to your network devices.
+                    <div style="margin-top: 0.75rem;">
+                        <button class="btn btn-sm btn-contrast" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+                    </div>
                 </div>
             }
 
@@ -1925,6 +2004,8 @@
     private SnmpDetectionState _snmpState = SnmpDetectionState.NotChecked;
     private bool _detecting;
     private bool _showV3Recommendation = true;
+    private bool _snmpV3PasswordMissing;
+    private bool _snmpCommunityMissing;
     private string? _detectionError;
     private bool _snmpCommunityTooLong;
     private int _snmpCommunityLength;
@@ -3117,6 +3198,8 @@
 
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
+        _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
+        _snmpCommunityMissing = settings.SnmpCommunityMissing;
         await RefreshInfluxStateAsync(settings);
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
@@ -3240,6 +3323,11 @@
                 && !SetupEditInFlight)
             {
                 _snmpState = settings.SnmpDetectionState;
+            }
+            if (!_detecting && _detectionError == null)
+            {
+                _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
+                _snmpCommunityMissing = settings.SnmpCommunityMissing;
             }
 
             await LoadSiteAgentAsync();
@@ -3402,6 +3490,43 @@
     private string PhAeTx => _sfpDefaults.AeTxPowerHighDbm.ToString("0.#");
     private string PhGenericTemp => _sfpDefaults.SfpTempHighGenericC.ToString("0");
 
+    /// <summary>Unsaved temperature-source picks, by MonitoredSfp id. Saved with the thresholds.</summary>
+    private readonly Dictionary<int, bool> _temperatureSourceEdits = new();
+
+    /// <summary>
+    /// SFP ONTs whose host device's DDM and attached ONT both report a temperature right now. A module
+    /// with one sensor has nothing to choose between, so it is not offered.
+    /// </summary>
+    private List<(MonitoredSfp Module, double DdmC, double OntC)> DualTemperatureModules()
+    {
+        var list = new List<(MonitoredSfp, double, double)>();
+        foreach (var module in _allSfps.Where(s => s.IsPon).OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName))
+        {
+            var live = LiveStats.GetSfpStats(module.DeviceMac, module.PortName);
+            if (live?.TemperatureC is double ddm && live.OntTemperatureC is double ont)
+                list.Add((module, ddm, ont));
+        }
+        return list;
+    }
+
+    private bool UsesOntTemperature(MonitoredSfp module) =>
+        _temperatureSourceEdits.TryGetValue(module.Id, out var pick) ? pick : module.UseOntTemperature;
+
+    private void SetTemperatureSource(int moduleId, bool useOnt)
+    {
+        _temperatureSourceEdits[moduleId] = useOnt;
+        ResetThresholdSavedFlags();
+    }
+
+    private string TemperatureSourceLabel(MonitoredSfp module)
+    {
+        var target = _targets.FirstOrDefault(t => t.TargetType == MonitoringTargetType.Fabric && !t.IsRetired
+            && string.Equals(t.DeviceMac?.Replace("-", ":"), module.DeviceMac.Replace("-", ":"), StringComparison.OrdinalIgnoreCase));
+        var device = !string.IsNullOrEmpty(target?.Name) ? target.Name : module.DeviceMac;
+        var port = !string.IsNullOrEmpty(module.FriendlyName) ? module.FriendlyName : $"Port {module.PortName}";
+        return $"{device} - {port}";
+    }
+
     private void LoadSfpThresholdInputs(MonitoringSettings settings)
     {
         _sfpPonTemp = settings.PonTempHighC;
@@ -3430,9 +3555,18 @@
                 AeRxPowerLowDbm = _sfpAeRx,
                 AeTxPowerHighDbm = _sfpAeTx,
                 SfpTempHighGenericC = _sfpGenericTemp,
-                IgnoreSfpDdmSpikes = _ignoreSfpDdmSpikes
+                IgnoreSfpDdmSpikes = _ignoreSfpDdmSpikes,
+                UseOntTemperatureByModule = _temperatureSourceEdits.Count > 0
+                    ? new Dictionary<int, bool>(_temperatureSourceEdits)
+                    : null,
             });
             LoadSfpThresholdInputs(settings);
+            foreach (var (id, useOnt) in _temperatureSourceEdits)
+            {
+                var row = _allSfps.FirstOrDefault(s => s.Id == id);
+                if (row != null) row.UseOntTemperature = useOnt;
+            }
+            _temperatureSourceEdits.Clear();
             _sfpThresholdsSaved = true;
             // The spike setting changes the series and marks the chart endpoint returns.
             try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.reload();"); }
@@ -3559,6 +3693,8 @@
             await SnmpDetection.SaveDetectionResultAsync(result);
             var settings = await SnmpDetection.GetOrCreateSettingsAsync();
             _snmpState = settings.SnmpDetectionState;
+            _snmpV3PasswordMissing = settings.SnmpV3PasswordMissing;
+            _snmpCommunityMissing = settings.SnmpCommunityMissing;
             _snmpCommunityTooLong = result.CommunityTooLong;
             _snmpCommunityLength = result.Community?.Length ?? 0;
             // Fresh console read beats the agent's cached self-heal sighting - otherwise a

@@ -41,6 +41,8 @@ public class SnmpDetectionResult
             if (!SnmpEnabled && !SnmpV3Enabled) return SnmpDetectionState.Disabled;
             if (SnmpEnabled && !string.IsNullOrEmpty(Community)) return SnmpDetectionState.EnabledV2c;
             if (SnmpV3Enabled) return SnmpDetectionState.EnabledV3Only;
+            // v2c on with no community: UniFi Network 11 withholds it from View accounts. Not Disabled.
+            if (SnmpEnabled) return SnmpDetectionState.EnabledV2c;
             return SnmpDetectionState.Disabled;
         }
     }
@@ -218,7 +220,8 @@ public class SnmpDetectionService
     public static void ApplyToSettings(
         MonitoringSettings settings,
         SnmpDetectionResult result,
-        ICredentialProtectionService credentialProtection)
+        ICredentialProtectionService credentialProtection,
+        string siteSlug)
     {
         settings.SnmpDetectionState = result.DetectionState;
 
@@ -231,12 +234,14 @@ public class SnmpDetectionService
         if (result.DetectionState == SnmpDetectionState.EnabledV2c)
         {
             settings.SnmpVersion = SnmpVersionSetting.V2c;
-            settings.SnmpCommunity = credentialProtection.Encrypt(result.Community!);
+            settings.SnmpCommunity = !string.IsNullOrEmpty(result.Community)
+                ? credentialProtection.EncryptForSite(result.Community, siteSlug)
+                : null;
             if (!string.IsNullOrEmpty(result.V3Username))
             {
                 settings.SnmpV3Username = result.V3Username;
                 settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
-                    ? credentialProtection.Encrypt(result.V3Password)
+                    ? credentialProtection.EncryptForSite(result.V3Password, siteSlug)
                     : null;
             }
         }
@@ -245,7 +250,7 @@ public class SnmpDetectionService
             settings.SnmpVersion = SnmpVersionSetting.V3;
             settings.SnmpV3Username = result.V3Username;
             settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
-                ? credentialProtection.Encrypt(result.V3Password)
+                ? credentialProtection.EncryptForSite(result.V3Password, siteSlug)
                 : null;
         }
     }
@@ -324,7 +329,7 @@ public class SnmpDetectionService
                 db.MonitoringSettings.Add(settings);
             }
 
-            ApplyToSettings(settings, result, _credentialProtection);
+            ApplyToSettings(settings, result, _credentialProtection, _siteContext.Slug);
             settings.LastSnmpDetection = DateTime.UtcNow;
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);

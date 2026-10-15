@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Interfaces;
@@ -160,13 +158,14 @@ public class OntMonitorService : IOntMonitorService, IDisposable
     {
         if (!string.IsNullOrEmpty(config.Password) && !_credentialProtection.IsEncrypted(config.Password))
         {
-            config.Password = _credentialProtection.Encrypt(config.Password);
+            config.Password = _credentialProtection.EncryptForSite(config.Password, _siteSlug);
         }
 
         var isNew = config.Id == 0;
 
         using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
+        var wasAttached = !isNew && (await repository.GetOntConfigurationAsync(config.Id))?.AttachedSfpId != null;
         await repository.SaveOntConfigurationAsync(config);
 
         if (isNew)
@@ -176,7 +175,13 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         // enable them immediately (any save that lands an attachment, new or edited), so an
         // existing-ONT user doesn't have to wait for the next startup's freshly-seeded pass.
         if (config.AttachedSfpId.HasValue)
+        {
             await AlertRuleAutoEnable.EnablePatternsAsync(scope, AugmentedOntAlertPatterns, _logger);
+            // Its own call: it needs the attachment, not BIP/HEC. Only when the attachment is new, so
+            // re-saving an attached ONT never re-enables a rule the user turned off.
+            if (!wasAttached)
+                await AlertRuleAutoEnable.EnablePatternsAsync(scope, ["ont.management_unresponsive"], _logger);
+        }
     }
 
     /// <summary>PON error alerts unlocked by augmented (SFP-attached) ONT polling.</summary>
@@ -322,7 +327,8 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                     hecErrors: stats.Pon?.HecUncorrected,
                     fecEnabled: fecEnabled,
                     sourceUrl: NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.HardwareStats(
-                        "ont", DateTime.UtcNow, $"&ont={config.Id}"));
+                        "ont", DateTime.UtcNow, $"&ont={config.Id}"),
+                    uptimeSeconds: stats.Pon?.SfpUptimeS);
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

@@ -36,11 +36,24 @@ public class RolloutChannelAvailability
     /// answer - an API-key connection cannot reach the setting at all - and withholding EA there
     /// hides a channel devices genuinely run.
     /// </summary>
-    public bool EarlyAccessAvailable => AvailableDeviceChannels.Count == 0 || AvailableDeviceChannels
-        .Any(c => string.Equals(c, FirmwareChannels.Beta, StringComparison.OrdinalIgnoreCase));
+    public bool DeviceEarlyAccessAvailable => OffersBeta(AvailableDeviceChannels, CurrentDeviceChannel);
 
-    /// <summary>UniFi OS channel options this console offers.</summary>
+    /// <summary>
+    /// Whether early access may be offered for the UniFi Network application. Each surface has its
+    /// own channel setting, so the device list says nothing about this one.
+    /// </summary>
+    public bool NetworkAppEarlyAccessAvailable => OffersBeta(AvailableNetworkAppChannels, CurrentNetworkAppChannel);
+
+    /// <summary>Whether early access may be offered for UniFi OS on the console.</summary>
+    public bool UniFiOsEarlyAccessAvailable => OffersBeta(AvailableUniFiOsChannels, CurrentUniFiOsChannel);
+
+    /// <summary>UniFi OS channel options this console offers, including every channel it has a build for.</summary>
     public List<string> AvailableUniFiOsChannels { get; set; } = [];
+
+    private static bool OffersBeta(List<string> options, string? current) =>
+        options.Count == 0
+        || string.Equals(current, FirmwareChannels.Beta, StringComparison.OrdinalIgnoreCase)
+        || options.Any(c => string.Equals(c, FirmwareChannels.Beta, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>UniFi OS channel the console follows now, or null when it cannot be read.</summary>
     public string? CurrentUniFiOsChannel { get; set; }

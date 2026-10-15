@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
 
@@ -26,6 +27,9 @@ public class CrowdSecEnrichmentService
     /// Positive hits are cached for <paramref name="cacheTtlHours"/> (default 720 = 30 days).
     /// Negative hits (IP not in CrowdSec DB) are cached for 24 hours to avoid wasting API calls.
     /// Rate-limited or errored lookups are NOT cached so the IP can be retried later.
+    /// RFC1918/loopback/link-local IPs short-circuit with NotApplicable before any cache
+    /// or API call, since CrowdSec's CTI database is for public IPs only and a private-IP
+    /// lookup would burn quota for no value.
     /// </summary>
     public async Task<(CrowdSecIpInfo? Info, CrowdSecLookupOutcome Outcome)> GetReputationAsync(
         string ipAddress,
@@ -34,6 +38,12 @@ public class CrowdSecEnrichmentService
         int cacheTtlHours = 720,
         CancellationToken cancellationToken = default)
     {
+        // Centralized guard: private/loopback/link-local IPs cannot have public reputation,
+        // so we short-circuit before touching cache or the API. Inline guards at call sites
+        // remain as defense-in-depth.
+        if (NetworkUtilities.IsPrivateIpAddress(ipAddress))
+            return (null, CrowdSecLookupOutcome.NotApplicable);
+
         // Check cache first
         var cached = await repository.GetCrowdSecCacheAsync(ipAddress, cancellationToken);
         if (cached != null)

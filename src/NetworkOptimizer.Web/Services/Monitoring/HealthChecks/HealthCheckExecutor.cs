@@ -96,13 +96,19 @@ public static class HealthCheckExecutor
         if (NoAddress(target)) return (false, NoAddressError);
         try
         {
-            return await router.RunAsync(target, command, TimeSpan.FromSeconds(60), ct);
+            return await router.RunAsync(target, command, RemedyTimeout, ct);
         }
         catch (Exception ex)
         {
             return (false, ex.Message);
         }
     }
+
+    /// <summary>
+    /// <c>systemctl restart</c> blocks until the unit is up, and unifi.service allows 15 minutes
+    /// (<c>TimeoutStartSec=15min</c>). A shorter wait reports a restart that is still going as failed.
+    /// </summary>
+    private static readonly TimeSpan RemedyTimeout = TimeSpan.FromMinutes(15);
 
     private const string NoAddressError = "The site reports no address for this device.";
 

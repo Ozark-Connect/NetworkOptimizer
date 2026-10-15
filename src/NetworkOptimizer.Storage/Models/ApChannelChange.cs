@@ -67,4 +67,7 @@ public static class ApChannelChangeSource
 
     /// <summary>Reported by the AP Agent within one mca-dump pass of the radio moving (authoritative timestamp, carries block centers)</summary>
     public const string Agent = "agent";
+
+    /// <summary>Written by Apply Recommended Channels once the AP confirmed the new config (stamped within seconds of the move)</summary>
+    public const string Applied = "applied";
 }

@@ -9,6 +9,8 @@
 @inject SiteContextService SiteCtx
 @inject UniFiConnectionService ConnectionService
 @inject IOntMonitorService ExternalOntService
+@inject IErrorCounterWindowService ErrorWindow
+@inject ISfpModulePollService SfpPoller
 
 @if (_isLoading)
 {
@@ -21,7 +23,7 @@ else if (IsShowingExternal && _externalOntStats != null)
 {
     <div class="sqm-header">
         <div class="sqm-status">
-            <span class="status-indicator status-@(_externalOntStats.LinkState?.Contains("Up", StringComparison.OrdinalIgnoreCase) == true ? "active" : "warning")"></span>
+            <span class="status-indicator status-@(ExternalLinkUp() ? "active" : "warning")"></span>
             <span class="status-label">@_externalOntStats.DeviceName</span>
         </div>
         @if (_externalOntStats.Timestamp.Year > 1)
@@ -71,6 +73,8 @@ else if (IsShowingExternal && _externalOntStats != null)
                         <span class="metric-value">@_externalOntStats.PonLinkStatus.ToDisplayString()</span>
                     </div>
                 }
+                @RegisteredRow(_externalOntStats.Pon?.RegistrationStatus, _externalOntStats.Pon?.KeyExchangeStatus)
+                @OltRow(_externalOntStats.OltVendor ?? _externalOntStats.Pon?.OltVendorId, _externalOntStats.OltModel)
                 @if (_externalOntStats.BwpSpeedMbps.HasValue)
                 {
                     <div class="metric-row">
@@ -78,6 +82,13 @@ else if (IsShowingExternal && _externalOntStats != null)
                         <span class="metric-value">@(_externalOntStats.BwpSpeedMbps >= 1000 ? $"{_externalOntStats.BwpSpeedMbps / 1000.0:0.##} Gbps" : $"{_externalOntStats.BwpSpeedMbps} Mbps")</span>
                     </div>
                 }
+                @{
+                    var extPon = _externalOntStats.Pon;
+                    bool? extFecEnabled = extPon?.DsFecEnabled.HasValue == true || extPon?.UsFecEnabled.HasValue == true
+                        ? extPon.DsFecEnabled == 1 || extPon.UsFecEnabled == 1
+                        : null;
+                }
+                @ErrorCountsRow(extFecEnabled, _externalOntStats.BipErrors, _externalOntStats.FecErrors, extPon?.HecUncorrected, extPon?.GemRxDropped)
             </div>
         </div>
         <div class="metric-box">
@@ -160,6 +171,7 @@ else if (IsShowingExternal)
             <div class="metric-content">
                 <div class="metric-row"><span class="metric-label">Wavelength:</span><span class="metric-value">-</span></div>
                 <div class="metric-row"><span class="metric-label">Voltage:</span><span class="metric-value">-</span></div>
+                @ErrorCountsRow(null, null, null, null, null)
             </div>
         </div>
     </div>
@@ -249,12 +261,8 @@ else
     </div>
 
     var sfpPonState = PonLinkStateExtensions.ParsePonLinkState(stats?.PonLinkStatus);
-    // FEC disabled on the OLT profile => FEC counters stay 0; HEC is the live signal.
-    var fecOff = stats?.FecEnabled == false;
-    var midErr = fecOff ? stats?.HecUncorrected : stats?.FecErrors;
-    var midErrLabel = fecOff ? "HEC" : "FEC";
-    var midErrTip = fecOff ? "uncorrectable HEC header errors (payload FEC disabled)" : "uncorrectable FEC codewords";
-    var hasErrCounts = stats?.BipErrors.HasValue == true || midErr.HasValue || stats?.GemRxDropped.HasValue == true;
+    var midErr = stats?.FecEnabled == false ? stats?.HecUncorrected : stats?.FecErrors;
+    var hasErrCounts = stats?.BipErrors.HasValue == true || midErr.HasValue || stats?.GemRxDropped.HasValue == true || _errorTotals != null;
     // Supplemental PON data present: move SFP Voltage to the Stats column to keep the
     // two columns even (Connection gains PON Status + error counts).
     var hasPonSupplement = sfpPonState != PonLinkState.Unknown || hasErrCounts;
@@ -273,6 +281,8 @@ else
                         <span class="metric-value">@sfpPonState.ToDisplayString()</span>
                     </div>
                 }
+                @RegisteredRow(stats?.RegistrationStatus, stats?.KeyExchangeStatus)
+                @OltRow(stats?.OltVendorId, stats?.OltModel)
                 @if (current.LinkSpeedMbps.HasValue)
                 {
                     <div class="metric-row">
@@ -291,13 +301,7 @@ else
                         </span>
                     </div>
                 }
-                @if (hasErrCounts)
-                {
-                    <div class="metric-row">
-                        <span class="metric-label" data-tooltip="@($"BIP / {midErrTip} / dropped GEM frames (cumulative)")" @onclick:stopPropagation>@($"BIP/{midErrLabel}/Drops:")</span>
-                        <span class="metric-value ont-err-counts">@FmtCount(stats?.BipErrors) / @FmtCount(midErr) / @FmtCount(stats?.GemRxDropped)</span>
-                    </div>
-                }
+                @ErrorCountsRow(stats?.FecEnabled, stats?.BipErrors, stats?.FecErrors, stats?.HecUncorrected, stats?.GemRxDropped)
                 @if (!hasPonSupplement)
                 {
                     <div class="metric-row">
@@ -336,6 +340,13 @@ else
                         @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
                     </span>
                 </div>
+                @if (stats?.OntTemperatureC is double ontTemp)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">ONT Temp:</span>
+                        <span class="metric-value">@($"{ontTemp:0.0#} °C")</span>
+                    </div>
+                }
                 @if (hasPonSupplement)
                 {
                     <div class="metric-row">
@@ -355,6 +366,13 @@ else
     }
 
     <div class="sqm-actions">
+        <button class="btn btn-secondary" @onclick="RefreshSfp" @onclick:stopPropagation disabled="@_isRefreshing">
+            @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+        </button>
+        @if (_attachedSfpIds.Contains(current.Id))
+        {
+            <SiteAdminOnly><a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a></SiteAdminOnly>
+        }
         <a href="@SfpMonitoringUrl" class="btn btn-primary" @onclick:stopPropagation>SFP Monitoring</a>
     </div>
 }
@@ -420,11 +438,12 @@ else
                 {
                     try
                     {
-                        _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
+                        await LoadOntConfigsAsync();
                         if (_currentIndex >= TotalCount) _currentIndex = 0;
                     }
                     catch { }
                     await RefreshExternalStatsAsync();
+                    await RefreshErrorTotalsAsync();
                     StateHasChanged();
                 });
             }
@@ -447,9 +466,11 @@ else
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.RetiredAt == null)
                 .ToListAsync();
-            _externalOnts = await ExternalOntService.GetStandaloneConfigsAsync();
+            await LoadOntConfigsAsync();
             if (_currentIndex >= TotalCount) _currentIndex = 0;
             await RefreshExternalStatsAsync();
+            _limitErrorsTo24h = (await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync())?.OntErrorCountersLast24h ?? true;
+            await RefreshErrorTotalsAsync();
 
             try
             {
@@ -465,6 +486,40 @@ else
         finally { _isLoading = false; }
     }
 
+    /// <summary>SFP modules with an ONT config attached; their card also links to ONT Settings.</summary>
+    private HashSet<int> _attachedSfpIds = new();
+
+    /// <summary>One config read feeds both the standalone carousel and the attached-module set.</summary>
+    private async Task LoadOntConfigsAsync()
+    {
+        var configs = await ExternalOntService.GetConfigsAsync();
+        _externalOnts = configs.Where(c => c.AttachedSfpId == null).ToList();
+        _attachedSfpIds = configs.Where(c => c.AttachedSfpId != null).Select(c => c.AttachedSfpId!.Value).ToHashSet();
+    }
+
+    /// <summary>Reads this module's DDM now, and its attached ONT if any, instead of waiting for the next cycle.</summary>
+    private async Task RefreshSfp()
+    {
+        if (_isRefreshing || IsShowingExternal || _currentIndex >= _monitoredOnts.Count) return;
+        var sfp = _monitoredOnts[_currentIndex];
+        _isRefreshing = true;
+        StateHasChanged();
+        try
+        {
+            _pollError = await SfpPoller.PollModuleAsync(sfp.DeviceMac, sfp.PortName);
+            await RefreshErrorTotalsAsync();
+        }
+        catch (Exception ex)
+        {
+            _pollError = ex.Message;
+        }
+        finally
+        {
+            _isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
     private string ResolveDeviceName(string deviceMac)
     {
         if (string.IsNullOrEmpty(deviceMac)) return deviceMac;
@@ -477,13 +532,13 @@ else
 
     private async Task Previous()
     {
-        if (_currentIndex > 0) { _currentIndex--; await RefreshExternalStatsAsync(); }
+        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
         StateHasChanged();
     }
 
     private async Task Next()
     {
-        if (_currentIndex < TotalCount - 1) { _currentIndex++; await RefreshExternalStatsAsync(); }
+        if (_currentIndex < TotalCount - 1) { _currentIndex++; _errorTotals = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
         StateHasChanged();
     }
 
@@ -528,6 +583,11 @@ else
             StateHasChanged();
         }
     }
+
+    /// <summary>A known PON state decides (only O5 is up); providers that report none fall back to their Up/Down link state.</summary>
+    private bool ExternalLinkUp() => _externalOntStats?.PonLinkStatus is { } pon && pon != PonLinkState.Unknown
+        ? pon == PonLinkState.Operation
+        : _externalOntStats?.LinkState?.Contains("Up", StringComparison.OrdinalIgnoreCase) == true;
 
     private string ExternalRxClass()
     {
@@ -635,6 +695,79 @@ else
         : $"{mbps} Mbps";
 
     private static string FmtCount(long? v) => v.HasValue ? v.Value.ToString("N0") : "-";
+
+    /// <summary>ONT registration with the OLT; hidden for providers that do not report it.</summary>
+    private static RenderFragment RegisteredRow(string? registration, string? keyExchange) => __builder =>
+    {
+        var text = NetworkOptimizer.Core.Helpers.DisplayFormatters.FormatPonRegistration(registration, keyExchange);
+        if (text == null) return;
+        <div class="metric-row">
+            <span class="metric-label">Registered:</span>
+            <span class="metric-value">@text</span>
+        </div>
+    };
+
+    /// <summary>The OLT the ONT reports, decoded ("Calix (CALX)"); hidden for providers that do not report it.</summary>
+    private static RenderFragment OltRow(string? vendorId, string? model) => __builder =>
+    {
+        var text = NetworkOptimizer.Core.Helpers.DisplayFormatters.FormatOltVendor(vendorId, model);
+        if (text == null) return;
+        <div class="metric-row">
+            <span class="metric-label">OLT:</span>
+            <span class="metric-value">@text</span>
+        </div>
+    };
+
+    /// <summary>Settings - ONT Device Monitoring: count errors over the last 24 hours, not since the module rebooted.</summary>
+    private bool _limitErrorsTo24h = true;
+
+    /// <summary>Error growth over the last 24 hours for the shown item; null shows the device's cumulative counters.</summary>
+    private PonErrorTotals? _errorTotals;
+
+    /// <summary>Assigned once at the end, so a render mid-refresh keeps the last totals instead of flashing cumulative ones.</summary>
+    private async Task RefreshErrorTotalsAsync()
+    {
+        PonErrorTotals? totals = null;
+        try
+        {
+            if (_limitErrorsTo24h && IsShowingExternal)
+            {
+                var extIdx = _currentIndex - _monitoredOnts.Count;
+                if (extIdx >= 0 && extIdx < _externalOnts.Count)
+                    totals = await ErrorWindow.GetOntTotalsAsync(_externalOnts[extIdx].Id);
+            }
+            else if (_limitErrorsTo24h && _currentIndex < _monitoredOnts.Count)
+            {
+                var sfp = _monitoredOnts[_currentIndex];
+                totals = await ErrorWindow.GetSfpTotalsAsync(sfp.DeviceMac, sfp.PortName);
+            }
+        }
+        catch { }
+        _errorTotals = totals;
+    }
+
+    /// <summary>
+    /// BIP / FEC or HEC / GEM drops. FEC disabled on the OLT profile leaves the FEC counter at 0,
+    /// so HEC is the live signal there. The 24-hour totals come from history, so they show even
+    /// when the live poll has nothing; with neither, the row is hidden.
+    /// </summary>
+    private RenderFragment ErrorCountsRow(bool? fecEnabled, long? bip, long? fec, long? hec, long? drops) => __builder =>
+    {
+        var windowed = _errorTotals;
+        if (windowed != null)
+            (bip, fec, hec, drops, fecEnabled) = (windowed.Bip, windowed.Fec, windowed.HecUncorrected, windowed.GemRxDropped, fecEnabled ?? windowed.FecEnabled);
+        var fecOff = fecEnabled == false;
+        if (windowed == null && !bip.HasValue && !(fecOff ? hec : fec).HasValue && !drops.HasValue) return;
+
+        var mid = fecOff ? hec : fec;
+        var midLabel = fecOff ? "HEC" : "FEC";
+        var midTip = fecOff ? "uncorrectable HEC header errors (payload FEC disabled)" : "uncorrectable FEC codewords";
+        var span = windowed != null ? "last 24 hours" : "cumulative";
+        <div class="metric-row">
+            <span class="metric-label" data-tooltip="@($"BIP / {midTip} / dropped GEM frames ({span})")" @onclick:stopPropagation>@($"BIP/{midLabel}/Drops:")</span>
+            <span class="metric-value ont-err-counts">@FmtCount(bip) / @FmtCount(mid) / @FmtCount(drops)</span>
+        </div>
+    };
 
     public string? CurrentModuleKey
     {

@@ -254,7 +254,7 @@ public static class RolloutReportBuilder
                     $"The Console accepted UniFi OS {document.UniFiOsUpdate.TargetVersion ?? "its newest build"} but is still offering it.");
                 break;
             case "refused":
-                report.Issues.Add("The Console would not take its UniFi OS update.");
+                report.Issues.Add(FirmwareRolloutOrchestrator.UniFiOsRefusedSummary(document));
                 break;
         }
     }

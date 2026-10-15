@@ -172,6 +172,54 @@ public class ApAgentRoamAssemblerTests
     }
 
     [Fact]
+    public void An_observed_departure_after_a_long_dwell_still_records_the_move()
+    {
+        var assembler = Assembler();
+        assembler.Process([Assoc(ApOne, "ath0", Client, 0)]);
+        const double departure = 12 * 60 * 60;
+
+        var roams = assembler.Process([
+            Disassoc(ApOne, "ath0", Client, departure, seq: 2),
+            Assoc(ApTwo, "ath1", Client, departure + 0.15, seq: 2),
+        ]);
+
+        roams.Should().ContainSingle();
+        roams[0].FromApMac.Should().Be(ApOne);
+        roams[0].ToApMac.Should().Be(ApTwo);
+        roams[0].DwellSeconds.Should().BeApproximately(departure + 0.15, 0.01);
+    }
+
+    [Theory]
+    [InlineData(60, true)]
+    [InlineData(60.001, false)]
+    public void A_long_dwell_transition_uses_the_observed_departure_gap(double gap, bool isRoam)
+    {
+        var assembler = Assembler();
+        assembler.Process([Assoc(ApOne, "ath0", Client, 0)]);
+        const double departure = 12 * 60 * 60;
+        assembler.Process([Disassoc(ApOne, "ath0", Client, departure, seq: 2)]);
+
+        var roams = assembler.Process([Assoc(ApTwo, "ath1", Client, departure + gap, seq: 2)]);
+
+        roams.Count.Should().Be(isRoam ? 1 : 0);
+    }
+
+    [Fact]
+    public void A_departure_reported_by_another_ap_cannot_refresh_an_old_association()
+    {
+        var assembler = Assembler();
+        assembler.Process([Assoc(ApOne, "ath0", Client, 0)]);
+        const double departure = 12 * 60 * 60;
+
+        var roams = assembler.Process([
+            Disassoc(ApThree, "ath0", Client, departure, seq: 2),
+            Assoc(ApTwo, "ath1", Client, departure + 0.15, seq: 2),
+        ]);
+
+        roams.Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_client_that_left_hours_ago_and_came_back_elsewhere_is_not_a_roam()
     {
         var assembler = Assembler();

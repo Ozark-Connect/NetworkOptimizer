@@ -51,6 +51,16 @@ public interface IMonitoringSettingsService
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_settings")]
     Task<MonitoringSettings> SaveOntThresholdsAsync(double? ponTempHighC, double? ponRxPowerLowDbm,
         CancellationToken ct = default);
+
+    /// <summary>Limits the Dashboard ONT card's error counters to the last 24 hours, or shows them cumulative.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_settings")]
+    Task<MonitoringSettings> SetOntErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default);
+
+    /// <summary>Limits the Dashboard cable modem card's codeword counts to the last 24 hours, or shows them cumulative.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "monitoring_settings")]
+    Task<MonitoringSettings> SetCmErrorCountersLast24hAsync(bool enabled, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -68,4 +78,11 @@ public sealed record SfpThresholdEdit
     public double? AeTxPowerHighDbm { get; init; }
     public double? SfpTempHighGenericC { get; init; }
     public bool IgnoreSfpDdmSpikes { get; init; }
+
+    /// <summary>
+    /// Per-module temperature source for the SFP temperature alert, keyed by MonitoredSfp id:
+    /// true reads the attached ONT's own sensor, false the host device's DDM. Modules left out keep
+    /// their stored choice.
+    /// </summary>
+    public IReadOnlyDictionary<int, bool>? UseOntTemperatureByModule { get; init; }
 }

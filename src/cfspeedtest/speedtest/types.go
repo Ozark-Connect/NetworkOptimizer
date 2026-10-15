@@ -8,7 +8,8 @@ type Result struct {
 	Error           string            `json:"error,omitempty"`
 	Metadata        *Metadata         `json:"metadata,omitempty"`
 	Latency         *LatencyResult    `json:"latency,omitempty"`
-	Download        *ThroughputResult `json:"download,omitempty"`
+	IdleLoss        *LossResult       `json:"idle_loss,omitempty"`
+	Download       *ThroughputResult `json:"download,omitempty"`
 	Upload          *ThroughputResult `json:"upload,omitempty"`
 	Streams         int               `json:"streams,omitempty"`
 	DurationSeconds int               `json:"duration_seconds,omitempty"`
@@ -36,6 +37,29 @@ type ThroughputResult struct {
 	Bytes           int64   `json:"bytes"`
 	LoadedLatencyMs float64 `json:"loaded_latency_ms"`
 	LoadedJitterMs  float64 `json:"loaded_jitter_ms"`
+	Loss            *LossResult `json:"loss,omitempty"`
+	// Measurement window (after warmup), for matching the WAN's own counters to the test.
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
+}
+
+// LossResult holds packet loss measured by a probe burst. For "tcp_connect", a connect that
+// failed or paid a SYN retransmit (Retried) counts as one lost packet.
+type LossResult struct {
+	Method      string  `json:"method"`
+	Target      string  `json:"target"`
+	Sent        int     `json:"sent"`
+	Retried     int     `json:"retried"`
+	Failed      int     `json:"failed"`
+	LossPct     float64 `json:"loss_pct"`
+	MedianMs    float64 `json:"median_ms"`
+	P95Ms       float64 `json:"p95_ms"`
+	MaxMs       float64 `json:"max_ms"`
+	ThresholdMs float64 `json:"threshold_ms"`
+	JitterMs    float64 `json:"jitter_ms"`
+	// When probes were sent (in-flight connects finish after EndedAt).
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
 }
 
 // Config holds test parameters.

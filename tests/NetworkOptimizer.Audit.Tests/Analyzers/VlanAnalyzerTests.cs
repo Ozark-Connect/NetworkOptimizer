@@ -3102,6 +3102,39 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
+    public void ApplyPurposeOverrides_ManagementAccess_SetsPurpose()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Workstations", NetworkPurpose.Corporate, vlanId: 5, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "ManagementAccess" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.ManagementAccess);
+        networks[0].HasPurposeOverride.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Admin")]
+    [InlineData("Admin Network")]
+    [InlineData("Management Access")]
+    public void ClassifyNetwork_Name_NeverClassifiesAsManagementAccess(string name)
+    {
+        // Management Access is override-only: names alone cannot tell it from the device fabric
+        _analyzer.ClassifyNetwork(name).Should().NotBe(NetworkPurpose.ManagementAccess);
+    }
+
+    [Fact]
+    public void ManagementAccess_DisplayString()
+    {
+        NetworkPurpose.ManagementAccess.ToDisplayString().Should().Be("Management Access");
+    }
+
+    [Fact]
     public void ApplyPurposeOverrides_SamePurpose_StillSetsOverrideFlag()
     {
         var networks = new List<NetworkInfo>

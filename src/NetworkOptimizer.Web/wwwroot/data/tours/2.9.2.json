@@ -26,6 +26,18 @@
       "listLabel": "Move your access points to the recommended channels",
       "body": "**Apply Recommended Channels** moves your access points to the plan, never two that hear each other at the same time.\n\nThe button shows when the plan moves at least one radio. Like spectrum scans, it needs **Network: Full** (**Site Admin** in older versions) on the UniFi account Network Optimizer signs in with or an API Key.",
       "optional": true
+    },
+    {
+      "id": "client-rename-fixed-ip",
+      "level": "major",
+      "url": "/client-dashboard?ip={!client-ip}",
+      "selector": "[data-tour=\"client-rename\"]",
+      "alsoSelectors": ["[data-tour=\"client-fixed-ip\"]"],
+      "title": "Rename and Fixed IP",
+      "listLabel": "Rename a client or set its fixed IP without opening UniFi Network",
+      "body": "Click the **pencil** beside a client's name or IP to change it in UniFi Network, here or on **Wi-Fi Optimizer - Client Stats**.\n\nClear the name to bring back the one UniFi picks, or clear the fixed IP to remove the reservation.",
+      "placement": "bottom",
+      "optional": true
     }
   ]
 }

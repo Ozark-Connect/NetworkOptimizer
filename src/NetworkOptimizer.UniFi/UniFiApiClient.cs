@@ -71,6 +71,33 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>Whether this client's last login was refused because of its password.</summary>
     public bool PasswordRejected => _passwordRejectedAt != DateTime.MinValue;
+
+    /// <summary>
+    /// A 429 on the login is the Console's login attempt limit. It counts every login, correct or not
+    /// (about 5 in a few seconds), sends no Retry-After, and cleared within a minute when left alone.
+    /// The hold doubles from 10 s per consecutive 429 and stops at 60 s, so a connection is never
+    /// left down for long once the limit clears.
+    /// </summary>
+    public static readonly TimeSpan LoginLimitInitialBackoff = TimeSpan.FromSeconds(10);
+
+    /// <summary>The longest hold after consecutive 429s on the login.</summary>
+    public static readonly TimeSpan LoginLimitMaxBackoff = TimeSpan.FromSeconds(60);
+
+    private DateTime _loginLimitedUntil = DateTime.MinValue;
+    private TimeSpan _loginLimitBackoff = TimeSpan.Zero;
+
+    /// <summary>When the login attempt limit next allows a login, or MinValue.</summary>
+    public DateTime LoginLimitedUntil => _loginLimitedUntil;
+
+    /// <summary>The hold set by the last 429 on the login, or zero after a successful login.</summary>
+    public TimeSpan LoginLimitBackoff => _loginLimitBackoff;
+
+    /// <summary>Carries the login attempt limit hold over from the client this one replaces.</summary>
+    public void CarryLoginLimit(DateTime limitedUntil, TimeSpan backoff)
+    {
+        _loginLimitedUntil = limitedUntil;
+        _loginLimitBackoff = backoff;
+    }
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
     private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
@@ -437,6 +464,13 @@ public class UniFiApiClient : IDisposable
                 return false;
             }
 
+            // Each login during the limit is another attempt against it.
+            if (DateTime.UtcNow < _loginLimitedUntil)
+            {
+                _logger.LogDebug("Skipping login to {Url}: login attempt limit, next try at {Until:u}", _controllerUrl, _loginLimitedUntil);
+                return false;
+            }
+
             _logger.LogInformation("Authenticating with UniFi controller at {Url}", _controllerUrl);
 
             // Reset client to clear old cookies
@@ -474,18 +508,27 @@ public class UniFiApiClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Login failed with status {StatusCode}: {Error}",
-                    response.StatusCode, errorBody);
+                _logger.LogError("Login failed with status {StatusCode} (Retry-After: {RetryAfter}): {Error}",
+                    response.StatusCode, response.Headers.RetryAfter?.ToString() ?? "none", errorBody);
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                     _passwordRejectedAt = DateTime.UtcNow;
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    _loginLimitBackoff = _loginLimitBackoff == TimeSpan.Zero
+                        ? LoginLimitInitialBackoff
+                        : TimeSpan.FromTicks(Math.Min(_loginLimitBackoff.Ticks * 2, LoginLimitMaxBackoff.Ticks));
+                    _loginLimitedUntil = DateTime.UtcNow + _loginLimitBackoff;
+                }
                 AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
 
             _passwordRejectedAt = DateTime.MinValue;
+            _loginLimitedUntil = DateTime.MinValue;
+            _loginLimitBackoff = TimeSpan.Zero;
 
             // Extract CSRF token from response headers
             if (response.Headers.TryGetValues("X-Csrf-Token", out var csrfTokens))
@@ -855,11 +898,30 @@ public class UniFiApiClient : IDisposable
     /// Executes an API call with automatic re-authentication on 401/403 and on a
     /// reverse proxy's 502/503/504 while the console backend is restarting (<see cref="IsRecoverableAuthFailure"/>)
     /// </summary>
+    /// <summary>The <c>meta.msg</c> error code from a refused call's body, or null when there is none.</summary>
+    private static string? TryReadApiErrorCode(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("meta", out var meta)
+                && meta.TryGetProperty("msg", out var msg)
+                && msg.ValueKind == JsonValueKind.String
+                ? msg.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task<T?> ExecuteApiCallAsync<T>(
         Func<Task<HttpResponseMessage>> apiCall,
         CancellationToken cancellationToken = default,
         bool throwOnPermissionError = false,
-        string? permissionErrorMessage = null) where T : class
+        string? permissionErrorMessage = null,
+        bool throwOnApiError = false) where T : class
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -904,6 +966,8 @@ public class UniFiApiClient : IDisposable
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("API call failed with status {StatusCode}: {Error}",
                     response.StatusCode, errorBody);
+                if (throwOnApiError && TryReadApiErrorCode(errorBody) is { } code)
+                    throw new UniFiApiErrorException(code, (int)response.StatusCode);
                 return null;
             }
 
@@ -1040,7 +1104,10 @@ public class UniFiApiClient : IDisposable
     /// <param name="deviceId">The device document id (<c>_id</c>), not the MAC.</param>
     /// <param name="radios">The radios to move.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The device as stored after the write (its <c>cfgversion</c> is the one written), or null when refused.</returns>
+    /// <returns>
+    /// The device as stored after the write, or null when refused. Its <c>cfgversion</c> is still the
+    /// previous one: the console mints the new version when it provisions the device.
+    /// </returns>
     /// <exception cref="UniFiPermissionException">The UniFi account cannot change device settings.</exception>
     [VendorSpecific("UniFi", "rest/device PUT; GET on rest/device returns 404, so reads go through stat/device")]
     public async Task<UniFiDeviceResponse?> UpdateDeviceRadioChannelsAsync(
@@ -1214,6 +1281,113 @@ public class UniFiApiClient : IDisposable
 
         _logger.LogWarning("Client {Mac} not found", mac);
         return null;
+    }
+
+    /// <summary>
+    /// GET stat/user/{mac} - a client's stored record (its <c>_id</c>, alias, and fixed IP),
+    /// online or not. <c>rest/user?mac=</c> ignores the filter, so this is the lookup by MAC.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/user/{mac}; rest/user ignores a mac query parameter")]
+    public async Task<UniFiClientResponse?> GetKnownClientAsync(string mac, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching known client {Mac} from site {Site}", mac, _site);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+            () => _httpClient!.GetAsync(BuildApiPath($"stat/user/{mac.ToLowerInvariant()}"), cancellationToken),
+            cancellationToken);
+
+        return response?.Meta.Rc == "ok" && response.Data.Count > 0 ? response.Data[0] : null;
+    }
+
+    /// <summary>
+    /// PUT rest/user/{id} - write a client's settings. Only the fields set on
+    /// <paramref name="update"/> are sent; the Console keeps the stored value of the rest. Use
+    /// <see cref="UniFiClientUpdate.FromRecord"/> to send the full form as UniFi Network does.
+    /// </summary>
+    /// <param name="userId">The client record id (<c>_id</c>), not the MAC.</param>
+    /// <param name="update">The fields to write. The Console enforces no length limit on <c>name</c> (65,536 characters stored).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The client as stored after the write, or null when it failed without an error code.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    /// <exception cref="UniFiApiErrorException">The Console refused the write with a code, such as
+    /// <c>api.err.DuplicateFixedIP</c> (another client holds the address) or <c>api.err.InvalidFixedIP</c>
+    /// (outside the client's network).</exception>
+    [VendorSpecific("UniFi", "rest/user PUT")]
+    public async Task<UniFiClientResponse?> UpdateClientAsync(
+        string userId,
+        UniFiClientUpdate update,
+        CancellationToken cancellationToken = default)
+    {
+        var json = update.ToRequestJson();
+        _logger.LogDebug("Updating client record {UserId}: {Body}", userId, json);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+            () => _httpClient!.PutAsync(
+                BuildApiPath($"rest/user/{userId}"),
+                new StringContent(json, Encoding.UTF8, "application/json"),
+                cancellationToken),
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: "The UniFi account lacks permission to change client settings. In UniFi Network, " +
+                "give this account Network: Full (Site Admin in older versions), then try again.",
+            throwOnApiError: true);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Updated client record {UserId}", userId);
+            if (response.Data.Count > 0) return response.Data[0];
+
+            // A write that changes nothing answers ok with no data; the record is read back instead.
+            var current = await ExecuteApiCallAsync<UniFiApiResponse<UniFiClientResponse>>(
+                () => _httpClient!.GetAsync(BuildApiPath($"rest/user/{userId}"), cancellationToken),
+                cancellationToken);
+            return current?.Meta.Rc == "ok" && current.Data.Count > 0 ? current.Data[0] : null;
+        }
+
+        _logger.LogWarning("Failed to update client record {UserId}", userId);
+        return null;
+    }
+
+    /// <summary>
+    /// Sets a client's alias, sending only <c>name</c>. An empty name clears the alias and UniFi
+    /// Network shows the hostname again.
+    /// </summary>
+    /// <returns>The client as stored after the write, or null when the client is unknown or the write was refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    public async Task<UniFiClientResponse?> SetClientNameAsync(string mac, string name, CancellationToken cancellationToken = default)
+    {
+        var record = await GetKnownClientAsync(mac, cancellationToken);
+        if (record == null || string.IsNullOrEmpty(record.Id))
+        {
+            _logger.LogWarning("Cannot rename client {Mac}: no client record", mac);
+            return null;
+        }
+        return await UpdateClientAsync(record.Id, new UniFiClientUpdate { Name = name }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets or removes a client's DHCP reservation (UniFi Network's Fixed IP Address). Removing it
+    /// also turns off the client's Local DNS Record, as UniFi Network does; the address and DNS
+    /// name stay on the record, dormant. Setting it leaves the Local DNS Record as it is.
+    /// </summary>
+    /// <param name="mac">The client's MAC address.</param>
+    /// <param name="fixedIp">The address to reserve, or null to remove the reservation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The client as stored after the write, or null when the client is unknown or the write was refused.</returns>
+    /// <exception cref="UniFiPermissionException">The UniFi account cannot change client settings.</exception>
+    [VendorSpecific("UniFi", "rest/user PUT; UniFi Network's form clears local_dns_record_enabled with use_fixedip")]
+    public async Task<UniFiClientResponse?> SetClientFixedIpAsync(string mac, string? fixedIp, CancellationToken cancellationToken = default)
+    {
+        var record = await GetKnownClientAsync(mac, cancellationToken);
+        if (record == null || string.IsNullOrEmpty(record.Id))
+        {
+            _logger.LogWarning("Cannot set fixed IP on client {Mac}: no client record", mac);
+            return null;
+        }
+        var update = fixedIp == null
+            ? new UniFiClientUpdate { UseFixedIp = false, LocalDnsRecordEnabled = false }
+            : new UniFiClientUpdate { UseFixedIp = true, FixedIp = fixedIp };
+        return await UpdateClientAsync(record.Id, update, cancellationToken);
     }
 
     /// <summary>
@@ -1461,6 +1635,188 @@ public class UniFiApiClient : IDisposable
 
         _logger.LogWarning("Failed to retrieve firewall groups or received non-ok response");
         return new List<UniFiFirewallGroup>();
+    }
+
+    /// <summary>
+    /// GET rest/firewallgroup for a caller that writes groups: throws when the read fails instead of
+    /// returning an empty list, which would look like "the groups are gone" and lead to duplicates.
+    /// </summary>
+    public async Task<List<UniFiFirewallGroup>> GetFirewallGroupsOrThrowAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+            () => _httpClient!.GetAsync(BuildApiPath("rest/firewallgroup"), cancellationToken),
+            cancellationToken,
+            throwOnApiError: true);
+        if (response?.Meta.Rc == "ok")
+            return response.Data;
+        throw new InvalidOperationException("Could not read the firewall groups from the UniFi Console.");
+    }
+
+    private const string FirewallPermissionMessage =
+        "The UniFi account lacks permission to change firewall settings. In UniFi Network, give this " +
+        "account Network: Full (Site Admin in older versions), then try again.";
+
+    /// <summary>
+    /// POST rest/firewallgroup (create) or PUT rest/firewallgroup/{id} (replace) - writes an
+    /// address group. Returns the stored group. Throws <see cref="UniFiPermissionException"/> or
+    /// <see cref="UniFiApiErrorException"/> (e.g. api.err.FirewallGroupInvalidArgs for a member of
+    /// the wrong IP family) instead of returning null.
+    /// </summary>
+    public async Task<UniFiFirewallGroup> SaveFirewallGroupAsync(UniFiFirewallGroupWrite group,
+        CancellationToken cancellationToken = default)
+    {
+        var path = group.Id == null ? "rest/firewallgroup" : $"rest/firewallgroup/{group.Id}";
+        _logger.LogDebug("Saving firewall group {Name} ({Count} members)", group.Name, group.GroupMembers.Count);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(group), Encoding.UTF8, "application/json");
+                return group.Id == null
+                    ? _httpClient!.PostAsync(BuildApiPath(path), content, cancellationToken)
+                    : _httpClient!.PutAsync(BuildApiPath(path), content, cancellationToken);
+            },
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: FirewallPermissionMessage,
+            throwOnApiError: true);
+
+        if (response?.Meta.Rc == "ok" && response.Data.Count > 0)
+            return response.Data[0];
+        // Network 10.6 answers an update that changes nothing with rc ok and no data: accepted as is.
+        if (response?.Meta.Rc == "ok" && group.Id != null)
+            return new UniFiFirewallGroup
+            {
+                Id = group.Id, Name = group.Name, GroupType = group.GroupType,
+                GroupMembers = [.. group.GroupMembers], Description = group.Description, Source = group.Source,
+            };
+        throw new InvalidOperationException("The UniFi Console did not confirm the firewall group change.");
+    }
+
+    /// <summary>
+    /// DELETE rest/firewallgroup/{id}. A group that is already gone (api.err.IdInvalid) counts as deleted.
+    /// </summary>
+    public async Task DeleteFirewallGroupAsync(string groupId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+                () => _httpClient!.DeleteAsync(BuildApiPath($"rest/firewallgroup/{groupId}"), cancellationToken),
+                cancellationToken,
+                throwOnPermissionError: true,
+                permissionErrorMessage: FirewallPermissionMessage,
+                throwOnApiError: true);
+            if (response?.Meta.Rc != "ok")
+                throw new InvalidOperationException("The UniFi Console did not confirm deleting the firewall group.");
+        }
+        catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
+        {
+            _logger.LogDebug("Firewall group {Id} was already gone", groupId);
+        }
+    }
+
+    /// <summary>GET v2/api/site/{site}/firewall-policies, typed. Throws when the console does not answer.</summary>
+    public async Task<List<UniFiFirewallPolicy>> GetFirewallPoliciesAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await ExecuteV2Async(HttpMethod.Get, "firewall-policies", null, cancellationToken);
+        return JsonSerializer.Deserialize<List<UniFiFirewallPolicy>>(body) ?? [];
+    }
+
+    /// <summary>POST v2/api/site/{site}/firewall-policies. Returns the stored policy (HTTP 201).</summary>
+    public async Task<UniFiFirewallPolicy> CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite policy,
+        CancellationToken cancellationToken = default)
+    {
+        var body = await ExecuteV2Async(HttpMethod.Post, "firewall-policies", JsonSerializer.Serialize(policy), cancellationToken);
+        return JsonSerializer.Deserialize<UniFiFirewallPolicy>(body)
+               ?? throw new InvalidOperationException("The UniFi Console did not return the new firewall policy.");
+    }
+
+    /// <summary>
+    /// PUT v2/api/site/{site}/firewall-policies/batch-reorder: sets the order of the custom policies
+    /// in one zone pair, those that run before UniFi's predefined ones and those after.
+    /// </summary>
+    public async Task ReorderFirewallPoliciesAsync(string sourceZoneId, string destinationZoneId,
+        IReadOnlyList<string> beforePredefinedIds, IReadOnlyList<string> afterPredefinedIds,
+        CancellationToken cancellationToken = default)
+    {
+        var body = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["source_zone_id"] = sourceZoneId,
+            ["destination_zone_id"] = destinationZoneId,
+            ["before_predefined_ids"] = beforePredefinedIds,
+            ["after_predefined_ids"] = afterPredefinedIds,
+        });
+        await ExecuteV2Async(HttpMethod.Put, "firewall-policies/batch-reorder", body, cancellationToken);
+    }
+
+    /// <summary>DELETE v2/api/site/{site}/firewall-policies/{id} (HTTP 204). A missing policy counts as deleted.</summary>
+    public async Task DeleteFirewallPolicyAsync(string policyId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ExecuteV2Async(HttpMethod.Delete, $"firewall-policies/{policyId}", null, cancellationToken);
+        }
+        catch (UniFiApiErrorException ex) when (ex.StatusCode == 404 || ex.Code.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
+                                               || ex.Code.Contains("IdInvalid", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Firewall policy {Id} was already gone", policyId);
+        }
+    }
+
+    // A v2 write or strict read: errors throw (permission, api.err code, or HTTP status) instead of
+    // returning null, because a silent failure here leaves the firewall in an unknown state.
+    private async Task<string> ExecuteV2Async(HttpMethod method, string endpoint, string? json,
+        CancellationToken cancellationToken)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+            throw new InvalidOperationException("Could not sign in to the UniFi Console.");
+
+        HttpRequestMessage Build() => new(method, BuildV2ApiPath($"site/{_site}/{endpoint}"))
+        {
+            Content = json == null ? null : new StringContent(json, Encoding.UTF8, "application/json")
+        };
+
+        var result = await ExecuteRequestAsync(async () =>
+        {
+            using var request = Build();
+            var response = await _httpClient!.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Forbidden && body.Contains("NoPermission", StringComparison.OrdinalIgnoreCase))
+                throw new UniFiPermissionException(FirewallPermissionMessage);
+            if (IsRecoverableAuthFailure(response.StatusCode) && await LoginAsync(cancellationToken))
+            {
+                using var retry = Build();
+                response = await _httpClient!.SendAsync(retry, cancellationToken);
+                body = await response.Content.ReadAsStringAsync(cancellationToken);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("UniFi v2 {Method} {Endpoint} failed with {Status}: {Body}", method, endpoint, (int)response.StatusCode, body);
+                throw new UniFiApiErrorException(TryReadV2ErrorCode(body) ?? $"HTTP {(int)response.StatusCode}", (int)response.StatusCode);
+            }
+            return body;
+        });
+        return result ?? throw new InvalidOperationException("The UniFi Console is not answering.");
+    }
+
+    // v2 errors carry the code at the top level; older shapes nest it under meta like v1.
+    private static string? TryReadV2ErrorCode(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            foreach (var name in new[] { "code", "errorCode", "message" })
+            {
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String)
+                    return v.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON: fall back to the status code.
+        }
+        return TryReadApiErrorCode(body);
     }
 
     /// <summary>
@@ -2676,9 +3032,15 @@ public class UniFiApiClient : IDisposable
     private static readonly System.Text.RegularExpressions.Regex DpiIconDomainPattern =
         new("^[a-z0-9][a-z0-9.-]*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
+    private static readonly System.Text.RegularExpressions.Regex NetworkUiBuildPattern =
+        new("angular/(g[0-9a-f]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    // The Network app's UI build segment (angular/<build>/), which changes with every Network version.
+    private string? _networkUiBuild;
+
     /// <summary>
-    /// GET dpi_icons/{domain}/favicon.ico - the favicon the Network app shows for a DPI application,
-    /// served by the console itself. Null when the console has none.
+    /// GET manage/angular/{build}/images/dpi/{domain}/favicon.ico - the favicon the Network app shows
+    /// for a DPI application, served by the console itself. Null when the console has none.
     /// </summary>
     public async Task<(byte[] Bytes, string ContentType)?> GetDpiIconAsync(string domain, CancellationToken cancellationToken = default)
     {
@@ -2688,10 +3050,20 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        var url = BuildNetworkAppPath($"dpi_icons/{domain}/favicon.ico");
         return await ExecuteRequestAsync<(byte[] Bytes, string ContentType)?>(async () =>
         {
-            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            var cached = _networkUiBuild;
+            var build = cached ?? await ReadNetworkUiBuildAsync(cancellationToken);
+            if (build == null) return null;
+
+            var response = await _httpClient!.GetAsync(DpiIconPath(build, domain), cancellationToken);
+            // A cached build goes stale when the Network app upgrades: read it again once.
+            if (response.StatusCode == HttpStatusCode.NotFound && cached != null
+                && await ReadNetworkUiBuildAsync(cancellationToken) is { } fresh && fresh != cached)
+            {
+                response = await _httpClient!.GetAsync(DpiIconPath(fresh, domain), cancellationToken);
+            }
+
             var type = response.Content.Headers.ContentType?.MediaType ?? "";
             if (!response.IsSuccessStatusCode || !type.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             {
@@ -2701,6 +3073,24 @@ public class UniFiApiClient : IDisposable
             var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             return bytes.Length == 0 ? null : (bytes, type);
         });
+    }
+
+    private string DpiIconPath(string build, string domain) =>
+        BuildNetworkAppPath($"manage/angular/{build}/images/dpi/{domain}/favicon.ico");
+
+    /// <summary>Reads the UI build segment from the Network app's login page, which names it in its asset URLs.</summary>
+    private async Task<string?> ReadNetworkUiBuildAsync(CancellationToken cancellationToken)
+    {
+        var response = await _httpClient!.GetAsync(BuildNetworkAppPath("manage/account/login"), cancellationToken);
+        var match = response.IsSuccessStatusCode
+            ? NetworkUiBuildPattern.Match(await response.Content.ReadAsStringAsync(cancellationToken))
+            : null;
+        if (match is not { Success: true })
+        {
+            _logger.LogDebug("Network app UI build not found on its login page: {StatusCode}", (int)response.StatusCode);
+            return null;
+        }
+        return _networkUiBuild = match.Groups[1].Value;
     }
 
     /// <summary>
@@ -3248,6 +3638,7 @@ public class UniFiApiClient : IDisposable
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
+            _logger.LogWarning("Cannot set the console update channels: not authenticated to the UniFi Console");
             return false;
         }
 

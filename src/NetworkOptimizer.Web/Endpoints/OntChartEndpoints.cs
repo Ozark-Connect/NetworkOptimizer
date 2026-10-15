@@ -89,8 +89,9 @@ public static class OntChartEndpoints
                 // Identity and link uptime are per-ONT rather than per-point: take the last
                 // reading that carried them, since a poll that skipped one still knows it.
                 var lastWith = pts.AsEnumerable().Reverse();
-                var olt = new[] { lastWith.FirstOrDefault(p => p.OltVendor != null)?.OltVendor,
-                                  lastWith.FirstOrDefault(p => p.OltModel != null)?.OltModel };
+                var olt = NetworkOptimizer.Core.Helpers.DisplayFormatters.FormatOltVendor(
+                    lastWith.FirstOrDefault(p => p.OltVendor != null)?.OltVendor,
+                    lastWith.FirstOrDefault(p => p.OltModel != null)?.OltModel);
 
                 return new
                 {
@@ -100,7 +101,7 @@ public static class OntChartEndpoints
                     pon,
                     linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
                     ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
-                    olt = string.Join(" ", olt.Where(v => !string.IsNullOrEmpty(v))) is { Length: > 0 } o ? o : null,
+                    olt,
                 };
             }).ToList();
 

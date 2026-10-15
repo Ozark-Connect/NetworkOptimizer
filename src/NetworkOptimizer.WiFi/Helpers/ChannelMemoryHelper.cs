@@ -19,6 +19,26 @@ public static class ChannelMemoryHelper
     public static readonly TimeSpan SoakPeriod = TimeSpan.FromHours(16);
 
     /// <summary>
+    /// How long a recorded move outranks the console's live radio stats, which keep reporting the
+    /// old channel for about a minute after the AP has moved.
+    /// </summary>
+    public static readonly TimeSpan LiveStatsLag = TimeSpan.FromMinutes(3);
+
+    /// <summary>
+    /// True when a move recorded within <see cref="LiveStatsLag"/> left the channel the live stats
+    /// still report, so the radio is on the move's new channel and the stats have not caught up.
+    /// </summary>
+    /// <param name="liveChannel">The channel the console's live stats report.</param>
+    /// <param name="previousChannel">The recorded move's origin.</param>
+    /// <param name="newChannel">The recorded move's destination.</param>
+    /// <param name="changedAtUtc">When the move was recorded.</param>
+    /// <param name="nowUtc">Now.</param>
+    public static bool IsMoveAheadOfLiveStats(
+        int liveChannel, int? previousChannel, int newChannel, DateTime changedAtUtc, DateTime nowUtc) =>
+        previousChannel == liveChannel && newChannel != liveChannel && newChannel > 0
+        && nowUtc - changedAtUtc <= LiveStatsLag;
+
+    /// <summary>
     /// Minimum effective (age-decayed) sample weight before a long-term outcome is trusted to
     /// stand in as measured stress for a channel - roughly half a day of fresh residency,
     /// enough to average out a burst without demanding a full day. As evidence ages past the

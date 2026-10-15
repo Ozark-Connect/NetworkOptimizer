@@ -317,9 +317,49 @@ public class MarkdownReportGenerator
             sb.AppendLine();
             sb.AppendLine("| IP Address | Country | ASN | Events |");
             sb.AppendLine("|-----------|---------|-----|--------|");
-            foreach (var source in threat.TopSources.Take(5))
+            foreach (var source in threat.TopSources)
             {
                 sb.AppendLine($"| {source.Ip} | {source.CountryCode ?? "-"} | {source.AsnOrg ?? "-"} | {source.EventCount:N0} |");
+            }
+            sb.AppendLine();
+
+            // Suppressed-count footnote
+            if (threat.SuppressedEventCount > 0)
+            {
+                var infraCount = threat.InfrastructureSources.Sum(s => s.EventCount);
+                var trustedCount = threat.TrustedUserSources.Sum(s => s.EventCount);
+                var parts = new List<string>();
+                if (infraCount > 0) parts.Add($"{infraCount:N0} from known infrastructure");
+                if (trustedCount > 0) parts.Add($"{trustedCount:N0} from trusted user devices");
+                sb.AppendLine($"*Excludes {string.Join(" and ", parts)} (see categorized tables below).*");
+                sb.AppendLine();
+            }
+        }
+
+        // Known Infrastructure Activity
+        if (threat.InfrastructureSources.Any())
+        {
+            sb.AppendLine("### Known Infrastructure Activity");
+            sb.AppendLine();
+            sb.AppendLine("| IP Address | Label | Country | Events |");
+            sb.AppendLine("|-----------|-------|---------|--------|");
+            foreach (var source in threat.InfrastructureSources)
+            {
+                sb.AppendLine($"| {source.Ip} | {source.Label ?? "-"} | {source.CountryCode ?? "-"} | {source.EventCount:N0} |");
+            }
+            sb.AppendLine();
+        }
+
+        // Trusted User Activity
+        if (threat.TrustedUserSources.Any())
+        {
+            sb.AppendLine("### Trusted User Activity");
+            sb.AppendLine();
+            sb.AppendLine("| IP Address | Label | Country | Events |");
+            sb.AppendLine("|-----------|-------|---------|--------|");
+            foreach (var source in threat.TrustedUserSources)
+            {
+                sb.AppendLine($"| {source.Ip} | {source.Label ?? "-"} | {source.CountryCode ?? "-"} | {source.EventCount:N0} |");
             }
             sb.AppendLine();
         }

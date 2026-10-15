@@ -777,7 +777,7 @@ public class MonitoringCollectionAgent : BackgroundService
             var row = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (row == null) return;
             var before = row.SnmpDetectionState;
-            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection);
+            SnmpDetectionService.ApplyToSettings(row, detected, _credentialProtection, _siteSlug);
             row.LastSnmpDetection = DateTime.UtcNow;
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -1087,9 +1087,10 @@ public class MonitoringCollectionAgent : BackgroundService
             s => (s.DeviceMac, s.PortName), s => s, ct);
 
         // Supplemental PON stats: poll ONT configs attached to a monitored SFP module
-        // (Network Optimizer Custom endpoints) so their PON-layer metrics can merge into
+        // (Network Optimizer Custom endpoints, Realtek sticks) so their PON-layer metrics can merge into
         // the sfp measurement alongside the DDM values below.
-        var ponSupplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, ct);
+        var attachedPolls = new List<AttachedOntPoll>();
+        var ponSupplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, attachedPolls, ct);
 
         // SFP collection (spec 5.9): write DDM values to the sfp measurement for every port
         // where UniFi reports sfp_found, and reconcile the MonitoredSfps relational row.
@@ -1115,15 +1116,36 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (string.IsNullOrEmpty(sfpPortName)) continue;
                 var sfpCategory = existingSfps.TryGetValue((sfpMac, sfpPortName), out var sfpRow)
                     ? sfpRow.Category : SfpCategory.Standard;
+                // The module's chosen sensor; DDM whenever the attached ONT reported none this cycle.
+                var alertTempC = sfpRow?.UseOntTemperature == true
+                    && ponSupplemental.TryGetValue((sfpMac, sfpPortName), out var sfpPon)
+                    && sfpPon.TemperatureC.HasValue
+                        ? sfpPon.TemperatureC
+                        : port.SfpTemperature;
                 try
                 {
                     await _sfpAlertEvaluator.EvaluateAsync(
                         sfpMac, sfpPortName, device.Name, sfpCategory,
-                        port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, sfpThresholds, ct);
+                        port.SfpRxPower, port.SfpTxPower, alertTempC, sfpThresholds, ct);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex, "SFP alert evaluation failed for {Mac} port {Port}", sfpMac, sfpPortName);
+                }
+
+                // The module's own DDM RX, never the ONT's fallback: the question is whether the
+                // optics still read light while the ONT's page has stopped answering.
+                foreach (var poll in attachedPolls.Where(p => p.DeviceMac == sfpMac && p.PortName == sfpPortName))
+                {
+                    try
+                    {
+                        await _ontAlertEvaluator.EvaluateManagementAsync(poll.OntId, poll.Name, poll.Succeeded,
+                            port.SfpRxPower, sfpThresholds.PonRxPowerLowDbm, poll.SourceUrl, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "ONT management alert evaluation failed for {Name}", poll.Name);
+                    }
                 }
             }
         }
@@ -2339,6 +2361,8 @@ public class MonitoringCollectionAgent : BackgroundService
                 cfg.AuthenticationPassword = string.IsNullOrEmpty(settings.SnmpV3AuthPassword)
                     ? string.Empty
                     : _credentialProtection.Decrypt(settings.SnmpV3AuthPassword);
+                // UniFi's v3 user is authPriv, SHA and AES, both keyed by the one password it shows.
+                cfg.PrivacyPassword = cfg.AuthenticationPassword;
                 if (string.IsNullOrEmpty(cfg.Username))
                 {
                     _logger.LogDebug("SNMP v3 selected but no username available");
@@ -2581,7 +2605,10 @@ public class MonitoringCollectionAgent : BackgroundService
         NetworkOptimizerDbContext db,
         Dictionary<(string DeviceMac, string PortName), MonitoredSfp> sfps,
         MonitoringSettings settings,
-        CancellationToken ct)
+        List<AttachedOntPoll> outcomes,
+        CancellationToken ct,
+        (string DeviceMac, string PortName)? onlyModule = null,
+        bool evaluateAlerts = true)
     {
         var result = new Dictionary<(string, string), PonSupplementalStats>();
         List<OntConfiguration> attached;
@@ -2605,10 +2632,15 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             if (!sfpById.TryGetValue(config.AttachedSfpId!.Value, out var sfp))
             {
-                config.LastError = "Attached SFP module no longer exists";
-                config.UpdatedAt = DateTime.UtcNow;
+                if (onlyModule == null)
+                {
+                    config.LastError = "Attached SFP module no longer exists";
+                    config.UpdatedAt = DateTime.UtcNow;
+                }
                 continue;
             }
+            if (onlyModule is { } only && (sfp.DeviceMac != only.DeviceMac || sfp.PortName != only.PortName))
+                continue;
             if (!_supplementalOntProviders.TryGetValue(config.Provider, out var provider))
             {
                 config.LastError = $"Provider '{config.Provider}' does not support SFP module attachment";
@@ -2616,10 +2648,20 @@ public class MonitoringCollectionAgent : BackgroundService
                 continue;
             }
 
+            // Attached ONTs surface on SFP Stats, so their alerts link to that module.
+            var sfpUrl = Monitoring.MonitoringLinks.HardwareStats("sfp", DateTime.UtcNow,
+                $"&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}");
+            var succeeded = false;
             try
             {
                 // Same dialer the standalone ONT poll path uses, so attached endpoints on
                 // agent sites are reached through the site's agent.
+                string? password = null;
+                if (!string.IsNullOrEmpty(config.Password))
+                {
+                    try { password = _credentialProtection.Decrypt(config.Password); }
+                    catch { password = config.Password; }
+                }
                 var context = new OntPollContext
                 {
                     Id = config.Id,
@@ -2628,11 +2670,15 @@ public class MonitoringCollectionAgent : BackgroundService
                     Host = config.Host,
                     Port = config.Port,
                     Dialer = _tunnelRouting.DialerFor(_siteSlug),
+                    // Web-UI sticks (Realtek) log in; the JSON contract ignores these.
+                    Username = string.IsNullOrEmpty(config.Username) ? null : config.Username,
+                    Password = password,
                 };
 
                 var stats = await provider.PollSupplementalAsync(context, ct);
                 if (stats != null)
                 {
+                    succeeded = true;
                     result[(sfp.DeviceMac, sfp.PortName)] = stats;
                     config.LastPolled = DateTime.UtcNow;
                     config.LastError = null;
@@ -2645,27 +2691,30 @@ public class MonitoringCollectionAgent : BackgroundService
                     bool? fecEnabled = stats.DsFecEnabled.HasValue || stats.UsFecEnabled.HasValue
                         ? stats.DsFecEnabled == 1 || stats.UsFecEnabled == 1
                         : null;
-                    // Attached ONTs surface on SFP Stats, so link the alert to that module.
-                    var sfpUrl = Monitoring.MonitoringLinks.HardwareStats("sfp", DateTime.UtcNow,
-                        $"&sfp={sfp.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{sfp.PortName}");
-                    try
+                    // A manual refresh skips alerts: an extra poll mid-cycle would shrink the
+                    // per-poll error deltas the spike thresholds are sized for.
+                    if (evaluateAlerts)
                     {
-                        await _ontAlertEvaluator.EvaluateAsync(
-                            config.Id, config.Name,
-                            rxPowerDbm: null,
-                            NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
-                            stats.FecErrors,
-                            temperatureC: null,
-                            thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
-                            bipErrors: stats.BipErrors,
-                            hecErrors: stats.HecUncorrected,
-                            fecEnabled: fecEnabled,
-                            sourceUrl: sfpUrl,
-                            ct: ct);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "PON alert evaluation failed for {Name}", config.Name);
+                        try
+                        {
+                            await _ontAlertEvaluator.EvaluateAsync(
+                                config.Id, config.Name,
+                                rxPowerDbm: null,
+                                NetOptCustomPonOntProvider.ToPonLinkState(stats.PloamStateRaw),
+                                stats.FecErrors,
+                                temperatureC: null,
+                                thresholds.PonRxPowerLowDbm, thresholds.PonTempHighC,
+                                bipErrors: stats.BipErrors,
+                                hecErrors: stats.HecUncorrected,
+                                fecEnabled: fecEnabled,
+                                sourceUrl: sfpUrl,
+                                uptimeSeconds: stats.SfpUptimeS,
+                                ct: ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "PON alert evaluation failed for {Name}", config.Name);
+                        }
                     }
                 }
                 else
@@ -2680,9 +2729,49 @@ public class MonitoringCollectionAgent : BackgroundService
                 config.LastError = ex.Message;
                 config.UpdatedAt = DateTime.UtcNow;
             }
+            outcomes.Add(new AttachedOntPoll(config.Id, config.Name, sfp.DeviceMac, sfp.PortName, succeeded, sfpUrl));
         }
         return result;
     }
+
+    /// <summary>
+    /// Reads one module's DDM from the UniFi Console now and polls the ONT attached to it, if any,
+    /// through the same write path as the slow tier. Alerts are left to the tier. Callers go through
+    /// the gated <see cref="ISfpModulePollService"/>. Returns why the read fell short, or null.
+    /// </summary>
+    public async Task<string?> PollModuleAsync(string deviceMac, string portName, CancellationToken ct = default)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return "The UniFi Console is not connected.";
+
+        var mac = NormalizeMac(deviceMac);
+        // Straight from the console, not the device cache: the point of a refresh is a fresh DDM read.
+        var devices = await _connectionService.Client.GetDevicesAsync(ct);
+        var device = devices?.FirstOrDefault(d => NormalizeMac(d.Mac) == mac);
+        if (device == null)
+            return "The device this module sits in was not found on the UniFi Console.";
+
+        await using var db = await CreateSiteDbAsync(ct);
+        var existingSfps = await db.MonitoredSfps.ToDictionaryAsync(s => (s.DeviceMac, s.PortName), s => s, ct);
+        var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new MonitoringSettings();
+
+        var polls = new List<AttachedOntPoll>();
+        var supplemental = await CollectPonSupplementalAsync(db, existingSfps, settings, polls, ct,
+            onlyModule: (mac, portName), evaluateAlerts: false);
+        CollectSfpForDevice(device, db, existingSfps, supplemental, DateTime.UtcNow);
+        await db.SaveChangesAsync(ct);
+
+        var failed = polls.FirstOrDefault(p => !p.Succeeded);
+        if (failed != null)
+        {
+            var error = db.OntConfigurations.Local.FirstOrDefault(o => o.Id == failed.OntId)?.LastError;
+            return $"DDM refreshed, but the attached ONT did not answer{(string.IsNullOrEmpty(error) ? "." : $": {error}")}";
+        }
+        return null;
+    }
+
+    /// <summary>One attached ONT's poll this cycle, judged against its module's DDM once that is read.</summary>
+    private sealed record AttachedOntPoll(int OntId, string Name, string DeviceMac, string PortName, bool Succeeded, string SourceUrl);
 
     private void CollectSfpForDevice(
         UniFiDeviceResponse device,
@@ -2741,7 +2830,10 @@ public class MonitoringCollectionAgent : BackgroundService
                     : null;
                 _liveStats.RecordSfpPon(mac, portName, ponStats.PonLinkStatus,
                     ponStats.BipErrors, ponStats.FecErrors, ponStats.HecUncorrected, fecEnabled,
-                    ponStats.GemRxDropped, timestamp);
+                    ponStats.GemRxDropped, timestamp,
+                    ponStats.RegistrationStatus, ponStats.KeyExchangeStatus,
+                    ontTemperatureC: port.SfpTemperature.HasValue ? ponStats.TemperatureC : null,
+                    oltVendorId: ponStats.OltVendorId, oltModel: ponStats.OltModel);
             }
 
             // Mirror the values into the live-stats cache so the dashboard SFP card can

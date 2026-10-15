@@ -61,6 +61,10 @@ else if (_active != null && !_wizardOpen)
                                     <div class="custom-range-field">
                                         <label>Start</label>
                                         <input type="datetime-local" class="custom-range-input" min="@MinSetTime" @bind="_setTimeLocal" @bind:event="oninput" />
+                                        @if (SetTimeValid && SiteAside(PickedSetTimeUtc) is { Length: > 0 } pickedAside)
+                                        {
+                                            <small class="form-help">@LocalTime(PickedSetTimeUtc)@pickedAside</small>
+                                        }
                                     </div>
                                     <div class="custom-range-actions">
                                         <button class="btn btn-sm btn-secondary" @onclick="() => _showSetTime = false">Cancel</button>
@@ -266,7 +270,9 @@ else if (_wizardOpen)
 
                 <FirmwareChannelConfig
                     Settings="_settings"
-                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true"
+                    DeviceEarlyAccessAvailable="_preview?.Channels.DeviceEarlyAccessAvailable == true"
+                    NetworkAppEarlyAccessAvailable="_preview?.Channels.NetworkAppEarlyAccessAvailable == true"
+                    UniFiOsEarlyAccessAvailable="_preview?.Channels.UniFiOsEarlyAccessAvailable == true"
                     ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
                     HasCloudGateway="_preview?.HasCloudGateway == true"
                     ShowSequenceHint="true"
@@ -287,7 +293,9 @@ else if (_wizardOpen)
                     ToggleSku="ToggleSku"
                     OnChanged="StateHasChanged">
                     <ChannelHelpText>
-                        Everything in this rollout follows this channel@(ConsoleSurfacesLabel).@(_preview != null && !_preview.Channels.EarlyAccessAvailable
+                        Everything in this rollout follows this channel@(ConsoleSurfacesLabel).@(_preview != null && !_preview.Channels.DeviceEarlyAccessAvailable
+                              && !_preview.Channels.NetworkAppEarlyAccessAvailable
+                              && !_preview.Channels.UniFiOsEarlyAccessAvailable
                             ? " Early Access is enabled through your Ubiquiti account, so it only appears here once the console offers it."
                             : "")
                     </ChannelHelpText>
@@ -595,7 +603,9 @@ else
                 {
                 <FirmwareChannelConfig
                     Settings="_settings"
-                    EarlyAccessAvailable="_preview?.Channels.EarlyAccessAvailable == true || _settings.GlobalChannel == FirmwareChannels.Beta"
+                    DeviceEarlyAccessAvailable="_preview?.Channels.DeviceEarlyAccessAvailable == true"
+                    NetworkAppEarlyAccessAvailable="_preview?.Channels.NetworkAppEarlyAccessAvailable == true"
+                    UniFiOsEarlyAccessAvailable="_preview?.Channels.UniFiOsEarlyAccessAvailable == true"
                     ConsoleApiAvailable="_preview?.ConsoleApiAvailable != false"
                     HasCloudGateway="_preview?.HasCloudGateway == true || _preview?.HasCloudGatewayHardware == true"
                     ShowConsolePermissionNote="false"
@@ -1671,8 +1681,12 @@ else
 
     private static string HourLabel(int hour) => new DateTime(2000, 1, 1, hour, 0, 0).ToString("h tt");
 
-    /// <summary>Whether the site keeps different hours from this server, so a site-local hour needs saying.</summary>
-    private bool SiteZoneDiffers => SiteAside(DateTime.UtcNow).Length > 0;
+    /// <summary>
+    /// Whether the site keeps different hours from this server, so a site-local hour needs saying.
+    /// The hour recurs all year, so both halves of the DST year are checked.
+    /// </summary>
+    private bool SiteZoneDiffers =>
+        SiteAside(DateTime.UtcNow).Length > 0 || SiteAside(DateTime.UtcNow.AddMonths(6)).Length > 0;
 
     private string CommitLabel => _scheduleMode switch
     {
@@ -2117,25 +2131,8 @@ else
     /// clock is the only way rollouts across sites can be compared. Empty when the site keeps the
     /// same hours, which is every single-site install.
     /// </summary>
-    private string SiteAside(DateTime utc)
-    {
-        var zone = _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId;
-        if (string.IsNullOrWhiteSpace(zone)) return string.Empty;
-
-        try
-        {
-            var tz = TimeZoneInfo.FindSystemTimeZoneById(zone);
-            if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
-
-            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz);
-            return $" ({at:h:mm tt} at-site)";
-        }
-        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
-            Logger.LogDebug(ex, "Unknown site timezone {Zone}", zone);
-            return string.Empty;
-        }
-    }
+    private string SiteAside(DateTime utc) => RolloutScopeCopy.SiteAside(
+        _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId, utc);
 
     // ---- Active plan controls ----
 
@@ -2173,7 +2170,7 @@ else
         var before = _active?.ScheduledStartAt;
         await ControlAsync(action);
         if (_active?.ScheduledStartAt is { } at && at != before)
-            _controlNotice = $"{done}. The rollout now starts {LocalTime(at)}.";
+            _controlNotice = $"{done}. The rollout now starts {LocalTime(at)}{SiteAside(at)}.";
     }
 
     private bool _showSetTime;
@@ -2185,6 +2182,8 @@ else
 
     private bool SetTimeValid => _setTimeLocal > DateTime.Now;
 
+    private DateTime PickedSetTimeUtc => DateTime.SpecifyKind(_setTimeLocal, DateTimeKind.Local).ToUniversalTime();
+
     private void ToggleSetTime()
     {
         _showSetTime = !_showSetTime;
@@ -2195,7 +2194,7 @@ else
     private Task ApplySetTimeAsync()
     {
         if (!SetTimeValid) return Task.CompletedTask;
-        var startUtc = DateTime.SpecifyKind(_setTimeLocal, DateTimeKind.Local).ToUniversalTime();
+        var startUtc = PickedSetTimeUtc;
         return MoveStartAsync((id, ct) => RolloutService.RescheduleAsync(id, startUtc, ct), "Rescheduled");
     }
 

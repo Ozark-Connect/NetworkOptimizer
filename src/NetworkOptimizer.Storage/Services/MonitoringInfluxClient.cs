@@ -1609,6 +1609,8 @@ from(bucket: ""{_longtermBucket}"")
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
+        "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
+        "olt_equipment_id", "olt_version",
     };
 
     private static readonly string PonFieldFilter =
@@ -1646,6 +1648,12 @@ from(bucket: ""{_longtermBucket}"")
             LanRxFcsErrors = AsLongOrNull(record.GetValueByKey("lan_rx_fcs_err")),
             LanTxDropEvents = AsLongOrNull(record.GetValueByKey("lan_tx_drop_events")),
             LanBufferOverflow = AsLongOrNull(record.GetValueByKey("lan_buffer_overflow")),
+            OltVendorId = record.GetValueByKey("olt_vendor_id") as string,
+            RegistrationStatus = record.GetValueByKey("registration_status") as string,
+            KeyExchangeStatus = record.GetValueByKey("key_exchange_status") as string,
+            FirmwareVersion = record.GetValueByKey("firmware_version") as string,
+            OltModel = record.GetValueByKey("olt_equipment_id") as string,
+            OltVersion = record.GetValueByKey("olt_version") as string,
         };
     }
 
@@ -1693,6 +1701,14 @@ from(bucket: ""{_longtermBucket}"")
         if (stats.LanRxFcsErrors.HasValue) point = point.Field("lan_rx_fcs_err", stats.LanRxFcsErrors.Value);
         if (stats.LanBufferOverflow.HasValue) point = point.Field("lan_buffer_overflow", stats.LanBufferOverflow.Value);
         if (stats.SfpUptimeS.HasValue) point = point.Field("sfp_uptime_s", stats.SfpUptimeS.Value);
+        // A field, not the ont measurement's olt_vendor tag: the sfp series key must not change.
+        if (!string.IsNullOrEmpty(stats.OltVendorId)) point = point.Field("olt_vendor_id", stats.OltVendorId);
+        if (!string.IsNullOrEmpty(stats.RegistrationStatus)) point = point.Field("registration_status", stats.RegistrationStatus);
+        if (!string.IsNullOrEmpty(stats.KeyExchangeStatus)) point = point.Field("key_exchange_status", stats.KeyExchangeStatus);
+        if (!string.IsNullOrEmpty(stats.FirmwareVersion)) point = point.Field("firmware_version", stats.FirmwareVersion);
+        // Not "olt_model": the ont measurement already has a tag by that name, and a field may not share it.
+        if (!string.IsNullOrEmpty(stats.OltModel)) point = point.Field("olt_equipment_id", stats.OltModel);
+        if (!string.IsNullOrEmpty(stats.OltVersion)) point = point.Field("olt_version", stats.OltVersion);
         return point;
     }
 
@@ -1710,6 +1726,9 @@ from(bucket: ""{_longtermBucket}"")
 
 
         point = WritePonFields(point, stats);
+        // The ONT's own sensor, kept apart from the host device's DDM temperature_c on the same series:
+        // the two can sit well over 10 C apart on one stick.
+        if (stats.TemperatureC.HasValue) point = point.Field("ont_temperature_c", stats.TemperatureC.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -2511,10 +2530,11 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"")
 ";
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
+        var speeds = new Dictionary<(string ifName, long ticks), long>();
         var times = new Dictionary<(string ifName, long ticks), DateTime>();
         var portIds = new Dictionary<(string ifName, long ticks), string?>();
 
@@ -2527,6 +2547,9 @@ from(bucket: ""{_bucket}"")
             if (value == null) continue;
 
             var key = (ifName, time.Ticks);
+            // Speed only annotates a rate sample. A sample with speed and no rate must not become
+            // a point, or a nearest-point reader would take it as a zero rate.
+            if (field == "speed_bps") { speeds[key] = (long)value.Value; continue; }
             times[key] = time;
             portIds[key] = record.GetValueByKey("port_id") as string;
             if (field == "rate_in_bps") rateIn[key] = value.Value;
@@ -2545,6 +2568,7 @@ from(bucket: ""{_bucket}"")
                 PortId = portIds.TryGetValue(key, out var pid) ? pid : null,
                 RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
                 RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
+                SpeedBps = speeds.TryGetValue(key, out var sp) ? sp : null,
             });
         }
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
@@ -3455,6 +3479,12 @@ from(bucket: ""{_longtermBucket}"")
         public long? LanRxFcsErrors { get; set; }
         public long? LanTxDropEvents { get; set; }
         public long? LanBufferOverflow { get; set; }
+        public string? OltVendorId { get; set; }
+        public string? RegistrationStatus { get; set; }
+        public string? KeyExchangeStatus { get; set; }
+        public string? FirmwareVersion { get; set; }
+        public string? OltModel { get; set; }
+        public string? OltVersion { get; set; }
     }
 
     /// <summary>
@@ -5776,6 +5806,8 @@ from(bucket: ""{_longtermBucket}"")
         public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+        /// <summary>Negotiated link speed at this sample. Set by the raw query only.</summary>
+        public long? SpeedBps { get; init; }
     }
 
     /// <summary>One interface's link state at one sample: ifOperStatus, 1 for up.</summary>

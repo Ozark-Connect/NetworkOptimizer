@@ -104,6 +104,17 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     /// Scope pinned to this instance's site so scoped services (SQM WAN lookup)
     /// resolve that site's database and console.
     /// </summary>
+    // Phase windows of the run being saved; one test runs at a time per instance.
+    private WanTestPhases? _lastPhases;
+
+    /// <inheritdoc />
+    protected override void OnResultSaved(Iperf3Result result)
+    {
+        if (result.Success)
+            WanTestBackgroundCheck.Schedule(_scopeFactory, SiteSlug, result.Id, result.WanNetworkGroup, _lastPhases,
+                () => CreateSiteDbAsync(), RaiseResultUpdated, Logger);
+    }
+
     private IServiceScope CreateSiteScope()
     {
         var scope = _scopeFactory.CreateScope();
@@ -246,6 +257,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
                         report("Testing latency", 10, null);
                     else if (line.StartsWith("Latency: "))
                         report("Latency measured", 15, line);
+                    else if (line.StartsWith("Measuring idle packet loss"))
+                        report("Testing packet loss", 17, null);
                     else if (line.StartsWith("Testing download"))
                         report("Testing download", 20, null);
                     else if (line.StartsWith("Download: "))
@@ -364,6 +377,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
             ParallelStreams = json.Streams,
             DurationSeconds = json.DurationSeconds,
         };
+        WanLossMapper.Apply(result, [json]);
+        _lastPhases = WanTestPhases.From(json);
 
         // Identify WAN connection
         try
@@ -752,41 +767,6 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         Converters = { new JsonStringEnumConverter() }
     };
-
-    private sealed class WanSpeedTestResult
-    {
-        public bool Success { get; set; }
-        public string? Error { get; set; }
-        public WanMetadata? Metadata { get; set; }
-        public WanLatency? Latency { get; set; }
-        public WanThroughput? Download { get; set; }
-        public WanThroughput? Upload { get; set; }
-        public int Streams { get; set; }
-        public int DurationSeconds { get; set; }
-    }
-
-    private sealed class WanMetadata
-    {
-        public string Ip { get; set; } = "";
-        public string Colo { get; set; } = "";
-        public string Country { get; set; } = "";
-        public string ServerHost { get; set; } = "";
-        public List<string>? ServerIps { get; set; }
-    }
-
-    private sealed class WanLatency
-    {
-        public double UnloadedMs { get; set; }
-        public double JitterMs { get; set; }
-    }
-
-    private sealed class WanThroughput
-    {
-        public double Bps { get; set; }
-        public long Bytes { get; set; }
-        public double LoadedLatencyMs { get; set; }
-        public double LoadedJitterMs { get; set; }
-    }
 
     #endregion
 }

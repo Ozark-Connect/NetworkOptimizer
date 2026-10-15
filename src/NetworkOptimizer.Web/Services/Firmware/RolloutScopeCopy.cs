@@ -145,16 +145,28 @@ public static class RolloutScopeCopy
     /// </summary>
     /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
     /// <param name="instantUtc">The instant to read at the site.</param>
-    public static string SiteAside(string? timeZoneId, DateTime instantUtc)
+    public static string SiteAside(string? timeZoneId, DateTime instantUtc) =>
+        SiteAside(timeZoneId, instantUtc, TimeZoneInfo.Local);
+
+    /// <summary>
+    /// <see cref="SiteAside(string?, DateTime)"/> against a given server zone. The two clocks are
+    /// compared at the instant, not by base offset: zones with one base offset still differ while
+    /// only one of them is on DST (Phoenix and Denver in summer).
+    /// </summary>
+    /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
+    /// <param name="instantUtc">The instant to read at the site.</param>
+    /// <param name="serverZone">The zone every other time on the page is shown in.</param>
+    public static string SiteAside(string? timeZoneId, DateTime instantUtc, TimeZoneInfo serverZone)
     {
         if (string.IsNullOrWhiteSpace(timeZoneId)) return string.Empty;
 
         try
         {
             var tz = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-            if (tz.BaseUtcOffset == TimeZoneInfo.Local.BaseUtcOffset) return string.Empty;
+            var instant = DateTime.SpecifyKind(instantUtc, DateTimeKind.Utc);
+            if (tz.GetUtcOffset(instant) == serverZone.GetUtcOffset(instant)) return string.Empty;
 
-            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(instantUtc, DateTimeKind.Utc), tz);
+            var at = TimeZoneInfo.ConvertTimeFromUtc(instant, tz);
             return $" ({at:h:mm tt} at-site)";
         }
         catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)

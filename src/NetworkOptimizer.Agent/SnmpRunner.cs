@@ -21,6 +21,7 @@ public sealed class SnmpRunner
     private volatile SnmpConfig? _config;
     private SnmpPoller? _poller;
     private string _pollerKey = "";
+    private string _rejectedKey = "";
 
     // Failure counting + temporary exclusion, same tracker (and thresholds) the
     // server's collection loops use, so a rebooting device isn't hammered from
@@ -329,9 +330,28 @@ public sealed class SnmpRunner
             cfg.Version = SnmpVersion.V3;
             cfg.Username = config.Username;
             cfg.AuthenticationPassword = config.AuthPassword;
+            // UniFi's v3 user is authPriv, SHA and AES, both keyed by the one password it shows.
+            cfg.PrivacyPassword = config.AuthPassword;
         }
 
-        _poller = new SnmpPoller(cfg, NullLogger<SnmpPoller>.Instance);
+        // Both poll loops call this outside their per-device catch, so a throw here would end
+        // polling for the life of the process (a v3 config with no password fails Validate).
+        try
+        {
+            _poller = new SnmpPoller(cfg, NullLogger<SnmpPoller>.Instance);
+        }
+        catch (ArgumentException ex)
+        {
+            if (key != _rejectedKey)
+                Console.Error.WriteLine($"SNMP config rejected, not polling: {ex.Message}");
+            _rejectedKey = key;
+            _poller = null;
+            _pollerKey = "";
+            return null;
+        }
+        // New credentials: failures and exclusions earned under the old ones say nothing about these.
+        if (key != _pollerKey) _failures.Reset();
+        _rejectedKey = "";
         _pollerKey = key;
         return _poller;
     }

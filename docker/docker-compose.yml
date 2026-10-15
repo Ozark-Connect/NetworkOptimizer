@@ -54,18 +54,9 @@ services:
     restart: unless-stopped
     ports:
       - "${OPENSPEEDTEST_PORT:-3005}:3000"
-    sysctls:
-      # Raise TCP autotuning ceiling so long-RTT single-stream speedtests are not rwnd-bound.
-      # Container has its own netns; without this the ceiling is the 6MB kernel default,
-      # which caps single-stream throughput at ~rwnd/RTT (e.g. ~225 Mbps at 100ms RTT).
-      net.ipv4.tcp_rmem: "4096 131072 33554432"
-      net.ipv4.tcp_wmem: "4096 65536 33554432"
-      net.ipv4.tcp_mtu_probing: "1"
-      # tcp_congestion_control is intentionally not set here — it hard-fails
-      # container start on kernels without the bbr module loaded (Synology, QNAP,
-      # some Proxmox/LXC setups) and compose sysctls are all-or-nothing. The
-      # entrypoint reports CC state and tells the operator how to enable bbr on
-      # the host if desired.
+    # No sysctls: on kernels before 4.15 (Synology, older QNAP) the TCP buffer sysctls are not
+    # per-netns, and one missing key fails container start. Tune the host instead (DEPLOYMENT.md,
+    # Speed Test Server Tuning); containers inherit it. The entrypoint logs what is in effect.
     environment:
       - TZ=${TZ:-America/Chicago}
       # For URL construction and host enforcement redirect

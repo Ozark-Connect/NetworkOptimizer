@@ -136,6 +136,16 @@ public static class AuditActions
     public const string AlertRuleChanged = "alert_rule.changed";
     public const string MonitoringSetupChanged = "monitoring_setup.changed";
 
+    // Threat Intelligence - Automatic Blocking
+    /// <summary>A source was blocked on the gateway, WAF, or Cloudflare. Usually the system actor.</summary>
+    public const string ThreatSourceBlocked = "threat_block.added";
+    /// <summary>A block ended: released by a user, or expired (system actor).</summary>
+    public const string ThreatSourceUnblocked = "threat_block.released";
+    /// <summary>A blocking target was set up (console objects or a Cloudflare list created).</summary>
+    public const string ThreatBlockingTargetSetUp = "threat_block.target.set_up";
+    /// <summary>A blocking target's console objects were removed.</summary>
+    public const string ThreatBlockingTargetRemoved = "threat_block.target.removed";
+
     // Device health checks
     public const string HealthCheckChanged = "health_check.changed";
     public const string HealthCheckTested = "health_check.tested";
@@ -183,6 +193,12 @@ public static class AuditActions
 
     /// <summary>Recommended channels were written to access points in UniFi Network.</summary>
     public const string WiFiChannelPlanApplied = "wifi.channel_plan.applied";
+
+    /// <summary>A client's alias was set or cleared in UniFi Network.</summary>
+    public const string ClientRenamed = "client.renamed";
+
+    /// <summary>A client's fixed IP (DHCP reservation) was set or removed in UniFi Network.</summary>
+    public const string ClientFixedIpChanged = "client.fixed_ip.changed";
 
     // Console support file
     public const string SupportFileGenerated = "support_file.generated";

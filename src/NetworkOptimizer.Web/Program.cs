@@ -13,7 +13,6 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.WiredPortPresence;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
@@ -23,6 +22,7 @@ using NetworkOptimizer.Web.Services.Licensing;
 using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.SqmLearning;
 using NetworkOptimizer.Web.Services.Ssh;
+using NetworkOptimizer.Web.Services.WiredPortPresence;
 using Serilog;
 using Serilog.Events;
 
@@ -82,8 +82,11 @@ var loggerConfig = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
 
-// Add file logging for Windows (in the logs folder under install directory)
-if (OperatingSystem.IsWindows())
+// File logging beside the console sink, in the logs folder under the install directory: the
+// Windows service dir, /app/logs in Docker (bind-mounted by every compose file, so it outlives a
+// container rebuild; `docker logs` is lost to every recreate and holds hours at Debug), and the
+// install dir on native macOS and Linux. Capped so a Debug site cannot fill a disk.
+try
 {
     var logFolder = Path.Combine(AppContext.BaseDirectory, "logs");
     Directory.CreateDirectory(logFolder);
@@ -92,8 +95,15 @@ if (OperatingSystem.IsWindows())
     loggerConfig.WriteTo.File(
         logPath,
         rollingInterval: RollingInterval.Day,
+        fileSizeLimitBytes: 200L * 1024 * 1024,
+        rollOnFileSizeLimit: true,
         retainedFileCountLimit: 7,
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
+}
+catch (Exception ex)
+{
+    // A read-only install dir loses the file, not the app; the console sink still carries the log.
+    Console.Error.WriteLine($"File logging disabled: {ex.Message}");
 }
 
 Log.Logger = loggerConfig.CreateLogger();
@@ -578,6 +588,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatEventNormalizer>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.KillChainClassifier>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ThreatPatternAnalyzer>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ExposureValidator>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IThreatSystemAudit, NetworkOptimizer.Web.Services.ThreatSystemAudit>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IInfrastructureSourceProvider, NetworkOptimizer.Web.Services.AgentInfrastructureSourceProvider>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
@@ -587,6 +599,31 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatFilterAdminService>(
     sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.ThreatDashboardService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor, NetworkOptimizer.Web.Services.ThreatSettingsAccessor>();
+// Automatic Blocking: the loop is a singleton the admin service triggers. The gateway writer and the
+// sharing scope are scoped because they read settings through the scoped accessor. A multi-tenant
+// host narrows sharing by decorating IBlockSharingScope.
+// A site's WAF is read and given its ban list through the site's agent when the site is routed that way.
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.ISiteHttpClientProvider, NetworkOptimizer.Web.Services.SiteHttpClientProvider>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>();
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.TrustedSourcesGroup>();
+// Public block lists and Cloudflare's ranges, fetched once per instance and kept in the main database.
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.PublicBlockListCache>();
+builder.Services.AddHttpClient("PublicBlockLists", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("NetworkOptimizer (+https://github.com/Ozark-Connect/NetworkOptimizer)");
+});
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IGatewayBlocklistWriter>(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>());
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockSharingScope, NetworkOptimizer.Threats.Blocking.InstanceBlockSharingScope>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IWafConnectionAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WafConnectionAdminService>(sp));
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingSiteAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingSiteAdminService>(sp));
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
 
 // Register Schedule services (scheduling engine for periodic audits, speed tests)
@@ -747,6 +784,7 @@ builder.Services.AddSiteScopedRegistry<MonitoringCollectionRegistry>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionRegistry>());
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+builder.Services.AddMutatingService<ISfpModulePollService, SfpModulePollService>();
 // Firmware Rollout executors — the per-device upgrade state machine, canary holds, channel
 // group switches and rollout alerts. One instance per site, owned by the registry on the same
 // terms as monitoring collection (default always runs; non-default sites start/stop on site
@@ -836,6 +874,7 @@ builder.Services.AddMutatingService<IMonitoringInterfaceDeploymentService, Monit
 // as direct DbContext writes in the components, so none of them were audited.
 builder.Services.AddMutatingService<IMonitoringTargetService, MonitoringTargetService>();
 builder.Services.AddMutatingService<IMonitoringSettingsService, MonitoringSettingsService>();
+builder.Services.AddMutatingService<IErrorCounterWindowService, ErrorCounterWindowService>();
 builder.Services.AddMutatingService<IUpstreamDiscoveryService, UpstreamDiscoveryService>();
 
 // Register WiFi Optimizer rules and engine
@@ -932,6 +971,7 @@ builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAc
 builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
 builder.Services.AddSingleton<ChannelPlanApplyRunner>();
 builder.Services.AddMutatingService<IChannelPlanApplyService, ChannelPlanApplyService>();
+builder.Services.AddMutatingService<IClientSettingsService, ClientSettingsService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();
@@ -1220,6 +1260,8 @@ using (var scope = app.Services.CreateScope())
 
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cable_modem", siteSeededPatterns, () => siteDb.CmConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "ont", siteSeededPatterns, () => siteDb.OntConfigurations.Any());
+                AlertRuleAutoEnable.EnableFreshlySeededWhen(siteDb, "ont.management_unresponsive", siteSeededPatterns,
+                    () => siteDb.OntConfigurations.Any(o => o.AttachedSfpId != null));
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "cellular", siteSeededPatterns, () => siteDb.ModemConfigurations.Any());
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "starlink", siteSeededPatterns, () => siteDb.StarlinkConfigurations.Any());
             }
@@ -1297,6 +1339,8 @@ using (var scope = app.Services.CreateScope())
 
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
+            AlertRuleAutoEnable.EnableFreshlySeededWhen(db, "ont.management_unresponsive", seededPatterns,
+                () => db.OntConfigurations.Any(o => o.AttachedSfpId != null));
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
             AlertRuleAutoEnable.EnableFreshlySeeded(db, "starlink", seededPatterns, () => db.StarlinkConfigurations.Any());
         }
@@ -1662,7 +1706,8 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
             ["TRAEFIK_OPTIMIZER_HOSTNAME"] = "TRAEFIK_OPTIMIZER_HOSTNAME",
             ["TRAEFIK_SPEEDTEST_HOSTNAME"] = "TRAEFIK_SPEEDTEST_HOSTNAME",
             ["TRAEFIK_LISTEN_IP"] = "TRAEFIK_LISTEN_IP",
-            ["TRAEFIK_LOG_LEVEL"] = "TRAEFIK_LOG_LEVEL"
+            ["TRAEFIK_LOG_LEVEL"] = "TRAEFIK_LOG_LEVEL",
+            ["TRAEFIK_WAF_MODE"] = "TRAEFIK_WAF_MODE"
         };
 
         foreach (var mapping in keyMappings)
@@ -1706,6 +1751,7 @@ class SecretDecryptorAdapter(NetworkOptimizer.Storage.Services.ICredentialProtec
 {
     public string Decrypt(string encrypted) => inner.Decrypt(encrypted);
     public string Encrypt(string plaintext) => inner.Encrypt(plaintext);
+    public string EncryptForSite(string plaintext, string siteSlug) => inner.EncryptForSite(plaintext, siteSlug);
 }
 
 // Adapter to bridge IDigestStateStore (Alerts project) to SystemSettings (Storage project)

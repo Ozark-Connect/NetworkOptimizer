@@ -192,7 +192,8 @@ public sealed class ApAgentHealthClient
                 ReadUtc(root, "last_probe_run"),
                 ReadUtc(root, "collected_at"),
                 root.TryGetProperty("degraded", out var d) && d.ValueKind == JsonValueKind.True,
-                ReadStrings(root, "unavailable"));
+                ReadStrings(root, "unavailable"),
+                ReadStrings(root, "native_voluntary_vaps"));
         }
         catch (JsonException)
         {

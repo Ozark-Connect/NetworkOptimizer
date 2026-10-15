@@ -28,10 +28,21 @@ public class KillChainClassifier
         if (evt.Severity <= 1)
             return KillChainStage.Monitored;
 
-        return evt.EventSource == EventSource.TrafficFlow
-            ? ClassifyFlow(evt)
-            : ClassifyIps(evt);
+        return evt.EventSource switch
+        {
+            EventSource.TrafficFlow => ClassifyFlow(evt),
+            EventSource.Waf => ClassifyWaf(evt),
+            _ => ClassifyIps(evt)
+        };
     }
+
+    // Category is the CRS attack tag. Scanner fingerprints and protocol violations probe;
+    // everything else is an exploit payload that the app either received or the WAF stopped.
+    private static KillChainStage ClassifyWaf(ThreatEvent evt) => evt.Category.ToLowerInvariant() switch
+    {
+        "attack-reputation-scanner" or "attack-protocol" or "attack-disclosure" => KillChainStage.Reconnaissance,
+        _ => KillChainStage.AttemptedExploitation
+    };
 
     private KillChainStage ClassifyIps(ThreatEvent evt)
     {
@@ -89,6 +100,13 @@ public class KillChainClassifier
         // Incoming + blocked -> reconnaissance
         if (isIncoming && isBlocked)
             return KillChainStage.Reconnaissance;
+
+        // Low-risk egress from an internal host is a policy hit, not reconnaissance. Signed IPS
+        // flows and medium/high risk keep their stage: those can be a blocked call home.
+        var isLocal = "local".Equals(evt.Direction, StringComparison.OrdinalIgnoreCase);
+        var isLowRisk = "low".Equals(evt.RiskLevel, StringComparison.OrdinalIgnoreCase);
+        if ((isOutgoing || isLocal) && isLowRisk && evt.SignatureId == 0 && evt.Severity <= 2)
+            return KillChainStage.Monitored;
 
         // Default: classify by severity
         if (evt.Severity >= 4 && !isBlocked)

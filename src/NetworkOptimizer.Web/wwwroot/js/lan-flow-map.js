@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=16';
+import * as flowData from './lan-flow-data.js?v=17';
 
 const COLORS = {
     background: 0x202023,
@@ -411,6 +411,12 @@ export class LanFlowMap {
     _initInteractions() {
         this._resizeObserver = new ResizeObserver(() => this._handleResize());
         this._resizeObserver.observe(this.canvas.parentElement || this.canvas);
+        // Off screen (Live View stacks both maps) or in a hidden page, the scene is not drawn.
+        this._onScreen = true;
+        this._visibilityObserver = new IntersectionObserver((entries) => {
+            for (const e of entries) this._onScreen = e.isIntersecting;
+        });
+        this._visibilityObserver.observe(this.canvas);
 
         this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
         this.canvas.addEventListener('pointerleave', () => this._clearHover());
@@ -585,6 +591,7 @@ export class LanFlowMap {
         if (this._snapshotTimer) clearInterval(this._snapshotTimer);
         if (this._windowTickTimer) clearInterval(this._windowTickTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
+        if (this._visibilityObserver) this._visibilityObserver.disconnect();
         if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
         if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
         this.controls?.dispose();
@@ -1905,6 +1912,10 @@ export class LanFlowMap {
                 this._kbScrubTime = null;
             }
 
+            // Everything above stays live while unseen: the fly-in must land even for a map
+            // mounted below the fold, and arrow-key scrubbing drives the timeline both maps share.
+            if (!this._onScreen || document.hidden) return;
+
             // Freeze particle motion while paused (Live or Historic) so the
             // dots visibly stop with the polling; otherwise they keep flowing
             // off whatever the last rate snapshot was.
@@ -2086,8 +2097,9 @@ export class LanFlowMap {
 
     _startPolling() {
         if (this._pollTimer) clearInterval(this._pollTimer);
+        // A hidden page polls nothing; the next tick after it returns catches up.
         this._pollTimer = setInterval(() => {
-            if (this._mode === 'live' && !this._paused) this._pollLive();
+            if (this._mode === 'live' && !this._paused && !document.hidden) this._pollLive();
         }, this.pollIntervalMs);
         // Periodic light snapshot refresh to pick up data changes (mesh PHY rates, online
         // status, ISP speeds) without re-running force layout or resetting the camera.
@@ -2096,7 +2108,7 @@ export class LanFlowMap {
         // the mistake: two unaligned 30s timers stacked, and a reconnecting client could wait a
         // minute to appear.
         if (this._snapshotTimer) clearInterval(this._snapshotTimer);
-        this._snapshotTimer = setInterval(() => this._refreshSnapshot(), 5000);
+        this._snapshotTimer = setInterval(() => { if (!document.hidden) this._refreshSnapshot(); }, 5000);
     }
 
     // One snapshot refresh pass. Runs on the 5s timer, and immediately when a live tick reports
@@ -3988,8 +4000,9 @@ export class LanFlowMap {
 
         // Negotiated link speed (wired port or wireless PHY rate), shown directly
         // above the live throughput so the capable rate sits over the actual rate.
-        if (node.wiredLinkSpeedMbps) {
-            rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
+        const wiredSpeed = cs?.wiredLinkSpeedMbps ?? node.wiredLinkSpeedMbps;
+        if (wiredSpeed) {
+            rows.push(['Link speed', formatLinkSpeed(wiredSpeed)]);
         } else if (node.phyTxKbps || node.phyRxKbps || cs?.phyTxKbps || cs?.phyRxKbps) {
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
             // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap. Prefer
