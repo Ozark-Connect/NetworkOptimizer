@@ -130,6 +130,45 @@ public class Iperf3Result
     /// <summary>Loaded jitter during upload in milliseconds</summary>
     public double? UploadJitterMs { get; set; }
 
+    // Packet loss (UWN WAN tests). Null when the binary predates loss probing.
+    /// <summary>Packet loss percent while the link is idle</summary>
+    public double? IdleLossPercent { get; set; }
+
+    /// <summary>Probes behind <see cref="IdleLossPercent"/></summary>
+    public int? IdleLossProbes { get; set; }
+
+    /// <summary>Packet loss percent during download</summary>
+    public double? DownloadLossPercent { get; set; }
+
+    /// <summary>Probes behind <see cref="DownloadLossPercent"/></summary>
+    public int? DownloadLossProbes { get; set; }
+
+    /// <summary>Packet loss percent during upload</summary>
+    public double? UploadLossPercent { get; set; }
+
+    /// <summary>Probes behind <see cref="UploadLossPercent"/></summary>
+    public int? UploadLossProbes { get; set; }
+
+    // Background WAN load in a UWN WAN test's idle phase, from monitoring's counters on the WAN's counter
+    // interface. Null when monitoring could not see that WAN.
+    /// <summary>Other download traffic on the WAN in the test's idle phase, in Mbps</summary>
+    public double? BackgroundDownloadMbps { get; set; }
+
+    /// <summary>Other upload traffic on the WAN in the test's idle phase, in Mbps</summary>
+    public double? BackgroundUploadMbps { get; set; }
+
+    /// <summary>Plan download speed when the background check ran, in Mbps</summary>
+    public double? ExpectedDownloadMbps { get; set; }
+
+    /// <summary>Plan upload speed when the background check ran, in Mbps</summary>
+    public double? ExpectedUploadMbps { get; set; }
+
+    /// <summary>
+    /// The test fell below 85% of plan in a direction where background traffic covers at least half
+    /// the gap: it measured the competition, not the line. ISP Health leaves such tests out.
+    /// </summary>
+    public bool BackgroundLoadInvalid { get; set; }
+
     /// <summary>User agent string (browser tests only)</summary>
     [MaxLength(500)]
     public string? UserAgent { get; set; }

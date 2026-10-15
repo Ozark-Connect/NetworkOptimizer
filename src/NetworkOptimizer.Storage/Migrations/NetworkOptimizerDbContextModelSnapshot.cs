@@ -1914,6 +1914,15 @@ namespace NetworkOptimizer.Storage.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("BackgroundDownloadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<bool>("BackgroundLoadInvalid")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("BackgroundUploadMbps")
+                        .HasColumnType("REAL");
+
                     b.Property<string>("ClientMac")
                         .HasMaxLength(17)
                         .HasColumnType("TEXT");
@@ -1946,6 +1955,12 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double?>("DownloadLatencyMs")
                         .HasColumnType("REAL");
 
+                    b.Property<double?>("DownloadLossPercent")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("DownloadLossProbes")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("DownloadRetransmits")
                         .HasColumnType("INTEGER");
 
@@ -1956,9 +1971,21 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
+                    b.Property<double?>("ExpectedDownloadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("ExpectedUploadMbps")
+                        .HasColumnType("REAL");
+
                     b.Property<string>("ExternalServerName")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
+
+                    b.Property<double?>("IdleLossPercent")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("IdleLossProbes")
+                        .HasColumnType("INTEGER");
 
                     b.Property<double?>("JitterMs")
                         .HasColumnType("REAL");
@@ -2012,6 +2039,12 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<double?>("UploadLatencyMs")
                         .HasColumnType("REAL");
+
+                    b.Property<double?>("UploadLossPercent")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("UploadLossProbes")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("UploadRetransmits")
                         .HasColumnType("INTEGER");
