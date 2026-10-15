@@ -52,6 +52,29 @@ public class PlaybackLinkSpeedTests
         LanFlowMapService.SpeedMbpsAt(points, "eth1", At, isGateway: false).Should().Be(100);
     }
 
+    // --- LanFlowMapService.GatewayMacs (which ports count as gateway ports) ---
+
+    [Fact]
+    public void GatewayMacs_HoldsEveryGateway_Normalized_AndNothingElse()
+    {
+        var snapshot = new LanFlowMapSnapshot
+        {
+            Nodes =
+            {
+                // An HA pair: both gateways count. One MAC arrives upper-case with dashes.
+                new LanNode { Id = "dev-gw1", Kind = LanNodeKind.Gateway, Mac = "AA-BB-CC-00-00-01" },
+                new LanNode { Id = "dev-gw2", Kind = LanNodeKind.Gateway, Mac = "aa:bb:cc:00:00:02" },
+                new LanNode { Id = "dev-sw", Kind = LanNodeKind.Switch, Mac = "aa:bb:cc:00:00:03" },
+            },
+        };
+
+        var macs = LanFlowMapService.GatewayMacs(snapshot);
+
+        macs.Should().BeEquivalentTo("aa:bb:cc:00:00:01", "aa:bb:cc:00:00:02");
+        macs.Contains("AA:BB:CC:00:00:02").Should().BeTrue("lookups ignore case");
+        macs.Contains("aa:bb:cc:00:00:03").Should().BeFalse("a switch is not a gateway");
+    }
+
     // --- PortStatsEndpoints.LinkSpeedAt (Port Statistics historic scrub) ---
 
     private static MonitoringInfluxClient.PortStatsPoint Port(long? speedBps, int? linkSpeedMbps = null, int operStatus = 1) => new()

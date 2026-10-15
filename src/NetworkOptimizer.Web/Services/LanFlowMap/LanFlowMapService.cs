@@ -2823,7 +2823,7 @@ public class LanFlowMapService
     }
 
     /// <summary>Every gateway node's MAC, normalized. All of them: an HA pair has two.</summary>
-    private static HashSet<string> GatewayMacs(LanFlowMapSnapshot snapshot) =>
+    internal static HashSet<string> GatewayMacs(LanFlowMapSnapshot snapshot) =>
         snapshot.Nodes.Where(n => n.Kind == LanNodeKind.Gateway)
             .Select(n => NormalizeMac(n.Mac ?? ""))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
