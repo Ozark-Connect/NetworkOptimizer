@@ -84,7 +84,8 @@ public interface IThreatBlockingAdmin
         bool uniFiCloudflare, CancellationToken cancellationToken = default);
 }
 
-public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, SiteContextService site) : IThreatBlockingAdmin
+public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, SiteContextService site,
+    Authorization.ISiteAccessFilter siteAccess) : IThreatBlockingAdmin
 {
     private string Slug => site.Slug;
 
@@ -100,12 +101,14 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<CloudflareList> SetUpCloudflareAsync(string? token, string accountId, CancellationToken ct = default) => ops.SetUpCloudflareAsync(Slug, token, accountId, ct);
     public Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken ct = default) => ops.GetCloudflareStatusAsync(Slug, ct);
     public Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken ct = default) => ops.GetPublicListsAsync(Slug, ct);
-    public Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) => ops.GetTrustedSourcesAsync(Slug, ct);
+    public async Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) =>
+        await ops.GetTrustedSourcesAsync(Slug, await siteAccess.AuthorizedSlugsAsync(), ct);
     public Task<ProtectionStatus> GetProtectionStatusAsync(CancellationToken ct = default) => ops.GetProtectionStatusAsync(Slug, ct);
     public Task SetProtectionSetupHiddenAsync(bool hidden, CancellationToken ct = default) => ops.SetProtectionSetupHiddenAsync(Slug, hidden, ct);
-    public Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, string neverBlock, bool uniFiGroup,
+    public async Task SaveTrustedSourcesAsync(IReadOnlyList<string> trustedSiteSlugs, string extras, string neverBlock, bool uniFiGroup,
         bool uniFiCloudflare, CancellationToken ct = default) =>
-        ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, extras, neverBlock, uniFiGroup, uniFiCloudflare, ct);
+        await ops.SaveTrustedSourcesAsync(Slug, trustedSiteSlugs, await siteAccess.AuthorizedSlugsAsync(), extras, neverBlock,
+            uniFiGroup, uniFiCloudflare, ct);
 }
 
 /// <summary>
@@ -160,7 +163,8 @@ public interface IThreatBlockingSiteAdmin
     Task<bool> RemoveTrustedAddressAsync([SiteSlug] string siteSlug, string address, CancellationToken cancellationToken = default);
 }
 
-public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops) : IThreatBlockingSiteAdmin
+public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops, Authorization.ISiteAccessFilter siteAccess)
+    : IThreatBlockingSiteAdmin
 {
     public async Task<BlockingSiteSummary> GetSummaryAsync(string siteSlug, CancellationToken ct = default)
     {
@@ -191,10 +195,11 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops)
         ops.TurnOnRecommendedAsync(siteSlug, ct);
 
     public async Task<IReadOnlyList<string>> GetTrustedSitesAsync(string siteSlug, CancellationToken ct = default) =>
-        (await ops.GetTrustedSourcesAsync(siteSlug, ct)).Sites.Where(s => s.Trusted).Select(s => s.Slug).ToList();
+        (await ops.GetTrustedSourcesAsync(siteSlug, await siteAccess.AuthorizedSlugsAsync(), ct)).Sites
+            .Where(s => s.Trusted).Select(s => s.Slug).ToList();
 
-    public Task SetTrustedSitesAsync(string siteSlug, IReadOnlyList<string> trustedSiteSlugs, CancellationToken ct = default) =>
-        ops.SaveTrustedSitesAsync(siteSlug, trustedSiteSlugs, ct);
+    public async Task SetTrustedSitesAsync(string siteSlug, IReadOnlyList<string> trustedSiteSlugs, CancellationToken ct = default) =>
+        await ops.SaveTrustedSitesAsync(siteSlug, trustedSiteSlugs, await siteAccess.AuthorizedSlugsAsync(), ct);
 
     public Task<IReadOnlyList<string>> GetSiteAddressesAsync(string siteSlug, CancellationToken ct = default) =>
         ops.GetCurrentSiteAddressesAsync(siteSlug, ct);
