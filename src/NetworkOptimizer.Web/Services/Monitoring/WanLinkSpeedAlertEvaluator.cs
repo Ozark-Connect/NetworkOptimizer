@@ -144,9 +144,16 @@ public class WanLinkSpeedAlertEvaluator
         WanLinkSpeedObservation o, int speed, int expected, bool halfDuplex, CancellationToken ct)
     {
         var negotiated = $"{speed.ToString(CultureInfo.InvariantCulture)} Mbps{(halfDuplex ? " half duplex" : "")}";
-        var advice = o.Autoneg
-            ? "This is usually a cable, a connector, or auto-negotiation with the ISP's equipment. If it keeps happening, try setting the port's link speed manually in UniFi Network."
-            : "The port's speed is already set manually in UniFi Network, so check the cable and connectors.";
+        // A plan-derived expectation was never seen on this port, so the ISP device may simply not
+        // support it; say so rather than blaming the cable outright.
+        var advice = o.ExpectedFromPlan
+            ? $"Check that the ISP's equipment and the cable support {expected.ToString(CultureInfo.InvariantCulture)} Mbps. " +
+              (o.Autoneg
+                  ? "If they do, try setting the port's link speed manually in UniFi Network."
+                  : "The port's speed is already set manually in UniFi Network.")
+            : o.Autoneg
+                ? "This is usually a cable, a connector, or auto-negotiation with the ISP's equipment. If it keeps happening, try setting the port's link speed manually in UniFi Network."
+                : "The port's speed is already set manually in UniFi Network, so check the cable and connectors.";
 
         await _eventBus.PublishAsync(new AlertEvent
         {

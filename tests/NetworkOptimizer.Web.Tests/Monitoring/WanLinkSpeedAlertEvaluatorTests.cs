@@ -141,7 +141,8 @@ public class WanLinkSpeedAlertEvaluatorTests
         await Hold(Port(100) with { ExpectedFromPlan = true }, 10);
 
         Degraded.Should().ContainSingle().Which.Message.Should()
-            .Contain("internet plan needs").And.NotContain("normally reaches");
+            .Contain("internet plan needs").And.NotContain("normally reaches")
+            .And.Contain("ISP's equipment and the cable support 1000 Mbps");
     }
 
     [Fact]
