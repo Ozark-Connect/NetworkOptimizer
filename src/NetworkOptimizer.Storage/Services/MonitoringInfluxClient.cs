@@ -2207,6 +2207,18 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// The console link speed sample nearest <paramref name="at"/> for one interface, when one lies
+    /// within a console poll or so of it. Further away it may describe a different negotiation.
+    /// </summary>
+    private static int? NearestLinkSpeed(
+        Dictionary<string, List<(DateTime Time, int Mbps)>> linkSpeeds, string ifName, DateTime at)
+    {
+        if (!linkSpeeds.TryGetValue(ifName, out var samples) || samples.Count == 0) return null;
+        var nearest = samples.MinBy(s => (s.Time - at).Duration());
+        return (nearest.Time - at).Duration() <= TimeSpan.FromSeconds(90) ? nearest.Mbps : null;
+    }
+
+    /// <summary>
     /// The fastest console-reported link speed one port reached over a window, or null when none
     /// was recorded. Negotiated speed cannot read higher than the link really reached, so the
     /// maximum is what the port is capable of with its current partner.
@@ -2288,13 +2300,14 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
 ";
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
         var speeds = new Dictionary<(string ifName, long ticks), long>();
         var times = new Dictionary<(string ifName, long ticks), DateTime>();
         var portIds = new Dictionary<(string ifName, long ticks), string?>();
+        var linkSpeeds = new Dictionary<string, List<(DateTime Time, int Mbps)>>(StringComparer.OrdinalIgnoreCase);
 
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -2308,6 +2321,14 @@ from(bucket: ""{_bucket}"")
             // Speed only annotates a rate sample. A sample with speed and no rate must not become
             // a point, or a nearest-point reader would take it as a zero rate.
             if (field == "speed_bps") { speeds[key] = (long)value.Value; continue; }
+            // Console link speed lands on its own timestamps, so it is matched to rate samples by
+            // nearness below rather than by key.
+            if (field == InfluxFieldNames.LinkSpeedMbps)
+            {
+                if (!linkSpeeds.TryGetValue(ifName, out var list)) linkSpeeds[ifName] = list = new();
+                list.Add((time, (int)value.Value));
+                continue;
+            }
             times[key] = time;
             portIds[key] = record.GetValueByKey("port_id") as string;
             if (field == "rate_in_bps") rateIn[key] = value.Value;
@@ -2327,6 +2348,7 @@ from(bucket: ""{_bucket}"")
                 RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
                 RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
                 SpeedBps = speeds.TryGetValue(key, out var sp) ? sp : null,
+                LinkSpeedMbps = NearestLinkSpeed(linkSpeeds, key.ifName, time),
             });
         }
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
@@ -5589,6 +5611,11 @@ from(bucket: ""{_longtermBucket}"")
         public double? RateOutBps { get; init; }
         /// <summary>Negotiated link speed at this sample. Set by the raw query only.</summary>
         public long? SpeedBps { get; init; }
+        /// <summary>
+        /// The console-reported link speed nearest this sample (gateways only). Set by the raw query
+        /// only. Prefer it over <see cref="SpeedBps"/>, which reads the switch conduit on a gateway.
+        /// </summary>
+        public int? LinkSpeedMbps { get; init; }
     }
 
     /// <summary>One interface's link state at one sample: ifOperStatus, 1 for up.</summary>

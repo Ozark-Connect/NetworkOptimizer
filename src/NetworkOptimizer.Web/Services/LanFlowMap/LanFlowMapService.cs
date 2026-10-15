@@ -1038,7 +1038,7 @@ public class LanFlowMapService
                             if (closest != null)
                                 rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
                             // The snapshot's link speed is today's; the port's sample says what it was then.
-                            if (SpeedMbpsAt(pts, ifName, at) is { } mbps)
+                            if (SpeedMbpsAt(pts, ifName, at, IsGateway(snapshot, deviceMac)) is { } mbps)
                                 ClientStatsFor(update, link.ToNodeId).WiredLinkSpeedMbps = mbps;
                         }
                     }
@@ -1812,7 +1812,7 @@ public class LanFlowMapService
             // Speed negotiated at the instant, which changes with the host's state (a WOL port idles
             // at 100 Mbps while the host is off). The name map holds only the latest value.
             var sampledMbps = portMap != null && ratesByDevice.TryGetValue(NormalizeMac(p.ApMac), out var portPts)
-                ? SpeedMbpsAt(portPts, portMap.IfName, update.At) : null;
+                ? SpeedMbpsAt(portPts, portMap.IfName, update.At, IsGateway(snapshot, NormalizeMac(p.ApMac))) : null;
             var portSpeedMbps = sampledMbps ?? (portMap?.SpeedMbps is > 0 ? portMap.SpeedMbps : null);
 
             // The console keeps listing a wired client for minutes after its port goes down; the
@@ -2803,14 +2803,26 @@ public class LanFlowMapService
                     || string.Equals(p.PortId, ifName, StringComparison.OrdinalIgnoreCase))));
     }
 
-    /// <summary>The port's negotiated speed from the sample nearest <paramref name="at"/> that carries one, within the online window.</summary>
-    private static int? SpeedMbpsAt(
-        IEnumerable<MonitoringInfluxClient.InterfaceRatePoint> points, string ifName, DateTime at)
+    /// <summary>
+    /// The port's negotiated speed from the sample nearest <paramref name="at"/> that carries one,
+    /// within the online window. Null means the caller falls back to today's speed.
+    /// </summary>
+    /// <param name="isGateway">
+    /// The port is on a gateway. A gateway's built-in switch ports report the 10G switch conduit
+    /// over SNMP, so only the console-reported speed counts there; never fall back to SNMP's.
+    /// </param>
+    internal static int? SpeedMbpsAt(
+        IEnumerable<MonitoringInfluxClient.InterfaceRatePoint> points, string ifName, DateTime at, bool isGateway)
     {
-        var sample = ClosestPortPoint(points.Where(p => p.SpeedBps is > 0), ifName, at);
-        return sample != null && Math.Abs((sample.Time - at).TotalSeconds) <= HistoricOnlineWindowSeconds
-            ? (int)(sample.SpeedBps!.Value / 1_000_000L) : null;
+        var sample = ClosestPortPoint(
+            points.Where(p => p.LinkSpeedMbps is > 0 || (!isGateway && p.SpeedBps is > 0)), ifName, at);
+        if (sample == null || Math.Abs((sample.Time - at).TotalSeconds) > HistoricOnlineWindowSeconds) return null;
+        return sample.LinkSpeedMbps is > 0 ? sample.LinkSpeedMbps : (int)(sample.SpeedBps!.Value / 1_000_000L);
     }
+
+    private static bool IsGateway(LanFlowMapSnapshot snapshot, string deviceMac) =>
+        snapshot.Nodes.Any(n => n.Kind == LanNodeKind.Gateway
+            && string.Equals(NormalizeMac(n.Mac ?? ""), NormalizeMac(deviceMac), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The playback client stats for a node, created on first use.</summary>
     private static NodeClientStats ClientStatsFor(LanFlowMapHistoricUpdate update, string nodeId)
