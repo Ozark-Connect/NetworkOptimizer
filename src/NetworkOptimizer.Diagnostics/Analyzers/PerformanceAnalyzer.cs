@@ -45,7 +45,8 @@ public class PerformanceAnalyzer
         bool runPerformanceChecks = true,
         bool runCellularChecks = true,
         List<UniFiPortProfile>? portProfiles = null,
-        List<WanShaperState>? wanShaperStates = null)
+        List<WanShaperState>? wanShaperStates = null,
+        IReadOnlyList<WanLinkSpeedHistory>? wanLinkSpeedHistory = null)
     {
         var issues = new List<PerformanceIssue>();
 
@@ -56,6 +57,7 @@ public class PerformanceAnalyzer
             issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData, portProfiles));
             issues.AddRange(CheckSqmFirmwareRegression(devices, networks));
             issues.AddRange(CheckSqmNotShaping(devices, wanShaperStates));
+            issues.AddRange(CheckWanLinkSpeedHistory(devices, wanLinkSpeedHistory));
         }
 
         if (runCellularChecks)
@@ -814,6 +816,69 @@ public class PerformanceAnalyzer
 
         return issues;
     }
+
+    /// <summary>
+    /// A WAN port that keeps dropping below its usual speed. More than one sustained drop is the
+    /// pattern of auto-negotiation failing with the ISP's equipment (or a marginal cable), and
+    /// forcing the port's speed is the usual fix. A single drop is left to the link speed alert.
+    /// </summary>
+    internal const int WanLinkSpeedEpisodesToRecommend = 2;
+
+    [VendorSpecific("UniFi", "Reads gateway port_table autoneg and name for the WAN port")]
+    internal List<PerformanceIssue> CheckWanLinkSpeedHistory(
+        List<UniFiDeviceResponse> devices, IReadOnlyList<WanLinkSpeedHistory>? history)
+    {
+        var issues = new List<PerformanceIssue>();
+        if (history == null || history.Count == 0) return issues;
+
+        foreach (var h in history)
+        {
+            if (h.DegradedEpisodes < WanLinkSpeedEpisodesToRecommend) continue;
+
+            var gateway = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway
+                && string.Equals(d.Mac, h.DeviceMac, StringComparison.OrdinalIgnoreCase));
+            var port = gateway?.PortTable?.FirstOrDefault(p =>
+                string.Equals(p.IfName, h.IfName, StringComparison.OrdinalIgnoreCase));
+            if (gateway == null || port == null) continue;
+
+            var portName = string.IsNullOrWhiteSpace(port.Name) ? h.IfName : port.Name;
+            var days = Math.Max(1, (int)Math.Round(h.Lookback.TotalDays));
+            var description = $"{gateway.Name} port {portName} dropped below its usual {h.UsualMbps} Mbps " +
+                $"{h.DegradedEpisodes} times in the last {(days == 1 ? "day" : $"{days} days")}, as low as {h.LowestMbps} Mbps, " +
+                $"for about {FormatDuration(h.DegradedTime)} in total.";
+
+            issues.Add(port.Autoneg
+                ? new PerformanceIssue
+                {
+                    Title = $"WAN Link Speed Keeps Dropping on {gateway.Name}",
+                    Description = description + " This is usually auto-negotiation failing with the ISP's equipment.",
+                    Recommendation = $"Set the link speed of port {HtmlEncode(portName)} on {HtmlEncode(gateway.Name)} " +
+                        $"to {h.UsualMbps} Mbps full duplex in UniFi Network instead of auto-negotiation. " +
+                        "If it still drops, replace the cable between the gateway and the ISP's equipment.",
+                    Severity = PerformanceSeverity.Recommendation,
+                    Category = PerformanceCategory.Performance,
+                    DeviceName = gateway.Name
+                }
+                : new PerformanceIssue
+                {
+                    Title = $"WAN Link Speed Keeps Dropping on {gateway.Name}",
+                    Description = description + " The port's speed is already set manually.",
+                    Recommendation = $"Check or replace the cable between port {HtmlEncode(portName)} on " +
+                        $"{HtmlEncode(gateway.Name)} and the ISP's equipment, and the ISP device's own port.",
+                    Severity = PerformanceSeverity.Recommendation,
+                    Category = PerformanceCategory.Performance,
+                    DeviceName = gateway.Name
+                });
+
+            _logger?.LogDebug("WAN link speed history on {Gateway} {IfName}: {Episodes} drops below {Usual} Mbps, autoneg={Autoneg}",
+                gateway.Name, h.IfName, h.DegradedEpisodes, h.UsualMbps, port.Autoneg);
+        }
+
+        return issues;
+    }
+
+    private static string FormatDuration(TimeSpan span) =>
+        span.TotalHours >= 1 ? $"{Math.Round(span.TotalHours):0} hours" : $"{Math.Max(1, Math.Round(span.TotalMinutes)):0} minutes";
 
     #region Helper Methods
 

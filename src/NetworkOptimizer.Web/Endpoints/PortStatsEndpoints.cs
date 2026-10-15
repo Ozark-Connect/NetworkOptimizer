@@ -162,7 +162,9 @@ public static class PortStatsEndpoints
                                     friendlyName = liveStats.GetInterfaceLabel(mac, p.IfName)
                                         ?? ResolveFriendly(mac, p.IfName),
                                     isSfp = nm?.IsSfp ?? parent?.IsSfp,
-                                    linkSpeedMbps = nm?.SpeedMbps,
+                                    // A historic scrub has the gateway port's recorded speed at that
+                                    // instant; the name map only knows the current one.
+                                    linkSpeedMbps = p.LinkSpeedMbps ?? nm?.SpeedMbps,
                                     operStatus = p.OperStatus,
                                     rateInBps = p.RateInBps,
                                     rateOutBps = p.RateOutBps,

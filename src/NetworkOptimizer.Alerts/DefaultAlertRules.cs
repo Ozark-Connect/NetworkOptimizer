@@ -160,6 +160,28 @@ public static class DefaultAlertRules
             CooldownSeconds = 1800 // 30 minutes
         },
 
+        // --- WAN link speed (enabled - needs only the console connection) ---
+        // No cooldown on either rule: a re-publish supersedes its own open alert before rules run,
+        // and shares its cooldown key, so a cooldown would drop the replacement (see Starlink below).
+        new AlertRule
+        {
+            Name = "WAN: Link Speed Degraded",
+            IsEnabled = true,
+            EventTypePattern = "wan.link_speed_degraded",
+            Source = "wan",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0 // 5 minute sustain to open, then once per episode
+        },
+        new AlertRule
+        {
+            Name = "WAN: Link Speed Recovered",
+            IsEnabled = true,
+            EventTypePattern = "wan.link_speed_recovered",
+            Source = "wan",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0 // 5 minute sustain to close, paired with the degraded alert
+        },
+
         // --- LAN Speed Test (disabled - needs device SSH configured) ---
         new AlertRule
         {
