@@ -20,9 +20,10 @@
       "level": "major",
       "url": "/threats",
       "selector": "[data-tour=\"protection-setup\"]",
+      "alsoSelectors": ["[data-tour=\"threats-blocking-tab\"]"],
       "title": "Protection Setup",
       "listLabel": "Go from watching attacks to blocking them, one step at a time",
-      "body": "Each row shows where this site stands and the one action that finishes it, and **Turn On Recommended** does most of it in one click. **Trusted Sources** keeps your sites' own addresses from ever being blocked, and keeps UniFi Network Lists of them current, so a port forward can admit only your other sites as their WAN addresses change.",
+      "body": "Each row shows where this site stands and the one action that finishes it, and **Turn On Recommended** does most of it in one click. **Trusted Sources** keeps your sites' own addresses from ever being blocked, and keeps UniFi Network Lists of them current, so a port forward can admit only your other sites as their WAN addresses change.\n\nThe **Blocking** tab lists every source blocked, each linked to its details.",
       "placement": "bottom",
       "optional": true
     },
