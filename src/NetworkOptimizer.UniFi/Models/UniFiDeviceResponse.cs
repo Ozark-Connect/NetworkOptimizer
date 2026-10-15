@@ -612,6 +612,10 @@ public class SwitchPort
     [JsonPropertyName("speed")]
     public int Speed { get; set; }
 
+    /// <summary>Negotiated duplex. Null when the console omits it.</summary>
+    [JsonPropertyName("full_duplex")]
+    public bool? FullDuplex { get; set; }
+
     /// <summary>
     /// Whether auto-negotiation is enabled for this port.
     /// When false, speed is forced/manually configured.
