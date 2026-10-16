@@ -30,6 +30,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     private static readonly TimeSpan FeedWriteEvery = TimeSpan.FromMinutes(15);
     // How long a gateway agent that stopped confirming the set still holds back the console writes.
     private static readonly TimeSpan AgentGrace = TimeSpan.FromMinutes(5);
+    // How long an enforcing gateway agent may be disconnected (a restart) before the console takes over.
+    private static readonly TimeSpan AgentDisconnectGrace = TimeSpan.FromMinutes(2);
     // Public list entries on a gateway agent outlive a lost server by this much; they are re-sent well within it.
     private static readonly TimeSpan AgentFeedTtl = TimeSpan.FromHours(24);
 
@@ -394,7 +396,13 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             ? feeds.Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)).ToList()
             : [];
         var fingerprint = AgentFingerprint(enabled, desired, feeds, outbound.Count > 0);
-        if (!_agents.Push(site, enabled, entries, outbound, fingerprint) || !enabled)
+        var connected = _agents.Push(site, enabled, entries, outbound, fingerprint);
+        // An agent that was enforcing and dropped off is most often restarting. Its rules stay on the gateway
+        // for an hour after it stops, so the console waits out a short disconnect instead of reprovisioning.
+        if (!connected && enabled && _agentEnforcingAt.TryGetValue(Key(site), out var lastEnforcing)
+            && now - lastEnforcing <= AgentDisconnectGrace)
+            return;
+        if (!connected || !enabled)
         {
             _agentEnforcingAt.TryRemove(Key(site), out _);
             _status.TryRemove((Key(site), BlockTargetKind.GatewayAgent), out _);

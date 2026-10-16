@@ -163,6 +163,41 @@ public class GatewayAgentBlockingTests
     }
 
     [Fact]
+    public async Task AgentRestart_ConsoleWaits()
+    {
+        var h = new Harness();
+        h.Block("203.0.113.7");
+        await h.Cycle(T0);
+        h.Agents.Connected = false;
+        h.Block("203.0.113.8");
+        await h.Cycle(T0.AddMinutes(1));
+        h.Console.Syncs.Should().BeEmpty("a restarting agent's rules are still on the gateway");
+
+        h.Agents.Connected = true;
+        await h.Cycle(T0.AddMinutes(2));
+        h.Console.Syncs.Should().BeEmpty();
+        h.Agents.Pushes.Last().Entries.Select(e => e.Address).Should().BeEquivalentTo("203.0.113.7", "203.0.113.8");
+    }
+
+    [Fact]
+    public async Task AgentGone_ConsoleTakesOverAfterTheDisconnectGrace()
+    {
+        var h = new Harness();
+        h.Block("203.0.113.7");
+        await h.Cycle(T0);
+        h.Agents.Connected = false;
+        h.Block("203.0.113.8");
+
+        await h.Cycle(T0.AddMinutes(1));
+        await h.Cycle(T0.AddMinutes(2));
+        h.Console.Syncs.Should().BeEmpty();
+
+        await h.Cycle(T0.AddMinutes(3));
+        h.Console.Syncs.Should().ContainSingle().Which.Should().BeEquivalentTo("203.0.113.7", "203.0.113.8");
+        h.Service.GatewayAgentEnforcing(null).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task AgentStopsConfirming_ConsoleWritesAfterTheGrace()
     {
         var h = new Harness();
