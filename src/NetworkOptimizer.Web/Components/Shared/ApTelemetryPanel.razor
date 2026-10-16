@@ -62,7 +62,7 @@
         {
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" checked="@_siteEnabled" @onchange="OnSiteEnabledChangedAsync" />
+                    <input type="checkbox" data-autosave checked="@_siteEnabled" @onchange="OnSiteEnabledChangedAsync" />
                     <span>Collect Wi-Fi telemetry from this site's access points</span>
                 </label>
                 <small class="form-help">
@@ -325,7 +325,7 @@
                                                         }
                                                         <div class="ap-agent-cap-footer">
                                                             <label class="checkbox-toggle" @onclick:stopPropagation="true">
-                                                                <input type="checkbox" checked="@entry.Enabled"
+                                                                <input type="checkbox" checked="@entry.Enabled" data-autosave
                                                                        @onchange="e => SetApEnabledAsync(entry, e)" />
                                                                 <span>Include in AP Agent deployment</span>
                                                             </label>

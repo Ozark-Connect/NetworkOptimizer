@@ -36,7 +36,7 @@ public class BlockSharingTests
 
         public List<IReadOnlyList<string>> FeedSyncs { get; } = [];
 
-        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct)
+        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound, CancellationToken ct)
         {
             FeedSyncs.Add(entries);
             return Task.FromResult(BlockTargetResult.Success(entries.Count));

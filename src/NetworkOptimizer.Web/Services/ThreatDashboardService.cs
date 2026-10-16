@@ -86,6 +86,14 @@ public class ThreatDashboardService : IThreatFilterAdminService
         _logger = logger;
     }
 
+    // The site's enabled public lists as Automatic Blocking last built them (null site = default site).
+    private NetworkOptimizer.Threats.Blocking.PublicBlockList? PublicListFor(string ip)
+    {
+        var slug = _siteContext.Slug;
+        var site = string.IsNullOrEmpty(slug) || slug == SiteManagementService.DefaultSiteSlug ? null : slug;
+        return _serviceProvider.GetService<NetworkOptimizer.Threats.Blocking.IPublicListLookup>()?.For(site).Find(ip);
+    }
+
     /// <summary>
     /// Create a fresh DI scope and resolve a private <see cref="IThreatRepository"/> from it.
     /// Each public operation gets its own repository instance - and therefore its own DbContext
@@ -632,6 +640,22 @@ public class ThreatDashboardService : IThreatFilterAdminService
         }
     }
 
+    public async Task<List<PublicListContactSummary>> GetPublicListContactsAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetPublicListContactsAsync(from, to, 50, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get public block list contacts");
+            return [];
+        }
+    }
+
     public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
@@ -667,6 +691,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 .Select(g => BuildPeerGroup(g.Key.Ip, g.ToList()))
                 .OrderByDescending(p => p.EventCount)
                 .ToList();
+            foreach (var dest in destinations.Where(d => d.Ip.Length > 0))
+                dest.PublicList = PublicListFor(dest.Ip)?.Name;
 
             // Peer groups: sources when IP is destination
             var sources = asDest
@@ -718,7 +744,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 Destinations = destinations,
                 Sources = sources,
                 PortRanges = portRanges,
-                TopSignatures = signatures
+                TopSignatures = signatures,
+                PublicList = PublicListFor(ip)?.Name
             };
         }
         catch (Exception ex)
@@ -1167,6 +1194,9 @@ public record ThreatTrendPoint
 public class IpDrilldownData
 {
     public string Ip { get; set; } = string.Empty;
+
+    /// <summary>The site's public block list holding this address, or null; the same match the contact alerts use.</summary>
+    public string? PublicList { get; set; }
     public string? CountryCode { get; set; }
     public string? AsnOrg { get; set; }
     public int TotalEvents { get; set; }
@@ -1193,6 +1223,9 @@ public class IpPeerGroup
     public string? Services { get; set; }
     public int EventCount { get; set; }
     public int BlockedCount { get; set; }
+
+    /// <summary>The site's public block list holding this destination, or null. Set on destinations only.</summary>
+    public string? PublicList { get; set; }
 }
 
 /// <summary>

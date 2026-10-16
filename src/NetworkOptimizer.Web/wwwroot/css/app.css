@@ -7412,6 +7412,88 @@ a.path-hop.hop-clickable:hover {
     margin-bottom: 1rem;
 }
 
+/* Public Block Lists: the profile picker sits on the right of the section title */
+.automatic-blocking .ab-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.automatic-blocking .ab-section-header .ab-section-title {
+    margin: 0;
+}
+
+.automatic-blocking .ab-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.automatic-blocking .ab-profile .form-control {
+    width: auto;
+}
+
+.automatic-blocking .ab-saved {
+    color: var(--success-color);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.automatic-blocking .ab-token {
+    margin-top: 0.5rem;
+}
+
+/* Settings: each card's bottom button row sits on the right on desktop (centered on mobile, as everywhere) */
+@media (min-width: 769px) {
+    .settings-container > .card > .card-body > .action-buttons:not(:has(~ .action-buttons)) {
+        justify-content: flex-end;
+    }
+}
+
+/* Its primary button, floated while the row is scrolled out of view (settings-section-save.js) */
+.settings-floating-save {
+    position: fixed;
+    z-index: 900;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.settings-floating-save[hidden] {
+    display: none;
+}
+
+/* How the floating Save went: a check, a cross, or a warning mark beside it */
+.settings-floating-result {
+    position: fixed;
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.settings-floating-result[hidden] {
+    display: none;
+}
+
+.settings-floating-result.is-success {
+    color: var(--success-color);
+}
+
+.settings-floating-result.is-error {
+    color: var(--danger-color);
+}
+
+.settings-floating-result.is-warning {
+    color: var(--warning-color);
+}
+
 /* Threat Intelligence - Protection Setup checklist: one row per step, its action on the right */
 .protection-setup .card-header {
     display: flex;

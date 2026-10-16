@@ -590,8 +590,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ThreatPatternAna
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ExposureValidator>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IThreatSystemAudit, NetworkOptimizer.Web.Services.ThreatSystemAudit>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IInfrastructureSourceProvider, NetworkOptimizer.Web.Services.AgentInfrastructureSourceProvider>();
-builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
+// Collection, Automatic Blocking, and gateway agent enforcement (see ThreatBlockingRegistration).
+builder.Services.AddThreatBlockingCore();
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>();
 // Reads stay on the concrete service (the dashboard is a Viewer surface); the noise-filter writes
@@ -604,8 +604,6 @@ builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAc
 // host narrows sharing by decorating IBlockSharingScope.
 // A site's WAF is read and given its ban list through the site's agent when the site is routed that way.
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.ISiteHttpClientProvider, NetworkOptimizer.Web.Services.SiteHttpClientProvider>();
-builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>();
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.TrustedSourcesGroup>();
 // Public block lists and Cloudflare's ranges, fetched once per instance and kept in the main database.

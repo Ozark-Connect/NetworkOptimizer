@@ -29,6 +29,13 @@ public interface IThreatBlockingAdmin
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
     Task<RecommendedResult> TurnOnRecommendedAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The profile Turn On Recommended would apply here and its lists; with <paramref name="profile"/>,
+    /// that profile's lists instead. Viewer: the note shows on Threat Intelligence too.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<BlockingRecommendation> GetRecommendationAsync(BlockingProfile? profile = null, CancellationToken cancellationToken = default);
+
     /// <summary>Ends one of this site's blocks now; the next sync, which this triggers, removes it everywhere.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ThreatSourceUnblocked, Category = AuditCategories.Settings, TargetType = "threat_block")]
@@ -55,6 +62,10 @@ public interface IThreatBlockingAdmin
     [RequireRole(Roles.Admin)]
     Task<string?> CheckGatewayAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the On-Site Agent on the site's gateway currently holds its blocklist.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<bool> IsGatewayAgentEnforcingAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Saves the token (when given) and account, then finds or creates the list.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ThreatBlockingTargetSetUp, Category = AuditCategories.Settings, TargetType = "cloudflare")]
@@ -66,6 +77,19 @@ public interface IThreatBlockingAdmin
     /// <summary>Every public block list, whether this site uses it, and its last download.</summary>
     [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Public list entries left out at the last cycle because the site's lists add up to more than the cap.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<int> GetPublicListsCappedAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Whether the site has a connected gateway On-Site Agent that can hold every public list entry.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<bool> IsGatewayAgentPresentAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Saves, or with an empty token clears, the site's API token for a public list that needs one.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
+    Task SavePublicListTokenAsync(string listId, string? token, CancellationToken cancellationToken = default);
 
     [RequireRole(Roles.Admin)]
     Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken cancellationToken = default);
@@ -102,15 +126,22 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     }
     public Task SaveSettingsAsync(BlockingSettings settings, CancellationToken ct = default) => ops.SaveSettingsAsync(Slug, settings, ct);
     public Task<RecommendedResult> TurnOnRecommendedAsync(CancellationToken ct = default) => ops.TurnOnRecommendedAsync(Slug, ct);
+    public Task<BlockingRecommendation> GetRecommendationAsync(BlockingProfile? profile = null, CancellationToken ct = default) =>
+        ops.RecommendAsync(Slug, ct, profile);
     public Task<bool> ReleaseAsync(int blockId, string releasedBy, CancellationToken ct = default) => ops.ReleaseAsync(Slug, blockId, releasedBy, ct);
     public Task<ThreatBlock> BlockAsync(string ip, int minutes, string blockedBy, CancellationToken ct = default) => ops.BlockAsync(Slug, ip, minutes, blockedBy, ct);
     public Task<ThreatBlock?> FindActiveBlockAsync(string ip, CancellationToken ct = default) => ops.FindActiveBlockAsync(Slug, ip, ct);
     public Task<GatewaySetUpResult> SetUpGatewayAsync(CancellationToken ct = default) => ops.SetUpGatewayAsync(Slug, ct);
     public Task RemoveGatewayAsync(CancellationToken ct = default) => ops.RemoveGatewayAsync(Slug, ct);
     public Task<string?> CheckGatewayAsync(CancellationToken ct = default) => ops.CheckGatewayAsync(Slug, ct);
+    public Task<bool> IsGatewayAgentEnforcingAsync(CancellationToken ct = default) => Task.FromResult(ops.IsGatewayAgentEnforcing(Slug));
     public Task<CloudflareList> SetUpCloudflareAsync(string? token, string accountId, CancellationToken ct = default) => ops.SetUpCloudflareAsync(Slug, token, accountId, ct);
     public Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken ct = default) => ops.GetCloudflareStatusAsync(Slug, ct);
     public Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken ct = default) => ops.GetPublicListsAsync(Slug, ct);
+    public Task<int> GetPublicListsCappedAsync(CancellationToken ct = default) => Task.FromResult(ops.PublicListsCapped(Slug));
+    public Task<bool> IsGatewayAgentPresentAsync(CancellationToken ct = default) => Task.FromResult(ops.GatewayAgentPresent(Slug));
+    public Task SavePublicListTokenAsync(string listId, string? token, CancellationToken ct = default) =>
+        ops.SavePublicListTokenAsync(Slug, listId, token, ct);
     public async Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) =>
         await ops.GetTrustedSourcesAsync(Slug, await siteAccess.AuthorizedSlugsAsync(), ct);
     public Task<ProtectionStatus> GetProtectionStatusAsync(CancellationToken ct = default) => ops.GetProtectionStatusAsync(Slug, ct);
@@ -185,7 +216,7 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops,
             .Distinct(StringComparer.OrdinalIgnoreCase).Count();
         return new BlockingSiteSummary(overview.Settings.Mode, overview.Settings.Share,
             await ops.IsGatewaySetUpAsync(siteSlug, ct), own.Count + shared,
-            PublicBlockLists.RecommendedNote(overview.Settings.Feeds),
+            overview.Settings.Mode == BlockingMode.Enforce ? null : (await ops.RecommendAsync(siteSlug, ct)).Note,
             shared, ops.GatewayFeedEntries(siteSlug));
     }
 

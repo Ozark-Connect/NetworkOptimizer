@@ -18,7 +18,7 @@
                     <div class="banner-content">
                         <div class="banner-text">
                             <span>Detection Only: these sources would be blocked. Nothing is sent to the gateway, the WAF, or Cloudflare yet.</span>
-                            @if (PublicBlockLists.RecommendedNote(_overview.Settings.Feeds) is { } listNote)
+                            @if (_recommendationNote is { } listNote)
                             {
                                 <small class="form-help">@listNote</small>
                             }
@@ -117,6 +117,7 @@
     [Parameter] public bool ShowWhenOff { get; set; }
 
     private BlockingOverview? _overview;
+    private string? _recommendationNote;
     private Dictionary<string, string> _siteNames = [];
     private int? _releasing;
     private string? _message;
@@ -128,6 +129,7 @@
         try
         {
             _overview = await Blocking.GetOverviewAsync();
+            _recommendationNote = _overview.Settings.Mode == BlockingMode.DryRun ? (await Blocking.GetRecommendationAsync()).Note : null;
             if (_overview.Shared.Count > 0)
                 _siteNames = (await SiteManagement.GetSitesAsync()).ToDictionary(s => s.Slug, s => s.Name);
         }
@@ -200,6 +202,7 @@
         BlockTargetKind.Gateway => "Gateway",
         BlockTargetKind.Waf => "WAF",
         BlockTargetKind.Cloudflare => "Cloudflare",
+        BlockTargetKind.GatewayAgent => "Gateway On-Site Agent",
         _ => kind.ToString()
     };
 }

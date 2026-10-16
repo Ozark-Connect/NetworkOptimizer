@@ -87,8 +87,11 @@ public sealed class TrustedSourcesGroup(IUniFiClientAccessor clients, IThreatSet
                 groups ??= await client.GetFirewallGroupsOrThrowAsync(ct);
                 return groups.FirstOrDefault(g => g.Name == name && g.GroupType == type)?.Id;
             }
-            async Task<string> Write(string? id, string name, string type, List<string> entries, string description) =>
-                (await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(id, name, type, entries, description), ct)).Id;
+            async Task<string> Write(string? id, string name, string type, List<string> entries, string description)
+            {
+                groups ??= await client.GetFirewallGroupsOrThrowAsync(ct);
+                return await GatewayBlocklist.SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(id, name, type, entries, description), ct);
+            }
 
             var (v4, v6) = GatewayBlocklist.SplitFamilies(members);
             state.GroupV4Id = await Find(state.GroupV4Id, NameV4, "address-group");

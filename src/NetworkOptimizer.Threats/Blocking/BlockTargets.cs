@@ -9,7 +9,13 @@ public enum BlockTargetKind
 {
     Gateway = 0,
     Waf = 1,
-    Cloudflare = 2
+    Cloudflare = 2,
+
+    /// <summary>
+    /// The On-Site Agent on the gateway. Status only: it is the gateway target's fast path, never a
+    /// separate setting or a target of its own.
+    /// </summary>
+    GatewayAgent = 3
 }
 
 /// <summary>The outcome of one sync to a target.</summary>
@@ -49,11 +55,12 @@ public interface IFeedBlockTarget
 /// </summary>
 public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor settings, string? site) : IBlockTarget, IFeedBlockTarget
 {
-    // List entries outlive a missed sync by this much; the WAF is re-sent every minute.
+    // List entries outlive a missed sync by this much; the WAF is re-sent on change, on restart, and
+    // every 30 minutes (ThreatBlockingService.WafResync).
     private static readonly TimeSpan FeedTtl = TimeSpan.FromHours(2);
 
     public BlockTargetKind Kind => BlockTargetKind.Waf;
-    public bool SyncEveryCycle => true;
+    public bool SyncEveryCycle => false;
     public IReadOnlyList<string> Feeds { get; set; } = [];
 
     public async Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken)
@@ -87,14 +94,45 @@ public interface IGatewayBlocklistWriter
     /// <summary>Replaces the site's group members with <paramref name="ips"/> (null site = default).</summary>
     Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken cancellationToken);
 
-    /// <summary>Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges).</summary>
-    Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken cancellationToken);
+    /// <summary>
+    /// Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges,
+    /// blocked inbound) and, where outbound blocking is set up, its outbound groups with <paramref name="outbound"/>.
+    /// </summary>
+    Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Narrows the site's blocklist policies to new connections where they still match every state.
     /// Returns how many it changed; 0 when gateway blocking is not set up.
     /// </summary>
     Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken cancellationToken);
+}
+
+/// <summary>One address or range for a gateway agent, with when it stops being blocked.</summary>
+public sealed record GatewayAgentEntry(string Address, DateTime ExpiresAt);
+
+/// <summary>
+/// Gateway enforcement through the On-Site Agent running on a site's gateway: the agent keeps the set
+/// in its own ipsets, so a change takes effect in seconds and never reprovisions the gateway.
+/// </summary>
+public interface IGatewayAgentBlocklist
+{
+    /// <summary>
+    /// Sends the set to the site's capable gateway agents (null site = default) when they do not hold it
+    /// yet: <paramref name="entries"/> are blocked as sources, <paramref name="outbound"/> as destinations.
+    /// Returns false when the site has no connected agent that can enforce it.
+    /// </summary>
+    bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
+        string fingerprint);
+
+    /// <summary>Whether a gateway agent of the site has applied <paramref name="fingerprint"/> with its rules in place.</summary>
+    bool IsEnforcing(string? site, string fingerprint);
+
+    /// <summary>What is wrong with the site's connected gateway agent, or null when nothing is.</summary>
+    string? Problem(string? site, string fingerprint);
+
+    /// <summary>Whether the site has a connected gateway agent that can enforce its set.</summary>
+    bool HasGatewayAgent(string? site);
 }
 
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>
