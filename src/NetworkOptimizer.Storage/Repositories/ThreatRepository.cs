@@ -843,8 +843,16 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
+            // UDP from a server port to an ephemeral port is a late QUIC/DNS/NTP reply the gateway dropped
+            // after forgetting the connection. Without a handshake it probes nothing, so it never forms a
+            // chain; it stays in the timeline, and DDoS detection still counts it.
+            var serverPorts = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.ServerPorts.ToArray();
+            const int ephemeralFloor = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.EphemeralPortFloor;
+            IQueryable<ThreatEvent> ChainEvents() => BaseQuery(from, to)
+                .Where(e => !(e.Protocol.ToUpper() == "UDP" && serverPorts.Contains(e.SourcePort) && e.DestPort >= ephemeralFloor));
+
             // Step 1: Find source IPs with 2+ distinct kill chain stages (SQL-side filtering)
-            var candidateIps = await BaseQuery(from, to)
+            var candidateIps = await ChainEvents()
                 .GroupBy(e => e.SourceIp)
                 .Where(g => g.Select(e => e.KillChainStage).Distinct().Count() >= 2)
                 .OrderByDescending(g => g.Max(e => e.Timestamp))
@@ -855,7 +863,7 @@ public class ThreatRepository : IThreatRepository
             if (candidateIps.Count == 0) return [];
 
             // Step 2: Load only events for those IPs (bounded set)
-            var events = await BaseQuery(from, to)
+            var events = await ChainEvents()
                 .Where(e => candidateIps.Contains(e.SourceIp))
                 .Select(e => new
                 {
