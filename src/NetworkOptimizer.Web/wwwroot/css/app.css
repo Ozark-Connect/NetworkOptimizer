@@ -7412,6 +7412,30 @@ a.path-hop.hop-clickable:hover {
     margin-bottom: 1rem;
 }
 
+/* Public Block Lists: the profile picker sits on the right of the section title */
+.automatic-blocking .ab-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.automatic-blocking .ab-section-header .ab-section-title {
+    margin: 0;
+}
+
+.automatic-blocking .ab-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.automatic-blocking .ab-profile .form-control {
+    width: auto;
+}
+
 /* Threat Intelligence - Protection Setup checklist: one row per step, its action on the right */
 .protection-setup .card-header {
     display: flex;

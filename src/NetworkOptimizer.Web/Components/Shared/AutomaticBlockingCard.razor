@@ -31,9 +31,9 @@
                     <div class="banner-content">
                         <div class="banner-text">
                             <span>Start blocking repeat attackers in one click: on the gateway, in the WAF when one is connected, and across your sites. Cloudflare stays off until you add a token.</span>
-                            @if (PublicBlockLists.RecommendedNote(_saved?.Feeds ?? []) is { } listNote)
+                            @if (_recommendation != null)
                             {
-                                <small class="form-help">@listNote</small>
+                                <small class="form-help">@_recommendation.Note</small>
                             }
                         </div>
                         <div class="banner-actions">
@@ -110,7 +110,19 @@
             </div>
 
             <div class="ab-section">
-                <h3 class="ab-section-title">Public Block Lists</h3>
+                <div class="ab-section-header">
+                    <h3 class="ab-section-title">Public Block Lists</h3>
+                    <div class="ab-profile">
+                        <select class="form-control" @bind="_profile" aria-label="Profile">
+                            @foreach (var p in BlockingProfiles.All)
+                            {
+                                <option value="@p">@BlockingProfiles.Name(p)@(p == _recommendation?.Profile ? " (recommended)" : "")</option>
+                            }
+                        </select>
+                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="UseProfile">Use Profile</button>
+                    </div>
+                </div>
+                <p class="form-help">@BlockingProfiles.Name(_profile): @BlockingProfiles.Description(_profile) Use Profile ticks its lists below and turns on outbound blocking; Save applies them.</p>
                 <p class="form-help">Known-bad networks from public lists, blocked on the gateway and in the WAF while Automatic Blocking is in Blocking mode. Never sent to Cloudflare, which has its own. Entries that overlap private space or Trusted Sources are skipped.</p>
                 @foreach (var view in _lists)
                 {
@@ -357,6 +369,8 @@
         };
         await RefreshGateway();
         _lists = await Blocking.GetPublicListsAsync();
+        _recommendation = await Blocking.GetRecommendationAsync();
+        _profile = _recommendation.Profile;
         _setupHidden = (await Blocking.GetProtectionStatusAsync()).Hidden;
         _cf = await Blocking.GetCloudflareStatusAsync();
         _cfAccount = _cf.AccountId ?? "";
@@ -379,6 +393,17 @@
         _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}",
     };
 
+    private BlockingRecommendation? _recommendation;
+    private BlockingProfile _profile = BlockingProfile.Home;
+
+    private Task UseProfile() => Run(async () =>
+    {
+        var lists = (await Blocking.GetRecommendationAsync(_profile)).Lists;
+        _form!.Feeds = lists.ToHashSet();
+        _form.FeedsOutbound = true;
+        return $"{BlockingProfiles.Name(_profile)} lists ticked below. Save to apply them.";
+    });
+
     // Typed tokens, by list id; never shown again once saved.
     private readonly Dictionary<string, string> _tokens = PublicBlockLists.All.Where(l => l.NeedsToken).ToDictionary(l => l.Id, _ => "");
 
@@ -388,7 +413,9 @@
         await Blocking.SavePublicListTokenAsync(listId, token);
         _tokens[listId] = "";
         _lists = await Blocking.GetPublicListsAsync();
-        return string.IsNullOrWhiteSpace(token) ? "Token removed." : "Token saved. The list downloads within a minute while it is turned on.";
+        if (string.IsNullOrWhiteSpace(token)) return "Token removed.";
+        _form!.Feeds.Add(listId);
+        return "Token saved and the list turned on. It downloads within a minute.";
     });
 
     private static string RefreshText(TimeSpan every) => every switch

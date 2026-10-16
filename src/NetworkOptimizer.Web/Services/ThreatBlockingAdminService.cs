@@ -29,6 +29,13 @@ public interface IThreatBlockingAdmin
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
     Task<RecommendedResult> TurnOnRecommendedAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The profile Turn On Recommended would apply here and its lists; with <paramref name="profile"/>,
+    /// that profile's lists instead. Viewer: the note shows on Threat Intelligence too.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<BlockingRecommendation> GetRecommendationAsync(BlockingProfile? profile = null, CancellationToken cancellationToken = default);
+
     /// <summary>Ends one of this site's blocks now; the next sync, which this triggers, removes it everywhere.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ThreatSourceUnblocked, Category = AuditCategories.Settings, TargetType = "threat_block")]
@@ -111,6 +118,8 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     }
     public Task SaveSettingsAsync(BlockingSettings settings, CancellationToken ct = default) => ops.SaveSettingsAsync(Slug, settings, ct);
     public Task<RecommendedResult> TurnOnRecommendedAsync(CancellationToken ct = default) => ops.TurnOnRecommendedAsync(Slug, ct);
+    public Task<BlockingRecommendation> GetRecommendationAsync(BlockingProfile? profile = null, CancellationToken ct = default) =>
+        ops.RecommendAsync(Slug, ct, profile);
     public Task<bool> ReleaseAsync(int blockId, string releasedBy, CancellationToken ct = default) => ops.ReleaseAsync(Slug, blockId, releasedBy, ct);
     public Task<ThreatBlock> BlockAsync(string ip, int minutes, string blockedBy, CancellationToken ct = default) => ops.BlockAsync(Slug, ip, minutes, blockedBy, ct);
     public Task<ThreatBlock?> FindActiveBlockAsync(string ip, CancellationToken ct = default) => ops.FindActiveBlockAsync(Slug, ip, ct);
@@ -197,7 +206,7 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops,
             .Distinct(StringComparer.OrdinalIgnoreCase).Count();
         return new BlockingSiteSummary(overview.Settings.Mode, overview.Settings.Share,
             await ops.IsGatewaySetUpAsync(siteSlug, ct), own.Count + shared,
-            PublicBlockLists.RecommendedNote(overview.Settings.Feeds),
+            overview.Settings.Mode == BlockingMode.Enforce ? null : (await ops.RecommendAsync(siteSlug, ct)).Note,
             shared, ops.GatewayFeedEntries(siteSlug));
     }
 

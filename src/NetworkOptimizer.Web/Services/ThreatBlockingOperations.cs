@@ -20,7 +20,32 @@ public sealed record BlockingOverview(
     IReadOnlyList<BlockTargetStatus> Targets);
 
 /// <summary>What Turn On Recommended enabled. <see cref="GatewayError"/> says why the gateway was left out.</summary>
-public sealed record RecommendedResult(bool Gateway, string? GatewayError, bool Waf);
+public sealed record RecommendedResult(bool Gateway, string? GatewayError, bool Waf, BlockingProfile Profile = BlockingProfile.Home);
+
+/// <summary>
+/// The profile Turn On Recommended applies to a site, why, and the lists it turns on.
+/// <see cref="ThreatFoxKeyMissing"/> when a free abuse.ch Auth-Key would add live command-server coverage.
+/// </summary>
+public sealed record BlockingRecommendation(BlockingProfile Profile, string Reason, IReadOnlyList<string> Lists, bool ThreatFoxKeyMissing)
+{
+    /// <summary>The one-line note under Turn On Recommended.</summary>
+    public string Note
+    {
+        get
+        {
+            var names = Lists.Select(PublicBlockLists.Find).OfType<PublicBlockList>().Select(l => l.Name).ToList();
+            var lists = names.Count switch
+            {
+                0 => "",
+                1 => names[0],
+                2 => $"{names[0]} and {names[1]}",
+                _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}",
+            };
+            var note = $"Uses the {BlockingProfiles.Name(Profile)} profile for this site ({Reason}): {lists}, with command servers blocked outbound too.";
+            return ThreatFoxKeyMissing ? note + " A free abuse.ch Auth-Key adds ThreatFox's live botnet servers." : note;
+        }
+    }
+}
 
 /// <summary>One site in a Trusted Sources view: whether it is trusted, and every address it has been seen at.</summary>
 public sealed record TrustedSite(string Slug, bool Trusted, IReadOnlyList<TrustedAddress> Addresses);
@@ -92,6 +117,7 @@ public sealed class ThreatBlockingOperations
     private readonly TrustedSourcesGroup _trustedGroup;
     private readonly NetworkOptimizer.Threats.ThreatCollectionService _collector;
     private readonly SiteConnectionRegistry? _connections;
+    private readonly IUniFiClientAccessor? _clients;
 
     public ThreatBlockingOperations(
         IThreatSettingsAccessor settings,
@@ -105,8 +131,10 @@ public sealed class ThreatBlockingOperations
         TrustedSourcesGroup trustedGroup,
         NetworkOptimizer.Threats.ThreatCollectionService collector,
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
-        SiteConnectionRegistry? connections = null)
+        SiteConnectionRegistry? connections = null,
+        IUniFiClientAccessor? clients = null)
     {
+        _clients = clients;
         _connections = connections;
         _collector = collector;
         _lists = lists;
@@ -198,8 +226,37 @@ public sealed class ThreatBlockingOperations
             _blocking.TriggerConsoleSyncFor(Site(slug));
     }
 
-    public async Task<RecommendedResult> TurnOnRecommendedAsync(string slug, CancellationToken ct)
+    /// <summary>The profile for a site from what it exposes, with the lists it would turn on there.</summary>
+    public async Task<BlockingRecommendation> RecommendAsync(string slug, CancellationToken ct, BlockingProfile? profile = null)
     {
+        int? forwards = null;
+        try
+        {
+            if (_clients?.GetClient(Site(slug)) is { } client)
+                forwards = (await client.GetPortForwardRulesAsync(ct)).Count(r => r.IsStatic && r.Enabled != false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or NetworkOptimizer.UniFi.UniFiApiErrorException
+                                   or NetworkOptimizer.UniFi.UniFiPermissionException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+        }
+        var waf = await BlockingSettings.WafConnectedAsync(k => _settings.GetSettingAsync(k, ct), Site(slug));
+        var (recommended, reason) = BlockingProfiles.Recommend(forwards, waf);
+        var chosen = profile ?? recommended;
+        if (profile != null && profile != recommended) reason = "chosen";
+
+        var tokens = new HashSet<string>();
+        foreach (var l in PublicBlockLists.All.Where(l => l.NeedsToken))
+            if (!string.IsNullOrEmpty(await _settings.GetDecryptedSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(l.Id)), ct)))
+                tokens.Add(l.Id);
+        var lists = BlockingProfiles.Lists(chosen, tokens.Contains);
+        var threatFoxMissing = !tokens.Contains(PublicBlockLists.ThreatFox)
+                               && BlockingProfiles.Lists(chosen, _ => true).Contains(PublicBlockLists.ThreatFox);
+        return new BlockingRecommendation(chosen, reason, lists, threatFoxMissing);
+    }
+
+    public async Task<RecommendedResult> TurnOnRecommendedAsync(string slug, CancellationToken ct, BlockingProfile? profile = null)
+    {
+        var recommendation = await RecommendAsync(slug, ct, profile);
         var current = await GetSettingsAsync(slug, ct);
         string? gatewayError = null;
         try
@@ -220,10 +277,12 @@ public sealed class ThreatBlockingOperations
             Mode = BlockingMode.Enforce,
             UsePatterns = true,
             Share = true,
+            Feeds = recommendation.Lists,
+            FeedsOutbound = gatewayError == null,
             TargetGateway = gatewayError == null,
             TargetWaf = waf,
         }, ct);
-        return new RecommendedResult(gatewayError == null, gatewayError, waf);
+        return new RecommendedResult(gatewayError == null, gatewayError, waf, recommendation.Profile);
     }
 
     /// <summary>Manual block lengths offered next to an address, in minutes.</summary>
@@ -379,7 +438,7 @@ public sealed class ThreatBlockingOperations
             await TrustedSourcesSettings.UniFiGroupEnabledAsync(_settings, site, ct),
             bool.TryParse(await _settings.GetSettingAsync(Key(slug, BlockingSettingKeys.SetupHidden), ct), out var hidden) && hidden,
             settings.TargetWaf,
-            PublicBlockLists.RecommendedNote(settings.Feeds),
+            settings.Mode == BlockingMode.Enforce ? null : (await RecommendAsync(slug, ct)).Note,
             _collector.WafStatusFor(slug)?.Mode,
             _collector.WafStatusFor(slug)?.ModeSince);
     }
@@ -408,6 +467,10 @@ public sealed class ThreatBlockingOperations
             throw new ArgumentException("That public block list does not take a token.");
         var value = string.IsNullOrWhiteSpace(token) ? "" : _credentials.Encrypt(token.Trim());
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(listId)), value, ct);
+        // A token is only ever added to use its list, so saving one turns the list on; nothing else changes.
+        var feeds = (await GetSettingsAsync(slug, ct)).Feeds;
+        if (value.Length > 0 && !feeds.Contains(listId))
+            await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.Feeds), string.Join(",", feeds.Append(listId)), ct);
         _blocking.Trigger();
     }
 
