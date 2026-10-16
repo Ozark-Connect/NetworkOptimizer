@@ -20,7 +20,7 @@ public class BlocklistEntryTests
 
     [Theory]
     [InlineData("10.1.2.3")]
-    [InlineData("192.168.1.0/24")]
+    [InlineData("172.16.5.0/24")]
     [InlineData("100.64.0.1")]
     [InlineData("127.0.0.1")]
     [InlineData("169.254.1.1")]

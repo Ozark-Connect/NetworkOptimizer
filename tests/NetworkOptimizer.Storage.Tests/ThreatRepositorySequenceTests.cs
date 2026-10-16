@@ -59,12 +59,24 @@ public class ThreatRepositorySequenceTests : IDisposable
     [Fact]
     public async Task TcpFromPort443_StillFormsAChain()
     {
-        Add("198.51.100.2", "TCP", 443, 59469, KillChainStage.Reconnaissance);
-        Add("198.51.100.2", "TCP", 443, 59469, KillChainStage.Monitored);
+        Add("198.51.100.2", "TCP", 443, 54321, KillChainStage.Reconnaissance);
+        Add("198.51.100.2", "TCP", 443, 54321, KillChainStage.Monitored);
         await _context.SaveChangesAsync();
 
         (await _repository.GetAttackSequencesAsync(_now.AddHours(-1), _now)).Should().ContainSingle()
             .Which.Stages.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task PublicListContact_FormsNoChainWithTheDevicesOtherTraffic()
+    {
+        Add("192.0.2.10", "TCP", 40000, 443, KillChainStage.PostExploitation);
+        _context.ThreatEvents.Local.Last().Category = NetworkOptimizer.Threats.Blocking.PublicListContact.Category;
+        Add("192.0.2.10", "UDP", 40500, 55000, KillChainStage.Monitored);
+        Add("192.0.2.10", "TCP", 40001, 22, KillChainStage.Monitored);
+        await _context.SaveChangesAsync();
+
+        (await _repository.GetAttackSequencesAsync(_now.AddHours(-1), _now)).Should().BeEmpty();
     }
 
     [Fact]

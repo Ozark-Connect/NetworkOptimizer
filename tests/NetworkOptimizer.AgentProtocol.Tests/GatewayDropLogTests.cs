@@ -8,8 +8,8 @@ public class GatewayDropLogTests
     [Fact]
     public void Parse_ReadsAnIpv4Drop()
     {
-        var line = "[123.456] NETOPT_OUT:IN=br0 OUT=eth4 MAC=aa:bb:cc:dd:ee:ff SRC=192.168.1.20 DST=203.0.113.7 LEN=60 TOS=0x00 PROTO=TCP SPT=51234 DPT=443 WINDOW=64240 SYN";
-        GatewayDropLog.Parse(line, "NETOPT_OUT:").Should().Be(new GatewayDropLog("192.168.1.20", "203.0.113.7", "TCP", 443));
+        var line = "[123.456] NETOPT_OUT:IN=br0 OUT=eth4 MAC=aa:bb:cc:dd:ee:ff SRC=10.0.0.20 DST=203.0.113.7 LEN=60 TOS=0x00 PROTO=TCP SPT=51234 DPT=443 WINDOW=64240 SYN";
+        GatewayDropLog.Parse(line, "NETOPT_OUT:").Should().Be(new GatewayDropLog("10.0.0.20", "203.0.113.7", "TCP", 443));
     }
 
     [Fact]
@@ -23,14 +23,14 @@ public class GatewayDropLogTests
     public void ParseNeighbors_MapsAddressesToMacs()
     {
         var output = """
-            192.168.1.20 dev br0 lladdr AA:BB:CC:00:11:22 REACHABLE
+            10.0.0.20 dev br0 lladdr AA:BB:CC:00:11:22 REACHABLE
             2001:db8::20 dev br0 lladdr aa:bb:cc:00:11:22 STALE
-            192.168.1.99 dev br0  FAILED
+            10.0.0.99 dev br0  FAILED
             """;
         var map = GatewayDropLog.ParseNeighbors(output);
         map.Should().HaveCount(2);
         map["2001:db8::20"].Should().Be("aa:bb:cc:00:11:22");
-        map["192.168.1.20"].Should().Be("aa:bb:cc:00:11:22");
+        map["10.0.0.20"].Should().Be("aa:bb:cc:00:11:22");
     }
 
     [Fact]

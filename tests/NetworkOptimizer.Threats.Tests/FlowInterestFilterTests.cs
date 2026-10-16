@@ -147,11 +147,11 @@ public class FlowInterestFilterTests
     [Fact]
     public void IsReplyCandidate_ServerPortToEphemeral_FromPublic()
     {
-        Assert.True(FlowInterestFilter.IsReplyCandidate(Blocked("203.0.113.7", 443, 59469)));
+        Assert.True(FlowInterestFilter.IsReplyCandidate(Blocked("203.0.113.7", 443, 54321)));
         Assert.False(FlowInterestFilter.IsReplyCandidate(Blocked("203.0.113.7", 443, 22)));
-        Assert.False(FlowInterestFilter.IsReplyCandidate(Blocked("203.0.113.7", 40000, 59469)));
-        Assert.False(FlowInterestFilter.IsReplyCandidate(Blocked("192.0.2.1", 443, 59469, direction: "outgoing")));
-        Assert.False(FlowInterestFilter.IsReplyCandidate(Blocked("10.0.0.5", 443, 59469)));
+        Assert.False(FlowInterestFilter.IsReplyCandidate(Blocked("203.0.113.7", 40000, 54321)));
+        Assert.False(FlowInterestFilter.IsReplyCandidate(Blocked("192.0.2.1", 443, 54321, direction: "outgoing")));
+        Assert.False(FlowInterestFilter.IsReplyCandidate(Blocked("10.0.0.5", 443, 54321)));
     }
 
     [Fact]
@@ -159,18 +159,18 @@ public class FlowInterestFilterTests
     {
         var response = Parse("""
             {"data": [
-              {"action": "allowed", "direction": "outgoing", "source": {"ip": "192.168.1.20", "port": 59469}, "destination": {"ip": "203.0.113.7", "port": 443}},
-              {"action": "blocked", "direction": "outgoing", "source": {"ip": "192.168.1.21", "port": 50000}, "destination": {"ip": "203.0.113.7", "port": 443}},
-              {"action": "allowed", "direction": "outgoing", "source": {"ip": "192.168.1.22"}, "destination": {"ip": "203.0.113.7", "port": 443}}
+              {"action": "allowed", "direction": "outgoing", "source": {"ip": "10.0.0.20", "port": 54321}, "destination": {"ip": "203.0.113.7", "port": 443}},
+              {"action": "blocked", "direction": "outgoing", "source": {"ip": "10.0.0.21", "port": 50000}, "destination": {"ip": "203.0.113.7", "port": 443}},
+              {"action": "allowed", "direction": "outgoing", "source": {"ip": "10.0.0.22"}, "destination": {"ip": "203.0.113.7", "port": 443}}
             ]}
             """);
         var outgoing = FlowInterestFilter.OutgoingConnections(response).ToHashSet();
 
         Assert.Single(outgoing);
-        Assert.True(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.7", 443, 59469), outgoing));
+        Assert.True(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.7", 443, 54321), outgoing));
         // Same server, another client port: a scanner that sent from 443 does not match.
-        Assert.False(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.7", 443, 59470), outgoing));
-        Assert.False(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.7", 80, 59469), outgoing));
-        Assert.False(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.50", 443, 59469), outgoing));
+        Assert.False(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.7", 443, 54322), outgoing));
+        Assert.False(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.7", 80, 54321), outgoing));
+        Assert.False(FlowInterestFilter.IsReplyTo(Blocked("203.0.113.50", 443, 54321), outgoing));
     }
 }

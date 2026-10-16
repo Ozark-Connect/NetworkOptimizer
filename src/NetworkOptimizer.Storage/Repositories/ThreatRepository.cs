@@ -855,8 +855,12 @@ public class ThreatRepository : IThreatRepository
             // chain; it stays in the timeline, and DDoS detection still counts it.
             var serverPorts = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.ServerPorts.ToArray();
             const int ephemeralFloor = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.EphemeralPortFloor;
+            // A public block list contact alerts on its own; paired with a device's ordinary traffic it would
+            // read as a chain that is not one.
+            const string listContact = NetworkOptimizer.Threats.Blocking.PublicListContact.Category;
             IQueryable<ThreatEvent> ChainEvents() => BaseQuery(from, to)
-                .Where(e => !(e.Protocol.ToUpper() == "UDP" && serverPorts.Contains(e.SourcePort) && e.DestPort >= ephemeralFloor));
+                .Where(e => !(e.Protocol.ToUpper() == "UDP" && serverPorts.Contains(e.SourcePort) && e.DestPort >= ephemeralFloor))
+                .Where(e => e.Category != listContact);
 
             // Step 1: Find source IPs with 2+ distinct kill chain stages (SQL-side filtering)
             var candidateIps = await ChainEvents()

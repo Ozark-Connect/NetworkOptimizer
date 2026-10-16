@@ -45,10 +45,10 @@ public class PublicListMatcherTests
             SourceIp = source, DestIp = dest, Direction = direction, EventSource = EventSource.TrafficFlow,
         };
 
-        PublicListContact.IsCandidate(Flow("192.168.1.20", "198.51.100.5", "outgoing")).Should().BeTrue();
+        PublicListContact.IsCandidate(Flow("10.0.0.20", "198.51.100.5", "outgoing")).Should().BeTrue();
         PublicListContact.IsCandidate(Flow("2001:db8:aaaa::20", "198.51.100.5", "outgoing")).Should().BeTrue();
-        PublicListContact.IsCandidate(Flow("198.51.100.5", "192.168.1.20", "incoming")).Should().BeFalse();
-        PublicListContact.IsCandidate(Flow("192.168.1.20", "192.168.2.1", "outgoing")).Should().BeFalse();
+        PublicListContact.IsCandidate(Flow("198.51.100.5", "10.0.0.20", "incoming")).Should().BeFalse();
+        PublicListContact.IsCandidate(Flow("10.0.0.20", "10.0.1.1", "outgoing")).Should().BeFalse();
     }
 
     [Fact]
