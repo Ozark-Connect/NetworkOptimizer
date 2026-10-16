@@ -544,13 +544,14 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct, token))
             {
                 if (allowlist.ExemptsRange(entry) != null || all.Contains(entry)) continue;
-                if (all.Count >= MaxFeedEntries || (list.Outbound && outbound.Count >= MaxOutboundFeedEntries))
+                if (all.Count >= MaxFeedEntries)
                 {
                     dropped++;
                     continue;
                 }
                 all.Add(entry);
-                if (list.Outbound) outbound.TryAdd(entry, list);
+                // Past the outbound cap an entry is still blocked inbound; it only stops being blocked outbound.
+                if (list.Outbound && outbound.Count < MaxOutboundFeedEntries) outbound.TryAdd(entry, list);
             }
         }
         if (dropped > 0 && dropped != _feedsCapped.GetValueOrDefault(Key(site)))
