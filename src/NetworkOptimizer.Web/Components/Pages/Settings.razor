@@ -4482,8 +4482,9 @@
             if (!await _sectionSave.InvokeAsync<bool>("confirmLeave", context.TargetLocation))
                 context.PreventNavigation();
         }
-        catch (JSDisconnectedException)
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException)
         {
+            // Fails open: a prompt that cannot run never keeps anyone on the page.
         }
     }
 
