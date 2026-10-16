@@ -7458,6 +7458,36 @@ a.path-hop.hop-clickable:hover {
     display: none;
 }
 
+/* How the floating Save went: a check, a cross, or a warning mark beside it */
+.settings-floating-result {
+    position: fixed;
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.settings-floating-result[hidden] {
+    display: none;
+}
+
+.settings-floating-result.is-success {
+    color: var(--success-color);
+}
+
+.settings-floating-result.is-error {
+    color: var(--danger-color);
+}
+
+.settings-floating-result.is-warning {
+    color: var(--warning-color);
+}
+
 /* Threat Intelligence - Protection Setup checklist: one row per step, its action on the right */
 .protection-setup .card-header {
     display: flex;
