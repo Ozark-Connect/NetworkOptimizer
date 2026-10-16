@@ -176,7 +176,7 @@ public class AlertProcessingService : BackgroundService
     //
     // Per-target monitoring alerts (monitoring.target_offline and friends) have no such pairing and
     // stay open until a user resolves them, so this closing step applies only to the families that
-    // do: monitoring.wan_* here, and starlink.* and the WAN link speed pair below.
+    // do: monitoring.wan_* here, and starlink.*, the WAN link speed pair, and the rollout pair below.
 
     internal const string WanOutageEventType = "monitoring.wan_outage";
     internal const string WanOutagePartialEventType = "monitoring.wan_outage_partial";
@@ -290,6 +290,26 @@ public class AlertProcessingService : BackgroundService
         return targets;
     }
 
+    // --- Firmware Rollout: an open/close pair ---
+    //
+    // A site runs one rollout at a time, and its Started alert carries no device, so the Completed
+    // event closes every open Started alert on the site.
+
+    internal const string RolloutStartedEventType = "rollout.started";
+    internal const string RolloutCompletedEventType = "rollout.completed";
+
+    /// <summary>
+    /// Which open rollout alerts an incoming event closes: every open Started alert, for the
+    /// Completed event. Empty for every other event.
+    /// </summary>
+    internal static List<(string[] EventTypes, string? DeviceId)> GetRolloutAlertsToResolve(string eventType)
+    {
+        var targets = new List<(string[] EventTypes, string? DeviceId)>();
+        if (eventType == RolloutCompletedEventType)
+            targets.Add(([RolloutStartedEventType], null));
+        return targets;
+    }
+
     /// <summary>
     /// Closes the open alerts this event supersedes and re-derives the status of any incident they
     /// belonged to. Failures are logged and swallowed: resolution is housekeeping and must never
@@ -304,6 +324,7 @@ public class AlertProcessingService : BackgroundService
         targets.AddRange(GetStarlinkAlertsToResolve(
             alertEvent.EventType, alertEvent.DeviceId, alertEvent.Context));
         targets.AddRange(GetWanLinkSpeedAlertsToResolve(alertEvent.EventType, alertEvent.DeviceId));
+        targets.AddRange(GetRolloutAlertsToResolve(alertEvent.EventType));
         if (targets.Count == 0)
             return;
 
