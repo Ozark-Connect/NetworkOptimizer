@@ -691,6 +691,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 .Select(g => BuildPeerGroup(g.Key.Ip, g.ToList()))
                 .OrderByDescending(p => p.EventCount)
                 .ToList();
+            foreach (var dest in destinations.Where(d => d.Ip.Length > 0))
+                dest.PublicList = PublicListFor(dest.Ip)?.Name;
 
             // Peer groups: sources when IP is destination
             var sources = asDest
@@ -1221,6 +1223,9 @@ public class IpPeerGroup
     public string? Services { get; set; }
     public int EventCount { get; set; }
     public int BlockedCount { get; set; }
+
+    /// <summary>The site's public block list holding this destination, or null. Set on destinations only.</summary>
+    public string? PublicList { get; set; }
 }
 
 /// <summary>

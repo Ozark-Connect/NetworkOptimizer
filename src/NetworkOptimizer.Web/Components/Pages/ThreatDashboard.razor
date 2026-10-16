@@ -1256,7 +1256,7 @@ else
                                         }
                                         else
                                         {
-                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }@if (dest.PublicList != null) { <span class="reputation-badge reputation-malicious" style="margin-left:0.5rem;" data-tooltip="On @dest.PublicList, one of this site's public block lists. A device on your network reaching it raises a Public Block List alert.">@dest.PublicList</span> }</td>
                                         }
                                         <td class="hide-mobile">@(dest.Domain ?? "-")</td>
                                         <td><code class="code-sm">@dest.PortRanges</code></td>
