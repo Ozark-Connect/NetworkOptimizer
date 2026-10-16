@@ -734,12 +734,67 @@ public class ThreatCollectionService : BackgroundService
         var pass2 = await CollectFlowsPassAsync(apiClient, start, end, maxPages,
             actionFilter: new[] { "blocked" }, applyInterestFilter: false, cancellationToken);
         events.AddRange(pass2.Where(e => !pass1Ids.Contains(e.InnerAlertId)));
+        events = await DropLateRepliesAsync(apiClient, events, start, end, maxPages, cancellationToken);
 
         if (events.Count > 0)
             _logger.LogDebug("Collected {Count} flow events (pass1={Pass1}, pass2={Pass2})",
                 events.Count, pass1.Count, pass2.Count);
 
         return events;
+    }
+
+    // How far back a reply's connection may have been opened. Long-lived connections (push, sync) send
+    // late packets hours after their last flow record.
+    private static readonly TimeSpan ReplyLookback = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// Drops blocked packets that are the tail of a connection a LAN client opened (see
+    /// <see cref="Analysis.FlowInterestFilter.IsReplyTo"/>): UniFi Network dropping them once the connection
+    /// has closed, like Block Invalid Traffic, and never an attack. One filtered query per 100 addresses.
+    /// When the lookup fails, everything is kept.
+    /// </summary>
+    private async Task<List<ThreatEvent>> DropLateRepliesAsync(
+        UniFi.UniFiApiClient apiClient,
+        List<ThreatEvent> events,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int maxPages,
+        CancellationToken cancellationToken)
+    {
+        var candidates = events.Where(Analysis.FlowInterestFilter.IsReplyCandidate).ToList();
+        if (candidates.Count == 0)
+            return events;
+
+        var outgoing = new HashSet<(string Ip, int RemotePort, int ClientPort)>();
+        try
+        {
+            foreach (var chunk in candidates.Select(e => e.SourceIp).Distinct(StringComparer.OrdinalIgnoreCase).Chunk(100))
+            {
+                for (var page = 0; page < maxPages; page++)
+                {
+                    var response = await apiClient.GetTrafficFlowsAsync(start - ReplyLookback, end, page,
+                        actionFilter: ["allowed"], directionFilter: ["outgoing"], destinationIpFilter: chunk,
+                        cancellationToken: cancellationToken);
+                    if (response.ValueKind == JsonValueKind.Undefined)
+                        return events;
+                    outgoing.UnionWith(Analysis.FlowInterestFilter.OutgoingConnections(response));
+                    if (!(response.TryGetProperty("has_next", out var hn) && hn.ValueKind == JsonValueKind.True))
+                        break;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Late-reply lookup failed; keeping {Count} reply-shaped flow(s)", candidates.Count);
+            return events;
+        }
+
+        var replies = candidates.Where(e => Analysis.FlowInterestFilter.IsReplyTo(e, outgoing)).ToHashSet();
+        if (replies.Count == 0)
+            return events;
+        _logger.LogDebug("Skipped {Replies} of {Candidates} reply-shaped blocked flow(s): late packets on LAN clients' own connections",
+            replies.Count, candidates.Count);
+        return events.Where(e => !replies.Contains(e)).ToList();
     }
 
     private async Task<List<ThreatEvent>> CollectFlowsPassAsync(
