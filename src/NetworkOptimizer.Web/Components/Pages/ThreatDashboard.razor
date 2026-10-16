@@ -903,6 +903,45 @@ else
     @* ========== Attack Sequences Tab ========== *@
     @if (_activeTab == "sequences")
     {
+        @if (_publicListContacts.Count > 0)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Public Block List Contacts</h3>
+                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Devices on your network that connected to, or tried to reach, an address on one of this site's public block lists. Those lists track botnet command-and-control servers and networks run by criminals. Each contact also raises its own alert.">?</span>
+                </div>
+                <div class="card-body">
+                    <p class="section-description">A device reaching one of these addresses is often infected: checking in with a botnet's command server, or sending data out. Start with <strong>Connected</strong> rows.</p>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th>Address</th>
+                                    <th class="hide-mobile">List</th>
+                                    <th>Result</th>
+                                    <th class="hide-mobile">Events</th>
+                                    <th class="hide-mobile">Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var contact in _publicListContacts)
+                                {
+                                    <tr>
+                                        <td>@{ var deviceName = GetClientName(contact.DeviceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(contact.DeviceIp)"><code>@contact.DeviceIp</code></a>@if (deviceName != null) { <span class="ip-client-name">@deviceName</span> }</td>
+                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(contact.Address)"><code>@contact.Address</code></a></td>
+                                        <td class="hide-mobile">@contact.List</td>
+                                        <td>@(contact.Connected ? "Connected" : "Blocked")</td>
+                                        <td class="hide-mobile">@FormatNumber(contact.Events)</td>
+                                        <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(contact.LastSeen)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">Multi-Stage Attack Sequences</h3>
@@ -1076,6 +1115,17 @@ else
             {
                 <span class="hide-mobile drilldown-asn text-truncate-300">@_drilldownData.AsnOrg</span>
             }
+            @if (_drilldownData.PublicList != null)
+            {
+                <span class="reputation-badge reputation-malicious"
+                      data-tooltip="On @_drilldownData.PublicList, one of this site's public block lists. A device on your network reaching it raises a Public Block List alert.">@_drilldownData.PublicList</span>
+            }
+            @if (_drilldownData.FirstSeen.HasValue)
+            {
+                <span class="drilldown-time drilldown-time-inline" data-tooltip="First and last event from this address in the selected time range">
+                    @_drilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
+                </span>
+            }
             @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
             {
                 var hasDrilldownCti = _manualCtiCache.TryGetValue(_drilldownData.Ip, out var drilldownCti);
@@ -1128,12 +1178,6 @@ else
                         Look up
                     </button>
                 }
-                </span>
-            }
-            @if (_drilldownData.FirstSeen.HasValue)
-            {
-                <span class="drilldown-time">
-                    @_drilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
             <IpBlockControl Ip="@_drilldownData.Ip" />
@@ -1212,7 +1256,7 @@ else
                                         }
                                         else
                                         {
-                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }@if (dest.PublicList != null) { <span class="reputation-badge reputation-malicious" style="margin-left:0.5rem;" data-tooltip="On @dest.PublicList, one of this site's public block lists. A device on your network reaching it raises a Public Block List alert.">@dest.PublicList</span> }</td>
                                         }
                                         <td class="hide-mobile">@(dest.Domain ?? "-")</td>
                                         <td><code class="code-sm">@dest.PortRanges</code></td>
@@ -1450,7 +1494,7 @@ else
             </h2>
             @if (_portDrilldownData.FirstSeen.HasValue)
             {
-                <span class="drilldown-time">
+                <span class="drilldown-time" data-tooltip="First and last event on this port in the selected time range">
                     @_portDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_portDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
@@ -1603,7 +1647,7 @@ else
             </h2>
             @if (_protocolDrilldownData.FirstSeen.HasValue)
             {
-                <span class="drilldown-time">
+                <span class="drilldown-time" data-tooltip="First and last event for this protocol in the selected time range">
                     @_protocolDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_protocolDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
@@ -1892,6 +1936,15 @@ else
     .drilldown-time {
         color: var(--text-muted);
         font-size: 0.8rem;
+        margin-left: auto;
+    }
+
+    /* In the IP drilldown the time range sits with the address's details; the block control alone takes the right edge. */
+    .drilldown-time.drilldown-time-inline {
+        margin-left: 0;
+    }
+
+    .drilldown-header .ip-block-control {
         margin-left: auto;
     }
 
@@ -2203,6 +2256,7 @@ else
     private Dictionary<string, int> _geoDistribution = new();
     private ExposureReport? _exposureReport;
     private List<AttackSequence> _attackSequences = [];
+    private List<PublicListContactSummary> _publicListContacts = [];
     private bool _crowdSecEnabled;
     private bool _crowdSecBannerDismissed;
     private bool _maxMindConfigured;
@@ -2673,6 +2727,7 @@ else
             else if (_activeTab == "sequences")
             {
                 _attackSequences = await DashboardService.GetAttackSequencesAsync(from, to);
+                _publicListContacts = await DashboardService.GetPublicListContactsAsync(from, to);
             }
             else if (_activeTab == "search")
             {

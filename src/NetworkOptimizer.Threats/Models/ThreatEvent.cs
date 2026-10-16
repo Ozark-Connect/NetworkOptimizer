@@ -9,6 +9,14 @@ public class ThreatEvent
     public int Id { get; set; }
 
     /// <summary>
+    /// The source device's MAC when the event came with one (a flow record, a gateway agent's drop).
+    /// Not stored: it only names the device in an alert, which matters for IPv6 clients the
+    /// console's client list knows by their IPv4 address alone.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? SourceMac { get; set; }
+
+    /// <summary>
     /// When the event occurred (UTC).
     /// </summary>
     public DateTime Timestamp { get; set; }

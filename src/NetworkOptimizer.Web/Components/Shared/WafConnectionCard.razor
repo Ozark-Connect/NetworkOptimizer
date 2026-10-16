@@ -161,7 +161,7 @@
                     await WafAdmin.TestAsync(_url, null);
                     var blocking = (await Blocking.GetOverviewAsync()).Settings;
                     _offerRecommended = blocking.Mode != BlockingMode.Enforce;
-                    _listNote = PublicBlockLists.RecommendedNote(blocking.Feeds);
+                    _listNote = _offerRecommended ? (await Blocking.GetRecommendationAsync()).Note : null;
                 }
                 catch (WafClientException ex)
                 {

@@ -1857,6 +1857,8 @@
                         <div @onclick='() => SelectEventType("threats.waf_event")'><code>threats.waf_event</code> <span>High-severity Web Application Firewall event</span></div>
                         <div @onclick='() => SelectEventType("threats.attack_chain")'><code>threats.attack_chain</code> <span>Multi-stage kill chain detected</span></div>
                         <div @onclick='() => SelectEventType("threats.attack_chain_attempt")'><code>threats.attack_chain_attempt</code> <span>Early-stage attack chain</span></div>
+                        <div @onclick='() => SelectEventType("threats.public_list_contact")'><code>threats.public_list_contact</code> <span>Device reached a public block list address</span></div>
+                        <div @onclick='() => SelectEventType("threats.public_list_attempt")'><code>threats.public_list_attempt</code> <span>Device tried to reach a public block list address</span></div>
                         <div @onclick='() => SelectEventType("threats.attack_pattern")'><code>threats.attack_pattern</code> <span>Scan, brute force, DDoS, or exploit pattern</span></div>
                     </div>
                 </div>

@@ -31,9 +31,9 @@
                     <div class="banner-content">
                         <div class="banner-text">
                             <span>Start blocking repeat attackers in one click: on the gateway, in the WAF when one is connected, and across your sites. Cloudflare stays off until you add a token.</span>
-                            @if (PublicBlockLists.RecommendedNote(_saved?.Feeds ?? []) is { } listNote)
+                            @if (_recommendation != null)
                             {
-                                <small class="form-help">@listNote</small>
+                                <small class="form-help">@_recommendation.Note</small>
                             }
                         </div>
                         <div class="banner-actions">
@@ -92,9 +92,9 @@
                         <small class="form-help">Each repeat within 30 days blocks 4 times longer, up to 7 days.</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Maximum blocked sources</label>
+                        <label class="form-label">Block Limit (not counting public lists)</label>
                         <input type="number" class="form-control" min="1" max="@BlockingSettings.MaxMaxEntries" @bind="_form.MaxEntries" />
-                        <small class="form-help">When more are blocked, the oldest drop off the targets first.</small>
+                        <small class="form-help">The most addresses Automatic Blocking and your own blocks hold at once. Past it, the oldest stop being enforced until they expire.</small>
                     </div>
                 </div>
                 @if (_multiSite)
@@ -110,7 +110,27 @@
             </div>
 
             <div class="ab-section">
-                <h3 class="ab-section-title">Public Block Lists</h3>
+                <div class="ab-section-header">
+                    <h3 class="ab-section-title">Public Block Lists</h3>
+                    <div class="ab-profile" data-autosave>
+                        @if (_profileSaved)
+                        {
+                            <span class="ab-saved">Saved</span>
+                        }
+                        <select class="form-control" @bind="_profile" @bind:after="() => _profileSaved = false" aria-label="Profile">
+                            @foreach (var p in BlockingProfiles.All)
+                            {
+                                <option value="@p">@BlockingProfiles.Name(p)@(p == _recommendation?.Profile ? " (recommended)" : "")</option>
+                            }
+                        </select>
+                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="UseProfile">Use Profile</button>
+                    </div>
+                </div>
+                <p class="form-help">@BlockingProfiles.Name(_profile): @BlockingProfiles.Description(_profile) Use Profile saves its lists and turns on outbound blocking.</p>
+                @if (_capped > 0)
+                {
+                    <p class="form-error">These lists add up to more than 100,000 entries, the most Network Optimizer sends your gateway. @_capped.ToString("N0") from the least useful lists are left out.</p>
+                }
                 <p class="form-help">Known-bad networks from public lists, blocked on the gateway and in the WAF while Automatic Blocking is in Blocking mode. Never sent to Cloudflare, which has its own. Entries that overlap private space or Trusted Sources are skipped.</p>
                 @foreach (var view in _lists)
                 {
@@ -118,9 +138,17 @@
                         <label class="checkbox-label">
                             <input type="checkbox" checked="@_form.Feeds.Contains(view.List.Id)" @onchange="e => ToggleFeed(view.List.Id, (bool)e.Value!)" />
                             <span>@view.List.Name</span>
+                            @if (PartlyInUniFiNetwork(view))
+                            {
+                                <span class="status-badge status-warning" data-tooltip="@($"Without an On-Site Agent on your gateway, UniFi Network's Network List holds {ThreatBlockingService.MaxConsoleEntries:N0} public list entries: an even share of each list.")">Partly Blocked</span>
+                            }
                         </label>
                         <small class="form-help">
                             @view.List.Description
+                            @if (!view.List.Outbound)
+                            {
+                                <span> Blocked inbound only: these addresses often host legitimate sites too.</span>
+                            }
                             <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
                             {
@@ -131,6 +159,14 @@
                         @if (view.Status.Error != null)
                         {
                             <small class="form-error">Last download failed, keeping the previous copy: @view.Status.Error</small>
+                        }
+                        @if (view.List.NeedsToken)
+                        {
+                            <div class="input-with-button ab-token" data-autosave>
+                                <input type="password" class="form-control" autocomplete="off" @bind="_tokens[view.List.Id]"
+                                       placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it." : $"Your {view.List.TokenName}")" />
+                                <button class="btn btn-secondary" disabled="@_busy" @onclick="() => SaveToken(view.List.Id)">Save Token</button>
+                            </div>
                         }
                     </div>
                 }
@@ -161,6 +197,7 @@
                         </label>
                         <small class="form-help">
                             Optional. Stops a device on your networks from connecting to a listed address, such as a botnet's command server.
+                            Applies to @OutboundListNames; the attacker lists stay inbound only.
                             This supplements UniFi's CyberSecure IPS, which carries Feodo Tracker and DShield too: its Suricata runs in pcap mode, so it reacts
                             after a connection has started and blocks for 5 minutes at a time. A Network List policy drops the first packet, costs no inspection
                             CPU, and holds while the address is listed. Applied when you save, once gateway blocking is set up.
@@ -207,7 +244,7 @@
                     </div>
                     @if (_form.TargetCloudflare)
                     {
-                        <div class="form-row">
+                        <div class="form-row" data-autosave>
                             <div class="form-group">
                                 <label class="form-label">Account ID</label>
                                 <input type="text" class="form-control" @bind="_cfAccount" />
@@ -344,6 +381,10 @@
         };
         await RefreshGateway();
         _lists = await Blocking.GetPublicListsAsync();
+        _recommendation = await Blocking.GetRecommendationAsync();
+        _profile = _recommendation.Profile;
+        _capped = await Blocking.GetPublicListsCappedAsync();
+        _hasGatewayAgent = await Blocking.IsGatewayAgentPresentAsync();
         _setupHidden = (await Blocking.GetProtectionStatusAsync()).Hidden;
         _cf = await Blocking.GetCloudflareStatusAsync();
         _cfAccount = _cf.AccountId ?? "";
@@ -356,6 +397,56 @@
         return "Protection Setup is back on the Threat Intelligence Overview.";
     });
 
+    private static readonly string OutboundListNames = JoinNames(PublicBlockLists.All.Where(l => l.Outbound).Select(l => l.Name).ToList());
+
+    private static string JoinNames(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "",
+        1 => names[0],
+        2 => $"{names[0]} and {names[1]}",
+        _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}",
+    };
+
+    private BlockingRecommendation? _recommendation;
+    private int _capped;
+    private BlockingProfile _profile = BlockingProfile.Home;
+
+    private bool _profileSaved;
+
+    // Saves only the lists and outbound blocking: other edits on the card stay pending for Save.
+    private async Task UseProfile()
+    {
+        await Run(async () =>
+        {
+            var lists = (await Blocking.GetRecommendationAsync(_profile)).Lists;
+            var settings = _saved! with
+            {
+                Feeds = PublicBlockLists.All.Select(l => l.Id).Where(lists.Contains).ToList(),
+                FeedsOutbound = true,
+            };
+            await Blocking.SaveSettingsAsync(settings);
+            _saved = settings;
+            _form!.Feeds = settings.Feeds.ToHashSet();
+            _form.FeedsOutbound = true;
+            _profileSaved = true;
+            return null;
+        });
+    }
+
+    // Typed tokens, by list id; never shown again once saved.
+    private readonly Dictionary<string, string> _tokens = PublicBlockLists.All.Where(l => l.NeedsToken).ToDictionary(l => l.Id, _ => "");
+
+    private Task SaveToken(string listId) => Run(async () =>
+    {
+        var token = _tokens[listId];
+        await Blocking.SavePublicListTokenAsync(listId, token);
+        _tokens[listId] = "";
+        _lists = await Blocking.GetPublicListsAsync();
+        if (string.IsNullOrWhiteSpace(token)) return "Token removed.";
+        _form!.Feeds.Add(listId);
+        return "Token saved and the list turned on. It downloads within a minute.";
+    });
+
     private static string RefreshText(TimeSpan every) => every switch
     {
         { TotalMinutes: < 60 } => $"every {(int)every.TotalMinutes} minutes",
@@ -365,8 +456,20 @@
         _ => $"every {(int)every.TotalDays} days",
     };
 
+    private bool _hasGatewayAgent;
+
+    // Whether UniFi Network's Network List would hold only part of this list, alongside the ticked ones.
+    private bool PartlyInUniFiNetwork(PublicListView view)
+    {
+        if (_hasGatewayAgent || view.Status.Count <= 0) return false;
+        var chosen = _lists.Where(v => v == view || _form!.Feeds.Contains(v.List.Id)).ToList();
+        var share = ThreatBlockingService.ConsoleShare(chosen.Select(v => v.Status.Count).ToList(), ThreatBlockingService.MaxConsoleEntries);
+        return share[chosen.IndexOf(view)] < view.Status.Count;
+    }
+
     private void ToggleFeed(string id, bool on)
     {
+        _profileSaved = false;
         if (on) _form!.Feeds.Add(id);
         else _form!.Feeds.Remove(id);
     }
@@ -383,10 +486,12 @@
         var problem = await Blocking.CheckGatewayAsync();
         _gatewaySetUp = problem != "Not set up yet.";
         _gatewayOk = problem == null;
-        _gatewayStatus = problem == null ? "Configured in UniFi Network." : problem;
+        _gatewayStatus = problem != null ? problem
+            : await Blocking.IsGatewayAgentEnforcingAsync() ? "Applied by your gateway's On-Site Agent. UniFi Network's Network List updates overnight."
+            : "Configured in UniFi Network.";
     }
 
-    private async Task Run(Func<Task<string>> action)
+    private async Task Run(Func<Task<string?>> action)
     {
         _busy = true;
         _message = null;

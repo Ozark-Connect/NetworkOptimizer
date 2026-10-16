@@ -136,6 +136,21 @@ if [ "$UNINSTALL" = true ]; then
             pids="$(agent_pids)"; [ -n "$pids" ] && kill -KILL $pids 2>/dev/null || true
         fi
     fi
+    # Automatic Blocking's rules (chain, jumps, sets) outlive the agent otherwise; nothing else uses these names.
+    for t in iptables ip6tables; do
+        command -v "$t" >/dev/null 2>&1 || continue
+        for c in FORWARD INPUT; do
+            while "$t" -D "$c" -j NETOPT_BLOCK 2>/dev/null; do :; done
+        done
+        "$t" -F NETOPT_BLOCK 2>/dev/null || true
+        "$t" -X NETOPT_BLOCK 2>/dev/null || true
+    done
+    if command -v ipset >/dev/null 2>&1; then
+        for s in netopt_block_v4 netopt_block_v6 netopt_guard_v4 netopt_guard_v6 netopt_out_v4 netopt_out_v6; do
+            ipset destroy "${s}_tmp" 2>/dev/null || true
+            ipset destroy "$s" 2>/dev/null || true
+        done
+    fi
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     systemctl daemon-reload 2>/dev/null || true
     systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true

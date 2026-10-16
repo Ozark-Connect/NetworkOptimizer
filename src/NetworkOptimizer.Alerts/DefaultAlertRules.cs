@@ -129,6 +129,25 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 3600 // 1 hour
         },
+        // --- Threat Intelligence: a device on the site reaching a public block list (a likely infected device) ---
+        new AlertRule
+        {
+            Name = "Threat Intelligence: Public Block List Contact",
+            IsEnabled = true,
+            EventTypePattern = "threats.public_list_contact",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Critical,
+            CooldownSeconds = 3600 // 1 hour per device
+        },
+        new AlertRule
+        {
+            Name = "Threat Intelligence: Public Block List Attempt",
+            IsEnabled = true,
+            EventTypePattern = "threats.public_list_attempt",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour per device
+        },
         new AlertRule
         {
             Name = "Threat Intelligence: Early-Stage Attack Chain",

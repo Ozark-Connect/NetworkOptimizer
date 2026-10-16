@@ -836,6 +836,31 @@ public class ThreatRepository : IThreatRepository
 
     #endregion
 
+    public Task<bool> HasEventAsync(string sourceIp, string destIp, DateTime from, DateTime to, EventSource? eventSource = null,
+        string? category = null, CancellationToken cancellationToken = default) =>
+        _context.ThreatEvents.AsNoTracking().AnyAsync(e => e.SourceIp == sourceIp && e.DestIp == destIp
+            && e.Timestamp >= from && e.Timestamp <= to
+            && (eventSource == null || e.EventSource == eventSource)
+            && (category == null || e.Category == category), cancellationToken);
+
+    public async Task<List<PublicListContactSummary>> GetPublicListContactsAsync(DateTime from, DateTime to, int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        const string listContact = NetworkOptimizer.Threats.Blocking.PublicListContact.Category;
+        var rows = await BaseQuery(from, to)
+            .Where(e => e.Category == listContact)
+            .GroupBy(e => new { e.SourceIp, e.DestIp, e.Action, e.SignatureName })
+            .Select(g => new { g.Key.SourceIp, g.Key.DestIp, g.Key.Action, g.Key.SignatureName, Count = g.Count(), Last = g.Max(e => e.Timestamp) })
+            .ToListAsync(cancellationToken);
+        return rows
+            .Select(r => new PublicListContactSummary(r.SourceIp, r.DestIp,
+                NetworkOptimizer.Threats.Blocking.PublicListContact.ListName(r.SignatureName),
+                r.Action != ThreatAction.Blocked, r.Count, r.Last))
+            .OrderByDescending(r => r.Connected).ThenByDescending(r => r.LastSeen)
+            .Take(limit)
+            .ToList();
+    }
+
     #region Attack Sequences
 
     public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
@@ -848,8 +873,12 @@ public class ThreatRepository : IThreatRepository
             // chain; it stays in the timeline, and DDoS detection still counts it.
             var serverPorts = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.ServerPorts.ToArray();
             const int ephemeralFloor = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.EphemeralPortFloor;
+            // A public block list contact alerts on its own; paired with a device's ordinary traffic it would
+            // read as a chain that is not one.
+            const string listContact = NetworkOptimizer.Threats.Blocking.PublicListContact.Category;
             IQueryable<ThreatEvent> ChainEvents() => BaseQuery(from, to)
-                .Where(e => !(e.Protocol.ToUpper() == "UDP" && serverPorts.Contains(e.SourcePort) && e.DestPort >= ephemeralFloor));
+                .Where(e => !(e.Protocol.ToUpper() == "UDP" && serverPorts.Contains(e.SourcePort) && e.DestPort >= ephemeralFloor))
+                .Where(e => e.Category != listContact);
 
             // Step 1: Find source IPs with 2+ distinct kill chain stages (SQL-side filtering)
             var candidateIps = await ChainEvents()

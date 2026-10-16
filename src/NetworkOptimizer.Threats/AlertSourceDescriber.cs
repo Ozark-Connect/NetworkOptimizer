@@ -42,6 +42,19 @@ internal sealed class AlertSourceDescriber
         return AlertSource.Internal(ip, client, network);
     }
 
+    /// <summary>
+    /// Describes a device on the site, whatever its address: an IPv6 client holds a global address
+    /// the console's client list does not know, so it is named by its MAC when the event carried one.
+    /// </summary>
+    public async Task<AlertSource> DescribeDeviceAsync(string ip, string? mac, CancellationToken cancellationToken)
+    {
+        _networkByIp.TryGetValue(ip, out var network);
+        var names = await LoadClientNamesAsync(cancellationToken);
+        if (!names.TryGetValue(ip, out var client) && !string.IsNullOrEmpty(mac))
+            names.TryGetValue(mac.ToLowerInvariant(), out client);
+        return AlertSource.Internal(ip, client, network);
+    }
+
     // One console call per collection cycle, and only when an internal source is alerted on.
     private async Task<Dictionary<string, string>> LoadClientNamesAsync(CancellationToken cancellationToken)
     {
@@ -54,8 +67,12 @@ internal sealed class AlertSourceDescriber
             foreach (var c in await apiClient.GetAllKnownClientsAsync(cancellationToken))
             {
                 var name = !string.IsNullOrEmpty(c.Name) ? c.Name : c.Hostname;
-                if (!string.IsNullOrEmpty(c.BestIp) && !string.IsNullOrEmpty(name))
+                if (string.IsNullOrEmpty(name)) continue;
+                if (!string.IsNullOrEmpty(c.BestIp))
                     _clientNames.TryAdd(c.BestIp, name);
+                // Keyed by MAC too (lowercase), for devices an event names by MAC alone.
+                if (!string.IsNullOrEmpty(c.Mac))
+                    _clientNames.TryAdd(c.Mac.ToLowerInvariant(), name);
             }
         }
         catch
