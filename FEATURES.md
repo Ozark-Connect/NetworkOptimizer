@@ -418,8 +418,8 @@ Set up in **Settings - Security & Alerts**, per site.
 - **Cross-site blocking** - a source attacking one site is blocked at every site sharing blocks
   - One attack, defended across your whole fleet: an attacker caught at one site is shut out of all of them
   - **Turn On Recommended for All Sites** from **Settings - Multi-Site**; each site's own Trusted Sources still decide what it enforces
-- **Public Block Lists** - Spamhaus DROP and abuse.ch Feodo Tracker by default; DShield Top 20 and blocklist.de Strong IPs optional
-  - Optional outbound block keeps an infected device from reaching its botnet command server
+- **Public Block Lists** - Spamhaus DROP by default; abuse.ch Feodo Tracker, CINS Army, DShield Top 20, blocklist.de Strong IPs, IPsum, and Tor exit relays optional
+  - Optional outbound block keeps an infected device from reaching its botnet command server (attacker lists stay inbound only)
   - A device reaching a listed address raises an alert, Detection Only included
 - **What Triggers a Block** thresholds and **Maximum blocked sources**
 
