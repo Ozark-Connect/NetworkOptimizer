@@ -81,6 +81,21 @@ public class PublicBlockListCacheTests
     }
 
     [Fact]
+    public async Task AFailedDownload_IsRetriedNoSoonerThanTheListsRefresh()
+    {
+        var source = new Source { Respond = _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) };
+        var cache = source.Cache();
+        var settings = new FakeSettings();
+        await cache.GetAsync(PublicBlockLists.DShield, settings, T0, CancellationToken.None);
+        var first = source.Requests.Count;
+
+        await cache.GetAsync(PublicBlockLists.DShield, settings, T0.AddMinutes(45), CancellationToken.None);
+        source.Requests.Should().HaveCount(first);
+        await cache.GetAsync(PublicBlockLists.DShield, settings, T0.AddMinutes(61), CancellationToken.None);
+        source.Requests.Should().HaveCount(first * 2);
+    }
+
+    [Fact]
     public async Task ARefusedToken_IsReported()
     {
         var source = new Source { Respond = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized) };

@@ -134,7 +134,10 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
     }
 
     private static bool Due(Entry e, TimeSpan refresh, DateTime now) =>
-        (e.FetchedAt == null || now - e.FetchedAt >= refresh) && now - e.LastAttempt >= (e.Error == null ? refresh : RetryAfterFailure);
+        // A failed download still counts against the source's limit (Spamhaus and DShield: once an hour), so a
+        // retry never comes sooner than the list's own refresh.
+        (e.FetchedAt == null || now - e.FetchedAt >= refresh)
+        && now - e.LastAttempt >= (e.Error == null ? refresh : TimeSpan.FromTicks(Math.Max(refresh.Ticks, RetryAfterFailure.Ticks)));
 
     private static async Task<Entry> LoadAsync(string id, IThreatSettingsAccessor settings, CancellationToken ct)
     {
