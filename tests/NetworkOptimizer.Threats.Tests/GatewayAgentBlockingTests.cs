@@ -64,6 +64,7 @@ public class GatewayAgentBlockingTests
 
         public bool IsEnforcing(string? site, string fingerprint) => Connected && Enforcing;
         public string? Problem(string? site, string fingerprint) => Connected && !Enforcing ? "Rules not in place" : null;
+        public bool HasGatewayAgent(string? site) => Connected;
     }
 
     private sealed class Harness
@@ -255,8 +256,7 @@ public class GatewayAgentBlockingTests
     [InlineData(new[] { 5 }, 0, new[] { 0 })]
     public void ConsoleShare_SplitsEvenly_SmallListsKeptWhole(int[] sizes, int budget, int[] expected)
     {
-        var lists = sizes.Select(n => (IReadOnlyList<string>)Enumerable.Range(0, n).Select(i => i.ToString()).ToList()).ToList();
-        ThreatBlockingService.ConsoleShare(lists, budget).Should().Equal(expected);
+        ThreatBlockingService.ConsoleShare(sizes, budget).Should().Equal(expected);
     }
 
     [Fact]

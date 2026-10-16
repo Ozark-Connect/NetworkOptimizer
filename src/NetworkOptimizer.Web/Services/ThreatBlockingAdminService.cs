@@ -82,6 +82,10 @@ public interface IThreatBlockingAdmin
     [RequireRole(Roles.Admin)]
     Task<int> GetPublicListsCappedAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the site has a connected gateway On-Site Agent that can hold every public list entry.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<bool> IsGatewayAgentPresentAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Saves, or with an empty token clears, the site's API token for a public list that needs one.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
@@ -135,6 +139,7 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken ct = default) => ops.GetCloudflareStatusAsync(Slug, ct);
     public Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken ct = default) => ops.GetPublicListsAsync(Slug, ct);
     public Task<int> GetPublicListsCappedAsync(CancellationToken ct = default) => Task.FromResult(ops.PublicListsCapped(Slug));
+    public Task<bool> IsGatewayAgentPresentAsync(CancellationToken ct = default) => Task.FromResult(ops.GatewayAgentPresent(Slug));
     public Task SavePublicListTokenAsync(string listId, string? token, CancellationToken ct = default) =>
         ops.SavePublicListTokenAsync(Slug, listId, token, ct);
     public async Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) =>

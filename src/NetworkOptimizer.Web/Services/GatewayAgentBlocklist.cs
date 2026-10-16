@@ -73,6 +73,8 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
                 || (_sent.TryGetValue(agent.AgentId, out var sent) && sent.Fingerprint == fingerprint
                     && DateTime.UtcNow - sent.At < AckWait)));
 
+    public bool HasGatewayAgent(string? site) => Capable(Slug(site)).Count > 0;
+
     public string? Problem(string? site, string fingerprint)
     {
         var now = DateTime.UtcNow;

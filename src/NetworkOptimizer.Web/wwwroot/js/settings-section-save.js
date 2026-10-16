@@ -102,9 +102,12 @@ function placeResult() {
 
 function checkResult() {
     if (!pending) return;
-    const { card, before, until } = pending;
+    const { card, before, until, button } = pending;
     if (!card.isConnected || Date.now() > until) { pending = null; return; }
-    const fresh = [...messages(card)].filter(([el, text]) => before.get(el) !== text).map(([el]) => el);
+    if (button.disabled) return;
+    // A repeat save can leave the same message in place: once the button has been busy and is back,
+    // whatever message the card shows is this save's.
+    const fresh = [...messages(card)].filter(([el, text]) => pending.sawBusy || before.get(el) !== text).map(([el]) => el);
     const problem = fresh.find(el => el.matches(PROBLEM));
     const ok = fresh.find(el => el.matches(SUCCESS));
     if (!problem && !ok) return;
@@ -127,7 +130,7 @@ function floatFor(card) {
         btn.addEventListener('click', () => {
             const real = floatableSave(card);
             if (!real || real.disabled) return;
-            pending = { card, before: messages(card), until: Date.now() + RESULT_WAIT };
+            pending = { card, before: messages(card), until: Date.now() + RESULT_WAIT, button: real, sawBusy: false };
             real.click();
         });
         document.body.appendChild(btn);
@@ -226,7 +229,12 @@ export function mount(el) {
     on(window, 'beforeunload', e => {
         if (unsavedTitles().length) { e.preventDefault(); e.returnValue = ''; }
     });
-    observer = new MutationObserver(schedule);
+    // The busy flip can come and go within one frame, so it is caught here rather than in place().
+    observer = new MutationObserver(records => {
+        if (pending && records.some(r => r.target === pending.button && r.attributeName === 'disabled' && pending.button.disabled))
+            pending.sawBusy = true;
+        schedule();
+    });
     observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled'] });
     schedule();
 }

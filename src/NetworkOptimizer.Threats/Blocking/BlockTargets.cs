@@ -130,6 +130,9 @@ public interface IGatewayAgentBlocklist
 
     /// <summary>What is wrong with the site's connected gateway agent, or null when nothing is.</summary>
     string? Problem(string? site, string fingerprint);
+
+    /// <summary>Whether the site has a connected gateway agent that can enforce its set.</summary>
+    bool HasGatewayAgent(string? site);
 }
 
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>

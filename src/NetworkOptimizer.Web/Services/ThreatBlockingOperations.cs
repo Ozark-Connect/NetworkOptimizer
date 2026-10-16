@@ -165,6 +165,9 @@ public sealed class ThreatBlockingOperations
     /// <summary>Public list entries on the site's gateway, or null before the first write since startup.</summary>
     public int? GatewayFeedEntries(string slug) => _blocking.GatewayFeedEntries(Site(slug));
 
+    /// <summary>Whether the site has a connected gateway On-Site Agent that can hold every public list entry.</summary>
+    public bool GatewayAgentPresent(string slug) => _blocking.GatewayAgentPresent(Site(slug));
+
     public Task<BlockingSettings> GetSettingsAsync(string slug, CancellationToken ct) =>
         BlockingSettings.LoadAsync(k => _settings.GetSettingAsync(k, ct), Site(slug));
 

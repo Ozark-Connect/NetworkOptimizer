@@ -36,7 +36,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     internal const int MaxOutboundFeedEntries = 50_000;
     // What a UniFi Network List may hold: the gateway refuses a larger set ("exceeds maximum allowed size")
     // and fails the whole config apply with it. Shared by the site's own blocks and its public lists.
-    internal const int MaxConsoleEntries = 10_000;
+    public const int MaxConsoleEntries = 10_000;
     private readonly ConcurrentDictionary<string, int> _feedsCapped = new();
     private readonly ConcurrentDictionary<string, int> _consoleCapped = new();
 
@@ -446,6 +446,9 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _status[key] = new BlockTargetStatus(BlockTargetKind.GatewayAgent, now, true, entries.Count, null);
     }
 
+    /// <summary>Whether the site has a connected gateway On-Site Agent that can hold its blocklist (null site = default site).</summary>
+    public bool GatewayAgentPresent(string? site) => _agents?.HasGatewayAgent(site) == true;
+
     /// <summary>Whether the site's gateway On-Site Agent currently holds its blocklist (null site = default site).</summary>
     public bool GatewayAgentEnforcing(string? site) =>
         _status.TryGetValue((Key(site), BlockTargetKind.GatewayAgent), out var s) && s.Ok;
@@ -581,7 +584,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
         // UniFi Network's Network List gets a share of every list, within what the gateway accepts after the
         // site's own blocks; the gateway agent holds them all.
-        var share = ConsoleShare(perList.Select(p => (IReadOnlyList<string>)p.Entries).ToList(), consoleBudget);
+        var share = ConsoleShare(perList.Select(p => p.Entries.Count).ToList(), consoleBudget);
         var console = perList.SelectMany((p, i) => p.Entries.Take(share[i])).ToList();
         var consoleOut = console.Where(outbound.ContainsKey).ToList();
         _consoleCapped[Key(site)] = all.Count - console.Count;
@@ -596,18 +599,18 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     /// How many of each list's entries fit in <paramref name="budget"/>, shared evenly: a list smaller than
     /// its share keeps all of it, and what it leaves goes to the larger lists. Each list keeps its first entries.
     /// </summary>
-    internal static int[] ConsoleShare(IReadOnlyList<IReadOnlyList<string>> lists, int budget)
+    public static int[] ConsoleShare(IReadOnlyList<int> sizes, int budget)
     {
-        var share = new int[lists.Count];
+        var share = new int[sizes.Count];
         var left = Math.Max(0, budget);
-        var open = Enumerable.Range(0, lists.Count).OrderBy(i => lists[i].Count).ToList();
+        var open = Enumerable.Range(0, sizes.Count).OrderBy(i => sizes[i]).ToList();
         while (open.Count > 0)
         {
             var even = left / open.Count;
             var i = open[0];
-            if (lists[i].Count <= even)
+            if (sizes[i] <= even)
             {
-                share[i] = lists[i].Count;
+                share[i] = sizes[i];
                 left -= share[i];
                 open.RemoveAt(0);
                 continue;
