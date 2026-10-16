@@ -19,13 +19,22 @@ function saveRow(card) {
     return rows.length ? rows[rows.length - 1] : null;
 }
 
+const label = b => b.textContent.trim();
+
+// The row's Save by its label (a Save can be styled secondary beside a primary Test), else its primary.
 function saveButton(card) {
-    return saveRow(card)?.querySelector('.btn-primary, .btn-success') ?? null;
+    const row = saveRow(card);
+    if (!row) return null;
+    return [...row.querySelectorAll('button')].find(b => /^(Sav(e|ing)|Updat(e|ing)|Connect(ing)?)\b/i.test(label(b)))
+        ?? row.querySelector('.btn-primary, .btn-success');
 }
+
+// Any of these in the save row settles the card's edits (UniFi Console Connection saves on Connect);
+// Test, Download, or Disconnect does not.
+const SETTLES = /^(Sav(e|ing)|Updat(e|ing)|Connect(ing)?|Clear(ing)?)\b/i;
 
 // Floated only for a plain save row: a lone Save, or Save with Cancel. A row that also tests,
 // connects, or deploys is left where it is.
-const label = b => b.textContent.trim();
 function floatableSave(card) {
     const row = saveRow(card);
     if (!row) return null;
@@ -194,7 +203,8 @@ function onEdit(e) {
 function onClick(e) {
     const card = cardOf(e.target);
     if (!card) return;
-    if (saveButton(card)?.contains(e.target)) unsaved.delete(card);
+    const button = e.target.closest('button');
+    if (button && saveRow(card)?.contains(button) && SETTLES.test(label(button))) unsaved.delete(card);
     else if (e.target.closest('[data-marks-unsaved]') && saveButton(card)) unsaved.add(card);
 }
 
