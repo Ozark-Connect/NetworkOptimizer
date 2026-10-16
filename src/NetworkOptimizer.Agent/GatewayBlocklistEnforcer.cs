@@ -27,6 +27,9 @@ public sealed class GatewayBlocklistEnforcer
     private const string OutV4 = "netopt_out_v4";
     private const string OutV6 = "netopt_out_v6";
     private const int MaxElements = 262144;
+    /// <summary>Kernel log prefix of an outbound drop, read back by <see cref="GatewayBlocklistHitReporter"/>.</summary>
+    public const string OutLogPrefix = "NETOPT_OUT:";
+    private const int OutLogPerMinute = 30;
     // ipset's largest timeout; anything longer is clamped to it.
     private const int MaxTtlSeconds = 2147483;
     private static readonly TimeSpan HookCheckEvery = TimeSpan.FromSeconds(10);
@@ -289,13 +292,16 @@ public sealed class GatewayBlocklistEnforcer
         [
             $"-A {Chain} -m set --match-set {guardSet} src -j RETURN",
             $"-A {Chain} -m set --match-set {blockSet} src -m state --state NEW -j DROP",
+            // Outbound drops are logged (rate limited) so the agent can report which device tried.
+            $"-A {Chain} -m set --match-set {outSet} dst -m limit --limit {OutLogPerMinute}/min --limit-burst {OutLogPerMinute} -j LOG --log-prefix {OutLogPrefix} --log-level 6",
             $"-A {Chain} -m set --match-set {outSet} dst -j DROP",
         ];
         var current = Run(tool, ["-S", Chain], null);
         if (current.Exit == 0)
         {
+            // iptables may quote the log prefix when it prints the rule.
             var rules = current.Stdout.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .Where(l => l.StartsWith("-A ", StringComparison.Ordinal)).ToList();
+                .Where(l => l.StartsWith("-A ", StringComparison.Ordinal)).Select(l => l.Replace("\"", "")).ToList();
             if (rules.SequenceEqual(wanted)) return;
             Check(Run(tool, ["-F", Chain], null), $"{tool} -F {Chain}");
         }

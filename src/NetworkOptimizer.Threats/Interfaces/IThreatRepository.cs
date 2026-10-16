@@ -54,6 +54,13 @@ public interface IThreatRepository
 
     // --- Threat Events ---
     Task SaveEventsAsync(List<ThreatEvent> events, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether an event from <paramref name="sourceIp"/> to <paramref name="destIp"/> was recorded in the window,
+    /// optionally only from one source or in one category.
+    /// </summary>
+    Task<bool> HasEventAsync(string sourceIp, string destIp, DateTime from, DateTime to, EventSource? eventSource = null,
+        string? category = null, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsAsync(DateTime from, DateTime to, string? sourceIp = null, int? destPort = null, KillChainStage? stage = null, int limit = 1000, CancellationToken cancellationToken = default);
     Task<ThreatSummary> GetThreatSummaryAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
     Task<List<SourceIpSummary>> GetTopSourcesAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);

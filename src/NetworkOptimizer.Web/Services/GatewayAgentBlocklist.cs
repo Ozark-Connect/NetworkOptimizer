@@ -29,10 +29,14 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
 
     private sealed record Desired(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries, IReadOnlyList<GatewayAgentEntry> Outbound, string Fingerprint);
 
-    public GatewayAgentBlocklist(AgentTunnelRegistry registry, ILogger<GatewayAgentBlocklist> logger)
+    private readonly NetworkOptimizer.Threats.ThreatCollectionService? _collection;
+
+    public GatewayAgentBlocklist(AgentTunnelRegistry registry, ILogger<GatewayAgentBlocklist> logger,
+        NetworkOptimizer.Threats.ThreatCollectionService? collection = null)
     {
         _registry = registry;
         _logger = logger;
+        _collection = collection;
     }
 
     private static string Slug(string? site) => string.IsNullOrEmpty(site) ? SiteManagementService.DefaultSiteSlug : site;
@@ -98,6 +102,34 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     {
         _sent.TryRemove(connection.AgentId, out _);
         _status.TryRemove(connection.AgentId, out _);
+    }
+
+    /// <summary>
+    /// Hands the devices an agent saw trying to reach an outbound-blocked address to Threat Intelligence,
+    /// which tags, de-duplicates, and alerts on them with the site's next collection.
+    /// </summary>
+    public void OnHits(AgentTunnelConnection connection, GatewayBlocklistHits hits)
+    {
+        if (_collection == null || hits.Hits.Count == 0) return;
+        var drops = hits.Hits
+            .Where(h => !string.IsNullOrWhiteSpace(h.ClientIp) && !string.IsNullOrWhiteSpace(h.DestIp))
+            .Select(h => new NetworkOptimizer.Threats.Models.ThreatEvent
+            {
+                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(h.LastUnixMs).UtcDateTime,
+                SourceIp = h.ClientIp,
+                SourceMac = string.IsNullOrEmpty(h.ClientMac) ? null : h.ClientMac,
+                DestIp = h.DestIp,
+                DestPort = h.DestPort,
+                Protocol = h.Protocol,
+                Action = NetworkOptimizer.Threats.Models.ThreatAction.Blocked,
+                EventSource = NetworkOptimizer.Threats.Models.EventSource.TrafficFlow,
+                Direction = "outgoing",
+                Category = PublicListContact.Category,
+                SignatureName = "",
+                InnerAlertId = $"gateway-agent:{h.ClientIp}:{h.DestIp}:{h.Protocol}:{h.DestPort}:{h.FirstUnixMs}",
+            })
+            .ToList();
+        _collection.QueueGatewayDrops(connection.SiteSlug, drops);
     }
 
     /// <summary>Records an agent's report of what it applied.</summary>

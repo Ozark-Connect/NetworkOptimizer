@@ -246,6 +246,9 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     case AgentMessage.PayloadOneofCase.GatewayBlocklistStatus:
                         _gatewayBlocklist.OnStatus(connection, message.GatewayBlocklistStatus);
                         break;
+                    case AgentMessage.PayloadOneofCase.GatewayBlocklistHits:
+                        _gatewayBlocklist.OnHits(connection, message.GatewayBlocklistHits);
+                        break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
                         break;

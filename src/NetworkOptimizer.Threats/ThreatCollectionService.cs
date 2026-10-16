@@ -58,6 +58,10 @@ public class ThreatCollectionService : BackgroundService
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
     private readonly IThreatSystemAudit? _systemAudit;
     private readonly IInfrastructureSourceProvider? _infrastructureSources;
+    private readonly Blocking.IPublicListLookup? _publicLists;
+    // Outbound drops gateway agents reported, saved with each site's next cycle so they run through
+    // the same tagging, de-duplication, and alerting as collected flows ("" = default site).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentQueue<ThreatEvent>> _gatewayDrops = new();
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -73,8 +77,10 @@ public class ThreatCollectionService : BackgroundService
         NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
         IThreatSystemAudit? systemAudit = null,
         ISiteHttpClientProvider? siteHttp = null,
-        IInfrastructureSourceProvider? infrastructureSources = null)
+        IInfrastructureSourceProvider? infrastructureSources = null,
+        Blocking.IPublicListLookup? publicLists = null)
     {
+        _publicLists = publicLists;
         _systemAudit = systemAudit;
         _infrastructureSources = infrastructureSources;
         _siteHttp = siteHttp;
@@ -122,6 +128,29 @@ public class ThreatCollectionService : BackgroundService
     /// </summary>
     public DateTimeOffset? BackfillCursorFor(string? siteSlug) =>
         _backfillCursorBySite.TryGetValue(NormalizeSite(siteSlug), out var cursor) ? cursor : null;
+
+    /// <summary>
+    /// Queues outbound drops a site's gateway agent reported (devices that tried to reach an address on
+    /// one of the site's public block lists). They are saved and alerted on with the site's next cycle.
+    /// </summary>
+    public void QueueGatewayDrops(string? siteSlug, IEnumerable<ThreatEvent> drops)
+    {
+        var queue = _gatewayDrops.GetOrAdd(NormalizeSite(siteSlug), _ => new());
+        foreach (var drop in drops)
+        {
+            // A device stuck in a retry loop must not grow this without bound between cycles.
+            if (queue.Count >= 1000) break;
+            queue.Enqueue(drop);
+        }
+        TriggerCollection();
+    }
+
+    /// <summary>The site's public lists as Automatic Blocking last built them.</summary>
+    private Blocking.PublicListMatcher ListsFor(string? siteKey)
+    {
+        var site = NormalizeSite(siteKey);
+        return _publicLists?.For(site.Length == 0 ? null : site) ?? Blocking.PublicListMatcher.Empty;
+    }
 
     /// <summary>
     /// The site's netopt-waf as of its last poll, or null when the site has no WAF configured.
@@ -223,6 +252,13 @@ public class ThreatCollectionService : BackgroundService
         // A site's WAF sits beside its proxy (reached through its agent when routed that way) and does not need the console.
         await CollectWafAsync(repository, settings, siteKey, cancellationToken);
 
+        if (_gatewayDrops.TryGetValue(NormalizeSite(siteKey), out var drops) && !drops.IsEmpty)
+        {
+            var batch = new List<ThreatEvent>();
+            while (drops.TryDequeue(out var drop)) batch.Add(drop);
+            await ProcessAndSaveAsync(batch, repository, settings, siteKey, cancellationToken);
+        }
+
         var apiClient = _uniFiClientAccessor.GetClient(siteKey);
         if (apiClient == null)
         {
@@ -258,7 +294,7 @@ public class ThreatCollectionService : BackgroundService
             var chunkEnd = chunkCursor.AddHours(1);
             if (chunkEnd > now) chunkEnd = now;
 
-            var chunkEvents = await CollectRangeAsync(apiClient, chunkCursor, chunkEnd, maxPages: int.MaxValue, cancellationToken);
+            var chunkEvents = await CollectRangeAsync(apiClient, siteKey, chunkCursor, chunkEnd, maxPages: int.MaxValue, cancellationToken);
             await ProcessAndSaveAsync(chunkEvents, repository, settings, siteKey, cancellationToken);
             totalRecentEvents += chunkEvents.Count;
 
@@ -291,7 +327,7 @@ public class ThreatCollectionService : BackgroundService
                 var chunkStart = cursor.AddHours(-6);
                 if (chunkStart < backfillLimit) chunkStart = backfillLimit;
 
-                var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
+                var backfillEvents = await CollectRangeAsync(apiClient, siteKey, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
                 await ProcessAndSaveAsync(backfillEvents, repository, settings, siteKey, cancellationToken);
 
                 cursor = chunkStart;
@@ -349,13 +385,13 @@ public class ThreatCollectionService : BackgroundService
     /// Collect traffic flows and IPS events for a specific time range.
     /// </summary>
     private async Task<List<ThreatEvent>> CollectRangeAsync(
-        UniFi.UniFiApiClient apiClient,
+        UniFi.UniFiApiClient apiClient, string? siteKey,
         DateTimeOffset start, DateTimeOffset end,
         int maxPages, CancellationToken cancellationToken)
     {
         var allEvents = new List<ThreatEvent>();
 
-        var flowEvents = await CollectTrafficFlowsAsync(apiClient, start, end, maxPages, cancellationToken);
+        var flowEvents = await CollectTrafficFlowsAsync(apiClient, ListsFor(siteKey), start, end, maxPages, cancellationToken);
         allEvents.AddRange(flowEvents);
 
         var ipsEvents = await CollectIpsEventsAsync(apiClient, start, end, cancellationToken);
@@ -381,6 +417,18 @@ public class ThreatCollectionService : BackgroundService
 
         foreach (var evt in events)
             evt.KillChainStage = _classifier.Classify(evt);
+
+        // Devices reaching the site's public block lists. After classification, so the tag's stage holds;
+        // drops a gateway agent reported arrive already marked and keep it even if the list has changed.
+        var lists = ListsFor(siteKey);
+        var contacts = new List<ThreatEvent>();
+        foreach (var evt in events)
+        {
+            var list = Blocking.PublicListContact.IsCandidate(evt) ? lists.Find(evt.DestIp) : null;
+            if (list == null && evt.Category != Blocking.PublicListContact.Category) continue;
+            Blocking.PublicListContact.Tag(evt, list);
+            contacts.Add(evt);
+        }
 
         await repository.SaveEventsAsync(events, cancellationToken);
 
@@ -655,10 +703,41 @@ public class ThreatCollectionService : BackgroundService
             _logger.LogDebug(ex, "Attack chain detection failed");
         }
 
+        // A CyberSecure (Suricata) event and a public list contact on the same device and address within
+        // minutes are one contact: whichever is recorded second raises no alert of its own.
+        var window = Blocking.PublicListContact.DuplicateWindow;
+        var contactPairs = contacts.Select(c => (c.SourceIp, c.DestIp)).ToHashSet();
+        var alertedPairs = new HashSet<(string, string)>();
+        foreach (var contact in contacts.GroupBy(c => (c.SourceIp, c.DestIp, c.Action)).Select(g => g.First()))
+        {
+            if (noiseFilters.Any(f => f.Matches(contact.SourceIp, contact.DestIp, contact.DestPort)))
+                continue;
+            try
+            {
+                if (events.Any(e => e.EventSource == Models.EventSource.Ips && e.SourceIp == contact.SourceIp && e.DestIp == contact.DestIp)
+                    || await repository.HasEventAsync(contact.SourceIp, contact.DestIp, contact.Timestamp - window, contact.Timestamp + window,
+                        Models.EventSource.Ips, cancellationToken: cancellationToken))
+                    continue;
+                await PublishContactAsync(contact, alertSiteSlug, sources, cancellationToken);
+                alertedPairs.Add((contact.SourceIp, contact.DestIp));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to publish public block list contact alert");
+            }
+        }
+
         // Publish high-severity events to alert bus (skip noise-filtered)
-        foreach (var evt in events.Where(e => e.Severity >= 4))
+        foreach (var evt in events.Where(e => e.Severity >= 4 && e.Category != Blocking.PublicListContact.Category))
         {
             if (noiseFilters.Any(f => f.Matches(evt.SourceIp, evt.DestIp, evt.DestPort)))
+                continue;
+            // In the same batch the contact deferred to this event; from an earlier one, the contact alerted.
+            if (evt.EventSource == Models.EventSource.Ips
+                && (contactPairs.Contains((evt.SourceIp, evt.DestIp))
+                    ? alertedPairs.Contains((evt.SourceIp, evt.DestIp))
+                    : await repository.HasEventAsync(evt.SourceIp, evt.DestIp, evt.Timestamp - window, evt.Timestamp + window,
+                        category: Blocking.PublicListContact.Category, cancellationToken: cancellationToken)))
                 continue;
 
             try
@@ -696,6 +775,35 @@ public class ThreatCollectionService : BackgroundService
         }
     }
 
+    /// <summary>Alerts on a device reaching (Critical) or trying to reach (Warning) an address on a public block list.</summary>
+    private async Task PublishContactAsync(ThreatEvent contact, string? alertSiteSlug, AlertSourceDescriber sources,
+        CancellationToken cancellationToken)
+    {
+        var blocked = contact.Action == ThreatAction.Blocked;
+        var device = await sources.DescribeDeviceAsync(contact.SourceIp, contact.SourceMac, cancellationToken);
+        var listName = contact.SignatureName.Split(" on ", 2) is { Length: 2 } parts ? parts[1] : "a public block list";
+        await _alertEventBus.PublishAsync(new AlertEvent
+        {
+            EventType = blocked ? "threats.public_list_attempt" : "threats.public_list_contact",
+            Source = "threats",
+            SiteSlug = alertSiteSlug,
+            Severity = blocked ? AlertSeverity.Warning : AlertSeverity.Critical,
+            Title = blocked ? $"Public Block List: {device.Text} tried to reach {listName}" : $"Public Block List: {device.Text} reached {listName}",
+            Message = blocked
+                ? $"{device.Text} tried to connect to {contact.DestIp}:{contact.DestPort} ({contact.Protocol}), an address on {listName}. The connection was blocked."
+                : $"{device.Text} connected to {contact.DestIp}:{contact.DestPort} ({contact.Protocol}), an address on {listName}.",
+            DeviceIp = contact.SourceIp,
+            SourceUrl = IpDrilldownUrl(contact.DestIp),
+            Context = device.WithContext(new Dictionary<string, string>
+            {
+                ["list"] = listName,
+                ["destination"] = contact.DestIp,
+                ["destination_port"] = contact.DestPort.ToString(),
+                ["action"] = blocked ? "blocked" : "allowed",
+            })
+        }, cancellationToken);
+    }
+
     /// <summary>
     /// Threat Intelligence deep link that opens the drilldown for a source IP,
     /// or the page itself when the IP is unknown.
@@ -716,6 +824,7 @@ public class ThreatCollectionService : BackgroundService
     /// </summary>
     private async Task<List<ThreatEvent>> CollectTrafficFlowsAsync(
         UniFi.UniFiApiClient apiClient,
+        Blocking.PublicListMatcher lists,
         DateTimeOffset start,
         DateTimeOffset end,
         int maxPages,
@@ -723,9 +832,10 @@ public class ThreatCollectionService : BackgroundService
     {
         var events = new List<ThreatEvent>();
 
-        // Pass 1: Unfiltered - catches medium/high risk + sensitive port probes via FlowInterestFilter
+        // Pass 1: Unfiltered - catches medium/high risk + sensitive port probes via FlowInterestFilter,
+        // and allowed connections to the site's public block lists
         var pass1 = await CollectFlowsPassAsync(apiClient, start, end, maxPages,
-            actionFilter: null, applyInterestFilter: true, cancellationToken);
+            actionFilter: null, applyInterestFilter: true, cancellationToken, lists);
         events.AddRange(pass1);
 
         // Pass 2: Blocked-only - ensures ALL blocked flows are captured regardless of pagination
@@ -806,7 +916,8 @@ public class ThreatCollectionService : BackgroundService
         int maxPages,
         string[]? actionFilter,
         bool applyInterestFilter,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Blocking.PublicListMatcher? lists = null)
     {
         var events = new List<ThreatEvent>();
 
@@ -829,7 +940,8 @@ public class ThreatCollectionService : BackgroundService
                 {
                     if (Analysis.FlowInterestFilter.IsInvalidStateDrop(flow))
                         continue;
-                    if (!applyInterestFilter || Analysis.FlowInterestFilter.IsInteresting(flow))
+                    if (!applyInterestFilter || Analysis.FlowInterestFilter.IsInteresting(flow)
+                        || lists?.Find(Analysis.FlowInterestFilter.DestinationIp(flow)) != null)
                         flowsToNormalize.Add(flow);
                 }
 

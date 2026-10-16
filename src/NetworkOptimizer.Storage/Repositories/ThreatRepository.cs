@@ -836,6 +836,13 @@ public class ThreatRepository : IThreatRepository
 
     #endregion
 
+    public Task<bool> HasEventAsync(string sourceIp, string destIp, DateTime from, DateTime to, EventSource? eventSource = null,
+        string? category = null, CancellationToken cancellationToken = default) =>
+        _context.ThreatEvents.AsNoTracking().AnyAsync(e => e.SourceIp == sourceIp && e.DestIp == destIp
+            && e.Timestamp >= from && e.Timestamp <= to
+            && (eventSource == null || e.EventSource == eventSource)
+            && (category == null || e.Category == category), cancellationToken);
+
     #region Attack Sequences
 
     public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,

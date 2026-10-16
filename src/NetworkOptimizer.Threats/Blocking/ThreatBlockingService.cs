@@ -19,7 +19,7 @@ public sealed record BlockTargetStatus(BlockTargetKind Kind, DateTime At, bool O
 /// enforcing them, so there only manual blocks are sent. A
 /// target that stops being wanted is emptied once, so nothing Network Optimizer added is left behind.
 /// </summary>
-public sealed class ThreatBlockingService : BackgroundService
+public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan Resync = TimeSpan.FromHours(1);
@@ -344,15 +344,16 @@ public sealed class ThreatBlockingService : BackgroundService
             var allowlist = await BuildAllowlistAsync(services, site, settings, now, ct, peers);
             desired = BlockDecisionEngine.DesiredSet(union.Where(b => allowlist.Exempts(b.SourceIp) == null
                 && (settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual)), now, settings.MaxEntries);
+            // Dry Run downloads the chosen lists without sending them, so Settings shows their counts,
+            // devices reaching them are flagged, and the first Enforce has them at once.
+            var (matcher, entries) = await FeedEntriesAsync(accessor, settings, allowlist, now, ct);
+            _listMatchers[Key(site)] = matcher;
             if (settings.Mode == BlockingMode.Enforce)
-                feeds = await FeedEntriesAsync(accessor, settings, allowlist, now, ct);
-            else if (_lists != null)
-            {
-                // Dry Run downloads the chosen lists without sending them, so Settings shows their
-                // counts and the first Enforce has them at once. The cache keeps each list's interval.
-                foreach (var id in settings.Feeds)
-                    await _lists.GetAsync(id, accessor, now, ct);
-            }
+                feeds = entries;
+        }
+        else
+        {
+            _listMatchers.TryRemove(Key(site), out _);
         }
 
         PushToGatewayAgent(site, settings, desired, feeds, now);
@@ -485,21 +486,29 @@ public sealed class ThreatBlockingService : BackgroundService
         return new BlockAllowlist($"{settings.Allowlist}\n{extras}", filters, addresses, cloudflare);
     }
 
-    // The enabled public lists' entries, minus anything overlapping protected space.
-    private async Task<IReadOnlyList<string>> FeedEntriesAsync(IThreatSettingsAccessor accessor, BlockingSettings settings,
-        BlockAllowlist allowlist, DateTime now, CancellationToken ct)
+    // The enabled public lists' entries, minus anything overlapping protected space, and which list each came from.
+    private async Task<(PublicListMatcher Matcher, IReadOnlyList<string> Entries)> FeedEntriesAsync(IThreatSettingsAccessor accessor,
+        BlockingSettings settings, BlockAllowlist allowlist, DateTime now, CancellationToken ct)
     {
-        if (_lists == null || settings.Feeds.Count == 0) return [];
-        var entries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_lists == null || settings.Feeds.Count == 0) return (PublicListMatcher.Empty, []);
+        var entries = new Dictionary<string, PublicBlockList>(StringComparer.OrdinalIgnoreCase);
         foreach (var id in settings.Feeds)
         {
+            if (PublicBlockLists.Find(id) is not { } list) continue;
             foreach (var entry in await _lists.GetAsync(id, accessor, now, ct))
             {
-                if (allowlist.ExemptsRange(entry) == null) entries.Add(entry);
+                if (allowlist.ExemptsRange(entry) == null) entries.TryAdd(entry, list);
             }
         }
-        return entries.Order(StringComparer.OrdinalIgnoreCase).ToList();
+        return (new PublicListMatcher(entries.Select(kv => (kv.Key, kv.Value))),
+            entries.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList());
     }
+
+    private readonly ConcurrentDictionary<string, PublicListMatcher> _listMatchers = new();
+
+    /// <inheritdoc />
+    public PublicListMatcher For(string? site) =>
+        _listMatchers.TryGetValue(Key(site), out var matcher) ? matcher : PublicListMatcher.Empty;
 
     // Public lists go to their own Network Lists: on a change of chosen lists at once, otherwise when entries
     // change, at most every FeedWriteEvery.

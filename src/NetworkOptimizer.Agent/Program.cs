@@ -215,6 +215,8 @@ UciInformCapture? uciCapture = null;
 Task? uciCaptureTask = null;
 GatewayBlocklistEnforcer? blocklist = null;
 Task? blocklistTask = null;
+GatewayBlocklistHitReporter? blocklistHits = null;
+Task? blocklistHitsTask = null;
 Task? probeTask = null;
 Task? snmpTask = null;
 Task? conntrackTask = null;
@@ -316,6 +318,8 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
         blocklist = new GatewayBlocklistEnforcer(
             Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "gateway-blocklist.json"), guardHosts);
         blocklistTask = blocklist.RunAsync(cts.Token);
+        blocklistHits = new GatewayBlocklistHitReporter();
+        blocklistHitsTask = blocklistHits.RunAsync(cts.Token);
     }
 }
 
@@ -358,6 +362,7 @@ while (!cts.IsCancellationRequested)
             tunnel.OnGatewayBlocklist = blocklist.Update;
             blocklist.LiveSend = tunnel.TrySend;
         }
+        if (blocklistHits != null) blocklistHits.LiveSend = tunnel.TrySend;
         tunnel.OnWanSpeedTestConfig = wanConfig => speedTestServer?.UpdateWanServers(
             wanConfig.Servers.Select(s => new SpeedTestServer.WanServerEntry(s.ServerId, s.Url)).ToList(),
             wanConfig.DefaultServerId);
@@ -408,6 +413,7 @@ while (!cts.IsCancellationRequested)
             if (conntrackRunner != null) conntrackRunner.LiveSend = null;
             if (uciCapture != null) uciCapture.LiveSend = null;
             if (blocklist != null) blocklist.LiveSend = null;
+            if (blocklistHits != null) blocklistHits.LiveSend = null;
             connectionCts.Cancel();
             // Nothing to salvage: the drain only peeks, so every unacked frame is
             // still in the buffer and replays on the next connection.
@@ -467,6 +473,10 @@ if (uciCaptureTask != null)
 if (blocklistTask != null)
 {
     try { await blocklistTask; } catch (OperationCanceledException) { }
+}
+if (blocklistHitsTask != null)
+{
+    try { await blocklistHitsTask; } catch (OperationCanceledException) { }
 }
 if (watchdogTask != null)
 {

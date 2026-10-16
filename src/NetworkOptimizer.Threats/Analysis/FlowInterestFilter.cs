@@ -31,6 +31,11 @@ public static class FlowInterestFilter
         31337 // Elite/backdoor
     };
 
+    /// <summary>A flow's destination address, or null.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows destination.ip")]
+    public static string? DestinationIp(JsonElement flow) =>
+        flow.TryGetProperty("destination", out var destination) ? destination.GetPropertyOrDefault("ip", "") is { Length: > 0 } ip ? ip : null : null;
+
     /// <summary>
     /// Returns true if the flow is interesting enough to store as a ThreatEvent.
     /// </summary>

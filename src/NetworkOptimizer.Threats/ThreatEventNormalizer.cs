@@ -170,10 +170,13 @@ public class ThreatEventNormalizer
                 var durationMs = flow.GetPropertyOrDefault("duration_milliseconds", 0L);
 
                 string? networkName = null;
+                string? sourceMac = null;
                 if (flow.TryGetProperty("source", out var srcForNetwork))
                 {
                     var nn = srcForNetwork.GetPropertyOrDefault("network_name", "");
                     if (!string.IsNullOrEmpty(nn)) networkName = nn;
+                    var mac = srcForNetwork.GetPropertyOrDefault("mac", "");
+                    if (!string.IsNullOrEmpty(mac)) sourceMac = mac.ToLowerInvariant();
                 }
 
                 var severity = MapFlowSeverity(risk, action);
@@ -228,7 +231,8 @@ public class ThreatEventNormalizer
                     BytesTotal = bytesTotal,
                     FlowDurationMs = durationMs > 0 ? durationMs : null,
                     NetworkName = networkName,
-                    RiskLevel = risk
+                    RiskLevel = risk,
+                    SourceMac = sourceMac
                 };
 
                 results.Add(threatEvent);

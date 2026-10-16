@@ -608,6 +608,7 @@ builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAc
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.ISiteHttpClientProvider, NetworkOptimizer.Web.Services.SiteHttpClientProvider>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.IPublicListLookup>(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>();
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.TrustedSourcesGroup>();
 // Public block lists and Cloudflare's ranges, fetched once per instance and kept in the main database.
