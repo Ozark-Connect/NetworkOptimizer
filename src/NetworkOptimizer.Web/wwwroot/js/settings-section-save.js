@@ -84,7 +84,10 @@ function placeResult() {
     if (!result || result.hidden) return;
     if (!resultAnchor || resultAnchor.hidden) { result.hidden = true; return; }
     const r = resultAnchor.getBoundingClientRect();
-    result.style.left = `${r.right + 8}px`;
+    // Just outside the card's right edge, clear of its border.
+    const card = [...floats].find(([, b]) => b === resultAnchor)?.[0];
+    const edge = card ? card.getBoundingClientRect().right : r.right;
+    result.style.left = `${Math.max(r.right, edge) + 8}px`;
     result.style.top = `${r.top + r.height / 2 - 14}px`;
 }
 
