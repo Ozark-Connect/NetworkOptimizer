@@ -16,6 +16,7 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     public const string Capability = "gateway-blocklist";
 
     private static readonly TimeSpan ResendEvery = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan AckWait = TimeSpan.FromMinutes(2);
 
     private readonly AgentTunnelRegistry _registry;
     private readonly ILogger<GatewayAgentBlocklist> _logger;
@@ -58,9 +59,13 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
         return agents.Count > 0;
     }
 
+    // An agent whose last report was good still counts while a newer set is on its way: its ack lands
+    // a second after the push, so requiring the current fingerprint would never count a busy site.
     public bool IsEnforcing(string? site, string fingerprint) =>
-        Capable(Slug(site)).Any(agent => _status.TryGetValue(agent.AgentId, out var s)
-            && s.Fingerprint == fingerprint && s.Ok && s.HookPresent);
+        Capable(Slug(site)).Any(agent => _status.TryGetValue(agent.AgentId, out var s) && s.Ok && s.HookPresent
+            && (s.Fingerprint == fingerprint
+                || (_sent.TryGetValue(agent.AgentId, out var sent) && sent.Fingerprint == fingerprint
+                    && DateTime.UtcNow - sent.At < AckWait)));
 
     /// <summary>Sends a newly connected gateway agent its site's set, if there is one yet.</summary>
     public void OnAgentConnected(AgentTunnelConnection connection)
