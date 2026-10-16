@@ -26,6 +26,19 @@ function saveButton(card) {
     return saveRow(card)?.querySelector('.btn-primary, .btn-success') ?? null;
 }
 
+// Floated only for a plain save row: a lone Save, or Save with Cancel. A row that also tests,
+// connects, or deploys is left where it is.
+const label = b => b.textContent.trim();
+function floatableSave(card) {
+    const row = saveRow(card);
+    if (!row) return null;
+    const buttons = [...row.querySelectorAll('button')];
+    const save = buttons.find(b => /^Sav(e|ing)\b/i.test(label(b)));
+    if (!save) return null;
+    const others = buttons.filter(b => b !== save);
+    return others.length === 0 || (others.length === 1 && /^Cancel$/i.test(label(others[0]))) ? save : null;
+}
+
 function cardOf(el) {
     const card = el?.closest?.('.card');
     return card && card.parentElement === container ? card : null;
@@ -39,7 +52,7 @@ function floatFor(card) {
         btn.className = 'btn btn-primary settings-floating-save';
         btn.hidden = true;
         btn.addEventListener('click', () => {
-            const real = saveButton(card);
+            const real = floatableSave(card);
             if (real && !real.disabled) real.click();
         });
         document.body.appendChild(btn);
@@ -52,20 +65,24 @@ function place() {
     frame = 0;
     if (!container) return;
     const desktop = window.matchMedia(DESKTOP).matches;
-    const vh = window.innerHeight;
-    const vw = window.innerWidth;
+    // The page scrolls inside .page-content, with the footer below it: that box, not the window, is
+    // the visible area.
+    const area = (container.closest('.page-content') ?? document.documentElement).getBoundingClientRect();
+    const vw = Math.min(area.right, window.innerWidth);
+    const top = Math.max(area.top, 0);
+    const vh = Math.min(area.bottom, window.innerHeight);
     for (const card of container.querySelectorAll(':scope > .card')) {
-        const real = saveButton(card);
+        const real = floatableSave(card);
         const existing = floats.get(card);
         const rect = card.getBoundingClientRect();
-        const rowRect = real ? saveRow(card).getBoundingClientRect() : null;
-        const visibleTop = Math.max(rect.top, 0);
+        const rowRect = real ? real.closest('.action-buttons').getBoundingClientRect() : null;
+        const visibleTop = Math.max(rect.top, top);
         const visibleBottom = Math.min(rect.bottom, vh);
-        // Only once the reader is into the card: its top has scrolled into the top third of the window.
+        // Only once the reader is into the card: its top has scrolled into the top third of the area.
         const show = desktop && real && rect.height > 0
-            && rect.top <= vh * TOP_THRESHOLD
+            && rect.top <= top + (vh - top) * TOP_THRESHOLD
             && visibleBottom - visibleTop >= MIN_VISIBLE
-            && (rowRect.top < 0 || rowRect.bottom > vh);
+            && (rowRect.top < top || rowRect.bottom > vh);
         if (!show) {
             if (existing) existing.hidden = true;
             continue;
@@ -74,12 +91,12 @@ function place() {
         btn.textContent = real.textContent.trim().replace(/\s+/g, ' ');
         btn.disabled = real.disabled;
         btn.hidden = false;
-        // Beside the card's right edge, level with the bottom of its visible area; inside the card only
-        // when the window leaves no room beside it.
+        // Beside the card's right edge, near the bottom of its visible area; inside the card only when
+        // the area leaves no room beside it. Fixed positions count from the window's edges.
         const beside = vw - rect.right >= btn.offsetWidth + 2 * GAP;
         btn.style.left = beside ? `${rect.right + GAP}px` : '';
-        btn.style.right = beside ? '' : `${vw - Math.min(rect.right, vw) + EDGE}px`;
-        btn.style.bottom = `${vh - visibleBottom + (beside ? 0 : EDGE)}px`;
+        btn.style.right = beside ? '' : `${window.innerWidth - Math.min(rect.right, vw) + EDGE}px`;
+        btn.style.bottom = `${window.innerHeight - visibleBottom + EDGE}px`;
     }
     // Cards Blazor removed take their floating buttons with them.
     for (const [card, btn] of floats) {
