@@ -111,6 +111,14 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     /// </summary>
     public void OnHits(AgentTunnelConnection connection, GatewayBlocklistHits hits)
     {
+        // Only the agent that enforces the blocklist can have seen its drops; any other agent of the
+        // site sending them would be writing Threat events and alerts it has no business raising.
+        if (connection.OnGateway != true || !connection.HasCapability(Capability))
+        {
+            _logger.LogWarning("Ignored gateway blocklist hits from agent {Agent} ({Site}): not a gateway agent with the blocklist",
+                connection.AgentName, connection.SiteSlug);
+            return;
+        }
         if (hits.Hits.Count == 0 || _services.GetService<NetworkOptimizer.Threats.ThreatCollectionService>() is not { } collection) return;
         var drops = hits.Hits
             .Where(h => !string.IsNullOrWhiteSpace(h.ClientIp) && !string.IsNullOrWhiteSpace(h.DestIp))
