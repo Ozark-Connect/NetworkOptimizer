@@ -112,17 +112,21 @@
             <div class="ab-section">
                 <div class="ab-section-header">
                     <h3 class="ab-section-title">Public Block Lists</h3>
-                    <div class="ab-profile">
+                    <div class="ab-profile" data-autosave>
                         <select class="form-control" @bind="_profile" aria-label="Profile">
                             @foreach (var p in BlockingProfiles.All)
                             {
                                 <option value="@p">@BlockingProfiles.Name(p)@(p == _recommendation?.Profile ? " (recommended)" : "")</option>
                             }
                         </select>
-                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="UseProfile">Use Profile</button>
+                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="UseProfile" data-marks-unsaved>Use Profile</button>
                     </div>
                 </div>
                 <p class="form-help">@BlockingProfiles.Name(_profile): @BlockingProfiles.Description(_profile) Use Profile ticks its lists below and turns on outbound blocking; Save applies them.</p>
+                @if (_capped > 0)
+                {
+                    <p class="form-error">These lists add up to more than 100,000 entries, the most a gateway's Network List holds well. @_capped.ToString("N0") from the least useful lists are left out.</p>
+                }
                 <p class="form-help">Known-bad networks from public lists, blocked on the gateway and in the WAF while Automatic Blocking is in Blocking mode. Never sent to Cloudflare, which has its own. Entries that overlap private space or Trusted Sources are skipped.</p>
                 @foreach (var view in _lists)
                 {
@@ -150,7 +154,7 @@
                         }
                         @if (view.List.NeedsToken)
                         {
-                            <div class="input-with-button ab-token">
+                            <div class="input-with-button ab-token" data-autosave>
                                 <input type="password" class="form-control" autocomplete="off" @bind="_tokens[view.List.Id]"
                                        placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it." : "Your API token")" />
                                 <button class="btn btn-secondary" disabled="@_busy" @onclick="() => SaveToken(view.List.Id)">Save Token</button>
@@ -371,6 +375,7 @@
         _lists = await Blocking.GetPublicListsAsync();
         _recommendation = await Blocking.GetRecommendationAsync();
         _profile = _recommendation.Profile;
+        _capped = await Blocking.GetPublicListsCappedAsync();
         _setupHidden = (await Blocking.GetProtectionStatusAsync()).Hidden;
         _cf = await Blocking.GetCloudflareStatusAsync();
         _cfAccount = _cf.AccountId ?? "";
@@ -394,6 +399,7 @@
     };
 
     private BlockingRecommendation? _recommendation;
+    private int _capped;
     private BlockingProfile _profile = BlockingProfile.Home;
 
     private Task UseProfile() => Run(async () =>

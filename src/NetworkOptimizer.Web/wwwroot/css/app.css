@@ -7436,6 +7436,28 @@ a.path-hop.hop-clickable:hover {
     width: auto;
 }
 
+.automatic-blocking .ab-token {
+    margin-top: 0.5rem;
+}
+
+/* Settings: each card's bottom button row sits on the right on desktop (centered on mobile, as everywhere) */
+@media (min-width: 769px) {
+    .settings-container > .card > .card-body > .action-buttons:not(:has(~ .action-buttons)) {
+        justify-content: flex-end;
+    }
+}
+
+/* Its primary button, floated while the row is scrolled out of view (settings-section-save.js) */
+.settings-floating-save {
+    position: fixed;
+    z-index: 900;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.settings-floating-save[hidden] {
+    display: none;
+}
+
 /* Threat Intelligence - Protection Setup checklist: one row per step, its action on the right */
 .protection-setup .card-header {
     display: flex;

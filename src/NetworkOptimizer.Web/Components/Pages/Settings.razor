@@ -67,6 +67,9 @@
 @inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+
+<NavigationLock OnBeforeInternalNavigation="ConfirmLeaveAsync" />
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
 
@@ -161,7 +164,7 @@
                   data-tour="settings-search" />
 </div>
 
-<div class="settings-container settings-tabbed active-@_activeTab">
+<div class="settings-container settings-tabbed active-@_activeTab" @ref="_settingsContainer">
     <!-- 1. UniFi Console Connection -->
     <div class="card settings-tab-connection" id="console-connection">
         <div class="card-header">
@@ -1603,7 +1606,7 @@
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" checked="@_monitoringSettings.CmErrorCountersLast24h" @onchange="e => SetCmErrorWindowAsync(e.Value is true)" />
+                        <input type="checkbox" data-autosave checked="@_monitoringSettings.CmErrorCountersLast24h" @onchange="e => SetCmErrorWindowAsync(e.Value is true)" />
                         <span>Limit error counters on Dashboard Cards to last 24 hours</span>
                     </label>
                 </div>
@@ -1874,7 +1877,7 @@
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" checked="@_monitoringSettings.OntErrorCountersLast24h" @onchange="e => SetOntErrorWindowAsync(e.Value is true)" />
+                        <input type="checkbox" data-autosave checked="@_monitoringSettings.OntErrorCountersLast24h" @onchange="e => SetOntErrorWindowAsync(e.Value is true)" />
                         <span>Limit error counters on Dashboard Cards to last 24 hours</span>
                     </label>
                 </div>
@@ -4469,8 +4472,27 @@
         }
     }
 
+    // Floating Save and unsaved-changes prompts for every card (wwwroot/js/settings-section-save.js).
+    private IJSObjectReference? _sectionSave;
+    private ElementReference _settingsContainer;
+
+    private async Task ConfirmLeaveAsync(LocationChangingContext context)
+    {
+        if (_sectionSave == null) return;
+        try
+        {
+            if (!await _sectionSave.InvokeAsync<bool>("confirmLeave", context.TargetLocation))
+                context.PreventNavigation();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
     public void Dispose()
     {
+        if (_sectionSave != null)
+            _ = _sectionSave.InvokeVoidAsync("unmount").AsTask().ContinueWith(_ => _sectionSave.DisposeAsync().AsTask());
         DisposeTimers(_clientSpeedTestTargetDebounce);
         DisposeTimers(_clientSpeedTestTargetSavedTimers);
         SiteChangeNotifier.SitesChanged -= OnSiteRegistryChanged;
@@ -5451,6 +5473,16 @@
         {
             _kioskMode = await JS.InvokeAsync<bool>("getKioskMode");
             StateHasChanged();
+            try
+            {
+                _sectionSave = await JS.InvokeAsync<IJSObjectReference>("import",
+                    FileVersionProvider.AddFileVersionToPath("", "/js/settings-section-save.js"));
+                await _sectionSave.InvokeVoidAsync("mount", _settingsContainer);
+            }
+            catch (JSException ex)
+            {
+                Logger.LogWarning(ex, "Settings floating Save did not load");
+            }
             await HandleFragmentNavigationAsync();
 
             // Connection is the default tab, so arriving here never goes through SetActiveTab and
