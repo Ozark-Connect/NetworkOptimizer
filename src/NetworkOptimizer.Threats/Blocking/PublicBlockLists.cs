@@ -18,6 +18,11 @@ namespace NetworkOptimizer.Threats.Blocking;
 /// <param name="Attribution">Credit the source's terms ask for.</param>
 /// <param name="InfoUrl">The source's page.</param>
 /// <param name="Parse">Turns one downloaded body into IPs and CIDR ranges.</param>
+/// <param name="TokenUser">
+/// Set on a list that needs the site's own API token sent as HTTP Basic: the username, with the token as
+/// the password. Each URL of a token list is fetched and cached on its own, since the source rate-limits each.
+/// </param>
+/// <param name="TokenHeader">Set on a list that needs the site's own API token sent in this request header.</param>
 public sealed record PublicBlockList(
     string Id,
     string Name,
@@ -28,7 +33,13 @@ public sealed record PublicBlockList(
     bool Outbound,
     string Attribution,
     string InfoUrl,
-    Func<string, IEnumerable<string>> Parse);
+    Func<string, IEnumerable<string>> Parse,
+    string? TokenUser = null,
+    string? TokenHeader = null)
+{
+    /// <summary>Whether the list needs the site's own API token.</summary>
+    public bool NeedsToken => TokenUser != null || TokenHeader != null;
+}
 
 /// <summary>
 /// The public lists on offer, chosen for licenses that allow use in Network Optimizer and for low
@@ -49,7 +60,10 @@ public static class PublicBlockLists
     public const string CinsArmy = "cins-army";
     public const string IpsumLevel3 = "ipsum-3";
     public const string TorExits = "tor-exits";
+    public const string QFeeds = "qfeeds-malware-ip";
+    public const string ThreatFox = "threatfox-ip";
 
+    /// <summary>In the order the Settings card shows them: most useful first.</summary>
     public static readonly IReadOnlyList<PublicBlockList> All =
     [
         new(SpamhausDrop, "Spamhaus DROP",
@@ -58,17 +72,38 @@ public static class PublicBlockLists
             TimeSpan.FromHours(1), DefaultOn: true, Outbound: true,
             "Spamhaus DROP, (c) The Spamhaus Project", "https://www.spamhaus.org/blocklists/do-not-route-or-peer/",
             ParseSpamhausJson),
-        new(Feodo, "abuse.ch Feodo Tracker",
-            "Botnet command-and-control servers that are active now.",
-            ["https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"],
+        new(ThreatFox, "abuse.ch ThreatFox",
+            "Botnet command-and-control servers reported in the last 48 hours (Cobalt Strike, AsyncRAT, Remcos, and more), leaving out hijacked legitimate servers and low-confidence reports. Needs your own abuse.ch Auth-Key, which is free.",
+            ["https://threatfox.abuse.ch/export/csv/ip-port/recent/"],
             TimeSpan.FromMinutes(15), DefaultOn: false, Outbound: true,
-            "abuse.ch Feodo Tracker", "https://feodotracker.abuse.ch/blocklist/",
-            ParseIpLines),
+            "abuse.ch ThreatFox", "https://threatfox.abuse.ch/",
+            ParseThreatFoxIpPort, TokenHeader: "Auth-Key"),
+        // Q-Feeds allows one download per token, per feed, and per IP version in each update window
+        // (24 hours on Community, 4 on Plus, 20 minutes on Premium); an early one returns 429, which
+        // only means not yet. Hourly attempts follow whatever the token's plan allows.
+        new(QFeeds, "Q-Feeds Malware IPs",
+            "Malicious hosts, botnets, and command-and-control servers. Needs your own Q-Feeds API token; the Community edition is free.",
+            ["https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=0", "https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=only"],
+            TimeSpan.FromHours(1), DefaultOn: false, Outbound: true,
+            "Q-Feeds", "https://qfeeds.com/",
+            ParseIpLines, TokenUser: "api_token"),
         new(CinsArmy, "CINS Army",
             "Addresses with a poor reputation across Sentinel IPS sensors: mostly scanners and attackers.",
             ["https://cinsscore.com/list/ci-badguys.txt"],
             TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
             "CINS Army, Collective Intelligence Network Security", "https://cinsscore.com/",
+            ParseIpLines),
+        new(IpsumLevel3, "IPsum (level 3)",
+            "Addresses on at least three of 30+ public blocklists, updated daily.",
+            ["https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"],
+            TimeSpan.FromHours(6), DefaultOn: false, Outbound: false,
+            "IPsum by Miroslav Stampar", "https://github.com/stamparm/ipsum",
+            ParseIpLines),
+        new(BlocklistDeStrong, "blocklist.de Strong IPs",
+            "Addresses reported for repeated attacks on blocklist.de's servers in the last 48 hours.",
+            ["https://lists.blocklist.de/lists/strongips.txt"],
+            TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
+            "blocklist.de", "https://www.blocklist.de/en/export.html",
             ParseIpLines),
         new(DShield, "DShield Top 20",
             "The 20 /24 networks that attacked the most in the last three days, so neighbors on shared hosting are blocked too.",
@@ -76,17 +111,11 @@ public static class PublicBlockLists
             TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
             "SANS Internet Storm Center, DShield", "https://isc.sans.edu/feeds_doc.html",
             ParseDShield),
-        new(BlocklistDeStrong, "blocklist.de Strong IPs",
-            "Addresses reported for repeated attacks on blocklist.de's servers in the last 48 hours.",
-            ["https://lists.blocklist.de/lists/strongips.txt"],
-            TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
-            "blocklist.de", "https://www.blocklist.de/en/export.html",
-            ParseIpLines),
-        new(IpsumLevel3, "IPsum (level 3)",
-            "Addresses on at least three of 30+ public blocklists, updated daily.",
-            ["https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"],
-            TimeSpan.FromHours(6), DefaultOn: false, Outbound: false,
-            "IPsum by Miroslav Stampar", "https://github.com/stamparm/ipsum",
+        new(Feodo, "abuse.ch Feodo Tracker",
+            "Botnet command-and-control servers for a few banking-trojan families. Nearly empty since their takedowns; ThreatFox covers what replaced them.",
+            ["https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"],
+            TimeSpan.FromMinutes(15), DefaultOn: false, Outbound: true,
+            "abuse.ch Feodo Tracker", "https://feodotracker.abuse.ch/blocklist/",
             ParseIpLines),
         new(TorExits, "Tor exit relays",
             "Every Tor exit, legitimate or not. Only for sites that should never be reached over Tor.",
@@ -145,6 +174,27 @@ public static class PublicBlockLists
         {
             var entry = line.Split('#', 2)[0].Trim();
             if (Normalize(entry) is { } n) yield return n;
+        }
+    }
+
+    /// <summary>
+    /// ThreatFox's ip:port CSV, as the IPs alone. Hijacked legitimate servers (is_compromised) and reports
+    /// under 75% confidence are left out: blocked outbound, they would cut off whatever else they host.
+    /// </summary>
+    public static IEnumerable<string> ParseThreatFoxIpPort(string body)
+    {
+        foreach (var line in Lines(body))
+        {
+            if (!line.StartsWith('"')) continue;
+            var cols = line.Split(',').Select(c => c.Trim().Trim('"')).ToArray();
+            // first_seen, ioc_id, ioc_value, ioc_type, threat_type, fk_malware, alias, printable, last_seen, confidence, is_compromised, ...
+            if (cols.Length < 11 || cols[3] != "ip:port") continue;
+            if (!int.TryParse(cols[9], out var confidence) || confidence < 75) continue;
+            if (!string.Equals(cols[10], "False", StringComparison.OrdinalIgnoreCase)) continue;
+            var value = cols[2];
+            // IPv6 values are bracketed ([2001:db8::1]:443); IPv4 ones end in :port.
+            var host = value.StartsWith('[') ? value[1..value.IndexOf(']')] : value[..value.LastIndexOf(':')];
+            if (Normalize(host) is { } n) yield return n;
         }
     }
 

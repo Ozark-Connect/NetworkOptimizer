@@ -53,7 +53,30 @@ public class PublicBlockListsTests
     public void OnlyCommandServerAndCriminalNetworkListsBlockOutbound()
     {
         PublicBlockLists.All.Where(l => l.Outbound).Select(l => l.Id)
-            .Should().BeEquivalentTo(PublicBlockLists.SpamhausDrop, PublicBlockLists.Feodo);
+            .Should().BeEquivalentTo(PublicBlockLists.SpamhausDrop, PublicBlockLists.ThreatFox, PublicBlockLists.QFeeds, PublicBlockLists.Feodo);
+    }
+
+    [Fact]
+    public void ThreatFox_KeepsConfidentC2Ips_WithoutHijackedHosts()
+    {
+        var body = """
+            # "first_seen_utc","ioc_id","ioc_value","ioc_type","threat_type","fk_malware","malware_alias","malware_printable","last_seen_utc","confidence_level","is_compromised","reference","tags","anonymous","reporter"
+            "2026-10-16 14:05:05", "1", "203.0.113.5:443", "ip:port", "botnet_cc", "win.havoc", "None", "Havoc", "", "100", "False", "None", "havoc", "1", "anonymous"
+            "2026-10-16 14:05:05", "2", "203.0.113.6:22", "ip:port", "botnet_cc", "unknown", "None", "Unknown malware", "", "100", "True", "None", "", "1", "anonymous"
+            "2026-10-16 14:05:05", "3", "203.0.113.7:8080", "ip:port", "botnet_cc", "unknown", "None", "Unknown malware", "", "50", "False", "None", "", "1", "anonymous"
+            "2026-10-16 14:05:05", "4", "[2001:db8::9]:443", "ip:port", "botnet_cc", "unknown", "None", "Unknown malware", "", "75", "False", "None", "", "1", "anonymous"
+            "2026-10-16 14:05:05", "5", "203.0.113.5:8443", "ip:port", "botnet_cc", "win.havoc", "None", "Havoc", "", "100", "False", "None", "havoc", "1", "anonymous"
+            """;
+
+        PublicBlockLists.ParseThreatFoxIpPort(body).Distinct().Should().BeEquivalentTo("203.0.113.5", "2001:db8::9");
+    }
+
+    [Fact]
+    public void EveryTokenListSaysHowItSendsTheToken()
+    {
+        PublicBlockLists.Find(PublicBlockLists.QFeeds)!.TokenUser.Should().Be("api_token");
+        PublicBlockLists.Find(PublicBlockLists.ThreatFox)!.TokenHeader.Should().Be("Auth-Key");
+        PublicBlockLists.All.Where(l => l.NeedsToken).Should().OnlyContain(l => !l.DefaultOn);
     }
 
     [Theory]

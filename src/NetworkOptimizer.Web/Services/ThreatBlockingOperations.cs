@@ -36,7 +36,7 @@ public sealed record TrustedSourcesOverview(
     BlockTargetStatus? WafStatus);
 
 /// <summary>A public block list as a site sees it: chosen or not, and its last download.</summary>
-public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBlockListStatus Status);
+public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBlockListStatus Status, bool HasToken = false);
 
 /// <summary>
 /// Where a site stands on the recommended protection setup, for the Protection Setup checklist.
@@ -387,7 +387,24 @@ public sealed class ThreatBlockingOperations
     public async Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(string slug, CancellationToken ct)
     {
         var chosen = (await GetSettingsAsync(slug, ct)).Feeds;
-        return PublicBlockLists.All.Select(l => new PublicListView(l, chosen.Contains(l.Id), _lists.Status(l.Id))).ToList();
+        var views = new List<PublicListView>();
+        foreach (var l in PublicBlockLists.All)
+        {
+            var token = l.NeedsToken ? await _settings.GetDecryptedSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(l.Id)), ct) : null;
+            views.Add(new PublicListView(l, chosen.Contains(l.Id), l.NeedsToken ? _lists.Status(l.Id, token) : _lists.Status(l.Id),
+                HasToken: !string.IsNullOrEmpty(token)));
+        }
+        return views;
+    }
+
+    /// <summary>Saves (or with an empty token, clears) a public list's API token for the site, encrypted.</summary>
+    public async Task SavePublicListTokenAsync(string slug, string listId, string? token, CancellationToken ct)
+    {
+        if (PublicBlockLists.Find(listId) is not { NeedsToken: true })
+            throw new ArgumentException("That public block list does not take a token.");
+        var value = string.IsNullOrWhiteSpace(token) ? "" : _credentials.Encrypt(token.Trim());
+        await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(listId)), value, ct);
+        _blocking.Trigger();
     }
 
     private string SlugOf(string? site) => site ?? _siteContext?.DefaultKey ?? "";

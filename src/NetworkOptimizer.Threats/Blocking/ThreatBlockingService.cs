@@ -362,7 +362,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 && (settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual)), now, settings.MaxEntries);
             // Dry Run downloads the chosen lists without sending them, so Settings shows their counts,
             // devices reaching them are flagged, and the first Enforce has them at once.
-            var set = await FeedEntriesAsync(accessor, settings, allowlist, now, ct);
+            var set = await FeedEntriesAsync(site, accessor, settings, allowlist, now, ct);
             _listMatchers[Key(site)] = set.Matcher;
             if (settings.Mode == BlockingMode.Enforce)
             {
@@ -518,7 +518,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
     // The enabled public lists' entries, minus anything overlapping protected space. Every list blocks
     // inbound; only Outbound lists are blocked outbound and matched for contact alerts.
-    private async Task<FeedSet> FeedEntriesAsync(IThreatSettingsAccessor accessor,
+    private async Task<FeedSet> FeedEntriesAsync(string? site, IThreatSettingsAccessor accessor,
         BlockingSettings settings, BlockAllowlist allowlist, DateTime now, CancellationToken ct)
     {
         if (_lists == null || settings.Feeds.Count == 0) return FeedSet.Empty;
@@ -527,7 +527,10 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         // Outbound lists first, so an entry on several lists is credited to the one that alerts.
         foreach (var list in settings.Feeds.Select(PublicBlockLists.Find).OfType<PublicBlockList>().OrderBy(l => l.Outbound ? 0 : 1))
         {
-            foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct))
+            var token = list.NeedsToken
+                ? await accessor.GetDecryptedSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.FeedToken(list.Id), site), ct)
+                : null;
+            foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct, token))
             {
                 if (allowlist.ExemptsRange(entry) != null) continue;
                 all.Add(entry);

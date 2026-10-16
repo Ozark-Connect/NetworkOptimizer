@@ -136,6 +136,14 @@
                         {
                             <small class="form-error">Last download failed, keeping the previous copy: @view.Status.Error</small>
                         }
+                        @if (view.List.NeedsToken)
+                        {
+                            <div class="input-with-button ab-token">
+                                <input type="password" class="form-control" autocomplete="off" @bind="_tokens[view.List.Id]"
+                                       placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it." : "Your API token")" />
+                                <button class="btn btn-secondary" disabled="@_busy" @onclick="() => SaveToken(view.List.Id)">Save Token</button>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -361,8 +369,27 @@
         return "Protection Setup is back on the Threat Intelligence Overview.";
     });
 
-    private static readonly string OutboundListNames = string.Join(" and ",
-        PublicBlockLists.All.Where(l => l.Outbound).Select(l => l.Name));
+    private static readonly string OutboundListNames = JoinNames(PublicBlockLists.All.Where(l => l.Outbound).Select(l => l.Name).ToList());
+
+    private static string JoinNames(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "",
+        1 => names[0],
+        2 => $"{names[0]} and {names[1]}",
+        _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}",
+    };
+
+    // Typed tokens, by list id; never shown again once saved.
+    private readonly Dictionary<string, string> _tokens = PublicBlockLists.All.Where(l => l.NeedsToken).ToDictionary(l => l.Id, _ => "");
+
+    private Task SaveToken(string listId) => Run(async () =>
+    {
+        var token = _tokens[listId];
+        await Blocking.SavePublicListTokenAsync(listId, token);
+        _tokens[listId] = "";
+        _lists = await Blocking.GetPublicListsAsync();
+        return string.IsNullOrWhiteSpace(token) ? "Token removed." : "Token saved. The list downloads within a minute while it is turned on.";
+    });
 
     private static string RefreshText(TimeSpan every) => every switch
     {

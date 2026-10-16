@@ -28,12 +28,43 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
     private readonly ConcurrentDictionary<string, Entry> _entries = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    /// <summary>The list's entries: fetched when due, else the last good copy, else empty.</summary>
-    public async Task<IReadOnlyList<string>> GetAsync(string id, IThreatSettingsAccessor settings, DateTime now, CancellationToken ct)
+    /// <summary>
+    /// The list's entries: fetched when due, else the last good copy, else empty. A list that needs a
+    /// token is empty without one, and is cached per token, so sites sharing a token share its downloads.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetAsync(string id, IThreatSettingsAccessor settings, DateTime now, CancellationToken ct,
+        string? token = null)
     {
         if (PublicBlockLists.Find(id) is not { } list) return [];
-        return await GetOrRefreshAsync(id, list.Refresh, settings, now, () => FetchListAsync(list, ct), ct);
+        if (!list.NeedsToken)
+            return await GetOrRefreshAsync(id, list.Refresh, settings, now, () => FetchListAsync(list, ct), ct);
+        if (string.IsNullOrWhiteSpace(token)) return [];
+
+        var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < list.Urls.Count; i++)
+        {
+            var url = list.Urls[i];
+            all.UnionWith(await GetOrRefreshAsync(TokenCacheId(id, token, i), list.Refresh, settings, now,
+                () => FetchUrlAsync(list, url, token.Trim(), ct), ct, allowEmpty: true));
+        }
+        return all.ToList();
     }
+
+    /// <summary>What a token-bound list last fetched for <paramref name="token"/>, summed over its downloads.</summary>
+    public PublicBlockListStatus Status(string id, string? token)
+    {
+        if (PublicBlockLists.Find(id) is not { NeedsToken: true } list) return Status(id);
+        if (string.IsNullOrWhiteSpace(token)) return new PublicBlockListStatus(id, 0, null, null);
+        var parts = Enumerable.Range(0, list.Urls.Count)
+            .Select(i => _entries.TryGetValue(TokenCacheId(id, token, i), out var e) ? e : null).ToList();
+        var fetched = parts.Where(p => p?.FetchedAt != null).Select(p => p!.FetchedAt!.Value).ToList();
+        return new PublicBlockListStatus(id, parts.Sum(p => p?.Items.Count ?? 0), fetched.Count > 0 ? fetched.Max() : null,
+            parts.Select(p => p?.Error).FirstOrDefault(e => e != null));
+    }
+
+    // Keyed by a hash of the token, never the token itself: the id names a setting in the database.
+    private static string TokenCacheId(string id, string token, int part) =>
+        $"{id}.{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token.Trim())))[..12].ToLowerInvariant()}.{part}";
 
     /// <summary>Cloudflare's published ranges, refreshed daily; the built-in copy until the first fetch.</summary>
     public async Task<IReadOnlyList<string>> GetCloudflareRangesAsync(IThreatSettingsAccessor settings, DateTime now, CancellationToken ct)
@@ -47,7 +78,7 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
         _entries.TryGetValue(id, out var e) ? new PublicBlockListStatus(id, e.Items.Count, e.FetchedAt, e.Error) : new PublicBlockListStatus(id, 0, null, null);
 
     private async Task<IReadOnlyList<string>> GetOrRefreshAsync(string id, TimeSpan refresh, IThreatSettingsAccessor settings,
-        DateTime now, Func<Task<List<string>>> fetch, CancellationToken ct)
+        DateTime now, Func<Task<List<string>>> fetch, CancellationToken ct, bool allowEmpty = false)
     {
         if (_entries.TryGetValue(id, out var cached) && !Due(cached, refresh, now)) return cached.Items;
 
@@ -65,11 +96,22 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
             {
                 var items = await fetch();
                 // A list that shrinks to under a tenth of its last size is a broken download, not news.
-                if (items.Count == 0 || (cached.Items.Count >= 50 && items.Count < cached.Items.Count / 10))
+                if ((items.Count == 0 && !allowEmpty) || (cached.Items.Count >= 50 && items.Count < cached.Items.Count / 10))
                     throw new InvalidDataException($"got {items.Count} entries, had {cached.Items.Count}");
                 cached = new Entry(items, now, now, null);
                 await settings.SaveSettingAsync(CacheKeyPrefix + id, JsonSerializer.Serialize(new Persisted(items, now)), ct);
                 logger.LogInformation("Public block list {List}: {Count} entries", id, items.Count);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                // The source's update window has not passed: not a failure, try again at the next refresh.
+                cached = cached with { LastAttempt = now, Error = null };
+                logger.LogDebug("Public block list {List}: not due at the source yet, keeping {Count} entries", id, cached.Items.Count);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            {
+                cached = cached with { LastAttempt = now, Error = "the API token was refused" };
+                logger.LogWarning("Public block list {List}: the API token was refused, keeping {Count} entries", id, cached.Items.Count);
             }
             catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException or TaskCanceledException
                                        && !ct.IsCancellationRequested)
@@ -118,6 +160,21 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
                 result.Add(entry);
         }
         return result.ToList();
+    }
+
+    // One URL of a token-bound list. The token goes in HTTP Basic, never the URL, so it stays out of logs.
+    private async Task<List<string>> FetchUrlAsync(PublicBlockList list, string url, string token, CancellationToken ct)
+    {
+        var http = httpClientFactory.CreateClient("PublicBlockLists");
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (list.TokenHeader != null)
+            request.Headers.Add(list.TokenHeader, token);
+        else
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{list.TokenUser}:{token}")));
+        using var response = await http.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        return list.Parse(await response.Content.ReadAsStringAsync(ct)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private async Task<List<string>> FetchCloudflareAsync(CancellationToken ct)

@@ -38,6 +38,8 @@ public static class BlockingSettingKeys
     public const string Feeds = "blocking.feeds";
     /// <summary>"true" to also block devices from reaching the public lists' addresses (gateway only).</summary>
     public const string FeedsOutbound = "blocking.feeds_outbound";
+    /// <summary>A public list's API token, encrypted (only lists that need one, see <see cref="PublicBlockList.NeedsToken"/>).</summary>
+    public static string FeedToken(string listId) => $"blocking.feeds.token.{listId}";
     /// <summary>"true" once a Site Admin hides the Protection Setup checklist on Threat Intelligence.</summary>
     public const string SetupHidden = "blocking.setup_hidden";
 
