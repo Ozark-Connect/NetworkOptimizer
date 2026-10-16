@@ -415,10 +415,12 @@ Set up in **Settings - Security & Alerts**, per site.
 - **Where Blocks Are Enforced** - the gateway, the [Web Application Firewall](#web-application-firewall), and **Cloudflare Edge Blocking**
   - With an [On-Site Agent](#on-site-agent) on the gateway, blocks apply in seconds with no gateway reprovisioning
 - Every site starts in **Detection Only**, which writes nothing; **Turn On Recommended** switches it to **Blocking**
+  - Picks the **Home** or **Self-Hosting** profile from the site's port forwards; **Business** and **Lockdown** in the profile picker
 - **Cross-site blocking** - a source attacking one site is blocked at every site sharing blocks
   - One attack, defended across your whole fleet: an attacker caught at one site is shut out of all of them
   - **Turn On Recommended for All Sites** from **Settings - Multi-Site**; each site's own Trusted Sources still decide what it enforces
-- **Public Block Lists** - Spamhaus DROP by default; abuse.ch Feodo Tracker, CINS Army, DShield Top 20, blocklist.de Strong IPs, IPsum, and Tor exit relays optional
+- **Public Block Lists** - Spamhaus DROP by default; abuse.ch ThreatFox and Q-Feeds (with your own key), CINS Army, IPsum, blocklist.de Strong IPs, DShield Top 20, abuse.ch Feodo Tracker, and Tor exit relays optional
+  - Up to 100,000 entries per site, least useful lists cut first
   - Optional outbound block keeps an infected device from reaching its botnet command server (attacker lists stay inbound only)
   - A device reaching a listed address raises an alert, Detection Only included
 - **What Triggers a Block** thresholds and **Maximum blocked sources**
@@ -556,6 +558,7 @@ Requires Gateway SSH.
 - **Identity** and **Audit Log** - see [Accounts and Access](#accounts-and-access)
 - **Multi-Site** - see [Multi-Site](#multi-site)
 - **Search settings** box across every card
+- Floating Save on desktop while a card's own Save is out of view; leaving with unsaved changes asks first
 
 ## Supported Hardware
 
