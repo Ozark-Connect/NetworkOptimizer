@@ -25,6 +25,10 @@ public static class PublicListContact
         && string.Equals(e.Direction, "outgoing", StringComparison.OrdinalIgnoreCase)
         && NetworkUtilities.IsPublicIpAddress(e.DestIp);
 
+    /// <summary>The list a tagged event names ("Reached an address on Feodo Tracker" gives "Feodo Tracker").</summary>
+    public static string ListName(string signatureName) =>
+        signatureName.Split(" on ", 2) is { Length: 2 } parts ? parts[1] : "a public block list";
+
     /// <summary>
     /// Marks <paramref name="e"/> as a contact with <paramref name="list"/> (null when the list is not known,
     /// as for a drop a gateway agent reported after the list changed).

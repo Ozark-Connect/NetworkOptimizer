@@ -781,7 +781,7 @@ public class ThreatCollectionService : BackgroundService
     {
         var blocked = contact.Action == ThreatAction.Blocked;
         var device = await sources.DescribeDeviceAsync(contact.SourceIp, contact.SourceMac, cancellationToken);
-        var listName = contact.SignatureName.Split(" on ", 2) is { Length: 2 } parts ? parts[1] : "a public block list";
+        var listName = Blocking.PublicListContact.ListName(contact.SignatureName);
         await _alertEventBus.PublishAsync(new AlertEvent
         {
             EventType = blocked ? "threats.public_list_attempt" : "threats.public_list_contact",

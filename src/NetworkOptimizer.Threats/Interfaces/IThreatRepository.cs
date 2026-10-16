@@ -99,6 +99,9 @@ public interface IThreatRepository
     Task MarkPatternAlertedAsync(int patternId, DateTime alertedAt, CancellationToken cancellationToken = default);
 
     // --- Attack Sequences ---
+    /// <summary>Devices that reached or tried to reach a public block list address, connected ones first, then most recent.</summary>
+    Task<List<PublicListContactSummary>> GetPublicListContactsAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
+
     Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
 
     // --- CrowdSec Cache ---

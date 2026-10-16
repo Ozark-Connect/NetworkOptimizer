@@ -632,6 +632,22 @@ public class ThreatDashboardService : IThreatFilterAdminService
         }
     }
 
+    public async Task<List<PublicListContactSummary>> GetPublicListContactsAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetPublicListContactsAsync(from, to, 50, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get public block list contacts");
+            return [];
+        }
+    }
+
     public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
