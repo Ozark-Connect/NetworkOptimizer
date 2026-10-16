@@ -38,7 +38,7 @@ public class GatewayAgentBlockingTests
             SyncedSites.Add(site);
             return Task.FromResult(Fail ? BlockTargetResult.Failure("unreachable") : BlockTargetResult.Success(ips.Count));
         }
-        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct) =>
+        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound, CancellationToken ct) =>
             Task.FromResult(BlockTargetResult.Success(entries.Count));
         public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct) => Task.FromResult(0);
     }
@@ -48,11 +48,13 @@ public class GatewayAgentBlockingTests
         public bool Connected { get; set; } = true;
         public bool Enforcing { get; set; } = true;
         public List<(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries)> Pushes { get; } = [];
+        public IReadOnlyList<GatewayAgentEntry> LastOutbound { get; private set; } = [];
 
         public bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
             string fingerprint)
         {
             Pushes.Add((enabled, entries));
+            LastOutbound = outbound;
             return Connected;
         }
 
@@ -68,7 +70,12 @@ public class GatewayAgentBlockingTests
         public List<ThreatBlock> Blocks { get; } = [];
         public ThreatBlockingService Service { get; }
 
-        public Harness(params string[] otherSites)
+        public Harness(params string[] otherSites) : this(null, otherSites)
+        {
+        }
+
+        /// <param name="listBodies">Download bodies by URL; when given, the public lists are fetched from them.</param>
+        public Harness(Dictionary<string, string>? listBodies, params string[] otherSites)
         {
             var services = new ServiceCollection();
             services.AddScoped<IThreatRepository>(_ => Repo());
@@ -76,9 +83,13 @@ public class GatewayAgentBlockingTests
             services.AddSingleton<IGatewayBlocklistWriter>(Console);
             var provider = services.BuildServiceProvider();
             var factory = new Mock<IHttpClientFactory>();
-            factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
+            factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient(new ScriptedHandler((req, _) =>
+                listBodies != null && listBodies.TryGetValue(req.RequestUri!.ToString(), out var body)
+                    ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) }
+                    : new HttpResponseMessage(System.Net.HttpStatusCode.NotFound))));
+            var lists = listBodies == null ? null : new PublicBlockListCache(factory.Object, NullLogger<PublicBlockListCache>.Instance);
             Service = new ThreatBlockingService(provider.GetRequiredService<IServiceScopeFactory>(),
-                NullLogger<ThreatBlockingService>.Instance, factory.Object, new FakeSites([DefaultKey, .. otherSites]), agents: Agents);
+                NullLogger<ThreatBlockingService>.Instance, factory.Object, new FakeSites([DefaultKey, .. otherSites]), lists: lists, agents: Agents);
 
             foreach (var site in otherSites.Prepend(null))
             {
@@ -160,6 +171,26 @@ public class GatewayAgentBlockingTests
         await h.Cycle(T0.AddMinutes(1));
 
         h.Console.Syncs.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task AttackerLists_BlockInboundOnly_AndRaiseNoContactMatch()
+    {
+        var h = new Harness(new Dictionary<string, string>
+        {
+            ["https://www.spamhaus.org/drop/drop_v4.json"] = "{\"cidr\":\"203.0.113.0/24\"}\n",
+            ["https://www.spamhaus.org/drop/drop_v6.json"] = "",
+            ["https://cinsscore.com/list/ci-badguys.txt"] = "198.51.100.9\n",
+        });
+        h.Settings.Values[BlockingSettingKeys.Feeds] = $"{PublicBlockLists.SpamhausDrop},{PublicBlockLists.CinsArmy}";
+        h.Settings.Values[BlockingSettingKeys.FeedsOutbound] = "true";
+
+        await h.Cycle(T0);
+
+        h.Agents.Pushes.Last().Entries.Select(e => e.Address).Should().BeEquivalentTo("203.0.113.0/24", "198.51.100.9");
+        h.Agents.LastOutbound.Select(e => e.Address).Should().Equal("203.0.113.0/24");
+        h.Service.For(null).Find("203.0.113.5")!.Id.Should().Be(PublicBlockLists.SpamhausDrop);
+        h.Service.For(null).Find("198.51.100.9").Should().BeNull();
     }
 
     [Fact]

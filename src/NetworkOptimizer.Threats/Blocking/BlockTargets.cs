@@ -93,8 +93,12 @@ public interface IGatewayBlocklistWriter
     /// <summary>Replaces the site's group members with <paramref name="ips"/> (null site = default).</summary>
     Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken cancellationToken);
 
-    /// <summary>Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges).</summary>
-    Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken cancellationToken);
+    /// <summary>
+    /// Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges,
+    /// blocked inbound) and, where outbound blocking is set up, its outbound groups with <paramref name="outbound"/>.
+    /// </summary>
+    Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Narrows the site's blocklist policies to new connections where they still match every state.

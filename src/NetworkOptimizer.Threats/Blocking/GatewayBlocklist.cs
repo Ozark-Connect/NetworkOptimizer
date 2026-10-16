@@ -18,9 +18,16 @@ public sealed class GatewayBlocklistState
     public string? FeedsV4Id { get; set; }
     public string? FeedsV6Id { get; set; }
 
+    /// <summary>
+    /// The outbound policies' own groups: only the lists that are blocked outbound. Consoles set up before
+    /// these existed point their outbound policies at the inbound groups until the next public list write.
+    /// </summary>
+    public string? FeedsOutV4Id { get; set; }
+    public string? FeedsOutV6Id { get; set; }
+
     public List<GatewayBlockPolicyRef> Policies { get; set; } = [];
 
-    /// <summary>The optional outbound policies: each internal zone to the public lists in External.</summary>
+    /// <summary>The optional outbound policies: each internal zone to the outbound public lists in External.</summary>
     public List<GatewayBlockPolicyRef> OutboundPolicies { get; set; } = [];
 }
 
@@ -47,6 +54,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     public const string FeedsDescription = "Managed by Network Optimizer: the public block lists chosen in Automatic Blocking. Changes here are overwritten.";
     public const string FeedsOutboundPolicyName = "Net. Opt. Public Lists (Outbound)";
     public const string FeedsOutboundDescription = "Managed by Network Optimizer: stops devices reaching the public block lists' addresses. Changes here are overwritten.";
+    public const string FeedsOutNameV4 = "Net. Opt. Public Lists Outbound (IPv4)";
+    public const string FeedsOutNameV6 = "Net. Opt. Public Lists Outbound (IPv6)";
+    public const string FeedsOutDescription = "Managed by Network Optimizer: the public block lists' command servers and criminal networks, blocked outbound. Changes here are overwritten.";
 
     private readonly IUniFiClientAccessor _clients;
     private readonly IThreatSettingsAccessor _settings;
@@ -203,10 +213,12 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         }
         var client = Client(site);
         var policies = await client.GetFirewallPoliciesAsync(ct);
+        // Outbound policies on the inbound groups are the shape before outbound groups existed.
+        var inboundGroups = new HashSet<string> { state.FeedsV4Id, state.FeedsV6Id };
 
         if (!enabled)
         {
-            var feeds = new HashSet<string> { state.FeedsV4Id, state.FeedsV6Id };
+            var feeds = new HashSet<string>(inboundGroups.Concat(new[] { state.FeedsOutV4Id, state.FeedsOutV6Id }.OfType<string>()));
             var ids = state.OutboundPolicies.Select(p => p.Id)
                 .Concat(policies.Where(p => !p.Predefined && feeds.Contains(p.Destination.IpGroupId ?? "")).Select(p => p.Id))
                 .Distinct().ToList();
@@ -220,10 +232,23 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var zones = await client.GetFirewallZonesAsync(ct);
         var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External)
             ?? throw new InvalidOperationException("Could not read the firewall zones from the UniFi Console.");
+
+        var groups = await client.GetFirewallGroupsOrThrowAsync(ct);
+        async Task<string> EnsureOutGroup(string? id, string name, string type)
+        {
+            var existing = groups.FirstOrDefault(g => g.Id == id) ?? groups.FirstOrDefault(g => g.Name == name && g.GroupType == type);
+            return existing?.Id ?? (await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(null, name, type, [], FeedsOutDescription), ct)).Id;
+        }
+        state.FeedsOutV4Id = await EnsureOutGroup(state.FeedsOutV4Id, FeedsOutNameV4, "address-group");
+        state.FeedsOutV6Id = await EnsureOutGroup(state.FeedsOutV6Id, FeedsOutNameV6, "ipv6-address-group");
+        foreach (var stale in policies.Where(p => !p.Predefined && p.Destination.ZoneId == external.Id
+                     && inboundGroups.Contains(p.Destination.IpGroupId ?? "")).ToList())
+            await client.DeleteFirewallPolicyAsync(stale.Id, ct);
+
         var refs = new List<GatewayBlockPolicyRef>();
         foreach (var zone in zones.Where(z => z.Id != external.Id && z.ZoneKey != FirewallZoneKeys.Gateway))
         {
-            foreach (var (version, groupId) in new[] { ("IPV4", state.FeedsV4Id), ("IPV6", state.FeedsV6Id) })
+            foreach (var (version, groupId) in new[] { ("IPV4", state.FeedsOutV4Id), ("IPV6", state.FeedsOutV6Id) })
             {
                 var existing = policies.FirstOrDefault(p => !p.Predefined
                     && p.Source.ZoneId == zone.Id && p.Destination.ZoneId == external.Id && p.Destination.IpGroupId == groupId);
@@ -277,7 +302,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         if (state == null) return;
         var client = Client(site);
         var policies = await client.GetFirewallPoliciesAsync(ct);
-        var groupIds = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }
+        var groupIds = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id, state.FeedsOutV4Id, state.FeedsOutV6Id }
             .Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
         var policyIds = state.Policies.Concat(state.OutboundPolicies).Select(p => p.Id)
             .Concat(policies.Where(p => !p.Predefined
@@ -351,7 +376,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     }
 
     /// <inheritdoc />
-    public async Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct)
+    public async Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound,
+        CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);
         if (state?.FeedsV4Id == null || state.FeedsV6Id == null)
@@ -362,10 +388,22 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var (v4, v6) = SplitFamilies(entries);
         try
         {
+            // Outbound policies still on the inbound groups move to their own, which hold only the outbound lists.
+            if (state.OutboundPolicies.Count > 0 && (state.FeedsOutV4Id == null || state.FeedsOutV6Id == null))
+            {
+                await SetFeedsOutboundAsync(site, true, ct);
+                state = await LoadStateAsync(site, ct) ?? state;
+            }
             var client = Client(site);
             var groups = await client.GetFirewallGroupsOrThrowAsync(ct);
             await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.FeedsV4Id, FeedsNameV4, "address-group", v4, FeedsDescription), ct);
             await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.FeedsV6Id, FeedsNameV6, "ipv6-address-group", v6, FeedsDescription), ct);
+            if (state.OutboundPolicies.Count > 0 && state.FeedsOutV4Id != null && state.FeedsOutV6Id != null)
+            {
+                var (out4, out6) = SplitFamilies(outbound);
+                await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.FeedsOutV4Id, FeedsOutNameV4, "address-group", out4, FeedsOutDescription), ct);
+                await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.FeedsOutV6Id, FeedsOutNameV6, "ipv6-address-group", out6, FeedsOutDescription), ct);
+            }
             return BlockTargetResult.Success(v4.Count + v6.Count);
         }
         catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")

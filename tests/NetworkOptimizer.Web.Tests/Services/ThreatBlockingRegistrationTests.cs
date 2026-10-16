@@ -43,21 +43,19 @@ public class ThreatBlockingRegistrationTests
     [InlineData(typeof(IPublicListLookup))]
     [InlineData(typeof(IGatewayAgentBlocklist))]
     [InlineData(typeof(GatewayAgentBlocklist))]
-    public void Resolves_WithoutACycle(Type service)
+    public async Task Resolves_WithoutACycle(Type service)
     {
         using var provider = Build();
-        var resolve = Task.Run(() => provider.GetRequiredService(service));
-        // Generous: a busy build machine must not read as a hang; a real cycle never returns.
-        resolve.Wait(TimeSpan.FromSeconds(60)).Should().BeTrue("resolving {0} must not hang", service.Name);
-        resolve.Result.Should().NotBeNull();
+        // Generous: a busy build machine must not read as a hang; a real cycle never returns (WaitAsync throws).
+        var resolved = await Task.Run(() => provider.GetRequiredService(service)).WaitAsync(TimeSpan.FromSeconds(60));
+        resolved.Should().NotBeNull();
     }
 
     [Fact]
-    public void HostedServices_AllResolve()
+    public async Task HostedServices_AllResolve()
     {
         using var provider = Build();
-        var resolve = Task.Run(() => provider.GetServices<IHostedService>().ToList());
-        resolve.Wait(TimeSpan.FromSeconds(60)).Should().BeTrue();
-        resolve.Result.Should().HaveCount(2);
+        var hosted = await Task.Run(() => provider.GetServices<IHostedService>().ToList()).WaitAsync(TimeSpan.FromSeconds(60));
+        hosted.Should().HaveCount(2);
     }
 }

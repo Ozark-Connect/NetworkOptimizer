@@ -43,9 +43,17 @@ public class PublicBlockListsTests
     }
 
     [Fact]
-    public void Defaults_AreSpamhausAndFeodo()
+    public void Default_IsOnlySpamhausDrop()
     {
-        PublicBlockLists.DefaultIds.Should().BeEquivalentTo(PublicBlockLists.SpamhausDrop, PublicBlockLists.Feodo);
+        // Only lists whose terms allow any use are on by default.
+        PublicBlockLists.DefaultIds.Should().Equal(PublicBlockLists.SpamhausDrop);
+    }
+
+    [Fact]
+    public void OnlyCommandServerAndCriminalNetworkListsBlockOutbound()
+    {
+        PublicBlockLists.All.Where(l => l.Outbound).Select(l => l.Id)
+            .Should().BeEquivalentTo(PublicBlockLists.SpamhausDrop, PublicBlockLists.Feodo);
     }
 
     [Theory]
@@ -87,7 +95,7 @@ public class PublicBlockListsTests
         PublicBlockLists.RecommendedNote([]).Should().BeNull();
         PublicBlockLists.RecommendedNote([PublicBlockLists.Feodo]).Should().Be("Includes the public block list abuse.ch Feodo Tracker.");
         PublicBlockLists.RecommendedNote(PublicBlockLists.DefaultIds)
-            .Should().Be("Includes the public block lists Spamhaus DROP and abuse.ch Feodo Tracker.");
+            .Should().Be("Includes the public block list Spamhaus DROP.");
         PublicBlockLists.RecommendedNote([PublicBlockLists.SpamhausDrop, PublicBlockLists.Feodo, PublicBlockLists.DShield])
             .Should().Be("Includes the public block lists Spamhaus DROP, abuse.ch Feodo Tracker, and DShield Top 20.");
     }

@@ -210,9 +210,12 @@ public class ThreatBlockingServiceTests
 
         public List<IReadOnlyList<string>> FeedSyncs { get; } = [];
 
-        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct)
+        public List<IReadOnlyList<string>> OutboundSyncs { get; } = [];
+
+        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound, CancellationToken ct)
         {
             FeedSyncs.Add(entries);
+            OutboundSyncs.Add(outbound);
             return Task.FromResult(BlockTargetResult.Success(entries.Count));
         }
 

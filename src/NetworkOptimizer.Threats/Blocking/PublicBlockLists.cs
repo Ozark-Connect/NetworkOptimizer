@@ -9,7 +9,12 @@ namespace NetworkOptimizer.Threats.Blocking;
 /// <param name="Description">One line on what it lists.</param>
 /// <param name="Urls">Where to fetch it; each is parsed with <see cref="Parse"/>.</param>
 /// <param name="Refresh">How often to fetch, within the source's guidance (abuse.ch asks for 15 minutes or sooner).</param>
-/// <param name="DefaultOn">Applied on a site that has not chosen.</param>
+/// <param name="DefaultOn">Applied on a site that has not chosen. Only lists whose terms plainly allow any use.</param>
+/// <param name="Outbound">
+/// Lists hosts nothing on the LAN should ever reach (command servers, criminal-run networks): also blocked
+/// outbound, and a device reaching one raises a Public Block List alert. Attacker and scanner lists are
+/// inbound only: their addresses are often compromised hosts that also serve legitimate content.
+/// </param>
 /// <param name="Attribution">Credit the source's terms ask for.</param>
 /// <param name="InfoUrl">The source's page.</param>
 /// <param name="Parse">Turns one downloaded body into IPs and CIDR ranges.</param>
@@ -20,6 +25,7 @@ public sealed record PublicBlockList(
     IReadOnlyList<string> Urls,
     TimeSpan Refresh,
     bool DefaultOn,
+    bool Outbound,
     string Attribution,
     string InfoUrl,
     Func<string, IEnumerable<string>> Parse);
@@ -30,38 +36,63 @@ public sealed record PublicBlockList(
 /// FireHOL Level 1 (DROP, Feodo, and DShield plus bogons, which include every private range).
 /// Applied to the gateway and the WAF, never to Cloudflare: its edge has its own reputation data.
 /// </summary>
+/// <remarks>
+/// Feodo Tracker is off by default: takedowns emptied it, and abuse.ch's terms since November 2025
+/// limit free use to not-for-profit purposes. CINS Army has no formal license, so it is opt-in.
+/// </remarks>
 public static class PublicBlockLists
 {
     public const string SpamhausDrop = "spamhaus-drop";
     public const string Feodo = "feodo";
     public const string DShield = "dshield";
     public const string BlocklistDeStrong = "blocklist-de-strong";
+    public const string CinsArmy = "cins-army";
+    public const string IpsumLevel3 = "ipsum-3";
+    public const string TorExits = "tor-exits";
 
     public static readonly IReadOnlyList<PublicBlockList> All =
     [
         new(SpamhausDrop, "Spamhaus DROP",
             "Networks run by spammers and cyber-criminals, or hijacked from their owners (includes the former EDROP).",
             ["https://www.spamhaus.org/drop/drop_v4.json", "https://www.spamhaus.org/drop/drop_v6.json"],
-            TimeSpan.FromHours(1), DefaultOn: true,
+            TimeSpan.FromHours(1), DefaultOn: true, Outbound: true,
             "Spamhaus DROP, (c) The Spamhaus Project", "https://www.spamhaus.org/blocklists/do-not-route-or-peer/",
             ParseSpamhausJson),
         new(Feodo, "abuse.ch Feodo Tracker",
             "Botnet command-and-control servers that are active now.",
             ["https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"],
-            TimeSpan.FromMinutes(15), DefaultOn: true,
-            "abuse.ch Feodo Tracker (CC0)", "https://feodotracker.abuse.ch/blocklist/",
+            TimeSpan.FromMinutes(15), DefaultOn: false, Outbound: true,
+            "abuse.ch Feodo Tracker", "https://feodotracker.abuse.ch/blocklist/",
+            ParseIpLines),
+        new(CinsArmy, "CINS Army",
+            "Addresses with a poor reputation across Sentinel IPS sensors: mostly scanners and attackers.",
+            ["https://cinsscore.com/list/ci-badguys.txt"],
+            TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
+            "CINS Army, Collective Intelligence Network Security", "https://cinsscore.com/",
             ParseIpLines),
         new(DShield, "DShield Top 20",
             "The 20 /24 networks that attacked the most in the last three days, so neighbors on shared hosting are blocked too.",
             ["https://feeds.dshield.org/block.txt"],
-            TimeSpan.FromHours(1), DefaultOn: false,
+            TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
             "SANS Internet Storm Center, DShield", "https://isc.sans.edu/feeds_doc.html",
             ParseDShield),
         new(BlocklistDeStrong, "blocklist.de Strong IPs",
             "Addresses reported for repeated attacks on blocklist.de's servers in the last 48 hours.",
             ["https://lists.blocklist.de/lists/strongips.txt"],
-            TimeSpan.FromHours(1), DefaultOn: false,
+            TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
             "blocklist.de", "https://www.blocklist.de/en/export.html",
+            ParseIpLines),
+        new(IpsumLevel3, "IPsum (level 3)",
+            "Addresses on at least three of 30+ public blocklists, updated daily.",
+            ["https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"],
+            TimeSpan.FromHours(6), DefaultOn: false, Outbound: false,
+            "IPsum by Miroslav Stampar", "https://github.com/stamparm/ipsum",
+            ParseIpLines),
+        new(TorExits, "Tor exit relays",
+            "Every Tor exit, legitimate or not. Only for sites that should never be reached over Tor.",
+            ["https://check.torproject.org/torbulkexitlist"],
+            TimeSpan.FromHours(1), DefaultOn: false, Outbound: false,
+            "The Tor Project", "https://check.torproject.org/torbulkexitlist",
             ParseIpLines),
     ];
 

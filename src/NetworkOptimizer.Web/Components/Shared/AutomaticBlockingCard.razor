@@ -121,6 +121,10 @@
                         </label>
                         <small class="form-help">
                             @view.List.Description
+                            @if (!view.List.Outbound)
+                            {
+                                <span> Blocked inbound only: these addresses often host legitimate sites too.</span>
+                            }
                             <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
                             {
@@ -161,6 +165,7 @@
                         </label>
                         <small class="form-help">
                             Optional. Stops a device on your networks from connecting to a listed address, such as a botnet's command server.
+                            Applies to @OutboundListNames; the attacker lists stay inbound only.
                             This supplements UniFi's CyberSecure IPS, which carries Feodo Tracker and DShield too: its Suricata runs in pcap mode, so it reacts
                             after a connection has started and blocks for 5 minutes at a time. A Network List policy drops the first packet, costs no inspection
                             CPU, and holds while the address is listed. Applied when you save, once gateway blocking is set up.
@@ -355,6 +360,9 @@
         _setupHidden = false;
         return "Protection Setup is back on the Threat Intelligence Overview.";
     });
+
+    private static readonly string OutboundListNames = string.Join(" and ",
+        PublicBlockLists.All.Where(l => l.Outbound).Select(l => l.Name));
 
     private static string RefreshText(TimeSpan every) => every switch
     {

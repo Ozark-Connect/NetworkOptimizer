@@ -336,6 +336,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         var accessor = services.GetRequiredService<IThreatSettingsAccessor>();
         List<ThreatBlock> desired = [];
         IReadOnlyList<string> feeds = [];
+        IReadOnlyList<string> feedsOut = [];
 
         // Off sends nothing. Dry Run sends only manual blocks and no public lists: automatic blocks
         // enforced before the switch to Dry Run stay Enforced in the table, so Enforced alone is not enough.
@@ -361,26 +362,29 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 && (settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual)), now, settings.MaxEntries);
             // Dry Run downloads the chosen lists without sending them, so Settings shows their counts,
             // devices reaching them are flagged, and the first Enforce has them at once.
-            var (matcher, entries) = await FeedEntriesAsync(accessor, settings, allowlist, now, ct);
-            _listMatchers[Key(site)] = matcher;
+            var set = await FeedEntriesAsync(accessor, settings, allowlist, now, ct);
+            _listMatchers[Key(site)] = set.Matcher;
             if (settings.Mode == BlockingMode.Enforce)
-                feeds = entries;
+            {
+                feeds = set.Entries;
+                feedsOut = set.Outbound;
+            }
         }
         else
         {
             _listMatchers.TryRemove(Key(site), out _);
         }
 
-        PushToGatewayAgent(site, settings, desired, feeds, now);
+        PushToGatewayAgent(site, settings, desired, feeds, feedsOut, now);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
-        await ReconcileGatewayFeedsAsync(site, services, settings, feeds, now, ct);
+        await ReconcileGatewayFeedsAsync(site, services, settings, feeds, feedsOut, now, ct);
         await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
     }
 
     // The gateway target's fast path: the site's gateway agent holds the same blocks and public list
     // entries the console groups do, applied in seconds and without a reprovision.
     private void PushToGatewayAgent(string? site, BlockingSettings settings, List<ThreatBlock> desired,
-        IReadOnlyList<string> feeds, DateTime now)
+        IReadOnlyList<string> feeds, IReadOnlyList<string> feedsOut, DateTime now)
     {
         if (_agents == null) return;
         var enabled = settings.Mode != BlockingMode.Off && settings.TargetGateway;
@@ -391,11 +395,11 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             var own = desired.Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
             entries.AddRange(feeds.Where(f => !own.Contains(f)).Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)));
         }
-        // Outbound only for the public lists, and only where the site blocks them outbound.
+        // Outbound only for the outbound public lists, and only where the site blocks them outbound.
         var outbound = enabled && settings.FeedsOutbound
-            ? feeds.Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)).ToList()
+            ? feedsOut.Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)).ToList()
             : [];
-        var fingerprint = AgentFingerprint(enabled, desired, feeds, outbound.Count > 0);
+        var fingerprint = AgentFingerprint(enabled, desired, feeds, outbound.Count > 0, outbound.Select(o => o.Address));
         var connected = _agents.Push(site, enabled, entries, outbound, fingerprint);
         // An agent that was enforcing and dropped off is most often restarting. Its rules stay on the gateway
         // for an hour after it stops, so the console waits out a short disconnect instead of reprovisioning.
@@ -427,13 +431,17 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
     // Blocks count with their expiry (a re-ban extends one); public list entries without it, since
     // theirs is renewed on every send.
-    internal static string AgentFingerprint(bool enabled, IEnumerable<ThreatBlock> blocks, IEnumerable<string> feeds, bool outbound = false)
+    internal static string AgentFingerprint(bool enabled, IEnumerable<ThreatBlock> blocks, IEnumerable<string> feeds, bool outbound = false,
+        IEnumerable<string>? outboundEntries = null)
     {
         var text = new System.Text.StringBuilder(enabled ? "on|" : "off|").Append(outbound ? "out|" : "in|");
         foreach (var b in blocks.OrderBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase))
             text.Append(b.SourceIp.ToLowerInvariant()).Append('@').Append(b.ExpiresAt.ToString("yyyyMMddHHmm")).Append(',');
         text.Append('|');
         foreach (var f in feeds.Order(StringComparer.OrdinalIgnoreCase))
+            text.Append(f.ToLowerInvariant()).Append(',');
+        text.Append('|');
+        foreach (var f in (outboundEntries ?? []).Order(StringComparer.OrdinalIgnoreCase))
             text.Append(f.ToLowerInvariant()).Append(',');
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
@@ -508,22 +516,33 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         return new BlockAllowlist($"{settings.Allowlist}\n{extras}", filters, addresses, cloudflare);
     }
 
-    // The enabled public lists' entries, minus anything overlapping protected space, and which list each came from.
-    private async Task<(PublicListMatcher Matcher, IReadOnlyList<string> Entries)> FeedEntriesAsync(IThreatSettingsAccessor accessor,
+    // The enabled public lists' entries, minus anything overlapping protected space. Every list blocks
+    // inbound; only Outbound lists are blocked outbound and matched for contact alerts.
+    private async Task<FeedSet> FeedEntriesAsync(IThreatSettingsAccessor accessor,
         BlockingSettings settings, BlockAllowlist allowlist, DateTime now, CancellationToken ct)
     {
-        if (_lists == null || settings.Feeds.Count == 0) return (PublicListMatcher.Empty, []);
-        var entries = new Dictionary<string, PublicBlockList>(StringComparer.OrdinalIgnoreCase);
-        foreach (var id in settings.Feeds)
+        if (_lists == null || settings.Feeds.Count == 0) return FeedSet.Empty;
+        var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var outbound = new Dictionary<string, PublicBlockList>(StringComparer.OrdinalIgnoreCase);
+        // Outbound lists first, so an entry on several lists is credited to the one that alerts.
+        foreach (var list in settings.Feeds.Select(PublicBlockLists.Find).OfType<PublicBlockList>().OrderBy(l => l.Outbound ? 0 : 1))
         {
-            if (PublicBlockLists.Find(id) is not { } list) continue;
-            foreach (var entry in await _lists.GetAsync(id, accessor, now, ct))
+            foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct))
             {
-                if (allowlist.ExemptsRange(entry) == null) entries.TryAdd(entry, list);
+                if (allowlist.ExemptsRange(entry) != null) continue;
+                all.Add(entry);
+                if (list.Outbound) outbound.TryAdd(entry, list);
             }
         }
-        return (new PublicListMatcher(entries.Select(kv => (kv.Key, kv.Value))),
-            entries.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList());
+        return new FeedSet(new PublicListMatcher(outbound.Select(kv => (kv.Key, kv.Value))),
+            all.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            outbound.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    /// <summary>A site's public list entries: all of them (inbound), and those also blocked outbound.</summary>
+    private sealed record FeedSet(PublicListMatcher Matcher, IReadOnlyList<string> Entries, IReadOnlyList<string> Outbound)
+    {
+        public static readonly FeedSet Empty = new(PublicListMatcher.Empty, [], []);
     }
 
     private readonly ConcurrentDictionary<string, PublicListMatcher> _listMatchers = new();
@@ -535,11 +554,13 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     // Public lists go to their own Network Lists: on a change of chosen lists at once, otherwise when entries
     // change, at most every FeedWriteEvery.
     private async Task ReconcileGatewayFeedsAsync(string? site, IServiceProvider services, BlockingSettings settings,
-        IReadOnlyList<string> feeds, DateTime now, CancellationToken ct)
+        IReadOnlyList<string> feeds, IReadOnlyList<string> feedsOut, DateTime now, CancellationToken ct)
     {
         var wanted = settings.Mode == BlockingMode.Enforce && settings.TargetGateway ? feeds : [];
+        // Part of the fingerprint, so turning outbound blocking on fills its groups on the next write.
+        var wantedOut = wanted.Count > 0 && settings.FeedsOutbound ? feedsOut : [];
         var lists = wanted.Count == 0 ? "" : string.Join(",", settings.Feeds.Order());
-        var fingerprint = string.Join(",", wanted);
+        var fingerprint = string.Join(",", wanted) + "|" + string.Join(",", wantedOut);
         var known = _feedsSent.TryGetValue(Key(site), out var last);
         if (known && last.Ok && last.Fingerprint == fingerprint) return;
         if (!known && wanted.Count == 0) { _feedsSent[Key(site)] = (fingerprint, lists, now, true); _feedEntries[Key(site)] = 0; return; }
@@ -548,7 +569,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         if (known && !last.Ok && now - last.At < TimeSpan.FromMinutes(30)) return;
         if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
 
-        var result = await writer.SyncFeedsAsync(site, wanted, ct);
+        var result = await writer.SyncFeedsAsync(site, wanted, wantedOut, ct);
         _feedsSent[Key(site)] = (fingerprint, lists, now, result.Ok);
         if (result.Ok)
             _feedEntries[Key(site)] = result.Count;
