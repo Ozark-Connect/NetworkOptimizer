@@ -503,6 +503,9 @@ message GatewayBlocklistSet {
   repeated GatewayBlockEntry entries = 2;
   // Opaque identity of this set, echoed back in GatewayBlocklistStatus.
   string fingerprint = 3;
+  // Destinations devices on the site may not reach (the public lists, when outbound blocking is on).
+  // Matched on every connection state, as UniFi Network's outbound policy does.
+  repeated GatewayBlockEntry outbound = 4;
 }
 
 message GatewayBlockEntry {

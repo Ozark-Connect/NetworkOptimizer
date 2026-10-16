@@ -9,7 +9,13 @@ public enum BlockTargetKind
 {
     Gateway = 0,
     Waf = 1,
-    Cloudflare = 2
+    Cloudflare = 2,
+
+    /// <summary>
+    /// The On-Site Agent on the gateway. Status only: it is the gateway target's fast path, never a
+    /// separate setting or a target of its own.
+    /// </summary>
+    GatewayAgent = 3
 }
 
 /// <summary>The outcome of one sync to a target.</summary>
@@ -108,12 +114,17 @@ public interface IGatewayAgentBlocklist
 {
     /// <summary>
     /// Sends the set to the site's capable gateway agents (null site = default) when they do not hold it
-    /// yet. Returns false when the site has no connected agent that can enforce it.
+    /// yet: <paramref name="entries"/> are blocked as sources, <paramref name="outbound"/> as destinations.
+    /// Returns false when the site has no connected agent that can enforce it.
     /// </summary>
-    bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, string fingerprint);
+    bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
+        string fingerprint);
 
     /// <summary>Whether a gateway agent of the site has applied <paramref name="fingerprint"/> with its rules in place.</summary>
     bool IsEnforcing(string? site, string fingerprint);
+
+    /// <summary>What is wrong with the site's connected gateway agent, or null when nothing is.</summary>
+    string? Problem(string? site, string fingerprint);
 }
 
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>

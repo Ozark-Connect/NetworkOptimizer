@@ -332,6 +332,25 @@ stop_and_reap_agent() {
     fi
 }
 
+# Automatic Blocking's rules from an agent on a gateway: its chain, the jumps to it, and its sets.
+# They outlive the agent otherwise; nothing else uses these names.
+remove_gateway_blocklist() {
+    local t c s
+    for t in iptables ip6tables; do
+        command -v "$t" >/dev/null 2>&1 || continue
+        for c in FORWARD INPUT; do
+            while "$t" -D "$c" -j NETOPT_BLOCK 2>/dev/null; do :; done
+        done
+        "$t" -F NETOPT_BLOCK 2>/dev/null || true
+        "$t" -X NETOPT_BLOCK 2>/dev/null || true
+    done
+    command -v ipset >/dev/null 2>&1 || return 0
+    for s in netopt_block_v4 netopt_block_v6 netopt_guard_v4 netopt_guard_v6 netopt_out_v4 netopt_out_v6; do
+        ipset destroy "${s}_tmp" 2>/dev/null || true
+        ipset destroy "$s" 2>/dev/null || true
+    done
+}
+
 uninstall_agent() {
     step "Removing the Network Optimizer agent"
     note "${SERVICE_NAME} + ${INSTALL_DIR}"
@@ -340,6 +359,7 @@ uninstall_agent() {
     local had_speedtest=0
     [ -f "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" ] && had_speedtest=1
     stop_and_reap_agent
+    remove_gateway_blocklist
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service" \
           "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" \
           "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}.service"

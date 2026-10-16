@@ -27,7 +27,7 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     // What each agent last reported.
     private readonly ConcurrentDictionary<int, GatewayBlocklistStatus> _status = new();
 
-    private sealed record Desired(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries, string Fingerprint);
+    private sealed record Desired(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries, IReadOnlyList<GatewayAgentEntry> Outbound, string Fingerprint);
 
     public GatewayAgentBlocklist(AgentTunnelRegistry registry, ILogger<GatewayAgentBlocklist> logger)
     {
@@ -40,10 +40,11 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     private List<AgentTunnelConnection> Capable(string slug) =>
         _registry.GetForSite(slug).Where(c => c.OnGateway == true && c.HasCapability(Capability) && !c.IsStale).ToList();
 
-    public bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, string fingerprint)
+    public bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
+        string fingerprint)
     {
         var slug = Slug(site);
-        var desired = new Desired(enabled, entries, fingerprint);
+        var desired = new Desired(enabled, entries, outbound, fingerprint);
         _desired[slug] = desired;
         var agents = Capable(slug);
         var now = DateTime.UtcNow;
@@ -66,6 +67,22 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
             && (s.Fingerprint == fingerprint
                 || (_sent.TryGetValue(agent.AgentId, out var sent) && sent.Fingerprint == fingerprint
                     && DateTime.UtcNow - sent.At < AckWait)));
+
+    public string? Problem(string? site, string fingerprint)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var agent in Capable(Slug(site)))
+        {
+            if (_status.TryGetValue(agent.AgentId, out var s) && !s.Ok)
+                return string.IsNullOrWhiteSpace(s.Error) ? "Blocklist not applied" : s.Error;
+            if (s is { HookPresent: false })
+                return "Rules not in place";
+            var awaited = _sent.TryGetValue(agent.AgentId, out var sent) && now - sent.At >= AckWait;
+            if (s?.Fingerprint != fingerprint && awaited)
+                return "Not confirming the current blocklist";
+        }
+        return null;
+    }
 
     /// <summary>Sends a newly connected gateway agent its site's set, if there is one yet.</summary>
     public void OnAgentConnected(AgentTunnelConnection connection)
@@ -97,15 +114,16 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
                 connection.AgentName, connection.SiteSlug, status.V4Entries, status.V6Entries);
     }
 
+    private static IEnumerable<GatewayBlockEntry> Wire(IEnumerable<GatewayAgentEntry> entries, DateTime now) => entries
+        .Select(e => (e.Address, Ttl: (e.ExpiresAt - now).TotalSeconds))
+        .Where(e => e.Ttl >= 1)
+        .Select(e => new GatewayBlockEntry { Address = e.Address, TtlSeconds = (int)Math.Min(int.MaxValue, Math.Ceiling(e.Ttl)) });
+
     private void Send(AgentTunnelConnection agent, Desired desired, DateTime now)
     {
         var message = new GatewayBlocklistSet { Enabled = desired.Enabled, Fingerprint = desired.Fingerprint };
-        foreach (var entry in desired.Entries)
-        {
-            var ttl = (entry.ExpiresAt - now).TotalSeconds;
-            if (ttl < 1) continue;
-            message.Entries.Add(new GatewayBlockEntry { Address = entry.Address, TtlSeconds = (int)Math.Min(int.MaxValue, Math.Ceiling(ttl)) });
-        }
+        message.Entries.AddRange(Wire(desired.Entries, now));
+        message.Outbound.AddRange(Wire(desired.Outbound, now));
         if (_registry.TrySend(agent.AgentId, new ServerMessage { GatewayBlocklist = message }))
             _sent[agent.AgentId] = (desired.Fingerprint, now);
     }

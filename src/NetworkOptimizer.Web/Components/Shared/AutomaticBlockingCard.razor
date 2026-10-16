@@ -383,7 +383,9 @@
         var problem = await Blocking.CheckGatewayAsync();
         _gatewaySetUp = problem != "Not set up yet.";
         _gatewayOk = problem == null;
-        _gatewayStatus = problem == null ? "Configured in UniFi Network." : problem;
+        _gatewayStatus = problem != null ? problem
+            : await Blocking.IsGatewayAgentEnforcingAsync() ? "Applied by your gateway's On-Site Agent. UniFi Network's Network List updates overnight."
+            : "Configured in UniFi Network.";
     }
 
     private async Task Run(Func<Task<string>> action)

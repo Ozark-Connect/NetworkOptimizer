@@ -55,6 +55,10 @@ public interface IThreatBlockingAdmin
     [RequireRole(Roles.Admin)]
     Task<string?> CheckGatewayAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the On-Site Agent on the site's gateway currently holds its blocklist.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<bool> IsGatewayAgentEnforcingAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Saves the token (when given) and account, then finds or creates the list.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ThreatBlockingTargetSetUp, Category = AuditCategories.Settings, TargetType = "cloudflare")]
@@ -108,6 +112,7 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<GatewaySetUpResult> SetUpGatewayAsync(CancellationToken ct = default) => ops.SetUpGatewayAsync(Slug, ct);
     public Task RemoveGatewayAsync(CancellationToken ct = default) => ops.RemoveGatewayAsync(Slug, ct);
     public Task<string?> CheckGatewayAsync(CancellationToken ct = default) => ops.CheckGatewayAsync(Slug, ct);
+    public Task<bool> IsGatewayAgentEnforcingAsync(CancellationToken ct = default) => Task.FromResult(ops.IsGatewayAgentEnforcing(Slug));
     public Task<CloudflareList> SetUpCloudflareAsync(string? token, string accountId, CancellationToken ct = default) => ops.SetUpCloudflareAsync(Slug, token, accountId, ct);
     public Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken ct = default) => ops.GetCloudflareStatusAsync(Slug, ct);
     public Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken ct = default) => ops.GetPublicListsAsync(Slug, ct);

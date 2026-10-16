@@ -46,6 +46,8 @@ public sealed class ThreatBlockingService : BackgroundService
     private readonly ConcurrentDictionary<string, DateTime> _agentEnforcingAt = new();
     // A release or settings change after a console write sends the next one at once.
     private DateTime _consoleUrgentAt = DateTime.MinValue;
+    // The first cycle's time: a console not written since stands as written then.
+    private DateTime _startedAt = DateTime.MinValue;
 
     // Keyed by site ("" = default site).
     private readonly ConcurrentDictionary<(string Site, BlockTargetKind Kind), BlockTargetStatus> _status = new();
@@ -178,6 +180,7 @@ public sealed class ThreatBlockingService : BackgroundService
 
     internal async Task RunCycleAsync(DateTime now, CancellationToken ct)
     {
+        if (_startedAt == DateTime.MinValue) _startedAt = now;
         var sites = await SitesAsync(ct);
         var settingsBySite = new Dictionary<string, BlockingSettings>();
         foreach (var site in sites)
@@ -372,21 +375,39 @@ public sealed class ThreatBlockingService : BackgroundService
             var own = desired.Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
             entries.AddRange(feeds.Where(f => !own.Contains(f)).Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)));
         }
-        var fingerprint = AgentFingerprint(enabled, desired, feeds);
-        if (!_agents.Push(site, enabled, entries, fingerprint) || !enabled)
+        // Outbound only for the public lists, and only where the site blocks them outbound.
+        var outbound = enabled && settings.FeedsOutbound
+            ? feeds.Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)).ToList()
+            : [];
+        var fingerprint = AgentFingerprint(enabled, desired, feeds, outbound.Count > 0);
+        if (!_agents.Push(site, enabled, entries, outbound, fingerprint) || !enabled)
         {
             _agentEnforcingAt.TryRemove(Key(site), out _);
+            _status.TryRemove((Key(site), BlockTargetKind.GatewayAgent), out _);
             return;
         }
-        if (_agents.IsEnforcing(site, fingerprint))
+        // A connected gateway agent is trusted for AgentGrace when first seen: after a restart nothing
+        // is confirmed yet, and writing every site's console then would reprovision every gateway.
+        if (_agents.IsEnforcing(site, fingerprint) || !_agentEnforcingAt.ContainsKey(Key(site)))
             _agentEnforcingAt[Key(site)] = now;
+
+        // Reported once the console has taken over, not while a fresh push awaits its ack.
+        var key = (Key(site), BlockTargetKind.GatewayAgent);
+        if (now - _agentEnforcingAt[Key(site)] > AgentGrace && _agents.Problem(site, fingerprint) is { } problem)
+            _status[key] = new BlockTargetStatus(BlockTargetKind.GatewayAgent, now, false, 0, $"{problem}. Updating UniFi Network instead.");
+        else
+            _status[key] = new BlockTargetStatus(BlockTargetKind.GatewayAgent, now, true, entries.Count, null);
     }
+
+    /// <summary>Whether the site's gateway On-Site Agent currently holds its blocklist (null site = default site).</summary>
+    public bool GatewayAgentEnforcing(string? site) =>
+        _status.TryGetValue((Key(site), BlockTargetKind.GatewayAgent), out var s) && s.Ok;
 
     // Blocks count with their expiry (a re-ban extends one); public list entries without it, since
     // theirs is renewed on every send.
-    internal static string AgentFingerprint(bool enabled, IEnumerable<ThreatBlock> blocks, IEnumerable<string> feeds)
+    internal static string AgentFingerprint(bool enabled, IEnumerable<ThreatBlock> blocks, IEnumerable<string> feeds, bool outbound = false)
     {
-        var text = new System.Text.StringBuilder(enabled ? "on|" : "off|");
+        var text = new System.Text.StringBuilder(enabled ? "on|" : "off|").Append(outbound ? "out|" : "in|");
         foreach (var b in blocks.OrderBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase))
             text.Append(b.SourceIp.ToLowerInvariant()).Append('@').Append(b.ExpiresAt.ToString("yyyyMMddHHmm")).Append(',');
         text.Append('|');
@@ -399,13 +420,16 @@ public sealed class ThreatBlockingService : BackgroundService
     /// Whether a console write that is due waits instead. While the site's gateway agent enforces the
     /// set, the console is only the backstop: written once after each daily quiet hour, or at once after
     /// a release or settings change. An agent that stops confirming lets writes through after
-    /// <see cref="AgentGrace"/>.
+    /// <see cref="AgentGrace"/>, and a failed write (the console was unreachable) is retried as usual.
+    /// Nothing written since this process started counts as written at start.
     /// </summary>
-    private bool ConsoleHeld(string? site, BlockingSettings settings, DateTime lastWrite, DateTime now)
+    private bool ConsoleHeld(string? site, BlockingSettings settings, DateTime? lastWrite, bool lastOk, DateTime now)
     {
         if (!_agentEnforcingAt.TryGetValue(Key(site), out var at) || now - at > AgentGrace) return false;
-        if (_consoleUrgentAt > lastWrite) return false;
-        return lastWrite >= LastConsoleWindow(settings.ConsoleSyncHour, now);
+        if (!lastOk) return false;
+        var written = lastWrite ?? _startedAt;
+        if (_consoleUrgentAt > written) return false;
+        return written >= LastConsoleWindow(settings.ConsoleSyncHour, now);
     }
 
     /// <summary>The most recent start of the daily console window at or before <paramref name="nowUtc"/>, in UTC.</summary>
@@ -488,7 +512,7 @@ public sealed class ThreatBlockingService : BackgroundService
         var known = _feedsSent.TryGetValue(Key(site), out var last);
         if (known && last.Ok && last.Fingerprint == fingerprint) return;
         if (!known && wanted.Count == 0) { _feedsSent[Key(site)] = (fingerprint, lists, now, true); _feedEntries[Key(site)] = 0; return; }
-        if (known && wanted.Count > 0 && ConsoleHeld(site, settings, last.At, now)) return;
+        if (wanted.Count > 0 && ConsoleHeld(site, settings, known ? last.At : null, !known || last.Ok, now)) return;
         if (known && last.Ok && last.Lists == lists && now - last.At < FeedWriteEvery) return;
         if (known && !last.Ok && now - last.At < TimeSpan.FromMinutes(30)) return;
         if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
@@ -632,6 +656,7 @@ public sealed class ThreatBlockingService : BackgroundService
 
         foreach (var kind in Enum.GetValues<BlockTargetKind>())
         {
+            if (kind == BlockTargetKind.GatewayAgent) continue;
             var key = (Key(site), kind);
             var known = _sent.TryGetValue(key, out var last);
             var target = await CreateTargetAsync(kind, site, services, settingsAccessor, ct);
@@ -662,7 +687,7 @@ public sealed class ThreatBlockingService : BackgroundService
 
             var due = target.SyncEveryCycle || !known || !last.Ok || last.Fingerprint != fingerprint || now - last.At > Resync;
             if (!due) continue;
-            if (kind == BlockTargetKind.Gateway && known && ConsoleHeld(site, settings, last.At, now)) continue;
+            if (kind == BlockTargetKind.Gateway && ConsoleHeld(site, settings, known ? last.At : null, !known || last.Ok, now)) continue;
 
             if (target is IFeedBlockTarget feedTarget) feedTarget.Feeds = feeds;
             var result = await target.SyncAsync(desired, ct);

@@ -30,10 +30,11 @@ public class GatewayAgentBlockingTests
     private sealed class RecordingGateway : IGatewayBlocklistWriter
     {
         public List<IReadOnlyList<string>> Syncs { get; } = [];
+        public bool Fail { get; set; }
         public Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken ct)
         {
             Syncs.Add(ips);
-            return Task.FromResult(BlockTargetResult.Success(ips.Count));
+            return Task.FromResult(Fail ? BlockTargetResult.Failure("unreachable") : BlockTargetResult.Success(ips.Count));
         }
         public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct) =>
             Task.FromResult(BlockTargetResult.Success(entries.Count));
@@ -46,13 +47,15 @@ public class GatewayAgentBlockingTests
         public bool Enforcing { get; set; } = true;
         public List<(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries)> Pushes { get; } = [];
 
-        public bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, string fingerprint)
+        public bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
+            string fingerprint)
         {
             Pushes.Add((enabled, entries));
             return Connected;
         }
 
         public bool IsEnforcing(string? site, string fingerprint) => Connected && Enforcing;
+        public string? Problem(string? site, string fingerprint) => Connected && !Enforcing ? "Rules not in place" : null;
     }
 
     private sealed class Harness
@@ -113,16 +116,32 @@ public class GatewayAgentBlockingTests
         var h = new Harness();
         h.Block("203.0.113.7");
         await h.Cycle(T0);
-        h.Console.Syncs.Should().ContainSingle().Which.Should().Equal("203.0.113.7");
+        h.Console.Syncs.Should().BeEmpty("a restart with a gateway agent connected does not rewrite the console");
 
         h.Block("203.0.113.8");
         await h.Cycle(T0.AddMinutes(1));
         h.Agents.Pushes.Last().Entries.Select(e => e.Address).Should().BeEquivalentTo("203.0.113.7", "203.0.113.8");
-        h.Console.Syncs.Should().ContainSingle("the console waits while the agent holds the set");
+        h.Console.Syncs.Should().BeEmpty("the console waits while the agent holds the set");
 
         await h.Cycle(T0.AddHours(24).AddMinutes(1));
+        h.Console.Syncs.Should().ContainSingle().Which.Should().BeEquivalentTo("203.0.113.7", "203.0.113.8");
+        h.Service.GatewayAgentEnforcing(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task FailedConsoleWrite_IsRetriedWhileTheAgentEnforces()
+    {
+        var h = new Harness();
+        h.Agents.Connected = false;
+        h.Console.Fail = true;
+        h.Block("203.0.113.7");
+        await h.Cycle(T0);
+        h.Console.Syncs.Should().ContainSingle();
+
+        h.Agents.Connected = true;
+        h.Console.Fail = false;
+        await h.Cycle(T0.AddMinutes(1));
         h.Console.Syncs.Should().HaveCount(2);
-        h.Console.Syncs.Last().Should().BeEquivalentTo("203.0.113.7", "203.0.113.8");
     }
 
     [Fact]
@@ -148,10 +167,13 @@ public class GatewayAgentBlockingTests
         h.Block("203.0.113.8");
 
         await h.Cycle(T0.AddMinutes(1));
-        h.Console.Syncs.Should().ContainSingle();
+        h.Console.Syncs.Should().BeEmpty();
+        h.Service.TargetStatus(null).Should().NotContain(s => !s.Ok);
 
         await h.Cycle(T0.AddMinutes(6));
-        h.Console.Syncs.Should().HaveCount(2);
+        h.Console.Syncs.Should().ContainSingle();
+        h.Service.TargetStatus(null).Should().ContainSingle(s => s.Kind == BlockTargetKind.GatewayAgent && !s.Ok)
+            .Which.Error.Should().Be("Rules not in place. Updating UniFi Network instead.");
     }
 
     [Fact]
@@ -166,8 +188,7 @@ public class GatewayAgentBlockingTests
         h.Service.TriggerConsoleSync();
         await h.Cycle(T0.AddMinutes(1));
 
-        h.Console.Syncs.Should().HaveCount(2);
-        h.Console.Syncs.Last().Should().Equal("203.0.113.7");
+        h.Console.Syncs.Should().ContainSingle().Which.Should().Equal("203.0.113.7");
     }
 
     [Fact]
@@ -188,6 +209,7 @@ public class GatewayAgentBlockingTests
         var b = ThreatBlockingService.AgentFingerprint(true, [new ThreatBlock { SourceIp = "203.0.113.7", ExpiresAt = T0.AddHours(4) }], []);
         a.Should().NotBe(b);
         ThreatBlockingService.AgentFingerprint(false, [block], []).Should().NotBe(a);
+        ThreatBlockingService.AgentFingerprint(true, [block], [], outbound: true).Should().NotBe(a);
     }
 
     [Fact]

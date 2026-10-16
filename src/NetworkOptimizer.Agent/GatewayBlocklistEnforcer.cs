@@ -24,6 +24,8 @@ public sealed class GatewayBlocklistEnforcer
     private const string BlockV6 = "netopt_block_v6";
     private const string GuardV4 = "netopt_guard_v4";
     private const string GuardV6 = "netopt_guard_v6";
+    private const string OutV4 = "netopt_out_v4";
+    private const string OutV6 = "netopt_out_v6";
     private const int MaxElements = 262144;
     // ipset's largest timeout; anything longer is clamped to it.
     private const int MaxTtlSeconds = 2147483;
@@ -140,16 +142,20 @@ public sealed class GatewayBlocklistEnforcer
 
         var now = DateTime.UtcNow;
         var (v4, v6, refused) = Split(set.Entries, now);
+        var (out4, out6, refusedOut) = Split(set.Outbound ?? [], now);
+        refused += refusedOut;
         var errors = new List<string>();
         try
         {
             FillSet(BlockV4, "inet", v4, withTimeout: true);
             FillSet(BlockV6, "inet6", v6, withTimeout: true);
+            FillSet(OutV4, "inet", out4, withTimeout: true);
+            FillSet(OutV6, "inet6", out6, withTimeout: true);
             var (guard4, guard6) = GuardAddresses();
             FillSet(GuardV4, "inet", guard4.Select(a => (a, 0)).ToList(), withTimeout: false);
             FillSet(GuardV6, "inet6", guard6.Select(a => (a, 0)).ToList(), withTimeout: false);
-            EnsureChain("iptables", GuardV4, BlockV4);
-            EnsureChain("ip6tables", GuardV6, BlockV6);
+            EnsureChain("iptables", GuardV4, BlockV4, OutV4);
+            EnsureChain("ip6tables", GuardV6, BlockV6, OutV6);
         }
         catch (CommandException ex)
         {
@@ -162,6 +168,7 @@ public sealed class GatewayBlocklistEnforcer
         SaveCache(set);
         if (changed || errors.Count > 0)
             Console.WriteLine($"Gateway blocklist: {v4.Count} IPv4 and {v6.Count} IPv6 entr(ies) applied"
+                + (out4.Count + out6.Count > 0 ? $", {out4.Count + out6.Count} blocked outbound" : "")
                 + (refused > 0 ? $", {refused} refused (not public)" : "")
                 + (inserted > 0 ? $", {inserted} jump(s) inserted" : "")
                 + (errors.Count > 0 ? $"; failed: {string.Join("; ", errors)}" : ""));
@@ -272,15 +279,17 @@ public sealed class GatewayBlocklistEnforcer
         Check(Run("ipset", ["restore"], script.ToString()), $"ipset restore {name}");
     }
 
-    // The chain: never the server, then new connections from a blocked source are dropped. Matching
-    // new connections only leaves replies to connections a LAN device opened alone, as the console
-    // policy does. Rewritten only when it differs, so a steady set never touches the rules.
-    private static void EnsureChain(string tool, string guardSet, string blockSet)
+    // The chain: never the server, then new connections from a blocked source are dropped, then
+    // anything to an outbound-blocked destination. Matching new connections only for sources leaves
+    // replies to connections a LAN device opened alone, as the console policies do. Rewritten only
+    // when it differs, so a steady set never touches the rules.
+    private static void EnsureChain(string tool, string guardSet, string blockSet, string outSet)
     {
         string[] wanted =
         [
             $"-A {Chain} -m set --match-set {guardSet} src -j RETURN",
             $"-A {Chain} -m set --match-set {blockSet} src -m state --state NEW -j DROP",
+            $"-A {Chain} -m set --match-set {outSet} dst -j DROP",
         ];
         var current = Run(tool, ["-S", Chain], null);
         if (current.Exit == 0)
@@ -329,7 +338,7 @@ public sealed class GatewayBlocklistEnforcer
             Run(tool, ["-F", Chain], null);
             Run(tool, ["-X", Chain], null);
         }
-        foreach (var set in new[] { BlockV4, BlockV6, GuardV4, GuardV6 })
+        foreach (var set in new[] { BlockV4, BlockV6, GuardV4, GuardV6, OutV4, OutV6 })
         {
             Run("ipset", ["destroy", set + "_tmp"], null);
             Run("ipset", ["destroy", set], null);
@@ -403,12 +412,13 @@ public sealed class GatewayBlocklistEnforcer
     private sealed class CommandException(string message) : Exception(message);
 
     /// <summary>The applied set as kept on disk: expiries are absolute so a restart honors them.</summary>
-    internal sealed record CachedSet(bool Enabled, string Fingerprint, List<CachedEntry> Entries)
+    internal sealed record CachedSet(bool Enabled, string Fingerprint, List<CachedEntry> Entries, List<CachedEntry>? Outbound = null)
     {
         public static CachedSet From(GatewayBlocklistSet set, DateTime now) => new(
             set.Enabled,
             set.Fingerprint,
-            set.Entries.Select(e => new CachedEntry(e.Address, now.AddSeconds(e.TtlSeconds))).ToList());
+            set.Entries.Select(e => new CachedEntry(e.Address, now.AddSeconds(e.TtlSeconds))).ToList(),
+            set.Outbound.Select(e => new CachedEntry(e.Address, now.AddSeconds(e.TtlSeconds))).ToList());
     }
 
     internal sealed record CachedEntry(string Address, DateTime ExpiresAt);

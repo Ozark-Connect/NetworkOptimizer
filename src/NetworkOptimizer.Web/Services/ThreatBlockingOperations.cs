@@ -297,6 +297,9 @@ public sealed class ThreatBlockingOperations
     public async Task<bool> IsGatewaySetUpAsync(string slug, CancellationToken ct) =>
         await _gateway.LoadStateAsync(Site(slug), ct) != null;
 
+    /// <summary>Whether the On-Site Agent on the site's gateway currently holds its blocklist.</summary>
+    public bool IsGatewayAgentEnforcing(string slug) => _blocking.GatewayAgentEnforcing(Site(slug));
+
     /// <summary>Null when the gateway objects are set up and intact, otherwise why not.</summary>
     public async Task<string?> CheckGatewayAsync(string slug, CancellationToken ct)
     {
