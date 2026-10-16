@@ -63,7 +63,10 @@ public static class RolloutAlerts
     /// <summary>A device's CPU or memory use moved appreciably down after the upgrade.</summary>
     public const string ResourceImprovement = "rollout.resource_improvement";
 
-    /// <summary>Every step has settled.</summary>
+    /// <summary>
+    /// Every step has settled. Closes the open <see cref="Started"/> alert; AlertProcessingService
+    /// mirrors both strings, so renaming either breaks the pair.
+    /// </summary>
     public const string Completed = "rollout.completed";
 
     /// <summary>The post-soak report is built and readable.</summary>
