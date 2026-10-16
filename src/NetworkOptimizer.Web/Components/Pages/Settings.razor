@@ -1163,35 +1163,33 @@
                 It's deployed automatically from the Adaptive SQM page. Only change this if you need to use a different port (default: 8088).
             </p>
 
-            <div class="form-row">
-                <div class="form-group" style="flex: 1;">
-                    <label class="form-label">Port</label>
-                    <input type="number" class="form-control" @bind="tcMonitorPort" @bind:event="oninput" min="1" max="65535" />
-                </div>
-                <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="SaveTcMonitorPort" disabled="@savingTcMonitorPort">
-                        @if (savingTcMonitorPort)
-                        {
-                            <span class="spinner"></span>
-                            <span>Saving...</span>
-                        }
-                        else
-                        {
-                            <span>Save</span>
-                        }
-                    </button>
-                    <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
-                        @if (testingTcMonitor)
-                        {
-                            <span class="spinner"></span>
-                            <span>Testing...</span>
-                        }
-                        else
-                        {
-                            <span>Test</span>
-                        }
-                    </button>
-                </div>
+            <div class="form-group">
+                <label class="form-label">Port</label>
+                <input type="number" class="form-control" @bind="tcMonitorPort" @bind:event="oninput" min="1" max="65535" />
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-secondary" @onclick="SaveTcMonitorPort" disabled="@savingTcMonitorPort">
+                    @if (savingTcMonitorPort)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+                <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
+                    @if (testingTcMonitor)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test</span>
+                    }
+                </button>
             </div>
 
             @if (!string.IsNullOrEmpty(tcMonitorMessage))
