@@ -174,7 +174,7 @@ public sealed class ThreatBlockingOperations
 
     public async Task SaveSettingsAsync(string slug, BlockingSettings s, CancellationToken ct)
     {
-
+        var before = await GetSettingsAsync(slug, ct);
         async Task Set(string key, string value) => await _settings.SaveSettingAsync(Key(slug, key), value, ct);
         await Set(BlockingSettingKeys.Mode, s.Mode.ToString());
         await Set(BlockingSettingKeys.WafEventThreshold, Math.Clamp(s.WafEventThreshold, BlockingSettings.MinThreshold, BlockingSettings.MaxThreshold).ToString());
@@ -184,14 +184,18 @@ public sealed class ThreatBlockingOperations
         await Set(BlockingSettingKeys.MaxEntries, Math.Clamp(s.MaxEntries, 1, BlockingSettings.MaxMaxEntries).ToString());
         await Set(BlockingSettingKeys.Share, s.Share.ToString());
         await Set(BlockingSettingKeys.Feeds, string.Join(",", s.Feeds.Where(id => PublicBlockLists.Find(id) != null).Distinct()));
-        var before = await GetSettingsAsync(slug, ct);
         await Set(BlockingSettingKeys.FeedsOutbound, s.FeedsOutbound.ToString());
         if (s.FeedsOutbound != before.FeedsOutbound && await IsGatewaySetUpAsync(slug, ct))
             await _gateway.SetFeedsOutboundAsync(Site(slug), s.FeedsOutbound, ct);
         await Set(BlockingSettingKeys.TargetGateway, s.TargetGateway.ToString());
         await Set(BlockingSettingKeys.TargetWaf, s.TargetWaf.ToString());
         await Set(BlockingSettingKeys.TargetCloudflare, s.TargetCloudflare.ToString());
-        _blocking.TriggerConsoleSync();
+        // Mode and sharing decide what this site gives the sites sharing its blocks; everything else
+        // (lists, thresholds, targets) changes only this site's own set, so only its console is written.
+        if (s.Mode != before.Mode || s.Share != before.Share)
+            _blocking.TriggerConsoleSync();
+        else
+            _blocking.TriggerConsoleSyncFor(Site(slug));
     }
 
     public async Task<RecommendedResult> TurnOnRecommendedAsync(string slug, CancellationToken ct)
