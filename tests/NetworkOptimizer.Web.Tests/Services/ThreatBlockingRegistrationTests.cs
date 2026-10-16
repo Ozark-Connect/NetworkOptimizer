@@ -47,7 +47,8 @@ public class ThreatBlockingRegistrationTests
     {
         using var provider = Build();
         var resolve = Task.Run(() => provider.GetRequiredService(service));
-        resolve.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue("resolving {0} must not hang", service.Name);
+        // Generous: a busy build machine must not read as a hang; a real cycle never returns.
+        resolve.Wait(TimeSpan.FromSeconds(60)).Should().BeTrue("resolving {0} must not hang", service.Name);
         resolve.Result.Should().NotBeNull();
     }
 
@@ -56,7 +57,7 @@ public class ThreatBlockingRegistrationTests
     {
         using var provider = Build();
         var resolve = Task.Run(() => provider.GetServices<IHostedService>().ToList());
-        resolve.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue();
+        resolve.Wait(TimeSpan.FromSeconds(60)).Should().BeTrue();
         resolve.Result.Should().HaveCount(2);
     }
 }

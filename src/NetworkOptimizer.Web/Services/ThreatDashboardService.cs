@@ -86,6 +86,14 @@ public class ThreatDashboardService : IThreatFilterAdminService
         _logger = logger;
     }
 
+    // The site's enabled public lists as Automatic Blocking last built them (null site = default site).
+    private NetworkOptimizer.Threats.Blocking.PublicBlockList? PublicListFor(string ip)
+    {
+        var slug = _siteContext.Slug;
+        var site = string.IsNullOrEmpty(slug) || slug == SiteManagementService.DefaultSiteSlug ? null : slug;
+        return _serviceProvider.GetService<NetworkOptimizer.Threats.Blocking.IPublicListLookup>()?.For(site).Find(ip);
+    }
+
     /// <summary>
     /// Create a fresh DI scope and resolve a private <see cref="IThreatRepository"/> from it.
     /// Each public operation gets its own repository instance - and therefore its own DbContext
@@ -734,7 +742,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 Destinations = destinations,
                 Sources = sources,
                 PortRanges = portRanges,
-                TopSignatures = signatures
+                TopSignatures = signatures,
+                PublicList = PublicListFor(ip)?.Name
             };
         }
         catch (Exception ex)
@@ -1183,6 +1192,9 @@ public record ThreatTrendPoint
 public class IpDrilldownData
 {
     public string Ip { get; set; } = string.Empty;
+
+    /// <summary>The site's public block list holding this address, or null; the same match the contact alerts use.</summary>
+    public string? PublicList { get; set; }
     public string? CountryCode { get; set; }
     public string? AsnOrg { get; set; }
     public int TotalEvents { get; set; }

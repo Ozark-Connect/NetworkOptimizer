@@ -1115,6 +1115,11 @@ else
             {
                 <span class="hide-mobile drilldown-asn text-truncate-300">@_drilldownData.AsnOrg</span>
             }
+            @if (_drilldownData.PublicList != null)
+            {
+                <span class="reputation-badge reputation-malicious"
+                      data-tooltip="On @_drilldownData.PublicList, one of this site's public block lists. A device on your network reaching it raises a Public Block List alert.">@_drilldownData.PublicList</span>
+            }
             @if (_drilldownData.FirstSeen.HasValue)
             {
                 <span class="drilldown-time drilldown-time-inline" data-tooltip="First and last event from this address in the selected time range">
