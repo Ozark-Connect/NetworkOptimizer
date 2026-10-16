@@ -30,4 +30,18 @@ public class GatewayBlocklistRulesTests
         Rules[^1].Should().Be("-A NETOPT_BLOCK -m set --match-set block src -m state --state NEW -j DROP");
         IndexOf("guard src -j RETURN").Should().BeLessThan(Rules.Length - 1);
     }
+
+    [Fact]
+    public void Teardown_RemovesEveryJumpTheChainAndEachSet_AndAlwaysSucceeds()
+    {
+        var script = GatewayBlocklistRules.Teardown("NETOPT_BLOCK", ["set_a", "set_b"]);
+
+        script.Should().Contain("for t in iptables ip6tables")
+            .And.Contain("for c in FORWARD INPUT; do while $t -D $c -j NETOPT_BLOCK")
+            .And.Contain("$t -F NETOPT_BLOCK").And.Contain("$t -X NETOPT_BLOCK")
+            .And.Contain("for s in set_a set_b; do ipset destroy ${s}_tmp")
+            .And.EndWith("; true");
+        // Jumps go before the chain, or -X refuses a chain still referenced.
+        script.IndexOf("-D $c", StringComparison.Ordinal).Should().BeLessThan(script.IndexOf("-X NETOPT_BLOCK", StringComparison.Ordinal));
+    }
 }

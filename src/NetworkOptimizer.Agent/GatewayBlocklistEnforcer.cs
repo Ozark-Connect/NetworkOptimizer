@@ -88,12 +88,15 @@ public sealed class GatewayBlocklistEnforcer
     /// <summary>Applies the cached set, then applies pushes and re-checks the jumps for the life of the agent.</summary>
     public async Task RunAsync(CancellationToken ct)
     {
+        // The previous run's timer must not fire under this one; it is re-armed once a set is applied.
+        DisarmCleanup();
         if (LoadCache() is { } cached)
         {
             Console.WriteLine(cached.Enabled
                 ? $"Gateway blocklist: re-applying {cached.Entries.Count} cached entr(ies)"
                 : "Gateway blocklist: off (cached)");
             Apply(cached);
+            if (_applied is { Enabled: true }) ArmCleanup(DateTime.UtcNow);
         }
 
         while (!ct.IsCancellationRequested)
@@ -119,6 +122,8 @@ public sealed class GatewayBlocklistEnforcer
                     Apply(CachedSet.From(pending, DateTime.UtcNow));
                 else if (_applied is { Enabled: true } applied)
                     Recheck(applied);
+                if (_applied is { Enabled: true })
+                    ArmCleanup(DateTime.UtcNow);
             }
             catch (Exception ex)
             {
@@ -135,6 +140,8 @@ public sealed class GatewayBlocklistEnforcer
             if (_applied is not { Enabled: false })
             {
                 Teardown();
+                DisarmCleanup();
+                _cleanupArmedAt = DateTime.MinValue;
                 if (_applied != null) Console.WriteLine("Gateway blocklist: off, removed the agent's sets and rules");
             }
             _applied = set;
@@ -322,22 +329,40 @@ public sealed class GatewayBlocklistEnforcer
         return all;
     }
 
-    private static void Teardown()
+    private static readonly string TeardownScript =
+        GatewayBlocklistRules.Teardown(Chain, [BlockV4, BlockV6, GuardV4, GuardV6, OutV4, OutV6]);
+
+    private static void Teardown() => Run("/bin/sh", ["-c", TeardownScript], null);
+
+    // Dead-man's switch: a systemd timer, re-armed while the agent runs, tears everything down an hour
+    // after the agent stops re-arming it. A restart cancels it first, so deploys keep enforcing; an agent
+    // that is gone for good stops dropping traffic nobody reports. Rules do not survive a reboot anyway.
+    private static readonly TimeSpan CleanupAfter = TimeSpan.FromHours(1);
+    private static readonly TimeSpan CleanupRearmEvery = TimeSpan.FromMinutes(5);
+    private const string CleanupUnit = "netopt-blocklist-cleanup";
+    private DateTime _cleanupArmedAt = DateTime.MinValue;
+    private bool _cleanupFailureLogged;
+
+    private static void DisarmCleanup()
     {
-        foreach (var tool in new[] { "iptables", "ip6tables" })
+        Run("systemctl", ["stop", CleanupUnit + ".timer", CleanupUnit + ".service"], null);
+        Run("systemctl", ["reset-failed", CleanupUnit + ".timer", CleanupUnit + ".service"], null);
+    }
+
+    private void ArmCleanup(DateTime now)
+    {
+        if (now - _cleanupArmedAt < CleanupRearmEvery) return;
+        _cleanupArmedAt = now;
+        DisarmCleanup();
+        var result = Run("systemd-run", [
+            $"--unit={CleanupUnit}", $"--on-active={(int)CleanupAfter.TotalSeconds}", "--timer-property=AccuracySec=1min",
+            "--description=Network Optimizer: remove the gateway blocklist of an agent that stopped",
+            "/bin/sh", "-c", TeardownScript + "; echo 'Gateway blocklist: agent stopped an hour ago, removed its sets and rules'"], null);
+        if (result.Exit == 0) _cleanupFailureLogged = false;
+        else if (!_cleanupFailureLogged)
         {
-            foreach (var builtin in new[] { "FORWARD", "INPUT" })
-            {
-                // A jump added twice by hand is removed in full.
-                for (var i = 0; i < 8 && Run(tool, ["-D", builtin, "-j", Chain], null).Exit == 0; i++) { }
-            }
-            Run(tool, ["-F", Chain], null);
-            Run(tool, ["-X", Chain], null);
-        }
-        foreach (var set in new[] { BlockV4, BlockV6, GuardV4, GuardV6, OutV4, OutV6 })
-        {
-            Run("ipset", ["destroy", set + "_tmp"], null);
-            Run("ipset", ["destroy", set], null);
+            _cleanupFailureLogged = true;
+            Console.Error.WriteLine($"Gateway blocklist: could not schedule the cleanup timer: {result.Stderr.Trim()}");
         }
     }
 

@@ -21,4 +21,14 @@ public static class GatewayBlocklistRules
         $"-A {chain} -m set --match-set {guardSet} src -j RETURN",
         $"-A {chain} -m set --match-set {blockSet} src -m state --state NEW -j DROP",
     ];
+
+    /// <summary>
+    /// A POSIX shell script that removes the chain, every jump to it from FORWARD and INPUT (both
+    /// families), and the sets with their temporary twins. Safe to run when any of it is already gone.
+    /// </summary>
+    public static string Teardown(string chain, IEnumerable<string> sets) =>
+        "for t in iptables ip6tables; do "
+        + $"for c in FORWARD INPUT; do while $t -D $c -j {chain} 2>/dev/null; do :; done; done; "
+        + $"$t -F {chain} 2>/dev/null; $t -X {chain} 2>/dev/null; done; "
+        + $"for s in {string.Join(' ', sets)}; do ipset destroy ${{s}}_tmp 2>/dev/null; ipset destroy $s 2>/dev/null; done; true";
 }
