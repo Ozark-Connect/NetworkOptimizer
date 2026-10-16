@@ -41,6 +41,12 @@ public static class BlockingSettingKeys
     /// <summary>"true" once a Site Admin hides the Protection Setup checklist on Threat Intelligence.</summary>
     public const string SetupHidden = "blocking.setup_hidden";
 
+    /// <summary>
+    /// Local hour (0-23) of the daily UniFi Console write while the site's gateway agent enforces
+    /// the blocklist. Each console write reprovisions the gateway, so it waits for a quiet hour.
+    /// </summary>
+    public const string ConsoleSyncHour = "blocking.console_sync_hour";
+
     public const string TargetGateway = "blocking.target.gateway";
     public const string TargetWaf = "blocking.target.waf";
     public const string TargetCloudflare = "blocking.target.cloudflare";
@@ -92,6 +98,9 @@ public sealed record BlockingSettings
     public bool TargetWaf { get; init; }
     public bool TargetCloudflare { get; init; }
 
+    /// <summary>See <see cref="BlockingSettingKeys.ConsoleSyncHour"/>.</summary>
+    public int ConsoleSyncHour { get; init; } = 3;
+
     public const int MinThreshold = 1;
     public const int MaxThreshold = 1000;
     public const int MaxWindowMinutes = 1440;
@@ -137,6 +146,7 @@ public sealed record BlockingSettings
             TargetGateway = Bool(await get(BlockingSettingKeys.TargetGateway), false),
             TargetWaf = Bool(await get(BlockingSettingKeys.TargetWaf), false),
             TargetCloudflare = Bool(await get(BlockingSettingKeys.TargetCloudflare), false),
+            ConsoleSyncHour = Int(await get(BlockingSettingKeys.ConsoleSyncHour), d.ConsoleSyncHour, 0, 23),
         };
     }
 

@@ -191,7 +191,7 @@ public sealed class ThreatBlockingOperations
         await Set(BlockingSettingKeys.TargetGateway, s.TargetGateway.ToString());
         await Set(BlockingSettingKeys.TargetWaf, s.TargetWaf.ToString());
         await Set(BlockingSettingKeys.TargetCloudflare, s.TargetCloudflare.ToString());
-        _blocking.Trigger();
+        _blocking.TriggerConsoleSync();
     }
 
     public async Task<RecommendedResult> TurnOnRecommendedAsync(string slug, CancellationToken ct)
@@ -278,7 +278,7 @@ public sealed class ThreatBlockingOperations
         using var scope = ScopeFor(Site(slug));
         var released = await scope.ServiceProvider.GetRequiredService<IThreatRepository>()
             .ReleaseBlockAsync(blockId, releasedBy, DateTime.UtcNow, ct);
-        if (released) _blocking.Trigger();
+        if (released) _blocking.TriggerConsoleSync();
         return released;
     }
 
@@ -429,7 +429,7 @@ public sealed class ThreatBlockingOperations
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), string.Join("\n", BlockAllowlist.ParseList(neverBlock)), ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiGroup), uniFiGroup.ToString(), ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiCloudflare), uniFiCloudflare.ToString(), ct);
-        _blocking.Trigger();
+        _blocking.TriggerConsoleSync();
     }
 
     /// <summary>
@@ -448,7 +448,7 @@ public sealed class ThreatBlockingOperations
             chosen = trustedSlugs.Where(visible.Contains).Concat(hidden);
         }
         await TrustedSourcesSettings.SaveSitesAsync(_settings, site, chosen.Select(Site).Append(site), ct);
-        _blocking.Trigger();
+        _blocking.TriggerConsoleSync();
     }
 
     /// <summary>A site's current public addresses, single IPs only (prefixes cannot be probed).</summary>

@@ -45,6 +45,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly AgentProbeService _probe;
     private readonly AgentSnmpQueryService _snmpQuery;
     private readonly CableModemProviders.Uci.UciInformService _uciInforms;
+    private readonly GatewayAgentBlocklist _gatewayBlocklist;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<AgentTunnelService> _logger;
 
@@ -58,9 +59,11 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         AgentProbeService probe,
         AgentSnmpQueryService snmpQuery,
         CableModemProviders.Uci.UciInformService uciInforms,
+        GatewayAgentBlocklist gatewayBlocklist,
         Licensing.LicenseStateService licenseState,
         ILogger<AgentTunnelService> logger)
     {
+        _gatewayBlocklist = gatewayBlocklist;
         _enrollment = enrollment;
         _registry = registry;
         _probeResultSink = probeResultSink;
@@ -148,6 +151,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             livenessTask = WatchLivenessAsync(connection, streamCts.Token);
 
             await _probeResultSink.OnAgentConnectedAsync(connection, ct, initialConnect: true);
+            _gatewayBlocklist.OnAgentConnected(connection);
 
             while (await requestStream.MoveNext(ct))
             {
@@ -239,6 +243,9 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         // inform. Handled off this loop - see UciInformService.Accept.
                         _uciInforms.Accept(connection, message.UciInformFrame);
                         break;
+                    case AgentMessage.PayloadOneofCase.GatewayBlocklistStatus:
+                        _gatewayBlocklist.OnStatus(connection, message.GatewayBlocklistStatus);
+                        break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
                         break;
@@ -262,6 +269,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             _probe.OnAgentDisconnected(connection);
             _snmpQuery.OnAgentDisconnected(connection);
             _probeResultSink.OnAgentDisconnected(connection);
+            _gatewayBlocklist.OnAgentDisconnected(connection);
             streamCts.Cancel();
             await AwaitQuietlyAsync(pumpTask);
             await AwaitQuietlyAsync(refreshTask);

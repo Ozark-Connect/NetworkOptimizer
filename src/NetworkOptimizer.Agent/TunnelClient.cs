@@ -70,6 +70,9 @@ public sealed class TunnelClient
     /// <summary>Invoked whenever the server pushes the set of UCIs to capture informs from.</summary>
     public Action<UciCaptureConfig>? OnUciCaptureConfig { get; set; }
 
+    /// <summary>Invoked whenever the server pushes the gateway blocklist.</summary>
+    public Action<GatewayBlocklistSet>? OnGatewayBlocklist { get; set; }
+
     /// <summary>Server pushes the WAN speed-test server list for the /wan/ redirect router.</summary>
     public Action<WanSpeedTestConfig>? OnWanSpeedTestConfig { get; set; }
 
@@ -227,6 +230,9 @@ public sealed class TunnelClient
                         break;
                     case ServerMessage.PayloadOneofCase.UciCaptureConfig:
                         OnUciCaptureConfig?.Invoke(message.UciCaptureConfig);
+                        break;
+                    case ServerMessage.PayloadOneofCase.GatewayBlocklist:
+                        OnGatewayBlocklist?.Invoke(message.GatewayBlocklist);
                         break;
                     case ServerMessage.PayloadOneofCase.WanSpeedtestConfig:
                         OnWanSpeedTestConfig?.Invoke(message.WanSpeedtestConfig);

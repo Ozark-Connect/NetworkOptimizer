@@ -97,6 +97,25 @@ public interface IGatewayBlocklistWriter
     Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken cancellationToken);
 }
 
+/// <summary>One address or range for a gateway agent, with when it stops being blocked.</summary>
+public sealed record GatewayAgentEntry(string Address, DateTime ExpiresAt);
+
+/// <summary>
+/// Gateway enforcement through the On-Site Agent running on a site's gateway: the agent keeps the set
+/// in its own ipsets, so a change takes effect in seconds and never reprovisions the gateway.
+/// </summary>
+public interface IGatewayAgentBlocklist
+{
+    /// <summary>
+    /// Sends the set to the site's capable gateway agents (null site = default) when they do not hold it
+    /// yet. Returns false when the site has no connected agent that can enforce it.
+    /// </summary>
+    bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, string fingerprint);
+
+    /// <summary>Whether a gateway agent of the site has applied <paramref name="fingerprint"/> with its rules in place.</summary>
+    bool IsEnforcing(string? site, string fingerprint);
+}
+
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>
 public sealed class GatewayBlockTarget(IGatewayBlocklistWriter writer, string? site) : IBlockTarget
 {

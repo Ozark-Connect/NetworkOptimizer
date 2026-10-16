@@ -290,6 +290,33 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         await SaveStateAsync(site, null, ct);
     }
 
+    /// <summary>
+    /// Writes a group only when it differs from what the console holds. Every group write can
+    /// reprovision the gateway, so a write that changes nothing is skipped.
+    /// </summary>
+    internal static async Task<string> SaveIfChangedAsync(UniFiApiClient client, IReadOnlyList<UniFiFirewallGroup> groups,
+        UniFiFirewallGroupWrite group, CancellationToken ct)
+    {
+        if (group.Id != null && groups.FirstOrDefault(g => g.Id == group.Id) is { } current
+            && current.Name == group.Name && current.Description == group.Description
+            && SameMembers(current.GroupMembers, group.GroupMembers))
+            return current.Id;
+        return (await client.SaveFirewallGroupAsync(group, ct)).Id;
+    }
+
+    /// <summary>Whether two member lists hold the same addresses and ranges, however each is spelled.</summary>
+    internal static bool SameMembers(IEnumerable<string> a, IEnumerable<string> b)
+    {
+        static HashSet<string> Canonical(IEnumerable<string> members) => members
+            .Select(m => PublicBlockLists.Normalize(m) is { } n ? StripHostPrefix(n) : m.Trim().ToLowerInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        static string StripHostPrefix(string n) =>
+            n.EndsWith("/32", StringComparison.Ordinal) && !n.Contains(':') ? n[..^3]
+            : n.EndsWith("/128", StringComparison.Ordinal) ? n[..^4]
+            : n;
+        return Canonical(a).SetEquals(Canonical(b));
+    }
+
     /// <inheritdoc />
     public async Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken ct)
     {
@@ -304,8 +331,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         try
         {
             var client = Client(site);
-            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.GroupV4Id, GroupNameV4, "address-group", v4, Description), ct);
-            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.GroupV6Id, GroupNameV6, "ipv6-address-group", v6, Description), ct);
+            var groups = await client.GetFirewallGroupsOrThrowAsync(ct);
+            await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.GroupV4Id, GroupNameV4, "address-group", v4, Description), ct);
+            await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.GroupV6Id, GroupNameV6, "ipv6-address-group", v6, Description), ct);
             return BlockTargetResult.Success(v4.Count + v6.Count);
         }
         catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
@@ -335,8 +363,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         try
         {
             var client = Client(site);
-            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.FeedsV4Id, FeedsNameV4, "address-group", v4, FeedsDescription), ct);
-            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(state.FeedsV6Id, FeedsNameV6, "ipv6-address-group", v6, FeedsDescription), ct);
+            var groups = await client.GetFirewallGroupsOrThrowAsync(ct);
+            await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.FeedsV4Id, FeedsNameV4, "address-group", v4, FeedsDescription), ct);
+            await SaveIfChangedAsync(client, groups, new UniFiFirewallGroupWrite(state.FeedsV6Id, FeedsNameV6, "ipv6-address-group", v6, FeedsDescription), ct);
             return BlockTargetResult.Success(v4.Count + v6.Count);
         }
         catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")

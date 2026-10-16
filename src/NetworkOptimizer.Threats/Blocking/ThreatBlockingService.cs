@@ -28,6 +28,10 @@ public sealed class ThreatBlockingService : BackgroundService
     private static readonly TimeSpan ObserveEvery = TimeSpan.FromMinutes(2);
     // The public lists' Network Lists are rewritten only when their entries change, and no more often than this.
     private static readonly TimeSpan FeedWriteEvery = TimeSpan.FromMinutes(15);
+    // How long a gateway agent that stopped confirming the set still holds back the console writes.
+    private static readonly TimeSpan AgentGrace = TimeSpan.FromMinutes(5);
+    // Public list entries on a gateway agent outlive a lost server by this much; they are re-sent well within it.
+    private static readonly TimeSpan AgentFeedTtl = TimeSpan.FromHours(24);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ThreatBlockingService> _logger;
@@ -36,7 +40,12 @@ public sealed class ThreatBlockingService : BackgroundService
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
     private readonly IThreatSystemAudit? _audit;
     private readonly PublicBlockListCache? _lists;
+    private readonly IGatewayAgentBlocklist? _agents;
     private readonly SemaphoreSlim _trigger = new(0, 1);
+    // When each site's gateway agent last held the current set with its rules in place.
+    private readonly ConcurrentDictionary<string, DateTime> _agentEnforcingAt = new();
+    // A release or settings change after a console write sends the next one at once.
+    private DateTime _consoleUrgentAt = DateTime.MinValue;
 
     // Keyed by site ("" = default site).
     private readonly ConcurrentDictionary<(string Site, BlockTargetKind Kind), BlockTargetStatus> _status = new();
@@ -62,9 +71,11 @@ public sealed class ThreatBlockingService : BackgroundService
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
         NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
         IThreatSystemAudit? audit = null,
-        PublicBlockListCache? lists = null)
+        PublicBlockListCache? lists = null,
+        IGatewayAgentBlocklist? agents = null)
     {
         _lists = lists;
+        _agents = agents;
         _scopeFactory = scopeFactory;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
@@ -78,6 +89,17 @@ public sealed class ThreatBlockingService : BackgroundService
     {
         try { _trigger.Release(); }
         catch (SemaphoreFullException) { /* already signaled */ }
+    }
+
+    /// <summary>
+    /// Runs a cycle now and writes every site's UniFi Console in it, including sites whose gateway
+    /// agent holds the set and would otherwise wait for the daily write: after a release or a
+    /// settings change, the console must stop blocking what the agent stopped blocking.
+    /// </summary>
+    public void TriggerConsoleSync()
+    {
+        _consoleUrgentAt = DateTime.UtcNow;
+        Trigger();
     }
 
     /// <summary>The last sync to each of a site's targets since this process started (null = default site).</summary>
@@ -330,9 +352,72 @@ public sealed class ThreatBlockingService : BackgroundService
             }
         }
 
+        PushToGatewayAgent(site, settings, desired, feeds, now);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, feeds, now, ct);
         await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
+    }
+
+    // The gateway target's fast path: the site's gateway agent holds the same blocks and public list
+    // entries the console groups do, applied in seconds and without a reprovision.
+    private void PushToGatewayAgent(string? site, BlockingSettings settings, List<ThreatBlock> desired,
+        IReadOnlyList<string> feeds, DateTime now)
+    {
+        if (_agents == null) return;
+        var enabled = settings.Mode != BlockingMode.Off && settings.TargetGateway;
+        var entries = new List<GatewayAgentEntry>();
+        if (enabled)
+        {
+            entries.AddRange(desired.Select(b => new GatewayAgentEntry(b.SourceIp, b.ExpiresAt)));
+            var own = desired.Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            entries.AddRange(feeds.Where(f => !own.Contains(f)).Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)));
+        }
+        var fingerprint = AgentFingerprint(enabled, desired, feeds);
+        if (!_agents.Push(site, enabled, entries, fingerprint) || !enabled)
+        {
+            _agentEnforcingAt.TryRemove(Key(site), out _);
+            return;
+        }
+        if (_agents.IsEnforcing(site, fingerprint))
+            _agentEnforcingAt[Key(site)] = now;
+    }
+
+    // Blocks count with their expiry (a re-ban extends one); public list entries without it, since
+    // theirs is renewed on every send.
+    internal static string AgentFingerprint(bool enabled, IEnumerable<ThreatBlock> blocks, IEnumerable<string> feeds)
+    {
+        var text = new System.Text.StringBuilder(enabled ? "on|" : "off|");
+        foreach (var b in blocks.OrderBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase))
+            text.Append(b.SourceIp.ToLowerInvariant()).Append('@').Append(b.ExpiresAt.ToString("yyyyMMddHHmm")).Append(',');
+        text.Append('|');
+        foreach (var f in feeds.Order(StringComparer.OrdinalIgnoreCase))
+            text.Append(f.ToLowerInvariant()).Append(',');
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text.ToString())))[..16];
+    }
+
+    /// <summary>
+    /// Whether a console write that is due waits instead. While the site's gateway agent enforces the
+    /// set, the console is only the backstop: written once after each daily quiet hour, or at once after
+    /// a release or settings change. An agent that stops confirming lets writes through after
+    /// <see cref="AgentGrace"/>.
+    /// </summary>
+    private bool ConsoleHeld(string? site, BlockingSettings settings, DateTime lastWrite, DateTime now)
+    {
+        if (!_agentEnforcingAt.TryGetValue(Key(site), out var at) || now - at > AgentGrace) return false;
+        if (_consoleUrgentAt > lastWrite) return false;
+        return lastWrite >= LastConsoleWindow(settings.ConsoleSyncHour, now);
+    }
+
+    /// <summary>The most recent start of the daily console window at or before <paramref name="nowUtc"/>, in UTC.</summary>
+    internal static DateTime LastConsoleWindow(int hour, DateTime nowUtc, TimeZoneInfo? zone = null)
+    {
+        zone ??= TimeZoneInfo.Local;
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc), zone);
+        var window = local.Date.AddHours(hour);
+        if (window > local) window = window.AddDays(-1);
+        // A window inside a spring-forward gap starts when the clock jumps past it.
+        while (zone.IsInvalidTime(window)) window = window.AddMinutes(30);
+        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(window, DateTimeKind.Unspecified), zone);
     }
 
     // Consoles set up before new-connections-only matching, or policies edited back in UniFi Network,
@@ -403,6 +488,7 @@ public sealed class ThreatBlockingService : BackgroundService
         var known = _feedsSent.TryGetValue(Key(site), out var last);
         if (known && last.Ok && last.Fingerprint == fingerprint) return;
         if (!known && wanted.Count == 0) { _feedsSent[Key(site)] = (fingerprint, lists, now, true); _feedEntries[Key(site)] = 0; return; }
+        if (known && wanted.Count > 0 && ConsoleHeld(site, settings, last.At, now)) return;
         if (known && last.Ok && last.Lists == lists && now - last.At < FeedWriteEvery) return;
         if (known && !last.Ok && now - last.At < TimeSpan.FromMinutes(30)) return;
         if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
@@ -576,6 +662,7 @@ public sealed class ThreatBlockingService : BackgroundService
 
             var due = target.SyncEveryCycle || !known || !last.Ok || last.Fingerprint != fingerprint || now - last.At > Resync;
             if (!due) continue;
+            if (kind == BlockTargetKind.Gateway && known && ConsoleHeld(site, settings, last.At, now)) continue;
 
             if (target is IFeedBlockTarget feedTarget) feedTarget.Feeds = feeds;
             var result = await target.SyncAsync(desired, ct);

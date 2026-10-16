@@ -28,6 +28,7 @@ message AgentMessage {
     SnmpOidResult snmp_oid_result = 11;
     ConntrackSampleBatch conntrack_samples = 13;
     UciInformFrame uci_inform_frame = 14;
+    GatewayBlocklistStatus gateway_blocklist_status = 15;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
   // probe_results / snmp_results / aggregated conntrack_samples frames only
@@ -56,6 +57,7 @@ message ServerMessage {
     ResultAck result_ack = 12;
     ConntrackConfig conntrack_config = 13;
     UciCaptureConfig uci_capture_config = 14;
+    GatewayBlocklistSet gateway_blocklist = 15;
   }
 }
 
@@ -488,4 +490,34 @@ message UciInformFrame {
   // The raw inform body: TNBU header + encrypted payload, exactly as POSTed.
   bytes frame = 2;
   int64 captured_at_unix_ms = 3;
+}
+
+// ---- Gateway blocklist (Automatic Blocking on the gateway itself) ----
+// An on-gateway agent with the "gateway-blocklist" capability enforces Automatic Blocking in its
+// own ipsets, so a ban takes effect in seconds without the UniFi Console reprovisioning the gateway.
+// The server always sends the full set; the agent replaces what it holds and acks the fingerprint.
+
+message GatewayBlocklistSet {
+  // False removes everything the agent added (sets, chain, jumps).
+  bool enabled = 1;
+  repeated GatewayBlockEntry entries = 2;
+  // Opaque identity of this set, echoed back in GatewayBlocklistStatus.
+  string fingerprint = 3;
+}
+
+message GatewayBlockEntry {
+  // An IPv4 or IPv6 address or CIDR range.
+  string address = 1;
+  // Seconds until the agent drops the entry on its own, so a lost server never leaves a ban forever.
+  int32 ttl_seconds = 2;
+}
+
+message GatewayBlocklistStatus {
+  string fingerprint = 1;
+  bool ok = 2;
+  // Whether FORWARD and INPUT (v4 and v6) jump to the agent's chain right now.
+  bool hook_present = 3;
+  int32 v4_entries = 4;
+  int32 v6_entries = 5;
+  string error = 6;
 }

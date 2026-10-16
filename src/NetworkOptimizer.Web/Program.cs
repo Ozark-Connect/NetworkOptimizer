@@ -241,6 +241,8 @@ builder.Services.AddSingleton<AgentUwnService>();
 builder.Services.AddSingleton<AgentWanTestVantageResolver>();
 builder.Services.AddSingleton<AgentProbeService>();
 builder.Services.AddSingleton<AgentSnmpQueryService>();
+builder.Services.AddSingleton<GatewayAgentBlocklist>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Blocking.IGatewayAgentBlocklist>(sp => sp.GetRequiredService<GatewayAgentBlocklist>());
 builder.Services.AddSingleton<CanonicalBaseUrlProvider>();
 builder.Services.AddSingleton<AgentServerUrlProvider>();
 
