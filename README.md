@@ -17,9 +17,9 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
-## Coming Soon: Integrated WAF + Security Features
+## Coming Soon: Integrated WAF + Centralized Firewall Blocking + New Security Features
 
-This should be hitting our Preview channel here in a few days, but in a nutshell, the companion Traefik proxy repo is getting a custom wrapper around the Coraza Web Application Firewall (WAF) running the OWASP Core Rule Set, with a management plane implemented in Network Optimizer that pulls in free block lists (Spamhaus DROP by default, plus CINS Army, DShield, blocklist.de, IPsum, and more if you want them), IPS events, establishes an allow list based upon a matrix of your managed sites' public IPs, and more. WAF events land in Threat Intelligence and your alerts right alongside your IPS events, and you can clear a false positive straight from the event (no restart). It starts out in Detection Only, so you can let it run for a week before you flip it to blocking.
+Available on Preview now: the companion Traefik proxy repo is getting a custom wrapper around the Coraza Web Application Firewall (WAF) running the OWASP Core Rule Set, with a management plane implemented in Network Optimizer that pulls in free block lists (Spamhaus DROP by default, plus CINS Army, DShield, blocklist.de, IPsum, and more if you want them), IPS events, establishes an allow list based upon a matrix of your managed sites' public IPs, and more. WAF events land in Threat Intelligence and your alerts right alongside your IPS events, and you can clear a false positive straight from the event (no restart). It starts out in Detection Only, so you can let it run for a week before you flip it to blocking.
 
 On the UniFi Network side, we are introducing automatically managed Network Lists based upon said lists of site public IPs, Cloudflare's IP set, and IPs of your own choosing. These lists can be used in UniFi Firewall and Port Forwarding rules so you don't have to keep managing them manually, and they follow your sites' WAN IPs as they change.
 
