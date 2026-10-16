@@ -194,6 +194,28 @@ public class GatewayAgentBlockingTests
     }
 
     [Fact]
+    public async Task PublicLists_AreCapped_LeastUsefulListsCutFirst()
+    {
+        static string Ips(int first, int count) =>
+            string.Join("\n", Enumerable.Range(first, count).Select(i => $"{11 + i / 65536}.{i / 256 % 256}.{i % 256}.1"));
+        var h = new Harness(new Dictionary<string, string>
+        {
+            ["https://www.spamhaus.org/drop/drop_v4.json"] = "",
+            ["https://www.spamhaus.org/drop/drop_v6.json"] = "",
+            ["https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"] = Ips(0, 60_000),
+            ["https://cinsscore.com/list/ci-badguys.txt"] = Ips(60_000, 70_000),
+        });
+        h.Settings.Values[BlockingSettingKeys.Feeds] = $"{PublicBlockLists.CinsArmy},{PublicBlockLists.Feodo}";
+        h.Settings.Values[BlockingSettingKeys.FeedsOutbound] = "true";
+
+        await h.Cycle(T0);
+
+        h.Agents.LastOutbound.Should().HaveCount(ThreatBlockingService.MaxOutboundFeedEntries);
+        h.Agents.Pushes.Last().Entries.Should().HaveCount(ThreatBlockingService.MaxFeedEntries);
+        h.Service.FeedEntriesCapped(null).Should().Be(130_000 - ThreatBlockingService.MaxFeedEntries);
+    }
+
+    [Fact]
     public async Task AgentRestart_ConsoleWaits()
     {
         var h = new Harness();

@@ -30,6 +30,15 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     private static readonly TimeSpan FeedWriteEvery = TimeSpan.FromMinutes(15);
     // How long a gateway agent that stopped confirming the set still holds back the console writes.
     private static readonly TimeSpan AgentGrace = TimeSpan.FromMinutes(5);
+    // What a site's public lists may add up to, within what a UniFi Network List and the tunnel to a
+    // gateway agent hold; lists past the cap are cut, least useful first.
+    internal const int MaxFeedEntries = 100_000;
+    internal const int MaxOutboundFeedEntries = 50_000;
+    private readonly ConcurrentDictionary<string, int> _feedsCapped = new();
+
+    /// <summary>Public list entries the caps left out on a site at its last cycle (null site = default site).</summary>
+    public int FeedEntriesCapped(string? site) => _feedsCapped.TryGetValue(Key(site), out var n) ? n : 0;
+
     // How long an enforcing gateway agent may be disconnected (a restart) before the console takes over.
     private static readonly TimeSpan AgentDisconnectGrace = TimeSpan.FromMinutes(2);
     // Public list entries on a gateway agent outlive a lost server by this much; they are re-sent well within it.
@@ -524,19 +533,30 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         if (_lists == null || settings.Feeds.Count == 0) return FeedSet.Empty;
         var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var outbound = new Dictionary<string, PublicBlockList>(StringComparer.OrdinalIgnoreCase);
-        // Outbound lists first, so an entry on several lists is credited to the one that alerts.
-        foreach (var list in settings.Feeds.Select(PublicBlockLists.Find).OfType<PublicBlockList>().OrderBy(l => l.Outbound ? 0 : 1))
+        var dropped = 0;
+        // Outbound lists first, so an entry on several lists is credited to the one that alerts; then by
+        // usefulness, so the caps cut the least useful lists.
+        foreach (var list in PublicBlockLists.All.Where(l => settings.Feeds.Contains(l.Id)).OrderBy(l => l.Outbound ? 0 : 1))
         {
             var token = list.NeedsToken
                 ? await accessor.GetDecryptedSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.FeedToken(list.Id), site), ct)
                 : null;
             foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct, token))
             {
-                if (allowlist.ExemptsRange(entry) != null) continue;
+                if (allowlist.ExemptsRange(entry) != null || all.Contains(entry)) continue;
+                if (all.Count >= MaxFeedEntries || (list.Outbound && outbound.Count >= MaxOutboundFeedEntries))
+                {
+                    dropped++;
+                    continue;
+                }
                 all.Add(entry);
                 if (list.Outbound) outbound.TryAdd(entry, list);
             }
         }
+        if (dropped > 0 && dropped != _feedsCapped.GetValueOrDefault(Key(site)))
+            _logger.LogWarning("Automatic Blocking: public block lists on {Site} capped at {Max:N0} entries; {Dropped:N0} left out",
+                site ?? "main", MaxFeedEntries, dropped);
+        _feedsCapped[Key(site)] = dropped;
         return new FeedSet(new PublicListMatcher(outbound.Select(kv => (kv.Key, kv.Value))),
             all.Order(StringComparer.OrdinalIgnoreCase).ToList(),
             outbound.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList());

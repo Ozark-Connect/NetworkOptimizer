@@ -62,9 +62,14 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
             parts.Select(p => p?.Error).FirstOrDefault(e => e != null));
     }
 
-    // Keyed by a hash of the token, never the token itself: the id names a setting in the database.
-    private static string TokenCacheId(string id, string token, int part) =>
-        $"{id}.{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token.Trim())))[..12].ToLowerInvariant()}.{part}";
+    // Keyed by a hash of the token and the URL, never the token itself: the id names a setting in the
+    // database, and a changed URL (a new limit) must not reuse the copy fetched with the old one.
+    private static string TokenCacheId(string id, string token, int part)
+    {
+        var url = PublicBlockLists.Find(id)?.Urls.ElementAtOrDefault(part) ?? "";
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token.Trim() + "\n" + url));
+        return $"{id}.{Convert.ToHexString(hash)[..12].ToLowerInvariant()}.{part}";
+    }
 
     /// <summary>Cloudflare's published ranges, refreshed daily; the built-in copy until the first fetch.</summary>
     public async Task<IReadOnlyList<string>> GetCloudflareRangesAsync(IThreatSettingsAccessor settings, DateTime now, CancellationToken ct)

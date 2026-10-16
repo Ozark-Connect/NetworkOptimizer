@@ -157,7 +157,12 @@ public sealed class TunnelClient
             };
         }
 
-        using var grpcChannel = GrpcChannel.ForAddress(tunnelUrl, new GrpcChannelOptions { HttpHandler = handler });
+        // Above gRPC's 4 MB default: a gateway blocklist with large public lists is one message.
+        using var grpcChannel = GrpcChannel.ForAddress(tunnelUrl, new GrpcChannelOptions
+        {
+            HttpHandler = handler,
+            MaxReceiveMessageSize = 32 * 1024 * 1024,
+        });
         var client = new AgentTunnel.AgentTunnelClient(grpcChannel);
         // The linked source scopes the whole call (not just the pump/heartbeat)
         // so the inbound-silence watchdog can abort a black-holed read loop.

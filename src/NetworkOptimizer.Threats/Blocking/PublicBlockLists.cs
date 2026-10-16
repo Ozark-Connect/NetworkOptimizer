@@ -83,7 +83,8 @@ public static class PublicBlockLists
         // only means not yet. Hourly attempts follow whatever the token's plan allows.
         new(QFeeds, "Q-Feeds Malware IPs",
             "Malicious hosts, botnets, and command-and-control servers. Needs your own Q-Feeds API token; the Community edition is free.",
-            ["https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=0", "https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=only"],
+            // The full IPv4 feed is over 200,000 entries; limit keeps the newest, as Q-Feeds' own UniFi guide suggests.
+            ["https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=0&limit=50000", "https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=only"],
             TimeSpan.FromHours(1), DefaultOn: false, Outbound: true,
             "Q-Feeds", "https://qfeeds.com/",
             ParseIpLines, TokenUser: "api_token"),

@@ -165,7 +165,25 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
         var message = new GatewayBlocklistSet { Enabled = desired.Enabled, Fingerprint = desired.Fingerprint };
         message.Entries.AddRange(Wire(desired.Entries, now));
         message.Outbound.AddRange(Wire(desired.Outbound, now));
+        // gRPC's default receive limit is 4 MB, and agents before this release keep it: a larger set
+        // drops the tunnel on every send. The agent keeps enforcing its last set instead.
+        if (message.CalculateSize() > MaxSetBytes)
+        {
+            _status[agent.AgentId] = new GatewayBlocklistStatus
+            {
+                Fingerprint = desired.Fingerprint,
+                Ok = false,
+                HookPresent = true,
+                Error = $"The blocklist is too large to send ({message.Entries.Count:N0} entries); turn off a public block list",
+            };
+            _logger.LogWarning("Gateway blocklist for agent {Agent} ({Site}) not sent: {Bytes:N0} bytes is over the tunnel's limit",
+                agent.AgentName, agent.SiteSlug, message.CalculateSize());
+            _sent[agent.AgentId] = (desired.Fingerprint, now);
+            return;
+        }
         if (_registry.TrySend(agent.AgentId, new ServerMessage { GatewayBlocklist = message }))
             _sent[agent.AgentId] = (desired.Fingerprint, now);
     }
+
+    private const int MaxSetBytes = 3_500_000;
 }

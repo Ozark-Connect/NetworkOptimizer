@@ -461,6 +461,8 @@ public sealed class ThreatBlockingOperations
     }
 
     /// <summary>Saves (or with an empty token, clears) a public list's API token for the site, encrypted.</summary>
+    public int PublicListsCapped(string slug) => _blocking.FeedEntriesCapped(Site(slug));
+
     public async Task SavePublicListTokenAsync(string slug, string listId, string? token, CancellationToken ct)
     {
         if (PublicBlockLists.Find(listId) is not { NeedsToken: true })

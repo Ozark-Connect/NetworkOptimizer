@@ -78,6 +78,10 @@ public interface IThreatBlockingAdmin
     [RequireRole(Roles.Admin)]
     Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Public list entries left out at the last cycle because the site's lists add up to more than the cap.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<int> GetPublicListsCappedAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Saves, or with an empty token clears, the site's API token for a public list that needs one.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
@@ -130,6 +134,7 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<CloudflareList> SetUpCloudflareAsync(string? token, string accountId, CancellationToken ct = default) => ops.SetUpCloudflareAsync(Slug, token, accountId, ct);
     public Task<CloudflareBlockingStatus> GetCloudflareStatusAsync(CancellationToken ct = default) => ops.GetCloudflareStatusAsync(Slug, ct);
     public Task<IReadOnlyList<PublicListView>> GetPublicListsAsync(CancellationToken ct = default) => ops.GetPublicListsAsync(Slug, ct);
+    public Task<int> GetPublicListsCappedAsync(CancellationToken ct = default) => Task.FromResult(ops.PublicListsCapped(Slug));
     public Task SavePublicListTokenAsync(string listId, string? token, CancellationToken ct = default) =>
         ops.SavePublicListTokenAsync(Slug, listId, token, ct);
     public async Task<TrustedSourcesOverview> GetTrustedSourcesAsync(CancellationToken ct = default) =>
