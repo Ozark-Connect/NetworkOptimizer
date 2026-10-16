@@ -92,9 +92,9 @@
                         <small class="form-help">Each repeat within 30 days blocks 4 times longer, up to 7 days.</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Maximum blocked sources</label>
+                        <label class="form-label">Block Limit (not counting public lists)</label>
                         <input type="number" class="form-control" min="1" max="@BlockingSettings.MaxMaxEntries" @bind="_form.MaxEntries" />
-                        <small class="form-help">When more are blocked, the oldest drop off the targets first.</small>
+                        <small class="form-help">The most addresses Automatic Blocking and your own blocks hold at once. Past it, the oldest stop being enforced until they expire.</small>
                     </div>
                 </div>
                 @if (_multiSite)
