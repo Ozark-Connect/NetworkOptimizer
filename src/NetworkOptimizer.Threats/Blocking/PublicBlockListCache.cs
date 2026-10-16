@@ -115,8 +115,8 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
             }
             catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
             {
-                cached = cached with { LastAttempt = now, Error = "the API token was refused" };
-                logger.LogWarning("Public block list {List}: the API token was refused, keeping {Count} entries", id, cached.Items.Count);
+                cached = cached with { LastAttempt = now, Error = "the key was refused" };
+                logger.LogWarning("Public block list {List}: the key was refused, keeping {Count} entries", id, cached.Items.Count);
             }
             catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException or TaskCanceledException
                                        && !ct.IsCancellationRequested)

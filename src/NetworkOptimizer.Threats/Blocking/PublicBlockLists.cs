@@ -23,6 +23,7 @@ namespace NetworkOptimizer.Threats.Blocking;
 /// the password. Each URL of a token list is fetched and cached on its own, since the source rate-limits each.
 /// </param>
 /// <param name="TokenHeader">Set on a list that needs the site's own API token sent in this request header.</param>
+/// <param name="TokenName">What the source calls its token, for the token field.</param>
 public sealed record PublicBlockList(
     string Id,
     string Name,
@@ -35,7 +36,8 @@ public sealed record PublicBlockList(
     string InfoUrl,
     Func<string, IEnumerable<string>> Parse,
     string? TokenUser = null,
-    string? TokenHeader = null)
+    string? TokenHeader = null,
+    string TokenName = "API token")
 {
     /// <summary>Whether the list needs the site's own API token.</summary>
     public bool NeedsToken => TokenUser != null || TokenHeader != null;
@@ -73,11 +75,11 @@ public static class PublicBlockLists
             "Spamhaus DROP, (c) The Spamhaus Project", "https://www.spamhaus.org/blocklists/do-not-route-or-peer/",
             ParseSpamhausJson),
         new(ThreatFox, "abuse.ch ThreatFox",
-            "Botnet command-and-control servers reported in the last 48 hours (Cobalt Strike, AsyncRAT, Remcos, and more), leaving out hijacked legitimate servers and low-confidence reports. Needs your own abuse.ch Auth-Key, which is free.",
+            "Botnet command-and-control servers reported in the last 48 hours (Cobalt Strike, AsyncRAT, Remcos, and more), leaving out hijacked legitimate servers and low-confidence reports. Needs your own abuse.ch Auth Key, which is free.",
             ["https://threatfox.abuse.ch/export/csv/ip-port/recent/"],
             TimeSpan.FromMinutes(15), DefaultOn: false, Outbound: true,
             "abuse.ch ThreatFox", "https://threatfox.abuse.ch/",
-            ParseThreatFoxIpPort, TokenHeader: "Auth-Key"),
+            ParseThreatFoxIpPort, TokenHeader: "Auth-Key", TokenName: "abuse.ch Auth Key"),
         // Q-Feeds allows one download per token, per feed, and per IP version in each update window
         // (24 hours on Community, 4 on Plus, 20 minutes on Premium); an early one returns 429, which
         // only means not yet. Hourly attempts follow whatever the token's plan allows.
@@ -87,7 +89,7 @@ public static class PublicBlockLists
             ["https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=0&limit=50000", "https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=only"],
             TimeSpan.FromHours(1), DefaultOn: false, Outbound: true,
             "Q-Feeds", "https://qfeeds.com/",
-            ParseIpLines, TokenUser: "api_token"),
+            ParseIpLines, TokenUser: "api_token", TokenName: "Q-Feeds API token"),
         new(CinsArmy, "CINS Army",
             "Addresses with a poor reputation across Sentinel IPS sensors: mostly scanners and attackers.",
             ["https://cinsscore.com/list/ci-badguys.txt"],

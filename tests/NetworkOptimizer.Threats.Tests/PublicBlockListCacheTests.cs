@@ -86,7 +86,7 @@ public class PublicBlockListCacheTests
         var source = new Source { Respond = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized) };
         var cache = source.Cache();
         await cache.GetAsync(PublicBlockLists.QFeeds, new FakeSettings(), T0, CancellationToken.None, "wrong");
-        cache.Status(PublicBlockLists.QFeeds, "wrong").Error.Should().Be("the API token was refused");
+        cache.Status(PublicBlockLists.QFeeds, "wrong").Error.Should().Be("the key was refused");
     }
 
     [Fact]
