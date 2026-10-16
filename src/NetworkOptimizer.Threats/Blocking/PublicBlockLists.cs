@@ -84,12 +84,12 @@ public static class PublicBlockLists
         // (24 hours on Community, 4 on Plus, 20 minutes on Premium); an early one returns 429, which
         // only means not yet. Hourly attempts follow whatever the token's plan allows.
         new(QFeeds, "Q-Feeds Malware IPs",
-            "Malicious hosts, botnets, and command-and-control servers. Needs your own Q-Feeds API token; the Community edition is free.",
+            "Malicious hosts, botnets, and command-and-control servers. Needs your own Q-Feeds API Key; the Community edition is free.",
             // The full IPv4 feed is over 200,000 entries; limit keeps the newest, as Q-Feeds' own UniFi guide suggests.
             ["https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=0&limit=50000", "https://api.qfeeds.com/api?feed_type=malware_ip&ipv6=only"],
             TimeSpan.FromHours(1), DefaultOn: false, Outbound: true,
             "Q-Feeds", "https://qfeeds.com/",
-            ParseIpLines, TokenUser: "api_token", TokenName: "Q-Feeds API token"),
+            ParseIpLines, TokenUser: "api_token", TokenName: "Q-Feeds API Key"),
         new(CinsArmy, "CINS Army",
             "Addresses with a poor reputation across Sentinel IPS sensors: mostly scanners and attackers.",
             ["https://cinsscore.com/list/ci-badguys.txt"],

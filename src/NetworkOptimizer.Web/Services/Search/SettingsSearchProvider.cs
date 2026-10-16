@@ -305,7 +305,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "block policy", "set up", "web application firewall", "cloudflare", "cloudflare edge blocking", "account id",
              "api token", "netopt_blocklist", "custom rule", "release", "public block lists",
              "spamhaus drop", "feodo tracker", "abuse.ch", "dshield", "blocklist.de",
-             "threatfox", "auth key", "q-feeds", "cins army", "ipsum", "tor exit relays", "save token",
+             "threatfox", "auth key", "q-feeds", "api key", "cins army", "ipsum", "tor exit relays", "save token",
              "detection only", "outbound", "command servers", "use profile", "home", "self-hosting",
              "business", "lockdown", "on-site agent"]),
 
