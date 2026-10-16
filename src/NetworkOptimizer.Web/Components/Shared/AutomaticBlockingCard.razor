@@ -113,16 +113,20 @@
                 <div class="ab-section-header">
                     <h3 class="ab-section-title">Public Block Lists</h3>
                     <div class="ab-profile" data-autosave>
-                        <select class="form-control" @bind="_profile" aria-label="Profile">
+                        @if (_profileSaved)
+                        {
+                            <span class="ab-saved">Saved</span>
+                        }
+                        <select class="form-control" @bind="_profile" @bind:after="() => _profileSaved = false" aria-label="Profile">
                             @foreach (var p in BlockingProfiles.All)
                             {
                                 <option value="@p">@BlockingProfiles.Name(p)@(p == _recommendation?.Profile ? " (recommended)" : "")</option>
                             }
                         </select>
-                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="UseProfile" data-marks-unsaved>Use Profile</button>
+                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="UseProfile">Use Profile</button>
                     </div>
                 </div>
-                <p class="form-help">@BlockingProfiles.Name(_profile): @BlockingProfiles.Description(_profile) Use Profile ticks its lists below and turns on outbound blocking; Save applies them.</p>
+                <p class="form-help">@BlockingProfiles.Name(_profile): @BlockingProfiles.Description(_profile) Use Profile saves its lists and turns on outbound blocking.</p>
                 @if (_capped > 0)
                 {
                     <p class="form-error">These lists add up to more than 100,000 entries, the most Network Optimizer sends your gateway. @_capped.ToString("N0") from the least useful lists are left out.</p>
@@ -407,13 +411,27 @@
     private int _capped;
     private BlockingProfile _profile = BlockingProfile.Home;
 
-    private Task UseProfile() => Run(async () =>
+    private bool _profileSaved;
+
+    // Saves only the lists and outbound blocking: other edits on the card stay pending for Save.
+    private async Task UseProfile()
     {
-        var lists = (await Blocking.GetRecommendationAsync(_profile)).Lists;
-        _form!.Feeds = lists.ToHashSet();
-        _form.FeedsOutbound = true;
-        return $"{BlockingProfiles.Name(_profile)} lists ticked below. Save to apply them.";
-    });
+        await Run(async () =>
+        {
+            var lists = (await Blocking.GetRecommendationAsync(_profile)).Lists;
+            var settings = _saved! with
+            {
+                Feeds = PublicBlockLists.All.Select(l => l.Id).Where(lists.Contains).ToList(),
+                FeedsOutbound = true,
+            };
+            await Blocking.SaveSettingsAsync(settings);
+            _saved = settings;
+            _form!.Feeds = settings.Feeds.ToHashSet();
+            _form.FeedsOutbound = true;
+            _profileSaved = true;
+            return null;
+        });
+    }
 
     // Typed tokens, by list id; never shown again once saved.
     private readonly Dictionary<string, string> _tokens = PublicBlockLists.All.Where(l => l.NeedsToken).ToDictionary(l => l.Id, _ => "");
@@ -451,6 +469,7 @@
 
     private void ToggleFeed(string id, bool on)
     {
+        _profileSaved = false;
         if (on) _form!.Feeds.Add(id);
         else _form!.Feeds.Remove(id);
     }
@@ -472,7 +491,7 @@
             : "Configured in UniFi Network.";
     }
 
-    private async Task Run(Func<Task<string>> action)
+    private async Task Run(Func<Task<string?>> action)
     {
         _busy = true;
         _message = null;

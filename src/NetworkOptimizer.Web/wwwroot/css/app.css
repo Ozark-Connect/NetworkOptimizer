@@ -7436,6 +7436,12 @@ a.path-hop.hop-clickable:hover {
     width: auto;
 }
 
+.automatic-blocking .ab-saved {
+    color: var(--success-color);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
 .automatic-blocking .ab-token {
     margin-top: 0.5rem;
 }
