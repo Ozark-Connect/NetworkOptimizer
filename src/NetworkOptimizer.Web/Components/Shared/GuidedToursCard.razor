@@ -22,7 +22,7 @@
 
         <div class="form-group">
             <label class="checkbox-label">
-                <input type="checkbox" @bind="_toursDisabled" @bind:after="SaveDisabledAsync" />
+                <input type="checkbox" data-autosave @bind="_toursDisabled" @bind:after="SaveDisabledAsync" />
                 Don't offer tours automatically
             </label>
             <p class="form-help">No tour is ever offered on its own while this is set. Tours stay available below.</p>

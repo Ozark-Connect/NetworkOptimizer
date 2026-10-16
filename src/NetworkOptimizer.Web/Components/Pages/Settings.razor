@@ -1228,7 +1228,7 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowCellularTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowCellularTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the Cellular Stats tab in Monitoring</span>
                     </label>
                 </div>
@@ -1600,7 +1600,7 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowCmTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowCmTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the CM Stats tab in Monitoring</span>
                     </label>
                 </div>
@@ -1871,7 +1871,7 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowOntTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowOntTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the ONT Stats tab in Monitoring</span>
                     </label>
                 </div>
@@ -2129,7 +2129,7 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowStarlinkTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowStarlinkTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the Starlink Stats tab in Monitoring</span>
                     </label>
                 </div>
@@ -2549,7 +2549,7 @@
         <div class="card-body">
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="receivePrereleaseUpdates" @bind:after="SavePrereleaseSetting" />
+                    <input type="checkbox" data-autosave @bind="receivePrereleaseUpdates" @bind:after="SavePrereleaseSetting" />
                     Receive pre-release update notifications
                 </label>
                 <p class="form-help">
@@ -3293,7 +3293,7 @@
         <div class="card-body">
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" checked="@_kioskMode" @onchange="OnKioskModeChanged" />
+                    <input type="checkbox" data-autosave checked="@_kioskMode" @onchange="OnKioskModeChanged" />
                     <span>Kiosk mode</span>
                 </label>
                 <small class="form-help">Collapses the side menu into the hamburger button at any window size, giving the content full width - handy for presenting graphs on a mini display. This preference is saved per device (this browser only).</small>
