@@ -432,7 +432,8 @@ public sealed class ThreatBlockingOperations
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.Allowlist), string.Join("\n", BlockAllowlist.ParseList(neverBlock)), ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiGroup), uniFiGroup.ToString(), ct);
         await _settings.SaveSettingAsync(Key(slug, TrustedSourcesKeys.UniFiCloudflare), uniFiCloudflare.ToString(), ct);
-        _blocking.TriggerConsoleSync();
+        // Trusted Sources only change this site's own allowlist; other sites use its observed addresses.
+        _blocking.TriggerConsoleSyncFor(Site(slug));
     }
 
     /// <summary>
@@ -451,7 +452,7 @@ public sealed class ThreatBlockingOperations
             chosen = trustedSlugs.Where(visible.Contains).Concat(hidden);
         }
         await TrustedSourcesSettings.SaveSitesAsync(_settings, site, chosen.Select(Site).Append(site), ct);
-        _blocking.TriggerConsoleSync();
+        _blocking.TriggerConsoleSyncFor(site);
     }
 
     /// <summary>A site's current public addresses, single IPs only (prefixes cannot be probed).</summary>

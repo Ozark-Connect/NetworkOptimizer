@@ -20,20 +20,22 @@ public class GatewayAgentBlockingTests
     // Two hours after a daily window, so a few minutes later is still the same window.
     private static readonly DateTime T0 = ThreatBlockingService.LastConsoleWindow(3, new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc)).AddHours(2);
 
-    private sealed class FakeSites : IScheduleSiteContext
+    private sealed class FakeSites(IReadOnlyList<string> keys) : IScheduleSiteContext
     {
         public string DefaultKey => GatewayAgentBlockingTests.DefaultKey;
-        public Task<IReadOnlyList<string>> GetSiteKeysAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>([DefaultKey]);
+        public Task<IReadOnlyList<string>> GetSiteKeysAsync(CancellationToken ct) => Task.FromResult(keys);
         public void PinScope(IServiceScope scope, string siteKey) { }
     }
 
     private sealed class RecordingGateway : IGatewayBlocklistWriter
     {
         public List<IReadOnlyList<string>> Syncs { get; } = [];
+        public List<string?> SyncedSites { get; } = [];
         public bool Fail { get; set; }
         public Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken ct)
         {
             Syncs.Add(ips);
+            SyncedSites.Add(site);
             return Task.FromResult(Fail ? BlockTargetResult.Failure("unreachable") : BlockTargetResult.Success(ips.Count));
         }
         public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, CancellationToken ct) =>
@@ -66,7 +68,7 @@ public class GatewayAgentBlockingTests
         public List<ThreatBlock> Blocks { get; } = [];
         public ThreatBlockingService Service { get; }
 
-        public Harness()
+        public Harness(params string[] otherSites)
         {
             var services = new ServiceCollection();
             services.AddScoped<IThreatRepository>(_ => Repo());
@@ -76,11 +78,14 @@ public class GatewayAgentBlockingTests
             var factory = new Mock<IHttpClientFactory>();
             factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
             Service = new ThreatBlockingService(provider.GetRequiredService<IServiceScopeFactory>(),
-                NullLogger<ThreatBlockingService>.Instance, factory.Object, new FakeSites(), agents: Agents);
+                NullLogger<ThreatBlockingService>.Instance, factory.Object, new FakeSites([DefaultKey, .. otherSites]), agents: Agents);
 
-            Settings.Values[BlockingSettingKeys.Mode] = "Enforce";
-            Settings.Values[BlockingSettingKeys.TargetGateway] = "true";
-            Settings.Values[BlockingSettingKeys.Feeds] = "";
+            foreach (var site in otherSites.Prepend(null))
+            {
+                Settings.Values[BlockingSettingKeys.ForSite(BlockingSettingKeys.Mode, site)] = "Enforce";
+                Settings.Values[BlockingSettingKeys.ForSite(BlockingSettingKeys.TargetGateway, site)] = "true";
+                Settings.Values[BlockingSettingKeys.ForSite(BlockingSettingKeys.Feeds, site)] = "";
+            }
         }
 
         private IThreatRepository Repo()
@@ -189,6 +194,33 @@ public class GatewayAgentBlockingTests
         await h.Cycle(T0.AddMinutes(1));
 
         h.Console.Syncs.Should().ContainSingle().Which.Should().Equal("203.0.113.7");
+    }
+
+    [Fact]
+    public async Task SiteConsoleSync_WritesOnlyThatSite()
+    {
+        var h = new Harness("b");
+        h.Block("203.0.113.7");
+        await h.Cycle(T0);
+        h.Console.Syncs.Should().BeEmpty();
+
+        h.Service.TriggerConsoleSyncFor("b");
+        await h.Cycle(T0.AddMinutes(1));
+
+        h.Console.SyncedSites.Should().Equal("b");
+    }
+
+    [Fact]
+    public async Task ConsoleSync_WritesEverySite()
+    {
+        var h = new Harness("b");
+        h.Block("203.0.113.7");
+        await h.Cycle(T0);
+
+        h.Service.TriggerConsoleSync();
+        await h.Cycle(T0.AddMinutes(1));
+
+        h.Console.SyncedSites.Should().BeEquivalentTo(new string?[] { null, "b" });
     }
 
     [Fact]

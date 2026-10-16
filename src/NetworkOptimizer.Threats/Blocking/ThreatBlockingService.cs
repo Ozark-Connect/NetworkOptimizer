@@ -44,8 +44,10 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     private readonly SemaphoreSlim _trigger = new(0, 1);
     // When each site's gateway agent last held the current set with its rules in place.
     private readonly ConcurrentDictionary<string, DateTime> _agentEnforcingAt = new();
-    // A release or settings change after a console write sends the next one at once.
+    // A release or settings change after a console write sends the next one at once: every site's, or
+    // one site's when only that site's set can have changed.
     private DateTime _consoleUrgentAt = DateTime.MinValue;
+    private readonly ConcurrentDictionary<string, DateTime> _consoleUrgentSiteAt = new();
     // The first cycle's time: a console not written since stands as written then.
     private DateTime _startedAt = DateTime.MinValue;
 
@@ -101,6 +103,17 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     public void TriggerConsoleSync()
     {
         _consoleUrgentAt = DateTime.UtcNow;
+        Trigger();
+    }
+
+    /// <summary>
+    /// As <see cref="TriggerConsoleSync"/>, for one site (null = default site): for a change that can only
+    /// alter that site's own set, such as its Trusted Sources. A release or a blocking settings change
+    /// reaches the sites sharing the site's blocks, so those use <see cref="TriggerConsoleSync"/>.
+    /// </summary>
+    public void TriggerConsoleSyncFor(string? site)
+    {
+        _consoleUrgentSiteAt[Key(site)] = DateTime.UtcNow;
         Trigger();
     }
 
@@ -430,6 +443,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         if (!lastOk) return false;
         var written = lastWrite ?? _startedAt;
         if (_consoleUrgentAt > written) return false;
+        if (_consoleUrgentSiteAt.TryGetValue(Key(site), out var siteUrgent) && siteUrgent > written) return false;
         return written >= LastConsoleWindow(settings.ConsoleSyncHour, now);
     }
 
