@@ -59,12 +59,6 @@ public class ScanSweepDetector
         return patterns;
     }
 
-    /// <summary>Server ports that late replies to LAN clients come from.</summary>
-    private static readonly HashSet<int> ServerPorts = [53, 80, 123, 443, 853, 993, 3478, 5222, 5223, 5228, 5349];
-
-    /// <summary>The ephemeral range a client's side of a connection sits in (Linux starts at 32768, Windows at 49152).</summary>
-    private const int EphemeralPortFloor = 32768;
-
     /// <summary>
     /// Traffic that hits many ports without being a scan: a server's late replies to a LAN client
     /// (server port to an ephemeral port), and UDP traceroute probes (33434-33534). Both reach the
@@ -72,7 +66,7 @@ public class ScanSweepDetector
     /// </summary>
     public static bool IsNotAProbe(ThreatEvent e)
     {
-        if (ServerPorts.Contains(e.SourcePort) && e.DestPort >= EphemeralPortFloor)
+        if (FlowInterestFilter.IsServerToEphemeral(e.SourcePort, e.DestPort))
             return true;
         return e.Protocol.Equals("UDP", StringComparison.OrdinalIgnoreCase) && e.DestPort is >= 33434 and <= 33534;
     }
