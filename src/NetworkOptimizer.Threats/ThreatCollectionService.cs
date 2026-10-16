@@ -4,7 +4,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
@@ -790,11 +789,14 @@ public class ThreatCollectionService : BackgroundService
         }
 
         var replies = candidates.Where(e => Analysis.FlowInterestFilter.IsReplyTo(e, outgoing)).ToHashSet();
-        if (replies.Count == 0)
-            return events;
-        _logger.LogDebug("Skipped {Replies} of {Candidates} reply-shaped blocked flow(s): late packets on LAN clients' own connections",
-            replies.Count, candidates.Count);
-        return events.Where(e => !replies.Contains(e)).ToList();
+        // Unmatched ones split by whether a client reached that server at all, which tells a moved client
+        // port from a connection the flow log never recorded.
+        var sameServer = candidates.Count(e => !replies.Contains(e)
+            && outgoing.Any(o => o.Ip == e.SourceIp.ToLowerInvariant() && o.RemotePort == e.SourcePort));
+        _logger.LogDebug("Skipped {Replies} of {Candidates} reply-shaped blocked flow(s) as late packets on LAN clients' own connections " +
+            "({Outgoing} outgoing connections found; {SameServer} unmatched had a connection to the same server from another port)",
+            replies.Count, candidates.Count, outgoing.Count, sameServer);
+        return replies.Count == 0 ? events : events.Where(e => !replies.Contains(e)).ToList();
     }
 
     private async Task<List<ThreatEvent>> CollectFlowsPassAsync(
