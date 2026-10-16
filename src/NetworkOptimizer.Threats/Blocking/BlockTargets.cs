@@ -55,11 +55,12 @@ public interface IFeedBlockTarget
 /// </summary>
 public sealed class WafBlockTarget(WafClient client, IThreatSettingsAccessor settings, string? site) : IBlockTarget, IFeedBlockTarget
 {
-    // List entries outlive a missed sync by this much; the WAF is re-sent every minute.
+    // List entries outlive a missed sync by this much; the WAF is re-sent on change, on restart, and
+    // every 30 minutes (ThreatBlockingService.WafResync).
     private static readonly TimeSpan FeedTtl = TimeSpan.FromHours(2);
 
     public BlockTargetKind Kind => BlockTargetKind.Waf;
-    public bool SyncEveryCycle => true;
+    public bool SyncEveryCycle => false;
     public IReadOnlyList<string> Feeds { get; set; } = [];
 
     public async Task<BlockTargetResult> SyncAsync(IReadOnlyList<ThreatBlock> desired, CancellationToken cancellationToken)

@@ -333,6 +333,21 @@ public class GatewayAgentBlockingTests
     }
 
     [Fact]
+    public void WafFingerprint_ChangesWithABan_TheLists_OrAWafRestart()
+    {
+        var started = new DateTimeOffset(2026, 10, 16, 9, 0, 0, TimeSpan.Zero);
+        var block = new ThreatBlock { SourceIp = "203.0.113.7", ExpiresAt = T0 };
+        var a = ThreatBlockingService.WafFingerprint([block], ["198.51.100.0/24"], started);
+
+        ThreatBlockingService.WafFingerprint([block], ["198.51.100.0/24"], started).Should().Be(a);
+        ThreatBlockingService.WafFingerprint([new ThreatBlock { SourceIp = "203.0.113.7", ExpiresAt = T0.AddHours(4) }], ["198.51.100.0/24"], started)
+            .Should().NotBe(a, "an extended ban must reach the WAF");
+        ThreatBlockingService.WafFingerprint([block], ["198.51.100.0/24", "192.0.2.0/24"], started).Should().NotBe(a);
+        ThreatBlockingService.WafFingerprint([block], ["198.51.100.0/24"], started.AddMinutes(5))
+            .Should().NotBe(a, "a restarted WAF has lost its list");
+    }
+
+    [Fact]
     public void LastConsoleWindow_IsTheMostRecentLocalHour()
     {
         var utc = TimeZoneInfo.Utc;

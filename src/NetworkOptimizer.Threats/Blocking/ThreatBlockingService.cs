@@ -760,18 +760,44 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 continue;
             }
 
-            var due = target.SyncEveryCycle || !known || !last.Ok || last.Fingerprint != fingerprint || now - last.At > Resync;
+            // The WAF holds its list in memory with expiries: it is sent when a block, an expiry, or the
+            // lists change, when it restarts (its start time is in the fingerprint), and every WafResync,
+            // well inside the list entries' lifetime there.
+            var isWaf = kind == BlockTargetKind.Waf;
+            var targetFingerprint = isWaf ? WafFingerprint(desired, feeds, WafStarted(services, site)) : fingerprint;
+            var due = target.SyncEveryCycle || !known || !last.Ok || last.Fingerprint != targetFingerprint
+                      || now - last.At > (isWaf ? WafResync : Resync);
             if (!due) continue;
             if (kind == BlockTargetKind.Gateway && ConsoleHeld(site, settings, known ? last.At : null, !known || last.Ok, now)) continue;
 
-            if (target is IFeedBlockTarget feedTarget) feedTarget.Feeds = feeds;
+            var feedTarget = target as IFeedBlockTarget;
+            if (feedTarget != null) feedTarget.Feeds = feeds;
             var result = await target.SyncAsync(desired, ct);
-            _sent[key] = (fingerprint, now, result.Ok, !result.Ok || desired.Count > 0);
+            _sent[key] = (targetFingerprint, now, result.Ok, !result.Ok || desired.Count > 0 || (feedTarget != null && feeds.Count > 0));
             _status[key] = new BlockTargetStatus(kind, now, result.Ok, result.Count, result.Error);
             if (!result.Ok)
                 _logger.LogWarning("Automatic Blocking: {Target} sync failed on {Site}: {Error}", kind, site ?? "main", result.Error);
         }
     }
+
+    private static readonly TimeSpan WafResync = TimeSpan.FromMinutes(30);
+
+    // Blocks with their expiry (a re-ban extends one), the list entries, and the WAF's start time.
+    internal static string WafFingerprint(IEnumerable<ThreatBlock> blocks, IEnumerable<string> feeds, DateTimeOffset? wafStarted)
+    {
+        var text = new System.Text.StringBuilder(wafStarted?.ToUnixTimeSeconds().ToString() ?? "").Append('|');
+        foreach (var b in blocks.OrderBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase))
+            text.Append(b.SourceIp.ToLowerInvariant()).Append('@').Append(b.ExpiresAt.ToString("yyyyMMddHHmm")).Append(',');
+        text.Append('|');
+        foreach (var f in feeds.Order(StringComparer.OrdinalIgnoreCase))
+            text.Append(f.ToLowerInvariant()).Append(',');
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text.ToString())))[..16];
+    }
+
+    // When the site's WAF last started, as Threat Intelligence's status poll saw it. Resolved here rather
+    // than injected: collection depends on this service, so a constructor dependency would be a cycle.
+    private static DateTimeOffset? WafStarted(IServiceProvider services, string? site) =>
+        services.GetService<ThreatCollectionService>()?.WafStatusFor(site)?.Started;
 
     /// <summary>The targets a site's settings turn on.</summary>
     public static List<BlockTargetKind> EnabledTargets(BlockingSettings s, string? site)
