@@ -1,11 +1,13 @@
 // Settings: each card's bottom button row (the last .action-buttons directly in its .card-body) is
 // its save row. On desktop, while a card is on screen and that row is not, a floating copy of the
-// row's primary button sits at the lower right of the card's visible area and clicks the real one.
+// row's primary button sits beside the card's right edge, level with the bottom of its visible area,
+// and clicks the real one.
 // An edit inside a card marks it unsaved until that button is clicked; leaving Settings then asks.
 
 const DESKTOP = '(min-width: 769px)';
 const MIN_VISIBLE = 160;   // px of a card on screen before a floating Save is worth showing
-const EDGE = 24;           // px from the card's right edge and the visible area's bottom
+const EDGE = 24;           // px inset from the card's right edge and the visible area's bottom
+const GAP = 16;            // px between the card's right edge and a floating Save beside it
 
 let container = null;
 let floats = new Map();    // card -> floating button
@@ -68,9 +70,13 @@ function place() {
         const btn = floatFor(card);
         btn.textContent = real.textContent.trim().replace(/\s+/g, ' ');
         btn.disabled = real.disabled;
-        btn.style.right = `${vw - Math.min(rect.right, vw) + EDGE}px`;
-        btn.style.bottom = `${vh - visibleBottom + EDGE}px`;
         btn.hidden = false;
+        // Beside the card's right edge, level with the bottom of its visible area; inside the card only
+        // when the window leaves no room beside it.
+        const beside = vw - rect.right >= btn.offsetWidth + 2 * GAP;
+        btn.style.left = beside ? `${rect.right + GAP}px` : '';
+        btn.style.right = beside ? '' : `${vw - Math.min(rect.right, vw) + EDGE}px`;
+        btn.style.bottom = `${vh - visibleBottom + (beside ? 0 : EDGE)}px`;
     }
     // Cards Blazor removed take their floating buttons with them.
     for (const [card, btn] of floats) {
