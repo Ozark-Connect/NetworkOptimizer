@@ -38,8 +38,12 @@ public class GatewayAgentBlockingTests
             SyncedSites.Add(site);
             return Task.FromResult(Fail ? BlockTargetResult.Failure("unreachable") : BlockTargetResult.Success(ips.Count));
         }
-        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound, CancellationToken ct) =>
-            Task.FromResult(BlockTargetResult.Success(entries.Count));
+        public List<(IReadOnlyList<string> Entries, IReadOnlyList<string> Outbound)> FeedSyncs { get; } = [];
+        public Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound, CancellationToken ct)
+        {
+            FeedSyncs.Add((entries, outbound));
+            return Task.FromResult(BlockTargetResult.Success(entries.Count));
+        }
         public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct) => Task.FromResult(0);
     }
 
@@ -213,6 +217,46 @@ public class GatewayAgentBlockingTests
         h.Agents.LastOutbound.Should().HaveCount(ThreatBlockingService.MaxOutboundFeedEntries);
         h.Agents.Pushes.Last().Entries.Should().HaveCount(ThreatBlockingService.MaxFeedEntries);
         h.Service.FeedEntriesCapped(null).Should().Be(130_000 - ThreatBlockingService.MaxFeedEntries);
+    }
+
+    [Fact]
+    public async Task ConsoleNetworkList_HoldsAnEvenShareOfEachList_AfterTheSitesOwnBlocks()
+    {
+        static string Ips(int first, int count) =>
+            string.Join("\n", Enumerable.Range(first, count).Select(i => $"{11 + i / 65536}.{i / 256 % 256}.{i % 256}.1"));
+        var h = new Harness(new Dictionary<string, string>
+        {
+            ["https://www.spamhaus.org/drop/drop_v4.json"] = "",
+            ["https://www.spamhaus.org/drop/drop_v6.json"] = "",
+            ["https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"] = Ips(0, 30_000),
+            ["https://cinsscore.com/list/ci-badguys.txt"] = Ips(30_000, 100),
+        });
+        h.Settings.Values[BlockingSettingKeys.Feeds] = $"{PublicBlockLists.CinsArmy},{PublicBlockLists.Feodo}";
+        h.Settings.Values[BlockingSettingKeys.FeedsOutbound] = "true";
+        h.Agents.Connected = false;
+        h.Block("203.0.113.7");
+
+        await h.Cycle(T0);
+
+        var (entries, outbound) = h.Console.FeedSyncs.Last();
+        entries.Should().HaveCount(ThreatBlockingService.MaxConsoleEntries - 1);
+        // CINS Army fits whole; Feodo Tracker gets the rest, and only it is outbound.
+        entries.Should().Contain(Ips(30_000, 100).Split('\n'));
+        outbound.Should().HaveCount(ThreatBlockingService.MaxConsoleEntries - 1 - 100);
+        h.Agents.Pushes.Last().Entries.Should().HaveCount(30_101);
+        h.Service.FeedEntriesNotInConsole(null).Should().Be(30_100 - (ThreatBlockingService.MaxConsoleEntries - 1));
+    }
+
+    [Theory]
+    [InlineData(new[] { 100, 30_000 }, 10_000, new[] { 100, 9_900 })]
+    [InlineData(new[] { 8_000, 8_000 }, 10_000, new[] { 5_000, 5_000 })]
+    [InlineData(new[] { 3, 3, 3 }, 10, new[] { 3, 3, 3 })]
+    [InlineData(new[] { 5, 5, 5 }, 10, new[] { 4, 3, 3 })]
+    [InlineData(new[] { 5 }, 0, new[] { 0 })]
+    public void ConsoleShare_SplitsEvenly_SmallListsKeptWhole(int[] sizes, int budget, int[] expected)
+    {
+        var lists = sizes.Select(n => (IReadOnlyList<string>)Enumerable.Range(0, n).Select(i => i.ToString()).ToList()).ToList();
+        ThreatBlockingService.ConsoleShare(lists, budget).Should().Equal(expected);
     }
 
     [Fact]

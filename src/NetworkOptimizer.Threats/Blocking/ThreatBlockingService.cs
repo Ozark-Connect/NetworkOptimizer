@@ -34,10 +34,17 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     // gateway agent hold; lists past the cap are cut, least useful first.
     internal const int MaxFeedEntries = 100_000;
     internal const int MaxOutboundFeedEntries = 50_000;
+    // What a UniFi Network List may hold: the gateway refuses a larger set ("exceeds maximum allowed size")
+    // and fails the whole config apply with it. Shared by the site's own blocks and its public lists.
+    internal const int MaxConsoleEntries = 10_000;
     private readonly ConcurrentDictionary<string, int> _feedsCapped = new();
+    private readonly ConcurrentDictionary<string, int> _consoleCapped = new();
 
     /// <summary>Public list entries the caps left out on a site at its last cycle (null site = default site).</summary>
     public int FeedEntriesCapped(string? site) => _feedsCapped.TryGetValue(Key(site), out var n) ? n : 0;
+
+    /// <summary>Public list entries the gateway agent holds that UniFi Network's Network Lists leave out (null site = default site).</summary>
+    public int FeedEntriesNotInConsole(string? site) => _consoleCapped.TryGetValue(Key(site), out var n) ? n : 0;
 
     // How long an enforcing gateway agent may be disconnected (a restart) before the console takes over.
     private static readonly TimeSpan AgentDisconnectGrace = TimeSpan.FromMinutes(2);
@@ -346,6 +353,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         List<ThreatBlock> desired = [];
         IReadOnlyList<string> feeds = [];
         IReadOnlyList<string> feedsOut = [];
+        IReadOnlyList<string> consoleFeeds = [];
+        IReadOnlyList<string> consoleFeedsOut = [];
 
         // Off sends nothing. Dry Run sends only manual blocks and no public lists: automatic blocks
         // enforced before the switch to Dry Run stay Enforced in the table, so Enforced alone is not enough.
@@ -371,12 +380,15 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 && (settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual)), now, settings.MaxEntries);
             // Dry Run downloads the chosen lists without sending them, so Settings shows their counts,
             // devices reaching them are flagged, and the first Enforce has them at once.
-            var set = await FeedEntriesAsync(site, accessor, settings, allowlist, now, ct);
+            // The site's own blocks come first in what UniFi Network's Network Lists hold.
+            var set = await FeedEntriesAsync(site, accessor, settings, allowlist, MaxConsoleEntries - desired.Count, now, ct);
             _listMatchers[Key(site)] = set.Matcher;
             if (settings.Mode == BlockingMode.Enforce)
             {
                 feeds = set.Entries;
                 feedsOut = set.Outbound;
+                consoleFeeds = set.ConsoleEntries;
+                consoleFeedsOut = set.ConsoleOutbound;
             }
         }
         else
@@ -386,7 +398,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
         PushToGatewayAgent(site, settings, desired, feeds, feedsOut, now);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
-        await ReconcileGatewayFeedsAsync(site, services, settings, feeds, feedsOut, now, ct);
+        await ReconcileGatewayFeedsAsync(site, services, settings, consoleFeeds, consoleFeedsOut, now, ct);
         await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
     }
 
@@ -528,11 +540,16 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     // The enabled public lists' entries, minus anything overlapping protected space. Every list blocks
     // inbound; only Outbound lists are blocked outbound and matched for contact alerts.
     private async Task<FeedSet> FeedEntriesAsync(string? site, IThreatSettingsAccessor accessor,
-        BlockingSettings settings, BlockAllowlist allowlist, DateTime now, CancellationToken ct)
+        BlockingSettings settings, BlockAllowlist allowlist, int consoleBudget, DateTime now, CancellationToken ct)
     {
-        if (_lists == null || settings.Feeds.Count == 0) return FeedSet.Empty;
+        if (_lists == null || settings.Feeds.Count == 0)
+        {
+            _consoleCapped[Key(site)] = 0;
+            return FeedSet.Empty;
+        }
         var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var outbound = new Dictionary<string, PublicBlockList>(StringComparer.OrdinalIgnoreCase);
+        var perList = new List<(PublicBlockList List, List<string> Entries)>();
         var dropped = 0;
         // Outbound lists first, so an entry on several lists is credited to the one that alerts; then by
         // usefulness, so the caps cut the least useful lists.
@@ -541,6 +558,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             var token = list.NeedsToken
                 ? await accessor.GetDecryptedSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.FeedToken(list.Id), site), ct)
                 : null;
+            var kept = new List<string>();
+            perList.Add((list, kept));
             foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct, token))
             {
                 if (allowlist.ExemptsRange(entry) != null || all.Contains(entry)) continue;
@@ -550,6 +569,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                     continue;
                 }
                 all.Add(entry);
+                kept.Add(entry);
                 // Past the outbound cap an entry is still blocked inbound; it only stops being blocked outbound.
                 if (list.Outbound && outbound.Count < MaxOutboundFeedEntries) outbound.TryAdd(entry, list);
             }
@@ -558,15 +578,56 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _logger.LogWarning("Automatic Blocking: public block lists on {Site} capped at {Max:N0} entries; {Dropped:N0} left out",
                 site ?? "main", MaxFeedEntries, dropped);
         _feedsCapped[Key(site)] = dropped;
+
+        // UniFi Network's Network List gets a share of every list, within what the gateway accepts after the
+        // site's own blocks; the gateway agent holds them all.
+        var share = ConsoleShare(perList.Select(p => (IReadOnlyList<string>)p.Entries).ToList(), consoleBudget);
+        var console = perList.SelectMany((p, i) => p.Entries.Take(share[i])).ToList();
+        var consoleOut = console.Where(outbound.ContainsKey).ToList();
+        _consoleCapped[Key(site)] = all.Count - console.Count;
         return new FeedSet(new PublicListMatcher(outbound.Select(kv => (kv.Key, kv.Value))),
             all.Order(StringComparer.OrdinalIgnoreCase).ToList(),
-            outbound.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList());
+            outbound.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            console.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            consoleOut.Order(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
-    /// <summary>A site's public list entries: all of them (inbound), and those also blocked outbound.</summary>
-    private sealed record FeedSet(PublicListMatcher Matcher, IReadOnlyList<string> Entries, IReadOnlyList<string> Outbound)
+    /// <summary>
+    /// How many of each list's entries fit in <paramref name="budget"/>, shared evenly: a list smaller than
+    /// its share keeps all of it, and what it leaves goes to the larger lists. Each list keeps its first entries.
+    /// </summary>
+    internal static int[] ConsoleShare(IReadOnlyList<IReadOnlyList<string>> lists, int budget)
     {
-        public static readonly FeedSet Empty = new(PublicListMatcher.Empty, [], []);
+        var share = new int[lists.Count];
+        var left = Math.Max(0, budget);
+        var open = Enumerable.Range(0, lists.Count).OrderBy(i => lists[i].Count).ToList();
+        while (open.Count > 0)
+        {
+            var even = left / open.Count;
+            var i = open[0];
+            if (lists[i].Count <= even)
+            {
+                share[i] = lists[i].Count;
+                left -= share[i];
+                open.RemoveAt(0);
+                continue;
+            }
+            // Every list left is bigger than an even share: split what is left, the remainder to the first.
+            var extra = left - even * open.Count;
+            foreach (var j in open) share[j] = even + (extra-- > 0 ? 1 : 0);
+            break;
+        }
+        return share;
+    }
+
+    /// <summary>
+    /// A site's public list entries: all of them (inbound) and those also blocked outbound, for the gateway
+    /// agent; and the shares of both that fit UniFi Network's Network Lists.
+    /// </summary>
+    private sealed record FeedSet(PublicListMatcher Matcher, IReadOnlyList<string> Entries, IReadOnlyList<string> Outbound,
+        IReadOnlyList<string> ConsoleEntries, IReadOnlyList<string> ConsoleOutbound)
+    {
+        public static readonly FeedSet Empty = new(PublicListMatcher.Empty, [], [], [], []);
     }
 
     private readonly ConcurrentDictionary<string, PublicListMatcher> _listMatchers = new();
