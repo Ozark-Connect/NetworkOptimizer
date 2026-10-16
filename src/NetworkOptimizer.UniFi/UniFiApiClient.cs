@@ -4241,6 +4241,7 @@ public class UniFiApiClient : IDisposable
         string[]? riskFilter = null,
         string[]? actionFilter = null,
         string[]? directionFilter = null,
+        string[]? destinationIpFilter = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogTrace("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
@@ -4274,7 +4275,7 @@ public class UniFiApiClient : IDisposable
             ["source_region"] = Array.Empty<string>(),
             ["destination_host"] = Array.Empty<string>(),
             ["destination_mac"] = Array.Empty<string>(),
-            ["destination_ip"] = Array.Empty<string>(),
+            ["destination_ip"] = destinationIpFilter ?? Array.Empty<string>(),
             ["destination_port"] = Array.Empty<string>(),
             ["destination_network_id"] = Array.Empty<string>(),
             ["destination_domain"] = Array.Empty<string>(),
