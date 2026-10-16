@@ -8,6 +8,7 @@ const DESKTOP = '(min-width: 769px)';
 const MIN_VISIBLE = 160;   // px of a card on screen before a floating Save is worth showing
 const EDGE = 24;           // px inset from the card's right edge and the visible area's bottom
 const GAP = 16;            // px between the card's right edge and a floating Save beside it
+const TOP_THRESHOLD = 1 / 3; // the card's top must be above this fraction of the window height
 
 let container = null;
 let floats = new Map();    // card -> floating button
@@ -60,7 +61,9 @@ function place() {
         const rowRect = real ? saveRow(card).getBoundingClientRect() : null;
         const visibleTop = Math.max(rect.top, 0);
         const visibleBottom = Math.min(rect.bottom, vh);
+        // Only once the reader is into the card: its top has scrolled into the top third of the window.
         const show = desktop && real && rect.height > 0
+            && rect.top <= vh * TOP_THRESHOLD
             && visibleBottom - visibleTop >= MIN_VISIBLE
             && (rowRect.top < 0 || rowRect.bottom > vh);
         if (!show) {
