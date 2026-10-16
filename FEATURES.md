@@ -61,6 +61,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - SNMP polling buffered across outages
 - Per-client WAN usage at the gateway for Bandwidth Hogs
 - UniFi Cable Internet DOCSIS capture (agent on the gateway)
+- [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound (agent on the gateway)
 - LAN speed test server (OpenSpeedTest and iperf3) and site-local WAN speed tests
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
 - Falls back to HTTPS heartbeats when the tunnel cannot connect; refuses plain HTTP
@@ -395,8 +396,10 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Exposure** - port forwards cross-referenced with threats; **Geo-Block Recommendation**
 - **Geographic** - country breakdown (MaxMind GeoIP)
 - **Attack Sequences** - source IPs moving through two or more kill chain stages
+  - **Public Block List Contacts** - devices that connected to, or tried to reach, a listed address
 - **Search** - by IP, CIDR, country, or ASN
 - IP, port, and protocol drill-downs; **Block** and **Release** any public address from its details
+  - Names the public block list an address is on, in its header and in **Destinations Accessed**
 - CrowdSec CTI reputation, known behaviors, and MITRE ATT&CK techniques per IP
   - Lookups cached for 30 days and held to a daily quota
 - **Data Retention** setting, 90 days by default; the first collection backfills 30 days
@@ -410,12 +413,14 @@ Set up in **Settings - Security & Alerts**, per site.
 
 - Blocks the sources the WAF and attack pattern detection flag, with longer bans for repeat offenders
 - **Where Blocks Are Enforced** - the gateway, the [Web Application Firewall](#web-application-firewall), and **Cloudflare Edge Blocking**
+  - With an [On-Site Agent](#on-site-agent) on the gateway, blocks apply in seconds with no gateway reprovisioning
 - Every site starts in **Detection Only**, which writes nothing; **Turn On Recommended** switches it to **Blocking**
 - **Cross-site blocking** - a source attacking one site is blocked at every site sharing blocks
   - One attack, defended across your whole fleet: an attacker caught at one site is shut out of all of them
   - **Turn On Recommended for All Sites** from **Settings - Multi-Site**; each site's own Trusted Sources still decide what it enforces
 - **Public Block Lists** - Spamhaus DROP and abuse.ch Feodo Tracker by default; DShield Top 20 and blocklist.de Strong IPs optional
   - Optional outbound block keeps an infected device from reaching its botnet command server
+  - A device reaching a listed address raises an alert, Detection Only included
 - **What Triggers a Block** thresholds and **Maximum blocked sources**
 
 ### Trusted Sources
@@ -517,6 +522,7 @@ Requires Gateway SSH.
 - **Incidents** - related alerts grouped automatically
 - Alerts cover:
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
+  - A device reaching, or trying to reach, an address on a public block list
   - WAN port below its usual link speed or at half duplex, and its recovery
   - ONT management unresponsive while its SFP still reads light; ONT rebooted
   - WAN, LAN, and client speed test regressions
