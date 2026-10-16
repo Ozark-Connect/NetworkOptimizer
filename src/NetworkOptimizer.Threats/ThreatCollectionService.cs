@@ -788,7 +788,7 @@ public class ThreatCollectionService : BackgroundService
             Source = "threats",
             SiteSlug = alertSiteSlug,
             Severity = blocked ? AlertSeverity.Warning : AlertSeverity.Critical,
-            Title = blocked ? $"Public Block List: {device.Text} tried to reach {listName}" : $"Public Block List: {device.Text} reached {listName}",
+            Title = blocked ? $"Public Block List: {device.Text} tried to reach a listed address" : $"Public Block List: {device.Text} reached a listed address",
             Message = blocked
                 ? $"{device.Text} tried to connect to {contact.DestIp}:{contact.DestPort} ({contact.Protocol}), an address on {listName}. The connection was blocked."
                 : $"{device.Text} connected to {contact.DestIp}:{contact.DestPort} ({contact.Protocol}), an address on {listName}.",

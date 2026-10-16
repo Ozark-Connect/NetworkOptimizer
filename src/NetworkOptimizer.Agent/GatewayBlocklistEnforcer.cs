@@ -282,20 +282,10 @@ public sealed class GatewayBlocklistEnforcer
         Check(Run("ipset", ["restore"], script.ToString()), $"ipset restore {name}");
     }
 
-    // The chain: never the server, then new connections from a blocked source are dropped, then
-    // anything to an outbound-blocked destination. Matching new connections only for sources leaves
-    // replies to connections a LAN device opened alone, as the console policies do. Rewritten only
-    // when it differs, so a steady set never touches the rules.
+    // Rewritten only when it differs, so a steady set never touches the rules.
     private static void EnsureChain(string tool, string guardSet, string blockSet, string outSet)
     {
-        string[] wanted =
-        [
-            $"-A {Chain} -m set --match-set {guardSet} src -j RETURN",
-            $"-A {Chain} -m set --match-set {blockSet} src -m state --state NEW -j DROP",
-            // Outbound drops are logged (rate limited) so the agent can report which device tried.
-            $"-A {Chain} -m set --match-set {outSet} dst -m limit --limit {OutLogPerMinute}/min --limit-burst {OutLogPerMinute} -j LOG --log-prefix {OutLogPrefix} --log-level 6",
-            $"-A {Chain} -m set --match-set {outSet} dst -j DROP",
-        ];
+        var wanted = GatewayBlocklistRules.Chain(Chain, guardSet, blockSet, outSet, OutLogPrefix, OutLogPerMinute);
         var current = Run(tool, ["-S", Chain], null);
         if (current.Exit == 0)
         {
