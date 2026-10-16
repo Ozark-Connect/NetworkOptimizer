@@ -80,6 +80,31 @@ public class ThreatRepositorySequenceTests : IDisposable
     }
 
     [Fact]
+    public async Task PublicListContacts_GroupedPerDeviceAndAddress_ConnectedFirst()
+    {
+        void Contact(string device, string address, ThreatAction action, string list)
+        {
+            Add(device, "TCP", 40000, 443, KillChainStage.PostExploitation);
+            var e = _context.ThreatEvents.Local.Last();
+            e.DestIp = address;
+            e.Action = action;
+            e.Category = NetworkOptimizer.Threats.Blocking.PublicListContact.Category;
+            e.SignatureName = (action == ThreatAction.Blocked ? "Tried to reach an address on " : "Reached an address on ") + list;
+        }
+        Contact("192.0.2.10", "198.51.100.7", ThreatAction.Blocked, "Spamhaus DROP");
+        Contact("192.0.2.10", "198.51.100.7", ThreatAction.Blocked, "Spamhaus DROP");
+        Contact("192.0.2.11", "203.0.113.9", ThreatAction.Detected, "abuse.ch Feodo Tracker");
+        Add("192.0.2.12", "TCP", 40000, 22, KillChainStage.Monitored);
+        await _context.SaveChangesAsync();
+
+        var contacts = await _repository.GetPublicListContactsAsync(_now.AddHours(-1), _now);
+
+        contacts.Should().HaveCount(2);
+        contacts[0].Should().Match<PublicListContactSummary>(c => c.Connected && c.DeviceIp == "192.0.2.11" && c.List == "abuse.ch Feodo Tracker");
+        contacts[1].Should().Match<PublicListContactSummary>(c => !c.Connected && c.Events == 2 && c.List == "Spamhaus DROP");
+    }
+
+    [Fact]
     public async Task UdpToAServicePort_StillFormsAChain()
     {
         Add("198.51.100.3", "UDP", 443, 161, KillChainStage.Reconnaissance);
