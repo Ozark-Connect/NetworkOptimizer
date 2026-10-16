@@ -29,14 +29,15 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
 
     private sealed record Desired(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries, IReadOnlyList<GatewayAgentEntry> Outbound, string Fingerprint);
 
-    private readonly NetworkOptimizer.Threats.ThreatCollectionService? _collection;
+    // Resolved on first use, never injected: the collection service depends (through the list lookup)
+    // on the blocking service, which depends on this one, and a constructor cycle hangs startup.
+    private readonly IServiceProvider _services;
 
-    public GatewayAgentBlocklist(AgentTunnelRegistry registry, ILogger<GatewayAgentBlocklist> logger,
-        NetworkOptimizer.Threats.ThreatCollectionService? collection = null)
+    public GatewayAgentBlocklist(AgentTunnelRegistry registry, ILogger<GatewayAgentBlocklist> logger, IServiceProvider services)
     {
         _registry = registry;
         _logger = logger;
-        _collection = collection;
+        _services = services;
     }
 
     private static string Slug(string? site) => string.IsNullOrEmpty(site) ? SiteManagementService.DefaultSiteSlug : site;
@@ -110,7 +111,7 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     /// </summary>
     public void OnHits(AgentTunnelConnection connection, GatewayBlocklistHits hits)
     {
-        if (_collection == null || hits.Hits.Count == 0) return;
+        if (hits.Hits.Count == 0 || _services.GetService<NetworkOptimizer.Threats.ThreatCollectionService>() is not { } collection) return;
         var drops = hits.Hits
             .Where(h => !string.IsNullOrWhiteSpace(h.ClientIp) && !string.IsNullOrWhiteSpace(h.DestIp))
             .Select(h => new NetworkOptimizer.Threats.Models.ThreatEvent
@@ -129,7 +130,7 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
                 InnerAlertId = $"gateway-agent:{h.ClientIp}:{h.DestIp}:{h.Protocol}:{h.DestPort}:{h.FirstUnixMs}",
             })
             .ToList();
-        _collection.QueueGatewayDrops(connection.SiteSlug, drops);
+        collection.QueueGatewayDrops(connection.SiteSlug, drops);
     }
 
     /// <summary>Records an agent's report of what it applied.</summary>
