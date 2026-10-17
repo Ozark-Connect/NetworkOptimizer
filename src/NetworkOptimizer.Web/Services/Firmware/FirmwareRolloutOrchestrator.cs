@@ -2893,8 +2893,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
-    /// Ends a soak before its window closes: the report is built from whatever comparisons are in,
-    /// and the plan becomes Reported, which frees the site to plan again.
+    /// Ends a soak before its window closes: any comparison whose window has already closed is
+    /// captured, the report is built from those, and the plan becomes Reported, which frees the
+    /// site to plan again.
     /// </summary>
     /// <param name="planId">The soaking plan.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -2911,6 +2912,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
             if (steps.Any(IsInFlight))
                 return "A rollback is still running. The soak can end once it finishes.";
+
+            // A window can close between ticks; capture it first, or the report drops after-stats it could have had.
+            await RunDueResourceComparisonsAsync(steps, plan, ParseDocument(plan), cancellationToken);
 
             var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
             var measured = steps.Where(s => s.State is FirmwareRolloutStepState.LitmusPassed
