@@ -26,6 +26,12 @@ public class MeshOptimizationService : IMeshOptimizationService
     /// </summary>
     private const int RoamPollAttempts = 7;
 
+    /// <summary>
+    /// An MLO backhaul roams well after the scan (22-37 s seen on a U7), past the window above,
+    /// so it gets a longer one. Non-MLO keeps <see cref="RoamPollAttempts"/>.
+    /// </summary>
+    private const int MloRoamPollAttempts = 20;
+
     /// <summary>Delay between post-scan link reads (also the initial settle after the scan).</summary>
     private static readonly TimeSpan RoamPollInterval = TimeSpan.FromSeconds(3);
 
@@ -129,7 +135,8 @@ public class MeshOptimizationService : IMeshOptimizationService
         // good one.
         var after = new LinkRead(null, null, null, null);
         var moved = false;
-        for (var attempt = 0; attempt < RoamPollAttempts; attempt++)
+        var pollAttempts = before.ApMld != null ? MloRoamPollAttempts : RoamPollAttempts;
+        for (var attempt = 0; attempt < pollAttempts; attempt++)
         {
             try
             {
@@ -226,7 +233,10 @@ public class MeshOptimizationService : IMeshOptimizationService
 
         var (ok, output) = await Run(target, command, cancellationToken);
         if (!ok || string.IsNullOrWhiteSpace(output))
+        {
+            _logger.LogDebug("[MeshOptimize] MLO link read failed (ok={Ok}, empty={Empty})", ok, string.IsNullOrWhiteSpace(output));
             return [];
+        }
 
         var links = new List<(RadioBand Band, int Rssi)>();
         foreach (var block in output.Split("#bss", StringSplitOptions.RemoveEmptyEntries))
@@ -239,6 +249,9 @@ public class MeshOptimizationService : IMeshOptimizationService
             if (string.Equals(mld, link.ApMld, StringComparison.OrdinalIgnoreCase)
                 && freq is > 0 && level is < 0 && age is <= MaxBssAgeSeconds)
                 links.Add((RadioBandExtensions.FromFrequencyMhz(freq.Value), level.Value));
+            else
+                _logger.LogDebug("[MeshOptimize] MLO link skipped: mld={Mld} freq={Freq} level={Level} age={Age} (want mld {Want})",
+                    mld ?? "-", freq, level, age, link.ApMld);
         }
         return links;
     }
