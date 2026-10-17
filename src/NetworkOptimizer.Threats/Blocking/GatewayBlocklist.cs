@@ -203,6 +203,10 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     /// gateway itself) from reaching the public lists' addresses. Needs Set Up first. Returns how
     /// many policies now exist.
     /// </summary>
+    /// <remarks>
+    /// The policies match every state, unlike the source policies, so a session opened before the
+    /// list loaded is cut too. Only the narrow <see cref="PublicBlockList.Outbound"/> lists feed them.
+    /// </remarks>
     public async Task<int> SetFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);

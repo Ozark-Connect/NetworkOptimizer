@@ -7,7 +7,9 @@ public static class GatewayBlocklistRules
     /// Traffic to an outbound-blocked destination is logged (rate limited) and dropped in every state;
     /// then the server's own addresses are exempt; then new connections from a blocked source are
     /// dropped. Matching new connections only for sources leaves replies to connections a LAN device
-    /// opened alone, as UniFi Network's policies do.
+    /// opened alone, as UniFi Network's policies do. Outbound matches every state so a session opened
+    /// before the list loaded is cut too; that is safe because only the narrow command-server and
+    /// criminal-network lists (<c>PublicBlockList.Outbound</c>) are blocked outbound.
     /// </summary>
     /// <remarks>
     /// Outbound comes first: ahead of it, the server exemption let a server on the site's LAN reach listed
