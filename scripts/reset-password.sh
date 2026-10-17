@@ -403,6 +403,7 @@ reset_linux() {
         echo "Use --data-dir to specify the correct data directory."
         exit 1
     fi
+    DB_PATH="$db_path"
     msg_ok "Database found: $db_path"
 
     # Detect install directory from systemd or running process
