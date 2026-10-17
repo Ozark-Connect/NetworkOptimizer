@@ -96,11 +96,11 @@ public static class ApAgentScanMerger
     private static bool MergeSpectrum(ChannelScanResult result, ApAgentScanPayload payload, DateTimeOffset readAt)
     {
         var serving = payload.Radios.FirstOrDefault(r => !r.ScanRadio && BandOf(r.Band) == result.Band && r.Spectrum.Count > 0);
-        var scanRadio = payload.Radios.FirstOrDefault(r => r.ScanRadio && r.Spectrum.Any(s => BandOfMhz(s.CenterMhz) == result.Band));
+        var scanRadio = payload.Radios.FirstOrDefault(r => r.ScanRadio && r.Spectrum.Any(s => RadioBandExtensions.FromFrequencyMhz(s.CenterMhz) == result.Band));
         var source = serving ?? scanRadio;
         if (source == null) return false;
 
-        var entries = source.Spectrum.Where(s => serving != null || BandOfMhz(s.CenterMhz) == result.Band).ToList();
+        var entries = source.Spectrum.Where(s => serving != null || RadioBandExtensions.FromFrequencyMhz(s.CenterMhz) == result.Band).ToList();
         if (entries.Count == 0) return false;
 
         // The agent's table carries no DFS state; keep the console's per channel where it had one,
@@ -139,14 +139,6 @@ public static class ApAgentScanMerger
         "2.4" => RadioBand.Band2_4GHz,
         "5" => RadioBand.Band5GHz,
         "6" => RadioBand.Band6GHz,
-        _ => RadioBand.Unknown
-    };
-
-    private static RadioBand BandOfMhz(int mhz) => mhz switch
-    {
-        >= 2400 and < 2500 => RadioBand.Band2_4GHz,
-        >= 5000 and < 5925 => RadioBand.Band5GHz,
-        >= 5925 and < 7200 => RadioBand.Band6GHz,
         _ => RadioBand.Unknown
     };
 }
