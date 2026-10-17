@@ -1421,7 +1421,37 @@ class LanFlowMap2D {
             tn._roamFadeUntil=now+ROAM_FADE_MS;
             changed=true;
         }
+        // Mesh APs follow their historic parent too, carrying their subtree with them. The
+        // backhaul link is snapshot-shared, so only the edge's endpoint moves, as for a client.
+        for(const e of this._edges){
+            if(e.lk.kind!==LK.MeshBackhaul||!e.tn)continue;
+            const tn=e.tn,id=tn.d.id;
+            const baseline=e.lk.fromNodeId;
+            const desired=stats[id]?.apNodeId||baseline;
+            const cur=this._appliedAssoc.get(id)||baseline;
+            if(desired===cur)continue;
+            const newParent=this._treeMap.get(desired);
+            if(!newParent||isClient(newParent.d.kind))continue;
+            // A parent inside the AP's own subtree would make a cycle; leave it where it is.
+            if(this._inSubtree(tn,newParent))continue;
+            for(const[,p]of this._treeMap){
+                const i=p.infra.indexOf(tn);
+                if(i>=0)p.infra.splice(i,1);
+            }
+            newParent.infra.push(tn);
+            e.fn=newParent;
+            this._appliedAssoc.set(id,desired);
+            tn._roamFadeUntil=now+ROAM_FADE_MS;
+            changed=true;
+        }
         if(changed){this._roamFadeUntil=now+ROAM_FADE_MS;this._relayout();}
+    }
+
+    _inSubtree(root,n){
+        for(const c of root.infra){
+            if(c===n||this._inSubtree(c,n))return true;
+        }
+        return false;
     }
 
     // Compute contour (left/right extent at each depth relative to node x=0)
@@ -1749,9 +1779,9 @@ class LanFlowMap2D {
             for(const c of n.infra){
                 // VirtualHub renders as a small ring (r=10), not a full box
                 const cIn=leadIn(c,c.d.kind===NK.VirtualHub?12:G.boxH/2);
-                const edge=this._edges.find(e=>
-                    (e.lk.fromNodeId===n.d.id&&e.lk.toNodeId===c.d.id)
-                    ||(e.lk.fromNodeId===c.d.id&&e.lk.toNodeId===n.d.id));
+                // By TN identity, as for clients below: a mesh AP re-parented in playback keeps its
+                // snapshot link, and only the edge's endpoint follows the tree.
+                const edge=this._edges.find(e=>(e.fn===n&&e.tn===c)||(e.fn===c&&e.tn===n));
                 if(edge){edge._x1=pOut.x;edge._y1=pOut.y;edge._x2=cIn.x;edge._y2=cIn.y;edge._isCl=false;edge._hz=hz;sibEdges.push(edge);}
                 matchTree(c);
             }
