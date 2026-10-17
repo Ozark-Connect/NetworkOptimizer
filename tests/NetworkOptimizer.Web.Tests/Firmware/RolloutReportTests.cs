@@ -88,6 +88,25 @@ public class RolloutReportTests
     }
 
     [Fact]
+    public async Task EndSoakEarly_CapturesAWindowThatClosedBeforeTheNextTick()
+    {
+        using var harness = new RolloutHarness();
+        await harness.WithSettingsAsync(s => s.SoakHours = 2);
+        var start = harness.Time.GetUtcNow().UtcDateTime;
+        var plan = await harness.SeedSoakingPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))),
+            start.AddHours(-4),
+            start.AddHours(-3),
+            Settled(ApMac, FirmwareRolloutStepState.LitmusPassed, backAt: start.AddHours(-3), pre: Stats(10, 40)));
+
+        (await harness.Orchestrator.EndSoakAsync(plan.Id)).Should().BeNull();
+
+        (await harness.StepAsync(plan.Id, ApMac)).PostStatsJson.Should().NotBeNull();
+        var report = RolloutReport.Parse((await harness.PlanAsync(plan.Id))!.ReportJson)!;
+        report.Rows.Single().CpuAfterMean.Should().NotBeNull();
+    }
+
+    [Fact]
     public void ANetworkInstallThatWasRefused_IsAFailureWithItsReason()
     {
         // A tried-and-refused install must not read as a clean run in the report or the history.
