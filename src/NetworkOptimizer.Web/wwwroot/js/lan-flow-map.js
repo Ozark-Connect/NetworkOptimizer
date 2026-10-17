@@ -1524,6 +1524,24 @@ export class LanFlowMap {
             if (desired === baseline) this._appliedAssoc3D.delete(id);
             else this._appliedAssoc3D.set(id, desired);
         }
+        // Mesh APs: re-point the backhaul to the historic parent. The AP itself stays where the
+        // layout put it, so its own clients and downlinks stay attached.
+        const meshLinks = [];
+        for (const [linkId, m] of this._linkMeshes) {
+            if (m.link?.kind === LINK_KIND.MeshBackhaul) meshLinks.push(linkId);
+        }
+        for (const linkId of meshLinks) {
+            const link = this._linkMeshes.get(linkId).link;
+            const id = link.toNodeId;
+            const baseline = link.fromNodeId;
+            const desired = stats[id]?.apNodeId || baseline;
+            const cur = this._appliedAssoc3D.get(id) || baseline;
+            if (desired === cur) continue;
+            if (!this._positions.get(desired) || !this._positions.get(id)) continue;
+            this._rebuildLinkPipe(linkId, desired, id);
+            if (desired === baseline) this._appliedAssoc3D.delete(id);
+            else this._appliedAssoc3D.set(id, desired);
+        }
     }
 
     // Clients that were connected at the scrubbed instant but are not connected now. The
@@ -1641,31 +1659,38 @@ export class LanFlowMap {
         for (const [lid, eps] of this._nodesByLink) {
             if (eps[0] === clientId || eps[1] === clientId) { linkId = lid; break; }
         }
-        const old = linkId ? this._linkMeshes.get(linkId) : null;
-        if (old) {
-            // Carry the old pipe's visibility onto the rebuilt one - a fresh mesh defaults
-            // to visible, which would resurrect the pipe of a filtered-out client.
-            const wasVisible = old.pipe.visible;
-            this.linkGroup.remove(old.pipe);
-            old.pipe.geometry?.dispose();
-            old.pipe.material?.dispose();
-            this.particleGroup.remove(old.down.mesh, old.up.mesh);
-            old.down.mesh.geometry?.dispose();
-            old.up.mesh.geometry?.dispose();
-            const pipe = this._makePipeMesh(apPos, pos, old.link);
-            pipe.visible = wasVisible;
-            this.linkGroup.add(pipe);
-            const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale });
-            const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale });
-            down.mesh.visible = wasVisible;
-            up.mesh.visible = wasVisible;
-            this.particleGroup.add(down.mesh, up.mesh);
-            this._linkMeshes.set(linkId, { pipe, down, up, link: old.link });
-            this._nodesByLink.set(linkId, [apId, clientId]);
-        }
+        if (linkId) this._rebuildLinkPipe(linkId, apId, clientId);
 
         if (!this._roamFade3D) this._roamFade3D = new Map();
         this._roamFade3D.set(clientId, performance.now() + ROAM_FADE_MS);
+    }
+
+    // Rebuild a link's pipe and particle streams between two placed nodes (geometry is baked,
+    // so a moved endpoint means new meshes). Keeps the link object, so rates still key off it.
+    _rebuildLinkPipe(linkId, fromId, toId) {
+        const old = this._linkMeshes.get(linkId);
+        const fromPos = this._positions.get(fromId);
+        const toPos = this._positions.get(toId);
+        if (!old || !fromPos || !toPos) return;
+        // Carry the old pipe's visibility onto the rebuilt one - a fresh mesh defaults
+        // to visible, which would resurrect the pipe of a filtered-out client.
+        const wasVisible = old.pipe.visible;
+        this.linkGroup.remove(old.pipe);
+        old.pipe.geometry?.dispose();
+        old.pipe.material?.dispose();
+        this.particleGroup.remove(old.down.mesh, old.up.mesh);
+        old.down.mesh.geometry?.dispose();
+        old.up.mesh.geometry?.dispose();
+        const pipe = this._makePipeMesh(fromPos, toPos, old.link);
+        pipe.visible = wasVisible;
+        this.linkGroup.add(pipe);
+        const down = new ParticleStream({ from: fromPos, to: toPos, color: COLORS.downstream, particleCount: 0, sizeScale: this._linkScale });
+        const up = new ParticleStream({ from: toPos, to: fromPos, color: COLORS.upstream, particleCount: 0, sizeScale: this._linkScale });
+        down.mesh.visible = wasVisible;
+        up.mesh.visible = wasVisible;
+        this.particleGroup.add(down.mesh, up.mesh);
+        this._linkMeshes.set(linkId, { pipe, down, up, link: old.link });
+        this._nodesByLink.set(linkId, [fromId, toId]);
     }
 
     // Live roam: a persisting wifi client whose snapshot parent changed (no add/remove).

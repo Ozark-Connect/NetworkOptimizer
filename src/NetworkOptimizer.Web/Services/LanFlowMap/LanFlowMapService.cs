@@ -870,15 +870,18 @@ public class LanFlowMapService
         }
 
         // Mesh backhaul PHY at the scrub instant, keyed by the device node so the maps'
-        // Link speed rows follow the playhead like a client's connection stats do.
+        // Link speed rows follow the playhead like a client's connection stats do. The point's
+        // AP is the parent the child was meshed to then, so the maps re-parent it on a roam.
         foreach (var (mac, p) in meshDevRates)
         {
+            var parentMac = string.IsNullOrEmpty(p.ApMac) ? null : NormalizeMac(p.ApMac);
             update.ClientStats["dev-" + NormalizeMac(mac)] = new NodeClientStats
             {
                 Band = NormalizeBand(p.Band),
                 SignalDbm = p.SignalDbm,
                 PhyTxKbps = p.TxRateKbps,
                 PhyRxKbps = p.RxRateKbps,
+                ApNodeId = parentMac != null && deviceNodeMacs.Contains(parentMac) ? "dev-" + parentMac : null,
             };
         }
 
