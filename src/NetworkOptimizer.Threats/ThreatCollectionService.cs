@@ -782,6 +782,8 @@ public class ThreatCollectionService : BackgroundService
         var blocked = contact.Action == ThreatAction.Blocked;
         var device = await sources.DescribeDeviceAsync(contact.SourceIp, contact.SourceMac, cancellationToken);
         var listName = Blocking.PublicListContact.ListName(contact.SignatureName);
+        var service = NetworkOptimizer.Core.Helpers.NetworkUtilities.GetPortServiceName(contact.DestPort);
+        var transport = service is null ? contact.Protocol : $"{contact.Protocol}, {service}";
         await _alertEventBus.PublishAsync(new AlertEvent
         {
             EventType = blocked ? "threats.public_list_attempt" : "threats.public_list_contact",
@@ -790,8 +792,8 @@ public class ThreatCollectionService : BackgroundService
             Severity = blocked ? AlertSeverity.Warning : AlertSeverity.Critical,
             Title = blocked ? $"Public Block List: {device.Text} tried to reach a listed address" : $"Public Block List: {device.Text} reached a listed address",
             Message = blocked
-                ? $"{device.Text} tried to connect to {contact.DestIp}:{contact.DestPort} ({contact.Protocol}), an address on {listName}. The connection was blocked."
-                : $"{device.Text} connected to {contact.DestIp}:{contact.DestPort} ({contact.Protocol}), an address on {listName}.",
+                ? $"{device.Text} tried to connect to {contact.DestIp}:{contact.DestPort} ({transport}), an address on {listName}. The connection was blocked."
+                : $"{device.Text} connected to {contact.DestIp}:{contact.DestPort} ({transport}), an address on {listName}.",
             DeviceIp = contact.SourceIp,
             SourceUrl = IpDrilldownUrl(contact.DestIp),
             Context = device.WithContext(new Dictionary<string, string>
