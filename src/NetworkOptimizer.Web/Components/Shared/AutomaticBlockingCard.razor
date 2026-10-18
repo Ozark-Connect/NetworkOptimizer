@@ -147,7 +147,7 @@
                             @view.List.Description
                             @if (!view.List.Outbound)
                             {
-                                <span> Blocked inbound only: these addresses often host legitimate sites too.</span>
+                                <span> <strong>Blocked inbound only:</strong> these addresses often host legitimate sites too.</span>
                             }
                             <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
