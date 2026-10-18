@@ -288,6 +288,25 @@ public class MacRestrictionRuleTests
     }
 
     [Theory]
+    [InlineData("US-16-XG", "11.0.5", "7.6.7")]           // never offers the lock
+    [InlineData("USW-Mission-Critical", "11.0.5", "7.6.7")]
+    [InlineData("US-8-60W", "11.0.5", "7.6.7")]
+    [InlineData("USW-Flex", "11.0.5", "7.6.6.17900")]      // Flex firmware before 7.6.7
+    [InlineData("USW-Flex", "10.6.106", "7.6.7")]          // Flex support needs UniFi Network 11
+    public void Evaluate_UniFiDeviceOnSwitchModelWithoutTheLock_ReturnsPlainMacCopy(string modelName, string appVersion, string firmware)
+    {
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedClient: ProtectClient(), firmwareVersion: firmware, modelName: modelName);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("MAC-RESTRICT-001");
+        result.Message.Should().Be(ActiveMessageFor(appVersion));
+        result.RecommendedAction.Should().NotContain("Lock Port to UniFi Device");
+    }
+
+    [Theory]
     [InlineData("uxg", "6.0.5.35344")]
     [InlineData("uap", "8.8.8.20113")]
     public void Evaluate_UniFiDeviceOnGatewayOrApPort_ReturnsPlainMacCopy(string switchType, string firmware)
@@ -731,11 +750,13 @@ public class MacRestrictionRuleTests
         UniFiClientResponse? connectedClient = null,
         string? firmwareVersion = null,
         string[]? seenMacs = null,
-        string? switchType = "usw")
+        string? switchType = "usw",
+        string? modelName = null)
     {
         var switchInfo = new SwitchInfo
         {
             Name = switchName,
+            ModelName = modelName,
             Type = switchType,
             FirmwareVersion = firmwareVersion,
             Capabilities = new SwitchCapabilities

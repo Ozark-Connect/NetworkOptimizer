@@ -140,19 +140,21 @@ public abstract class AuditRuleBase : IAuditRule
     protected bool UsesPortSecurityNames => PortLockSupport.UsesPortSecurityNames(NetworkApplicationVersion);
 
     /// <summary>
-    /// Whether this port could ever take Lock Port to UniFi Device: it is on a UniFi switch and is not a LAG.
-    /// Independent of versions, so copy can tell "upgrade to get it" from "never offered here".
+    /// Whether this port could ever take Lock Port to UniFi Device: it is on a UniFi switch model that offers
+    /// the lock and is not a LAG. Independent of versions, so copy can tell "upgrade to get it" from "never offered here".
     /// </summary>
     protected static bool CanPortEverLock(PortInfo port) =>
-        PortLockSupport.SupportsDeviceType(port.Switch.Type) && !port.IsLagParent;
+        PortLockSupport.SupportsDeviceType(port.Switch.Type) &&
+        PortLockSupport.SupportsModel(port.Switch.ModelName) &&
+        !port.IsLagParent;
 
     /// <summary>
     /// Whether the port is on a UniFi switch and the application and switch firmware both meet the
-    /// minimum versions for Lock Port to UniFi Device.
+    /// minimum versions for Lock Port to UniFi Device on that switch model.
     /// </summary>
     protected bool IsPortLockSupported(PortInfo port) =>
         PortLockSupport.SupportsDeviceType(port.Switch.Type) &&
-        PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion);
+        PortLockSupport.IsAvailable(NetworkApplicationVersion, port.Switch.FirmwareVersion, port.Switch.ModelName);
 
     /// <summary>
     /// Whether an assigned Port Profile stops this port from taking the lock.
