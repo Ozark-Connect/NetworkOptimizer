@@ -45,7 +45,7 @@
       "selector": "[data-tour=\"wan-flood-protection\"]",
       "title": "WAN Flood Protection",
       "listLabel": "Stop a flood from freezing the gateway",
-      "body": "A flood aimed at your WAN address can max out one of the gateway's cores far below your line rate, stalling everything that shares it. UniFi has no rate limit for traffic to the gateway itself, and its IPS never sees it. The gateway's **On-Site Agent** limits new connections per source, then drops a flood's source before it reaches Smart Queues.\n\nReplies to anything your network opened are never counted. **Turn On Recommended** includes it, or start in **Detection Only** to see what it would drop.",
+      "body": "A flood aimed at your WAN address can overload the gateway far below your line rate: internet latency jumps to seconds, packets drop, and the UniFi Network console slows to a crawl. UniFi has no rate limit for traffic to the gateway itself, and its IPS never sees it. The gateway's **On-Site Agent** limits new connections per source, then drops a flood's source before it reaches Smart Queues.\n\nReplies to anything your network opened are never counted. **Turn On Recommended** includes it, or start in **Detection Only** to see what it would drop.",
       "placement": "top",
       "optional": true
     },
