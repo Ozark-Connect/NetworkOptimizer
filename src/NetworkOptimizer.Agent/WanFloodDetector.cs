@@ -32,6 +32,9 @@ public sealed class WanFloodDetector
     private DateTime _lastCounterAt = DateTime.MinValue;
     private long? _lastUnsolicitedTotal;
     private double _unsolicitedPps;
+    private long? _lastShaperTotal;
+    private double _shaperDropsPps;
+    private string? _triggerReason;
     private HashSet<int> _receiveCpus = [];
     private DateTime _receiveCpusAt = DateTime.MinValue;
 
@@ -115,7 +118,11 @@ public sealed class WanFloodDetector
         }
 
         var trigger = _trigger.Evaluate(t, _receiveCpus);
-        if (trigger.Suspected) _lastTriggerAt = now;
+        if (trigger.Suspected)
+        {
+            _lastTriggerAt = now;
+            _triggerReason = trigger.Reason;
+        }
 
         if (_incident == null && (trigger.Suspected || _conntrackPressure))
             BeginIncident(now, trigger.Suspected ? "flood" : "conntrack");
@@ -174,7 +181,7 @@ public sealed class WanFloodDetector
                 dropped[i] = Math.Max(0, softnet[i].Dropped - _lastSoftnet[i].Dropped);
                 squeezed[i] = Math.Max(0, softnet[i].TimeSqueeze - _lastSoftnet[i].TimeSqueeze);
             }
-            sample = new LoadSample(now, softirq, dropped, squeezed, _unsolicitedPps);
+            sample = new LoadSample(now, softirq, dropped, squeezed, _unsolicitedPps, _shaperDropsPps);
         }
         _lastCpu = cpu;
         _lastSoftnet = softnet;
@@ -236,12 +243,21 @@ public sealed class WanFloodDetector
             l3 += WanFloodParsers.DropPackets(WanFloodParsers.ParseSaveCounters(mangle.Stdout, WanFloodRules.ForwardChain));
         }
         total += l1;
-        // A decrease is a reset (a firewall provision or a chain rewrite): skip that interval.
-        if (_lastUnsolicitedTotal is { } last && total >= last && _lastCounterAt != DateTime.MinValue)
-            _unsolicitedPps = (total - last) / Math.Max(1, (now - _lastCounterAt).TotalSeconds);
-        else
-            _unsolicitedPps = 0;
+        // The Smart Queues ingress shaper's loss, from each WAN's IFB (absent on a WAN without Smart Queues).
+        long shaper = 0;
+        foreach (var wan in _guard.Wans)
+        {
+            var qdisc = WanFloodGuard.Run("tc", ["-s", "qdisc", "show", "dev", "ifb" + wan], null);
+            if (qdisc.Exit == 0) shaper += WanFloodParsers.ParseLeafQdiscDrops(qdisc.Stdout);
+        }
+        var elapsed = Math.Max(1, (now - _lastCounterAt).TotalSeconds);
+        // A decrease is a reset (a firewall provision, a chain rewrite, a Smart Queues re-provision): skip that interval.
+        _unsolicitedPps = _lastUnsolicitedTotal is { } last && total >= last && _lastCounterAt != DateTime.MinValue
+            ? (total - last) / elapsed : 0;
+        _shaperDropsPps = _lastShaperTotal is { } lastShaper && shaper >= lastShaper && _lastCounterAt != DateTime.MinValue
+            ? (shaper - lastShaper) / elapsed : 0;
         _lastUnsolicitedTotal = total;
+        _lastShaperTotal = shaper;
         _lastCounterAt = now;
         Counters = Counters with { L1 = l1, L3 = l3, WanLocal = wanLocal };
     }
@@ -466,8 +482,15 @@ public sealed class WanFloodDetector
         _nextAttribution = now + AttributionSettle;
         if (_guard.Detecting) _guard.SetAttribution(true, _conntrackPressure);
         SetState("suspected");
+        var why = _triggerReason switch
+        {
+            "rate" => ", sustained unsolicited drops",
+            "shaper" => ", ingress shaper dropping",
+            "cpu" => ", receive core overloaded",
+            _ => "",
+        };
         Console.WriteLine($"WAN flood protection: {(kind == "conntrack" ? "conntrack pressure" : "flood suspected")} "
-            + $"({_unsolicitedPps:0} unsolicited/s)");
+            + $"({_unsolicitedPps:0} unsolicited/s{why})");
         SendIncident("start");
     }
 

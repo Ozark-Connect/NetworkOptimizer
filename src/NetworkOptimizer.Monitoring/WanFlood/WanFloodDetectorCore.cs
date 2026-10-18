@@ -7,6 +7,11 @@ public sealed record FloodThresholds
     public int SoftirqPercent { get; init; } = 85;
     /// <summary>Unsolicited new connections per second (dropped, never confirmed) that make it a flood.</summary>
     public int UnsolicitedPps { get; init; } = 5000;
+    /// <summary>
+    /// Unsolicited new connections per second that are a flood on their own, with no core overloaded: the
+    /// per-source limit keeps a single source under a core's ceiling, so the CPU path alone rarely fires.
+    /// </summary>
+    public int SustainedUnsolicitedPps { get; init; } = 20000;
     /// <summary>Least share of the unsolicited drops a source must carry to be dropped.</summary>
     public double MinShare { get; init; } = 0.10;
     /// <summary>Least share a single destination port must carry for the no-dominant-source path.</summary>
@@ -23,15 +28,25 @@ public sealed record LoadSample(
     IReadOnlyDictionary<int, double> SoftirqPercent,
     IReadOnlyDictionary<int, long> DroppedDelta,
     IReadOnlyDictionary<int, long> SqueezeDelta,
-    double UnsolicitedPps);
-
-/// <summary>Whether the receive path is under a flood right now, and on which CPU.</summary>
-public readonly record struct TriggerResult(bool Suspected, int HotCpu, double PeakSoftirq);
+    double UnsolicitedPps,
+    double ShaperDropsPps = 0);
 
 /// <summary>
-/// The flood trigger over the last five one-second samples: one receive CPU overloaded in three of them,
-/// that CPU falling behind (backlog drops, or squeezes in three samples), and enough unsolicited new
-/// connections. A large download can load a CPU but carries no unsolicited packets, so it never triggers.
+/// Whether the receive path is under a flood right now: which path fired ("cpu", "rate", or "shaper"), and the
+/// hottest receive CPU.
+/// </summary>
+public readonly record struct TriggerResult(bool Suspected, int HotCpu, double PeakSoftirq, string? Reason = null);
+
+/// <summary>
+/// The flood trigger over the last five one-second samples. Any of three paths fires it, and every one needs
+/// unsolicited new connections, which a large download or speed test never makes:
+/// <list type="bullet">
+/// <item>cpu: one receive CPU overloaded in three samples and falling behind (backlog drops, or squeezes in three),
+/// with unsolicited connections over <see cref="FloodThresholds.UnsolicitedPps"/>;</item>
+/// <item>rate: unsolicited connections over <see cref="FloodThresholds.SustainedUnsolicitedPps"/> in all five;</item>
+/// <item>shaper: the Smart Queues ingress shaper dropping in three samples while unsolicited connections are over
+/// <see cref="FloodThresholds.UnsolicitedPps"/>. Shaper loss alone is a saturating download, never a flood.</item>
+/// </list>
 /// </summary>
 public sealed class FloodTrigger
 {
@@ -61,9 +76,16 @@ public sealed class FloodTrigger
             var squeezed = _samples.Count(s => s.SqueezeDelta.GetValueOrDefault(cpu) > 0) >= Needed;
             var peak = _samples.Max(s => s.SoftirqPercent.GetValueOrDefault(cpu));
             if (loaded >= Needed && (dropped || squeezed) && peak > best.PeakSoftirq)
-                best = new TriggerResult(true, cpu, peak);
+                best = new TriggerResult(true, cpu, peak, "cpu");
         }
-        return best.Suspected && latest.UnsolicitedPps >= t.UnsolicitedPps ? best : best with { Suspected = false };
+        if (best.Suspected && latest.UnsolicitedPps >= t.UnsolicitedPps) return best;
+
+        var (hot, hotPct) = Hottest(receiveCpus);
+        if (_samples.Count == Window && _samples.All(s => s.UnsolicitedPps >= t.SustainedUnsolicitedPps))
+            return new TriggerResult(true, hot, hotPct, "rate");
+        if (latest.UnsolicitedPps >= t.UnsolicitedPps && _samples.Count(s => s.ShaperDropsPps > 0) >= Needed)
+            return new TriggerResult(true, hot, hotPct, "shaper");
+        return best with { Suspected = false };
     }
 
     /// <summary>The highest softirq share of any CPU in the window, for incident reports.</summary>

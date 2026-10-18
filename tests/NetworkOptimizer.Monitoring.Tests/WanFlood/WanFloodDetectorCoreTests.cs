@@ -64,6 +64,54 @@ public class WanFloodDetectorCoreTests
         t.Evaluate(T, new HashSet<int>()).Suspected.Should().BeTrue();
     }
 
+    // Live finding: the per-source limit holds a single source at 40-62% of one core, and a multi-source flood
+    // spreads to ~40% per core while losing packets at the ingress shaper. Neither reaches the CPU path.
+    private static LoadSample Spread(int second, double unsolicited, double shaperDrops = 0) => new(
+        DateTime.UnixEpoch.AddSeconds(second),
+        new Dictionary<int, double> { [1] = 36, [2] = 42, [3] = 39 },
+        new Dictionary<int, long>(),
+        new Dictionary<int, long>(),
+        unsolicited,
+        shaperDrops);
+
+    [Fact]
+    public void SustainedUnsolicitedDrops_TriggerWithNoCoreOverloaded()
+    {
+        var t = Feed(Spread(0, 65000), Spread(1, 65000), Spread(2, 65000), Spread(3, 65000), Spread(4, 65000));
+        var r = t.Evaluate(T, Rps);
+        r.Suspected.Should().BeTrue();
+        r.Reason.Should().Be("rate");
+        r.HotCpu.Should().Be(2);
+    }
+
+    [Fact]
+    public void ShortUnsolicitedSpike_DoesNotTrigger()
+    {
+        var t = Feed(Spread(0, 200), Spread(1, 65000), Spread(2, 65000), Spread(3, 65000), Spread(4, 65000));
+        t.Evaluate(T, Rps).Suspected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShaperLossWithUnsolicitedDrops_Triggers()
+    {
+        var t = Feed(Spread(0, 9000, 30000), Spread(1, 9000, 30000), Spread(2, 9000, 30000));
+        var r = t.Evaluate(T, Rps);
+        r.Suspected.Should().BeTrue();
+        r.Reason.Should().Be("shaper");
+    }
+
+    [Fact]
+    public void ShaperLossFromADownload_NeverTriggers()
+    {
+        // A saturating download makes fq_codel drop by design but carries no unsolicited connections.
+        var t = Feed(Spread(0, 30, 5000), Spread(1, 30, 5000), Spread(2, 30, 5000), Spread(3, 30, 5000), Spread(4, 30, 5000));
+        t.Evaluate(T, Rps).Suspected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CpuPath_StillReportsItsReason() =>
+        Feed(Sample(0, 97, 100, 30000), Sample(1, 98, 200, 30000), Sample(2, 96, 0, 30000)).Evaluate(T, Rps).Reason.Should().Be("cpu");
+
     [Fact]
     public void Attribution_ByShareOfUnsolicitedDrops_NeverByRate()
     {

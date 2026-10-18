@@ -172,6 +172,29 @@ public static partial class WanFloodParsers
     public static long ParseTcFilterPackets(string text) =>
         TcSent().Matches(text).Sum(m => long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
 
+    /// <summary>
+    /// Packets dropped by a device's leaf qdiscs (<c>tc -s qdisc show dev ifbX</c>), summed: the Smart Queues ingress
+    /// shaper's loss. Classful parents (htb, hfsc, prio) are skipped so a drop is not counted twice.
+    /// </summary>
+    public static long ParseLeafQdiscDrops(string text)
+    {
+        long total = 0;
+        string? kind = null;
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("qdisc ", StringComparison.Ordinal))
+            {
+                kind = line.Split(' ', StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1);
+                continue;
+            }
+            if (kind is null or "htb" or "hfsc" or "prio" or "ingress" or "clsact") continue;
+            if (QdiscDropped().Match(line) is { Success: true } m)
+                total += long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+        }
+        return total;
+    }
+
     /// <summary>The priorities of the filters on a qdisc (<c>tc filter show dev X parent ffff:</c>).</summary>
     public static HashSet<int> ParseTcPrefs(string text) =>
         TcPref().Matches(text).Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToHashSet();
@@ -318,6 +341,9 @@ public static partial class WanFloodParsers
 
     [GeneratedRegex(@"-j (\S+)")]
     private static partial Regex SaveTarget();
+
+    [GeneratedRegex(@"Sent \d+ bytes \d+ pkt \(dropped (\d+)")]
+    private static partial Regex QdiscDropped();
 
     [GeneratedRegex(@"Sent \d+ bytes (\d+) pkt")]
     private static partial Regex TcSent();

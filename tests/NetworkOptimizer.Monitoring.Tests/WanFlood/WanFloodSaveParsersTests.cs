@@ -45,6 +45,21 @@ public class WanFloodSaveParsersTests
     }
 
     [Fact]
+    public void ShaperDrops_LeafQdiscsOnly()
+    {
+        const string text =
+            "qdisc htb 1: root refcnt 2 r2q 10 default 0x2 direct_packets_stat 0 direct_qlen 1000\n" +
+            " Sent 9000000 bytes 7000 pkt (dropped 147000, overlimits 0 requeues 0)\n" +
+            "qdisc fq_codel 2: parent 1:2 limit 2000p flows 1024 quantum 1514 target 5ms interval 100ms\n" +
+            " Sent 5000000 bytes 4000 pkt (dropped 100000, overlimits 0 requeues 0)\n" +
+            "qdisc fq_codel 4: parent 1:4 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms\n" +
+            " Sent 4000000 bytes 3000 pkt (dropped 47000, overlimits 0 requeues 0)\n";
+        // The htb root's 147000 is the same drops again; only the fq_codel leaves count.
+        WanFloodParsers.ParseLeafQdiscDrops(text).Should().Be(147000);
+        WanFloodParsers.ParseLeafQdiscDrops("").Should().Be(0);
+    }
+
+    [Fact]
     public void ConntrackSessions_OnePassForEveryKey()
     {
         const string text =
