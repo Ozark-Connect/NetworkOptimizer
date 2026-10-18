@@ -8,6 +8,34 @@ namespace NetworkOptimizer.Web.Tests;
 
 public class WanSteerDeploymentServiceTests
 {
+    public class BuildUnsupportedRatioErrorTests
+    {
+        [Fact]
+        public void No_backend_with_weighted_rules_names_them()
+        {
+            var error = WanSteerDeploymentService.BuildUnsupportedRatioError("none\n", ["Steam", "Backups"]);
+
+            error.Should().NotBeNull();
+            error.Should().Contain("Steam, Backups");
+        }
+
+        [Theory]
+        [InlineData("statistic")]
+        [InlineData("dyn_random")]
+        [InlineData(null)] // a binary that predates -probe, or a failed SSH call
+        [InlineData("")]
+        public void Supported_or_unknown_backend_allows_deploy(string? probeOutput)
+        {
+            WanSteerDeploymentService.BuildUnsupportedRatioError(probeOutput, ["Steam"]).Should().BeNull();
+        }
+
+        [Fact]
+        public void No_weighted_rules_allows_deploy_on_any_gateway()
+        {
+            WanSteerDeploymentService.BuildUnsupportedRatioError("none", []).Should().BeNull();
+        }
+    }
+
     public class ParseIpRulesTests
     {
         [Fact]
