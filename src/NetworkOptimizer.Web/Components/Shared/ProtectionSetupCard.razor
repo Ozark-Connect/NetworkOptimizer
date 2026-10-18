@@ -1,5 +1,8 @@
 @using NetworkOptimizer.Threats.Blocking
+@using NetworkOptimizer.Threats.WanFlood
+@using NetworkOptimizer.Web.Services.WanFlood
 @inject IThreatBlockingAdmin Blocking
+@inject IWanFloodAdmin WanFlood
 @inject IWafConnectionAdmin WafAdmin
 @inject NavigationManager Nav
 
@@ -94,6 +97,18 @@
                             @GatewayText
                         </span>
                     </li>
+                    @if (_flood != null)
+                    {
+                        <li class="@StepClass(_flood.Settings.Mode == WanFloodMode.Enforce && _flood.AgentCapable, optional: true)">
+                            <span class="protection-step-text">@FloodText</span>
+                            @if (_flood.Settings.Mode != WanFloodMode.Enforce)
+                            {
+                                <SiteAdminOnly>
+                                    <a class="btn btn-sm btn-contrast" href="/settings#wan-flood-protection">Set Up</a>
+                                </SiteAdminOnly>
+                            }
+                        </li>
+                    }
                 </ul>
                 <p class="form-help protection-optional">
                     Optional: <a href="/settings#automatic-blocking">Cloudflare edge blocking</a>@(_status.CloudflareSetUp ? " (set up)" : "")
@@ -119,7 +134,30 @@
     private string? _message;
     private string _messageClass = "info";
 
-    protected override async Task OnInitializedAsync() => _status = await Blocking.GetProtectionStatusAsync();
+    private WanFloodOverview? _flood;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await Blocking.GetProtectionStatusAsync();
+        try
+        {
+            _flood = await WanFlood.GetOverviewAsync();
+        }
+        catch (Exception)
+        {
+            // Optional step: without it the checklist reads as before.
+            _flood = null;
+        }
+    }
+
+    // Optional, like the WAF: not counted in the four steps, so sites that finished the setup keep it folded.
+    private string FloodText => (_flood!.Settings.Mode, _flood.AgentCapable) switch
+    {
+        (WanFloodMode.Enforce, true) => "WAN Flood Protection on, enforced by the gateway's On-Site Agent",
+        (WanFloodMode.Detect, true) => "WAN Flood Protection in Detection Only. Review what it would drop on the Blocking tab, then turn it on.",
+        (not WanFloodMode.Off, false) => "WAN Flood Protection is on, but no On-Site Agent on the gateway is connected to enforce it",
+        _ => "WAN Flood Protection (optional): keeps floods of unsolicited traffic from overloading the gateway. Needs the On-Site Agent on the gateway.",
+    };
 
     // The four steps the recommended setup needs; the WAF is optional and not counted.
     private int Done => new[]

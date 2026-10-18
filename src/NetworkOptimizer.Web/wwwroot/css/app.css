@@ -7371,13 +7371,15 @@ a.path-hop.hop-clickable:hover {
 
 /* Settings - Automatic Blocking: divided sections like .audit-options, one target per block */
 .automatic-blocking .ab-section,
-.trusted-sources .ab-section {
+.trusted-sources .ab-section,
+.wan-flood .ab-section {
     border-top: 1px solid var(--border-color);
     padding-top: 1.25rem;
 }
 
 .automatic-blocking .ab-section-title,
-.trusted-sources .ab-section-title {
+.trusted-sources .ab-section-title,
+.wan-flood .ab-section-title {
     font-size: 1rem;
     margin: 0 0 1rem;
 }
@@ -7402,7 +7404,8 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* The card's Save, set off from the last target's own buttons like a section. */
-.automatic-blocking .ab-save {
+.automatic-blocking .ab-save,
+.wan-flood .ab-save {
     border-top: 1px solid var(--border-color);
     padding-top: 1.25rem;
 }
@@ -7665,13 +7668,15 @@ a.path-hop.hop-clickable:hover {
     color: var(--warning-color);
 }
 
-.automatic-blocking .form-row {
+.automatic-blocking .form-row,
+.wan-flood .form-row {
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
 }
 
-.automatic-blocking .form-row > .form-group {
+.automatic-blocking .form-row > .form-group,
+.wan-flood .form-row > .form-group {
     flex: 1 1 180px;
     min-width: 0;
 }
@@ -7836,7 +7841,23 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Threat Intelligence - Blocked Sources */
-.blocked-sources .blocked-sources-subtitle {
+/* Threat Intelligence - Blocking: WAN Flood Protection's status, label over value */
+.wan-flood-status .wan-flood-detail {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem 1.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.wan-flood-status .wan-flood-detail > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.blocked-sources .blocked-sources-subtitle,
+.wan-flood-status .wan-flood-subtitle {
     font-size: 0.95rem;
     margin: 1.5rem 0 0.75rem;
 }
@@ -7862,12 +7883,14 @@ a.path-hop.hop-clickable:hover {
 }
 
 @media (max-width: 768px) {
-    .automatic-blocking .form-row {
+    .automatic-blocking .form-row,
+    .wan-flood .form-row {
         flex-direction: column;
         gap: 0;
     }
 
-    .automatic-blocking .form-row > .form-group {
+    .automatic-blocking .form-row > .form-group,
+    .wan-flood .form-row > .form-group {
         flex: 0 0 auto;
     }
 }

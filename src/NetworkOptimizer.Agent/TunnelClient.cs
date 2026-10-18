@@ -73,6 +73,9 @@ public sealed class TunnelClient
     /// <summary>Invoked whenever the server pushes the gateway blocklist.</summary>
     public Action<GatewayBlocklistSet>? OnGatewayBlocklist { get; set; }
 
+    /// <summary>Invoked whenever the server pushes the WAN Flood Protection config.</summary>
+    public Action<WanFloodConfig>? OnWanFloodConfig { get; set; }
+
     /// <summary>Server pushes the WAN speed-test server list for the /wan/ redirect router.</summary>
     public Action<WanSpeedTestConfig>? OnWanSpeedTestConfig { get; set; }
 
@@ -238,6 +241,9 @@ public sealed class TunnelClient
                         break;
                     case ServerMessage.PayloadOneofCase.GatewayBlocklist:
                         OnGatewayBlocklist?.Invoke(message.GatewayBlocklist);
+                        break;
+                    case ServerMessage.PayloadOneofCase.WanFloodConfig:
+                        OnWanFloodConfig?.Invoke(message.WanFloodConfig);
                         break;
                     case ServerMessage.PayloadOneofCase.WanSpeedtestConfig:
                         OnWanSpeedTestConfig?.Invoke(message.WanSpeedtestConfig);

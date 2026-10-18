@@ -5,9 +5,9 @@ namespace NetworkOptimizer.Agent;
 
 /// <summary>
 /// Reports devices that tried to reach an outbound-blocked address. The enforcer's LOG rule writes each
-/// drop (rate limited) to the kernel log; this follows it through journalctl and sends one summary a
-/// minute, per device, address, and port. The drops happen ahead of UniFi Network's rules, so nothing
-/// else records them.
+/// drop (rate limited) to the kernel log; this reads it from the shared <see cref="KernelLogFollower"/> and
+/// sends one summary a minute, per device, address, and port. The drops happen ahead of UniFi Network's
+/// rules, so nothing else records them.
 /// </summary>
 public sealed class GatewayBlocklistHitReporter
 {
@@ -20,45 +20,14 @@ public sealed class GatewayBlocklistHitReporter
     /// <summary>Live path: the current tunnel's TrySend. Null drops the summary.</summary>
     public volatile Func<AgentMessage, bool>? LiveSend;
 
-    public Task RunAsync(CancellationToken ct) => Task.WhenAll(
-        Task.Factory.StartNew(() => Follow(ct), ct, TaskCreationOptions.LongRunning, TaskScheduler.Default),
-        FlushLoopAsync(ct));
-
-    private void Follow(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested)
+    public GatewayBlocklistHitReporter(KernelLogFollower kernelLog) =>
+        kernelLog.Subscribe(line =>
         {
-            try
-            {
-                var psi = new ProcessStartInfo("journalctl", "-k -f -n 0 -o cat")
-                {
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                };
-                using var process = Process.Start(psi);
-                if (process == null) return;
-                using var stop = ct.Register(() => { try { process.Kill(); } catch (InvalidOperationException) { } });
-                string? line;
-                while ((line = process.StandardOutput.ReadLine()) != null)
-                {
-                    if (GatewayDropLog.Parse(line, GatewayBlocklistEnforcer.OutLogPrefix) is { } drop)
-                        Record(drop);
-                }
-            }
-            catch (System.ComponentModel.Win32Exception)
-            {
-                Console.Error.WriteLine("Gateway blocklist: journalctl not found, outbound drops will not be reported");
-                return;
-            }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
-            {
-                Console.Error.WriteLine($"Gateway blocklist: kernel log follow failed ({ex.Message}), retrying");
-            }
-            // journalctl exited (journald restart); start it again after a pause.
-            ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(10));
-        }
-    }
+            if (GatewayDropLog.Parse(line, GatewayBlocklistEnforcer.OutLogPrefix) is { } drop)
+                Record(drop);
+        });
+
+    public Task RunAsync(CancellationToken ct) => FlushLoopAsync(ct);
 
     // The neighbor table (both families), read only when a summary has hits to send.
     private static Dictionary<string, string> Neighbors()

@@ -295,6 +295,12 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["netopt-waf", "networkoptimizer-proxy", "waf url", "api token", "web attacks", "sql injection",
              "test connection", "on-site agent", "per site"]),
 
+        Entry("security", "Security & Alerts", "wan-flood-protection",
+            "WAN Flood Protection",
+            ["DDoS", "flood protection", "UDP flood", "SYN flood", "rate limit", "dos protection"],
+            ["detection only", "protecting", "per source", "new connections", "burst",
+             "connection table", "conntrack", "drop", "test drop", "smart queues", "never limit or drop", "on-site agent"]),
+
         // Per site: every site has its own gateway and may have its own Cloudflare account.
         Entry("security", "Security & Alerts", "automatic-blocking",
             "Automatic Blocking",

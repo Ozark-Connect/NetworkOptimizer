@@ -146,6 +146,18 @@ public static class AuditActions
     /// <summary>A blocking target's console objects were removed.</summary>
     public const string ThreatBlockingTargetRemoved = "threat_block.target.removed";
 
+    // Threat Intelligence - WAN Flood Protection
+    /// <summary>The gateway agent dropped a flood source or port, or limited a port. System actor.</summary>
+    public const string WanFloodDropApplied = "wan_flood.drop.applied";
+    /// <summary>A drop or limit ended at its time to live. System actor.</summary>
+    public const string WanFloodDropExpired = "wan_flood.drop.expired";
+    /// <summary>A user ended a drop or limit early.</summary>
+    public const string WanFloodDropReleased = "wan_flood.drop.released";
+    /// <summary>The gateway agent put back rules a provision removed. System actor.</summary>
+    public const string WanFloodRulesReapplied = "wan_flood.rules.reapplied";
+    /// <summary>A per-source table filled and its rules were removed, or were restored. System actor.</summary>
+    public const string WanFloodTableFull = "wan_flood.table_full";
+
     // Device health checks
     public const string HealthCheckChanged = "health_check.changed";
     public const string HealthCheckTested = "health_check.tested";

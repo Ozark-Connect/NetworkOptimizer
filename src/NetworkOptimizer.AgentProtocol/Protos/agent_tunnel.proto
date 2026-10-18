@@ -30,9 +30,11 @@ message AgentMessage {
     UciInformFrame uci_inform_frame = 14;
     GatewayBlocklistStatus gateway_blocklist_status = 15;
     GatewayBlocklistHits gateway_blocklist_hits = 16;
+    WanFloodStatus wan_flood_status = 17;
+    WanFloodIncident wan_flood_incident = 18;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
-  // probe_results / snmp_results / aggregated conntrack_samples frames only
+  // probe_results / snmp_results / aggregated conntrack_samples / wan_flood_incident frames only
   // (live conntrack batches stay 0); 0 on control frames and on older
   // agents. The agent keeps the batch buffered until the server echoes this
   // number in a ResultAck (persisted), then trims it. Without this, a
@@ -59,6 +61,7 @@ message ServerMessage {
     ConntrackConfig conntrack_config = 13;
     UciCaptureConfig uci_capture_config = 14;
     GatewayBlocklistSet gateway_blocklist = 15;
+    WanFloodConfig wan_flood_config = 16;
   }
 }
 
@@ -545,4 +548,128 @@ message GatewayBlocklistStatus {
   int32 v4_entries = 4;
   int32 v6_entries = 5;
   string error = 6;
+}
+
+// ---- WAN Flood Protection (rate limits and reactive drops on the gateway's WAN) ----
+// An on-gateway agent with the "wan-flood" capability enforces the config: an always-on per-source limit
+// on new connections to the gateway, a per-forwarded-port limit, and, when its detector names an abusive
+// source or port, a tc drop on WAN ingress with a time to live. The server always sends the whole config;
+// the agent acks the fingerprint in WanFloodStatus.
+
+message WanFloodConfig {
+  bool enabled = 1;
+  // "enforce" drops; "detect" installs the same rules without a DROP target and never adds a tc drop.
+  string mode = 2;
+  // WAN netdevs (WanProfiles.DataPathInterface), as ConntrackConfig.
+  repeated string wan_ifnames = 3;
+  // New connections per second from one source, and the burst allowed above it.
+  int32 udp_new_per_source = 4;
+  int32 udp_new_burst = 5;
+  int32 syn_new_per_source = 6;
+  int32 syn_new_burst = 7;
+  // New connections per second to one port-forwarded (internal address, port), always on.
+  int32 forwarded_port_new = 8;
+  int32 forwarded_port_burst = 9;
+  // The tighter per-port limit armed while the conntrack table is under pressure.
+  int32 forwarded_port_capped = 10;
+  // Whether the detector may add tc drops and per-port limits at all.
+  bool reactive_drop = 11;
+  int32 drop_ttl_seconds = 12;
+  int32 max_drop_ttl_seconds = 13;
+  // Addresses or CIDRs never limited or dropped.
+  repeated string never_drop = 14;
+  // Active drops to remove now; each is not re-added for drop_ttl_seconds.
+  repeated WanFloodRelease releases = 15;
+  string fingerprint = 16;
+  WanFloodThresholds thresholds = 17;
+  // Holds a tc drop for a documentation address (198.51.100.1, UDP port 9) on every WAN, so a Smart
+  // Queues re-provision has a filter to remove and the re-check can be seen putting it back.
+  bool test_drop = 18;
+}
+
+message WanFloodThresholds {
+  int32 softirq_percent = 1;
+  int32 unsolicited_pps = 2;
+  int32 attribution_pps = 3;
+  int32 conntrack_fill_percent = 4;
+  int32 conntrack_clear_percent = 5;
+}
+
+message WanFloodRelease {
+  string wan = 1;
+  // "udp" or "tcp".
+  string protocol = 2;
+  // Empty for a port-only drop.
+  string source = 3;
+  int32 port = 4;
+  string kind = 5;
+}
+
+message WanFloodStatus {
+  string fingerprint = 1;
+  bool ok = 2;
+  string error = 3;
+  repeated WanFloodWanStatus wans = 4;
+  // Active tc drops and armed per-port limits.
+  repeated WanFloodDrop drops = 5;
+  // What the last re-check repaired: "", "chain", "jump", "tc", or "qdisc".
+  string reapplied = 6;
+  // "idle", "suspected", "mitigating", or "cooling".
+  string state = 7;
+  int32 conntrack_count = 8;
+  int32 conntrack_max = 9;
+  // A hashlimit table hit its maximum; the per-source rules are removed until it drains.
+  bool table_full = 10;
+}
+
+message WanFloodWanStatus {
+  string wan = 1;
+  // The PREROUTING and FORWARD jumps for this WAN, both families.
+  bool hooks_present = 2;
+  // UniFi's WAN ingress qdisc (Smart Queues) is present.
+  bool smart_queues = 3;
+  // UniFi's redirect to the Smart Queues IFB (filter pref 49152) is present.
+  bool sq_redirect_present = 4;
+  // UniFi's WAN-local drop counter is readable.
+  bool wan_local_counter = 5;
+  int64 l1_dropped_packets = 6;
+  int64 l3_dropped_packets = 7;
+}
+
+message WanFloodDrop {
+  string wan = 1;
+  // "tc-source", "tc-port", "port-limit", or "forward-cap".
+  string kind = 2;
+  string protocol = 3;
+  string source = 4;
+  string destination = 5;
+  int32 port = 6;
+  int64 applied_unix_ms = 7;
+  int64 expires_unix_ms = 8;
+  int64 packets = 9;
+  // The share of unsolicited drops that justified it, 0 to 1.
+  double share = 10;
+  // Detect mode: what would have been installed.
+  bool would_drop = 11;
+}
+
+// One per episode change (start, action change, end). Store-and-forward: carries AgentMessage.sequence
+// and is trimmed only after the server's ResultAck, so an episode during a tunnel drop is not lost.
+message WanFloodIncident {
+  string incident_id = 1;
+  // "start", "update", or "end".
+  string phase = 2;
+  string wan = 3;
+  // "flood" until attributed, then "udp" or "syn"; "conntrack" for conntrack table pressure.
+  string kind = 4;
+  int64 started_unix_ms = 5;
+  int64 ended_unix_ms = 6;
+  int32 peak_unsolicited_pps = 7;
+  int32 peak_softirq_percent = 8;
+  int32 hot_cpu = 9;
+  int64 softnet_dropped = 10;
+  int32 peak_conntrack_percent = 11;
+  repeated WanFloodDrop actions = 12;
+  bool table_full = 13;
+  string mode = 14;
 }
