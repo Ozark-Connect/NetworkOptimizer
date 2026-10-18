@@ -36,6 +36,9 @@ public sealed class WanFloodGuard
     // Applied state, under _mutate.
     private WanFloodConfig? _config;
     private bool _perSource = true;
+    private bool _forwardLimits = true;
+    // Measurement filters in flight (MeasureAsync releases the lock while it waits); the orphan sweep leaves them.
+    private readonly HashSet<(string Wan, int Pref)> _measuring = new();
     private bool _attribution;
     private bool _forwardAttribution;
     private readonly List<ActiveDrop> _drops = new();
@@ -96,11 +99,13 @@ public sealed class WanFloodGuard
         }
     }
 
-    // Runs each kernel feature once; returns the step that failed, or null when all pass. Cleanup in finally
-    // removes everything whether a step failed or not.
+    // Runs each kernel feature once; returns the step that failed, or null when all pass. Cleanup runs first too,
+    // so a probe killed mid-run on the last start cannot make this one fail.
     private static string? Probe()
     {
-        var ownsDevice = false;
+        ProbeCleanup();
+        // Loading the dummy module can create dummy0 on its own; remove it only if it was not there before.
+        var hadDummy0 = Run("ip", ["link", "show", "dummy0"], null).Exit == 0;
         try
         {
             foreach (var tool in new[] { "iptables", "ip6tables" })
@@ -113,37 +118,42 @@ public sealed class WanFloodGuard
                     "--hashlimit-name", "nof_probe" };
                 if (Run(tool, rule, null).Exit != 0) return $"{tool} hashlimit/addrtype";
             }
-            if (Run("iptables-restore", ["--version"], null).Exit != 0) return "iptables-restore";
-            if (Run("ip6tables-restore", ["--version"], null).Exit != 0) return "ip6tables-restore";
+            foreach (var tool in new[] { "iptables-restore", "ip6tables-restore", "iptables-save", "ip6tables-save" })
+                if (Run(tool, ["--version"], null).Exit != 0) return tool;
             if (Run("ipset", ["create", ProbeSet, "hash:net", "-exist"], null).Exit != 0) return "ipset";
 
-            // A dummy device, so the tc probe never touches a WAN netdev; lo as a fallback where dummy
-            // is unavailable (lo has no ingress qdisc of its own, so ours adds and removes cleanly).
-            var device = ProbeDevice;
-            if (Run("ip", ["link", "add", ProbeDevice, "type", "dummy"], null).Exit == 0) ownsDevice = true;
-            else device = "lo";
-            // On the lo fallback the qdisc may already exist; add only if it does not, and remove only ours.
+            // A dummy device, so the tc probe never touches a WAN netdev; lo as a fallback where dummy is unavailable.
+            var device = Run("ip", ["link", "add", ProbeDevice, "type", "dummy"], null).Exit == 0 ? ProbeDevice : "lo";
+            // On lo the qdisc and filters may already exist: add the qdisc only if absent, use a pref nobody holds,
+            // and remove only what was added.
             var hadQdisc = Run("tc", ["qdisc", "show", "dev", device, "ingress"], null).Stdout.Contains("ingress ffff:", StringComparison.Ordinal);
             if (!hadQdisc && Run("tc", ["qdisc", "add", "dev", device, "handle", "ffff:", "ingress"], null).Exit != 0) return "tc ingress qdisc";
+            var taken = hadQdisc ? WanFloodParsers.ParseTcPrefs(Run("tc", ["filter", "show", "dev", device, "parent", "ffff:"], null).Stdout) : [];
+            var pref = Enumerable.Range(1, WanFloodRules.MaxSlots).Select(WanFloodRules.DropPref).FirstOrDefault(p => !taken.Contains(p));
+            if (pref == 0) return "tc: no free probe priority";
             // TEST-NET-2 to itself, so even on lo the filter matches nothing. Proves cls_u32 + act_gact.
-            var filter = WanFloodRules.TcFilterAdd(device, WanFloodRules.DropPref(1),
-                "198.51.100.1", "198.51.100.1", "udp", 9, drop: true);
-            var ok = Run("tc", filter, null).Exit == 0;
-            if (hadQdisc) Run("tc", WanFloodRules.TcFilterDel(device, WanFloodRules.DropPref(1)), null);
+            var ok = Run("tc", WanFloodRules.TcFilterAdd(device, pref, "198.51.100.1", "198.51.100.1", "udp", 9, drop: true), null).Exit == 0;
+            if (hadQdisc) Run("tc", WanFloodRules.TcFilterDel(device, pref), null);
             else Run("tc", ["qdisc", "del", "dev", device, "ingress"], null);
-            if (!ok) return "tc u32/gact filter";
-            return null;
+            return ok ? null : "tc u32/gact filter";
         }
         finally
         {
-            foreach (var tool in new[] { "iptables", "ip6tables" })
-            {
-                Run(tool, ["-w", "-t", "mangle", "-F", ProbeChain], null);
-                Run(tool, ["-w", "-t", "mangle", "-X", ProbeChain], null);
-            }
-            Run("ipset", ["destroy", ProbeSet], null);
-            if (ownsDevice) Run("ip", ["link", "del", ProbeDevice], null);
+            ProbeCleanup();
+            if (!hadDummy0) Run("ip", ["link", "del", "dummy0"], null);
         }
+    }
+
+    // Everything the probe can create, by name; each removal is a no-op when it is already gone.
+    private static void ProbeCleanup()
+    {
+        foreach (var tool in new[] { "iptables", "ip6tables" })
+        {
+            Run(tool, ["-w", "-t", "mangle", "-F", ProbeChain], null);
+            Run(tool, ["-w", "-t", "mangle", "-X", ProbeChain], null);
+        }
+        Run("ipset", ["destroy", ProbeSet], null);
+        Run("ip", ["link", "del", ProbeDevice], null);
     }
 
     /// <summary>Takes the server's config; the worker applies the newest one.</summary>
@@ -185,11 +195,17 @@ public sealed class WanFloodGuard
 
     public bool PerSource { get { lock (_mutate) return _perSource; } }
 
+    public bool ForwardLimits { get { lock (_mutate) return _forwardLimits; } }
+
+    // The guard addresses as last filled into the guard sets. Read here instead of resolving the server's
+    // hostname per candidate: DNS over a flooded WAN is slow, and AddDrop asks while holding _mutate.
+    private volatile IReadOnlyList<string> _guardCache = [];
+
     /// <summary>The guard addresses (server, never-drop list) a candidate must not be.</summary>
     public bool IsGuarded(string address)
     {
         if (!IPAddress.TryParse(address, out var ip)) return true;
-        foreach (var entry in GuardEntries())
+        foreach (var entry in _guardCache)
         {
             if (IPNetwork.TryParse(entry, out var net) ? net.Contains(ip) : IPAddress.TryParse(entry, out var single) && single.Equals(ip))
                 return true;
@@ -242,7 +258,9 @@ public sealed class WanFloodGuard
                 try { Recheck(); }
                 catch (Exception ex) { Console.Error.WriteLine($"WAN flood protection: re-check failed: {ex.Message}"); }
             }
-            if (Enabled) ArmCleanup(DateTime.UtcNow);
+            // Outside the try above it would end this loop on a systemd-run failure; the rules would stay unwatched.
+            try { if (Enabled) ArmCleanup(DateTime.UtcNow); }
+            catch (Exception ex) { Console.Error.WriteLine($"WAN flood protection: cleanup timer failed: {ex.Message}"); }
         }
     }
 
@@ -280,7 +298,7 @@ public sealed class WanFloodGuard
                 _ownedQdiscs.Clear();
                 _knownWans.Clear();
                 _attribution = _forwardAttribution = false;
-                _perSource = true;
+                _perSource = _forwardLimits = true;
                 _written.Clear();
                 _error = null;
                 SaveCache();
@@ -331,8 +349,9 @@ public sealed class WanFloodGuard
             if (_config is not { Enabled: true }) return;
             var wans = Wans;
             var repaired = new List<string>();
-            if (EnsureChains(force: false)) repaired.Add("chain");
-            EnsureHooks(wans, out var inserted);
+            var saves = ReadMangle();
+            if (EnsureChains(force: false, saves)) repaired.Add("chain");
+            EnsureHooks(wans, out var inserted, saves);
             if (inserted > 0) repaired.Add("jump");
             if (RefreshWanIps(wans))
             {
@@ -380,6 +399,41 @@ public sealed class WanFloodGuard
         }
     }
 
+    /// <summary>Removes or restores the per-port-forward limit, whose full table drops new forwarded connections.</summary>
+    public void SetForwardLimits(bool on)
+    {
+        lock (_mutate)
+        {
+            if (_forwardLimits == on) return;
+            _forwardLimits = on;
+            EnsureChains(force: false);
+            Report(force: true);
+        }
+    }
+
+    /// <summary>The held port-only drops, for the detector to re-check that each port is still closed.</summary>
+    public List<FloodCandidate> PortDrops()
+    {
+        lock (_mutate)
+            return _drops.Where(d => d.Kind == "tc-port")
+                .Select(d => new FloodCandidate(d.Wan, null, d.Destination, d.Protocol, d.Port, 0)).ToList();
+    }
+
+    /// <summary>Removes a port-only drop whose port is no longer closed. Not a release: it may come back if the port closes.</summary>
+    public void RemovePortDrop(FloodCandidate c)
+    {
+        lock (_mutate)
+        {
+            foreach (var d in _drops.Where(d => d.Kind == "tc-port" && d.Wan == c.Wan && d.Protocol == c.Protocol && d.Port == c.Port).ToList())
+            {
+                Console.WriteLine($"WAN flood protection: {c.Protocol} port {c.Port} on {c.Wan} is in use now, removed its drop");
+                RemoveDrop(d);
+            }
+            SaveCache();
+            Report(force: true);
+        }
+    }
+
     /// <summary>
     /// Counts each candidate's packets at WAN ingress for <paramref name="window"/> with continue filters,
     /// which hand every packet on to UniFi's redirect untouched.
@@ -399,7 +453,10 @@ public sealed class WanFloodGuard
                 var pref = WanFloodRules.MeasurePref(slot);
                 Run("tc", WanFloodRules.TcFilterDel(c.Wan, pref), null);
                 if (Run("tc", WanFloodRules.TcFilterAdd(c.Wan, pref, c.Source, c.Destination, c.Protocol, c.Port, drop: false), null).Exit == 0)
+                {
                     placed.Add((c, pref));
+                    _measuring.Add((c.Wan, pref));
+                }
             }
         }
         try
@@ -416,6 +473,7 @@ public sealed class WanFloodGuard
                     var packets = WanFloodParsers.ParseTcFilterPackets(
                         Run("tc", ["-s", "filter", "show", "dev", c.Wan, "parent", "ffff:", "pref", pref.ToString()], null).Stdout);
                     Run("tc", WanFloodRules.TcFilterDel(c.Wan, pref), null);
+                    _measuring.Remove((c.Wan, pref));
                     placed[i] = (c with { Packets = packets }, pref);
                 }
                 foreach (var wan in placed.Select(p => p.Candidate.Wan).Distinct()) ReleaseIngressQdisc(wan);
@@ -494,13 +552,19 @@ public sealed class WanFloodGuard
         lock (_mutate)
         {
             var now = DateTime.UtcNow;
+            var extended = false;
             for (var i = 0; i < _limits.Count; i++)
             {
                 var l = _limits[i];
                 if ((l.Kind == "forward-cap") != forward) continue;
                 if (now - l.AppliedAt < MaxDropTtl && l.ExpiresAt - now < DropTtl / 2)
+                {
                     _limits[i] = l with { ExpiresAt = now + DropTtl };
+                    extended = true;
+                }
             }
+            // A restart keeps only what the cache says is unexpired, so an extension must reach it.
+            if (extended) SaveCache();
         }
     }
 
@@ -517,14 +581,34 @@ public sealed class WanFloodGuard
     // own printing of the chain. Comparing printed to printed needs no parsing of iptables' output format.
     private readonly Dictionary<string, (string Fingerprint, string Printed)> _written = new();
 
+    // One iptables-save of the mangle table per family. iptables-save takes no xtables lock, so the re-check
+    // never holds up a UniFi provision the way -S or -C (one lock and table copy each) would.
+    private static Dictionary<string, string> ReadMangle() => new()
+    {
+        ["iptables"] = Run("iptables-save", ["-t", "mangle"], null).Stdout,
+        ["ip6tables"] = Run("ip6tables-save", ["-t", "mangle"], null).Stdout,
+    };
+
+    // A chain's rules as iptables prints them, or null when the chain does not exist.
+    private static string? ChainLines(string save, string chain)
+    {
+        var lines = save.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        if (!lines.Contains($":{chain} - [0:0]") && !lines.Any(l => l.StartsWith($":{chain} ", StringComparison.Ordinal))) return null;
+        return string.Join('\n', lines.Where(l => l.StartsWith($"-A {chain} ", StringComparison.Ordinal)));
+    }
+
     // True when a chain had to be (re)written. The first call after a start always writes (no snapshot yet).
-    private bool EnsureChains(bool force)
+    private bool EnsureChains(bool force, Dictionary<string, string>? saves = null)
     {
         if (_config == null) return false;
         var limits = LimitsOf(_config);
         var state = new WanFloodRules.ChainState(_config.Mode == "enforce", _perSource, _attribution, _forwardAttribution,
             _limits.Where(l => l.Kind == "port-limit").Select(l => new WanFloodRules.PortLimit(l.Protocol, l.Port, PortLimitRate(l.Protocol, limits))).Distinct().ToList(),
-            _limits.Where(l => l.Kind == "forward-cap" && l.InternalIp != null).Select(l => new WanFloodRules.ForwardCap(l.Protocol, l.InternalIp!, l.Port)).Distinct().ToList());
+            _limits.Where(l => l.Kind == "forward-cap" && l.InternalIp != null).Select(l => new WanFloodRules.ForwardCap(l.Protocol, l.InternalIp!, l.Port)).Distinct().ToList())
+        {
+            ForwardLimits = _forwardLimits,
+        };
+        saves ??= ReadMangle();
         var rewrote = false;
         foreach (var (tool, restore, v6) in new[] { ("iptables", "iptables-restore", false), ("ip6tables", "ip6tables-restore", true) })
         {
@@ -536,12 +620,12 @@ public sealed class WanFloodGuard
             {
                 var key = $"{tool}|{chain}";
                 var fingerprint = WanFloodRules.Fingerprint(rules);
-                var current = Run(tool, ["-w", "-t", "mangle", "-S", chain], null);
-                if (!force && current.Exit == 0 && _written.TryGetValue(key, out var written)
-                    && written.Fingerprint == fingerprint && written.Printed == current.Stdout)
+                var current = ChainLines(saves[tool], chain);
+                if (!force && current != null && _written.TryGetValue(key, out var written)
+                    && written.Fingerprint == fingerprint && written.Printed == current)
                     continue;
                 Check(Run(restore, ["-w", "--noflush"], WanFloodRules.Restore(chain, rules)), $"{restore} {chain}");
-                _written[key] = (fingerprint, Run(tool, ["-w", "-t", "mangle", "-S", chain], null).Stdout);
+                _written[key] = (fingerprint, ChainLines(Run($"{tool}-save", ["-t", "mangle"], null).Stdout, chain) ?? "");
                 rewrote = true;
             }
         }
@@ -554,17 +638,27 @@ public sealed class WanFloodGuard
         Math.Max(10, (protocol == "tcp" ? l.SynPerSource : l.UdpPerSource) / 10);
 
     // Jumps at the top of mangle PREROUTING and FORWARD for each WAN, both families. Records per WAN
-    // whether all four are in place.
-    private void EnsureHooks(IReadOnlyList<string> wans, out int inserted)
+    // whether all four are in place. Read from the save; -C confirms a jump the save seems to lack, so a
+    // printing difference can never insert a duplicate.
+    private void EnsureHooks(IReadOnlyList<string> wans, out int inserted, Dictionary<string, string>? saves = null)
     {
         inserted = 0;
+        saves ??= ReadMangle();
         foreach (var wan in wans)
         {
             var all = true;
             foreach (var tool in new[] { "iptables", "ip6tables" })
             {
-                foreach (var (builtin, jump) in new[] { ("PREROUTING", WanFloodRules.Jump(wan)), ("FORWARD", WanFloodRules.ForwardJump(wan)) })
+                var lines = saves[tool].Split('\n').Select(l => l.TrimEnd('\r', ' ')).ToList();
+                foreach (var (builtin, chain, jump) in new[]
                 {
+                    ("PREROUTING", WanFloodRules.Chain, WanFloodRules.Jump(wan)),
+                    ("FORWARD", WanFloodRules.ForwardChain, WanFloodRules.ForwardJump(wan)),
+                })
+                {
+                    if (lines.Any(l => l.StartsWith($"-A {builtin} ", StringComparison.Ordinal)
+                        && l.Contains($" -i {wan} ", StringComparison.Ordinal) && l.EndsWith($"-j {chain}", StringComparison.Ordinal)))
+                        continue;
                     if (Run(tool, ["-w", "-t", "mangle", "-C", builtin, .. jump], null).Exit == 0) continue;
                     if (Run(tool, ["-w", "-t", "mangle", "-I", builtin, "1", .. jump], null).Exit == 0) inserted++;
                     else all = false;
@@ -615,8 +709,10 @@ public sealed class WanFloodGuard
     {
         var v4 = new List<string>();
         var v6 = new List<string>();
-        foreach (var entry in GuardEntries().Distinct())
+        var entries = GuardEntries().Distinct().ToList();
+        foreach (var entry in entries)
             (entry.Contains(':') ? v6 : v4).Add(entry);
+        _guardCache = entries;
         FillSet(WanFloodRules.GuardV4, "inet", v4);
         FillSet(WanFloodRules.GuardV6, "inet6", v6);
     }
@@ -681,6 +777,14 @@ public sealed class WanFloodGuard
                 SmartQueues = qdisc && !_ownedQdiscs.Contains(wan),
                 SqRedirectPresent = prefs.Contains(WanFloodRules.UniFiRedirectPref),
             };
+            // Our filters that nothing held accounts for: left by a previous run of the agent (the cache forgot
+            // the drop) or by a measurement that never finished. Left in place they would drop traffic for good.
+            foreach (var orphan in prefs.Where(p => WanFloodRules.IsOurPref(p) && !_measuring.Contains((wan, p))
+                && !held.Any(d => d.Pref == p)).ToList())
+            {
+                Run("tc", WanFloodRules.TcFilterDel(wan, orphan), null);
+                prefs.Remove(orphan);
+            }
             if (held.Count == 0)
             {
                 ReleaseIngressQdisc(wan);
@@ -785,6 +889,8 @@ public sealed class WanFloodGuard
             {
                 case TtlAction.Extend:
                     _drops[_drops.IndexOf(d)] = d with { ExpiresAt = now + DropTtl };
+                    // A restart keeps only what the cache says is unexpired, so the extension must reach it.
+                    SaveCache();
                     break;
                 case TtlAction.Remove:
                     Console.WriteLine($"WAN flood protection: drop of {d.Protocol} {d.Source ?? "any"} -> :{d.Port} on {d.Wan} expired");
@@ -838,7 +944,7 @@ public sealed class WanFloodGuard
             State = DetectorState,
             ConntrackCount = Counters.Count,
             ConntrackMax = Counters.Max,
-            TableFull = !_perSource,
+            TableFull = !_perSource || !_forwardLimits,
         };
         if (_config is { Enabled: true })
         {

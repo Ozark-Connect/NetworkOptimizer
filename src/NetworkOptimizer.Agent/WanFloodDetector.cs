@@ -108,6 +108,11 @@ public sealed class WanFloodDetector
         var conntrackPercent = SampleConntrack(t);
 
         HandleTableFull(now, t);
+        if (now >= _nextPortCheck)
+        {
+            _nextPortCheck = now + ReattributeEvery;
+            RecheckPortDrops();
+        }
 
         var trigger = _trigger.Evaluate(t, _receiveCpus);
         if (trigger.Suspected) _lastTriggerAt = now;
@@ -182,21 +187,22 @@ public sealed class WanFloodDetector
         int.TryParse(ReadFile("/proc/sys/net/netfilter/nf_conntrack_count").Trim(), out var count);
         int.TryParse(ReadFile("/proc/sys/net/netfilter/nf_conntrack_max").Trim(), out var max);
         Counters = Counters with { Count = count, Max = max };
-        var failures = WanFloodParsers.ParseConntrackFailures(ReadFile("/proc/net/stat/nf_conntrack"));
-        var failed = failures is { } f && _lastConntrackFailures is { } lf && f > lf;
-        _lastConntrackFailures = failures;
+        // Only the table turning connections away counts (drop, early_drop); see ParseConntrackDrops.
+        var drops = WanFloodParsers.ParseConntrackDrops(ReadFile("/proc/net/stat/nf_conntrack"));
+        var dropping = drops is { } d && _lastConntrackFailures is { } ld && d > ld;
+        _lastConntrackFailures = drops;
         var percent = max > 0 ? (int)(100L * count / max) : 0;
 
-        if (percent >= t.ConntrackFillPercent || failed) { _fillSeconds++; _clearSeconds = 0; }
+        if (percent >= t.ConntrackFillPercent || dropping) { _fillSeconds++; _clearSeconds = 0; }
         else if (percent < t.ConntrackClearPercent) { _clearSeconds++; _fillSeconds = 0; }
         else { _fillSeconds = 0; _clearSeconds = 0; }
 
-        if (!_conntrackPressure && (_fillSeconds >= 10 || failed))
+        if (!_conntrackPressure && (_fillSeconds >= 10 || dropping))
         {
             _conntrackPressure = true;
             _guard.SetAttribution(_state != "idle" || _incident != null, forward: true);
             _nextForwardAttribution = DateTime.UtcNow + AttributionSettle;
-            Console.WriteLine($"WAN flood protection: conntrack table under pressure ({count}/{max}{(failed ? ", inserts failing" : "")})");
+            Console.WriteLine($"WAN flood protection: conntrack table under pressure ({count}/{max}{(dropping ? ", dropping connections" : "")})");
         }
         else if (_conntrackPressure && _clearSeconds >= 60)
         {
@@ -208,23 +214,26 @@ public sealed class WanFloodDetector
         return percent;
     }
 
+    // Two iptables-save -c reads per family (filter for UniFi's WAN-local drop, mangle for ours). iptables-save
+    // takes no xtables lock, so this never holds up a UniFi provision.
     private void ReadCounters(DateTime now)
     {
         long total = 0;
         var wanLocal = false;
         long l1 = 0, l3 = 0;
-        foreach (var tool in new[] { "iptables", "ip6tables" })
+        foreach (var tool in new[] { "iptables-save", "ip6tables-save" })
         {
-            var uniFi = WanFloodGuard.Run(tool, ["-w", "-t", "filter", "-nvxL", "UBIOS_WAN_LOCAL_USER"], null);
-            if (uniFi.Exit == 0 && WanFloodParsers.LastDropPackets(WanFloodParsers.ParseIptablesCounters(uniFi.Stdout)) is { } drop)
+            var filter = WanFloodGuard.Run(tool, ["-c", "-t", "filter"], null);
+            if (filter.Exit == 0
+                && WanFloodParsers.LastDropPackets(WanFloodParsers.ParseSaveCounters(filter.Stdout, "UBIOS_WAN_LOCAL_USER")) is { } drop)
             {
                 total += drop;
                 wanLocal = true;
             }
-            var ours = WanFloodGuard.Run(tool, ["-w", "-t", "mangle", "-nvxL", WanFloodRules.Chain], null);
-            if (ours.Exit == 0) l1 += WanFloodParsers.DropPackets(WanFloodParsers.ParseIptablesCounters(ours.Stdout));
-            var forward = WanFloodGuard.Run(tool, ["-w", "-t", "mangle", "-nvxL", WanFloodRules.ForwardChain], null);
-            if (forward.Exit == 0) l3 += WanFloodParsers.DropPackets(WanFloodParsers.ParseIptablesCounters(forward.Stdout));
+            var mangle = WanFloodGuard.Run(tool, ["-c", "-t", "mangle"], null);
+            if (mangle.Exit != 0) continue;
+            l1 += WanFloodParsers.DropPackets(WanFloodParsers.ParseSaveCounters(mangle.Stdout, WanFloodRules.Chain));
+            l3 += WanFloodParsers.DropPackets(WanFloodParsers.ParseSaveCounters(mangle.Stdout, WanFloodRules.ForwardChain));
         }
         total += l1;
         // A decrease is a reset (a firewall provision or a chain rewrite): skip that interval.
@@ -264,23 +273,30 @@ public sealed class WanFloodDetector
         if (size != 0)
         {
             _tableFullSize = 0;
-            _tableFullAt = now;
+            if (size == WanFloodRules.SourceTableMax) _tableFullAt = now;
+            if (size == WanFloodRules.ForwardTableMax) _forwardFullAt = now;
             if (size == WanFloodRules.SourceTableMax && _guard.PerSource)
             {
                 Console.WriteLine("WAN flood protection: a per-source table is full; removing the per-source rules until it drains");
                 _guard.SetPerSource(false);
                 if (_incident != null) { _incident.TableFull = true; SendIncident("update"); }
             }
-            else if (size == WanFloodRules.ForwardTableMax)
+            else if (size == WanFloodRules.ForwardTableMax && _guard.ForwardLimits)
             {
-                Console.Error.WriteLine("WAN flood protection: a port-forward table is full, which no site's port forwards should cause; turning off its attribution");
+                // A wide forwarded range being scanned makes one key per port. A full table drops every new
+                // forwarded connection, so the limit itself goes, not just its attribution.
+                _forwardFullAt = now;
+                Console.WriteLine("WAN flood protection: the port-forward table is full; removing the port-forward limit until it drains");
+                _guard.SetForwardLimits(false);
                 _guard.SetAttribution(_state != "idle", forward: false);
+                if (_incident != null) { _incident.TableFull = true; SendIncident("update"); }
             }
-            else if (size != WanFloodRules.SourceTableMax)
+            else if (size != WanFloodRules.SourceTableMax && size != WanFloodRules.ForwardTableMax)
             {
                 Console.Error.WriteLine($"WAN flood protection: a hashlimit table of {size} entries reported full");
             }
         }
+        // Restore after a quiet minute, at most every 5 minutes, so a flood near the limit cannot flap the chain.
         if (!_guard.PerSource && now - _tableFullAt >= TimeSpan.FromSeconds(60) && _unsolicitedPps < t.UnsolicitedPps
             && now - _lastRestoreAt >= TimeSpan.FromMinutes(5))
         {
@@ -288,7 +304,18 @@ public sealed class WanFloodDetector
             Console.WriteLine("WAN flood protection: restoring the per-source rules");
             _guard.SetPerSource(true);
         }
+        if (!_guard.ForwardLimits && now - _forwardFullAt >= TimeSpan.FromSeconds(60)
+            && now - _lastForwardRestoreAt >= TimeSpan.FromMinutes(5))
+        {
+            _lastForwardRestoreAt = now;
+            Console.WriteLine("WAN flood protection: restoring the port-forward limit");
+            _guard.SetForwardLimits(true);
+        }
     }
+
+    private DateTime _forwardFullAt = DateTime.MinValue;
+    private DateTime _nextPortCheck = DateTime.MinValue;
+    private DateTime _lastForwardRestoreAt = DateTime.MinValue;
 
     // ---- Attribution ----
 
@@ -322,7 +349,7 @@ public sealed class WanFloodDetector
         if (candidates.Count > 0)
         {
             var measured = await _guard.MeasureAsync(candidates, MeasureWindow, ct);
-            var refused = measured.Select(c => c.Packets / unsolicited >= t.MinShare ? c with { Refusal = Refusal(c) } : c).ToList();
+            var refused = WithRefusals(measured, unsolicited, t);
             foreach (var (c, share) in FloodAttribution.ChooseSources(refused, unsolicited, t, 8))
                 if (_guard.AddDrop(c, share, "tc-source") is { } drop) added.Add(drop);
         }
@@ -363,16 +390,30 @@ public sealed class WanFloodDetector
             .OrderBy(e => e.Credit)
             .ToList();
 
-    // A candidate is refused when it is a guarded address, not a public one, or holds a real session.
-    private string? Refusal(FloodCandidate c)
+    // A candidate with a real share is refused when it is a guarded address, not a public one, or holds a real
+    // session. The session check is one pass over the conntrack table for every candidate together.
+    private List<FloodCandidate> WithRefusals(List<FloodCandidate> measured, double unsolicited, FloodThresholds t)
     {
-        if (c.Source == null) return null;
-        if (_guard.IsGuarded(c.Source)) return "guarded";
-        if (NetworkOptimizer.Core.Helpers.BlocklistEntry.Canonical(c.Source) == null) return "not public";
+        var result = measured.Select(c => c.Source == null || c.Packets / unsolicited < t.MinShare ? c
+            : _guard.IsGuarded(c.Source) ? c with { Refusal = "guarded" }
+            : NetworkOptimizer.Core.Helpers.BlocklistEntry.Canonical(c.Source) == null ? c with { Refusal = "not public" }
+            : c).ToList();
+        var keys = result.Where(c => c.Source != null && c.Refusal == null && c.Packets / unsolicited >= t.MinShare)
+            .Select(c => (c.Source!, c.Destination, c.Protocol, c.Port)).ToList();
+        if (keys.Count == 0) return result;
         using var reader = OpenConntrack();
-        if (reader != null && WanFloodParsers.ScanConntrack(reader, c.Source, c.Destination, c.Protocol, c.Port).FromSource)
-            return "has a session";
-        return null;
+        // Unreadable conntrack: refuse rather than risk dropping a real session.
+        var sessions = reader == null ? keys.ToHashSet() : WanFloodParsers.ScanConntrackSessions(reader, keys);
+        return result.Select(c => c.Source != null && c.Refusal == null && sessions.Contains((c.Source, c.Destination, c.Protocol, c.Port))
+            ? c with { Refusal = "has a session" } : c).ToList();
+    }
+
+    // Held port-only drops stay safe only while their port stays closed: a listener, a port forward, a UPnP
+    // mapping, or a NAT'd flow can take the port after the drop went in.
+    private void RecheckPortDrops()
+    {
+        foreach (var c in _guard.PortDrops())
+            if (!PortClosed(c)) _guard.RemovePortDrop(c);
     }
 
     // Closed: no socket on the port, no port forward for it, no session to it, and no NAT'd outbound flow using it. Only then
@@ -384,7 +425,7 @@ public sealed class WanFloodDetector
         var ports = WanFloodParsers.ParseProcNetPorts(ReadFile($"/proc/net/{file}"), tcp);
         ports.UnionWith(WanFloodParsers.ParseProcNetPorts(ReadFile($"/proc/net/{file}6"), tcp));
         if (ports.Contains(c.Port)) return false;
-        var nat = WanFloodGuard.Run("iptables", ["-w", "-t", "nat", "-S"], null);
+        var nat = WanFloodGuard.Run("iptables-save", ["-t", "nat"], null);
         if (nat.Exit != 0 || WanFloodParsers.ParseDnatPorts(nat.Stdout).Contains(c.Port)) return false;
         using var reader = OpenConntrack();
         if (reader == null) return false;

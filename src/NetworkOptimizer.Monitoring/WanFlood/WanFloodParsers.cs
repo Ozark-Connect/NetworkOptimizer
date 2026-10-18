@@ -73,15 +73,19 @@ public static partial class WanFloodParsers
     }
 
     /// <summary>
-    /// The sums of <c>insert_failed</c>, <c>drop</c>, and <c>early_drop</c> across CPUs from
-    /// <c>/proc/net/stat/nf_conntrack</c>, found by the header row's names. Null when the file has none of them.
+    /// The sums of <c>drop</c> and <c>early_drop</c> across CPUs from <c>/proc/net/stat/nf_conntrack</c>, found by
+    /// the header row's names: the table turning connections away. Null when the file has neither.
     /// </summary>
-    public static long? ParseConntrackFailures(string text)
+    /// <remarks>
+    /// <c>insert_failed</c> is left out on purpose: parallel A/AAAA DNS lookups raise it all day on multi-core
+    /// gateways, so counting it reports a full table that is not.
+    /// </remarks>
+    public static long? ParseConntrackDrops(string text)
     {
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         if (lines.Length < 2) return null;
         var header = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var columns = new[] { "insert_failed", "drop", "early_drop" }
+        var columns = new[] { "drop", "early_drop" }
             .Select(n => Array.IndexOf(header, n)).Where(i => i >= 0).ToList();
         if (columns.Count == 0) return null;
         long sum = 0;
@@ -104,6 +108,28 @@ public static partial class WanFloodParsers
             if (parts.Length < 3 || !long.TryParse(parts[0], out var packets) || !long.TryParse(parts[1], out var bytes)) continue;
             // A rule with no target prints its protocol in the target column; it has no verdict either way.
             rules.Add(new IptablesRule(packets, bytes, parts[2]));
+        }
+        return rules;
+    }
+
+    /// <summary>
+    /// Rules of one chain from <c>iptables-save -c</c>, in order: <c>[packets:bytes] -A CHAIN ... -j TARGET</c>.
+    /// A rule with no target reads as an empty target. iptables-save takes no xtables lock, unlike <c>-L</c>.
+    /// </summary>
+    public static List<IptablesRule> ParseSaveCounters(string save, string chain)
+    {
+        var rules = new List<IptablesRule>();
+        var prefix = $"-A {chain} ";
+        foreach (var raw in save.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (!line.StartsWith('[')) continue;
+            var close = line.IndexOf(']');
+            if (close < 0 || !line[(close + 1)..].TrimStart().StartsWith(prefix, StringComparison.Ordinal)) continue;
+            var counts = line[1..close].Split(':');
+            if (counts.Length != 2 || !long.TryParse(counts[0], out var packets) || !long.TryParse(counts[1], out var bytes)) continue;
+            var target = SaveTarget().Match(line) is { Success: true } m ? m.Groups[1].Value : "";
+            rules.Add(new IptablesRule(packets, bytes, target));
         }
         return rules;
     }
@@ -187,15 +213,17 @@ public static partial class WanFloodParsers
         foreach (var line in text.Split('\n'))
         {
             if (!line.Contains("-j DNAT", StringComparison.Ordinal)) continue;
+            // A single port, a range (a:b), or a multiport list whose items may themselves be ranges.
             foreach (Match m in DnatPort().Matches(line))
             {
-                var spec = m.Groups[1].Value;
-                var dash = spec.IndexOf(':');
-                if (dash > 0 && int.TryParse(spec[..dash], out var lo) && int.TryParse(spec[(dash + 1)..], out var hi) && hi - lo < 65536)
-                    for (var p = lo; p <= hi; p++) ports.Add(p);
-                else
-                    foreach (var p in spec.Split(','))
-                        if (int.TryParse(p, out var port)) ports.Add(port);
+                foreach (var item in m.Groups[1].Value.Split(','))
+                {
+                    var colon = item.IndexOf(':');
+                    if (colon > 0 && int.TryParse(item[..colon], out var lo) && int.TryParse(item[(colon + 1)..], out var hi)
+                        && lo <= hi && hi <= 65535)
+                        for (var p = lo; p <= hi; p++) ports.Add(p);
+                    else if (int.TryParse(item, out var port)) ports.Add(port);
+                }
             }
         }
         return ports;
@@ -256,8 +284,40 @@ public static partial class WanFloodParsers
         return (fromSource, replyToPort, anyToPort);
     }
 
+    /// <summary>
+    /// One pass over <c>/proc/net/nf_conntrack</c> for several (source, destination, protocol, port) keys: the
+    /// keys that have a confirmed entry. A full table can hold 100k+ lines, so it is read once, not per key.
+    /// </summary>
+    public static HashSet<(string Source, string Destination, string Protocol, int Port)> ScanConntrackSessions(
+        TextReader reader, IReadOnlyCollection<(string Source, string Destination, string Protocol, int Port)> keys)
+    {
+        var found = new HashSet<(string, string, string, int)>();
+        if (keys.Count == 0) return found;
+        var wanted = keys.ToHashSet();
+        string? line;
+        while ((line = reader.ReadLine()) != null && found.Count < wanted.Count)
+        {
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3) continue;
+            string? src = null, dst = null, dport = null;
+            foreach (var p in parts)
+            {
+                if (src == null && p.StartsWith("src=", StringComparison.Ordinal)) src = p[4..];
+                else if (dst == null && p.StartsWith("dst=", StringComparison.Ordinal)) dst = p[4..];
+                else if (dport == null && p.StartsWith("dport=", StringComparison.Ordinal)) { dport = p[6..]; break; }
+            }
+            if (src == null || dst == null || !int.TryParse(dport, out var port)) continue;
+            var key = (src, dst, parts[2], port);
+            if (wanted.Contains(key)) found.Add(key);
+        }
+        return found;
+    }
+
     private static long Hex(string s) =>
         long.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : 0;
+
+    [GeneratedRegex(@"-j (\S+)")]
+    private static partial Regex SaveTarget();
 
     [GeneratedRegex(@"Sent \d+ bytes (\d+) pkt")]
     private static partial Regex TcSent();

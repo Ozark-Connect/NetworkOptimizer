@@ -97,6 +97,21 @@ public class WanFloodRulesTests
     }
 
     [Fact]
+    public void NeverDropCoversPortForwardsToo()
+    {
+        WanFloodRules.ForwardRules(false, Limits, Suspected)[0].Should().Contain(WanFloodRules.GuardV4).And.EndWith("-j RETURN");
+        WanFloodRules.ForwardRules(true, Limits, Suspected)[0].Should().Contain(WanFloodRules.GuardV6).And.EndWith("-j RETURN");
+    }
+
+    [Fact]
+    public void FullForwardTableFallbackRemovesThePortForwardLimit()
+    {
+        var paused = WanFloodRules.ForwardRules(false, Limits, Suspected with { ForwardLimits = false });
+        paused.Should().NotContain(r => r.Contains("--hashlimit-name nfp_"));
+        WanFloodRules.ForwardRules(false, Limits, Suspected).Should().Contain(r => r.Contains("--hashlimit-name nfp_"));
+    }
+
+    [Fact]
     public void ForwardCapsGoToTheirFamily()
     {
         WanFloodRules.ForwardRules(false, Limits, Suspected).Should().Contain(r => r.Contains("-d 192.0.2.10"));

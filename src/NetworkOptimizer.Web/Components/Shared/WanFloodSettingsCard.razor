@@ -50,7 +50,6 @@
             <div class="form-group">
                 <label class="form-label">Never limit or drop</label>
                 <textarea class="form-control" rows="3" placeholder="One address or range per line" @bind="_form.NeverDrop"></textarea>
-                <small class="form-help">Network Optimizer's own address is never limited.</small>
             </div>
 
             <details class="setup-guide">
@@ -60,7 +59,7 @@
                         <h3 class="ab-section-title">New Connections to the Gateway</h3>
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label">UDP per source (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New UDP connections per second one internet address may open to the gateway, port forwards included, before the rest are dropped. Replies to connections your own network opened never count. Raise it if one address legitimately opens many sessions at once, such as a carrier's shared address reaching a game server you host. Lower it to cut off a single-source flood sooner.">?</span></label>
+                                <label class="form-label">UDP per source (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New UDP connections per second one internet address may open to the gateway, port forwards included, before the rest are dropped. Replies to connections your own network opened never count. Raise it if one address legitimately opens many sessions at once, such as a carrier's shared address reaching a game server you host. Lower it to cut off a single-source flood sooner. During a flood aimed at one port, such as WireGuard's, new connections to that port are held to a tenth of this; tunnels already up are unaffected.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpPerSource" />
                             </div>
                             <div class="form-group">

@@ -271,8 +271,8 @@ public sealed class WanFloodService : BackgroundService
                 new { change = status.TableFull ? "per_source_rules_removed" : "per_source_rules_restored" });
             if (status.TableFull)
                 _ = PublishAsync("threats.wan_flood_table_full", AlertSeverity.Warning, site,
-                    "WAN flood: per-source limits paused",
-                    "A flood from many sources filled a per-source table on the gateway, so new inbound connections from sources it had not seen were being dropped. The per-source limits are paused until it drains; the per-port limits and drops stay on.",
+                    "WAN flood: a limit is paused",
+                    "A flood filled one of the gateway's limit tables, so new inbound connections it had no room for were being dropped. That limit is paused until the flood drains; drops stay on.",
                     new Dictionary<string, string>());
         }
 

@@ -62,6 +62,9 @@ public static class WanFloodRules
     public sealed record ChainState(bool Enforce, bool PerSource, bool Attribution, bool ForwardAttribution,
         IReadOnlyList<PortLimit> Ports, IReadOnlyList<ForwardCap> ForwardCaps)
     {
+        /// <summary>The always-on per-port-forward limit. Off while its table is full (a wide forwarded range being scanned).</summary>
+        public bool ForwardLimits { get; init; } = true;
+
         public static ChainState Steady(bool enforce) => new(enforce, true, false, false, [], []);
     }
 
@@ -133,10 +136,9 @@ public static class WanFloodRules
     public static List<string> ForwardRules(bool v6, Limits l, ChainState state)
     {
         var drop = state.Enforce ? " -j DROP" : "";
-        var rules = new List<string>
-        {
-            $"-A {ForwardChain} {Limit(l.ForwardedPort, l.ForwardedBurst, "dstip,dstport", "nfp", ForwardOpts)}{drop}",
-        };
+        var rules = new List<string> { $"-A {ForwardChain} -m set --match-set {(v6 ? GuardV6 : GuardV4)} src -j RETURN" };
+        if (state.ForwardLimits)
+            rules.Add($"-A {ForwardChain} {Limit(l.ForwardedPort, l.ForwardedBurst, "dstip,dstport", "nfp", ForwardOpts)}{drop}");
         if (state.ForwardAttribution)
             rules.Add($"-A {ForwardChain} {Limit(l.Attribution, l.Attribution, "dstip,dstport", "nfa", ForwardOpts)}");
         foreach (var c in state.ForwardCaps.Where(c => c.InternalIp.Contains(':') == v6))

@@ -26,10 +26,10 @@ public sealed class KernelLogFollower
         {
             try
             {
+                // stderr is not redirected: nothing would read it, and a full pipe would stall journalctl.
                 var psi = new ProcessStartInfo("journalctl", "-k -f -n 0 -o cat")
                 {
                     RedirectStandardOutput = true,
-                    RedirectStandardError = true,
                     UseShellExecute = false,
                 };
                 using var process = Process.Start(psi);

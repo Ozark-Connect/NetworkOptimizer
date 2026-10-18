@@ -30,14 +30,15 @@ public class WanFloodParsersTests
     }
 
     [Fact]
-    public void ConntrackStat_SumsFailureColumnsByName()
+    public void ConntrackStat_SumsDropColumnsButNotInsertFailed()
     {
         const string text =
             "entries  searched found new invalid ignore delete delete_list insert insert_failed drop early_drop icmp_error\n" +
             "00000100 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002 00000001 00000000 00000000\n" +
             "00000100 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000010 00000003 00000000\n";
-        WanFloodParsers.ParseConntrackFailures(text).Should().Be(2 + 1 + 16 + 3);
-        WanFloodParsers.ParseConntrackFailures("").Should().BeNull();
+        // insert_failed (2 here) is routine on multi-core gateways and must not count as a full table.
+        WanFloodParsers.ParseConntrackDrops(text).Should().Be(1 + 16 + 3);
+        WanFloodParsers.ParseConntrackDrops("").Should().BeNull();
     }
 
     [Fact]
@@ -111,10 +112,10 @@ public class WanFloodParsersTests
     {
         const string text =
             "-A UBIOS_PREROUTING_USER_HOOK -i eth4 -p tcp -m tcp --dport 443 -j DNAT --to-destination 192.0.2.10:443\n" +
-            "-A X -i eth4 -p udp -m multiport --dports 27015,27016 -j DNAT --to-destination 192.0.2.11\n" +
+            "-A X -i eth4 -p udp -m multiport --dports 27015,27016,7000:7002 -j DNAT --to-destination 192.0.2.11\n" +
             "-A X -i eth4 -p udp -m udp --dport 6000:6002 -j DNAT --to-destination 192.0.2.12\n" +
             "-A X -i eth4 -p tcp -m tcp --dport 8443 -j ACCEPT\n";
-        WanFloodParsers.ParseDnatPorts(text).Should().BeEquivalentTo([443, 27015, 27016, 6000, 6001, 6002]);
+        WanFloodParsers.ParseDnatPorts(text).Should().BeEquivalentTo([443, 27015, 27016, 7000, 7001, 7002, 6000, 6001, 6002]);
     }
 
     [Fact]
