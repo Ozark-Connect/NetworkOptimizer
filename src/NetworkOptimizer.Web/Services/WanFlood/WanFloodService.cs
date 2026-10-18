@@ -199,7 +199,8 @@ public sealed class WanFloodService : BackgroundService
             config.ForwardedPortNew = settings.ForwardedPort;
             config.ForwardedPortBurst = settings.ForwardedBurst;
             config.ForwardedPortCapped = settings.ForwardedCapped;
-            config.ReactiveDrop = settings.ReactiveDrop;
+            // Always on: the reactive drop is most of the load reduction, and detection depends on it in both modes.
+            config.ReactiveDrop = true;
             config.DropTtlSeconds = settings.DropTtlSeconds;
             config.MaxDropTtlSeconds = settings.MaxDropTtlSeconds;
             config.NeverDrop.AddRange(settings.NeverDropEntries());

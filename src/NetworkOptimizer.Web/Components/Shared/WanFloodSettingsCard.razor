@@ -67,14 +67,6 @@
             </div>
 
             <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" @bind="_form.ReactiveDrop" />
-                    <span>Drop the source of a flood at the WAN when the gateway is overloaded</span>
-                </label>
-                <small class="form-help">Each drop ends on its own, and a drop that has stopped seeing traffic ends sooner.</small>
-            </div>
-
-            <div class="form-group">
                 <label class="form-label">Never limit or drop</label>
                 <textarea class="form-control" rows="3" placeholder="One address or range per line" @bind="_form.NeverDrop"></textarea>
             </div>
@@ -158,7 +150,6 @@
     private sealed class Form
     {
         public WanFloodMode Mode { get; set; }
-        public bool ReactiveDrop { get; set; }
         public int UdpPerSource { get; set; }
         public int UdpBurst { get; set; }
         public int SynPerSource { get; set; }
@@ -190,7 +181,6 @@
             _form = new Form
             {
                 Mode = s.Mode,
-                ReactiveDrop = s.ReactiveDrop,
                 UdpPerSource = s.UdpPerSource,
                 UdpBurst = s.UdpBurst,
                 SynPerSource = s.SynPerSource,
@@ -219,7 +209,6 @@
             await WanFlood.SaveSettingsAsync(_saved with
             {
                 Mode = _form.Mode,
-                ReactiveDrop = _form.ReactiveDrop,
                 UdpPerSource = _form.UdpPerSource,
                 UdpBurst = _form.UdpBurst,
                 SynPerSource = _form.SynPerSource,

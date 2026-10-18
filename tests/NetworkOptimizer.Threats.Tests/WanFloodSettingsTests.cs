@@ -13,7 +13,6 @@ public class WanFloodSettingsTests
         s.Mode.Should().Be(WanFloodMode.Off);
         s.UdpPerSource.Should().Be(2000);
         s.UdpBurst.Should().Be(4000);
-        s.ReactiveDrop.Should().BeTrue();
         s.TestDrop.Should().BeFalse();
     }
 

@@ -24,7 +24,6 @@ public static class WanFloodSettingKeys
     public static string ForSite(string key, string? site) => string.IsNullOrEmpty(site) ? key : $"{key}:{site}";
 
     public const string Mode = "wanflood.mode";
-    public const string ReactiveDrop = "wanflood.reactive_drop";
     public const string UdpPerSource = "wanflood.udp_per_source";
     public const string UdpBurst = "wanflood.udp_burst";
     public const string SynPerSource = "wanflood.syn_per_source";
@@ -48,9 +47,6 @@ public sealed record WanFloodSettings
 {
     /// <summary>Off until someone turns it on.</summary>
     public WanFloodMode Mode { get; init; } = WanFloodMode.Off;
-
-    /// <summary>Whether the detector may add tc drops and per-port limits on top of the always-on limits.</summary>
-    public bool ReactiveDrop { get; init; } = true;
 
     /// <summary>New UDP connections per second from one source to the gateway, and the burst above it.</summary>
     public int UdpPerSource { get; init; } = 2000;
@@ -90,7 +86,6 @@ public sealed record WanFloodSettings
         return new WanFloodSettings
         {
             Mode = Enum.TryParse<WanFloodMode>(await get(WanFloodSettingKeys.Mode), true, out var m) ? m : d.Mode,
-            ReactiveDrop = Bool(await get(WanFloodSettingKeys.ReactiveDrop), d.ReactiveDrop),
             UdpPerSource = Int(await get(WanFloodSettingKeys.UdpPerSource), d.UdpPerSource, MinRate, MaxRate),
             UdpBurst = Int(await get(WanFloodSettingKeys.UdpBurst), d.UdpBurst, MinRate, MaxRate),
             SynPerSource = Int(await get(WanFloodSettingKeys.SynPerSource), d.SynPerSource, MinRate, MaxRate),

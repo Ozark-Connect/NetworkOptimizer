@@ -103,7 +103,6 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
         var s = value.Clamped();
         async Task Set(string key, string v) => await settings.SaveSettingAsync(WanFloodSettingKeys.ForSite(key, SiteKey), v, ct);
         await Set(WanFloodSettingKeys.Mode, s.Mode.ToString());
-        await Set(WanFloodSettingKeys.ReactiveDrop, s.ReactiveDrop.ToString());
         await Set(WanFloodSettingKeys.UdpPerSource, s.UdpPerSource.ToString());
         await Set(WanFloodSettingKeys.UdpBurst, s.UdpBurst.ToString());
         await Set(WanFloodSettingKeys.SynPerSource, s.SynPerSource.ToString());
