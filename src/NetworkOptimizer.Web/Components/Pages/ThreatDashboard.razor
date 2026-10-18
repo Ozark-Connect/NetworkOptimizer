@@ -2361,6 +2361,7 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_fragmentPending) _ = ScrollToFragmentAsync();
         if (_chartNeedsUpdate)
         {
             _chartNeedsUpdate = false;
@@ -2431,7 +2432,8 @@ else
             || PortParam != _lastPortParam
             || ProtoParam != _lastProtoParam;
 
-        if (paramsChanged && _lastTabParam != null)
+        // Not "_lastTabParam != null": a page opened without ?tab= must still follow a later ?tab= link.
+        if (paramsChanged && _paramsSeen)
         {
             var newTab = ResolveTab(TabParam);
 
@@ -2460,10 +2462,46 @@ else
             }
         }
 
+        if (paramsChanged) _fragmentPending = true;
+        _paramsSeen = true;
         _lastTabParam = TabParam;
         _lastIpParam = IpParam;
         _lastPortParam = PortParam;
         _lastProtoParam = ProtoParam;
+    }
+
+    private bool _paramsSeen;
+
+    // A #card link (an alert's View link) lands on that card, scrolled to and ringed the way Settings does it.
+    private bool _fragmentPending = true;
+
+    private async Task ScrollToFragmentAsync()
+    {
+        _fragmentPending = false;
+        try
+        {
+            var id = (await JS.InvokeAsync<string>("eval", "window.location.hash")).TrimStart('#');
+            // The id goes into script below, so only a plain element id is accepted.
+            if (id.Length == 0 || !id.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')) return;
+            // The tab's cards load their data after the first render, so the card can take a moment to appear.
+            for (var attempt = 0; attempt < 15; attempt++)
+            {
+                if (await JS.InvokeAsync<bool>("eval", $"!!document.getElementById('{id}')"))
+                {
+                    await JS.InvokeVoidAsync("noHighlightTarget", id);
+                    return;
+                }
+                await Task.Delay(200);
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit closed while waiting: nothing to scroll.
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Scroll to the linked Threat Intelligence card failed");
+        }
     }
 
     protected override async Task OnInitializedAsync()

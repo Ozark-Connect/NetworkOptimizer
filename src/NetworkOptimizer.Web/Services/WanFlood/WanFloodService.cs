@@ -431,7 +431,7 @@ public sealed class WanFloodService : BackgroundService
                 Severity = severity,
                 Title = title,
                 Message = message,
-                SourceUrl = "/threats?tab=blocking",
+                SourceUrl = "/threats?tab=blocking#wan-flood",
                 Context = context,
             }, ct);
         }

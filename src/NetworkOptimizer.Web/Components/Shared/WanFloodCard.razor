@@ -8,7 +8,7 @@
 
 @if (_overview != null && (_overview.Settings.Mode != WanFloodMode.Off || _incidents.Count > 0))
 {
-    <div class="card card-spaced wan-flood-status" data-tour="wan-flood">
+    <div class="card card-spaced wan-flood-status" id="wan-flood" data-tour="wan-flood">
         <div class="card-header">
             <h3 class="card-title">WAN Flood Protection</h3>
             <div class="waf-card-mode">
