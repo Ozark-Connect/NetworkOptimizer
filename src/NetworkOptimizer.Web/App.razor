@@ -152,6 +152,25 @@
             downloadLink.click();
         }
 
+        // Downloads a server endpoint's response as a file. Returns null, or why it failed. For files too
+        // large to pass through a .NET-to-JS call, which serializes as one JSON string.
+        async function downloadUrl(url, fileName) {
+            try {
+                const response = await fetch(url, { credentials: 'same-origin' });
+                if (!response.ok) return `the server answered ${response.status}`;
+                const href = URL.createObjectURL(await response.blob());
+                const downloadLink = document.createElement('a');
+                downloadLink.href = href;
+                downloadLink.download = fileName;
+                downloadLink.click();
+                setTimeout(() => URL.revokeObjectURL(href), 60000);
+                return null;
+            } catch (e) {
+                console.error('downloadUrl failed', e);
+                return e.message || 'the download did not complete';
+            }
+        }
+
         // Copy a shared secret from the sibling input, stripping the grouping spaces. The key is
         // displayed in groups of four because that is what a human can read back, but an
         // authenticator app wants the bare base32 string.

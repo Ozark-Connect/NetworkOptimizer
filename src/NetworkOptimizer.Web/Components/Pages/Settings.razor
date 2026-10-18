@@ -8071,11 +8071,13 @@
 
         try
         {
-            var bytes = await ConfigTransfer.ExportAsync(type);
+            // The browser fetches the archive from the export endpoint: it is built in that request, not
+            // on this circuit, and it can be larger than a JS interop call carries (one JSON string).
             var label = type == ExportType.Full ? "full" : "settings";
             var fileName = $"NetworkOptimizer-{label}-{DateTime.UtcNow:yyyyMMdd}.nopt";
-            var base64 = Convert.ToBase64String(bytes);
-            await JS.InvokeVoidAsync("downloadFile", fileName, "application/octet-stream", base64);
+            // A large install's export outlasts the one-minute default JS call timeout.
+            if (await JS.InvokeAsync<string?>("downloadUrl", TimeSpan.FromMinutes(30), $"api/config/backups?type={label}", fileName) is { } error)
+                exportError = $"Export failed: {error}";
         }
         catch (Exception ex)
         {
