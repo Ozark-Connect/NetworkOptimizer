@@ -1417,3 +1417,21 @@ GA, update every place we name a UniFi Network role, and re-test which roles get
 - `README.md`: Restricted account roles
 - `docker/DEPLOYMENT.md`: Restricted account roles and the View vs Full note
 - `wwwroot/data/tours/2.9.2.json`: Apply Recommended Channels step ("Network: Full", "Site Admin")
+
+## Self-Hosting: publish an app with DNS, Traefik, and the WAF
+
+For homelab and SMB operators who self-host. One place in Network Optimizer to publish an app:
+
+- **UniFi DNS** - create and keep the local DNS record (UniFi Network's DNS records / policy table) for the app's hostname.
+- **Traefik** - write the router and service (hostname, backend URL, certificate resolver) through NetworkOptimizer-Proxy, the way the WAF's ban and allow lists are pushed today, rather than by hand-editing `dynamic/config.yml`.
+- **Access** - pick per app: public, LAN only, or Trusted Sources only (the WAF's `waf-trusted`), plus whether the WAF inspects it and with which body limit.
+- **Per site** - the app lives on whichever site runs its proxy, reached through the On-Site Agent like the WAF.
+
+Open questions: how Traefik takes NO-managed routers (a file NO writes vs. the HTTP provider, which needs no shared host), and how this coexists with routers the operator writes by hand.
+
+## WAF event filters
+
+The Threat Intelligence noise filters no longer apply to WAF events (`ThreatRepository.WafQuery`):
+they describe IPS flows, and a WAF event's port 443 is a placeholder, so "my phone, port 443" hid
+every WAF event from that phone. If the WAF page needs a hide-this-source control, give it filters of
+its own (source, host, rule) rather than reusing the IPS ones. False positives belong in exclusions.

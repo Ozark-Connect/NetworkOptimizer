@@ -207,9 +207,11 @@ public class RolloutFleetScaleTests
             Neighbors = roamingOnly,
         }).Document;
 
-        // Fleet size sets the wave size either way, so the estimates match. What placements buy is
-        // WHICH APs share a wave: with them, no wave holds a neighbor pair.
-        withCoverage.TotalEstimatedSeconds.Should().BeLessThanOrEqualTo(withoutCoverage.TotalEstimatedSeconds);
+        // Fleet size sets the wave size either way, so the estimates match to within one wave:
+        // first-fit packing under different constraints can split the fleet one wave apart. What
+        // placements buy is WHICH APs share a wave: with them, no wave holds a neighbor pair.
+        var oneWave = withCoverage.Waves.Max(w => w.StartOffsetSeconds) / Math.Max(1, withCoverage.Waves.Count - 1) + 1;
+        withCoverage.TotalEstimatedSeconds.Should().BeLessThanOrEqualTo(withoutCoverage.TotalEstimatedSeconds + oneWave);
         foreach (var wave in withCoverage.Waves)
         {
             foreach (var a in wave.Steps)
@@ -300,6 +302,69 @@ public class RolloutFleetScaleTests
         var final = await harness.Repository.GetStepsAsync(plan.Id);
         final.Should().OnlyContain(s => s.State == FirmwareRolloutStepState.LitmusPassed);
         overlapSeen.Should().BeGreaterThan(0, "the point of the change is that unrelated waves run together");
+    }
+
+    [Fact]
+    public async Task TwoAps_FirstStaysOffline_SecondIsHeldThenSkipped()
+    {
+        const int Online = (int)UniFiDeviceState.Connected;
+        const int Offline = (int)UniFiDeviceState.Disconnected;
+        const string Ap1 = "aa:bb:cc:03:00:01";
+        const string Ap2 = "aa:bb:cc:03:00:02";
+
+        using var harness = new RolloutHarness();
+        var devices = new List<PlannerDevice>
+        {
+            new()
+            {
+                Mac = GatewayMac, Name = "Gateway", Model = "SKU-GW", DisplayModel = "SKU-GW",
+                Type = DeviceType.Gateway, Upgradable = false,
+            },
+            New(Ap1, DeviceType.AccessPoint, "SKU-AP1", "AP-1", GatewayMac),
+            New(Ap2, DeviceType.AccessPoint, "SKU-AP2", "AP-2", GatewayMac),
+        };
+        var settings = Settings(FirmwareSpacingProfile.Balanced);
+        var result = new RolloutPlanner().Plan(new RolloutPlanningInput
+        {
+            Devices = devices,
+            Settings = settings,
+            Estimator = new FirmwareTimingEstimator(),
+        });
+        await harness.Repository.SaveSettingsAsync(settings);
+        var plan = await harness.SeedScheduledPlanAsync(result.Document, RolloutHarness.Start, [.. result.Steps]);
+        var first = result.Document.Waves[0].Steps.Single().Mac;
+        var second = first == Ap1 ? Ap2 : Ap1;
+
+        harness.Observer.Set(GatewayMac, Online, "1.1.0", model: "SKU-GW", name: "Gateway", isGateway: true);
+        foreach (var d in devices.Skip(1))
+            harness.Observer.Set(d.Mac, Online, "1.0.0", upgradeTo: "1.1.0", model: d.Model, name: d.Name);
+
+        // The first AP goes down for its upgrade and never comes back, so it fails.
+        FirmwareRolloutStep secondStep;
+        var heldFrom = (DateTime?)null;
+        for (var tick = 0; tick < 240; tick++)
+        {
+            await harness.TickAsync(TimeSpan.FromMinutes(1));
+            var firstStep = await harness.StepAsync(plan.Id, first);
+            if (firstStep.State == FirmwareRolloutStepState.Commanded)
+                harness.Observer.Set(first, Offline, "1.0.0", model: "SKU", name: "first");
+
+            secondStep = await harness.StepAsync(plan.Id, second);
+            secondStep.State.Should().NotBe(FirmwareRolloutStepState.Commanded,
+                "the second AP is the last one online while the first stays down");
+            if (firstStep.State == FirmwareRolloutStepState.Failed)
+                heldFrom ??= harness.Time.GetUtcNow().UtcDateTime;
+            if (secondStep.State == FirmwareRolloutStepState.AbortedSku)
+                break;
+        }
+
+        secondStep = await harness.StepAsync(plan.Id, second);
+        secondStep.State.Should().Be(FirmwareRolloutStepState.AbortedSku);
+        secondStep.Error.Should().Contain("last access point");
+        heldFrom.Should().NotBeNull();
+        (harness.Time.GetUtcNow().UtcDateTime - heldFrom!.Value)
+            .Should().BeGreaterThanOrEqualTo(FirmwareRolloutOrchestrator.LastApHoldTimeout - TimeSpan.FromMinutes(2));
+        harness.Commands.UpgradeCommands.Should().NotContain(c => c.Contains(second, StringComparison.OrdinalIgnoreCase));
     }
 
     private static int CountOf(PlanWave wave, DeviceType type) =>

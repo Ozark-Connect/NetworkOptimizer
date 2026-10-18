@@ -129,6 +129,25 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 3600 // 1 hour
         },
+        // --- Threat Intelligence: a device on the site reaching a public block list (a likely infected device) ---
+        new AlertRule
+        {
+            Name = "Threat Intelligence: Public Block List Contact",
+            IsEnabled = true,
+            EventTypePattern = "threats.public_list_contact",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Critical,
+            CooldownSeconds = 3600 // 1 hour per device
+        },
+        new AlertRule
+        {
+            Name = "Threat Intelligence: Public Block List Attempt",
+            IsEnabled = true,
+            EventTypePattern = "threats.public_list_attempt",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour per device
+        },
         new AlertRule
         {
             Name = "Threat Intelligence: Early-Stage Attack Chain",
@@ -158,6 +177,28 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             ThresholdPercent = 40,
             CooldownSeconds = 1800 // 30 minutes
+        },
+
+        // --- WAN link speed (enabled - needs only the console connection) ---
+        // No cooldown on either rule: a re-publish supersedes its own open alert before rules run,
+        // and shares its cooldown key, so a cooldown would drop the replacement (see Starlink below).
+        new AlertRule
+        {
+            Name = "WAN: Link Speed Degraded",
+            IsEnabled = true,
+            EventTypePattern = "wan.link_speed_degraded",
+            Source = "wan",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0 // 5 minute sustain to open, then once per episode
+        },
+        new AlertRule
+        {
+            Name = "WAN: Link Speed Recovered",
+            IsEnabled = true,
+            EventTypePattern = "wan.link_speed_recovered",
+            Source = "wan",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0 // 5 minute sustain to close, paired with the degraded alert
         },
 
         // --- LAN Speed Test (disabled - needs device SSH configured) ---
@@ -555,6 +596,27 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes
         },
+        new AlertRule
+        {
+            // An ONT attached to an SFP module whose DDM still reads light while its own page
+            // stops answering: the module's management side hung. Enabled once an ONT is attached.
+            Name = "ONT: Management Unresponsive",
+            IsEnabled = false,
+            EventTypePattern = "ont.management_unresponsive",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            // The ONT's uptime went backwards. Opt-in: only providers that report uptime trip it.
+            Name = "ONT: Rebooted",
+            IsEnabled = false,
+            EventTypePattern = "ont.rebooted",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
 
         // --- Cellular modem (disabled until user configures a cellular modem) ---
         new AlertRule
@@ -763,6 +825,17 @@ public static class DefaultAlertRules
             Name = "Firmware Rollout: UniFi OS Update Refused",
             IsEnabled = true,
             EventTypePattern = "rollout.unifi_os_update_refused",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            // Same refusal for the UniFi Network application: the console stayed on its own channel
+            // and offers that channel's build, which the plan did not choose.
+            Name = "Firmware Rollout: Network Application Update Refused",
+            IsEnabled = true,
+            EventTypePattern = "rollout.network_app_update_refused",
             Source = "rollout",
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 0

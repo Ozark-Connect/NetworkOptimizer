@@ -140,6 +140,20 @@ public class FirmwareUrlParserTests
         parsed.Output.Should().NotContain("NETOPT_EXIT");
     }
 
+    [Theory]
+    [InlineData("NETOPT_START a1b2c3d4e5f6\nVersion: UDR7.ipq5322.v6.0.12\nNETOPT_EXIT 0\n", "a1b2c3d4e5f6", 0)]
+    [InlineData("NETOPT_START a1b2c3d4e5f6\ncurl: (22) The requested URL returned error: 404\nNETOPT_EXIT 1\n", "a1b2c3d4e5f6", 1)]
+    [InlineData("NETOPT_START a1b2c3d4e5f6\nVersion: UDR7.ipq5322.v6.0.12\n", "a1b2c3d4e5f6", null)]
+    [InlineData("", null, null)]
+    public void UniFiOsInstallLog_NamesTheAttemptAndReadsTheExitCodeOnlyOnceItHasEnded(string log, string? attemptId, int? exitCode)
+    {
+        var parsed = FirmwareCommandClient.ParseUniFiOsInstallLog(log);
+
+        parsed.AttemptId.Should().Be(attemptId);
+        parsed.ExitCode.Should().Be(exitCode);
+        parsed.Output.Should().NotContain("NETOPT_");
+    }
+
     [Fact]
     public void NetworkInstallError_NamesTheUnmetDependency()
     {

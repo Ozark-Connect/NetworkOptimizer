@@ -16,6 +16,7 @@ Comprehensive security audit engine for UniFi network configurations. Analyzes s
 - **Permissive Rules**: Identifies any->any rules and overly broad rules
 - **Orphaned Rules**: Finds rules referencing deleted networks or groups
 - **Inter-VLAN Isolation**: Checks for missing isolation between network segments
+- **Gateway Management Access**: Flags networks that can reach the gateway's SSH and web UI (TCP 22, 80, 443) in the Gateway zone. Untrusted networks only, or every network except the Management Access network once one is set by purpose override
 
 ### VLAN/Network Analysis
 - **Network Classification**: Automatically classifies networks (Corporate, IoT, Security, Guest, Management)

@@ -88,6 +88,10 @@ public class DiagnosticsEngine
     /// Gateway traffic control state for WANs with Smart Queues enabled, read over SSH. Null or
     /// empty whenever the gateway could not be read, which simply skips that check.
     /// </param>
+    /// <param name="wanLinkSpeedHistory">
+    /// Per gateway WAN port, how often it dropped below its usual speed. Null or empty when no
+    /// history is recorded, which skips that check.
+    /// </param>
     /// <returns>Complete diagnostics result</returns>
     public DiagnosticsResult RunDiagnostics(
         IEnumerable<UniFiClientResponse> clients,
@@ -99,7 +103,8 @@ public class DiagnosticsEngine
         JsonDocument? settingsData = null,
         JsonDocument? qosRulesData = null,
         JsonDocument? wanEnrichedData = null,
-        List<WanShaperState>? wanShaperStates = null)
+        List<WanShaperState>? wanShaperStates = null,
+        IReadOnlyList<WanLinkSpeedHistory>? wanLinkSpeedHistory = null)
     {
         options ??= new DiagnosticsOptions();
         var stopwatch = Stopwatch.StartNew();
@@ -196,7 +201,8 @@ public class DiagnosticsEngine
                     runPerformanceChecks: options.RunPerformanceAnalyzer,
                     runCellularChecks: options.RunCellularDataSavings,
                     portProfiles: profileList,
-                    wanShaperStates: wanShaperStates);
+                    wanShaperStates: wanShaperStates,
+                    wanLinkSpeedHistory: wanLinkSpeedHistory);
                 result.CellularWanDetected = _performanceAnalyzer.CellularWanDetected;
                 _logger?.LogDebug("Performance Analyzer found {Count} issues", result.PerformanceIssues.Count);
             }

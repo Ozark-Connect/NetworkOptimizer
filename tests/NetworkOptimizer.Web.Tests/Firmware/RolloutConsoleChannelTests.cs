@@ -107,6 +107,47 @@ public class RolloutConsoleChannelTests
     }
 
     [Fact]
+    public async Task ARefusedNetworkAppChannelSwitch_DoesNotInstallAnotherChannelsBuild()
+    {
+        // The console stays on beta and offers beta's 11.0.83; the plan was built for RC's 11.0.82.
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = Console(appChannel: "beta", appUpdateAvailable: "11.0.83", appVersion: "11.0.81");
+        harness.Commands.ConsoleChannelsAccepted = false;
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.ReleaseCandidate);
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.TargetVersion = "11.0.82";
+        var plan = await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.NetworkAppUpdateCalls.Should().Be(0);
+        harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.NetworkAppUpdateRefused);
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.NetworkAppUpdate.Outcome.Should().Be("refused");
+        stored.NetworkAppUpdate.Error.Should().Contain("11.0.83");
+        stored.ConsoleChannels.NetworkAppChannel.Should().BeNull("a refused switch is not one this rollout put in force");
+    }
+
+    [Fact]
+    public async Task ARefusedNetworkAppChannelSwitch_StillInstallsTheConsolesBuildWhenItIsThePlannedOne()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = Console(appChannel: "beta", appUpdateAvailable: "11.0.83", appVersion: "11.0.81");
+        harness.Commands.ConsoleChannelsAccepted = false;
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.ReleaseCandidate);
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.TargetVersion = "11.0.83";
+        await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.NetworkAppUpdateCalls.Should().Be(1, "the console is offering exactly the build the plan captured");
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.NetworkAppUpdateRefused);
+    }
+
+    [Fact]
     public async Task AnApplicationLeftOutOfTheRollout_KeepsItsChannel()
     {
         using var harness = new RolloutHarness();
@@ -465,7 +506,104 @@ public class RolloutConsoleChannelTests
         await RunDeviceToLitmusAsync(harness, ApMac);
 
         harness.Commands.UniFiOsUpdateCalls.Should().Be(0);
-        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Outcome.Should().Be("refused");
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Outcome.Should().Be("refused");
+        stored.UniFiOsUpdate.Error.Should().Be("no route", "the report says why, not only that it was refused");
+    }
+
+    [Fact]
+    public async Task ADroppedSshUniFiOsSession_CountsAsStartedWhenTheGatewayLoggedTheAttempt()
+    {
+        // The agent tunnel reset after the gateway took the command: the call fails, the writer runs on.
+        using var harness = new RolloutHarness();
+        harness.Commands.SshUniFiOsResult = FirmwareCommandResult.Failed("session dropped");
+        harness.Commands.SshUniFiOsLog = () => new UniFiOsInstallLog(harness.Commands.LastSshUniFiOsAttemptId, null, "");
+        var plan = await SeedPinnedOsPlanAsync(harness);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Triggered.Should().BeTrue();
+        stored.UniFiOsUpdate.ViaSsh.Should().BeTrue();
+        stored.UniFiOsUpdate.Outcome.Should().BeNull();
+        stored.UniFiOsUpdate.Error.Should().BeNull();
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task AnOlderInstallLog_DoesNotVouchForANewAttempt()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.SshUniFiOsResult = FirmwareCommandResult.Failed("no route");
+        harness.Commands.SshUniFiOsLog = () => new UniFiOsInstallLog("olderattempt", 0, "");
+        var plan = await SeedPinnedOsPlanAsync(harness);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Triggered.Should().BeFalse();
+        stored.UniFiOsUpdate.Outcome.Should().Be("refused");
+    }
+
+    [Fact]
+    public async Task APinnedUniFiOsBuild_FallsBackToTheConsoleWhenItOffersThatSameBuild()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.SshUniFiOsResult = FirmwareCommandResult.Failed("no route");
+        harness.Commands.ConsoleInfo = Console(osChannel: "beta", installedOs: "6.0.7");
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "v6.0.9+bbb2222" };
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.Beta);
+        var document = UniFiOsPlan();
+        document.UniFiOsUpdate.TargetVersion = "6.0.9";
+        document.UniFiOsUpdate.Url = "https://example.test/os-6.0.9.bin";
+        document.UniFiOsUpdate.Pinned = true;
+        var plan = await harness.SeedRunningPlanAsync(document, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.Calls.Should().Contain("ssh-unifi-os-update");
+        harness.Commands.UniFiOsUpdateCalls.Should().Be(1, "the console's own offer is the chosen build");
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Triggered.Should().BeTrue();
+        stored.UniFiOsUpdate.Error.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ADetachedSshUniFiOsInstall_ThatExitedWithAnError_SettlesRefusedWithTheReason()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.SshUniFiOsLog = () => new UniFiOsInstallLog(harness.Commands.LastSshUniFiOsAttemptId, 1, "curl: (22) The requested URL returned error: 404");
+        var plan = await SeedPinnedOsPlanAsync(harness);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+        await harness.TickAsync(TimeSpan.FromMinutes(3));
+
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Outcome.Should().Be("refused");
+        stored.UniFiOsUpdate.Error.Should().Contain("404");
+    }
+
+    [Fact]
+    public async Task ADetachedSshUniFiOsInstall_StillRunning_IsNotJudgedUnchanged()
+    {
+        // fwupdate from the shell does not drive the console's progress state, so an idle state on
+        // the old version only means the download or write is still going.
+        using var harness = new RolloutHarness();
+        harness.Commands.SshUniFiOsLog = () => new UniFiOsInstallLog(harness.Commands.LastSshUniFiOsAttemptId, null, "");
+        var plan = await SeedPinnedOsPlanAsync(harness);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+        await harness.TickAsync(TimeSpan.FromMinutes(3));
+
+        var stored = Stored((await harness.PlanAsync(plan.Id))!);
+        stored.UniFiOsUpdate.Triggered.Should().BeTrue();
+        stored.UniFiOsUpdate.Outcome.Should().BeNull();
     }
 
     [Fact]

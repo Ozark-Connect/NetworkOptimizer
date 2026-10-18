@@ -598,7 +598,7 @@ cat > "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" << EOF
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>$INSTALL_DIR/logs/stdout.log</string>
+    <string>/dev/null</string>
     <key>StandardErrorPath</key>
     <string>$INSTALL_DIR/logs/stderr.log</string>
 </dict>
@@ -660,7 +660,7 @@ if [ "$HEALTH_OK" = true ]; then
     echo "✓ Health check passed"
 else
     echo "✗ Health check failed after 60 seconds"
-    echo "  The app may still be starting. Check logs: tail -f $INSTALL_DIR/logs/stdout.log"
+    echo "  The app may still be starting. Check logs: tail -f \"\$(ls -t $INSTALL_DIR/logs/networkoptimizer-*.log | head -1)\""
 fi
 
 echo ""
@@ -675,12 +675,12 @@ if [ "$SPEEDTEST_AVAILABLE" = true ]; then
 fi
 echo ""
 echo "On first run, check logs for the auto-generated admin password:"
-echo "  grep -A5 'AUTO-GENERATED' $INSTALL_DIR/logs/stdout.log"
+echo "  grep -A5 'AUTO-GENERATED' \"\$(ls -t $INSTALL_DIR/logs/networkoptimizer-*.log | head -1)\""
 echo ""
 echo "Service management:"
 echo "  Stop:    launchctl unload ~/Library/LaunchAgents/$LAUNCH_AGENT_FILE"
 echo "  Start:   launchctl load ~/Library/LaunchAgents/$LAUNCH_AGENT_FILE"
-echo "  Logs:    tail -f $INSTALL_DIR/logs/stdout.log"
+echo "  Logs:    tail -f \"\$(ls -t $INSTALL_DIR/logs/networkoptimizer-*.log | head -1)\"  (daily file, 7 kept)"
 echo ""
 
 # Reported, not acted on: see the note at the brew step. Self-suppresses after an

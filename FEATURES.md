@@ -9,7 +9,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 [Config Optimizer](#config-optimizer) · [Performance Tweaks](#performance-tweaks) ·
 [Firmware Rollout](#firmware-rollout) · [Wi-Fi Optimizer](#wi-fi-optimizer) ·
 [Security Audit](#security-audit) · [UPnP Inspector](#upnp-inspector) ·
-[Threat Intelligence](#threat-intelligence) · [Adaptive SQM](#adaptive-sqm) ·
+[Threat Intelligence](#threat-intelligence) · [Web Application Firewall](#web-application-firewall) · [Adaptive SQM](#adaptive-sqm) ·
 [WAN Steering](#wan-steering) · [WAN Speed Test](#wan-speed-test) ·
 [Client WAN Test](#client-wan-test) · [LAN Speed Test](#lan-speed-test) ·
 [Client Speed Test](#client-speed-test) · [Alerts & Schedule](#alerts--schedule) ·
@@ -50,6 +50,8 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
 - License checks never downgrade a license on failure; a restricted site pauses until relicensed
 - Agent management - status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
+- Per site: Automatic Blocking mode, blocked-source count, and [cross-site blocking](#automatic-blocking) with **Turn On Recommended for All Sites**
+- [Trusted Sources](#trusted-sources) - every site's WAN addresses as UniFi Network Lists, so sites admit each other and no one else
 
 ### On-Site Agent
 
@@ -59,6 +61,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - SNMP polling buffered across outages
 - Per-client WAN usage at the gateway for Bandwidth Hogs
 - UniFi Cable Internet DOCSIS capture (agent on the gateway)
+- [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound (agent on the gateway)
 - LAN speed test server (OpenSpeedTest and iperf3) and site-local WAN speed tests
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
 - Falls back to HTTPS heartbeats when the tunnel cannot connect; refuses plain HTTP
@@ -108,6 +111,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Technology-aware thresholds: GPON, XGS-PON, DOCSIS, PPPoE, Direct Ethernet, Fixed Wireless, Satellite, Cellular, DSL
   - PPPoE detected from the gateway; re-score under a different access technology
 - Factors: Speed vs Plan, Idle Latency, Packet Loss, Loaded Latency, Loaded Loss, Physical Link
+  - WAN Speed Test loss feeds Packet Loss and Loaded Loss
   - Physical Link reads ONT optics, DOCSIS RF, cellular signal, or the Starlink dish
 - **Uptime** and outages, with where the path broke and a per-hop recovery timeline
   - LAN outages kept apart from WAN; **that was me** excludes a self-caused outage
@@ -151,6 +155,9 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - PON details: PLOAM state, ONU ID, FEC, ONT uptime; GPON vs XGS-PON detection
 - **SFP Anomalies** investigation and **SFP Alert Thresholds**
 - Option to ignore single-poll DDM spikes on SFP ONTs
+- **Attach to SFP Module** - a Realtek ONT stick or Network Optimizer Custom ONT joins its module as one card
+  - **SFP Temp** and **ONT Temp** both shown; choose which one the PON temperature alert checks
+  - **Refresh** on the Dashboard reads the module and polls its attached ONT at once
 
 ### Cable Modem Stats
 
@@ -162,6 +169,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 
 - **ONT Signal History** - RX/TX power, temperature, PON errors, host link errors, GEM frames
 - PON status and type; **ONT Alert Thresholds**
+- **PON Status** table: **Registered**, **OLT** (vendor decoded, with model where reported), **OLT Version**, **Firmware**, and ONT uptime
 
 ### Cellular Stats
 
@@ -201,6 +209,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - From the server, an [On-Site Agent](#on-site-agent), a WAN vantage, or any UniFi device (Device SSH)
   - ICMP, TCP, or UDP (traceroute only); choose the gateway's WAN interface
   - DNS lookups use the vantage's own resolver, which shows DNS segregation per network
+  - **Other Sites** targets: each of your other sites' latest WAN address, for inter-site traces
 - **Inspect a Gateway Interface** - **Addresses and DHCP Lease**, **SFP Module**, and **Neighbors** (Gateway SSH)
 - **Gateway Diagnostics** - **Run Diagnostics** parses the kernel log into categories (Gateway SSH)
 - **Console Support File** - **Generate & Download**, optionally with all applications
@@ -235,6 +244,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Known firmware issues on your gateway's version, such as an SQM performance regression
   - Upgrades UniFi leaves to you, such as a newer CyberSecure (Suricata) IDS/IPS engine (shown on the Dashboard)
   - Smart Queues not shaping a WAN
+- **WAN Link Speed Keeps Dropping** - a WAN port that keeps renegotiating below its usual speed
 - **Cellular Data Savings** - streaming, cloud sync, and game downloads not rate-limited on a cellular WAN
 
 ## Performance Tweaks
@@ -353,6 +363,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - Score out of 100 from Firewall Rules, VLAN Security, Port Security, DNS Security, and UPnP Security checks, plus a hardening bonus
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
+  - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
 - **VLAN Security** - IoT, printers, cameras, NVRs, and security systems on the wrong VLAN
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
@@ -362,7 +373,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
 - **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
 - Threat-aware check for actively targeted port forwards
-- **Acknowledge** false positives; override a network's **Purpose**
+- **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
 - **Download PDF** report
 - Allow-lists in Settings: streaming devices, media players, TVs, printers, grace periods, trusted DNS redirects
@@ -376,20 +387,67 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 ## Threat Intelligence
 
-- Collects IPS events (IPS v1 and v2) and traffic flows from the gateway, with history backfill
+- Collects IPS events (IPS v1 and v2), traffic flows, and [Web Application Firewall](#web-application-firewall) events, with history backfill
 - Suricata signature enrichment
 - **Overview** - totals, threat timeline, kill chain distribution, blocked vs detected
   - **Top Sources**, **Top Targeted Ports**, **Attack Patterns** (scan, brute force, exploit campaign, DDoS)
+  - **Protection Setup** - four-step checklist from watching to blocking, with **Turn On Recommended**
+- **Blocking** - every blocked source with its reason and end time, plus those shared from your other sites by site; **Release**; each links to its IP details
 - **Exposure** - port forwards cross-referenced with threats; **Geo-Block Recommendation**
 - **Geographic** - country breakdown (MaxMind GeoIP)
 - **Attack Sequences** - source IPs moving through two or more kill chain stages
+  - **Public Block List Contacts** - devices that connected to, or tried to reach, a listed address
 - **Search** - by IP, CIDR, country, or ASN
-- IP, port, and protocol drill-downs
+- IP, port, and protocol drill-downs; **Block** and **Release** any public address from its details
+  - Names the public block list an address is on, in its header and in **Destinations Accessed**
 - CrowdSec CTI reputation, known behaviors, and MITRE ATT&CK techniques per IP
   - Lookups cached for 30 days and held to a daily quota
 - **Data Retention** setting, 90 days by default; the first collection backfills 30 days
 - **Noise Filters** - hide traffic and suppress alerts by IP, CIDR, port, or description
+  - Categories: Noise (hidden), Infrastructure, and Trusted User (kept, and listed apart in the Security Audit PDF)
 - Time ranges from 1 hour to 90 days, or custom
+
+### Automatic Blocking
+
+Set up in **Settings - Security & Alerts**, per site.
+
+- Blocks the sources the WAF and attack pattern detection flag, with longer bans for repeat offenders
+- **Where Blocks Are Enforced** - the gateway, the [Web Application Firewall](#web-application-firewall), and **Cloudflare Edge Blocking**
+  - With an [On-Site Agent](#on-site-agent) on the gateway, blocks apply in seconds with no gateway reprovisioning
+- Every site starts in **Detection Only**, which writes nothing; **Turn On Recommended** switches it to **Blocking**
+  - Picks the **Home** or **Self-Hosting** profile from the site's port forwards; **Business** and **Lockdown** in the profile picker
+- **Cross-site blocking** - a source attacking one site is blocked at every site sharing blocks
+  - One attack, defended across your whole fleet: an attacker caught at one site is shut out of all of them
+  - **Turn On Recommended for All Sites** from **Settings - Multi-Site**; each site's own Trusted Sources still decide what it enforces
+- **Public Block Lists** - Spamhaus DROP by default; abuse.ch ThreatFox and Q-Feeds (with your own key), CINS Army, IPsum, blocklist.de Strong IPs, DShield Top 20, abuse.ch Feodo Tracker, and Tor exit relays optional
+  - Up to 100,000 entries per site, least useful lists cut first
+  - Optional outbound block keeps an infected device from reaching its botnet command server (attacker lists stay inbound only)
+  - A device reaching a listed address raises an alert, Detection Only included
+- **What Triggers a Block** thresholds and **Maximum blocked sources**
+
+### Trusted Sources
+
+- Every site's WAN IPv4 and IPv6 addresses and public IPv6 prefixes, tracked automatically as they change
+- Never blocked anywhere, by any site, on any target
+- Published to UniFi Network as Network Lists, kept current through WAN address changes
+  - A port forward or firewall policy that admits only your own sites, with no static IPs and no DDNS
+  - A **+ Cloudflare** variant for hosts proxied through Cloudflare
+- Pushed to the WAF as its `trusted` allow list
+- Choose which of your other sites each site trusts; add your own addresses and **Blocking Exceptions**
+
+## Web Application Firewall
+
+netopt-waf, the OWASP CRS firewall in [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy), in front of Network Optimizer and your self-hosted apps.
+
+- Sees inside HTTPS requests: `.env` and credential probing, injection, path traversal, command execution
+- Events land in Threat Intelligence and alerts like IPS events, with what each rule matched
+- **Overview** - **Mode** card, **Top Rules** and **Top Hosts**, each opening **Events** filtered to it
+- **Events** - every request the WAF flagged: source, host, request, rule, and action
+- **Exclusions** - **Add Exclusion** from an event, applied with no restart; built-in sets for common apps
+- **Blocking** - the sources Automatic Blocking holds at the WAF
+- **Setup** - one WAF per site, reached through the site's [On-Site Agent](#on-site-agent) when routed that way
+- Switch between **Detection Only** and **Blocking** from Network Optimizer; newer netopt-waf and CRS releases offered
+- Docker `waf` compose profile; bundled with the Windows MSI's Traefik
 
 ## Adaptive SQM
 
@@ -423,6 +481,8 @@ Requires Gateway SSH.
 - From the server or an [On-Site Agent](#on-site-agent) through the LAN
 - Any WAN, any combination of WANs, or all at once; **Max Load** for multi-gig lines
 - Download, upload, latency, jitter, and loaded latency (bufferbloat)
+- Packet loss idle and under load in each direction, on the **Packet Loss** chart tab
+- Flags a result as not a valid test when Monitoring saw enough other WAN traffic to explain it (InfluxDB)
 - **WAN History** - speed, latency, loaded latency, and jitter charts, filtered by WAN
 - Notes, WAN reassignment, **Analyze Path**, and a jump to Live View at the test time
 
@@ -463,7 +523,10 @@ Requires Gateway SSH.
 - **Rules** - event pattern, threshold, severity, cooldown, escalation, digest-only, target devices
 - **Incidents** - related alerts grouped automatically
 - Alerts cover:
-  - Security Audit score drops and new findings; threat attack chains and patterns
+  - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
+  - A device reaching, or trying to reach, an address on a public block list
+  - WAN port below its usual link speed or at half duplex, and its recovery
+  - ONT management unresponsive while its SFP still reads light; ONT rebooted
   - WAN, LAN, and client speed test regressions
   - UniFi Console and On-Site Agent connection loss
   - Monitoring target offline, sustained loss, full and partial WAN outages
@@ -495,6 +558,7 @@ Requires Gateway SSH.
 - **Identity** and **Audit Log** - see [Accounts and Access](#accounts-and-access)
 - **Multi-Site** - see [Multi-Site](#multi-site)
 - **Search settings** box across every card
+- Floating Save on desktop while a card's own Save is out of view; leaving with unsaved changes asks first
 
 ## Supported Hardware
 
@@ -519,7 +583,7 @@ Requires Gateway SSH.
   - Nokia - XS-010X-Q
   - Deutsche Telekom - Glasfaser-Modem 2
   - Zyxel - PMG3000-D20B
-  - Realtek RTL960x sticks - ODI DFP-34X-2C2, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
+  - Realtek RTL960x sticks - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
   - 8311 firmware sticks - WAS-110, X-ONU-SFPP, WT-ONU-STICK
   - Any GPON or XGS-PON ONT SFP module with DDM
   - Any other SFP module with DDM
@@ -551,6 +615,7 @@ Requires Gateway SSH.
 ## Integrations and API
 
 - Bring your own Grafana on the InfluxDB buckets; the schema only ever adds fields
+  - Every WAN and LAN speed test result exported to the long-term bucket, history included
 - Custom ONT stats contract (Network Optimizer Custom) for any device you can script
 - OpenSpeedTest and iperf3 wrapped with persistent storage: every run, from any device, kept and analyzed
 - Alerts, schedules, audit log, and config backup APIs
@@ -570,6 +635,7 @@ Requires Gateway SSH.
 - Installable as an app (PWA) on iPhone, iPad, and Android, with pull-to-refresh and a Back button
 - Guided tours of what's new in each release
 - Encrypted credential storage, with an optional external key file
+- Daily log file on every platform (`./logs` on Docker), seven days kept
 - Real client addresses behind a reverse proxy or Cloudflare (`TRUSTED_PROXIES`, `TRUST_CF_CONNECTING_IP`)
 - Update notices checked by your browser against GitHub; the server sends nothing
 - Pre-release (preview) channel

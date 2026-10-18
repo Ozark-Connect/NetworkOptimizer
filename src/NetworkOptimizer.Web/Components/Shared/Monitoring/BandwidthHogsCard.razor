@@ -147,7 +147,9 @@
             var rank = 0;
             var denominator = ShareDenominator();
             // Pad no further than the site's client count: slots no client could ever fill are blank rows.
-            var slots = _mode == Mode.Data ? rows.Count : Math.Min(_showAll ? MaxRows : CollapsedRows, Math.Max(rows.Count, VisibleRows(_view).Count()));
+            // The count of clients on the map, not of rows: rows are only the clients moving traffic now,
+            // and padding to those let the card change height with the traffic.
+            var slots = _mode == Mode.Data ? rows.Count : Math.Min(_showAll ? MaxRows : CollapsedRows, Math.Max(rows.Count, _result?.ClientCount ?? 0));
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
                     <colgroup>

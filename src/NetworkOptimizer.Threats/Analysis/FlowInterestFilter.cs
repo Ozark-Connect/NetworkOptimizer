@@ -31,6 +31,11 @@ public static class FlowInterestFilter
         31337 // Elite/backdoor
     };
 
+    /// <summary>A flow's destination address, or null.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows destination.ip")]
+    public static string? DestinationIp(JsonElement flow) =>
+        flow.TryGetProperty("destination", out var destination) ? destination.GetPropertyOrDefault("ip", "") is { Length: > 0 } ip ? ip : null : null;
+
     /// <summary>
     /// Returns true if the flow is interesting enough to store as a ThreatEvent.
     /// </summary>
@@ -73,5 +78,78 @@ public static class FlowInterestFilter
 
         // Low risk flows on normal ports are not interesting
         return false;
+    }
+
+    /// <summary>
+    /// True when every policy that blocked the flow is UniFi's predefined Block Invalid Traffic: late
+    /// packets on connections whose conntrack entry is gone, not something anyone sent on purpose.
+    /// The flow's policy ids are not the firewall-policies <c>_id</c>s, so the predefined name is the key.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows policies[] internal_type and predefined policy name")]
+    public static bool IsInvalidStateDrop(JsonElement flow)
+    {
+        if (!flow.TryGetProperty("policies", out var policies) || policies.ValueKind != JsonValueKind.Array
+            || policies.GetArrayLength() == 0)
+            return false;
+
+        foreach (var policy in policies.EnumerateArray())
+        {
+            if (!policy.GetPropertyOrDefault("internal_type", "").Equals("PREDEFINED_FIREWALL_RULE", StringComparison.Ordinal)
+                || !policy.GetPropertyOrDefault("name", "").Equals(InvalidTrafficPolicyName, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>The name UniFi Network gives its predefined invalid-connection-state Block policies.</summary>
+    public const string InvalidTrafficPolicyName = "Block Invalid Traffic";
+
+    /// <summary>Server ports that late replies to LAN clients come from.</summary>
+    public static readonly IReadOnlySet<int> ServerPorts = new HashSet<int> { 53, 80, 123, 443, 853, 993, 3478, 5222, 5223, 5228, 5349 };
+
+    /// <summary>The ephemeral range a client's side of a connection sits in (Linux starts at 32768, Windows at 49152).</summary>
+    public const int EphemeralPortFloor = 32768;
+
+    /// <summary>Whether a flow has the shape of a server's reply to a LAN client: a server port to an ephemeral port.</summary>
+    public static bool IsServerToEphemeral(int sourcePort, int destPort) =>
+        ServerPorts.Contains(sourcePort) && destPort >= EphemeralPortFloor;
+
+    /// <summary>
+    /// A blocked inbound flow shaped like a reply, from a public address. Whether it really is one is decided
+    /// against the site's outgoing connections (<see cref="IsReplyTo"/>); the shape alone can be spoofed.
+    /// </summary>
+    public static bool IsReplyCandidate(Models.ThreatEvent e) =>
+        e.EventSource == Models.EventSource.TrafficFlow
+        && e.Action == Models.ThreatAction.Blocked
+        && string.Equals(e.Direction, "incoming", StringComparison.OrdinalIgnoreCase)
+        && IsServerToEphemeral(e.SourcePort, e.DestPort)
+        && NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPublicIpAddress(e.SourceIp);
+
+    /// <summary>
+    /// Whether a candidate is a late packet on a connection a LAN client opened: a client connected out to
+    /// the same address and port, from the port the packet was sent to. NAT keeps the client's port, so a
+    /// scanner would have to guess a live connection's port to match.
+    /// </summary>
+    public static bool IsReplyTo(Models.ThreatEvent e, IReadOnlySet<(string Ip, int RemotePort, int ClientPort)> outgoing) =>
+        outgoing.Contains((e.SourceIp.ToLowerInvariant(), e.SourcePort, e.DestPort));
+
+    /// <summary>The remote address and port, and the client's port, of each allowed outgoing flow in a traffic-flows page.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows source/destination ip and port")]
+    public static IEnumerable<(string Ip, int RemotePort, int ClientPort)> OutgoingConnections(JsonElement response)
+    {
+        if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            yield break;
+        foreach (var flow in data.EnumerateArray())
+        {
+            if (!flow.GetPropertyOrDefault("action", "").Equals("allowed", StringComparison.OrdinalIgnoreCase)
+                || !flow.TryGetProperty("destination", out var destination) || !flow.TryGetProperty("source", out var source))
+                continue;
+            var ip = destination.GetPropertyOrDefault("ip", "");
+            if (ip.Length == 0
+                || !destination.TryGetProperty("port", out var remotePort) || remotePort.ValueKind != JsonValueKind.Number
+                || !source.TryGetProperty("port", out var clientPort) || clientPort.ValueKind != JsonValueKind.Number)
+                continue;
+            yield return (ip.ToLowerInvariant(), remotePort.GetInt32(), clientPort.GetInt32());
+        }
     }
 }

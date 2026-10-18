@@ -14,6 +14,37 @@ public interface IThreatRepository
     /// </summary>
     void SetNoiseFilters(List<ThreatNoiseFilter> filters);
 
+    /// <summary>
+    /// WAF events in the range, newest first, noise filters applied. <paramref name="search"/> matches
+    /// the source, host, request, rule name, or rule ID.
+    /// </summary>
+    Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit, CancellationToken cancellationToken = default);
+
+    // --- Automatic Blocking ---
+
+    /// <summary>WAF events per source in the range, ignoring noise filters (a trusted source is
+    /// exempted by the allowlist instead, so a Noise-only filter never hides an attacker).</summary>
+    Task<Dictionary<string, int>> GetWafEventCountsBySourceAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+
+    /// <summary>Patterns whose last event falls in the range, ignoring noise filters.</summary>
+    Task<List<ThreatPattern>> GetPatternsSeenAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+
+    /// <summary>Blocks that are active at <paramref name="now"/> or were created since <paramref name="createdSince"/>.</summary>
+    Task<List<ThreatBlock>> GetBlocksAsync(DateTime now, DateTime createdSince, CancellationToken cancellationToken = default);
+
+    /// <summary>Blocks per source created since <paramref name="since"/>, for strike counting.</summary>
+    Task<Dictionary<string, int>> GetBlockCountsBySourceAsync(DateTime since, CancellationToken cancellationToken = default);
+
+    Task AddBlocksAsync(List<ThreatBlock> blocks, CancellationToken cancellationToken = default);
+
+    Task<ThreatBlock?> GetBlockAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>Marks a block released; false when it does not exist or is not active.</summary>
+    Task<bool> ReleaseBlockAsync(int id, string releasedBy, DateTime now, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes blocks that ended before <paramref name="olderThan"/>.</summary>
+    Task<int> PruneBlocksAsync(DateTime olderThan, CancellationToken cancellationToken = default);
+
     // --- Severity Filtering ---
     /// <summary>
     /// Set active severity filter. When non-null, only events with matching severity levels
@@ -23,9 +54,25 @@ public interface IThreatRepository
 
     // --- Threat Events ---
     Task SaveEventsAsync(List<ThreatEvent> events, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether an event from <paramref name="sourceIp"/> to <paramref name="destIp"/> was recorded in the window,
+    /// optionally only from one source or in one category.
+    /// </summary>
+    Task<bool> HasEventAsync(string sourceIp, string destIp, DateTime from, DateTime to, EventSource? eventSource = null,
+        string? category = null, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsAsync(DateTime from, DateTime to, string? sourceIp = null, int? destPort = null, KillChainStage? stage = null, int limit = 1000, CancellationToken cancellationToken = default);
     Task<ThreatSummary> GetThreatSummaryAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
     Task<List<SourceIpSummary>> GetTopSourcesAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Return aggregated event counts grouped by source IP, restricted to source IPs that
+    /// match an enabled noise filter of the given category. Bypasses the BaseQuery noise
+    /// filter exclusion (since the whole point is to see what was suppressed). Used by
+    /// the audit report to render the "Known Infrastructure Activity" and "Trusted User
+    /// Activity" sub-tables.
+    /// </summary>
+    Task<List<SourceIpSummary>> GetSourcesByCategoryAsync(DateTime from, DateTime to, ThreatFilterCategory category, int count = 20, CancellationToken cancellationToken = default);
     Task<List<TargetPortSummary>> GetTopTargetedPortsAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);
     Task<Dictionary<string, int>> GetCountryDistributionAsync(DateTime from, DateTime to, ThreatAction? actionFilter = null, CancellationToken cancellationToken = default);
     Task<List<TimelineBucket>> GetTimelineAsync(DateTime from, DateTime to, int bucketMinutes = 60, CancellationToken cancellationToken = default);
@@ -52,6 +99,9 @@ public interface IThreatRepository
     Task MarkPatternAlertedAsync(int patternId, DateTime alertedAt, CancellationToken cancellationToken = default);
 
     // --- Attack Sequences ---
+    /// <summary>Devices that reached or tried to reach a public block list address, connected ones first, then most recent.</summary>
+    Task<List<PublicListContactSummary>> GetPublicListContactsAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
+
     Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
 
     // --- CrowdSec Cache ---
@@ -64,6 +114,24 @@ public interface IThreatRepository
     Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default);
     Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default);
     Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Demote a system filter (IsSystem=false) and disable it (Enabled=false). Used when a
+    /// management host (this host or an On-Site Agent) leaves an address: the row is kept for
+    /// audit history, and the user can delete it.
+    /// </summary>
+    Task DemoteAndDisableSystemFilterAsync(int filterId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-promote a demoted filter back to IsSystem=true and re-enable it. Used when a
+    /// management host returns to an address it had, rather than creating a duplicate row.
+    /// </summary>
+    Task PromoteToSystemFilterAsync(int filterId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Totals, top CRS rules, and top hosts for netopt-waf events in the range, noise filters applied.
+    /// </summary>
+    Task<Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to, int top = 5, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -90,6 +158,18 @@ public record SourceIpSummary
     public int? Asn { get; set; }
     public string? AsnOrg { get; set; }
     public int MaxSeverity { get; init; }
+
+    /// <summary>
+    /// When returned from GetSourcesByCategoryAsync, the human-readable label from
+    /// the matching noise filter (e.g., "Network Optimizer (device management)").
+    /// </summary>
+    public string? Label { get; set; }
+
+    /// <summary>
+    /// When returned from GetSourcesByCategoryAsync, the category of the matching
+    /// noise filter. Null for results from GetTopSourcesAsync.
+    /// </summary>
+    public ThreatFilterCategory? MatchedFilterCategory { get; set; }
 
     // CrowdSec CTI enrichment (populated post-query by dashboard service)
     public string? CrowdSecReputation { get; set; }

@@ -37,6 +37,8 @@
 @inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
+@inject ISystemSettingsAdmin SettingsAdmin
+@inject NetworkOptimizer.Threats.ThreatCollectionService ThreatCollection
 @inject NavigationManager NavigationManager
 @inject ISiteManagementService SiteManagement
 @inject SiteRegistryChangeNotifier SiteChangeNotifier
@@ -65,6 +67,9 @@
 @inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+
+<NavigationLock OnBeforeInternalNavigation="ConfirmLeaveAsync" />
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
 
@@ -159,7 +164,7 @@
                   data-tour="settings-search" />
 </div>
 
-<div class="settings-container settings-tabbed active-@_activeTab">
+<div class="settings-container settings-tabbed active-@_activeTab" @ref="_settingsContainer">
     <!-- 1. UniFi Console Connection -->
     <div class="card settings-tab-connection" id="console-connection">
         <div class="card-header">
@@ -1158,35 +1163,33 @@
                 It's deployed automatically from the Adaptive SQM page. Only change this if you need to use a different port (default: 8088).
             </p>
 
-            <div class="form-row">
-                <div class="form-group" style="flex: 1;">
-                    <label class="form-label">Port</label>
-                    <input type="number" class="form-control" @bind="tcMonitorPort" @bind:event="oninput" min="1" max="65535" />
-                </div>
-                <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="SaveTcMonitorPort" disabled="@savingTcMonitorPort">
-                        @if (savingTcMonitorPort)
-                        {
-                            <span class="spinner"></span>
-                            <span>Saving...</span>
-                        }
-                        else
-                        {
-                            <span>Save</span>
-                        }
-                    </button>
-                    <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
-                        @if (testingTcMonitor)
-                        {
-                            <span class="spinner"></span>
-                            <span>Testing...</span>
-                        }
-                        else
-                        {
-                            <span>Test</span>
-                        }
-                    </button>
-                </div>
+            <div class="form-group">
+                <label class="form-label">Port</label>
+                <input type="number" class="form-control" @bind="tcMonitorPort" @bind:event="oninput" min="1" max="65535" />
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-secondary" @onclick="SaveTcMonitorPort" disabled="@savingTcMonitorPort">
+                    @if (savingTcMonitorPort)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+                <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
+                    @if (testingTcMonitor)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test</span>
+                    }
+                </button>
             </div>
 
             @if (!string.IsNullOrEmpty(tcMonitorMessage))
@@ -1223,7 +1226,7 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowCellularTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowCellularTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the Cellular Stats tab in Monitoring</span>
                     </label>
                 </div>
@@ -1362,7 +1365,18 @@
                                                 <span>@(modem.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteModem(modem)">Delete</button>
+                                        @if (_confirmDeleteKey == $"modem:{modem.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteModem(modem)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"modem:{modem.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -1584,13 +1598,13 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowCmTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowCmTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the CM Stats tab in Monitoring</span>
                     </label>
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" checked="@_monitoringSettings.CmErrorCountersLast24h" @onchange="e => SetCmErrorWindowAsync(e.Value is true)" />
+                        <input type="checkbox" data-autosave checked="@_monitoringSettings.CmErrorCountersLast24h" @onchange="e => SetCmErrorWindowAsync(e.Value is true)" />
                         <span>Limit error counters on Dashboard Cards to last 24 hours</span>
                     </label>
                 </div>
@@ -1651,7 +1665,18 @@
                                                 <span>@(cm.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteCm(cm.Id)">Delete</button>
+                                        @if (_confirmDeleteKey == $"cm:{cm.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteCm(cm.Id)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"cm:{cm.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -1822,7 +1847,7 @@
     </div>
 
     <!-- ONT Device Monitoring -->
-    <div class="card settings-tab-monitoring" id="ont-monitoring">
+    <div class="card settings-tab-monitoring" id="ont-monitoring" data-tour="ont-monitoring">
         <div class="card-header">
             <div class="card-header-left">
                 <h2 class="card-title">ONT Device Monitoring</h2>
@@ -1844,13 +1869,13 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowOntTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowOntTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the ONT Stats tab in Monitoring</span>
                     </label>
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" checked="@_monitoringSettings.OntErrorCountersLast24h" @onchange="e => SetOntErrorWindowAsync(e.Value is true)" />
+                        <input type="checkbox" data-autosave checked="@_monitoringSettings.OntErrorCountersLast24h" @onchange="e => SetOntErrorWindowAsync(e.Value is true)" />
                         <span>Limit error counters on Dashboard Cards to last 24 hours</span>
                     </label>
                 </div>
@@ -1911,7 +1936,18 @@
                                                 <span>@(ont.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteOnt(ont.Id)">Delete</button>
+                                        @if (_confirmDeleteKey == $"ont:{ont.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteOnt(ont.Id)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"ont:{ont.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -1949,7 +1985,7 @@
                         </div>
                     </div>
 
-                    @if (_editingOnt.Provider == "netopt-custom")
+                    @if (SfpAttachableOntProviders.Contains(_editingOnt.Provider))
                     {
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
@@ -1962,7 +1998,7 @@
                                     }
                                 </select>
                                 <small class="form-help">
-                                    Attached ONTs are polled with the gateway SFP cycle and their PON stats merge into
+                                    Attached ONTs are polled with the SFP collection cycle and their PON stats merge into
                                     the selected module's SFP Stats series; the polling interval below is ignored.
                                     Standalone ONTs show on ONT Stats instead.
                                 </small>
@@ -2091,7 +2127,7 @@
             {
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="_monitoringSettings.ShowStarlinkTab" @bind:after="SaveTabVisibilityAsync" />
+                        <input type="checkbox" data-autosave @bind="_monitoringSettings.ShowStarlinkTab" @bind:after="SaveTabVisibilityAsync" />
                         <span>Show the Starlink Stats tab in Monitoring</span>
                     </label>
                 </div>
@@ -2152,7 +2188,18 @@
                                                 <span>@(terminal.Enabled ? "Disable" : "Enable")</span>
                                             }
                                         </button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteStarlink(terminal.Id)">Delete</button>
+                                        @if (_confirmDeleteKey == $"starlink:{terminal.Id}")
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteStarlink(terminal.Id)">Yes, delete</button>
+                                                <button class="btn btn-secondary btn-sm" @onclick="CancelConfirmDelete">Cancel</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => ConfirmDelete($"starlink:{terminal.Id}"))">Delete</button>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -2500,7 +2547,7 @@
         <div class="card-body">
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="receivePrereleaseUpdates" @bind:after="SavePrereleaseSetting" />
+                    <input type="checkbox" data-autosave @bind="receivePrereleaseUpdates" @bind:after="SavePrereleaseSetting" />
                     Receive pre-release update notifications
                 </label>
                 <p class="form-help">
@@ -2585,6 +2632,18 @@
                 <label class="form-label">Named port grace period (days)</label>
                 <input type="number" class="form-control" @bind="namedPortInactivityDays" @bind:event="oninput" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait for ports with custom names (like "Printer" or "Camera"). Longer grace period since these devices may be intentionally offline. Default: 45 days.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="form-label">PDF: Top Threat Sources rows</label>
+                <input type="number" class="form-control" @bind="pdfTopSourcesRows" @bind:event="oninput" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" style="width: 120px;" />
+                <small class="form-help">Rows in the Top Threat Sources table of the downloaded PDF. Default: @NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">PDF: rows per filter category</label>
+                <input type="number" class="form-control" @bind="pdfCategoryRows" @bind:event="oninput" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" style="width: 120px;" />
+                <small class="form-help">Rows in each filter category table of the downloaded PDF. Default: @NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows.</small>
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
@@ -3210,6 +3269,12 @@
     </div>
     }
 
+    <WafConnectionCard />
+
+    <AutomaticBlockingCard />
+
+    <TrustedSourcesCard />
+
     @if (SiteContext.IsDefault)
     {
     <!-- 12. UI / Display Settings -->
@@ -3226,7 +3291,7 @@
         <div class="card-body">
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" checked="@_kioskMode" @onchange="OnKioskModeChanged" />
+                    <input type="checkbox" data-autosave checked="@_kioskMode" @onchange="OnKioskModeChanged" />
                     <span>Kiosk mode</span>
                 </label>
                 <small class="form-help">Collapses the side menu into the hamburger button at any window size, giving the content full width - handy for presenting graphs on a mini display. This preference is saved per device (this browser only).</small>
@@ -3578,6 +3643,8 @@
 
             @if (_multiSiteEnabled)
             {
+                <AllSitesBlockingAction SiteSlugs="@_sites.Where(s => s.Enabled).Select(s => s.Slug).ToList()" />
+
                 <div class="form-group">
                     <label class="form-label">Sites</label>
                     <div class="table-responsive">
@@ -3876,6 +3943,10 @@
                                                                 </label>
                                                             }
                                                         </div>
+
+                                                        <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="blockingAdmin">
+                                                            <SiteBlockingSection SiteSlug="@site.Slug" />
+                                                        </AuthorizeView>
                                                     }
                                                     else
                                                     {
@@ -3924,6 +3995,10 @@
                                                             </div>
                                                         </div>
 
+                                                        <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="blockingAdmin">
+                                                            <SiteBlockingSection SiteSlug="@site.Slug" />
+                                                        </AuthorizeView>
+
                                                         @* A site's lifecycle is instance work, not site work: removing one destroys its
                                                            database and agent enrollments and hands a licence slot back, and disabling one
                                                            hides it from the switcher - which would strand the very Site Admin who did it,
@@ -3968,6 +4043,8 @@
                         </table>
                     </div>
                 </div>
+
+                <TrustedSourcesMatrix Sites="@_sites.Where(s => s.Enabled).ToList()" />
 
                 @* The wizard shows its own first step (Add a site) only to an Admin; a Site Admin
                    reaches the later steps through Set up agent on their own row. Switching site
@@ -4075,6 +4152,10 @@
         ["threat-intelligence"] = "security",
         ["maxmind"] = "security",
         ["crowdsec"] = "security",
+        ["waf"] = "security",
+        ["automatic-blocking"] = "security",
+        ["trusted-sources"] = "security",
+        ["trusted-sources-matrix"] = "multisite",
         ["admin-password"] = "application",
         ["licensing"] = "application",
         ["application-settings"] = "application",
@@ -4084,6 +4165,7 @@
         ["data-management"] = "application",
         ["identity-users"] = "identity",
         ["identity-access"] = "identity",
+        ["identity-roles"] = "identity",
         ["identity-sign-in"] = "identity",
         ["multi-site"] = "multisite",
         ["site-agent-setup"] = "multisite",
@@ -4388,8 +4470,28 @@
         }
     }
 
+    // Floating Save and unsaved-changes prompts for every card (wwwroot/js/settings-section-save.js).
+    private IJSObjectReference? _sectionSave;
+    private ElementReference _settingsContainer;
+
+    private async Task ConfirmLeaveAsync(LocationChangingContext context)
+    {
+        if (_sectionSave == null) return;
+        try
+        {
+            if (!await _sectionSave.InvokeAsync<bool>("confirmLeave", context.TargetLocation))
+                context.PreventNavigation();
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException)
+        {
+            // Fails open: a prompt that cannot run never keeps anyone on the page.
+        }
+    }
+
     public void Dispose()
     {
+        if (_sectionSave != null)
+            _ = _sectionSave.InvokeVoidAsync("unmount").AsTask().ContinueWith(_ => _sectionSave.DisposeAsync().AsTask());
         DisposeTimers(_clientSpeedTestTargetDebounce);
         DisposeTimers(_clientSpeedTestTargetSavedTimers);
         SiteChangeNotifier.SitesChanged -= OnSiteRegistryChanged;
@@ -5251,6 +5353,8 @@
     private string trustedDnsRedirectTargets = "";
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
+    private int pdfTopSourcesRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
+    private int pdfCategoryRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows;
     private bool savingAuditSettings = false;
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
@@ -5368,6 +5472,16 @@
         {
             _kioskMode = await JS.InvokeAsync<bool>("getKioskMode");
             StateHasChanged();
+            try
+            {
+                _sectionSave = await JS.InvokeAsync<IJSObjectReference>("import",
+                    FileVersionProvider.AddFileVersionToPath("", "/js/settings-section-save.js"));
+                await _sectionSave.InvokeVoidAsync("mount", _settingsContainer);
+            }
+            catch (JSException ex)
+            {
+                Logger.LogWarning(ex, "Settings floating Save did not load");
+            }
             await HandleFragmentNavigationAsync();
 
             // Connection is the default tab, so arriving here never goes through SetActiveTab and
@@ -7128,13 +7242,22 @@
         }
     }
 
+    // Settings - Monitoring row awaiting delete confirmation, as "<card>:<id>". One at a time across the cards.
+    private string? _confirmDeleteKey;
+
+    private void ConfirmDelete(string key) => _confirmDeleteKey = key;
+
+    private void CancelConfirmDelete() => _confirmDeleteKey = null;
+
     private async Task DeleteModem(ModemConfiguration modem)
     {
+        _confirmDeleteKey = null;
         try
         {
             await ModemService.DeleteModemAsync(modem.Id);
+            if (editingModem.Id == modem.Id) CancelEditModem();
             modemMessage = $"Deleted modem: {modem.Name}";
-            modemMessageClass = "success";
+            modemMessageClass = "info";
             await LoadModemConfigs();
         }
         catch (Exception ex)
@@ -7311,11 +7434,13 @@
 
     private async Task DeleteCm(int id)
     {
+        _confirmDeleteKey = null;
         try
         {
             await CmMonitorService.DeleteCmAsync(id);
+            if (_editingCm.Id == id) CancelEditCm();
             _cmTestResult = "Cable modem deleted.";
-            _cmTestResultClass = "success";
+            _cmTestResultClass = "info";
             await LoadCmSettings();
         }
         catch (Exception ex)
@@ -7566,11 +7691,13 @@
 
     private async Task DeleteOnt(int id)
     {
+        _confirmDeleteKey = null;
         try
         {
             await OntMonitorService.DeleteOntAsync(id);
+            if (_editingOnt.Id == id) CancelEditOnt();
             _ontTestResult = "ONT deleted.";
-            _ontTestResultClass = "success";
+            _ontTestResultClass = "info";
             await LoadOntSettings();
         }
         catch (Exception ex)
@@ -7692,9 +7819,12 @@
 
         // SFP attachment is only meaningful for providers that support it; clear a
         // stale association so it can't linger invisibly after a provider switch.
-        if (provider != "netopt-custom")
+        if (!SfpAttachableOntProviders.Contains(provider))
             _editingOnt.AttachedSfpId = null;
     }
+
+    /// <summary>Providers implementing ISfpSupplementalOntProvider, which can merge into a monitored SFP module.</summary>
+    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont" };
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {
@@ -7813,11 +7943,13 @@
 
     private async Task DeleteStarlink(int id)
     {
+        _confirmDeleteKey = null;
         try
         {
             await StarlinkMonitor.DeleteStarlinkAsync(id);
+            if (_editingStarlink.Id == id) CancelEditStarlink();
             _starlinkTestResult = "Starlink terminal deleted.";
-            _starlinkTestResultClass = "success";
+            _starlinkTestResultClass = "info";
             await LoadStarlinkSettings();
         }
         catch (Exception ex)
@@ -8224,6 +8356,8 @@
             var trustedTargets = await SystemSettings.GetAsync("audit:trustedDnsRedirectTargets");
             var unusedPortDays = await SystemSettings.GetAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await SystemSettings.GetAsync("audit:namedPortInactivityDays");
+            var topSourcesRows = await SystemSettings.GetAsync(ThreatReportRows.TopSourcesSettingKey);
+            var categoryRows = await SystemSettings.GetAsync(ThreatReportRows.CategoryRowsSettingKey);
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -8241,6 +8375,10 @@
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
+            pdfTopSourcesRows = int.TryParse(topSourcesRows, out var topRows) && topRows > 0
+                ? topRows : NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
+            pdfCategoryRows = int.TryParse(categoryRows, out var catRows) && catRows > 0
+                ? catRows : NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows;
         }
         catch (Exception ex)
         {
@@ -8279,6 +8417,10 @@
             await SystemSettings.SetAsync("audit:trustedDnsRedirectTargets", trustedDnsRedirectTargets ?? "");
             await SystemSettings.SetAsync("audit:unusedPortInactivityDays", unusedPortInactivityDays.ToString());
             await SystemSettings.SetAsync("audit:namedPortInactivityDays", namedPortInactivityDays.ToString());
+            pdfTopSourcesRows = Math.Clamp(pdfTopSourcesRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
+            pdfCategoryRows = Math.Clamp(pdfCategoryRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
+            await SystemSettings.SetAsync(ThreatReportRows.TopSourcesSettingKey, pdfTopSourcesRows.ToString());
+            await SystemSettings.SetAsync(ThreatReportRows.CategoryRowsSettingKey, pdfCategoryRows.ToString());
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";
@@ -8849,6 +8991,7 @@
 
             var rateLimitState = CrowdSecClient.GetRateLimitState();
             crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/{rateLimitState.DailyLimit}";
+
         }
         catch (Exception ex)
         {

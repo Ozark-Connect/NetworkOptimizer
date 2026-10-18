@@ -164,7 +164,33 @@ public static class NetworkFormatHelpers
         ["NOKIA"] = "Nokia",
         ["HUAWEI"] = "Huawei",
         ["UBIQUITI"] = "Ubiquiti",
+        ["ADTRAN"] = "Adtran",
+        ["FIBERHOME"] = "FiberHome",
     };
+
+    /// <summary>
+    /// GPON/XGS-PON vendor IDs (the 4-letter prefix of an ONT/OLT serial) to the vendor's name as
+    /// an EEPROM would spell it, so <see cref="BrandCasing"/> stays the one place a brand is spelled.
+    /// Only IDs whose owner is certain belong here; an unlisted ID has no name.
+    /// </summary>
+    private static readonly Dictionary<string, string> PonVendorIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ALCL"] = "NOKIA",
+        ["HWTC"] = "HUAWEI",
+        ["ZTEG"] = "ZTE",
+        ["CALX"] = "CALIX",
+        ["ADTN"] = "ADTRAN",
+        ["FHTT"] = "FIBERHOME",
+        ["UBNT"] = "UBIQUITI",
+    };
+
+    /// <summary>The vendor a PON vendor ID belongs to ("ALCL" -> "Nokia"), or null when it is not listed.</summary>
+    public static string? PonVendorName(string? vendorId)
+    {
+        if (string.IsNullOrWhiteSpace(vendorId) || !PonVendorIds.TryGetValue(vendorId.Trim(), out var raw))
+            return null;
+        return BrandCasing.TryGetValue(raw, out var cased) ? cased : raw;
+    }
 
     /// <summary>
     /// The storage-time ASN/org-name cleaner: strips industry suffixes (Communications, Telecom,

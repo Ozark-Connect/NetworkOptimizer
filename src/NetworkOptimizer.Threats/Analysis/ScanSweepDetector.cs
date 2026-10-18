@@ -20,6 +20,7 @@ public class ScanSweepDetector
         // sensitive ports are still scanning)
         var bySource = events
             .Where(e => e.KillChainStage is KillChainStage.Monitored or KillChainStage.Reconnaissance or KillChainStage.AttemptedExploitation)
+            .Where(e => !IsNotAProbe(e))
             .GroupBy(e => e.SourceIp);
 
         foreach (var group in bySource)
@@ -56,5 +57,17 @@ public class ScanSweepDetector
         }
 
         return patterns;
+    }
+
+    /// <summary>
+    /// Traffic that hits many ports without being a scan: a server's late replies to a LAN client
+    /// (server port to an ephemeral port), and UDP traceroute probes (33434-33534). Both reach the
+    /// distinct-port threshold on their own and blocked CDNs and upstream routers.
+    /// </summary>
+    public static bool IsNotAProbe(ThreatEvent e)
+    {
+        if (FlowInterestFilter.IsServerToEphemeral(e.SourcePort, e.DestPort))
+            return true;
+        return e.Protocol.Equals("UDP", StringComparison.OrdinalIgnoreCase) && e.DestPort is >= 33434 and <= 33534;
     }
 }

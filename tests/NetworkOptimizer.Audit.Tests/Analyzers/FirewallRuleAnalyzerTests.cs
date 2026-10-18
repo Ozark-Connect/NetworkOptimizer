@@ -1246,6 +1246,80 @@ public class FirewallRuleAnalyzerTests
         issues.Should().NotContain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void AnalyzeManagementNetworkFirewallAccess_IpListBlockRule_EclipsesOnlyWhenInverted(bool matchOpposite, bool expectIssues)
+    {
+        // A block list (all protocols to listed External IPs) above the allows covers none of the
+        // allowed destinations; inverted, it blocks everything outside the list and does.
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-list-outbound",
+                Name = "Block List (Outbound)",
+                Action = "BLOCK",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "198.51.100.0/24", "203.0.113.7" },
+                DestinationMatchOppositeIps = matchOpposite,
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            CreateFirewallRule("UniFi Cloud", action: "allow", index: 200,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow", index: 201,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            new FirewallRule
+            {
+                Id = "allow-ntp",
+                Name = "Allow NTP",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 202,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationZoneId = externalZoneId,
+                DestinationPort = "123",
+                Protocol = "udp"
+            },
+            CreateFirewallRule("Allow FW Download", action: "allow", index: 203,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ubnt.com" }),
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 204,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        var types = new[] { "MGMT_MISSING_UNIFI_ACCESS", "MGMT_MISSING_AFC_ACCESS", "MGMT_MISSING_NTP_ACCESS", "MGMT_MISSING_5G_ACCESS", "MGMT_MISSING_FIRMWARE_DOWNLOAD" };
+        if (expectIssues)
+            issues.Select(i => i.Type).Should().Contain(types);
+        else
+            issues.Select(i => i.Type).Should().NotContain(types);
+    }
+
     [Fact]
     public void AnalyzeManagementNetworkFirewallAccess_CidrBlockRuleEclipsesIpAllow_Reports5GIssue()
     {

@@ -61,6 +61,9 @@ public static class UniFiProductDatabase
 
         // Industrial
         "USW-Industrial",
+        "USW-Industrial-DIN-8",
+        "USW-Industrial-DIN-8-PoE",
+        "USW-Industrial-DIN-2.5G-8-PoE",
 
         // Pro XG (MIPS-based)
         "USW-Pro-XG-8-PoE",
@@ -227,6 +230,10 @@ public static class UniFiProductDatabase
         { "USC8P60", "US-8-60W" },
         { "USC8P150", "US-8-150W" },
         { "USC8P450", "USW-Industrial" },
+        { "USWED97", "USW-Industrial-DIN-8-PoE" },
+        { "USWED98", "USW-Industrial-DIN-8" },
+        // TODO(#1287): inferred from sysid ed9b; public.json has no Network model code for it yet.
+        { "USWED9B", "USW-Industrial-DIN-2.5G-8-PoE" },
         { "USL16P", "USW-16-PoE" },
         { "USL16PB", "USW-16-PoE" },
         { "USL24", "USW-24" },
@@ -344,6 +351,7 @@ public static class UniFiProductDatabase
         { "UAPA6B0", "U7-Pro-Outdoor-EU" },
         { "UAPA6B3", "U7-LR" },
         { "UAPA6BA", "U7-Pro-XG-Wall" },
+        { "UAPA6BE", "U7-Industrial" },
 
         // ----- Official: Enterprise WiFi 7 (E7) Series -----
         { "UAPA697", "E7" },
@@ -535,6 +543,9 @@ public static class UniFiProductDatabase
         { "USWULTRA", "USW-Ultra" },
         { "USWLITE8", "USW-Lite-8-PoE" },
         { "USWLITE16", "USW-Lite-16-PoE" },
+        { "USID8", "USW-Industrial-DIN-8" },
+        { "USID8P", "USW-Industrial-DIN-8-PoE" },
+        { "USID2P5G8P", "USW-Industrial-DIN-2.5G-8-PoE" },
         { "USW8", "US-8" },
         { "USW8P60", "US-8-60W" },
         { "USW8P150", "US-8-150W" },
@@ -601,6 +612,8 @@ public static class UniFiProductDatabase
         { "U7PROXG", "U7-Pro-XG" },
         { "U7PO", "U7-Pro-Outdoor" },
         { "U7POEU", "U7-Pro-Outdoor-EU" },
+        { "U7-Industrial", "U7-Industrial" },
+        { "U7I", "U7-Industrial" },
         { "G7LR", "U7-LR" },
         { "G7LRV2", "U7-LR" },
         { "G7LT", "U7-Lite" },

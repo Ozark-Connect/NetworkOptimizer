@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
@@ -792,6 +792,7 @@ public static class NetworkUtilities
             9200 => "Elasticsearch",
             9300 => "Elasticsearch",
             11211 => "Memcached",
+            22067 => "Syncthing Relay",
             27017 => "MongoDB",
             _ => null
         };

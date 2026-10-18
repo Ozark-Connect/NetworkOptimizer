@@ -86,6 +86,40 @@ public class PortLockSupportTests
         PortLockSupport.CanLockWithProfile(profileId).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("US-16-XG", false)]
+    [InlineData("USW-Mission-Critical", false)]
+    [InlineData("US-8", false)]
+    [InlineData("US-8-60W", false)]
+    [InlineData("US-8-150W", false)]
+    [InlineData("USW-Flex", true)]
+    [InlineData("USW-Pro-24", true)]
+    [InlineData(null, true)]      // unknown model: the general gate decides
+    [InlineData("", true)]
+    public void SupportsModel_ExcludesSwitchesWithoutTheLock(string? productName, bool expected)
+    {
+        PortLockSupport.SupportsModel(productName).Should().Be(expected);
+        PortLockSupport.IsAvailable("11.0.5", "7.6.7", productName).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("11.0.5", "7.6.7.18000", true)]
+    [InlineData("11.0.0", "7.6.7", true)]
+    [InlineData("11.0.5", "7.6.6.17900", false)]   // firmware before the Flex gained the lock
+    [InlineData("10.6.106", "7.6.7.18000", false)] // Flex support needs UniFi Network 11
+    [InlineData("10.6.106", "7.6.2.17186", false)]
+    public void IsAvailable_UswFlex_NeedsFirmware767AndNetwork11(string app, string firmware, bool expected)
+    {
+        PortLockSupport.IsAvailable(app, firmware, "USW-Flex").Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsAvailable_OtherFlexModels_KeepTheGeneralGate()
+    {
+        PortLockSupport.IsAvailable("10.6.106", "7.6.2.17186", "USW-Flex-2.5G-8").Should().BeTrue();
+        PortLockSupport.IsAvailable("10.6.106", "7.6.2.17186", "USW-Flex-XG").Should().BeTrue();
+    }
+
     [Fact]
     public void ParseVersion_TwoPartVersion_ComparesAgainstThreePart()
     {

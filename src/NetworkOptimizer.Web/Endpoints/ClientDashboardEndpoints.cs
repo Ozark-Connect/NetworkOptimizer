@@ -53,7 +53,8 @@ public static class ClientDashboardEndpoints
         // The favicon the Network app shows for a DPI application, fetched from the site's own
         // console and held here so each is asked for once - nothing about a household's apps goes
         // to the apps themselves. Only domains the catalog names, so this is not a proxy.
-        read.MapGet("/api/client-dashboard/app-icon/{domain}", async (string domain, HttpContext context,
+        // The domain is never the last segment: WAFs read a trailing ".com" as a blocked file extension.
+        read.MapGet("/api/client-dashboard/apps/{domain}/icon",async (string domain, HttpContext context,
             UniFiConnectionService connection, SiteContextService siteContext,
             IMemoryCache cache, CancellationToken ct) =>
         {

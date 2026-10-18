@@ -28,6 +28,7 @@ public abstract class WanSpeedTestServiceBase
     protected readonly ILogger Logger;
     protected readonly Iperf3ServerService Iperf3Server;
     private readonly IAlertEventBus? _alertEventBus;
+    private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory? _siteDbFactory;
 
     /// <summary>Site this instance serves; results are stored in and read from its database.</summary>
@@ -105,6 +106,12 @@ public abstract class WanSpeedTestServiceBase
     /// </summary>
     public event Action<int>? OnPathAnalysisComplete;
 
+    /// <summary>Tells open pages a stored result changed and should be reloaded.</summary>
+    protected void RaiseResultUpdated(int resultId) => OnPathAnalysisComplete?.Invoke(resultId);
+
+    /// <summary>Runs after a result is stored, alongside path analysis. No-op by default.</summary>
+    protected virtual void OnResultSaved(Iperf3Result result) { }
+
     protected WanSpeedTestServiceBase(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
@@ -113,13 +120,15 @@ public abstract class WanSpeedTestServiceBase
         IAlertEventBus? alertEventBus = null,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory? siteDbFactory = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        Licensing.LicenseStateService? licenseState = null)
+        Licensing.LicenseStateService? licenseState = null,
+        MonitoringInfluxRegistry? influxRegistry = null)
     {
         DbFactory = dbFactory;
         PathAnalyzer = pathAnalyzer;
         Logger = logger;
         Iperf3Server = iperf3Server;
         _alertEventBus = alertEventBus;
+        _influxRegistry = influxRegistry;
         _siteDbFactory = siteDbFactory;
         _licenseState = licenseState;
         SiteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
@@ -210,6 +219,7 @@ public abstract class WanSpeedTestServiceBase
             db.Iperf3Results.Add(result);
             await db.SaveChangesAsync(cancellationToken);
             var resultId = result.Id;
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, SiteSlug, result, Logger);
 
             lock (_lock) _lastCompletedResult = result;
 
@@ -220,6 +230,8 @@ public abstract class WanSpeedTestServiceBase
             var wanIp = LastMetadata?.WanIp;
             var resolvedWanGroup = result.WanNetworkGroup;
             _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, wanIp, resolvedWanGroup), CancellationToken.None);
+
+            OnResultSaved(result);
 
             return result;
         }
@@ -243,6 +255,7 @@ public abstract class WanSpeedTestServiceBase
                 await using var db = await CreateSiteDbAsync();
                 db.Iperf3Results.Add(failedResult);
                 await db.SaveChangesAsync();
+                await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, SiteSlug, failedResult, Logger);
                 return failedResult;
             }
             catch (Exception saveEx)
@@ -341,6 +354,7 @@ public abstract class WanSpeedTestServiceBase
 
         db.Iperf3Results.Remove(result);
         await db.SaveChangesAsync();
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, SiteSlug, result, Logger);
         Logger.LogInformation("Deleted WAN speed test result {Id}", id);
         return true;
     }
@@ -353,12 +367,14 @@ public abstract class WanSpeedTestServiceBase
         if (result == null || !OwnedDirections.Contains(result.Direction))
             return false;
 
+        var original = (Iperf3Result)db.Entry(result).CurrentValues.Clone().ToObject();
         result.WanNetworkGroup = wanNetworkGroup;
         result.WanName = wanName;
         result.PathAnalysisJson = null;
         await db.SaveChangesAsync();
 
         Logger.LogInformation("Reassigned WAN for result {Id} to {Group} ({Name})", id, wanNetworkGroup, wanName);
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, SiteSlug, original, Logger);
         PathAnalysisRetryGate.Forget(GetType().Name, id);
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(id, resolvedWanGroup: wanNetworkGroup), CancellationToken.None);
 

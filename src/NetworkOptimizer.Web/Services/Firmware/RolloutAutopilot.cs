@@ -242,8 +242,9 @@ public class RolloutAutopilot : IRolloutAutopilot
         {
             _logger.LogDebug(
                 "Autopilot found nothing to upgrade on site {Site} right now", _siteSlug);
-            HoldReason = ripeness.Notes.Count > 0
-                ? string.Join(" ", ripeness.Notes) + " Autopilot checks again every hour."
+            var holdNotes = ripeness.Notes.Concat(inputs.StagingNotes ?? []).ToList();
+            HoldReason = holdNotes.Count > 0
+                ? string.Join(" ", holdNotes) + " Autopilot checks again every hour."
                 : "Everything is on the current firmware for its channel. Autopilot checks again every hour.";
             return null;
         }

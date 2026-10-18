@@ -987,6 +987,35 @@
                     that holds for two polls still alerts.
                 </p>
 
+                @{ var dualTempModules = DualTemperatureModules(); }
+                @if (dualTempModules.Count > 0)
+                {
+                    <h3 class="chart-title" style="margin-top: 1rem;">SFP ONT temperature source</h3>
+                    <p class="form-help sfp-ddm-help">
+                        These SFP ONTs report two temperatures: the DDM reading from the device they sit in, and
+                        the ONT's own sensor. The two can differ by 10 &deg;C or more. Choose which one the
+                        PON temperature high alert checks.
+                    </p>
+                    @foreach (var (module, ddmC, ontC) in dualTempModules)
+                    {
+                        <div class="form-group" style="margin-top: 0.75rem;">
+                            <label class="form-label">@TemperatureSourceLabel(module)</label>
+                            <div class="radio-group">
+                                <label class="radio-label">
+                                    <input type="radio" name="@($"temp-src-{module.Id}")" checked="@(!UsesOntTemperature(module))"
+                                           @onchange="() => SetTemperatureSource(module.Id, false)" />
+                                    <span>DDM (@($"{ddmC:0.0} °C"))</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="@($"temp-src-{module.Id}")" checked="@UsesOntTemperature(module)"
+                                           @onchange="() => SetTemperatureSource(module.Id, true)" />
+                                    <span>ONT (@($"{ontC:0.0} °C"))</span>
+                                </label>
+                            </div>
+                        </div>
+                    }
+                }
+
                 </fieldset>
                 <div class="input-with-button" style="margin-top: 1rem;">
                     <SiteOperatorOnly>
@@ -3461,6 +3490,43 @@
     private string PhAeTx => _sfpDefaults.AeTxPowerHighDbm.ToString("0.#");
     private string PhGenericTemp => _sfpDefaults.SfpTempHighGenericC.ToString("0");
 
+    /// <summary>Unsaved temperature-source picks, by MonitoredSfp id. Saved with the thresholds.</summary>
+    private readonly Dictionary<int, bool> _temperatureSourceEdits = new();
+
+    /// <summary>
+    /// SFP ONTs whose host device's DDM and attached ONT both report a temperature right now. A module
+    /// with one sensor has nothing to choose between, so it is not offered.
+    /// </summary>
+    private List<(MonitoredSfp Module, double DdmC, double OntC)> DualTemperatureModules()
+    {
+        var list = new List<(MonitoredSfp, double, double)>();
+        foreach (var module in _allSfps.Where(s => s.IsPon).OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName))
+        {
+            var live = LiveStats.GetSfpStats(module.DeviceMac, module.PortName);
+            if (live?.TemperatureC is double ddm && live.OntTemperatureC is double ont)
+                list.Add((module, ddm, ont));
+        }
+        return list;
+    }
+
+    private bool UsesOntTemperature(MonitoredSfp module) =>
+        _temperatureSourceEdits.TryGetValue(module.Id, out var pick) ? pick : module.UseOntTemperature;
+
+    private void SetTemperatureSource(int moduleId, bool useOnt)
+    {
+        _temperatureSourceEdits[moduleId] = useOnt;
+        ResetThresholdSavedFlags();
+    }
+
+    private string TemperatureSourceLabel(MonitoredSfp module)
+    {
+        var target = _targets.FirstOrDefault(t => t.TargetType == MonitoringTargetType.Fabric && !t.IsRetired
+            && string.Equals(t.DeviceMac?.Replace("-", ":"), module.DeviceMac.Replace("-", ":"), StringComparison.OrdinalIgnoreCase));
+        var device = !string.IsNullOrEmpty(target?.Name) ? target.Name : module.DeviceMac;
+        var port = !string.IsNullOrEmpty(module.FriendlyName) ? module.FriendlyName : $"Port {module.PortName}";
+        return $"{device} - {port}";
+    }
+
     private void LoadSfpThresholdInputs(MonitoringSettings settings)
     {
         _sfpPonTemp = settings.PonTempHighC;
@@ -3489,9 +3555,18 @@
                 AeRxPowerLowDbm = _sfpAeRx,
                 AeTxPowerHighDbm = _sfpAeTx,
                 SfpTempHighGenericC = _sfpGenericTemp,
-                IgnoreSfpDdmSpikes = _ignoreSfpDdmSpikes
+                IgnoreSfpDdmSpikes = _ignoreSfpDdmSpikes,
+                UseOntTemperatureByModule = _temperatureSourceEdits.Count > 0
+                    ? new Dictionary<int, bool>(_temperatureSourceEdits)
+                    : null,
             });
             LoadSfpThresholdInputs(settings);
+            foreach (var (id, useOnt) in _temperatureSourceEdits)
+            {
+                var row = _allSfps.FirstOrDefault(s => s.Id == id);
+                if (row != null) row.UseOntTemperature = useOnt;
+            }
+            _temperatureSourceEdits.Clear();
             _sfpThresholdsSaved = true;
             // The spike setting changes the series and marks the chart endpoint returns.
             try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.reload();"); }

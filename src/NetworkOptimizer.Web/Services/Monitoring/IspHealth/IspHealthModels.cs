@@ -398,6 +398,12 @@ public class PathShiftEvent
     /// <summary>Number of targets showing a correlated step at the same boundary.</summary>
     public int CorrelatedTargetCount { get; init; } = 1;
 
+    /// <summary>
+    /// Smaller than a lone series may report (<see cref="IspHealthOptions.StepMinDeltaMs"/>):
+    /// kept only when another series steps the same way at the same boundary.
+    /// </summary>
+    public bool NeedsCorroboration { get; set; }
+
     /// <summary>Every target behind this event, so a reader can filter it against a chart line.</summary>
     public List<string> TargetIds { get; init; } = new();
 
@@ -703,6 +709,14 @@ public class AsnSeries
     public List<LatencySample> Samples { get; init; } = new();
 
     /// <summary>
+    /// Each member's own samples, on a cluster of more than one target (empty otherwise).
+    /// Members sitting at different RTTs make the merged <see cref="Samples"/> straddle two
+    /// levels, which hides a step every member took; step detection reads them one by one to
+    /// corroborate a small step elsewhere.
+    /// </summary>
+    public Dictionary<string, List<LatencySample>> SamplesByTarget { get; init; } = new();
+
+    /// <summary>
     /// Mean RTT across the ASN's full nearest cluster, for the Networks on Your Path
     /// card. On the ISP grading series this is wider than Samples (which is the single
     /// graded hop); on transit it equals the graded cluster. Display only.
@@ -912,7 +926,21 @@ public record SpeedTestSample(
     double UploadMbps,
     double? PingMs = null,
     double? DownloadLatencyMs = null,
-    double? UploadLatencyMs = null);
+    double? UploadLatencyMs = null,
+    SpeedTestLoss? IdleLoss = null,
+    SpeedTestLoss? DownloadLoss = null,
+    SpeedTestLoss? UploadLoss = null);
+
+/// <summary>One phase's packet loss from a WAN speed test: the rate and the probes behind it.</summary>
+public record SpeedTestLoss(double Percent, int Probes)
+{
+    /// <summary>Null unless both columns were recorded (binaries before loss probing write neither).</summary>
+    public static SpeedTestLoss? From(double? percent, int? probes) =>
+        percent.HasValue && probes is > 0 ? new SpeedTestLoss(percent.Value, probes.Value) : null;
+
+    /// <summary>Lost probes, recovered from the stored rate.</summary>
+    public int Lost => (int)Math.Round(Percent * Probes / 100.0);
+}
 
 /// <summary>Cheap snapshot for the live view tiles.</summary>
 public record IspHealthSnapshot(IspHealthStatus Status, int? Score, DateTime? ComputedAt)

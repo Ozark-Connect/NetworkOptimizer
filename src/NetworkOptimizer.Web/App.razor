@@ -349,8 +349,12 @@
                             ? 'min(100vw - 10px, 400px)'
                             : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
-                        // Suppress if an adjacent sibling already shows the same tooltip
                         var ref = instance.reference;
+                        // data-tooltip-truncated: only when the text is cut off by its ellipsis
+                        if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
+                            return false;
+                        }
+                        // Suppress if an adjacent sibling already shows the same tooltip
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
                         for (var i = 0; i < siblings.length; i++) {
                             var sib = siblings[i];
@@ -443,6 +447,9 @@
                             : 'min(100vw - 10px, 360px)',
                     onShow: function(instance) {
                         var ref = instance.reference;
+                        if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
+                            return false;
+                        }
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
                         for (var i = 0; i < siblings.length; i++) {
                             var sib = siblings[i];

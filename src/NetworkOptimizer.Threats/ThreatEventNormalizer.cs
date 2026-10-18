@@ -157,7 +157,7 @@ public class ThreatEventNormalizer
                 var protocol = flow.GetPropertyOrDefault("protocol", "");
                 var action = flow.GetPropertyOrDefault("action", "");
                 var risk = flow.GetPropertyOrDefault("risk", "low");
-                var direction = flow.GetPropertyOrDefault("direction", "");
+                var direction = ZoneDirection(flow) ?? flow.GetPropertyOrDefault("direction", "");
                 var service = flow.GetPropertyOrDefault("service", "");
 
                 long? bytesTotal = null;
@@ -170,10 +170,13 @@ public class ThreatEventNormalizer
                 var durationMs = flow.GetPropertyOrDefault("duration_milliseconds", 0L);
 
                 string? networkName = null;
+                string? sourceMac = null;
                 if (flow.TryGetProperty("source", out var srcForNetwork))
                 {
                     var nn = srcForNetwork.GetPropertyOrDefault("network_name", "");
                     if (!string.IsNullOrEmpty(nn)) networkName = nn;
+                    var mac = srcForNetwork.GetPropertyOrDefault("mac", "");
+                    if (!string.IsNullOrEmpty(mac)) sourceMac = mac.ToLowerInvariant();
                 }
 
                 var severity = MapFlowSeverity(risk, action);
@@ -228,7 +231,8 @@ public class ThreatEventNormalizer
                     BytesTotal = bytesTotal,
                     FlowDurationMs = durationMs > 0 ? durationMs : null,
                     NetworkName = networkName,
-                    RiskLevel = risk
+                    RiskLevel = risk,
+                    SourceMac = sourceMac
                 };
 
                 results.Add(threatEvent);
@@ -243,8 +247,82 @@ public class ThreatEventNormalizer
     }
 
     /// <summary>
+    /// "incoming" when the flow comes from the External zone, "outgoing" when it goes to it, else null.
+    /// UniFi labels External-to-Gateway drops "outgoing", which put internet noise in the LAN's column.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows source/destination zone_name")]
+    private static string? ZoneDirection(JsonElement flow)
+    {
+        static string Zone(JsonElement flow, string side) =>
+            flow.TryGetProperty(side, out var end) ? end.GetPropertyOrDefault("zone_name", "") : "";
+
+        if (Zone(flow, "source").Equals("External", StringComparison.OrdinalIgnoreCase)) return "incoming";
+        if (Zone(flow, "destination").Equals("External", StringComparison.OrdinalIgnoreCase)) return "outgoing";
+        return null;
+    }
+
+    /// <summary>
     /// Map flow risk + action to our 1-5 severity scale.
     /// </summary>
+    /// <summary>
+    /// Normalize a page of netopt-waf events. The most severe CRS rule names the event; its
+    /// attack tag is the category the kill chain classifier reads.
+    /// </summary>
+    public List<ThreatEvent> NormalizeWafEvents(Waf.WafEventPage page)
+    {
+        var results = new List<ThreatEvent>(page.Events.Count);
+        foreach (var e in page.Events)
+        {
+            if (string.IsNullOrEmpty(e.SourceIp) || e.Rules.Count == 0) continue;
+            var top = e.Rules[0];
+            var path = e.Uri.Split('?', 2)[0];
+            results.Add(new ThreatEvent
+            {
+                InnerAlertId = $"waf-{page.Instance}-{e.Seq}",
+                Timestamp = e.Time.UtcDateTime,
+                SourceIp = e.SourceIp,
+                DestIp = "",
+                DestPort = 443,
+                Protocol = "HTTP",
+                SignatureId = top.Id,
+                SignatureName = top.Message,
+                Category = WafAttackTag(top) ?? "waf",
+                Severity = MapCrsSeverity(top.Severity),
+                Action = e.Action == "blocked" ? ThreatAction.Blocked : ThreatAction.Detected,
+                EventSource = EventSource.Waf,
+                Domain = string.IsNullOrEmpty(e.Host) ? null : e.Host,
+                Direction = "incoming",
+                Service = $"{e.Method} {(path.Length > 200 ? path[..200] : path)}",
+                MatchedData = WafMatched(top)
+            });
+        }
+        return results;
+    }
+
+    /// <summary>"VARIABLE:key=value" per match, joined by " | "; null when the WAF sent none (before 1.0.1).</summary>
+    internal static string? WafMatched(Waf.WafRuleHit rule)
+    {
+        if (rule.Matched.Count == 0) return null;
+        return string.Join(" | ", rule.Matched.Select(m =>
+        {
+            var name = string.IsNullOrEmpty(m.Key) ? m.Variable : $"{m.Variable}:{m.Key}";
+            return string.IsNullOrEmpty(m.Value) ? name : $"{name}={m.Value}";
+        }));
+    }
+
+    // CRS tags each detection rule with its family: attack-sqli, attack-rce, attack-protocol, ...
+    private static string? WafAttackTag(Waf.WafRuleHit rule) =>
+        rule.Tags.FirstOrDefault(t => t.StartsWith("attack-", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>CRS severity to the 1-5 scale. CRITICAL stays below 5 so single requests do not page.</summary>
+    internal static int MapCrsSeverity(string severity) => severity.ToUpperInvariant() switch
+    {
+        "EMERGENCY" or "ALERT" or "CRITICAL" => 4,
+        "ERROR" => 3,
+        "WARNING" => 2,
+        _ => 1
+    };
+
     internal static int MapFlowSeverity(string risk, string action)
     {
         var isBlocked = action.Equals("blocked", StringComparison.OrdinalIgnoreCase);

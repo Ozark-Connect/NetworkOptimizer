@@ -103,6 +103,24 @@ public class SettingsSearchIndexTests
     [InlineData("enrollment token", "multi-site")]
     [InlineData("pre-release", "application-settings")]
     [InlineData("clear cache", "data-management")]
+    [InlineData("automatic blocking", "automatic-blocking")]
+    [InlineData("blocklist", "automatic-blocking")]
+    [InlineData("cloudflare", "automatic-blocking")]
+    [InlineData("dry run", "automatic-blocking")]
+    [InlineData("spamhaus", "automatic-blocking")]
+    [InlineData("trusted sources", "trusted-sources")]
+    [InlineData("port forward", "trusted-sources")]
+    [InlineData("waf url", "waf")]
+    // Typed a field label from inside a card.
+    [InlineData("pdf rows", "security-audit")]
+    [InlineData("top threat sources rows", "security-audit")]
+    [InlineData("unifi cable internet", "cable-modem")]
+    [InlineData("uci", "cable-modem")]
+    [InlineData("remove site", "multi-site")]
+    [InlineData("waf allow list", "trusted-sources")]
+    [InlineData("provisioning", "identity-sign-in")]
+    [InlineData("entity id", "identity-sign-in")]
+    [InlineData("global channels", "alert-channels")]
     // Typed the hardware they own rather than the card that monitors it.
     [InlineData("xfinity", "cable-modem")]
     [InlineData("quantum fiber", "ont-monitoring")]
@@ -302,7 +320,8 @@ public class SettingsSearchIndexTests
         foreach (var file in ComponentFiles())
         foreach (Match match in Regex.Matches(
                      File.ReadAllText(file),
-                     @"class=""card settings-tab-[a-z]+""\s+id=""([A-Za-z0-9_-]+)"""))
+                     // Extra classes after the tab one are allowed; an exact match skipped such cards.
+                     @"class=""card settings-tab-[a-z]+(?: [^""]*)?""\s+id=""([A-Za-z0-9_-]+)"""))
             ids.Add(match.Groups[1].Value);
 
         return ids;

@@ -1638,6 +1638,207 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET rest/firewallgroup for a caller that writes groups: throws when the read fails instead of
+    /// returning an empty list, which would look like "the groups are gone" and lead to duplicates.
+    /// </summary>
+    public async Task<List<UniFiFirewallGroup>> GetFirewallGroupsOrThrowAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+            () => _httpClient!.GetAsync(BuildApiPath("rest/firewallgroup"), cancellationToken),
+            cancellationToken,
+            throwOnApiError: true);
+        if (response?.Meta.Rc == "ok")
+            return response.Data;
+        throw new InvalidOperationException("Could not read the firewall groups from the UniFi Console.");
+    }
+
+    private const string FirewallPermissionMessage =
+        "The UniFi account lacks permission to change firewall settings. In UniFi Network, give this " +
+        "account Network: Full (Site Admin in older versions), then try again.";
+
+    /// <summary>
+    /// POST rest/firewallgroup (create) or PUT rest/firewallgroup/{id} (replace) - writes an
+    /// address group. Returns the stored group. Throws <see cref="UniFiPermissionException"/> or
+    /// <see cref="UniFiApiErrorException"/> (e.g. api.err.FirewallGroupInvalidArgs for a member of
+    /// the wrong IP family) instead of returning null.
+    /// </summary>
+    public async Task<UniFiFirewallGroup> SaveFirewallGroupAsync(UniFiFirewallGroupWrite group,
+        CancellationToken cancellationToken = default)
+    {
+        var path = group.Id == null ? "rest/firewallgroup" : $"rest/firewallgroup/{group.Id}";
+        _logger.LogDebug("Saving firewall group {Name} ({Count} members)", group.Name, group.GroupMembers.Count);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(group), Encoding.UTF8, "application/json");
+                return group.Id == null
+                    ? _httpClient!.PostAsync(BuildApiPath(path), content, cancellationToken)
+                    : _httpClient!.PutAsync(BuildApiPath(path), content, cancellationToken);
+            },
+            cancellationToken,
+            throwOnPermissionError: true,
+            permissionErrorMessage: FirewallPermissionMessage,
+            throwOnApiError: true);
+
+        if (response?.Meta.Rc == "ok" && response.Data.Count > 0)
+            return response.Data[0];
+        // Network 10.6 answers an update that changes nothing with rc ok and no data: accepted as is.
+        if (response?.Meta.Rc == "ok" && group.Id != null)
+            return new UniFiFirewallGroup
+            {
+                Id = group.Id, Name = group.Name, GroupType = group.GroupType,
+                GroupMembers = [.. group.GroupMembers], Description = group.Description, Source = group.Source,
+            };
+        throw new InvalidOperationException("The UniFi Console did not confirm the firewall group change.");
+    }
+
+    /// <summary>
+    /// DELETE rest/firewallgroup/{id}. A group that is already gone (api.err.IdInvalid) counts as deleted.
+    /// </summary>
+    public async Task DeleteFirewallGroupAsync(string groupId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiFirewallGroup>>(
+                () => _httpClient!.DeleteAsync(BuildApiPath($"rest/firewallgroup/{groupId}"), cancellationToken),
+                cancellationToken,
+                throwOnPermissionError: true,
+                permissionErrorMessage: FirewallPermissionMessage,
+                throwOnApiError: true);
+            if (response?.Meta.Rc != "ok")
+                throw new InvalidOperationException("The UniFi Console did not confirm deleting the firewall group.");
+        }
+        catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
+        {
+            _logger.LogDebug("Firewall group {Id} was already gone", groupId);
+        }
+    }
+
+    /// <summary>GET v2/api/site/{site}/firewall-policies, typed. Throws when the console does not answer.</summary>
+    public async Task<List<UniFiFirewallPolicy>> GetFirewallPoliciesAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await ExecuteV2Async(HttpMethod.Get, "firewall-policies", null, cancellationToken);
+        return JsonSerializer.Deserialize<List<UniFiFirewallPolicy>>(body) ?? [];
+    }
+
+    /// <summary>POST v2/api/site/{site}/firewall-policies. Returns the stored policy (HTTP 201).</summary>
+    public async Task<UniFiFirewallPolicy> CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite policy,
+        CancellationToken cancellationToken = default)
+    {
+        var body = await ExecuteV2Async(HttpMethod.Post, "firewall-policies", JsonSerializer.Serialize(policy), cancellationToken);
+        return JsonSerializer.Deserialize<UniFiFirewallPolicy>(body)
+               ?? throw new InvalidOperationException("The UniFi Console did not return the new firewall policy.");
+    }
+
+    /// <summary>
+    /// PUT v2/api/site/{site}/firewall-policies/{id} with the stored policy, changed only in the
+    /// connection states it matches ("CUSTOM" with <paramref name="states"/>). Read back from the
+    /// Console first so every field it keeps (report_flow, icmp names, ...) goes back unchanged.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "firewall-policies PUT takes the full stored object")]
+    public async Task SetFirewallPolicyConnectionStatesAsync(string policyId, IReadOnlyList<string> states,
+        CancellationToken cancellationToken = default)
+    {
+        var list = System.Text.Json.Nodes.JsonNode.Parse(
+            await ExecuteV2Async(HttpMethod.Get, "firewall-policies", null, cancellationToken)) as System.Text.Json.Nodes.JsonArray;
+        var policy = list?.OfType<System.Text.Json.Nodes.JsonObject>()
+                         .FirstOrDefault(p => (string?)p["_id"] == policyId)
+                     ?? throw new InvalidOperationException($"Firewall policy {policyId} is not on the UniFi Console.");
+        policy["connection_state_type"] = "CUSTOM";
+        policy["connection_states"] = new System.Text.Json.Nodes.JsonArray(states.Select(s => (System.Text.Json.Nodes.JsonNode?)s).ToArray());
+        await ExecuteV2Async(HttpMethod.Put, $"firewall-policies/{policyId}", policy.ToJsonString(), cancellationToken);
+    }
+
+    /// <summary>
+    /// PUT v2/api/site/{site}/firewall-policies/batch-reorder: sets the order of the custom policies
+    /// in one zone pair, those that run before UniFi's predefined ones and those after.
+    /// </summary>
+    public async Task ReorderFirewallPoliciesAsync(string sourceZoneId, string destinationZoneId,
+        IReadOnlyList<string> beforePredefinedIds, IReadOnlyList<string> afterPredefinedIds,
+        CancellationToken cancellationToken = default)
+    {
+        var body = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["source_zone_id"] = sourceZoneId,
+            ["destination_zone_id"] = destinationZoneId,
+            ["before_predefined_ids"] = beforePredefinedIds,
+            ["after_predefined_ids"] = afterPredefinedIds,
+        });
+        await ExecuteV2Async(HttpMethod.Put, "firewall-policies/batch-reorder", body, cancellationToken);
+    }
+
+    /// <summary>DELETE v2/api/site/{site}/firewall-policies/{id} (HTTP 204). A missing policy counts as deleted.</summary>
+    public async Task DeleteFirewallPolicyAsync(string policyId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ExecuteV2Async(HttpMethod.Delete, $"firewall-policies/{policyId}", null, cancellationToken);
+        }
+        catch (UniFiApiErrorException ex) when (ex.StatusCode == 404 || ex.Code.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
+                                               || ex.Code.Contains("IdInvalid", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Firewall policy {Id} was already gone", policyId);
+        }
+    }
+
+    // A v2 write or strict read: errors throw (permission, api.err code, or HTTP status) instead of
+    // returning null, because a silent failure here leaves the firewall in an unknown state.
+    private async Task<string> ExecuteV2Async(HttpMethod method, string endpoint, string? json,
+        CancellationToken cancellationToken)
+    {
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+            throw new InvalidOperationException("Could not sign in to the UniFi Console.");
+
+        HttpRequestMessage Build() => new(method, BuildV2ApiPath($"site/{_site}/{endpoint}"))
+        {
+            Content = json == null ? null : new StringContent(json, Encoding.UTF8, "application/json")
+        };
+
+        var result = await ExecuteRequestAsync(async () =>
+        {
+            using var request = Build();
+            var response = await _httpClient!.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Forbidden && body.Contains("NoPermission", StringComparison.OrdinalIgnoreCase))
+                throw new UniFiPermissionException(FirewallPermissionMessage);
+            if (IsRecoverableAuthFailure(response.StatusCode) && await LoginAsync(cancellationToken))
+            {
+                using var retry = Build();
+                response = await _httpClient!.SendAsync(retry, cancellationToken);
+                body = await response.Content.ReadAsStringAsync(cancellationToken);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("UniFi v2 {Method} {Endpoint} failed with {Status}: {Body}", method, endpoint, (int)response.StatusCode, body);
+                throw new UniFiApiErrorException(TryReadV2ErrorCode(body) ?? $"HTTP {(int)response.StatusCode}", (int)response.StatusCode);
+            }
+            return body;
+        });
+        return result ?? throw new InvalidOperationException("The UniFi Console is not answering.");
+    }
+
+    // v2 errors carry the code at the top level; older shapes nest it under meta like v1.
+    private static string? TryReadV2ErrorCode(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            foreach (var name in new[] { "code", "errorCode", "message" })
+            {
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String)
+                    return v.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON: fall back to the status code.
+        }
+        return TryReadApiErrorCode(body);
+    }
+
+    /// <summary>
     /// GET stat/portforward - Get all port forwarding rules (UPnP and static)
     /// Returns both dynamic UPnP mappings and configured static port forwards
     /// </summary>
@@ -2850,9 +3051,15 @@ public class UniFiApiClient : IDisposable
     private static readonly System.Text.RegularExpressions.Regex DpiIconDomainPattern =
         new("^[a-z0-9][a-z0-9.-]*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
+    private static readonly System.Text.RegularExpressions.Regex NetworkUiBuildPattern =
+        new("angular/(g[0-9a-f]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    // The Network app's UI build segment (angular/<build>/), which changes with every Network version.
+    private string? _networkUiBuild;
+
     /// <summary>
-    /// GET dpi_icons/{domain}/favicon.ico - the favicon the Network app shows for a DPI application,
-    /// served by the console itself. Null when the console has none.
+    /// GET manage/angular/{build}/images/dpi/{domain}/favicon.ico - the favicon the Network app shows
+    /// for a DPI application, served by the console itself. Null when the console has none.
     /// </summary>
     public async Task<(byte[] Bytes, string ContentType)?> GetDpiIconAsync(string domain, CancellationToken cancellationToken = default)
     {
@@ -2862,10 +3069,20 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        var url = BuildNetworkAppPath($"dpi_icons/{domain}/favicon.ico");
         return await ExecuteRequestAsync<(byte[] Bytes, string ContentType)?>(async () =>
         {
-            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            var cached = _networkUiBuild;
+            var build = cached ?? await ReadNetworkUiBuildAsync(cancellationToken);
+            if (build == null) return null;
+
+            var response = await _httpClient!.GetAsync(DpiIconPath(build, domain), cancellationToken);
+            // A cached build goes stale when the Network app upgrades: read it again once.
+            if (response.StatusCode == HttpStatusCode.NotFound && cached != null
+                && await ReadNetworkUiBuildAsync(cancellationToken) is { } fresh && fresh != cached)
+            {
+                response = await _httpClient!.GetAsync(DpiIconPath(fresh, domain), cancellationToken);
+            }
+
             var type = response.Content.Headers.ContentType?.MediaType ?? "";
             if (!response.IsSuccessStatusCode || !type.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             {
@@ -2875,6 +3092,24 @@ public class UniFiApiClient : IDisposable
             var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             return bytes.Length == 0 ? null : (bytes, type);
         });
+    }
+
+    private string DpiIconPath(string build, string domain) =>
+        BuildNetworkAppPath($"manage/angular/{build}/images/dpi/{domain}/favicon.ico");
+
+    /// <summary>Reads the UI build segment from the Network app's login page, which names it in its asset URLs.</summary>
+    private async Task<string?> ReadNetworkUiBuildAsync(CancellationToken cancellationToken)
+    {
+        var response = await _httpClient!.GetAsync(BuildNetworkAppPath("manage/account/login"), cancellationToken);
+        var match = response.IsSuccessStatusCode
+            ? NetworkUiBuildPattern.Match(await response.Content.ReadAsStringAsync(cancellationToken))
+            : null;
+        if (match is not { Success: true })
+        {
+            _logger.LogDebug("Network app UI build not found on its login page: {StatusCode}", (int)response.StatusCode);
+            return null;
+        }
+        return _networkUiBuild = match.Groups[1].Value;
     }
 
     /// <summary>
@@ -3422,6 +3657,7 @@ public class UniFiApiClient : IDisposable
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
+            _logger.LogWarning("Cannot set the console update channels: not authenticated to the UniFi Console");
             return false;
         }
 
@@ -4005,6 +4241,7 @@ public class UniFiApiClient : IDisposable
         string[]? riskFilter = null,
         string[]? actionFilter = null,
         string[]? directionFilter = null,
+        string[]? destinationIpFilter = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogTrace("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
@@ -4038,7 +4275,7 @@ public class UniFiApiClient : IDisposable
             ["source_region"] = Array.Empty<string>(),
             ["destination_host"] = Array.Empty<string>(),
             ["destination_mac"] = Array.Empty<string>(),
-            ["destination_ip"] = Array.Empty<string>(),
+            ["destination_ip"] = destinationIpFilter ?? Array.Empty<string>(),
             ["destination_port"] = Array.Empty<string>(),
             ["destination_network_id"] = Array.Empty<string>(),
             ["destination_domain"] = Array.Empty<string>(),

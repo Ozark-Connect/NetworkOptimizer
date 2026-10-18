@@ -78,6 +78,12 @@ public class TourPredicateResolver
     /// </summary>
     public const string CableModem = "cable-modem";
 
+    /// <summary>
+    /// The site polls a Realtek ONT stick that is not attached to its SFP module yet. Once attached
+    /// there is nothing left to point at, so only the standalone ones qualify.
+    /// </summary>
+    public const string RealtekOnt = "realtek-ont";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -110,6 +116,7 @@ public class TourPredicateResolver
         (Starlink, HasStarlinkAsync),
         (Cellular, HasCellularAsync),
         (CableModem, HasCableModemAsync),
+        (RealtekOnt, HasStandaloneRealtekOntAsync),
     };
 
     public class PredicateContext
@@ -361,6 +368,10 @@ public class TourPredicateResolver
     /// </summary>
     private static Task<bool> HasCableModemAsync(NetworkOptimizerDbContext db) =>
         db.CmConfigurations.AsNoTracking().AnyAsync(c => c.Enabled);
+
+    /// <summary>Whether the site has an enabled Realtek ONT stick config not yet attached to an SFP module.</summary>
+    private static Task<bool> HasStandaloneRealtekOntAsync(NetworkOptimizerDbContext db) =>
+        db.OntConfigurations.AsNoTracking().AnyAsync(c => c.Enabled && c.Provider == "realtek-ont" && c.AttachedSfpId == null);
 
     /// <summary>
     /// Whether the site has UniFi's Smart Queues turned on for at least one enabled WAN. This one

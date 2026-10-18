@@ -120,7 +120,11 @@ numeric strings; 64-bit counters are expected.
     "ebp_good": 670798569,  "ebp_discard": 0,
     "learning_discard": 0
   },
-  "sfp_uptime_s": 358825    // seconds since the ONT module booted (counter-reset anchor)
+  "sfp_uptime_s": 358825,   // seconds since the ONT module booted (counter-reset anchor)
+  "olt_vendor_id": "CALX",  // OLT vendor ID (4 letters, as the ONT reports it); shown decoded, e.g. "Calix (CALX)"
+  "sfp_fw_version": "V1.0-220923", // the ONT module's firmware version, shown as-is
+  "olt_model": "E7",        // OLT model (OMCI OLT-G equipment ID); shown with the vendor, e.g. "Calix E7 (CALX)"
+  "olt_version": "1.2.3"    // OLT software version (OMCI OLT-G version), shown as-is
 }
 ```
 
@@ -152,6 +156,10 @@ onto Network Optimizer's existing schema:
 | `lan.mode` | `lan_mode` | raw enum, recorded for change detection - see below |
 | `lan_counters.*` | `lan_tx_frames`, `lan_rx_frames`, `lan_tx_drop_events`, `lan_rx_fcs_err`, `lan_buffer_overflow` | |
 | `sfp_uptime_s` | `sfp_uptime_s` | |
+| `olt_vendor_id` | `olt_vendor_id` | raw ID; decoded for display only. Standalone, also the `ont` measurement's `olt_vendor` tag |
+| `sfp_fw_version` | `firmware_version` | string, recorded as-is |
+| `olt_model` | `olt_equipment_id` | string. Standalone, also the `ont` measurement's `olt_model` tag (the reason for the field's different name) |
+| `olt_version` | `olt_version` | string, recorded as-is |
 
 Not recorded: `lan.phy_duplex` (static config), GEM byte counters
 (32-bit wrap), `drop` / `omci_drop` / `rx_oversized_frames`,

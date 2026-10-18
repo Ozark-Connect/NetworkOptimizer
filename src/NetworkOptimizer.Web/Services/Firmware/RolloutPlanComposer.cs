@@ -18,7 +18,10 @@ public sealed record RolloutPlanInputs(
     IReadOnlyList<PlanTargetImage>? TargetImages = null,
     bool UniFiOsPinned = false,
     bool NetworkAppPinned = false,
-    string? NetworkAppPackageUrl = null);
+    string? NetworkAppPackageUrl = null,
+    bool NetworkAppChannelRefused = false,
+    bool UniFiOsChannelRefused = false,
+    IReadOnlyList<string>? StagingNotes = null);
 
 /// <summary>
 /// The one path a plan is built through, wizard and autopilot alike: refresh the catalog, freeze
@@ -68,6 +71,7 @@ public static class RolloutPlanComposer
             await RecordSharedBuildsAsync(sharedCatalog, currentChannel, catalog, cancellationToken);
 
         var images = new List<PlanTargetImage>();
+        var staging = new ConsoleStaging(console, false, false, []);
         if (settings != null)
         {
             if (!string.IsNullOrEmpty(currentChannel))
@@ -77,7 +81,8 @@ public static class RolloutPlanComposer
             }
             currentChannel = await StageEveryPlannedChannelAsync(
                 planning, commands, context, settings, currentChannel, images, catalog, sharedCatalog, logger, cancellationToken);
-            console = await StageConsoleChannelsAsync(commands, console, settings, cancellationToken);
+            staging = await StageConsoleChannelsAsync(commands, console, settings, logger, cancellationToken);
+            console = staging.Console;
 
             if (feed != null && settings.IncludeUniFiOs)
                 await PatchStaleGaFromFeedAsync(console, feed, logger, cancellationToken);
@@ -116,7 +121,10 @@ public static class RolloutPlanComposer
             images,
             osPinned,
             appPinned,
-            appPinned ? pin!.Url : await KnownNetworkPackageUrlAsync(sharedCatalog, packages?.Platform, console, cancellationToken));
+            appPinned ? pin!.Url : await KnownNetworkPackageUrlAsync(sharedCatalog, packages?.Platform, console, cancellationToken),
+            staging.AppRefused,
+            staging.OsRefused,
+            staging.Notes);
     }
 
     /// <summary>
@@ -735,16 +743,28 @@ public static class RolloutPlanComposer
     }
 
     /// <summary>
+    /// The console after channel staging, and which of its surfaces did not take the planned
+    /// channel. A refused surface is planned from nothing: its offer is another channel's build.
+    /// </summary>
+    private sealed record ConsoleStaging(
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? Console,
+        bool AppRefused,
+        bool OsRefused,
+        List<string> Notes);
+
+    /// <summary>
     /// Puts both console surfaces on their planned channel before their versions are read.
     /// </summary>
     /// <returns>The console as it reads on the planned channels, or as it was when nothing changed.</returns>
-    private static async Task<NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo?> StageConsoleChannelsAsync(
+    private static async Task<ConsoleStaging> StageConsoleChannelsAsync(
         IFirmwareCommandClient commands,
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
         FirmwareRolloutSettings settings,
+        ILogger? logger,
         CancellationToken cancellationToken)
     {
-        if (!ConsoleReachable(console)) return console;
+        var unchanged = new ConsoleStaging(console, false, false, []);
+        if (!ConsoleReachable(console)) return unchanged;
 
         // latestByChannel is only refreshed for a channel the console has actually been put on:
         // a console sitting on RC reported release 4.4.7 for weeks and produced 5.1.19 the
@@ -760,11 +780,44 @@ public static class RolloutPlanComposer
             && string.Equals(console!.Firmware?.ReleaseChannel, os, StringComparison.OrdinalIgnoreCase))
             os = null;
 
-        if (app == null && os == null) return console;
-        if (!await commands.SetConsoleChannelsAsync(app, os, cancellationToken)) return console;
+        if (app == null && os == null) return unchanged;
 
-        return await commands.GetConsoleSystemInfoAsync(cancellationToken) ?? console;
+        // The console's own reading decides, not the write's return: a refused write (the account
+        // lacks the role) and an accepted one that changed nothing both leave the surface offering
+        // another channel's build, and a plan built from that offer would install it.
+        var after = console;
+        if (await commands.SetConsoleChannelsAsync(app, os, cancellationToken))
+            after = await commands.GetConsoleSystemInfoAsync(cancellationToken) ?? console;
+
+        var notes = new List<string>();
+        var appRefused = ChannelRefused(after!.NetworkApplication?.ReleaseChannel, app);
+        var osRefused = ChannelRefused(after.Firmware?.ReleaseChannel, os);
+        if (appRefused)
+            notes.Add(ChannelRefusedNote("the UniFi Network application", after.NetworkApplication?.ReleaseChannel, app!));
+        if (osRefused)
+            notes.Add(ChannelRefusedNote("UniFi OS", after.Firmware?.ReleaseChannel, os!));
+        if (notes.Count > 0)
+            logger?.LogWarning("Console channel staging: {Notes}", string.Join(" ", notes));
+
+        return new ConsoleStaging(after, appRefused, osRefused, notes);
     }
+
+    /// <summary>A surface that still reports a channel other than the one asked for. An unreadable channel is not a refusal.</summary>
+    private static bool ChannelRefused(string? current, string? wanted) =>
+        wanted != null && !string.IsNullOrWhiteSpace(current) && !RolloutChannelManager.AlreadyOn(current, wanted);
+
+    private static string ChannelRefusedNote(string surface, string? current, string wanted) =>
+        $"The Console would not move {surface} from {ChannelLabel(current)} to {ChannelLabel(wanted)}, so it is left out of this rollout. "
+        + "Changing a Console channel needs the Super Admin role, or the Control Plane - Full Admin permission.";
+
+    /// <summary>UniFi's channel names as its UI shows them.</summary>
+    internal static string ChannelLabel(string? channel) => channel?.ToLowerInvariant() switch
+    {
+        FirmwareChannels.Beta => "Early Access",
+        FirmwareChannels.ReleaseCandidate => "Release Candidate",
+        FirmwareChannels.Release => "Official",
+        _ => channel ?? "its current channel",
+    };
 
     /// <summary>Orders a plan from the frozen inputs.</summary>
     /// <param name="inputs">What the site looked like at plan time.</param>
@@ -781,6 +834,8 @@ public static class RolloutPlanComposer
         var result = PlanCore(inputs, settings, additionalExcludedMacs);
         if (inputs.TargetImages is { Count: > 0 })
             result.Document.TargetImages = inputs.TargetImages.ToList();
+        if (inputs.StagingNotes is { Count: > 0 })
+            result.Document.Notes.AddRange(inputs.StagingNotes);
         return result;
     }
 
@@ -797,8 +852,8 @@ public static class RolloutPlanComposer
             CurrentConsoleChannel = inputs.CurrentChannel,
             Neighbors = inputs.Context.Neighbors,
             AdditionalExcludedMacs = additionalExcludedMacs ?? [],
-            NetworkAppUpdateAvailable = HasNetworkAppUpdate(inputs.Console),
-            UniFiOsUpdateAvailable = HasUniFiOsUpdate(inputs.Console, settings.EffectiveUniFiOsChannel),
+            NetworkAppUpdateAvailable = !inputs.NetworkAppChannelRefused && HasNetworkAppUpdate(inputs.Console),
+            UniFiOsUpdateAvailable = !inputs.UniFiOsChannelRefused && HasUniFiOsUpdate(inputs.Console, settings.EffectiveUniFiOsChannel),
             NetworkAppFromVersion = inputs.Console?.NetworkApplication?.Version,
             NetworkAppToVersion = inputs.Console?.NetworkApplication?.UpdateAvailable,
             UniFiOsFromVersion = inputs.Console?.InstalledOsVersion,

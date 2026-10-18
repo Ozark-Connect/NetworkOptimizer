@@ -89,6 +89,28 @@ public class RolloutAutopilotTests
     }
 
     [Fact]
+    public async Task CreatePlanIfDue_LeavesOutAConsoleSurfaceTheConsoleWouldNotMoveToThePlannedChannel()
+    {
+        // Autopilot wants RC; the console stays on beta and offers beta's build. Planning from
+        // that offer would install an Early Access build on a site set to Release Candidate.
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo = RolloutFixtures.Console(appChannel: "beta", appUpdateAvailable: "11.0.83", appVersion: "11.0.81");
+        harness.Commands.ConsoleChannelsAccepted = false;
+        await harness.WithSettingsAsync(s =>
+        {
+            s.Mode = FirmwareRolloutMode.Autopilot;
+            s.GlobalChannel = FirmwareChannels.ReleaseCandidate;
+            s.IncludeUniFiNetwork = true;
+            s.IncludeUniFiOs = false;
+        });
+
+        var planId = await harness.Autopilot.CreatePlanIfDueAsync();
+
+        planId.Should().BeNull();
+        harness.Autopilot.HoldReason.Should().Contain("would not move the UniFi Network application from Early Access to Release Candidate");
+    }
+
+    [Fact]
     public async Task CreatePlanIfDue_AuditsTheScheduledPlanAsTheSystem()
     {
         using var harness = await AutopilotSiteAsync();

@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Writes;
@@ -30,9 +33,13 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private readonly ILogger<MonitoringInfluxClient> _logger;
 
     private readonly SemaphoreSlim _configLock = new(1, 1);
+    private readonly SemaphoreSlim _speedTestMutationLock = new(1, 1);
     private readonly ConcurrentQueue<BufferedPoint> _writeBuffer = new();
     private readonly SemaphoreSlim _flushSemaphore = new(1, 1);
     private readonly CancellationTokenSource _timerCts = new();
+    private readonly object _backfillCancellationLock = new();
+    private CancellationTokenSource _backfillCancellation = new();
+    private int _pendingBackfillRefreshes;
 
     private InfluxDBClient? _client;
     private WriteApiAsync? _writeApi;
@@ -51,6 +58,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private bool _disposed;
     private bool _initialized;
     private string? _tokenHash;
+    private long _configurationVersion;
 
     private readonly SiteDbContextFactory? _siteDbFactory;
     private readonly string? _siteSlug;
@@ -84,6 +92,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     public string? CurrentUrl => _url;
     public bool IsConfigured => _client != null && !string.IsNullOrEmpty(_bucket);
+    /// <summary>Changes when connection settings change or an explicit refresh requests a backfill check.</summary>
+    public long ConfigurationVersion => Interlocked.Read(ref _configurationVersion);
 
     /// <summary>The primary bucket this client actually reads/writes, after resolution
     /// (slug-prefixed for non-default sites; collisions with main are corrected). Null
@@ -98,11 +108,45 @@ public class MonitoringInfluxClient : IAsyncDisposable
     /// Build (or rebuild) the client from current MonitoringSettings. Safe to call repeatedly.
     /// Returns true if a usable client was constructed.
     /// </summary>
-    public async Task<bool> ReconfigureAsync(CancellationToken ct = default)
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="refreshSpeedTestBackfill">False for lifecycle checks; explicit setup/health refreshes also recheck bucket metadata.</param>
+    public async Task<bool> ReconfigureAsync(CancellationToken ct = default, bool refreshSpeedTestBackfill = true)
     {
-        await _configLock.WaitAsync(ct);
+        if (!refreshSpeedTestBackfill)
+            return await ReconfigureCoreAsync(ct, refreshSpeedTestBackfill: false);
+
+        ct.ThrowIfCancellationRequested();
+        CancellationTokenSource previous;
+        lock (_backfillCancellationLock)
+        {
+            _pendingBackfillRefreshes++;
+            previous = _backfillCancellation;
+            _backfillCancellation = new CancellationTokenSource();
+        }
         try
         {
+            await previous.CancelAsync();
+            return await ReconfigureCoreAsync(ct, refreshSpeedTestBackfill: true);
+        }
+        finally
+        {
+            previous.Dispose();
+            lock (_backfillCancellationLock)
+                _pendingBackfillRefreshes--;
+        }
+    }
+
+    private async Task<bool> ReconfigureCoreAsync(CancellationToken ct, bool refreshSpeedTestBackfill)
+    {
+        await _configLock.WaitAsync(ct);
+        var wasConfigured = IsConfigured;
+        var ownsFlushGate = false;
+        try
+        {
+            await _flushSemaphore.WaitAsync(ct);
+            ownsFlushGate = true;
+            if (refreshSpeedTestBackfill)
+                Interlocked.Increment(ref _configurationVersion);
             await using var db = await CreateSettingsContextAsync(ct);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
 
@@ -146,6 +190,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         }
         finally
         {
+            if (wasConfigured && !IsConfigured)
+                Interlocked.Increment(ref _configurationVersion);
+            if (ownsFlushGate)
+                _flushSemaphore.Release();
             _configLock.Release();
         }
     }
@@ -271,6 +319,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
             _longtermBucket = SanitizeFluxString(string.IsNullOrWhiteSpace(longterm) ? bucket : longterm);
             _tokenHash = currentTokenHash;
             _initialized = true;
+            Interlocked.Increment(ref _configurationVersion);
 
             _flushTimer = new PeriodicTimer(TimeSpan.FromSeconds(_flushIntervalSeconds));
             _flushTask = RunFlushLoopAsync(_timerCts.Token);
@@ -373,6 +422,432 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
     // ---- Schema-aligned write helpers (Gate 1) ----
 
+    /// <summary>
+    /// Replays saved history once per destination and retention policy. Unlike live
+    /// buffered exports, completion is persisted only after acknowledged writes.
+    /// </summary>
+    public async Task<bool> BackfillSpeedTestResultsAsync(CancellationToken ct = default)
+    {
+        using var cancellation = CreateBackfillCancellation(ct);
+        try
+        {
+            return await BackfillSpeedTestResultsCoreAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && cancellation.IsCancellationRequested)
+        {
+            _logger.LogInformation("Speed test InfluxDB backfill interrupted by configuration refresh for site {Site}; will retry",
+                _siteSlug ?? "main");
+            return false;
+        }
+    }
+
+    private CancellationTokenSource CreateBackfillCancellation(CancellationToken ct)
+    {
+        lock (_backfillCancellationLock)
+        {
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, _backfillCancellation.Token);
+            // A new pass must not slip ahead of an explicit refresh that is waiting for the config lock.
+            if (_pendingBackfillRefreshes > 0)
+                cancellation.Cancel();
+            return cancellation;
+        }
+    }
+
+    private async Task<bool> BackfillSpeedTestResultsCoreAsync(CancellationToken ct)
+    {
+        await using var db = await CreateSettingsContextAsync(ct);
+        var lastId = await db.Iperf3Results.MaxAsync(r => (int?)r.Id, ct);
+        if (!lastId.HasValue) return true;
+
+        await _configLock.WaitAsync(ct);
+        try
+        {
+            if (!IsConfigured || _client == null || _writeApi == null)
+                return false;
+
+            var buckets = await _client.GetBucketsApi().FindBucketsAsync(
+                org: _org, name: _longtermBucket, cancellationToken: ct);
+            var bucket = buckets.SingleOrDefault()
+                ?? throw new InvalidOperationException($"Speed test backfill bucket '{_longtermBucket}' was not found.");
+            var retentionSeconds = bucket.RetentionRules?
+                .Where(r => r.Type == BucketRetentionRules.TypeEnum.Expire)
+                .Select(r => r.EverySeconds ?? 0).SingleOrDefault() ?? 0;
+            if (retentionSeconds < 0)
+                throw new InvalidOperationException("Speed test backfill bucket has a negative retention period.");
+            var destination = JsonSerializer.Serialize(new { Url = _url?.TrimEnd('/'), Org = _org, Bucket = _longtermBucket });
+            var key = SystemSettingKeys.SpeedTestInfluxBackfillPrefix
+                + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(destination)));
+            var marker = await db.SystemSettings.FindAsync(new object[] { key }, ct);
+            SpeedTestBackfillCompletion? previous = null;
+            if (marker?.Value != null)
+            {
+                try
+                {
+                    previous = JsonSerializer.Deserialize<SpeedTestBackfillCompletion>(marker.Value);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Invalid speed test InfluxDB backfill marker for site {Site}; replaying history",
+                        _siteSlug ?? "main");
+                }
+            }
+            if (previous?.BucketId == bucket.Id && previous.RetentionSeconds == retentionSeconds)
+                return true;
+
+            var exported = 0;
+            var skipped = 0;
+            // Hold the write gate before reading SQLite: earlier live writes go first,
+            // and updates queued during the replay go afterwards, never before stale history.
+            await _flushSemaphore.WaitAsync(ct);
+            try
+            {
+                await FlushBufferedPointsBestEffortAsync(ct);
+                var cursor = 0;
+                while (cursor < lastId.Value)
+                {
+                    var results = await db.Iperf3Results.AsNoTracking()
+                        .Where(r => r.Id > cursor && r.Id <= lastId.Value)
+                        .OrderBy(r => r.Id).Take(500)
+                        .Select(r => new Iperf3Result
+                        {
+                            Id = r.Id, TestTime = r.TestTime, Direction = r.Direction,
+                            DeviceHost = r.DeviceHost, DeviceName = r.DeviceName, DeviceType = r.DeviceType,
+                            WanNetworkGroup = r.WanNetworkGroup, WanName = r.WanName,
+                            ExternalServerName = r.ExternalServerName, Success = r.Success,
+                            DownloadBitsPerSecond = r.DownloadBitsPerSecond, UploadBitsPerSecond = r.UploadBitsPerSecond,
+                            DurationSeconds = r.DurationSeconds, ParallelStreams = r.ParallelStreams,
+                            PingMs = r.PingMs, JitterMs = r.JitterMs,
+                            DownloadLatencyMs = r.DownloadLatencyMs, DownloadJitterMs = r.DownloadJitterMs,
+                            UploadLatencyMs = r.UploadLatencyMs, UploadJitterMs = r.UploadJitterMs,
+                            IdleLossPercent = r.IdleLossPercent, IdleLossProbes = r.IdleLossProbes,
+                            DownloadLossPercent = r.DownloadLossPercent, DownloadLossProbes = r.DownloadLossProbes,
+                            UploadLossPercent = r.UploadLossPercent, UploadLossProbes = r.UploadLossProbes,
+                            BackgroundDownloadMbps = r.BackgroundDownloadMbps, BackgroundUploadMbps = r.BackgroundUploadMbps,
+                            ExpectedDownloadMbps = r.ExpectedDownloadMbps, ExpectedUploadMbps = r.ExpectedUploadMbps,
+                            BackgroundLoadInvalid = r.BackgroundLoadInvalid
+                        }).ToListAsync(ct);
+                    if (results.Count == 0) break;
+                    cursor = results[^1].Id;
+                    var points = new List<PointData>();
+                    var cutoff = retentionSeconds > 0 ? DateTime.UtcNow.AddSeconds(-retentionSeconds) : DateTime.MinValue;
+                    foreach (var result in results)
+                    {
+                        var timestamp = DateTimeUtilities.AsUtc(result.TestTime);
+                        if (timestamp < cutoff)
+                        {
+                            skipped++;
+                            continue;
+                        }
+                        try
+                        {
+                            var unixTicks = timestamp.Ticks - DateTime.UnixEpoch.Ticks;
+                            if (unixTicks < long.MinValue / 100 || unixTicks > long.MaxValue / 100
+                                || new double?[]
+                                {
+                                    result.DownloadBitsPerSecond, result.UploadBitsPerSecond,
+                                    result.PingMs, result.JitterMs, result.DownloadLatencyMs,
+                                    result.DownloadJitterMs, result.UploadLatencyMs, result.UploadJitterMs,
+                                    result.IdleLossPercent, result.DownloadLossPercent, result.UploadLossPercent,
+                                    result.BackgroundDownloadMbps * 1_000_000, result.BackgroundUploadMbps * 1_000_000,
+                                    result.ExpectedDownloadMbps * 1_000_000, result.ExpectedUploadMbps * 1_000_000
+                                }.Any(value => value.HasValue && !double.IsFinite(value.Value)))
+                                throw new ArgumentException("Historical speed test has an invalid timestamp or non-finite measurement.");
+                            points.Add(BuildSpeedTestPoint(result));
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            skipped++;
+                            _logger.LogWarning(ex, "Skipping invalid historical speed test {ResultId} during InfluxDB backfill", result.Id);
+                        }
+                    }
+                    if (points.Count == 0) continue;
+                    await _writeApi.WritePointsAsync(points, _longtermBucket, _org, ct);
+                    exported += points.Count;
+                }
+
+                var completion = new SpeedTestBackfillCompletion(bucket.Id, retentionSeconds, DateTime.UtcNow, exported, skipped);
+                if (marker == null)
+                {
+                    marker = new SystemSetting { Key = key };
+                    db.SystemSettings.Add(marker);
+                }
+                marker.Value = JsonSerializer.Serialize(completion);
+                marker.UpdatedAt = completion.CompletedAt;
+                await db.SaveChangesAsync(ct);
+            }
+            finally
+            {
+                _flushSemaphore.Release();
+            }
+            _logger.LogInformation("Speed test InfluxDB backfill complete for site {Site}: {Exported} exported, {Skipped} skipped",
+                _siteSlug ?? "main", exported, skipped);
+            return true;
+        }
+        catch (InfluxDB.Client.Core.Exceptions.HttpException) when (ct.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(ct);
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+    }
+
+    private sealed record SpeedTestBackfillCompletion(
+        string BucketId, long RetentionSeconds, DateTime CompletedAt, int Exported, int Skipped);
+
+    /// <summary>Export a saved speed test to the existing long-term bucket.</summary>
+    public Task WriteSpeedTestResultAsync(Iperf3Result result) =>
+        EnqueueSpeedTestAsync(result, BuildSpeedTestPoint);
+
+    private async Task EnqueueSpeedTestAsync(Iperf3Result result, Func<Iperf3Result, PointData?> build)
+    {
+        await _speedTestMutationLock.WaitAsync();
+        try
+        {
+            if (!IsConfigured) return;
+            await using var db = await CreateSettingsContextAsync(CancellationToken.None);
+            var current = await db.Iperf3Results.AsNoTracking().Where(r => r.Id == result.Id)
+                .Select(r => new { r.Direction, r.DeviceHost, r.WanNetworkGroup, r.TestTime }).SingleOrDefaultAsync();
+            if (current == null || current.Direction != result.Direction || current.DeviceHost != result.DeviceHost
+                || current.WanNetworkGroup != result.WanNetworkGroup
+                || DateTimeUtilities.AsUtc(current.TestTime) != DateTimeUtilities.AsUtc(result.TestTime))
+                return;
+            var point = build(result);
+            if (point != null) Enqueue(point, longterm: true);
+        }
+        finally { _speedTestMutationLock.Release(); }
+    }
+
+    public async Task SynchronizeSpeedTestMutationAsync(Iperf3Result original)
+    {
+        await _configLock.WaitAsync();
+        try
+        {
+            if (!IsConfigured || _client == null || _writeApi == null) return;
+            await _speedTestMutationLock.WaitAsync();
+            try
+            {
+                await _flushSemaphore.WaitAsync();
+                try
+                {
+                    await FlushBufferedPointsBestEffortAsync();
+                    var (testType, runner, provider) = SpeedTestTags(original.Direction);
+                    static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+                    var predicate = $"_measurement=\"speed_test\" AND test_type={Quote(testType)} AND runner={Quote(runner)} AND provider={Quote(provider)}";
+                    if (testType == "lan")
+                        predicate += $" AND target_host={Quote(original.DeviceHost)}";
+                    else if (!string.IsNullOrWhiteSpace(original.WanNetworkGroup) || original.Direction != SpeedTestDirection.OpenSpeedTestWan)
+                        predicate += $" AND wan_network_group={Quote(string.IsNullOrWhiteSpace(original.WanNetworkGroup) ? "unknown" : original.WanNetworkGroup)}";
+                    var time = DateTimeUtilities.AsUtc(original.TestTime);
+                    await _client.GetDeleteApi().Delete(time, time.AddTicks(1), predicate, _longtermBucket, _org);
+                    await using var db = await CreateSettingsContextAsync(CancellationToken.None);
+                    var current = await db.Iperf3Results.AsNoTracking().SingleOrDefaultAsync(r => r.Id == original.Id);
+                    if (current != null)
+                        await _writeApi.WritePointsAsync(new List<PointData> { BuildSpeedTestPoint(current) }, _longtermBucket, _org);
+                }
+                finally { _flushSemaphore.Release(); }
+            }
+            finally { _speedTestMutationLock.Release(); }
+        }
+        finally { _configLock.Release(); }
+    }
+
+    public async Task ClearSpeedTestHistoryAsync(IReadOnlyList<Iperf3Result> cleared)
+    {
+        if (cleared.Count == 0) return;
+        var from = cleared.Min(r => DateTimeUtilities.AsUtc(r.TestTime));
+        var to = cleared.Max(r => DateTimeUtilities.AsUtc(r.TestTime)).AddTicks(1);
+        await _configLock.WaitAsync();
+        try
+        {
+            if (!IsConfigured || _client == null || _writeApi == null) return;
+            await _speedTestMutationLock.WaitAsync();
+            try
+            {
+                await _flushSemaphore.WaitAsync();
+                try
+                {
+                    await FlushBufferedPointsBestEffortAsync();
+                    await _client.GetDeleteApi().Delete(from, to, "_measurement=\"speed_test\" AND test_type=\"lan\"",
+                        _longtermBucket, _org);
+                    // A concurrent SQLite save may fall inside the cleared time range.
+                    // Restore survivors before queued live exports are allowed to resume.
+                    await using var db = await CreateSettingsContextAsync(CancellationToken.None);
+                    var lastId = await db.Iperf3Results.MaxAsync(r => (int?)r.Id) ?? 0;
+                    var cursor = 0;
+                    while (true)
+                    {
+                        var survivors = await db.Iperf3Results.AsNoTracking()
+                            .Where(r => r.Id > cursor && r.Id <= lastId && r.TestTime >= from && r.TestTime < to
+                                && (r.Direction == SpeedTestDirection.ServerToDevice
+                                    || r.Direction == SpeedTestDirection.ClientToServer
+                                    || r.Direction == SpeedTestDirection.BrowserToServer))
+                            .OrderBy(r => r.Id).Take(500).ToListAsync();
+                        if (survivors.Count == 0) break;
+                        cursor = survivors[^1].Id;
+                        await _writeApi.WritePointsAsync(survivors.Select(BuildSpeedTestPoint).ToList(), _longtermBucket, _org);
+                    }
+                }
+                finally { _flushSemaphore.Release(); }
+            }
+            finally { _speedTestMutationLock.Release(); }
+        }
+        finally { _configLock.Release(); }
+    }
+
+    internal static PointData BuildSpeedTestPoint(Iperf3Result result)
+    {
+        var point = BuildSpeedTestIdentity(result, out var isWan)
+            .Field("result_id", result.Id)
+            .Field("success", result.Success)
+            .Field("download_bps", result.DownloadBitsPerSecond)
+            .Field("upload_bps", result.UploadBitsPerSecond)
+            .Field("duration_s", result.DurationSeconds)
+            .Field("parallel_streams", result.ParallelStreams);
+
+        if (isWan && result.Success)
+        {
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+            {
+                if (!string.IsNullOrWhiteSpace(result.ExternalServerName))
+                    point = point.Field("server_name", result.ExternalServerName);
+            }
+            else if (!string.IsNullOrWhiteSpace(result.DeviceHost) && result.DeviceHost != "UWN Test")
+            {
+                point = point.Field("server_host", result.DeviceHost);
+            }
+            if (!string.IsNullOrEmpty(result.WanName)) point = point.Field("wan_name", result.WanName);
+        }
+
+        point = AddSpeedTestMetadata(point, result, isWan);
+        if (result.PingMs.HasValue) point = point.Field("ping_ms", result.PingMs.Value);
+        if (result.JitterMs.HasValue) point = point.Field("jitter_ms", result.JitterMs.Value);
+        if (result.DownloadLatencyMs.HasValue) point = point.Field("download_latency_ms", result.DownloadLatencyMs.Value);
+        if (result.DownloadJitterMs.HasValue) point = point.Field("download_jitter_ms", result.DownloadJitterMs.Value);
+        if (result.UploadLatencyMs.HasValue) point = point.Field("upload_latency_ms", result.UploadLatencyMs.Value);
+        if (result.UploadJitterMs.HasValue) point = point.Field("upload_jitter_ms", result.UploadJitterMs.Value);
+        if (isWan)
+        {
+            if (result.IdleLossPercent.HasValue) point = point.Field("idle_loss_percent", result.IdleLossPercent.Value);
+            if (result.IdleLossProbes.HasValue) point = point.Field("idle_loss_probes", result.IdleLossProbes.Value);
+            if (result.DownloadLossPercent.HasValue) point = point.Field("download_loss_percent", result.DownloadLossPercent.Value);
+            if (result.DownloadLossProbes.HasValue) point = point.Field("download_loss_probes", result.DownloadLossProbes.Value);
+            if (result.UploadLossPercent.HasValue) point = point.Field("upload_loss_percent", result.UploadLossPercent.Value);
+            if (result.UploadLossProbes.HasValue) point = point.Field("upload_loss_probes", result.UploadLossProbes.Value);
+            if (HasSpeedTestBackgroundLoad(result)) point = AddSpeedTestBackgroundLoad(point, result);
+        }
+        return point;
+    }
+
+    public Task WriteSpeedTestBackgroundLoadAsync(Iperf3Result result) =>
+        EnqueueSpeedTestAsync(result, BuildSpeedTestBackgroundLoadPoint);
+
+    internal static PointData? BuildSpeedTestBackgroundLoadPoint(Iperf3Result result)
+    {
+        if (!HasSpeedTestBackgroundLoad(result)) return null;
+        var point = BuildSpeedTestIdentity(result, out var isWan);
+        return isWan ? AddSpeedTestBackgroundLoad(point, result) : null;
+    }
+
+    private static bool HasSpeedTestBackgroundLoad(Iperf3Result result) =>
+        result.BackgroundDownloadMbps.HasValue || result.BackgroundUploadMbps.HasValue
+        || result.ExpectedDownloadMbps.HasValue || result.ExpectedUploadMbps.HasValue || result.BackgroundLoadInvalid;
+
+    private static PointData AddSpeedTestBackgroundLoad(PointData point, Iperf3Result result)
+    {
+        if (result.BackgroundDownloadMbps.HasValue)
+            point = point.Field("background_download_bps", result.BackgroundDownloadMbps.Value * 1_000_000);
+        if (result.BackgroundUploadMbps.HasValue)
+            point = point.Field("background_upload_bps", result.BackgroundUploadMbps.Value * 1_000_000);
+        if (result.ExpectedDownloadMbps.HasValue)
+            point = point.Field("expected_download_bps", result.ExpectedDownloadMbps.Value * 1_000_000);
+        if (result.ExpectedUploadMbps.HasValue)
+            point = point.Field("expected_upload_bps", result.ExpectedUploadMbps.Value * 1_000_000);
+        if (result.BackgroundDownloadMbps.HasValue || result.BackgroundUploadMbps.HasValue || result.BackgroundLoadInvalid)
+            point = point.Field("background_load_invalid", result.BackgroundLoadInvalid);
+        return point;
+    }
+
+    public Task WriteSpeedTestMetadataAsync(Iperf3Result result) =>
+        EnqueueSpeedTestAsync(result, BuildSpeedTestMetadataPoint);
+
+    internal static PointData? BuildSpeedTestMetadataPoint(Iperf3Result result)
+    {
+        if (!result.Success || (string.IsNullOrWhiteSpace(result.DeviceName) && string.IsNullOrWhiteSpace(result.DeviceType)))
+            return null;
+        var point = BuildSpeedTestIdentity(result, out var isWan);
+        if (isWan)
+        {
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan || !HasSpeedTestServerName(result))
+                return null;
+        }
+        return AddSpeedTestMetadata(point, result, isWan);
+    }
+
+    private static PointData AddSpeedTestMetadata(PointData point, Iperf3Result result, bool isWan)
+    {
+        if (!result.Success) return point;
+        if (isWan)
+        {
+            if (result.Direction != SpeedTestDirection.OpenSpeedTestWan && HasSpeedTestServerName(result))
+                point = point.Field("server_name", result.DeviceName);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(result.DeviceName)) point = point.Field("target_name", result.DeviceName);
+            if (!string.IsNullOrWhiteSpace(result.DeviceType)) point = point.Field("target_type", result.DeviceType);
+        }
+        return point;
+    }
+
+    private static bool HasSpeedTestServerName(Iperf3Result result) =>
+        !string.IsNullOrWhiteSpace(result.DeviceName)
+        && !(result.Direction is SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway && result.DeviceName == "UWN");
+
+    private static PointData BuildSpeedTestIdentity(Iperf3Result result, out bool isWan)
+    {
+        var (testType, runner, provider) = SpeedTestTags(result.Direction);
+        isWan = testType == "wan";
+        // SQLite reads UTC timestamps back with Unspecified kind.
+        var timestamp = DateTimeUtilities.AsUtc(result.TestTime);
+        var point = PointData.Measurement("speed_test")
+            .Tag("test_type", testType)
+            .Tag("runner", runner)
+            .Tag("provider", provider)
+            .Timestamp(timestamp, WritePrecision.Ns);
+
+        if (isWan)
+        {
+            if (!string.IsNullOrWhiteSpace(result.WanNetworkGroup))
+                point = point.Tag("wan_network_group", result.WanNetworkGroup);
+            else if (result.Direction != SpeedTestDirection.OpenSpeedTestWan)
+                point = point.Tag("wan_network_group", "unknown");
+        }
+        else
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(result.DeviceHost);
+            point = point.Tag("target_host", result.DeviceHost);
+        }
+
+        return point;
+    }
+
+    private static (string TestType, string Runner, string Provider) SpeedTestTags(SpeedTestDirection direction) =>
+        direction switch
+        {
+            SpeedTestDirection.CloudflareWan => ("wan", "server", "cloudflare"),
+            SpeedTestDirection.CloudflareWanGateway => ("wan", "gateway", "cloudflare"),
+            SpeedTestDirection.UwnWan => ("wan", "server", "uwn"),
+            SpeedTestDirection.UwnWanGateway => ("wan", "gateway", "uwn"),
+            SpeedTestDirection.OpenSpeedTestWan => ("wan", "client", "openspeedtest"),
+            SpeedTestDirection.ServerToDevice => ("lan", "server", "iperf3"),
+            SpeedTestDirection.ClientToServer => ("lan", "client", "iperf3"),
+            SpeedTestDirection.BrowserToServer => ("lan", "client", "openspeedtest"),
+            _ => throw new ArgumentOutOfRangeException(nameof(direction), direction,
+                "Unsupported speed test direction.")
+        };
+
     public Task WriteInterfaceCountersAsync(
         string deviceMac,
         string ifName,
@@ -422,6 +897,37 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (mcastPktsOut is > 0) point = point.Field("mcast_pkts_out", mcastPktsOut.Value);
         if (bcastPktsIn is > 0) point = point.Field("bcast_pkts_in", bcastPktsIn.Value);
         if (bcastPktsOut is > 0) point = point.Field("bcast_pkts_out", bcastPktsOut.Value);
+
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Writes a port's negotiated link speed as the UniFi Console reports it, on the interface's
+    /// own series. Separate from <c>speed_bps</c>, which stays raw SNMP: on a gateway's built-in
+    /// switch ports SNMP reports the 10G switch conduit, never the port's negotiated rate.
+    /// </summary>
+    /// <param name="deviceMac">Device the port belongs to.</param>
+    /// <param name="ifName">Interface name, matching the SNMP series' <c>if_name</c>.</param>
+    /// <param name="linkSpeedMbps">Negotiated speed in Mbps.</param>
+    /// <param name="fullDuplex">Negotiated duplex, when the console reports it.</param>
+    /// <param name="timestamp">When the snapshot was taken, on this server's clock.</param>
+    public Task WriteLinkSpeedAsync(
+        string deviceMac,
+        string ifName,
+        int linkSpeedMbps,
+        bool? fullDuplex,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("interface_counters")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("if_name", ifName)
+            .Tag("port_id", ifName)
+            .Tag("direction", "unknown")
+            .Field(InfluxFieldNames.LinkSpeedMbps, linkSpeedMbps)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        if (fullDuplex.HasValue) point = point.Field(InfluxFieldNames.LinkFullDuplex, fullDuplex.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -1273,6 +1779,8 @@ from(bucket: ""{_longtermBucket}"")
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
+        "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
+        "olt_equipment_id", "olt_version",
     };
 
     private static readonly string PonFieldFilter =
@@ -1310,6 +1818,12 @@ from(bucket: ""{_longtermBucket}"")
             LanRxFcsErrors = AsLongOrNull(record.GetValueByKey("lan_rx_fcs_err")),
             LanTxDropEvents = AsLongOrNull(record.GetValueByKey("lan_tx_drop_events")),
             LanBufferOverflow = AsLongOrNull(record.GetValueByKey("lan_buffer_overflow")),
+            OltVendorId = record.GetValueByKey("olt_vendor_id") as string,
+            RegistrationStatus = record.GetValueByKey("registration_status") as string,
+            KeyExchangeStatus = record.GetValueByKey("key_exchange_status") as string,
+            FirmwareVersion = record.GetValueByKey("firmware_version") as string,
+            OltModel = record.GetValueByKey("olt_equipment_id") as string,
+            OltVersion = record.GetValueByKey("olt_version") as string,
         };
     }
 
@@ -1357,6 +1871,14 @@ from(bucket: ""{_longtermBucket}"")
         if (stats.LanRxFcsErrors.HasValue) point = point.Field("lan_rx_fcs_err", stats.LanRxFcsErrors.Value);
         if (stats.LanBufferOverflow.HasValue) point = point.Field("lan_buffer_overflow", stats.LanBufferOverflow.Value);
         if (stats.SfpUptimeS.HasValue) point = point.Field("sfp_uptime_s", stats.SfpUptimeS.Value);
+        // A field, not the ont measurement's olt_vendor tag: the sfp series key must not change.
+        if (!string.IsNullOrEmpty(stats.OltVendorId)) point = point.Field("olt_vendor_id", stats.OltVendorId);
+        if (!string.IsNullOrEmpty(stats.RegistrationStatus)) point = point.Field("registration_status", stats.RegistrationStatus);
+        if (!string.IsNullOrEmpty(stats.KeyExchangeStatus)) point = point.Field("key_exchange_status", stats.KeyExchangeStatus);
+        if (!string.IsNullOrEmpty(stats.FirmwareVersion)) point = point.Field("firmware_version", stats.FirmwareVersion);
+        // Not "olt_model": the ont measurement already has a tag by that name, and a field may not share it.
+        if (!string.IsNullOrEmpty(stats.OltModel)) point = point.Field("olt_equipment_id", stats.OltModel);
+        if (!string.IsNullOrEmpty(stats.OltVersion)) point = point.Field("olt_version", stats.OltVersion);
         return point;
     }
 
@@ -1374,6 +1896,9 @@ from(bucket: ""{_longtermBucket}"")
 
 
         point = WritePonFields(point, stats);
+        // The ONT's own sensor, kept apart from the host device's DDM temperature_c on the same series:
+        // the two can sit well over 10 C apart on one stick.
+        if (stats.TemperatureC.HasValue) point = point.Field("ont_temperature_c", stats.TemperatureC.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -2157,6 +2682,81 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// The console link speed sample nearest <paramref name="at"/> for one interface, when one lies
+    /// within a console poll or so of it. Further away it may describe a different negotiation.
+    /// </summary>
+    private static int? NearestLinkSpeed(
+        Dictionary<string, List<(DateTime Time, int Mbps)>> linkSpeeds, string ifName, DateTime at)
+    {
+        if (!linkSpeeds.TryGetValue(ifName, out var samples) || samples.Count == 0) return null;
+        var nearest = samples.MinBy(s => (s.Time - at).Duration());
+        return (nearest.Time - at).Duration() <= TimeSpan.FromSeconds(90) ? nearest.Mbps : null;
+    }
+
+    /// <summary>
+    /// The fastest console-reported link speed one port reached over a window, or null when none
+    /// was recorded. Negotiated speed cannot read higher than the link really reached, so the
+    /// maximum is what the port is capable of with its current partner.
+    /// </summary>
+    public async Task<int?> QueryMaxLinkSpeedAsync(
+        string deviceMac,
+        string ifName,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return null;
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
+  |> filter(fn: (r) => r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
+  |> max()
+";
+        int? max = null;
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsIntOrNull(record.GetValueByKey("_value")) is { } v && v > (max ?? 0)) max = v;
+        }
+        return max;
+    }
+
+    /// <summary>
+    /// One port's console-reported link speed over a window, as the slowest speed in each
+    /// <paramref name="window"/>. A window holding any downshift reads as the downshifted speed.
+    /// Windows with no snapshot are absent.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Time, int MinMbps)>> QueryLinkSpeedWindowsAsync(
+        string deviceMac,
+        string ifName,
+        DateTime from,
+        DateTime to,
+        TimeSpan window,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, int)>();
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
+  |> filter(fn: (r) => r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
+";
+        var results = new List<(DateTime Time, int MinMbps)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsIntOrNull(record.GetValueByKey("_value")) is not { } v) continue;
+            results.Add((ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), v));
+        }
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    /// <summary>
     /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
     /// Returns raw rate_in_bps and rate_out_bps points paired in C#. Much cheaper
     /// than the aggregated variant for short-range playback where data is already
@@ -2175,12 +2775,14 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
 ";
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
+        var speeds = new Dictionary<(string ifName, long ticks), long>();
         var times = new Dictionary<(string ifName, long ticks), DateTime>();
         var portIds = new Dictionary<(string ifName, long ticks), string?>();
+        var linkSpeeds = new Dictionary<string, List<(DateTime Time, int Mbps)>>(StringComparer.OrdinalIgnoreCase);
 
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -2191,6 +2793,17 @@ from(bucket: ""{_bucket}"")
             if (value == null) continue;
 
             var key = (ifName, time.Ticks);
+            // Speed only annotates a rate sample. A sample with speed and no rate must not become
+            // a point, or a nearest-point reader would take it as a zero rate.
+            if (field == "speed_bps") { speeds[key] = (long)value.Value; continue; }
+            // Console link speed lands on its own timestamps, so it is matched to rate samples by
+            // nearness below rather than by key.
+            if (field == InfluxFieldNames.LinkSpeedMbps)
+            {
+                if (!linkSpeeds.TryGetValue(ifName, out var list)) linkSpeeds[ifName] = list = new();
+                list.Add((time, (int)value.Value));
+                continue;
+            }
             times[key] = time;
             portIds[key] = record.GetValueByKey("port_id") as string;
             if (field == "rate_in_bps") rateIn[key] = value.Value;
@@ -2209,6 +2822,8 @@ from(bucket: ""{_bucket}"")
                 PortId = portIds.TryGetValue(key, out var pid) ? pid : null,
                 RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
                 RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
+                SpeedBps = speeds.TryGetValue(key, out var sp) ? sp : null,
+                LinkSpeedMbps = NearestLinkSpeed(linkSpeeds, key.ifName, time),
             });
         }
         // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
@@ -2371,9 +2986,16 @@ from(bucket: ""{_bucket}"")
                 ErrorsOut = AsLongOrNull(record.GetValueByKey("errors_out")),
                 DiscardsIn = AsLongOrNull(record.GetValueByKey("discards_in")),
                 DiscardsOut = AsLongOrNull(record.GetValueByKey("discards_out")),
+                LinkSpeedMbps = AsIntOrNull(record.GetValueByKey(InfluxFieldNames.LinkSpeedMbps)),
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
             });
         }
+
+        // Console link-speed points land on their own timestamps and carry nothing else. Keep them
+        // out of the coalescing below so they never decide a row's time or create a row on their own
+        // (a gateway with SNMP off has only these), and attach the best one to the row afterwards.
+        var linkOnly = raw.Where(IsLinkSpeedOnly).ToList();
+        raw = raw.Where(p => !IsLinkSpeedOnly(p)).ToList();
 
         // Different fields can land on different timestamps - rate_in/out are only
         // written when a rate is computable, so a fresh point may carry oper_status
@@ -2414,11 +3036,27 @@ from(bucket: ""{_bucket}"")
                     ErrorsOut = FirstLong(p => p.ErrorsOut),
                     DiscardsIn = FirstLong(p => p.DiscardsIn),
                     DiscardsOut = FirstLong(p => p.DiscardsOut),
+                    LinkSpeedMbps = ordered.Select(p => p.LinkSpeedMbps)
+                        .Concat(BestLinkSpeed(g.Key.DeviceMac, g.Key.IfName))
+                        .FirstOrDefault(v => v.HasValue),
                     Time = ordered[0].Time,
                 };
             })
             .ToList();
+
+        IEnumerable<int?> BestLinkSpeed(string mac, string ifName)
+        {
+            var points = linkOnly.Where(p => TupleMacIfComparer.Equals((p.DeviceMac, p.IfName), (mac, ifName)));
+            var ordered = atUtc.HasValue
+                ? points.OrderBy(p => Math.Abs((p.Time - atUtc.Value).Ticks))
+                : points.OrderByDescending(p => p.Time);
+            return ordered.Select(p => p.LinkSpeedMbps).Take(1);
+        }
     }
+
+    private static bool IsLinkSpeedOnly(PortStatsPoint p) =>
+        p.LinkSpeedMbps.HasValue && p.OperStatus == null && p.SpeedBps == null
+        && p.BytesIn == null && p.BytesOut == null && p.RateInBps == null && p.RateOutBps == null;
 
     private static readonly IEqualityComparer<(string DeviceMac, string IfName)> TupleMacIfComparer =
         new MacIfTupleComparer();
@@ -3119,6 +3757,12 @@ from(bucket: ""{_longtermBucket}"")
         public long? LanRxFcsErrors { get; set; }
         public long? LanTxDropEvents { get; set; }
         public long? LanBufferOverflow { get; set; }
+        public string? OltVendorId { get; set; }
+        public string? RegistrationStatus { get; set; }
+        public string? KeyExchangeStatus { get; set; }
+        public string? FirmwareVersion { get; set; }
+        public string? OltModel { get; set; }
+        public string? OltVersion { get; set; }
     }
 
     /// <summary>
@@ -5440,6 +6084,13 @@ from(bucket: ""{_longtermBucket}"")
         public string? PortId { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+        /// <summary>Negotiated link speed at this sample. Set by the raw query only.</summary>
+        public long? SpeedBps { get; init; }
+        /// <summary>
+        /// The console-reported link speed nearest this sample (gateways only). Set by the raw query
+        /// only. Prefer it over <see cref="SpeedBps"/>, which reads the switch conduit on a gateway.
+        /// </summary>
+        public int? LinkSpeedMbps { get; init; }
     }
 
     /// <summary>One interface's link state at one sample: ifOperStatus, 1 for up.</summary>
@@ -5477,6 +6128,8 @@ from(bucket: ""{_longtermBucket}"")
         public string PortId { get; init; } = "";
         public int? OperStatus { get; init; }
         public long? SpeedBps { get; init; }
+        /// <summary>Console-reported negotiated speed (gateways only); null where none was recorded.</summary>
+        public int? LinkSpeedMbps { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
         public long? BytesIn { get; init; }
@@ -5629,38 +6282,54 @@ from(bucket: ""{_longtermBucket}"")
         if (!await _flushSemaphore.WaitAsync(0)) return;
         try
         {
-            var primary = new List<PointData>();
-            var longterm = new List<PointData>();
-            while (_writeBuffer.TryDequeue(out var buffered))
-            {
-                if (buffered.Longterm) longterm.Add(buffered.Point);
-                else primary.Add(buffered.Point);
-            }
-
-            if (primary.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_bucket))
-            {
-                await _writeApi.WritePointsAsync(primary, _bucket, _org);
-            }
-            if (longterm.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_longtermBucket))
-            {
-                await _writeApi.WritePointsAsync(longterm, _longtermBucket, _org);
-            }
-
-            if (primary.Count + longterm.Count > 0)
-            {
-                _logger.LogDebug(
-                    "Flushed {Primary} points to {Bucket}, {Longterm} to {LongtermBucket}",
-                    primary.Count, _bucket, longterm.Count, _longtermBucket);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+            await FlushBufferedPointsBestEffortAsync();
         }
         finally
         {
             _flushSemaphore.Release();
         }
+    }
+
+    // Caller must hold _flushSemaphore; neither flush helper acquires it.
+    private async Task FlushBufferedPointsBestEffortAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await FlushBufferedPointsAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InfluxDB.Client.Core.Exceptions.HttpException) when (ct.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+        }
+    }
+
+    private async Task FlushBufferedPointsAsync(CancellationToken ct = default)
+    {
+        var primary = new List<PointData>();
+        var longterm = new List<PointData>();
+        while (_writeBuffer.TryDequeue(out var buffered))
+        {
+            if (buffered.Longterm) longterm.Add(buffered.Point);
+            else primary.Add(buffered.Point);
+        }
+
+        if (primary.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_bucket))
+            await _writeApi.WritePointsAsync(primary, _bucket, _org, ct);
+        if (longterm.Count > 0 && _writeApi != null && !string.IsNullOrEmpty(_longtermBucket))
+            await _writeApi.WritePointsAsync(longterm, _longtermBucket, _org, ct);
+
+        if (primary.Count + longterm.Count > 0)
+            _logger.LogDebug(
+                "Flushed {Primary} points to {Bucket}, {Longterm} to {LongtermBucket}",
+                primary.Count, _bucket, longterm.Count, _longtermBucket);
     }
 
     private async Task RunFlushLoopAsync(CancellationToken ct)
@@ -5706,8 +6375,10 @@ from(bucket: ""{_longtermBucket}"")
         // them writes artificial 100% loss to InfluxDB.
         await DisposeClientAsync();
         _timerCts.Dispose();
+        _backfillCancellation.Dispose();
         _flushSemaphore.Dispose();
         _configLock.Dispose();
+        _speedTestMutationLock.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -5722,6 +6393,7 @@ from(bucket: ""{_longtermBucket}"")
         }
         _client?.Dispose();
         _client = null;
+        _initialized = false;
         _writeApi = null;
         _rawQueryHttp?.Dispose();
         _rawQueryHttp = null;

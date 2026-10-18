@@ -38,6 +38,7 @@ public static class ApiEndpoints
         FirmwareRolloutEndpoints.Map(app);
         MonitoringInvestigateEndpoints.Map(app);
         FlakyTargetEndpoints.Map(app);
+        WafEndpoints.Map(app);
         DeviceHealthChartEndpoints.Map(app);
         PortStatsEndpoints.Map(app);
         SfpChartEndpoints.Map(app);

@@ -55,6 +55,12 @@ public class PlannerDevice
     /// <summary>Effective device type (UniFi re-classification already applied).</summary>
     public DeviceType Type { get; init; }
 
+    /// <summary>
+    /// Disconnected from the Console at plan time, so it covers nothing while others upgrade.
+    /// Opt-in rather than "connected" so a snapshot that never set it counts the device as up.
+    /// </summary>
+    public bool Offline { get; init; }
+
     /// <summary>Whether the console offers an upgrade for this device.</summary>
     /// <remarks>Cleared during the gather when the planned channel offers nothing newer.</remarks>
     public bool Upgradable { get; set; }
@@ -191,10 +197,16 @@ public class ResolvedSpacing
 
     /// <summary>
     /// Share of the site's APs that may upgrade together when real placement data backs the
-    /// coverage answer. The flat cap is a floor, so small sites are unchanged; a large site stops
-    /// being throttled to a handful at a time when the oracle can prove the set is neighbor-free.
+    /// coverage answer. A large site stops being throttled to a handful at a time when the oracle
+    /// can prove the set is neighbor-free.
     /// </summary>
     public int ApCoveragePercent { get; init; }
+
+    /// <summary>
+    /// Share of the site's APs that may upgrade together when no placement data says which ones
+    /// overlap, so a small site keeps most of its coverage up. The flat cap still bounds it.
+    /// </summary>
+    public double ApUnplacedPercent { get; init; }
 
     /// <summary>
     /// How many waves may be in flight together. A device's cool-down only holds up waves it has a
@@ -213,15 +225,16 @@ public class ResolvedSpacing
         [JsonPropertyName("maxSwitchParallelism")] public int? MaxSwitchParallelism { get; set; }
         [JsonPropertyName("maxWaveOverlap")] public int? MaxWaveOverlap { get; set; }
         [JsonPropertyName("apCoveragePercent")] public int? ApCoveragePercent { get; set; }
+        [JsonPropertyName("apUnplacedPercent")] public double? ApUnplacedPercent { get; set; }
     }
 
     public static ResolvedSpacing For(FirmwareSpacingProfile profile, string? advancedJson)
     {
-        var (apGap, swGap, gwGap, apPar, swPar, waveOverlap, apPct) = profile switch
+        var (apGap, swGap, gwGap, apPar, swPar, waveOverlap, apPct, apUnplacedPct) = profile switch
         {
-            FirmwareSpacingProfile.Conservative => (180, 300, 600, 1, 1, 2, 5),
-            FirmwareSpacingProfile.Fast => (60, 90, 120, 6, 4, 4, 20),
-            _ => (120, 180, 300, 3, 2, 3, 10),
+            FirmwareSpacingProfile.Conservative => (180, 300, 600, 1, 1, 2, 5, 20.0),
+            FirmwareSpacingProfile.Fast => (60, 90, 120, 6, 4, 4, 20, 50.0),
+            _ => (120, 180, 300, 3, 2, 3, 10, 100.0 / 3),
         };
 
         Overrides? o = null;
@@ -240,6 +253,7 @@ public class ResolvedSpacing
             MaxSwitchParallelism = Math.Max(1, o?.MaxSwitchParallelism ?? swPar),
             MaxWaveOverlap = Math.Max(1, o?.MaxWaveOverlap ?? waveOverlap),
             ApCoveragePercent = Math.Clamp(o?.ApCoveragePercent ?? apPct, 1, 100),
+            ApUnplacedPercent = Math.Clamp(o?.ApUnplacedPercent ?? apUnplacedPct, 1, 100),
         };
     }
 }
@@ -395,6 +409,18 @@ public class RolloutPlanDocument
     /// starts - so it has to survive a restart mid-rollout.
     /// </summary>
     public DateTime? LastWaveCommandedAt { get; set; }
+
+    /// <summary>
+    /// Every AP on the site at plan time, upgrading or not. The executor holds a wave that would
+    /// take the last one still up. Empty on plans built before that check, which skip it.
+    /// </summary>
+    public List<string> SiteApMacs { get; set; } = [];
+
+    /// <summary>
+    /// When the executor started holding a wave because it would take the last AP still up.
+    /// Persisted so the timeout that skips the wave survives a restart.
+    /// </summary>
+    public DateTime? LastApHoldSince { get; set; }
 
     /// <summary>Human-readable assumptions and fallbacks used (shown in the preview).</summary>
     public List<string> Notes { get; set; } = [];

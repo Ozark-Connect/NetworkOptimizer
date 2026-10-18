@@ -2516,6 +2516,7 @@ public class IspHealthService
                     .FirstOrDefaultAsync(w => w.IsPrimary == true, ct))?.WanNetworkgroup?.ToLowerInvariant();
             var results = await db.Iperf3Results.AsNoTracking()
                 .Where(r => r.Success
+                    && !r.BackgroundLoadInvalid
                     && r.TestTime >= since
                     && r.TestTime <= windowEnd
                     && (r.Direction == SpeedTestDirection.CloudflareWan
@@ -2527,11 +2528,19 @@ public class IspHealthService
                             || r.WanNetworkGroup.ToLower() == (primaryGroupLower ?? "wan"))
                         : r.WanNetworkGroup != null && r.WanNetworkGroup.ToLower() == scopedGroupLower))
                 .OrderByDescending(r => r.TestTime)
-                .Select(r => new { r.TestTime, r.DownloadBitsPerSecond, r.UploadBitsPerSecond, r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs })
+                .Select(r => new
+                {
+                    r.TestTime, r.DownloadBitsPerSecond, r.UploadBitsPerSecond, r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs,
+                    r.IdleLossPercent, r.IdleLossProbes, r.DownloadLossPercent, r.DownloadLossProbes,
+                    r.UploadLossPercent, r.UploadLossProbes,
+                })
                 .ToListAsync(ct);
             return results
                 .Select(r => new SpeedTestSample(r.TestTime, r.DownloadBitsPerSecond / 1_000_000.0, r.UploadBitsPerSecond / 1_000_000.0,
-                    r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs))
+                    r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs,
+                    SpeedTestLoss.From(r.IdleLossPercent, r.IdleLossProbes),
+                    SpeedTestLoss.From(r.DownloadLossPercent, r.DownloadLossProbes),
+                    SpeedTestLoss.From(r.UploadLossPercent, r.UploadLossProbes)))
                 .ToList();
         }
         catch (Exception ex)
@@ -2767,6 +2776,9 @@ public class IspHealthService
                     AsnName = chartName,
                     TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
                     Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
+                    SamplesByTarget = clusterTargets.Count > 1
+                        ? clusterTargets.ToDictionary(t => t.TargetId, t => seriesByTarget[t.TargetId])
+                        : new(),
                     // Hop IPs and proven-upstream ancestors so the congestion localizer can
                     // place this cluster on the trace map and walk the bottleneck.
                     HopIps = clusterTargets.Select(t => t.Address).ToList(),
@@ -2837,6 +2849,9 @@ public class IspHealthService
                         AsnName = others.Count == 1 ? others[0].Name : $"{asnName} (other hops)",
                         TargetIds = others.Select(t => t.TargetId).ToList(),
                         Samples = others.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
+                        SamplesByTarget = others.Count > 1
+                            ? others.ToDictionary(t => t.TargetId, t => seriesByTarget[t.TargetId])
+                            : new(),
                         HopIps = others.Select(t => t.Address).ToList(),
                         AncestorIps = others
                             .SelectMany(t => ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : Enumerable.Empty<string>())

@@ -1,0 +1,210 @@
+@using NetworkOptimizer.Threats.Blocking
+@inject IThreatBlockingAdmin Blocking
+@inject IWafConnectionAdmin WafAdmin
+@inject NavigationManager Nav
+
+@* Threat Intelligence - Overview: the recommended protection setup for the site in context, in
+   the order it should be done. Folds to one line once complete. *@
+
+@if (_status != null && !_status.Hidden)
+{
+    @if (_status.Complete)
+    {
+        <div class="protection-setup-done">
+            <span class="status-dot online"></span>
+            <span>Protection: blocking on @EnforcingOn.</span>
+            <a href="/settings#automatic-blocking">Settings</a>
+        </div>
+    }
+    else
+    {
+        <div class="card card-spaced protection-setup" data-tour="protection-setup">
+            <div class="card-header">
+                <h3 class="card-title">Protection Setup</h3>
+                <span class="protection-setup-count">@Done of 4 done</span>
+            </div>
+            <div class="card-body">
+                <ul class="protection-steps">
+                    <li class="@StepClass(_status.EventsSeen)">
+                        <span class="protection-step-text">
+                            @if (_status.EventsSeen)
+                            {
+                                <text>Threat Intelligence is reading your gateway's events</text>
+                            }
+                            else
+                            {
+                                <text>No gateway threat events in the last 7 days</text>
+                            }
+                        </span>
+                    </li>
+                    <li class="@StepClass(_status.WafConnected, optional: true)">
+                        <span class="protection-step-text">
+                            @if (_status.WafConnected && _status.WafDetectDays >= 7)
+                            {
+                                <text>Web Application Firewall: @_status.WafDetectDays days in Detection Only. Review its detections, then switch to Blocking.</text>
+                            }
+                            else if (_status.WafConnected)
+                            {
+                                <text>Web Application Firewall connected@(_status.WafMode == "block" ? ", blocking" : _status.WafMode == "detect" ? ", Detection Only" : "")</text>
+                            }
+                            else
+                            {
+                                <text>Web Application Firewall (optional): inspects requests to every app you host and blocks attacks, reached directly or through Cloudflare</text>
+                            }
+                        </span>
+                        @if (!_status.WafConnected)
+                        {
+                            <SiteAdminOnly>
+                                <a class="btn btn-sm btn-contrast" href="/settings#waf">Connect</a>
+                            </SiteAdminOnly>
+                        }
+                        else if (_status.WafDetectDays >= 7)
+                        {
+                            <a class="btn btn-sm btn-contrast" href="/threats/waf?tab=events">Review</a>
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SwitchWafToBlock">Switch to Blocking</button>
+                            </SiteAdminOnly>
+                        }
+                    </li>
+                    <li class="@StepClass(_status.SiteAddresses > 0)">
+                        <span class="protection-step-text">
+                            Trusted Sources: @Plural(_status.TrustedSites, "site", "sites"), @Plural(_status.TrustedAddresses, "address", "addresses"), @Plural(_status.ExtraAddresses, "extra trusted address", "extra trusted addresses"). Never blocked.
+                        </span>
+                        <SiteAdminOnly>
+                            <a class="btn btn-sm btn-contrast" href="/settings#trusted-sources">Review</a>
+                        </SiteAdminOnly>
+                    </li>
+                    <li class="@StepClass(_status.Mode == BlockingMode.Enforce)">
+                        <span class="protection-step-text">
+                            Automatic Blocking: @ModeText
+                            @if (_status.Mode != BlockingMode.Enforce && _status.RecommendedNote != null)
+                            {
+                                <small class="form-help">@_status.RecommendedNote</small>
+                            }
+                        </span>
+                        @if (_status.Mode != BlockingMode.Enforce)
+                        {
+                            <SiteAdminOnly>
+                                <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="TurnOnRecommended">Turn On Recommended</button>
+                            </SiteAdminOnly>
+                        }
+                    </li>
+                    <li class="@StepClass(_status.BlockingTargetReady)">
+                        <span class="protection-step-text">
+                            @GatewayText
+                        </span>
+                    </li>
+                </ul>
+                <p class="form-help protection-optional">
+                    Optional: <a href="/settings#automatic-blocking">Cloudflare edge blocking</a>@(_status.CloudflareSetUp ? " (set up)" : "")
+                    and <a href="/settings#trusted-sources">UniFi Trusted Sources Network Lists</a>@(_status.UniFiGroups ? " (on)" : "").
+                </p>
+                @if (_message != null)
+                {
+                    <div class="alert alert-@_messageClass">@_message</div>
+                }
+                <SiteAdminOnly>
+                    <div class="protection-hide">
+                        <button class="btn btn-sm btn-tertiary" disabled="@_busy" @onclick="Hide">Hide</button>
+                    </div>
+                </SiteAdminOnly>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private ProtectionStatus? _status;
+    private bool _busy;
+    private string? _message;
+    private string _messageClass = "info";
+
+    protected override async Task OnInitializedAsync() => _status = await Blocking.GetProtectionStatusAsync();
+
+    // The four steps the recommended setup needs; the WAF is optional and not counted.
+    private int Done => new[]
+    {
+        _status!.EventsSeen, _status.SiteAddresses > 0, _status.Mode == BlockingMode.Enforce, _status.BlockingTargetReady
+    }.Count(d => d);
+
+    private string GatewayText => _status!.GatewaySetUp
+        ? "Gateway blocking configured"
+        : _status.WafConnected && _status.WafTarget
+            ? "Blocking through the WAF. Gateway blocking is not set up; Turn On Recommended adds it."
+            : "Gateway blocking not set up. Turn On Recommended sets it up.";
+
+    private string EnforcingOn => (_status!.GatewaySetUp, _status.WafConnected && _status.WafTarget) switch
+    {
+        (true, true) => "the gateway and the WAF",
+        (true, false) => "the gateway",
+        _ => "the WAF",
+    };
+
+    private string ModeText => _status!.Mode switch
+    {
+        BlockingMode.Enforce => "Blocking",
+        BlockingMode.DryRun => _status.WouldBlock == 1 ? "Detection Only, 1 source would be blocked now" : $"Detection Only, {_status.WouldBlock} sources would be blocked now",
+        _ => "off"
+    };
+
+    private static string StepClass(bool done, bool optional = false) =>
+        done ? "protection-step is-done" : optional ? "protection-step is-optional" : "protection-step";
+
+    private static string Plural(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
+
+    private async Task TurnOnRecommended()
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            var r = await Blocking.TurnOnRecommendedAsync();
+            _status = await Blocking.GetProtectionStatusAsync();
+            _message = r.GatewayError == null ? null : $"Blocking, but the gateway was not set up: {r.GatewayError}";
+            _messageClass = "warning";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SwitchWafToBlock()
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            var state = await WafAdmin.SetModeAsync("block");
+            _status = _status! with { WafMode = state.Mode, WafModeSince = state.Since };
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Hide()
+    {
+        _busy = true;
+        try
+        {
+            await Blocking.SetProtectionSetupHiddenAsync(true);
+            _status = _status! with { Hidden = true };
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

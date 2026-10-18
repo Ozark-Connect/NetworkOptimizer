@@ -34,6 +34,7 @@ public class RolloutPlanner
         // Coverage, not a constant, decides how many APs move together - the oracle already proves
         // a wave is neighbor-free, so the flat cap only has to stand in where nothing proves it.
         var apCap = EffectiveApCap(input, spacing);
+        var switchApLimits = SwitchApLimits(input, spacing);
 
         var depths = ComputeDepths(input.Devices);
         var meshParents = input.Devices
@@ -94,7 +95,7 @@ public class RolloutPlanner
 
             foreach (var levelDevices in Levels(group.Devices, depths))
             {
-                foreach (var wave in BuildLevelWaves(levelDevices, meshParents, spacing, apCap, input.Neighbors, skuCounts, canaried))
+                foreach (var wave in BuildLevelWaves(levelDevices, meshParents, spacing, apCap, switchApLimits, input.Neighbors, skuCounts, canaried))
                 {
                     waveNumber++;
                     var planWave = new PlanWave { Number = waveNumber, Channel = group.Channel };
@@ -160,8 +161,9 @@ public class RolloutPlanner
         doc.NetworkAppUpdate.Wave = 0;
         doc.UniFiOsUpdate.Wave = steps.Count > 0 ? steps.Max(s => s.Wave) + 1 : 1;
         doc.MaxApsInFlight = apCap;
+        doc.SiteApMacs = input.Devices.Where(d => d.Type == DeviceType.AccessPoint).Select(d => d.Mac).ToList();
         doc.MaxSwitchesInFlight = spacing.MaxSwitchParallelism;
-        ComputeWaveOverlap(doc, candidates, input.Devices, input.Neighbors, spacing, apCap);
+        ComputeWaveOverlap(doc, candidates, input.Devices, input.Neighbors, spacing, apCap, switchApLimits);
         ComputeTimeline(doc, spacing);
         AddNotes(doc, input, candidates);
 
@@ -353,6 +355,7 @@ public class RolloutPlanner
         HashSet<string> meshParents,
         ResolvedSpacing spacing,
         int apCap,
+        Dictionary<string, int>? switchApLimits,
         IApNeighborOracle? neighbors,
         Dictionary<string, int> skuCounts,
         HashSet<string> canaried)
@@ -381,7 +384,9 @@ public class RolloutPlanner
         bool Held(PlannerDevice d) => canaried.Contains(d.ModelFamily) && skuCounts.GetValueOrDefault(d.ModelFamily, 0) > 1;
 
         Pack(waves, packableAps, apCap,
-            (a, b) => neighbors == null || !neighbors.AreNeighbors(a.Mac, b.Mac), Held);
+            (a, b) => neighbors == null || !neighbors.AreNeighbors(a.Mac, b.Mac), Held,
+            (wave, d) => switchApLimits == null
+                || wave.Count(w => SameUplink(w.Item1, d)) < SwitchApLimit(switchApLimits, d));
         foreach (var d in solo) waves.Add([(d, false, Held(d))]);
         Pack(waves, packableSwitches, spacing.MaxSwitchParallelism, (_, _) => true, Held);
         foreach (var d in gateways) waves.Add([(d, false, Held(d))]);
@@ -390,52 +395,87 @@ public class RolloutPlanner
     }
 
     /// <summary>
-    /// A fleet big enough that upgrading APs a handful at a time is not a real option, whatever the
-    /// site has drawn on its Signal Map. Placement is optional and most large sites skip it.
+    /// A fleet big enough that upgrading APs a handful at a time is not a real option. Past it, the
+    /// count ceiling on an unplaced site grows with the fleet instead of staying at the flat cap.
     /// </summary>
     public const int LargeApFleet = 25;
 
     /// <summary>
-    /// How many APs may be in one wave. Three inputs, and the largest wins.
+    /// How many APs may be in one wave.
     /// <para>
-    /// The profile's flat cap is the floor, so small sites behave exactly as they always have.
-    /// Placements raise it toward a share of the fleet, scaled by how much of the fleet is actually
-    /// placed: two placed APs out of forty prove nothing about the other thirty-eight, and the
-    /// oracle's silence on an unplaced pair is missing data rather than evidence they do not
-    /// overlap. A fleet past <see cref="LargeApFleet"/> gets that share whether or not it is
-    /// placed: Signal Map placement is optional, most large sites skip it, and the alternative is a
-    /// 200-AP site rolling three at a time for two days.
+    /// Without placements nothing proves which APs cover the same space, so the cap is the lower of
+    /// a share of the fleet and a count: the profile's flat cap, or a smaller share of a fleet past
+    /// <see cref="LargeApFleet"/>. The share keeps a small site from losing all its Wi-Fi in one
+    /// wave; the count keeps a large one from losing a whole floor, since nothing says which APs
+    /// are together. Roaming edges alone do not count as placement: a pair no client roamed
+    /// between is missing data, not evidence the two do not overlap.
+    /// </para>
+    /// <para>
+    /// With placements the oracle keeps neighbors apart on top, so the cap never drops below the
+    /// unplaced one - drawing a Signal Map must not slow a rollout down. The profile's flat cap and
+    /// the placement-backed share can raise it, the latter scaled by how much of the fleet is placed.
     /// </para>
     /// </summary>
     internal static int EffectiveApCap(RolloutPlanningInput input, ResolvedSpacing spacing)
     {
         var aps = input.Devices.Count(d => d.Type == DeviceType.AccessPoint);
-        var flat = spacing.MaxApParallelism;
-        if (aps <= flat) return flat;
+        // The epsilon keeps a third of six from flooring to one.
+        var share = Math.Max(1, (int)Math.Floor(aps * spacing.ApUnplacedPercent / 100.0 + 1e-9));
+        var ceiling = aps >= LargeApFleet
+            ? Math.Max(spacing.MaxApParallelism, (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0)))
+            : spacing.MaxApParallelism;
+        var cap = Math.Min(share, ceiling);
+        if (input.Neighbors?.HasPlacementData == true)
+        {
+            var placed = input.Neighbors.PlacedApCount;
+            var covered = placed >= 2
+                ? (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0) * Math.Min(1.0, placed / (double)aps))
+                : 0;
+            cap = Math.Max(spacing.MaxApParallelism, Math.Max(covered, cap));
+        }
 
-        var placed = input.Neighbors?.HasPlacementData == true ? input.Neighbors.PlacedApCount : 0;
-        var covered = placed >= 2
-            ? (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0) * Math.Min(1.0, placed / (double)aps))
-            : 0;
-
-        // Fleet size sets how many, placements set which ones: the oracle's job is keeping
-        // neighbors out of the same wave, not bounding the wave. So a large unplaced fleet gets the
-        // same share - the flat cap still holds below the threshold, where a bad guess costs a
-        // bigger fraction of the site's coverage.
-        var large = aps >= LargeApFleet
-            ? (int)Math.Ceiling(aps * (spacing.ApCoveragePercent / 100.0))
-            : 0;
-
-        return Math.Max(flat, Math.Max(covered, large));
+        // Never every AP at once, on any path: APs with no overlap are not neighbors, so they would
+        // otherwise share a wave and leave the site with no Wi-Fi anywhere. Offline APs cover
+        // nothing, so only online ones count toward the one that stays up.
+        var online = input.Devices.Count(d => d.Type == DeviceType.AccessPoint && !d.Offline);
+        return Math.Min(cap, Math.Max(1, online - 1));
     }
 
-    /// <summary>First-fit packing under a size cap and a pairwise compatibility predicate.</summary>
+    /// <summary>
+    /// How many of each uplink switch's APs may share a wave, keyed by uplink MAC, or null when
+    /// placements exist. Without them, APs on one access switch are the best proxy for one floor or
+    /// building, so the fleet share holds per switch as well as site-wide. With them, the
+    /// propagation model already keeps overlapping APs apart.
+    /// </summary>
+    internal static Dictionary<string, int>? SwitchApLimits(RolloutPlanningInput input, ResolvedSpacing spacing)
+    {
+        if (input.Neighbors?.HasPlacementData == true) return null;
+        return input.Devices
+            .Where(d => d.Type == DeviceType.AccessPoint)
+            .GroupBy(d => d.UplinkMac ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => Math.Max(1, (int)Math.Floor(g.Count() * spacing.ApUnplacedPercent / 100.0 + 1e-9)),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static int SwitchApLimit(Dictionary<string, int> limits, PlannerDevice d) =>
+        limits.GetValueOrDefault(d.UplinkMac ?? string.Empty, 1);
+
+    private static bool SameUplink(PlannerDevice a, PlannerDevice b) =>
+        string.Equals(a.UplinkMac ?? string.Empty, b.UplinkMac ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// First-fit packing under a size cap, a pairwise compatibility predicate, and an optional
+    /// whole-wave check.
+    /// </summary>
     private static void Pack(
         List<List<(PlannerDevice, bool, bool)>> waves,
         List<PlannerDevice> devices,
         int cap,
         Func<PlannerDevice, PlannerDevice, bool> compatible,
-        Func<PlannerDevice, bool> held)
+        Func<PlannerDevice, bool> held,
+        Func<List<(PlannerDevice, bool, bool)>, PlannerDevice, bool>? fits = null)
     {
         var open = new List<List<(PlannerDevice, bool, bool)>>();
         foreach (var d in devices)
@@ -444,6 +484,7 @@ public class RolloutPlanner
             foreach (var wave in open)
             {
                 if (wave.Count >= cap) continue;
+                if (fits != null && !fits(wave, d)) continue;
                 if (wave.All(w => compatible(w.Item1, d)))
                 {
                     wave.Add((d, false, held(d)));
@@ -491,7 +532,8 @@ public class RolloutPlanner
         IReadOnlyList<PlannerDevice> allDevices,
         IApNeighborOracle? neighbors,
         ResolvedSpacing spacing,
-        int apCap)
+        int apCap,
+        Dictionary<string, int>? switchApLimits = null)
     {
         var byMac = candidates
             .GroupBy(d => d.Mac, StringComparer.OrdinalIgnoreCase)
@@ -537,6 +579,18 @@ public class RolloutPlanner
             return neighbors?.AreNeighbors(a.Mac, b.Mac) == true;
         }
 
+        HashSet<string> ApUplinks(PlanWave wave) => wave.Steps
+            .Where(s => FirmwareDeviceTypes.Parse(s.DeviceType) == DeviceType.AccessPoint)
+            .Select(s => topology.TryGetValue(s.Mac, out var d) ? d.UplinkMac ?? string.Empty : string.Empty)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Each wave already holds its switches to their share, so on an unplaced site two AP waves
+        // drawing on one switch never run together. Not a sum check: overlap is decided pairwise
+        // and up to MaxWaveOverlap waves can be in flight, while the executor only re-counts the
+        // site-wide total.
+        bool SharesAnApSwitch(PlanWave earlier, PlanWave later) =>
+            switchApLimits != null && ApUplinks(earlier).Overlaps(ApUplinks(later));
+
         for (var j = 0; j < doc.Waves.Count; j++)
         {
             var later = doc.Waves[j];
@@ -555,7 +609,8 @@ public class RolloutPlanner
                 if (CountOf(earlier, DeviceType.AccessPoint) + CountOf(later, DeviceType.AccessPoint)
                         > apCap
                     || CountOf(earlier, DeviceType.Switch) + CountOf(later, DeviceType.Switch)
-                        > spacing.MaxSwitchParallelism)
+                        > spacing.MaxSwitchParallelism
+                    || SharesAnApSwitch(earlier, later))
                 {
                     continue;
                 }
@@ -637,13 +692,16 @@ public class RolloutPlanner
 
     private static void AddNotes(RolloutPlanDocument doc, RolloutPlanningInput input, List<PlannerDevice> candidates)
     {
-        if (input.Neighbors == null)
+        var aps = input.Devices.Count(d => d.Type == DeviceType.AccessPoint);
+        var most = doc.MaxApsInFlight == 1 ? "one" : doc.MaxApsInFlight.ToString();
+        var bound = $"no more than {most} of this site's {aps} APs will be down at once";
+        if (aps >= 2 && input.Neighbors == null)
         {
-            doc.Notes.Add("No AP placement or roaming data - assumed uniform AP density, so APs run in parallel up to the cap.");
+            doc.Notes.Add($"No AP placement or roaming data, so {bound}.");
         }
-        else if (!input.Neighbors.HasPlacementData)
+        else if (aps >= 2 && input.Neighbors?.HasPlacementData == false)
         {
-            doc.Notes.Add("AP placements are not set - parallel APs were chosen from UniFi roaming neighbors only.");
+            doc.Notes.Add($"AP placements are not set - parallel APs were chosen from UniFi roaming neighbors, and {bound}.");
         }
 
         if (candidates.Any(d => d.Type == DeviceType.Gateway))

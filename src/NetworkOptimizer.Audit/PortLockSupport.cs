@@ -1,10 +1,33 @@
 namespace NetworkOptimizer.Audit;
 
 /// <summary>
-/// Version gate for Lock Port to UniFi Device: UniFi Network 10.6.101+ and switch firmware 7.6.2+.
+/// Version gate for Lock Port to UniFi Device: UniFi Network 10.6.101+ and switch firmware 7.6.2+,
+/// with per-model exceptions from the UniFi Switch release notes.
 /// </summary>
 public static class PortLockSupport
 {
+    /// <summary>
+    /// Switches UniFi never offers the lock on, by product name (UniFi Switch 7.6.7 release notes).
+    /// "US-8 models" covers the whole US-8 family.
+    /// </summary>
+    private static readonly HashSet<string> UnsupportedSwitchModels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "US-16-XG",
+        "USW-Mission-Critical",
+        "US-8",
+        "US-8-60W",
+        "US-8-150W",
+    };
+
+    /// <summary>
+    /// Switches that gained the lock later than the general minimums, by product name. USW-Flex: switch
+    /// firmware 7.6.7, which requires UniFi Network 11.
+    /// </summary>
+    private static readonly Dictionary<string, (Version App, Version Firmware)> ModelMinimums = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["USW-Flex"] = (new Version(11, 0, 0, 0), new Version(7, 6, 7, 0)),
+    };
+
     /// <summary>
     /// Minimum UniFi Network application version that offers Lock Port to UniFi Device.
     /// </summary>
@@ -62,16 +85,26 @@ public static class PortLockSupport
         LockCoexistsWithPortProfile || string.IsNullOrEmpty(portProfileId);
 
     /// <summary>
-    /// Whether both the application and the switch meet the minimum versions.
-    /// Unknown or unparseable versions count as unsupported.
+    /// Whether the switch model can take the lock on any version. An unknown model counts as supported.
     /// </summary>
-    public static bool IsAvailable(string? networkApplicationVersion, string? switchFirmwareVersion)
+    public static bool SupportsModel(string? switchProductName) =>
+        string.IsNullOrEmpty(switchProductName) || !UnsupportedSwitchModels.Contains(switchProductName);
+
+    /// <summary>
+    /// Whether both the application and the switch meet the minimum versions, including any higher
+    /// minimums for the switch model. Unknown or unparseable versions count as unsupported.
+    /// </summary>
+    public static bool IsAvailable(string? networkApplicationVersion, string? switchFirmwareVersion, string? switchProductName = null)
     {
         var app = ParseVersion(networkApplicationVersion);
         var fw = ParseVersion(switchFirmwareVersion);
-        return app != null && fw != null
-            && app >= MinNetworkApplicationVersion
-            && fw >= MinSwitchFirmwareVersion;
+        if (app == null || fw == null || !SupportsModel(switchProductName))
+            return false;
+
+        var (minApp, minFw) = switchProductName != null && ModelMinimums.TryGetValue(switchProductName, out var model)
+            ? model
+            : (MinNetworkApplicationVersion, MinSwitchFirmwareVersion);
+        return app >= minApp && fw >= minFw;
     }
 
     /// <summary>
