@@ -101,7 +101,8 @@ public static class TrustedAddressBook
         if (string.IsNullOrWhiteSpace(json)) return [];
         try
         {
-            return JsonSerializer.Deserialize<List<TrustedAddress>>(json) ?? [];
+            // A /128 "prefix" was a VPN client tunnel's address read as a LAN prefix; UniFi refuses it in a group.
+            return (JsonSerializer.Deserialize<List<TrustedAddress>>(json) ?? []).Where(a => !IsHostPrefix(a.Address)).ToList();
         }
         catch (JsonException)
         {
@@ -144,9 +145,10 @@ public static class TrustedAddressBook
             {
                 if (PublicAddress(ip) is { } a) result.Add(a);
             }
+            // A LAN prefix is never a single host: a /128 here is a VPN client tunnel's own address.
             foreach (var subnet in (g.NetworkTable ?? []).SelectMany(n => (n.Ipv6Subnets ?? []).Concat(n.Ipv6Subnet ?? [])))
             {
-                if (PublicBlockLists.Normalize(subnet) is { } prefix && prefix.Contains('/')
+                if (PublicBlockLists.Normalize(subnet) is { } prefix && prefix.Contains('/') && !IsHostPrefix(prefix)
                     && IPNetwork.TryParse(prefix, out var n) && IsGlobalV6(n.BaseAddress))
                     result.Add(prefix);
             }
@@ -165,6 +167,8 @@ public static class TrustedAddressBook
             return null;
         return addr.ToString();
     }
+
+    private static bool IsHostPrefix(string address) => address.EndsWith("/128", StringComparison.Ordinal);
 
     private static readonly IPNetwork GlobalUnicast = IPNetwork.Parse("2000::/3");
 
