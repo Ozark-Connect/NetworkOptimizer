@@ -195,6 +195,13 @@ public static class FirewallGroupHelper
     /// <param name="protocol">The protocol to check (e.g., "tcp", "udp")</param>
     /// <returns>True if the rule effectively blocks traffic on the specified port and protocol</returns>
     public static bool RuleBlocksPortAndProtocol(Models.FirewallRule rule, string port, string protocol)
+        => RuleMatchesPortAndProtocol(rule, port, protocol);
+
+    /// <summary>
+    /// Checks whether a rule matches a destination port and protocol, regardless of action.
+    /// An unspecified port matches all ports; inverted ports and protocols are respected.
+    /// </summary>
+    public static bool RuleMatchesPortAndProtocol(Models.FirewallRule rule, string port, string protocol)
     {
         // No port specified = all ports affected (block-all rules, etc.)
         if (!string.IsNullOrEmpty(rule.DestinationPort))

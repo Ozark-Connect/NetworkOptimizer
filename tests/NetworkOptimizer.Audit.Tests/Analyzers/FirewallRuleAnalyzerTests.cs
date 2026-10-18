@@ -461,7 +461,8 @@ public class FirewallRuleAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            cellularDevices: CreateCellularDevices());
 
         // Assert - 5G rule by IP satisfies the requirement
         issues.Should().BeEmpty();
@@ -506,7 +507,8 @@ public class FirewallRuleAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            cellularDevices: CreateCellularDevices());
 
         // Assert - 5G rule by MAC satisfies the requirement
         issues.Should().BeEmpty();
@@ -1371,7 +1373,8 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ubnt.com" })
         };
 
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            externalZoneId: externalZoneId, cellularDevices: CreateCellularDevices());
 
         // 5G allow at 192.168.99.5 is eclipsed by block at 192.168.99.0/24
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
@@ -1430,7 +1433,8 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ubnt.com" })
         };
 
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            externalZoneId: externalZoneId, cellularDevices: CreateCellularDevices());
 
         // 5G allow at 192.168.99.5 is NOT covered by block at 10.0.0.0/8
         issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
@@ -1492,7 +1496,8 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ubnt.com" })
         };
 
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            externalZoneId: externalZoneId, cellularDevices: CreateCellularDevices());
 
         issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
@@ -1539,7 +1544,8 @@ public class FirewallRuleAnalyzerTests
             }
         };
 
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            externalZoneId: externalZoneId, cellularDevices: CreateCellularDevices());
 
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
@@ -1585,7 +1591,8 @@ public class FirewallRuleAnalyzerTests
             }
         };
 
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            externalZoneId: externalZoneId, cellularDevices: CreateCellularDevices());
 
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
@@ -1645,7 +1652,8 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ubnt.com" })
         };
 
-        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true,
+            externalZoneId: externalZoneId, cellularDevices: CreateCellularDevices());
 
         // 192.168.99.5 is not in the exception list (192.168.50.0/24), so it's blocked
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
@@ -10141,6 +10149,9 @@ public class FirewallRuleAnalyzerTests
     #endregion
 
     #region Helper Methods
+
+    private static List<CellularModemIdentity> CreateCellularDevices() =>
+        [new("192.168.99.5", "aa:bb:cc:dd:ee:ff")];
 
     private static NetworkInfo CreateNetwork(
         string name,
