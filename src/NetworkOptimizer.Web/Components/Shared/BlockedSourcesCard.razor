@@ -38,7 +38,7 @@
             @if (_overview.Active.Count == 0)
             {
                 <div class="empty-state">
-                    <p>Nothing is blocked right now.</p>
+                    <p>@(_overview.Shared.Count > 0 ? "This site has no blocks of its own right now." : "Nothing is blocked right now.")</p>
                 </div>
             }
             else
