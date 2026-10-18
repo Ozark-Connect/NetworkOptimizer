@@ -31,7 +31,17 @@ public sealed record WanFloodStatusView(bool Ok, string? Error, string State, bo
 /// The site's WAN Flood Protection: its settings, the gateway agent that enforces it (null when none is
 /// connected), and that agent's last report.
 /// </summary>
-public sealed record WanFloodOverview(WanFloodSettings Settings, string? AgentName, bool AgentCapable, WanFloodStatusView? Status);
+public sealed record WanFloodOverview(WanFloodSettings Settings, string? AgentName, bool AgentCapable, WanFloodStatusView? Status)
+{
+    /// <summary>Each WAN interface's name as the rest of the app shows it ("Fiber (WAN1)"), keyed by interface.</summary>
+    public IReadOnlyDictionary<string, string> WanLabels { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>WAN interfaces the gateway reports down; the card leaves them out.</summary>
+    public IReadOnlySet<string> WansDown { get; init; } = new HashSet<string>();
+
+    /// <summary>The WAN's display name, or the interface when it is not a known WAN.</summary>
+    public string WanLabel(string wan) => WanLabels.TryGetValue(wan, out var label) ? label : wan;
+}
 
 /// <summary>
 /// Runs WAN Flood Protection for every site: builds each site's config from its settings and WANs, sends it

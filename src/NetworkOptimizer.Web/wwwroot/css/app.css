@@ -7598,7 +7598,8 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
-.protection-setup-done {
+.protection-setup-done,
+.wan-flood-status .wan-flood-summary {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -7860,19 +7861,25 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Threat Intelligence - Blocked Sources */
-/* Threat Intelligence - Blocking: WAN Flood Protection's status, label over value */
-.wan-flood-status .wan-flood-detail {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 0.75rem 1.5rem;
-    margin-bottom: 1.25rem;
+/* WAN Flood Protection's status line keeps the connection table on its right edge; on a phone it wraps below. */
+.wan-flood-status .wan-flood-summary {
+    flex-wrap: wrap;
 }
 
-.wan-flood-status .wan-flood-detail > div {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    min-width: 0;
+.wan-flood-status .wan-flood-summary .waf-meta {
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .wan-flood-status .wan-flood-summary .waf-meta {
+        flex-basis: 100%;
+        margin-left: calc(8px + 0.5rem);
+    }
+
+    /* Two short columns are left on a phone (hide-mobile), so the tables fit without scrolling sideways. */
+    .wan-flood-status .data-table {
+        min-width: 0;
+    }
 }
 
 .blocked-sources .blocked-sources-subtitle,

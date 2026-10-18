@@ -5,12 +5,19 @@
 
 @* Threat Intelligence - Blocking: WAN Flood Protection's state, drops, and episodes. *@
 
+
 @if (_overview != null && (_overview.Settings.Mode != WanFloodMode.Off || _incidents.Count > 0))
 {
     <div class="card card-spaced wan-flood-status" data-tour="wan-flood">
         <div class="card-header">
             <h3 class="card-title">WAN Flood Protection</h3>
-            <span class="status-badge @(_overview.Settings.Mode == WanFloodMode.Enforce ? "status-active" : "")">@WanFloodSettingsCard.ModeLabel(_overview.Settings.Mode)</span>
+            <div class="waf-card-mode">
+                @if (_overview.AgentCapable)
+                {
+                    <span class="waf-meta">Gateway On-Site Agent</span>
+                }
+                <span class="status-badge @(_overview.Settings.Mode == WanFloodMode.Enforce ? "status-active" : "")">@WanFloodSettingsCard.ModeLabel(_overview.Settings.Mode)</span>
+            </div>
         </div>
         <div class="card-body">
             @if (_overview.Settings.Mode != WanFloodMode.Off && !_overview.AgentCapable)
@@ -19,6 +26,16 @@
             }
             else if (_overview.Status is { } status)
             {
+                var wans = status.Wans.Where(w => !_overview.WansDown.Contains(w.Wan)).OrderBy(w => _overview.WanLabel(w.Wan)).ToList();
+                <div class="wan-flood-summary">
+                    <span class="status-dot @SummaryDot(status, wans)"></span>
+                    <span>@Summary(status, wans.Count)</span>
+                    @if (status.ConntrackMax > 0)
+                    {
+                        <span class="waf-meta">Connection table @(100L * status.ConntrackCount / status.ConntrackMax)% full</span>
+                    }
+                </div>
+
                 @if (!status.Ok)
                 {
                     <div class="alert alert-warning">The gateway could not apply WAN Flood Protection: @status.Error</div>
@@ -27,41 +44,35 @@
                 {
                     <div class="alert alert-warning">A flood filled one of the limit tables, so that limit is paused until the flood drains. Drops stay on.</div>
                 }
-                <div class="detail-grid wan-flood-detail">
-                    <div>
-                        <span class="detail-label">State</span>
-                        <span class="detail-value">@StateLabel(status.State)</span>
-                    </div>
-                    <div>
-                        <span class="detail-label">Enforced by</span>
-                        <span class="detail-value">@_overview.AgentName</span>
-                    </div>
-                    @if (status.ConntrackMax > 0)
-                    {
-                        <div>
-                            <span class="detail-label">Connection table</span>
-                            <span class="detail-value">@status.ConntrackCount.ToString("N0") of @status.ConntrackMax.ToString("N0")</span>
-                        </div>
-                    }
-                    @foreach (var w in status.Wans)
-                    {
-                        <div>
-                            <span class="detail-label">@w.Wan</span>
-                            <span class="detail-value">
-                                @(w.HooksPresent ? "Limits in place" : "Limits missing")@(w.SmartQueues ? ", Smart Queues on" : "")
-                            </span>
-                        </div>
-                    }
-                </div>
 
-                @if (status.Drops.Count == 0)
+                @if (wans.Count > 0)
                 {
-                    <div class="empty-state">
-                        <p>Nothing is dropped or limited right now.</p>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>WAN</th>
+                                    <th>Protection</th>
+                                    <th class="hide-mobile">Smart Queues</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var w in wans)
+                                {
+                                    <tr>
+                                        <td>@_overview.WanLabel(w.Wan)</td>
+                                        <td><span class="status-badge @(w.HooksPresent ? "status-active" : "status-warning")">@(w.HooksPresent ? "Protected" : "Rules missing")</span></td>
+                                        <td class="hide-mobile">@(w.SmartQueues ? "On" : "Off")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
                     </div>
                 }
-                else
+
+                @if (status.Drops.Count > 0)
                 {
+                    <h4 class="wan-flood-subtitle">Active Drops</h4>
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead>
@@ -69,20 +80,18 @@
                                     <th>What</th>
                                     <th class="hide-mobile">WAN</th>
                                     <th class="hide-mobile">Share</th>
-                                    <th class="hide-mobile">Packets</th>
-                                    <th>Ends</th>
+                                    <th class="hide-mobile">Ends</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var d in status.Drops)
+                                @foreach (var d in status.Drops.OrderBy(d => d.Kind == "tc-test").ThenBy(d => _overview.WanLabel(d.Wan)))
                                 {
                                     <tr>
                                         <td>@DropLabel(d)</td>
-                                        <td class="hide-mobile"><code>@d.Wan</code></td>
-                                        <td class="hide-mobile">@(d.Share > 0 ? d.Share.ToString("P0") : "")</td>
-                                        <td class="hide-mobile">@d.Packets.ToString("N0")</td>
-                                        <td>@(d.ExpiresAt is { } end ? "in " + TimeFormatHelper.FormatDurationCompact(end - DateTime.UtcNow) : "while held")</td>
+                                        <td class="hide-mobile">@_overview.WanLabel(d.Wan)</td>
+                                        <td class="hide-mobile">@(d.Share > 0 ? d.Share.ToString("P0") : "-")</td>
+                                        <td class="hide-mobile">@(d.ExpiresAt is { } end ? "in " + TimeFormatHelper.FormatDurationCompact(end - DateTime.UtcNow) : "while held")</td>
                                         <td>
                                             @if (d.Kind != "tc-test")
                                             {
@@ -204,13 +213,26 @@
         _ => d.Kind,
     };
 
-    private static string StateLabel(string state) => state switch
+    // The status line: what is happening now, or the recent history when nothing is.
+    private string Summary(WanFloodStatusView status, int wanCount)
     {
-        "suspected" => "Flood suspected",
-        "mitigating" => "Mitigating a flood",
-        "cooling" => "Flood ending",
-        _ => "Watching",
-    };
+        var drops = status.Drops.Count(d => d.Kind != "tc-test");
+        return status.State switch
+        {
+            "suspected" => "Flood suspected, finding its source.",
+            "mitigating" => drops > 0 ? $"Mitigating a flood: {Plural(drops, "drop", "drops")} in place." : "Mitigating a flood.",
+            "cooling" => "A flood is ending.",
+            _ => $"Watching {Plural(wanCount, "WAN", "WANs")}. "
+                + (_incidents.Count == 0 ? "No floods in the last 7 days." : $"{Plural(_incidents.Count, "flood", "floods")} in the last 7 days."),
+        };
+    }
+
+    private static string SummaryDot(WanFloodStatusView status, List<WanFloodWanView> wans) =>
+        !status.Ok || wans.Any(w => !w.HooksPresent) ? "error"
+        : status.State is "suspected" or "mitigating" or "cooling" ? "provisioning"
+        : "online";
+
+    private static string Plural(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
 
     private static string KindLabel(string kind) => kind switch
     {

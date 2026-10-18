@@ -1,4 +1,7 @@
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Threats.Interfaces;
@@ -37,7 +40,8 @@ public interface IWanFloodAdmin
 }
 
 public sealed class WanFloodAdminService(WanFloodService service, IThreatSettingsAccessor settings,
-    IWanFloodIncidentRepository incidents, SiteContextService site) : IWanFloodAdmin
+    IWanFloodIncidentRepository incidents, SiteContextService site, NetworkOptimizerDbContext db,
+    Monitoring.MonitoringPathView paths) : IWanFloodAdmin
 {
     private string Slug => site.Slug;
     private string? SiteKey => Slug == SiteManagementService.DefaultSiteSlug ? null : Slug;
@@ -46,7 +50,38 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
     {
         var current = await WanFloodSettings.LoadAsync(k => settings.GetSettingAsync(k, ct), SiteKey);
         var (agent, capable, status) = service.Describe(Slug);
-        return new WanFloodOverview(current, agent, capable, status);
+        var (labels, down) = await WanNamesAsync(ct);
+        return new WanFloodOverview(current, agent, capable, status) { WanLabels = labels, WansDown = down };
+    }
+
+    // The agent reports WANs by interface. The WAN profiles map an interface to its WAN key, and the gateway's WAN
+    // list gives that key's name, labelled the way the rest of the app labels a WAN.
+    private async Task<(Dictionary<string, string> Labels, HashSet<string> Down)> WanNamesAsync(CancellationToken ct)
+    {
+        var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var down = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var profiles = await db.WanProfiles.AsNoTracking()
+                .Where(p => p.DataPathInterface != null && p.DataPathInterface != "")
+                .Select(p => new { p.DataPathInterface, p.WanNetworkgroup })
+                .ToListAsync(ct);
+            var wans = await paths.GetWansAsync(ct);
+            foreach (var p in profiles)
+            {
+                var key = GatewayWanHelper.WanInterfaceKeyFromKey(p.WanNetworkgroup);
+                var index = GatewayWanHelper.WanIndexFromKey(key);
+                var wan = wans.FirstOrDefault(w => string.Equals(w.WanInterface, key, StringComparison.OrdinalIgnoreCase));
+                labels[p.DataPathInterface!] = GatewayWanHelper.FormatWanLabelInProse(
+                    GatewayWanHelper.FormatWanLabel(wan?.FriendlyName, index, null, null), index);
+                if (wan is { Up: false }) down.Add(p.DataPathInterface!);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Names are a nicety: without them the card shows interface names.
+        }
+        return (labels, down);
     }
 
     public async Task<IReadOnlyList<WanFloodIncidentView>> GetIncidentsAsync(int days, CancellationToken ct = default)
