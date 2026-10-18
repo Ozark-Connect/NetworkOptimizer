@@ -299,7 +299,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             "WAN Flood Protection",
             ["DDoS", "flood protection", "UDP flood", "SYN flood", "rate limit", "dos protection"],
             ["detection only", "protecting", "per source", "new connections", "burst",
-             "connection table", "conntrack", "drop", "test drop", "smart queues", "never limit or drop", "on-site agent"]),
+             "connection table", "conntrack", "drop", "smart queues", "never limit or drop", "on-site agent"]),
 
         // Per site: every site has its own gateway and may have its own Cloudflare account.
         Entry("security", "Security & Alerts", "automatic-blocking",

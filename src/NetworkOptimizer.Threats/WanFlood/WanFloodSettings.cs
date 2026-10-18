@@ -36,7 +36,10 @@ public static class WanFloodSettingKeys
     public const string MaxDropTtl = "wanflood.max_drop_ttl";
     /// <summary>Addresses and ranges never limited or dropped, one per line or comma-separated.</summary>
     public const string NeverDrop = "wanflood.never_drop";
-    /// <summary>"true" while the test drop is held (see the agent's WanFloodConfig.test_drop).</summary>
+    /// <summary>
+    /// "true" while the test drop is held (see the agent's WanFloodConfig.test_drop). No UI: a developer switch for
+    /// checking that drops survive a Smart Queues re-provision. A Settings save keeps whatever it holds.
+    /// </summary>
     public const string TestDrop = "wanflood.test_drop";
 }
 

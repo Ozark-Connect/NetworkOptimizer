@@ -105,13 +105,6 @@
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.MaxDropTtlSeconds" />
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" @bind="_form.TestDrop" />
-                                <span>Hold a test drop</span>
-                            </label>
-                            <small class="form-help">Drops traffic from 198.51.100.1, a documentation address no real traffic comes from, so you can check that a Smart Queues change on the gateway does not remove the drops. Its status shows on Threat Intelligence.</small>
-                        </div>
                     </div>
                 </div>
             </details>
@@ -148,7 +141,6 @@
         public int DropTtlSeconds { get; set; }
         public int MaxDropTtlSeconds { get; set; }
         public string NeverDrop { get; set; } = "";
-        public bool TestDrop { get; set; }
     }
 
     private Form? _form;
@@ -178,7 +170,6 @@
                 DropTtlSeconds = s.DropTtlSeconds,
                 MaxDropTtlSeconds = s.MaxDropTtlSeconds,
                 NeverDrop = s.NeverDrop,
-                TestDrop = s.TestDrop,
             };
         }
         catch (Exception ex)
@@ -209,7 +200,6 @@
                 DropTtlSeconds = _form.DropTtlSeconds,
                 MaxDropTtlSeconds = _form.MaxDropTtlSeconds,
                 NeverDrop = _form.NeverDrop,
-                TestDrop = _form.TestDrop,
             });
             await Load();
             _message = "Saved. The gateway's On-Site Agent applies it within a few seconds.";

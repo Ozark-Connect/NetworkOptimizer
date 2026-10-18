@@ -435,7 +435,6 @@ Set up in **Settings - Security & Alerts**, per site, and run by the gateway's [
 - Limits new connections per port forward so a flood cannot fill the connection table
 - **Off**, **Detection Only**, and **Protecting** modes, with tuning under **Advanced**
 - **Never limit or drop** addresses and ranges
-- **Hold a test drop** to confirm drops survive a Smart Queues change
 - **Blocking** card: per-WAN status, **Active Drops** (**Release** each), **Floods in the Last 7 Days**
 - Alerts when a flood starts, the connection table fills, or protection is not enforced
 - A **Protection Setup** step wherever the gateway's On-Site Agent can run it
