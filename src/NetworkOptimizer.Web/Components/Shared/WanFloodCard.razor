@@ -79,7 +79,7 @@
                                 <tr>
                                     <th>What</th>
                                     <th class="hide-mobile">WAN</th>
-                                    <th class="hide-mobile">Share</th>
+                                    <th class="hide-mobile">Dropped</th>
                                     <th class="hide-mobile">Ends</th>
                                     <th></th>
                                 </tr>
@@ -90,7 +90,7 @@
                                     <tr>
                                         <td>@DropLabel(d)</td>
                                         <td class="hide-mobile">@_overview.WanLabel(d.Wan)</td>
-                                        <td class="hide-mobile">@(d.Share > 0 ? d.Share.ToString("P0") : "-")</td>
+                                        <td class="hide-mobile">@(d.Kind is "tc-source" or "tc-port" or "tc-test" ? d.Packets.ToString("N0") : "-")</td>
                                         <td class="hide-mobile">@(d.ExpiresAt is { } end ? "in " + TimeFormatHelper.FormatDurationCompact(end - DateTime.UtcNow) : "while held")</td>
                                         <td>
                                             @if (d.Kind != "tc-test")
