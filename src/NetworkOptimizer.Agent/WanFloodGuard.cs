@@ -281,6 +281,7 @@ public sealed class WanFloodGuard
                 _knownWans.Clear();
                 _attribution = _forwardAttribution = false;
                 _perSource = true;
+                _written.Clear();
                 _error = null;
                 SaveCache();
                 Report(force: true);
@@ -512,7 +513,11 @@ public sealed class WanFloodGuard
 
     // ---- Chains and hooks ----
 
-    // True when a chain had to be (re)written.
+    // What each chain held right after the agent last wrote it: the wanted rules' fingerprint and iptables'
+    // own printing of the chain. Comparing printed to printed needs no parsing of iptables' output format.
+    private readonly Dictionary<string, (string Fingerprint, string Printed)> _written = new();
+
+    // True when a chain had to be (re)written. The first call after a start always writes (no snapshot yet).
     private bool EnsureChains(bool force)
     {
         if (_config == null) return false;
@@ -529,10 +534,14 @@ public sealed class WanFloodGuard
                 (WanFloodRules.ForwardChain, WanFloodRules.ForwardRules(v6, limits, state)),
             })
             {
+                var key = $"{tool}|{chain}";
+                var fingerprint = WanFloodRules.Fingerprint(rules);
                 var current = Run(tool, ["-w", "-t", "mangle", "-S", chain], null);
-                if (!force && current.Exit == 0 && current.Stdout.Contains(WanFloodRules.Fingerprint(rules), StringComparison.Ordinal))
+                if (!force && current.Exit == 0 && _written.TryGetValue(key, out var written)
+                    && written.Fingerprint == fingerprint && written.Printed == current.Stdout)
                     continue;
                 Check(Run(restore, ["-w", "--noflush"], WanFloodRules.Restore(chain, rules)), $"{restore} {chain}");
+                _written[key] = (fingerprint, Run(tool, ["-w", "-t", "mangle", "-S", chain], null).Stdout);
                 rewrote = true;
             }
         }

@@ -104,13 +104,15 @@ public class WanFloodRulesTests
     }
 
     [Fact]
-    public void RestoreCarriesTheFingerprintAndReplacesOneChain()
+    public void RestoreReplacesOneChainWithNoComments()
     {
+        // UniFi's provisioner logs any commented rule it does not own as unexpected.
         var rules = WanFloodRules.Rules(false, Limits, Suspected);
         var restore = WanFloodRules.Restore(WanFloodRules.Chain, rules);
         restore.Should().StartWith("*mangle\n:NETOPT_FLOOD - [0:0]\n");
-        restore.Should().Contain($"--comment {WanFloodRules.Fingerprint(rules)}");
+        restore.Should().NotContain("comment");
         restore.Should().EndWith("COMMIT\n");
+        AllRules(Suspected).Should().NotContain(r => r.Contains("comment"));
         WanFloodRules.Fingerprint(rules).Should().NotBe(WanFloodRules.Fingerprint(WanFloodRules.Rules(false, Limits, Suspected with { Enforce = false })));
     }
 

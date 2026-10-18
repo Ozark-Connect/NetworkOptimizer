@@ -96,8 +96,8 @@ public static class WanFloodRules
     public static string HashlimitProcDir(bool v6) => v6 ? "/proc/net/ip6t_hashlimit" : "/proc/net/ipt_hashlimit";
 
     /// <summary>
-    /// The rules of <see cref="Chain"/> in order, without the fingerprint (see <see cref="Restore"/>). Detect
-    /// mode drops the DROP targets, so the counters and tables still fill.
+    /// The rules of <see cref="Chain"/> in order. Detect mode drops the DROP targets, so the counters and
+    /// tables still fill.
     /// </summary>
     public static List<string> Rules(bool v6, Limits l, ChainState state)
     {
@@ -129,7 +129,7 @@ public static class WanFloodRules
         return rules;
     }
 
-    /// <summary>The rules of <see cref="ForwardChain"/> in order, without the fingerprint.</summary>
+    /// <summary>The rules of <see cref="ForwardChain"/> in order.</summary>
     public static List<string> ForwardRules(bool v6, Limits l, ChainState state)
     {
         var drop = state.Enforce ? " -j DROP" : "";
@@ -147,22 +147,24 @@ public static class WanFloodRules
         return rules;
     }
 
-    /// <summary>A short identity of a rule list, carried in the chain's first rule as a comment.</summary>
+    /// <summary>A short identity of a rule list. Kept by the agent, never written to the gateway.</summary>
     public static string Fingerprint(IEnumerable<string> rules) =>
         "nof-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', rules))))[..12].ToLowerInvariant();
 
     /// <summary>
     /// An <c>iptables-restore --noflush</c> input that replaces one chain atomically. The replacement keeps
     /// hashlimit tables whose name carries over (the new rule takes a reference before the old one drops
-    /// it), so a rewrite does not reset a flooding source's credit. The fingerprint comment goes on a first
-    /// rule of its own so the live chain can be compared without parsing iptables' printed form.
+    /// it), so a rewrite does not reset a flooding source's credit.
     /// </summary>
+    /// <remarks>
+    /// No rule carries a comment: UniFi's provisioner reports any commented rule it does not own as
+    /// unexpected. The agent compares the live chain to its own snapshot instead.
+    /// </remarks>
     public static string Restore(string chain, IReadOnlyList<string> rules)
     {
         var sb = new StringBuilder();
         sb.Append("*mangle\n");
         sb.Append(':').Append(chain).Append(" - [0:0]\n");
-        sb.Append("-A ").Append(chain).Append(" -m comment --comment ").Append(Fingerprint(rules)).Append('\n');
         foreach (var rule in rules) sb.Append(rule).Append('\n');
         sb.Append("COMMIT\n");
         return sb.ToString();
