@@ -165,7 +165,7 @@
     private int TotalSteps => 4 + (FloodRequired ? 1 : 0);
 
     private string FloodText => _flood!.AgentState == WanFloodAgentState.NeedsUpdate
-        ? "WAN Flood Protection needs a newer On-Site Agent on the gateway. A flood of unsolicited traffic can max out the gateway's CPU, stalling internet access, inter-VLAN traffic, and the UniFi apps it runs."
+        ? "WAN Flood Protection stops floods of unsolicited traffic before they max out the gateway's CPU and stall internet access, inter-VLAN traffic, and UniFi apps. Update the gateway's On-Site Agent to turn it on."
         : _flood.AgentState == WanFloodAgentState.Unsupported
             ? "WAN Flood Protection (optional): this gateway can't run it."
         : (_flood.Settings.Mode, _flood.AgentCapable) switch
