@@ -59,21 +59,21 @@
                         <h3 class="ab-section-title">New Connections to the Gateway</h3>
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label">UDP per source (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New UDP connections per second one internet address may open to the gateway, port forwards included, before the rest are dropped. Replies to connections your own network opened never count. Raise it if one address legitimately opens many sessions at once, such as a carrier's shared address reaching a game server you host. Lower it to cut off a single-source flood sooner. During a flood aimed at one port, such as WireGuard's, new connections to that port are held to a tenth of this; tunnels already up are unaffected.">?</span></label>
+                                <label class="form-label">UDP per source (per second) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How many new UDP connections one address can open to your gateway per second. Replies to traffic you started don't count. Raise it if you host something lots of people reach from one shared address; lower it to shut down a single-source flood faster.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpPerSource" />
                             </div>
                             <div class="form-group">
-                                <label class="form-label">UDP burst <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How many new UDP connections one address may open in a quick burst before the per-second limit applies. Raise it for clients that reopen many sessions at once, for example after their connection drops. Lower it so a flood is limited from its first moments.">?</span></label>
+                                <label class="form-label">UDP burst <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How many new UDP connections one address can open all at once before the per-second limit kicks in. Raise it if clients reconnect a bunch of sessions at once.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpBurst" />
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label">TCP per source (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New TCP connections per second one internet address may open to the gateway, port forwards included. A TCP SYN flood overloads the gateway at a small fraction of the bandwidth a UDP flood needs. Raise it if you host a busy service that many people reach from one shared address. Lower it if the gateway hosts nothing over TCP.">?</span></label>
+                                <label class="form-label">TCP per source (per second) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="The same limit for new TCP connections. A SYN flood takes down a gateway with a fraction of the bandwidth, which is why this one starts lower. Raise it if you host a busy web service.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynPerSource" />
                             </div>
                             <div class="form-group">
-                                <label class="form-label">TCP burst <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How many new TCP connections one address may open in a quick burst before the per-second limit applies. Raise it for a web app whose pages open many connections at once. Lower it so a SYN flood is limited from its first moments.">?</span></label>
+                                <label class="form-label">TCP burst <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How many new TCP connections one address can open all at once before the limit kicks in. Raise it for web apps that open lots of connections per page.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynBurst" />
                             </div>
                         </div>
@@ -83,11 +83,11 @@
                         <h3 class="ab-section-title">Port Forwards</h3>
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label">New connections per port forward (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New connections per second to one port forward, from every source together. Each new connection holds an entry in the gateway's connection table for up to two minutes, so a flood here can fill the table and break connections for the whole network. Raise it for a port forward that really takes this many new connections. Lower it to protect the table sooner.">?</span></label>
+                                <label class="form-label">New connections per port forward (per second) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="New connections per second one port forward accepts, from everyone combined. Each one holds a spot in the gateway's connection table for up to two minutes, so a flood here can break connections for your whole network.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedPort" />
                             </div>
                             <div class="form-group">
-                                <label class="form-label">While the connection table is filling <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The tighter limit put on the busiest port forwards while the gateway's connection table is over 80% full. New sessions to that port may be refused during the attack; sessions already open keep working. Raise it if a service must keep accepting new users during an attack. Lower it to protect the rest of the network first.">?</span></label>
+                                <label class="form-label">While the connection table is filling <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="The tighter limit on your busiest port forwards once the connection table is over 80% full. New sessions may be turned away during the attack (WireGuard handshakes included); connections already open keep working.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedCapped" />
                             </div>
                         </div>
@@ -97,11 +97,11 @@
                         <h3 class="ab-section-title">Drops</h3>
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label">Drop for (seconds) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How long a drop of a flood's source lasts before it is checked again; a drop that still sees traffic is extended. Raise it to re-check less often during a long attack. Lower it so an address that was dropped by mistake recovers sooner.">?</span></label>
+                                <label class="form-label">Drop for (seconds) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How long a flood's source stays dropped before it's checked again. The drop is extended for as long as the flood keeps coming.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.DropTtlSeconds" />
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Longest drop (seconds) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The longest a drop can be extended. After it, the drop is removed and a flood that is still going is detected again from scratch, so no drop outlives the attack it was for. Raise it for attacks that run for hours. Lower it if legitimate users share an address with an attacker, as behind a carrier's shared address.">?</span></label>
+                                <label class="form-label">Longest drop (seconds) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="The longest any one drop can last. After that it's removed, and a flood that's still going gets caught again.">?</span></label>
                                 <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.MaxDropTtlSeconds" />
                             </div>
                         </div>
