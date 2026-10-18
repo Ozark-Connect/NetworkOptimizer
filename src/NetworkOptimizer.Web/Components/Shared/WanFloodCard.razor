@@ -26,7 +26,7 @@
             }
             else if (_overview.Status is { } status)
             {
-                var wans = status.Wans.Where(w => !_overview.WansDown.Contains(w.Wan)).OrderBy(w => _overview.WanLabel(w.Wan)).ToList();
+                var wans = status.Wans.Where(w => _overview.ShowsWan(w.Wan)).OrderBy(w => _overview.WanRank(w.Wan)).ThenBy(w => _overview.WanLabel(w.Wan)).ToList();
                 <div class="wan-flood-summary">
                     <span class="status-dot @SummaryDot(status, wans)"></span>
                     <span>@Summary(status, wans.Count)</span>
@@ -70,7 +70,7 @@
                     </div>
                 }
 
-                @if (status.Drops.Count > 0)
+                @if (status.Drops.Any(d => _overview.ShowsWan(d.Wan)))
                 {
                     <h4 class="wan-flood-subtitle">Active Drops</h4>
                     <div class="table-responsive">
@@ -85,7 +85,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var d in status.Drops.OrderBy(d => d.Kind == "tc-test").ThenBy(d => _overview.WanLabel(d.Wan)))
+                                @foreach (var d in status.Drops.Where(d => _overview.ShowsWan(d.Wan)).OrderBy(d => d.Kind == "tc-test").ThenBy(d => _overview.WanRank(d.Wan)))
                                 {
                                     <tr>
                                         <td>@DropLabel(d)</td>

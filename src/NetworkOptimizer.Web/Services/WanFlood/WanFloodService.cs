@@ -36,11 +36,23 @@ public sealed record WanFloodOverview(WanFloodSettings Settings, string? AgentNa
     /// <summary>Each WAN interface's name as the rest of the app shows it ("Fiber (WAN1)"), keyed by interface.</summary>
     public IReadOnlyDictionary<string, string> WanLabels { get; init; } = new Dictionary<string, string>();
 
-    /// <summary>WAN interfaces the gateway reports down; the card leaves them out.</summary>
-    public IReadOnlySet<string> WansDown { get; init; } = new HashSet<string>();
+    /// <summary>Each WAN interface's WAN number (WAN1 = 1), for ordering.</summary>
+    public IReadOnlyDictionary<string, int> WanOrder { get; init; } = new Dictionary<string, int>();
+
+    /// <summary>
+    /// WAN interfaces of the gateway's active WANs (a link or an address). The card shows only these; empty when the
+    /// WAN list could not be read, and then it shows every WAN the agent reports.
+    /// </summary>
+    public IReadOnlySet<string> ActiveWans { get; init; } = new HashSet<string>();
 
     /// <summary>The WAN's display name, or the interface when it is not a known WAN.</summary>
     public string WanLabel(string wan) => WanLabels.TryGetValue(wan, out var label) ? label : wan;
+
+    /// <summary>Whether the card shows a WAN.</summary>
+    public bool ShowsWan(string wan) => ActiveWans.Count == 0 || ActiveWans.Contains(wan);
+
+    /// <summary>Sort key: WAN number, then name, so WAN1 comes before WAN2.</summary>
+    public int WanRank(string wan) => WanOrder.TryGetValue(wan, out var n) ? n : int.MaxValue;
 }
 
 /// <summary>
@@ -150,10 +162,18 @@ public sealed class WanFloodService : BackgroundService
         if (config.Enabled)
         {
             var db = services.GetRequiredService<NetworkOptimizerDbContext>();
-            var wans = await db.WanProfiles.AsNoTracking()
+            var profiles = await db.WanProfiles.AsNoTracking()
                 .Where(p => p.DataPathInterface != null && p.DataPathInterface != "")
-                .Select(p => p.DataPathInterface!)
+                .Select(p => new { Ifname = p.DataPathInterface!, p.WanNetworkgroup })
                 .ToListAsync(ct);
+            // Only the gateway's active WANs (a link or an address). A disabled WAN keeps its profile but has nothing
+            // to protect. When the WAN list cannot be read, every profiled WAN stays covered.
+            var active = (await services.GetRequiredService<Monitoring.MonitoringPathView>().GetWansAsync(ct))
+                .Where(w => w.IsActive).Select(w => w.WanInterface).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var wans = profiles
+                .Where(p => active.Count == 0 || active.Contains(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(p.WanNetworkgroup)))
+                .Select(p => p.Ifname)
+                .ToList();
             config.Mode = settings.Mode == WanFloodMode.Enforce ? "enforce" : "detect";
             config.WanIfnames.AddRange(wans.Where(WanFloodRules.IsValidInterface).Distinct(StringComparer.OrdinalIgnoreCase));
             config.UdpNewPerSource = settings.UdpPerSource;

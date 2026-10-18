@@ -50,16 +50,17 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
     {
         var current = await WanFloodSettings.LoadAsync(k => settings.GetSettingAsync(k, ct), SiteKey);
         var (agent, capable, status) = service.Describe(Slug);
-        var (labels, down) = await WanNamesAsync(ct);
-        return new WanFloodOverview(current, agent, capable, status) { WanLabels = labels, WansDown = down };
+        var (labels, order, active) = await WanNamesAsync(ct);
+        return new WanFloodOverview(current, agent, capable, status) { WanLabels = labels, WanOrder = order, ActiveWans = active };
     }
 
     // The agent reports WANs by interface. The WAN profiles map an interface to its WAN key, and the gateway's WAN
-    // list gives that key's name, labelled the way the rest of the app labels a WAN.
-    private async Task<(Dictionary<string, string> Labels, HashSet<string> Down)> WanNamesAsync(CancellationToken ct)
+    // list gives that key's name (labelled the way the rest of the app labels a WAN) and whether it is active.
+    private async Task<(Dictionary<string, string> Labels, Dictionary<string, int> Order, HashSet<string> Active)> WanNamesAsync(CancellationToken ct)
     {
         var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var down = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var order = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var profiles = await db.WanProfiles.AsNoTracking()
@@ -74,14 +75,15 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
                 var wan = wans.FirstOrDefault(w => string.Equals(w.WanInterface, key, StringComparison.OrdinalIgnoreCase));
                 labels[p.DataPathInterface!] = GatewayWanHelper.FormatWanLabelInProse(
                     GatewayWanHelper.FormatWanLabel(wan?.FriendlyName, index, null, null), index);
-                if (wan is { Up: false }) down.Add(p.DataPathInterface!);
+                order[p.DataPathInterface!] = index;
+                if (wan is { IsActive: true }) active.Add(p.DataPathInterface!);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Names are a nicety: without them the card shows interface names.
+            // Names are a nicety: without them the card shows interface names, unordered, all of them.
         }
-        return (labels, down);
+        return (labels, order, active);
     }
 
     public async Task<IReadOnlyList<WanFloodIncidentView>> GetIncidentsAsync(int days, CancellationToken ct = default)
