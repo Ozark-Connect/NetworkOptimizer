@@ -14,9 +14,10 @@
     </div>
     <div class="card-body">
         <p class="section-description">
-            Keep a flood of unsolicited traffic from overloading the gateway. Each source may open only so many new
-            connections to the gateway per second, and when one CPU core is overwhelmed the source carrying the flood is
-            dropped at the WAN for a while. It needs the On-Site Agent on the gateway.
+            A flood of unsolicited traffic can max out the gateway's CPU, stalling internet access, inter-VLAN traffic,
+            and the UniFi apps it runs. WAN Flood Protection finds a flood's sources within seconds and drops them at the
+            WAN, before the firewall touches them. In testing, that cut CPU load by about three quarters and kept latency
+            normal. It needs the On-Site Agent on the gateway.
         </p>
 
         @if (_form == null)

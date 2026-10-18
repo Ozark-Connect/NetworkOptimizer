@@ -162,7 +162,7 @@
         (WanFloodMode.Enforce, true) => "WAN Flood Protection on, enforced by the gateway's On-Site Agent",
         (WanFloodMode.Detect, true) => "WAN Flood Protection in Detection Only. Review what it would drop on the Blocking tab, then turn it on.",
         (not WanFloodMode.Off, false) => "WAN Flood Protection is on, but no On-Site Agent on the gateway is connected to enforce it",
-        (WanFloodMode.Off, true) => "WAN Flood Protection is off: it keeps floods of unsolicited traffic from overloading the gateway",
+        (WanFloodMode.Off, true) => "WAN Flood Protection is off. A flood of unsolicited traffic can max out the gateway's CPU, stalling internet access, inter-VLAN traffic, and the UniFi apps it runs.",
         _ => "WAN Flood Protection (optional): keeps floods of unsolicited traffic from overloading the gateway. Needs the On-Site Agent on the gateway.",
     };
 
