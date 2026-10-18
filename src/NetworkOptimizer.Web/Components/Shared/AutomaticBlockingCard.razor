@@ -547,6 +547,7 @@
         if (r.Gateway) where.Add("the gateway");
         if (r.Waf) where.Add("the WAF");
         var on = where.Count > 0 ? $"Blocking on {string.Join(" and ", where)}." : "Blocking is on, but there is nowhere to block yet.";
+        if (r.WanFlood) on += " WAN Flood Protection is on.";
         return r.GatewayError == null ? on : $"{on} The gateway was not set up: {r.GatewayError}";
     });
 

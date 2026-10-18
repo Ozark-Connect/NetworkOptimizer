@@ -28,7 +28,7 @@
             @(_summary.GatewaySetUp ? "Gateway blocking configured." : "Gateway blocking not configured.")
             @BlockedText(_summary)
         </p>
-        @if (_summary.Mode != BlockingMode.Enforce)
+        @if (_summary.Mode != BlockingMode.Enforce || _summary.WanFloodPending)
         {
             <div class="site-agent-actions">
                 <button type="button" class="btn btn-primary btn-sm" disabled="@_busy" @onclick="TurnOnRecommended">Turn On Recommended</button>

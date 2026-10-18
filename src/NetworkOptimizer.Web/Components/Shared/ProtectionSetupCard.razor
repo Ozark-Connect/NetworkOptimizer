@@ -216,7 +216,7 @@
         try
         {
             var r = await Blocking.TurnOnRecommendedAsync();
-            _status = await Blocking.GetProtectionStatusAsync();
+            await OnInitializedAsync();
             _message = r.GatewayError == null ? null : $"Blocking, but the gateway was not set up: {r.GatewayError}";
             _messageClass = "warning";
         }
