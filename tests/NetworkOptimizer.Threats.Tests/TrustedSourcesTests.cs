@@ -99,6 +99,30 @@ public class TrustedSourcesTests
     }
 
     [Fact]
+    public void FromGateways_SkipsAVpnClientTunnelAddress()
+    {
+        var gateway = JsonSerializer.Deserialize<UniFiDeviceResponse>(
+            """{ "type": "uxg", "wan1": { "ip": "198.51.100.7" }, "network_table": [ { "name": "VPN", "ipv6_subnet": "2001:db8:b944::2:2/128" } ] }""")!;
+
+        TrustedAddressBook.FromGateways([gateway]).Should().Equal("198.51.100.7");
+    }
+
+    [Fact]
+    public async Task LoadAsync_DropsAStoredTunnelAddress()
+    {
+        var settings = new FakeSettings();
+        settings.Values[TrustedSourcesKeys.Addresses] = JsonSerializer.Serialize(new[]
+        {
+            Seen("198.51.100.7", Now),
+            Seen("2001:db8:b944::2:2/128", Now, replacedAt: Now),
+            Seen("2001:db8:cafe:10::/64", Now),
+        });
+
+        (await TrustedAddressBook.LoadAsync(settings, null, CancellationToken.None)).Select(a => a.Address)
+            .Should().Equal("198.51.100.7", "2001:db8:cafe:10::/64");
+    }
+
+    [Fact]
     public void UnexpectedIpv6Shape_DoesNotDropTheWan()
     {
         var gateway = JsonSerializer.Deserialize<UniFiDeviceResponse>(
