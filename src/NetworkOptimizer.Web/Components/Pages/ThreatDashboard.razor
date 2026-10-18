@@ -11,7 +11,6 @@
 @using NetworkOptimizer.Core.Helpers
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
-@inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor UniFiClientAccessor
@@ -2596,8 +2595,7 @@ else
     {
         try
         {
-            var apiKey = await SettingsAccessor.GetSettingAsync("crowdsec.api_key");
-            _crowdSecEnabled = !string.IsNullOrWhiteSpace(apiKey);
+            _crowdSecEnabled = await DashboardService.IsCtiConfiguredAsync();
         }
         catch (Exception ex)
         {
@@ -2689,7 +2687,7 @@ else
             {
                 var chartExisted = _timelineChart != null;
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
-                if (CrowdSecClient.IsRateLimited) _crowdSecRateLimited = true;
+                if (await DashboardService.IsCtiRateLimitedAsync()) _crowdSecRateLimited = true;
                 ScheduleHydrationRefresh(_dashboardData.CtiHydrationCount);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();

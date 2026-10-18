@@ -378,6 +378,8 @@ public class ThreatCollectionService : BackgroundService
             var cutoff = DateTime.UtcNow.AddDays(-_retentionDays);
             await repository.PurgeOldEventsAsync(cutoff, cancellationToken);
             await repository.PurgeCrowdSecCacheAsync(cancellationToken);
+            if (scope.ServiceProvider.GetService<CrowdSec.ICtiReputationCache>() is { } ctiCache)
+                await ctiCache.PurgeExpiredAsync(cancellationToken);
         }
     }
 

@@ -34,7 +34,7 @@
 @inject IEnumerable<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel> DeliveryChannels
 @inject NetworkOptimizer.Alerts.Delivery.ISecretDecryptor SecretDecryptor
 @inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService GeoService
-@inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
+@inject ICtiSettingsAdmin CtiSettings
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject ISystemSettingsAdmin SettingsAdmin
@@ -3175,10 +3175,9 @@
     </div>
     }
 
-    @* CrowdSec CTI is global (instance-wide) and lives with the rest of the global
-       threat settings on the main site only; a secondary site's Threat Intelligence
-       card points there instead of rendering the shared settings. *@
-    @if (SiteContext.IsDefault)
+    @* Where the CTI key is edited comes from ICtiSettingsAdmin: the main site here, since the key is
+       instance-wide; a multi-tenant host shows it on each tenant's sites. *@
+    @if (_ctiCardShown)
     {
     <!-- CrowdSec CTI Configuration -->
     <div class="card settings-tab-security" id="crowdsec">
@@ -5447,6 +5446,7 @@
     private string _siteInfluxLongtermBucket = string.Empty;
 
     // CrowdSec Settings
+    private bool _ctiCardShown;
     private bool crowdsecEnabled = false;
     private string crowdsecApiKey = "";
     private bool hasCrowdsecApiKey = false;
@@ -8982,18 +8982,15 @@
             var mmKey = await SystemSettings.GetGlobalAsync("maxmind.license_key");
             hasMaxmindLicenseKey = !string.IsNullOrEmpty(mmKey);
 
-            var csEnabled = await SystemSettings.GetGlobalAsync("crowdsec.enabled");
-            crowdsecEnabled = csEnabled == "true";
-            var csKey = await SystemSettings.GetGlobalAsync("crowdsec.api_key");
-            hasCrowdsecApiKey = !string.IsNullOrEmpty(csKey);
-
-            var csQuota = await SystemSettings.GetGlobalAsync("crowdsec.daily_quota");
-            if (!string.IsNullOrEmpty(csQuota) && int.TryParse(csQuota, out var quota) && quota >= 1)
-                crowdsecDailyQuota = quota;
-
-            var rateLimitState = CrowdSecClient.GetRateLimitState();
-            crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/{rateLimitState.DailyLimit}";
-
+            _ctiCardShown = await CtiSettings.CanEditAsync();
+            if (_ctiCardShown)
+            {
+                var cti = await CtiSettings.GetAsync();
+                crowdsecEnabled = cti.Enabled;
+                hasCrowdsecApiKey = cti.HasKey;
+                crowdsecDailyQuota = cti.DailyQuota;
+                crowdsecUsageDisplay = $"{cti.RequestsToday}/{cti.DailyQuota}";
+            }
         }
         catch (Exception ex)
         {
@@ -9163,24 +9160,14 @@
 
         try
         {
-            await SystemSettings.SetGlobalAsync("crowdsec.enabled", crowdsecEnabled ? "true" : "false");
+            await CtiSettings.SaveAsync(crowdsecEnabled, crowdsecApiKey, crowdsecDailyQuota);
+            crowdsecApiKey = "";
 
-            var newKeyProvided = !string.IsNullOrEmpty(crowdsecApiKey);
-            if (newKeyProvided)
-            {
-                var encrypted = CredentialService.Encrypt(crowdsecApiKey);
-                await SystemSettings.SetGlobalAsync("crowdsec.api_key", encrypted);
-                hasCrowdsecApiKey = true;
-                crowdsecApiKey = "";
-            }
-
-            await SystemSettings.SetGlobalAsync("crowdsec.daily_quota", crowdsecDailyQuota.ToString());
-
-            // Update the rate limiter. Reset counter when a new API key is saved
-            // since the new key has its own fresh quota on CrowdSec's side.
-            var requestsToday = newKeyProvided ? 0 : CrowdSecClient.GetRateLimitState().RequestsToday;
-            CrowdSecClient.LoadRateLimitState(requestsToday, DateOnly.FromDateTime(DateTime.UtcNow), crowdsecDailyQuota);
-            crowdsecUsageDisplay = $"{requestsToday}/{crowdsecDailyQuota}";
+            // The usage count is per key, so a new key starts at zero.
+            var cti = await CtiSettings.GetAsync();
+            hasCrowdsecApiKey = cti.HasKey;
+            crowdsecDailyQuota = cti.DailyQuota;
+            crowdsecUsageDisplay = $"{cti.RequestsToday}/{cti.DailyQuota}";
 
             crowdsecMessage = "CrowdSec settings saved.";
             crowdsecMessageClass = "success";
@@ -9204,16 +9191,13 @@
 
         try
         {
-            var stored = await SystemSettings.GetGlobalAsync("crowdsec.api_key");
-            if (string.IsNullOrEmpty(stored))
+            if (await CtiSettings.TestAsync() is not { } result)
             {
                 crowdsecMessage = "No CTI API key configured.";
                 crowdsecMessageClass = "warning";
                 return;
             }
 
-            var apiKey = CredentialService.IsEncrypted(stored) ? CredentialService.Decrypt(stored) : stored;
-            var result = await CrowdSecClient.TestApiKeyAsync(apiKey);
             if (result.Success)
             {
                 crowdsecMessage = result.Message;

@@ -126,7 +126,7 @@
                         <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="UseProfile">Use Profile</button>
                     </div>
                 </div>
-                <p class="form-help">@BlockingProfiles.Name(_profile): @BlockingProfiles.Description(_profile) Use Profile saves its lists and turns on outbound blocking.</p>
+                <p class="section-description"><strong>@BlockingProfiles.Name(_profile):</strong> @BlockingProfiles.Description(_profile) Use Profile saves its lists and turns on outbound blocking.</p>
                 @if (_capped > 0)
                 {
                     <p class="form-error">These lists add up to more than 100,000 entries, the most Network Optimizer sends your gateway. @_capped.ToString("N0") from the least useful lists are left out.</p>
@@ -147,7 +147,7 @@
                             @view.List.Description
                             @if (!view.List.Outbound)
                             {
-                                <span> Blocked inbound only: these addresses often host legitimate sites too.</span>
+                                <span> <strong>Blocked inbound only:</strong> these addresses often host legitimate sites too.</span>
                             }
                             <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
@@ -164,7 +164,9 @@
                         {
                             <div class="input-with-button ab-token" data-autosave>
                                 <input type="password" class="form-control" autocomplete="off" @bind="_tokens[view.List.Id]"
-                                       placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it." : $"Your {view.List.TokenName}")" />
+                                       placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it."
+                                                    : view.FromOtherSite ? $"Another site downloads this list, so no {view.List.TokenName} is needed here"
+                                                    : $"Your {view.List.TokenName}")" />
                                 <button class="btn btn-secondary" disabled="@_busy" @onclick="() => SaveToken(view.List.Id)">Save Token</button>
                             </div>
                         }

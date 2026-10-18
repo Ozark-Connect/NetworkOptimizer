@@ -9,7 +9,8 @@ namespace NetworkOptimizer.Threats.Blocking;
 public sealed record PublicBlockListStatus(string Id, int Count, DateTime? FetchedAt, string? Error);
 
 /// <summary>
-/// Downloads the public block lists and Cloudflare's ranges once per instance, each no more often
+/// Downloads the public block lists (once per pool for a list that needs a token, see
+/// <see cref="IBlockListPool"/>) and Cloudflare's ranges once per instance, each no more often
 /// than its source allows, and only once something asks for it. The last good copy is kept in the
 /// main database, so a restart or a source outage never empties a list: a failed or implausibly
 /// small download keeps the copy before it.
@@ -28,47 +29,84 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
     private readonly ConcurrentDictionary<string, Entry> _entries = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
 
+    // Tokens the source refused, by list and token hash, until when. Kept off the pool's shared entry:
+    // there one site's wrong key would hold back the site whose key works.
+    private readonly ConcurrentDictionary<string, DateTime> _refused = new();
+
     /// <summary>
     /// The list's entries: fetched when due, else the last good copy, else empty. A list that needs a
-    /// token is empty without one, and is cached per token, so sites sharing a token share its downloads.
+    /// token has one copy per <paramref name="pool"/> (see <see cref="IBlockListPool"/>): a site with a
+    /// token keeps it fresh, and a site without one gets the copy as it stands.
     /// </summary>
     public async Task<IReadOnlyList<string>> GetAsync(string id, IThreatSettingsAccessor settings, DateTime now, CancellationToken ct,
-        string? token = null)
+        string? token = null, string pool = "")
     {
         if (PublicBlockLists.Find(id) is not { } list) return [];
         if (!list.NeedsToken)
             return await GetOrRefreshAsync(id, list.Refresh, settings, now, () => FetchListAsync(list, ct), ct);
-        if (string.IsNullOrWhiteSpace(token)) return [];
 
+        var refusedKey = string.IsNullOrWhiteSpace(token) ? null : RefusedKey(id, token);
         var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < list.Urls.Count; i++)
         {
             var url = list.Urls[i];
-            all.UnionWith(await GetOrRefreshAsync(TokenCacheId(id, token, i), list.Refresh, settings, now,
-                () => FetchUrlAsync(list, url, token.Trim(), ct), ct, allowEmpty: true));
+            var cacheId = PoolCacheId(id, pool, i);
+            var usable = refusedKey != null && !(_refused.TryGetValue(refusedKey, out var until) && now < until);
+            all.UnionWith(!usable
+                ? await GetCachedAsync(cacheId, settings, ct)
+                : await GetOrRefreshAsync(cacheId, list.Refresh, settings, now,
+                    () => FetchUrlAsync(list, url, token!.Trim(), ct), ct, allowEmpty: true,
+                    onRefused: () => _refused[refusedKey!] = now + TimeSpan.FromTicks(Math.Max(list.Refresh.Ticks, RetryAfterFailure.Ticks)),
+                    onFetched: () => _refused.TryRemove(refusedKey!, out _)));
         }
         return all.ToList();
     }
 
-    /// <summary>What a token-bound list last fetched for <paramref name="token"/>, summed over its downloads.</summary>
-    public PublicBlockListStatus Status(string id, string? token)
+    /// <summary>
+    /// What a token-bound list last fetched for <paramref name="pool"/>, summed over its downloads. With
+    /// the site's own <paramref name="token"/>, a refusal of that token is the error shown.
+    /// </summary>
+    public PublicBlockListStatus Status(string id, string pool, string? token = null)
     {
         if (PublicBlockLists.Find(id) is not { NeedsToken: true } list) return Status(id);
-        if (string.IsNullOrWhiteSpace(token)) return new PublicBlockListStatus(id, 0, null, null);
         var parts = Enumerable.Range(0, list.Urls.Count)
-            .Select(i => _entries.TryGetValue(TokenCacheId(id, token, i), out var e) ? e : null).ToList();
+            .Select(i => _entries.TryGetValue(PoolCacheId(id, pool, i), out var e) ? e : null).ToList();
         var fetched = parts.Where(p => p?.FetchedAt != null).Select(p => p!.FetchedAt!.Value).ToList();
+        var refused = !string.IsNullOrWhiteSpace(token) && _refused.ContainsKey(RefusedKey(id, token));
         return new PublicBlockListStatus(id, parts.Sum(p => p?.Items.Count ?? 0), fetched.Count > 0 ? fetched.Max() : null,
-            parts.Select(p => p?.Error).FirstOrDefault(e => e != null));
+            refused ? "the key was refused" : parts.Select(p => p?.Error).FirstOrDefault(e => e != null));
     }
 
-    // Keyed by a hash of the token and the URL, never the token itself: the id names a setting in the
-    // database, and a changed URL (a new limit) must not reuse the copy fetched with the old one.
-    private static string TokenCacheId(string id, string token, int part)
+    private static string RefusedKey(string id, string token) =>
+        $"{id}.{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token.Trim())))[..16]}";
+
+    // Keyed by a hash of the pool and the URL: the id names a setting in the database, and a changed
+    // URL (a new limit) must not reuse the copy fetched with the old one.
+    private static string PoolCacheId(string id, string pool, int part)
     {
         var url = PublicBlockLists.Find(id)?.Urls.ElementAtOrDefault(part) ?? "";
-        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token.Trim() + "\n" + url));
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pool + "\n" + url));
         return $"{id}.{Convert.ToHexString(hash)[..12].ToLowerInvariant()}.{part}";
+    }
+
+    // The copy as it stands, for a site with no token of its own: never downloads.
+    private async Task<IReadOnlyList<string>> GetCachedAsync(string id, IThreatSettingsAccessor settings, CancellationToken ct)
+    {
+        if (_entries.TryGetValue(id, out var cached)) return cached.Items;
+        await _lock.WaitAsync(ct);
+        try
+        {
+            if (!_entries.TryGetValue(id, out cached))
+            {
+                cached = await LoadAsync(id, settings, ct);
+                _entries[id] = cached;
+            }
+            return cached.Items;
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
     /// <summary>Cloudflare's published ranges, refreshed daily; the built-in copy until the first fetch.</summary>
@@ -83,7 +121,8 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
         _entries.TryGetValue(id, out var e) ? new PublicBlockListStatus(id, e.Items.Count, e.FetchedAt, e.Error) : new PublicBlockListStatus(id, 0, null, null);
 
     private async Task<IReadOnlyList<string>> GetOrRefreshAsync(string id, TimeSpan refresh, IThreatSettingsAccessor settings,
-        DateTime now, Func<Task<List<string>>> fetch, CancellationToken ct, bool allowEmpty = false)
+        DateTime now, Func<Task<List<string>>> fetch, CancellationToken ct, bool allowEmpty = false,
+        Action? onRefused = null, Action? onFetched = null)
     {
         if (_entries.TryGetValue(id, out var cached) && !Due(cached, refresh, now)) return cached.Items;
 
@@ -104,6 +143,7 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
                 if ((items.Count == 0 && !allowEmpty) || (cached.Items.Count >= 50 && items.Count < cached.Items.Count / 10))
                     throw new InvalidDataException($"got {items.Count} entries, had {cached.Items.Count}");
                 cached = new Entry(items, now, now, null);
+                onFetched?.Invoke();
                 await settings.SaveSettingAsync(CacheKeyPrefix + id, JsonSerializer.Serialize(new Persisted(items, now)), ct);
                 logger.LogInformation("Public block list {List}: {Count} entries", id, items.Count);
             }
@@ -115,7 +155,11 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
             }
             catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
             {
-                cached = cached with { LastAttempt = now, Error = "the key was refused" };
+                // A refusal is about the key, not the source: the copy stays due for a site whose key works.
+                if (onRefused != null)
+                    onRefused();
+                else
+                    cached = cached with { LastAttempt = now, Error = "the key was refused" };
                 logger.LogWarning("Public block list {List}: the key was refused, keeping {Count} entries", id, cached.Items.Count);
             }
             catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException or TaskCanceledException
