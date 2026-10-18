@@ -75,7 +75,13 @@
             }
             @if (_overview.Shared.Count > 0)
             {
-                <h4 class="blocked-sources-subtitle">Shared From Other Sites</h4>
+                <h4 class="blocked-sources-subtitle">
+                    Shared From Other Sites
+                    @if (_sharedSkewed)
+                    {
+                        <span class="blocked-sources-skew" data-tooltip="@SkewTooltip">Seeing skewed blocks from one or two sites?</span>
+                    }
+                </h4>
                 <div class="table-responsive">
                     <table class="data-table">
                         <thead>
@@ -119,7 +125,14 @@
     private BlockingOverview? _overview;
     private string? _recommendationNote;
     private Dictionary<string, string> _siteNames = [];
+    private bool _sharedSkewed;
     private int? _releasing;
+
+    private const string SkewTooltip =
+        "Network Optimizer can only block scanners that UniFi logs. Sites using scanner block lists (CINS Army, IPsum, " +
+        "blocklist.de, DShield) drop most scanners at the gateway before UniFi logs them, so they detect and share few. " +
+        "A site without those lists sees, blocks, and shares far more. The skew comes from each site's block lists, " +
+        "not from how often each site is scanned.";
     private string? _message;
 
     protected override async Task OnInitializedAsync() => await Load();
@@ -132,6 +145,8 @@
             _recommendationNote = _overview.Settings.Mode == BlockingMode.DryRun ? (await Blocking.GetRecommendationAsync()).Note : null;
             if (_overview.Shared.Count > 0)
                 _siteNames = (await SiteManagement.GetSitesAsync()).ToDictionary(s => s.Slug, s => s.Name);
+            // The caller's own site is in the list, so the other sites are one fewer.
+            _sharedSkewed = SharedIsSkewed(_overview.Shared, _siteNames.Count - 1);
         }
         catch (Exception)
         {
@@ -194,6 +209,19 @@
     /// <summary>Whether the block goes to the targets: Detection Only sends manual blocks only, even ones made in Blocking mode.</summary>
     private bool IsSent(ThreatBlock b) =>
         b.Enforced && (_overview!.Settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual);
+
+    /// <summary>
+    /// Whether one site (of two others) or two sites (of three or more) hold at least 80% of 20+ shared
+    /// blocks. Blocks from sites the caller cannot see count as one site.
+    /// </summary>
+    private static bool SharedIsSkewed(IReadOnlyList<SharedBlock> shared, int otherSites)
+    {
+        if (shared.Count < 20 || otherSites < 2)
+            return false;
+        var top = otherSites == 2 ? 1 : 2;
+        var held = shared.GroupBy(s => s.SiteSlug).Select(g => g.Count()).OrderDescending().Take(top).Sum();
+        return held >= shared.Count * 0.8;
+    }
 
     private static string DrilldownUrl(string ip) => "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(ip);
 
