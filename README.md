@@ -177,7 +177,7 @@ Your gateway's IPS is blocking threats all day long, but the UniFi Console burie
 
 ### WAN Steering
 
-UniFi's WAN Failover keeps secondary connections idle until your primary goes down. Load Balancing splits everything across all WANs but gives you no control over what goes where. WAN Steering lets you have both: keep your primary WAN as the default for latency-sensitive traffic, and selectively load balance bulk traffic across your secondary connections with full port and protocol matching.
+UniFi's WAN Failover keeps secondary connections idle until your primary goes down. Load Balancing splits everything across all WANs but gives you no control over what goes where. Policy-Based Routes pick traffic by source device or network and destination IP or domain, not by protocol or port. WAN Steering fills the gaps: keep your primary WAN as the default for latency-sensitive traffic, and selectively load balance bulk traffic across your secondary connections with full port and protocol matching.
 
 Define traffic classes by source, destination, port, or protocol, assign them to specific WANs or load balance across multiple WANs with configurable weight. A lightweight Go binary on your gateway inserts rules above UniFi's routing table, watches for WAN state changes and reprovisioning events, and recovers automatically. Health-check failover still works as expected - if a WAN goes down, traffic redistributes to healthy links.
 
