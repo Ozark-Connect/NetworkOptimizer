@@ -100,6 +100,7 @@ public sealed class WanFloodService : BackgroundService
     private readonly ConcurrentDictionary<int, int> _hooksMissing = new();
     private readonly ConcurrentDictionary<string, DateTime> _unenforcedAlertedAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _noAgentSince = new();
+    private readonly ConcurrentDictionary<string, HashSet<string>> _lastActiveWans = new();
     private DateTime _lastPrune = DateTime.MinValue;
 
     public WanFloodService(AgentTunnelRegistry registry, IServiceScopeFactory scopeFactory, IScheduleSiteContext siteContext,
@@ -183,9 +184,12 @@ public sealed class WanFloodService : BackgroundService
                 .Select(p => new { Ifname = p.DataPathInterface!, p.WanNetworkgroup })
                 .ToListAsync(ct);
             // Only the gateway's active WANs (a link or an address). A disabled WAN keeps its profile but has nothing
-            // to protect. When the WAN list cannot be read, every profiled WAN stays covered.
+            // to protect. An unreadable WAN list reuses the last one read, so a blip does not flap the agent's
+            // config; only a site never read covers every profiled WAN.
             var active = (await services.GetRequiredService<Monitoring.MonitoringPathView>().GetWansAsync(ct))
                 .Where(w => w.IsActive).Select(w => w.WanInterface).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (active.Count > 0) _lastActiveWans[slug] = active;
+            else if (_lastActiveWans.TryGetValue(slug, out var last)) active = last;
             var wans = profiles
                 .Where(p => active.Count == 0 || active.Contains(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(p.WanNetworkgroup)))
                 .Select(p => p.Ifname)
