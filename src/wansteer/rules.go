@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"math"
 	"os"
 	"os/exec"
 	"strings"
@@ -25,7 +24,9 @@ func applyRules(cfg *Config) error {
 	}
 
 	// Add rules for each enabled traffic class
-	for _, tc := range cfg.TrafficClasses {
+	probs := conditionalProbabilities(cfg.TrafficClasses)
+	for i := range cfg.TrafficClasses {
+		tc := &cfg.TrafficClasses[i]
 		if !tc.Enabled {
 			continue
 		}
@@ -33,7 +34,12 @@ func applyRules(cfg *Config) error {
 		if !ok {
 			continue
 		}
-		if err := addTrafficClassRules(&tc, &wan); err != nil {
+		if isRefused(tc) {
+			slog.Warn("traffic class skipped: no probability match available on this gateway",
+				"traffic_class", tc.Name, "probability", tc.Probability)
+			continue
+		}
+		if err := addTrafficClassRules(tc, &wan, probs[i], dynRandomName(i, &wan)); err != nil {
 			return fmt.Errorf("traffic class %q: %w", tc.Name, err)
 		}
 	}
@@ -51,16 +57,17 @@ func applyRules(cfg *Config) error {
 
 // addTrafficClassRules generates iptables rules for a single traffic class.
 // It builds the cross-product of source × destination matchers, each combined
-// with protocol/port filters.
-func addTrafficClassRules(tc *TrafficClass, wan *WANInterface) error {
+// with protocol/port filters. p is the class's conditional probability (see
+// conditionalProbabilities) and probName its dyn_random entry.
+func addTrafficClassRules(tc *TrafficClass, wan *WANInterface, p float64, probName string) error {
 	// Build all source matchers
 	srcMatchers := buildSourceMatchers(&tc.Match)
 
 	// Build all destination matchers
 	dstMatchers := buildDestMatchers(&tc.Match)
 
-	// Build shared args: protocol, ports, probability
-	sharedArgs := buildSharedArgs(tc)
+	// Build shared args: protocol, ports, state NEW, then the probability args
+	sharedArgs := append(buildSharedArgs(tc), weightedArgs(tc, wan, p, probName)...)
 
 	// Cross-product: for each source × destination combination, add MARK + CONNMARK rules
 	for _, src := range srcMatchers {
@@ -93,7 +100,26 @@ func addTrafficClassRules(tc *TrafficClass, wan *WANInterface) error {
 		}
 	}
 
+	// dyn_random entries exist only once a rule references them
+	if activeBackend == backendDynRandom && probabilityMatch(p, probName) != nil {
+		if err := setDynRandomProb(probName, p); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// weightedArgs returns the MARK rule's unmarked-only guard and probability match, or nil for a
+// 100% class, which marks every NEW connection it matches with no module dependency.
+// The guard precedes the probability match so the nth counter and the dyn_random draw see only
+// unmarked packets: that is what lets weighted classes cascade.
+func weightedArgs(tc *TrafficClass, wan *WANInterface, p float64, probName string) []string {
+	if !isWeighted(tc) {
+		return nil
+	}
+	args := []string{"-m", "mark", "--mark", "0x0/" + wan.markMask()}
+	return append(args, probabilityMatch(p, probName)...)
 }
 
 // buildSourceMatchers returns a list of iptables arg slices for source matching.
@@ -138,7 +164,7 @@ func buildDestMatchers(m *MatchCriteria) [][]string {
 }
 
 // buildSharedArgs returns iptables args shared across all rules for a traffic class:
-// protocol, ports, state NEW, and probability.
+// protocol, ports, and state NEW. The probability args come from weightedArgs.
 func buildSharedArgs(tc *TrafficClass) []string {
 	var args []string
 
@@ -169,15 +195,6 @@ func buildSharedArgs(tc *TrafficClass) []string {
 
 	// Only match NEW connections
 	args = append(args, "-m", "state", "--state", "NEW")
-
-	// Load balance using round-robin (deterministic, not random)
-	// --every N matches every Nth packet: probability 0.5 = every 2, 0.33 = every 3, etc.
-	every := int(math.Round(1.0 / tc.Probability))
-	if every < 1 {
-		every = 1
-	}
-	args = append(args, "-m", "statistic", "--mode", "nth",
-		"--every", fmt.Sprintf("%d", every), "--packet", "0")
 
 	return args
 }
@@ -276,7 +293,7 @@ func ruleCount() int {
 func expectedRuleCount(cfg *Config, disabledWANs map[string]bool) int {
 	count := 0
 	for _, tc := range cfg.TrafficClasses {
-		if !tc.Enabled || disabledWANs[tc.TargetWAN] {
+		if !tc.Enabled || disabledWANs[tc.TargetWAN] || isRefused(&tc) {
 			continue
 		}
 		srcCount := len(tc.Match.SrcCIDRs) + len(tc.Match.SrcRanges) + len(tc.Match.SrcMACs)
@@ -416,10 +433,13 @@ func flushConntrackForWAN(wan *WANInterface) {
 	}
 }
 
-// run executes a command and returns any error.
+// run executes a command and returns any error. Tests replace it to capture iptables calls.
+var run = execRun
+
+// execRun executes a command and returns any error.
 // For iptables commands, adds -w 5 to wait up to 5 seconds for the xtables lock
 // (avoids boot-time contention when UniFi is also configuring iptables).
-func run(name string, args ...string) error {
+func execRun(name string, args ...string) error {
 	if name == "iptables" {
 		args = append([]string{"-w", "5"}, args...)
 	}

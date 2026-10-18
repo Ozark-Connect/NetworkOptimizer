@@ -43,6 +43,7 @@ func main() {
 	cleanup := flag.Bool("cleanup", false, "Remove all rules and exit (for ExecStopPost)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	showBinaryVersion := flag.Bool("binary-version", false, "Print the daemon contract version (integer) and exit")
+	probe := flag.Bool("probe", false, "Print the probability backend this gateway supports (statistic, dyn_random, none) and exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -52,6 +53,11 @@ func main() {
 
 	if *showBinaryVersion {
 		fmt.Println(binaryVersion())
+		os.Exit(0)
+	}
+
+	if *probe {
+		fmt.Println(resolveProbBackend())
 		os.Exit(0)
 	}
 
@@ -94,6 +100,16 @@ func main() {
 	// before applying rules. This prevents stale "all healthy" assumptions
 	// while interfaces are still coming up post-reboot.
 	waitForWANStability(cfg)
+
+	// statistic is deterministic round-robin; dyn_random is random per (src,dst) flow. Both
+	// balance, but per-flow assignment differs, so the log names the active one for support.
+	activeBackend = resolveProbBackend()
+	if activeBackend == backendNone {
+		slog.Warn("no probability match available: traffic classes below 100% will not be applied",
+			"prob_backend", activeBackend, "unsupported_classes", unsupportedClasses(cfg))
+	} else {
+		slog.Info("probability backend resolved", "prob_backend", activeBackend)
+	}
 
 	// Apply initial rules
 	if err := applyRules(cfg); err != nil {
