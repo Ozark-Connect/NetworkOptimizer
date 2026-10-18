@@ -7,7 +7,7 @@ using Xunit;
 
 namespace NetworkOptimizer.Threats.Tests;
 
-/// <summary>Public lists that need the site's own API token: auth, per-download caching, and rate limits.</summary>
+/// <summary>Public lists that need an API token: auth, one copy per pool, and rate limits.</summary>
 public class PublicBlockListCacheTests
 {
     private static readonly DateTime T0 = new(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc);
@@ -77,7 +77,7 @@ public class PublicBlockListCacheTests
         var later = await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0.AddHours(2), CancellationToken.None, "secret");
 
         later.Should().Equal("203.0.113.5");
-        cache.Status(PublicBlockLists.QFeeds, "secret").Error.Should().BeNull();
+        cache.Status(PublicBlockLists.QFeeds, "").Error.Should().BeNull();
     }
 
     [Fact]
@@ -101,11 +101,72 @@ public class PublicBlockListCacheTests
         var source = new Source { Respond = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized) };
         var cache = source.Cache();
         await cache.GetAsync(PublicBlockLists.QFeeds, new FakeSettings(), T0, CancellationToken.None, "wrong");
-        cache.Status(PublicBlockLists.QFeeds, "wrong").Error.Should().Be("the key was refused");
+        cache.Status(PublicBlockLists.QFeeds, "", "wrong").Error.Should().Be("the key was refused");
+        cache.Status(PublicBlockLists.QFeeds, "", "another-sites-key").Error.Should().BeNull();
     }
 
     [Fact]
-    public async Task TheCacheIsKeyedByAHashOfTheToken_NeverTheToken()
+    public async Task OneSitesRefusedKey_DoesNotHoldBackAnotherSitesKey()
+    {
+        var source = new Source
+        {
+            Respond = req => Convert.FromBase64String(req.Headers.Authorization!.Parameter!).SequenceEqual(
+                System.Text.Encoding.UTF8.GetBytes("api_token:good"))
+                ? Body("203.0.113.5\n")
+                : new HttpResponseMessage(HttpStatusCode.Unauthorized),
+        };
+        var cache = source.Cache();
+        var settings = new FakeSettings();
+        await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0, CancellationToken.None, "wrong");
+
+        var items = await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0.AddMinutes(1), CancellationToken.None, "good");
+
+        items.Should().Equal("203.0.113.5");
+    }
+
+    [Fact]
+    public async Task ASiteWithoutAToken_GetsTheCopyAnotherSiteInItsPoolFetched()
+    {
+        var source = new Source { Respond = _ => Body("203.0.113.5\n") };
+        var cache = source.Cache();
+        var settings = new FakeSettings();
+        await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0, CancellationToken.None, "secret");
+        var fetched = source.Requests.Count;
+
+        var shared = await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0.AddHours(2), CancellationToken.None);
+
+        shared.Should().Equal("203.0.113.5");
+        source.Requests.Should().HaveCount(fetched);
+    }
+
+    [Fact]
+    public async Task AnotherPool_DoesNotSeeTheCopy()
+    {
+        var source = new Source { Respond = _ => Body("203.0.113.5\n") };
+        var cache = source.Cache();
+        var settings = new FakeSettings();
+        await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0, CancellationToken.None, "secret", pool: "tenant-a");
+
+        (await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0, CancellationToken.None, pool: "tenant-b")).Should().BeEmpty();
+        (await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0, CancellationToken.None, pool: "tenant-a")).Should().Equal("203.0.113.5");
+    }
+
+    [Fact]
+    public async Task TwoTokensInOnePool_DownloadOncePerRefresh()
+    {
+        var source = new Source { Respond = _ => Body("203.0.113.5\n") };
+        var cache = source.Cache();
+        var settings = new FakeSettings();
+        await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0, CancellationToken.None, "site-a-key");
+        var fetched = source.Requests.Count;
+
+        await cache.GetAsync(PublicBlockLists.QFeeds, settings, T0.AddMinutes(1), CancellationToken.None, "site-b-key");
+
+        source.Requests.Should().HaveCount(fetched);
+    }
+
+    [Fact]
+    public async Task TheTokenIsNeverInTheCacheKey()
     {
         var source = new Source { Respond = _ => Body("203.0.113.5\n") };
         var settings = new FakeSettings();

@@ -43,11 +43,13 @@ public class ThreatDashboardService : IThreatFilterAdminService
 {
     private readonly ExposureValidator _exposureValidator;
     private readonly CrowdSecEnrichmentService _crowdSecService;
+    private readonly CrowdSecClient _crowdSecClient;
+    private readonly ICtiReputationCache _ctiCache;
+    private readonly ICtiCredentialScope _ctiCredentials;
     private readonly GeoEnrichmentService _geoService;
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
     private readonly SiteContextService _siteContext;
     private readonly IThreatSettingsAccessor _settingsAccessor;
-    private readonly ICredentialProtectionService _credentialService;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ThreatDashboardService> _logger;
 
@@ -67,32 +69,50 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public ThreatDashboardService(
         ExposureValidator exposureValidator,
         CrowdSecEnrichmentService crowdSecService,
+        CrowdSecClient crowdSecClient,
+        ICtiReputationCache ctiCache,
+        ICtiCredentialScope ctiCredentials,
         GeoEnrichmentService geoService,
         IUniFiClientAccessor uniFiClientAccessor,
         SiteContextService siteContext,
         IThreatSettingsAccessor settingsAccessor,
-        ICredentialProtectionService credentialService,
         IServiceProvider serviceProvider,
         ILogger<ThreatDashboardService> logger)
     {
         _exposureValidator = exposureValidator;
         _crowdSecService = crowdSecService;
+        _crowdSecClient = crowdSecClient;
+        _ctiCache = ctiCache;
+        _ctiCredentials = ctiCredentials;
         _geoService = geoService;
         _uniFiClientAccessor = uniFiClientAccessor;
         _siteContext = siteContext;
         _settingsAccessor = settingsAccessor;
-        _credentialService = credentialService;
         _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
-    // The site's enabled public lists as Automatic Blocking last built them (null site = default site).
-    private NetworkOptimizer.Threats.Blocking.PublicBlockList? PublicListFor(string ip)
+    // The site in context as the threat services name it: null is the default site.
+    private string? Site
     {
-        var slug = _siteContext.Slug;
-        var site = string.IsNullOrEmpty(slug) || slug == SiteManagementService.DefaultSiteSlug ? null : slug;
-        return _serviceProvider.GetService<NetworkOptimizer.Threats.Blocking.IPublicListLookup>()?.For(site).Find(ip);
+        get
+        {
+            var slug = _siteContext.Slug;
+            return string.IsNullOrEmpty(slug) || slug == SiteManagementService.DefaultSiteSlug ? null : slug;
+        }
     }
+
+    // The site's enabled public lists as Automatic Blocking last built them.
+    private NetworkOptimizer.Threats.Blocking.PublicBlockList? PublicListFor(string ip) =>
+        _serviceProvider.GetService<NetworkOptimizer.Threats.Blocking.IPublicListLookup>()?.For(Site).Find(ip);
+
+    /// <summary>Whether this site has a CrowdSec CTI key to look up with.</summary>
+    public async Task<bool> IsCtiConfiguredAsync(CancellationToken cancellationToken = default) =>
+        await _ctiCredentials.GetAsync(Site, cancellationToken) != null;
+
+    /// <summary>Whether this site's CTI key has hit CrowdSec's daily quota.</summary>
+    public async Task<bool> IsCtiRateLimitedAsync(CancellationToken cancellationToken = default) =>
+        await _ctiCredentials.GetAsync(Site, cancellationToken) is { } credential && _crowdSecClient.IsRateLimited(credential.ApiKey);
 
     /// <summary>
     /// Create a fresh DI scope and resolve a private <see cref="IThreatRepository"/> from it.
@@ -163,7 +183,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
             repo.SetSeverityFilter(null);
 
             // Enrich from DB cache (instant, no API calls) so previously looked-up IPs show badges
-            await EnrichFromCacheAsync(repo, topSources, cancellationToken);
+            await EnrichFromCacheAsync(topSources, cancellationToken);
 
             // Determine which IPs need hydration and kick off background API calls.
             // Returns the count so the caller can schedule a follow-up refresh.
@@ -195,12 +215,9 @@ public class ThreatDashboardService : IThreatFilterAdminService
     {
         try
         {
-            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
-            if (apiKey == null) return 0;
-
-            var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
-            var quota = int.TryParse(quotaStr, out var q) ? q : 30;
-            var autoBudget = Math.Max(1, quota / 2);
+            if (await _ctiCredentials.GetAsync(Site, cancellationToken) is not { } credential) return 0;
+            var apiKey = credential.ApiKey;
+            var autoBudget = Math.Max(1, credential.DailyQuota / 2);
 
             // Snapshot the IPs that need hydration before the scoped service disposes
             var ipsToHydrate = sources
@@ -213,19 +230,12 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
             _logger.LogDebug("CrowdSec background hydration starting for {Count} IPs", ipsToHydrate.Count);
 
-            // Run in a new scope so scoped services (repository) stay alive. Capture the
-            // site slug NOW: the continuation can outlive the triggering circuit scope and
-            // its HTTP context, so the fresh scope must be pinned explicitly or the
-            // repository could resolve to the default site's database.
-            var siteSlug = _siteContext.Slug;
+            // Only singletons are used below (the client and the instance-wide cache), so the
+            // continuation may outlive the triggering circuit scope.
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    using var scope = _serviceProvider.CreateScope();
-                    scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
-                    var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
-
                     foreach (var ip in ipsToHydrate)
                     {
                         // Retry up to 3 times on burst throttle (backoff is built into the client)
@@ -233,7 +243,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
                         for (var attempt = 0; attempt < 3; attempt++)
                         {
                             (_, outcome) = await _crowdSecService.GetReputationAsync(
-                                ip, apiKey, repository, cancellationToken: CancellationToken.None);
+                                ip, apiKey, cancellationToken: CancellationToken.None);
 
                             if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
                             {
@@ -266,15 +276,14 @@ public class ThreatDashboardService : IThreatFilterAdminService
     /// This ensures previously looked-up IPs (both positive and negative hits) show their badge
     /// even for low-quota users who use manual lookups.
     /// </summary>
-    private async Task EnrichFromCacheAsync(IThreatRepository repository, List<SourceIpSummary> sources,
-        CancellationToken cancellationToken)
+    private async Task EnrichFromCacheAsync(List<SourceIpSummary> sources, CancellationToken cancellationToken)
     {
         foreach (var source in sources)
         {
             if (source.CrowdSecReputation != null) continue;
             if (NetworkUtilities.IsPrivateIpAddress(source.SourceIp)) continue;
 
-            var cached = await GetCachedCtiCoreAsync(repository, source.SourceIp, cancellationToken);
+            var cached = await GetCachedCtiAsync(source.SourceIp, cancellationToken);
             if (cached == null) continue;
 
             source.CrowdSecReputation = cached.CrowdSecReputation;
@@ -291,16 +300,9 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public async Task<SourceIpSummary?> GetCachedCtiAsync(string ip,
         CancellationToken cancellationToken = default)
     {
-        using var scope = NewRepositoryScope(out var repo);
-        return await GetCachedCtiCoreAsync(repo, ip, cancellationToken);
-    }
-
-    private async Task<SourceIpSummary?> GetCachedCtiCoreAsync(IThreatRepository repository, string ip,
-        CancellationToken cancellationToken = default)
-    {
         try
         {
-            var cached = await repository.GetCrowdSecCacheAsync(ip, cancellationToken);
+            var cached = await _ctiCache.GetAsync(ip, cancellationToken);
             if (cached == null) return null;
 
             CrowdSecIpInfo? info = null;
@@ -339,11 +341,9 @@ public class ThreatDashboardService : IThreatFilterAdminService
     {
         try
         {
-            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
-            if (apiKey == null) return (null, false);
+            if (await _ctiCredentials.GetAsync(Site, cancellationToken) is not { } credential) return (null, false);
 
-            using var scope = NewRepositoryScope(out var repo);
-            var rateLimited = await EnrichSourcesAsync(repo, [source], apiKey, cancellationToken);
+            var rateLimited = await EnrichSourcesAsync([source], credential.ApiKey, cancellationToken);
             return (source, rateLimited);
         }
         catch (Exception ex)
@@ -353,14 +353,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
         }
     }
 
-    private async Task<string?> GetDecryptedApiKeyAsync(CancellationToken cancellationToken)
-    {
-        var stored = await _settingsAccessor.GetSettingAsync("crowdsec.api_key", cancellationToken);
-        if (string.IsNullOrWhiteSpace(stored)) return null;
-        return _credentialService.IsEncrypted(stored) ? _credentialService.Decrypt(stored) : stored;
-    }
-
-    private async Task<bool> EnrichSourcesAsync(IThreatRepository repository, List<SourceIpSummary> sources, string apiKey,
+    private async Task<bool> EnrichSourcesAsync(List<SourceIpSummary> sources, string apiKey,
         CancellationToken cancellationToken)
     {
         foreach (var source in sources)
@@ -376,7 +369,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 for (var attempt = 0; attempt < 3; attempt++)
                 {
                     (info, outcome) = await _crowdSecService.GetReputationAsync(
-                        source.SourceIp, apiKey, repository, cancellationToken: cancellationToken);
+                        source.SourceIp, apiKey, cancellationToken: cancellationToken);
 
                     if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
                         return true; // daily quota exhausted - stop enriching and show banner
@@ -501,14 +494,6 @@ public class ThreatDashboardService : IThreatFilterAdminService
             _logger.LogError(ex, "Failed to get recent events");
             return [];
         }
-    }
-
-    public async Task<CrowdSecIpInfo?> GetCrowdSecReputationAsync(string ip, string apiKey,
-        int cacheTtlHours = 720, CancellationToken cancellationToken = default)
-    {
-        using var scope = NewRepositoryScope(out var repo);
-        var (info, _) = await _crowdSecService.GetReputationAsync(ip, apiKey, repo, cacheTtlHours, cancellationToken);
-        return info;
     }
 
     /// <summary>

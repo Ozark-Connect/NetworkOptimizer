@@ -105,8 +105,8 @@ public interface IThreatRepository
     Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
 
     // --- CrowdSec Cache ---
-    Task<CrowdSecReputation?> GetCrowdSecCacheAsync(string ip, CancellationToken cancellationToken = default);
-    Task SaveCrowdSecCacheAsync(CrowdSecReputation reputation, CancellationToken cancellationToken = default);
+    // The cache is instance-wide (ICtiReputationCache, main database). A site database holds only rows
+    // from before it moved; this lets them expire.
     Task PurgeCrowdSecCacheAsync(CancellationToken cancellationToken = default);
 
     // --- Noise Filters ---

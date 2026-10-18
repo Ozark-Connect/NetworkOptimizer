@@ -1165,49 +1165,6 @@ public class ThreatRepository : IThreatRepository
 
     #region CrowdSec Cache
 
-    public async Task<CrowdSecReputation?> GetCrowdSecCacheAsync(string ip,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            return await _context.CrowdSecReputations
-                .FirstOrDefaultAsync(r => r.Ip == ip && r.ExpiresAt > DateTime.UtcNow, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to get CrowdSec cache for {Ip}", ip);
-            throw;
-        }
-    }
-
-    public async Task SaveCrowdSecCacheAsync(CrowdSecReputation reputation,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var existing = await _context.CrowdSecReputations
-                .FirstOrDefaultAsync(r => r.Ip == reputation.Ip, cancellationToken);
-
-            if (existing != null)
-            {
-                existing.ReputationJson = reputation.ReputationJson;
-                existing.FetchedAt = reputation.FetchedAt;
-                existing.ExpiresAt = reputation.ExpiresAt;
-            }
-            else
-            {
-                _context.CrowdSecReputations.Add(reputation);
-            }
-
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to save CrowdSec cache for {Ip}", reputation.Ip);
-            throw;
-        }
-    }
-
     public async Task PurgeCrowdSecCacheAsync(CancellationToken cancellationToken = default)
     {
         try

@@ -584,6 +584,12 @@ builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryCha
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.CrowdSec.CrowdSecClient>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.CrowdSec.CrowdSecEnrichmentService>();
+// CTI answers are cached once for the instance; the key a site looks up with comes from the
+// credential scope, which a multi-tenant host decorates to give each tenant its own.
+builder.Services.AddSingleton<NetworkOptimizer.Threats.CrowdSec.ICtiReputationCache, NetworkOptimizer.Storage.Repositories.CtiReputationCache>();
+builder.Services.AddScoped<NetworkOptimizer.Threats.CrowdSec.ICtiCredentialScope, NetworkOptimizer.Threats.CrowdSec.InstanceCtiCredentialScope>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ICtiSettingsAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.CtiSettingsAdminService>(sp));
 builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatEventNormalizer>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.KillChainClassifier>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ThreatPatternAnalyzer>();
@@ -615,6 +621,8 @@ builder.Services.AddHttpClient("PublicBlockLists", client =>
 });
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IGatewayBlocklistWriter>(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.GatewayBlocklist>());
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockSharingScope, NetworkOptimizer.Threats.Blocking.InstanceBlockSharingScope>();
+// Public lists that need a key are shared within a pool: the install here; a multi-tenant host decorates this.
+builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockListPool, NetworkOptimizer.Threats.Blocking.InstanceBlockListPool>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IWafConnectionAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WafConnectionAdminService>(sp));
@@ -1239,6 +1247,20 @@ using (var scope = app.Services.CreateScope())
             using var siteDb = new NetworkOptimizerDbContext(siteOptions);
             NetworkOptimizer.Storage.MigrationSafety.MigrateWithFriendlyErrors(siteDb);
 
+            // The CrowdSec CTI cache is instance-wide now: carry this site's unexpired answers over.
+            try
+            {
+                // Its own main context, so a failed merge leaves nothing pending on `db`.
+                using var cacheDb = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>().CreateDbContext();
+                var carried = NetworkOptimizer.Storage.Repositories.CtiReputationCache.MergeFromSite(cacheDb, siteDb);
+                if (carried > 0)
+                    app.Logger.LogInformation("Moved {Count} CrowdSec CTI cache entries from site {Slug} to the shared cache", carried, site.Slug);
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "Could not move site {Slug}'s CrowdSec CTI cache entries", site.Slug);
+            }
+
             // Seed the Alerts & Schedule defaults into each site's DB too, so secondary
             // sites match the main site instead of showing blank lists. The main-DB seed
             // below only covers the default site.
@@ -1380,17 +1402,6 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 // Initialize GeoLite2 enrichment (looks for .mmdb files in data directory)
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
-
-// Load CrowdSec daily quota from settings
-{
-    var sysSettings = app.Services.GetRequiredService<ISystemSettingsService>();
-    var csQuota = await sysSettings.GetGlobalAsync("crowdsec.daily_quota");
-    var dailyLimit = 30;
-    if (!string.IsNullOrEmpty(csQuota) && int.TryParse(csQuota, out var q) && q >= 1)
-        dailyLimit = q;
-    app.Services.GetRequiredService<NetworkOptimizer.Threats.CrowdSec.CrowdSecClient>()
-        .LoadRateLimitState(0, DateOnly.FromDateTime(DateTime.UtcNow), dailyLimit);
-}
 
 // Register schedule executor delegates (bridges Alerts project to Web project services)
 app.RegisterScheduleExecutors();

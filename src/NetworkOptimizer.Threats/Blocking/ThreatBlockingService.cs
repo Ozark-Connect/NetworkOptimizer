@@ -381,7 +381,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             // Dry Run downloads the chosen lists without sending them, so Settings shows their counts,
             // devices reaching them are flagged, and the first Enforce has them at once.
             // The site's own blocks come first in what UniFi Network's Network Lists hold.
-            var set = await FeedEntriesAsync(site, accessor, settings, allowlist, MaxConsoleEntries - desired.Count, now, ct);
+            var pool = services.GetService<IBlockListPool>() is { } pools ? await pools.GetPoolAsync(site, ct) : "";
+            var set = await FeedEntriesAsync(site, pool, accessor, settings, allowlist, MaxConsoleEntries - desired.Count, now, ct);
             _listMatchers[Key(site)] = set.Matcher;
             if (settings.Mode == BlockingMode.Enforce)
             {
@@ -542,7 +543,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
     // The enabled public lists' entries, minus anything overlapping protected space. Every list blocks
     // inbound; only Outbound lists are blocked outbound and matched for contact alerts.
-    private async Task<FeedSet> FeedEntriesAsync(string? site, IThreatSettingsAccessor accessor,
+    private async Task<FeedSet> FeedEntriesAsync(string? site, string pool, IThreatSettingsAccessor accessor,
         BlockingSettings settings, BlockAllowlist allowlist, int consoleBudget, DateTime now, CancellationToken ct)
     {
         if (_lists == null || settings.Feeds.Count == 0)
@@ -563,7 +564,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 : null;
             var kept = new List<string>();
             perList.Add((list, kept));
-            foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct, token))
+            foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct, token, pool))
             {
                 if (allowlist.ExemptsRange(entry) != null || all.Contains(entry)) continue;
                 if (all.Count >= MaxFeedEntries)

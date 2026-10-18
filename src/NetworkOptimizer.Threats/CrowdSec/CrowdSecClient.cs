@@ -27,18 +27,21 @@ public class CrowdSecClient
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<CrowdSecClient> _logger;
     private const string BaseUrl = "https://cti.api.crowdsec.net/v2/smoke/";
-    private const int DefaultDailyLimit = 30;
     private const int MinRequestIntervalMs = 500;
     private const int MaxBurstBackoffMs = 30_000;
 
-    // In-memory rate limit tracking (also persisted via SystemSettings)
-    private int _requestsToday;
-    private int _dailyLimit = DefaultDailyLimit;
-    private DateOnly _requestsDate = DateOnly.FromDateTime(DateTime.UtcNow);
-    private DateTime? _dailyLimitExceededUntil; // set on "Limit Exceeded" 429, expires after 1 hour
-    private int _consecutiveBurstThrottles; // for exponential backoff on "Too Many Requests"
-    private DateTime _lastRequestTime; // for spacing out requests
-    private readonly object _rateLimitLock = new();
+    // CrowdSec counts quota and burst throttles per key, so each key has its own state. In memory
+    // only: a restart starts every key's count at zero.
+    private sealed class KeyState
+    {
+        public int RequestsToday;
+        public DateOnly RequestsDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        public DateTime? DailyLimitExceededUntil; // set on "Limit Exceeded" 429, expires after 1 hour
+        public int ConsecutiveBurstThrottles; // for exponential backoff on "Too Many Requests"
+        public DateTime LastRequestTime; // for spacing out requests
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, KeyState> _states = new();
 
     public CrowdSecClient(IHttpClientFactory httpClientFactory, ILogger<CrowdSecClient> logger)
     {
@@ -46,44 +49,31 @@ public class CrowdSecClient
         _logger = logger;
     }
 
-    /// <summary>
-    /// Load persisted rate limit state from SystemSettings on startup.
-    /// </summary>
-    public void LoadRateLimitState(int requestsToday, DateOnly requestsDate, int dailyLimit = DefaultDailyLimit)
+    // Keyed by a hash so the key itself is never held in a long-lived dictionary.
+    private KeyState StateFor(string apiKey) =>
+        _states.GetOrAdd(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(apiKey.Trim())))[..16], _ => new KeyState());
+
+    /// <summary>Lookups made with <paramref name="apiKey"/> today (UTC), for the usage display.</summary>
+    public int RequestsToday(string apiKey)
     {
-        lock (_rateLimitLock)
+        var s = StateFor(apiKey);
+        lock (s)
         {
-            _requestsToday = requestsToday;
-            _requestsDate = requestsDate;
-            _dailyLimit = dailyLimit >= 1 ? dailyLimit : DefaultDailyLimit;
-            _dailyLimitExceededUntil = null;
-            _consecutiveBurstThrottles = 0;
+            return s.RequestsDate == DateOnly.FromDateTime(DateTime.UtcNow) ? s.RequestsToday : 0;
         }
     }
 
     /// <summary>
-    /// Get current rate limit state for persistence.
-    /// </summary>
-    public (int RequestsToday, DateOnly RequestsDate, int DailyLimit) GetRateLimitState()
-    {
-        lock (_rateLimitLock)
-        {
-            return (_requestsToday, _requestsDate, _dailyLimit);
-        }
-    }
-
-    /// <summary>
-    /// Whether the daily quota has been exhausted (received a "Limit Exceeded" 429).
+    /// Whether <paramref name="apiKey"/>'s daily quota has been exhausted (received a "Limit Exceeded" 429).
     /// Burst throttles ("Too Many Requests") do NOT set this - those are transient.
     /// </summary>
-    public bool IsRateLimited
+    public bool IsRateLimited(string apiKey)
     {
-        get
+        var s = StateFor(apiKey);
+        lock (s)
         {
-            lock (_rateLimitLock)
-            {
-                return _dailyLimitExceededUntil != null && DateTime.UtcNow < _dailyLimitExceededUntil;
-            }
+            return s.DailyLimitExceededUntil != null && DateTime.UtcNow < s.DailyLimitExceededUntil;
         }
     }
 
@@ -103,15 +93,15 @@ public class CrowdSecClient
             return (null, CrowdSecLookupOutcome.Error);
         }
 
-        if (!CheckAndIncrementRateLimit())
+        var state = StateFor(apiKey);
+        if (!CheckAndIncrementRateLimit(state))
         {
-            _logger.LogDebug("CrowdSec rate limit reached ({Requests}/{Limit} today)",
-                _requestsToday, _dailyLimit);
+            _logger.LogDebug("CrowdSec daily quota reached ({Requests} lookups today)", state.RequestsToday);
             return (null, CrowdSecLookupOutcome.QuotaExhausted);
         }
 
         // Space out requests to avoid burst throttling
-        await ThrottleAsync(cancellationToken);
+        await ThrottleAsync(state, cancellationToken);
 
         try
         {
@@ -124,13 +114,13 @@ public class CrowdSecClient
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 _logger.LogDebug("IP {Ip} not found in CrowdSec database", ipAddress);
-                OnSuccess();
+                OnSuccess(state);
                 return (null, CrowdSecLookupOutcome.NotFound);
             }
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                return await Handle429Async(response, cancellationToken);
+                return await Handle429Async(state, response, cancellationToken);
             }
 
             if (response.StatusCode == HttpStatusCode.Forbidden)
@@ -141,7 +131,7 @@ public class CrowdSecClient
 
             response.EnsureSuccessStatusCode();
             var info = await response.Content.ReadFromJsonAsync<CrowdSecIpInfo>(cancellationToken: cancellationToken);
-            OnSuccess();
+            OnSuccess(state);
             return (info, CrowdSecLookupOutcome.Success);
         }
         catch (Exception ex)
@@ -199,40 +189,42 @@ public class CrowdSecClient
     /// "Limit Exceeded" = daily quota gone. "Too Many Requests" = slow down.
     /// </summary>
     private async Task<(CrowdSecIpInfo? Info, CrowdSecLookupOutcome Outcome)> Handle429Async(
-        HttpResponseMessage response, CancellationToken cancellationToken)
+        KeyState state, HttpResponseMessage response, CancellationToken cancellationToken)
     {
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         var isDailyLimit = body.Contains("Limit Exceeded", StringComparison.OrdinalIgnoreCase);
 
         if (isDailyLimit)
         {
-            _logger.LogWarning(
-                "CrowdSec daily quota exhausted (429 Limit Exceeded) after {RequestsToday}/{DailyLimit} requests today",
-                _requestsToday, _dailyLimit);
-            lock (_rateLimitLock)
+            int requests;
+            lock (state)
             {
-                _dailyLimitExceededUntil = DateTime.UtcNow.AddHours(1);
-                _consecutiveBurstThrottles = 0;
+                state.DailyLimitExceededUntil = DateTime.UtcNow.AddHours(1);
+                state.ConsecutiveBurstThrottles = 0;
+                requests = state.RequestsToday;
             }
+            _logger.LogWarning("CrowdSec daily quota exhausted (429 Limit Exceeded) after {RequestsToday} requests today", requests);
             return (null, CrowdSecLookupOutcome.QuotaExhausted);
         }
 
         // Burst throttle - exponential backoff
-        int backoffMs;
-        lock (_rateLimitLock)
+        int backoffMs, requestsToday, throttles;
+        lock (state)
         {
-            _consecutiveBurstThrottles++;
+            state.ConsecutiveBurstThrottles++;
             backoffMs = Math.Min(
-                (int)(Math.Pow(2, _consecutiveBurstThrottles) * 500),
+                (int)(Math.Pow(2, state.ConsecutiveBurstThrottles) * 500),
                 MaxBurstBackoffMs);
             // Undo the request count increment - this request didn't actually consume quota
-            if (_requestsToday > 0) _requestsToday--;
+            if (state.RequestsToday > 0) state.RequestsToday--;
+            requestsToday = state.RequestsToday;
+            throttles = state.ConsecutiveBurstThrottles;
         }
 
         _logger.LogWarning(
-            "CrowdSec burst throttle (429 Too Many Requests) after {RequestsToday}/{DailyLimit} requests today. " +
+            "CrowdSec burst throttle (429 Too Many Requests) after {RequestsToday} requests today. " +
             "Consecutive throttles: {Count}. Next backoff: {BackoffMs}ms. Response: {Body}",
-            _requestsToday, _dailyLimit, _consecutiveBurstThrottles, backoffMs, body);
+            requestsToday, throttles, backoffMs, body);
 
         return (null, CrowdSecLookupOutcome.BurstThrottled);
     }
@@ -241,24 +233,24 @@ public class CrowdSecClient
     /// Wait at least MinRequestIntervalMs between API calls, plus any exponential backoff
     /// from prior burst throttles.
     /// </summary>
-    private async Task ThrottleAsync(CancellationToken cancellationToken)
+    private async Task ThrottleAsync(KeyState state, CancellationToken cancellationToken)
     {
         int waitMs;
-        lock (_rateLimitLock)
+        lock (state)
         {
-            var elapsed = (int)(DateTime.UtcNow - _lastRequestTime).TotalMilliseconds;
+            var elapsed = (int)(DateTime.UtcNow - state.LastRequestTime).TotalMilliseconds;
 
             // Base interval + exponential backoff if we've been throttled
             var targetInterval = MinRequestIntervalMs;
-            if (_consecutiveBurstThrottles > 0)
+            if (state.ConsecutiveBurstThrottles > 0)
             {
                 targetInterval = Math.Min(
-                    (int)(Math.Pow(2, _consecutiveBurstThrottles) * 500),
+                    (int)(Math.Pow(2, state.ConsecutiveBurstThrottles) * 500),
                     MaxBurstBackoffMs);
             }
 
             waitMs = Math.Max(0, targetInterval - elapsed);
-            _lastRequestTime = DateTime.UtcNow.AddMilliseconds(waitMs);
+            state.LastRequestTime = DateTime.UtcNow.AddMilliseconds(waitMs);
         }
 
         if (waitMs > 0)
@@ -271,33 +263,33 @@ public class CrowdSecClient
     /// <summary>
     /// Reset burst throttle counter on successful response.
     /// </summary>
-    private void OnSuccess()
+    private static void OnSuccess(KeyState state)
     {
-        lock (_rateLimitLock)
+        lock (state)
         {
-            _consecutiveBurstThrottles = 0;
+            state.ConsecutiveBurstThrottles = 0;
         }
     }
 
-    private bool CheckAndIncrementRateLimit()
+    private static bool CheckAndIncrementRateLimit(KeyState state)
     {
-        lock (_rateLimitLock)
+        lock (state)
         {
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            if (_requestsDate != today)
+            if (state.RequestsDate != today)
             {
-                _requestsDate = today;
-                _requestsToday = 0;
-                _dailyLimitExceededUntil = null;
+                state.RequestsDate = today;
+                state.RequestsToday = 0;
+                state.DailyLimitExceededUntil = null;
             }
 
             // Only stop if CrowdSec actually returned "Limit Exceeded" recently (within the last hour).
             // We don't know when CrowdSec resets their daily window, so back off for
             // 1 hour and try again rather than blocking the entire day.
-            if (_dailyLimitExceededUntil != null && DateTime.UtcNow < _dailyLimitExceededUntil)
+            if (state.DailyLimitExceededUntil != null && DateTime.UtcNow < state.DailyLimitExceededUntil)
                 return false;
 
-            _requestsToday++;
+            state.RequestsToday++;
             return true;
         }
     }
