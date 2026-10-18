@@ -39,6 +39,13 @@ public class ConfigTransferService : IConfigTransferService
         "ClientSignalLogs"
     ];
 
+    // Caches left out of every export: a restore refills them. The CrowdSec CTI cache records which
+    // addresses this instance has seen, which an export has no reason to carry.
+    private static readonly string[] CacheTables =
+    [
+        "CrowdSecReputations"
+    ];
+
     // Pending import state
     private string? _pendingImportPath;
     private ImportPreview? _pendingPreview;
@@ -123,14 +130,10 @@ public class ConfigTransferService : IConfigTransferService
             var dbFileSize = new FileInfo(tempDbPath).Length;
             _logger.LogDebug("DB copy created: {Size} bytes", dbFileSize);
 
-            // For settings-only: delete history tables and vacuum
-            if (type == ExportType.SettingsOnly)
-            {
-                _logger.LogDebug("Pruning history tables for settings-only export");
-                await PruneHistoryTablesAsync(tempDbPath);
-                var prunedSize = new FileInfo(tempDbPath).Length;
-                _logger.LogDebug("DB after pruning: {Size} bytes (was {OriginalSize})", prunedSize, dbFileSize);
-            }
+            // Caches always go; history only for settings-only. Then vacuum.
+            await PruneTablesAsync(tempDbPath, TablesToPrune(type));
+            var prunedSize = new FileInfo(tempDbPath).Length;
+            _logger.LogDebug("DB after pruning: {Size} bytes (was {OriginalSize})", prunedSize, dbFileSize);
 
             // Build the ZIP archive in memory
             using var zipStream = new MemoryStream();
@@ -467,9 +470,12 @@ public class ConfigTransferService : IConfigTransferService
         return Task.CompletedTask;
     }
 
-    private async Task PruneHistoryTablesAsync(string dbPath)
+    private static IEnumerable<string> TablesToPrune(ExportType type) =>
+        type == ExportType.SettingsOnly ? CacheTables.Concat(HistoryTables) : CacheTables;
+
+    private async Task PruneTablesAsync(string dbPath, IEnumerable<string> tables)
     {
-        _logger.LogDebug("Pruning history tables from temp DB copy: {Path}", dbPath);
+        _logger.LogDebug("Pruning tables from temp DB copy: {Path}", dbPath);
         var connStr = $"Data Source={dbPath}";
         await using var conn = new SqliteConnection(connStr);
         await conn.OpenAsync();
@@ -481,7 +487,7 @@ public class ConfigTransferService : IConfigTransferService
             await walCmd.ExecuteNonQueryAsync();
         }
 
-        foreach (var table in HistoryTables)
+        foreach (var table in tables)
         {
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = $"DELETE FROM [{table}]";
@@ -527,8 +533,7 @@ public class ConfigTransferService : IConfigTransferService
             try
             {
                 await VacuumIntoAsync(siteDbPath, tempCopy);
-                if (type == ExportType.SettingsOnly)
-                    await PruneHistoryTablesAsync(tempCopy);
+                await PruneTablesAsync(tempCopy, TablesToPrune(type));
 
                 var entry = archive.CreateEntry($"sites/{slug}/network_optimizer.db");
                 await using var entryStream = entry.Open();

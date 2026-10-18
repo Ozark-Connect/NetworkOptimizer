@@ -60,8 +60,12 @@ public sealed record TrustedSourcesOverview(
     BlockTargetStatus? UniFiStatus,
     BlockTargetStatus? WafStatus);
 
-/// <summary>A public block list as a site sees it: chosen or not, and its last download.</summary>
-public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBlockListStatus Status, bool HasToken = false);
+/// <summary>
+/// A public block list as a site sees it: chosen or not, and its last download. <see cref="FromOtherSite"/>
+/// is a token-bound list the site has no token for, using the copy another site downloads.
+/// </summary>
+public sealed record PublicListView(PublicBlockList List, bool Enabled, PublicBlockListStatus Status, bool HasToken = false,
+    bool FromOtherSite = false);
 
 /// <summary>
 /// Where a site stands on the recommended protection setup, for the Protection Setup checklist.
@@ -118,6 +122,7 @@ public sealed class ThreatBlockingOperations
     private readonly NetworkOptimizer.Threats.ThreatCollectionService _collector;
     private readonly SiteConnectionRegistry? _connections;
     private readonly IUniFiClientAccessor? _clients;
+    private readonly IBlockListPool? _pools;
 
     public ThreatBlockingOperations(
         IThreatSettingsAccessor settings,
@@ -132,8 +137,10 @@ public sealed class ThreatBlockingOperations
         NetworkOptimizer.Threats.ThreatCollectionService collector,
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
         SiteConnectionRegistry? connections = null,
-        IUniFiClientAccessor? clients = null)
+        IUniFiClientAccessor? clients = null,
+        IBlockListPool? pools = null)
     {
+        _pools = pools;
         _clients = clients;
         _connections = connections;
         _collector = collector;
@@ -153,6 +160,14 @@ public sealed class ThreatBlockingOperations
     private string? Site(string slug) => _siteContext == null || slug == _siteContext.DefaultKey ? null : slug;
 
     private string Key(string slug, string baseKey) => BlockingSettingKeys.ForSite(baseKey, Site(slug));
+
+    private async Task<string> PoolAsync(string slug, CancellationToken ct) =>
+        _pools == null ? "" : await _pools.GetPoolAsync(Site(slug), ct);
+
+    // A token-bound list a site can enforce: it has its own token, or another site in its pool keeps a copy.
+    private async Task<bool> ListAvailableAsync(string slug, PublicBlockList list, CancellationToken ct) =>
+        !string.IsNullOrEmpty(await _settings.GetDecryptedSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(list.Id)), ct))
+        || _lists.Status(list.Id, await PoolAsync(slug, ct)).Count > 0;
 
     // A scope whose repository reads the given site's database.
     private IServiceScope ScopeFor(string? site)
@@ -249,7 +264,7 @@ public sealed class ThreatBlockingOperations
 
         var tokens = new HashSet<string>();
         foreach (var l in PublicBlockLists.All.Where(l => l.NeedsToken))
-            if (!string.IsNullOrEmpty(await _settings.GetDecryptedSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(l.Id)), ct)))
+            if (await ListAvailableAsync(slug, l, ct))
                 tokens.Add(l.Id);
         var lists = BlockingProfiles.Lists(chosen, tokens.Contains);
         var threatFoxMissing = !tokens.Contains(PublicBlockLists.ThreatFox)
@@ -456,9 +471,16 @@ public sealed class ThreatBlockingOperations
         var views = new List<PublicListView>();
         foreach (var l in PublicBlockLists.All)
         {
-            var token = l.NeedsToken ? await _settings.GetDecryptedSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(l.Id)), ct) : null;
-            views.Add(new PublicListView(l, chosen.Contains(l.Id), l.NeedsToken ? _lists.Status(l.Id, token) : _lists.Status(l.Id),
-                HasToken: !string.IsNullOrEmpty(token)));
+            if (!l.NeedsToken)
+            {
+                views.Add(new PublicListView(l, chosen.Contains(l.Id), _lists.Status(l.Id)));
+                continue;
+            }
+            var token = await _settings.GetDecryptedSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(l.Id)), ct);
+            var hasToken = !string.IsNullOrEmpty(token);
+            var status = _lists.Status(l.Id, await PoolAsync(slug, ct), token);
+            views.Add(new PublicListView(l, chosen.Contains(l.Id), status, HasToken: hasToken,
+                FromOtherSite: !hasToken && status.Count > 0));
         }
         return views;
     }

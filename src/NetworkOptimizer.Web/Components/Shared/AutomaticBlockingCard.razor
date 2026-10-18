@@ -164,7 +164,9 @@
                         {
                             <div class="input-with-button ab-token" data-autosave>
                                 <input type="password" class="form-control" autocomplete="off" @bind="_tokens[view.List.Id]"
-                                       placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it." : $"Your {view.List.TokenName}")" />
+                                       placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it."
+                                                    : view.FromOtherSite ? $"Another site downloads this list, so no {view.List.TokenName} is needed here"
+                                                    : $"Your {view.List.TokenName}")" />
                                 <button class="btn btn-secondary" disabled="@_busy" @onclick="() => SaveToken(view.List.Id)">Save Token</button>
                             </div>
                         }
