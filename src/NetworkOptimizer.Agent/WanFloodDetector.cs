@@ -477,7 +477,15 @@ public sealed class WanFloodDetector
         // A flood back within two minutes of the last one continues it.
         var id = _lastEnded is { } last && now - _lastEndedAt <= ContinueWithin ? last.Id : Guid.NewGuid().ToString();
         var started = _lastEnded is { } prev && prev.Id == id ? prev.StartedAt : now;
-        _incident = new Incident(id, started, kind) { Wan = string.Join(",", _guard.Wans) };
+        // The start report carries the numbers that fired it: the server's alert is built from this one.
+        var (hotCpu, hotPct) = _trigger.Hottest(_receiveCpus);
+        _incident = new Incident(id, started, kind)
+        {
+            Wan = string.Join(",", _guard.Wans),
+            PeakUnsolicited = (int)_unsolicitedPps,
+            PeakSoftirq = (int)hotPct,
+            HotCpu = hotCpu,
+        };
         _wouldDrops.Clear();
         _nextAttribution = now + AttributionSettle;
         if (_guard.Detecting) _guard.SetAttribution(true, _conntrackPressure);
