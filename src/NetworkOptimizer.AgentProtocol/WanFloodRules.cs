@@ -43,6 +43,13 @@ public static class WanFloodRules
     /// <summary>Idle lifetime of an entry in every table, in milliseconds. Longer lets a spread flood fill a table.</summary>
     public const int TableExpireMs = 2000;
 
+    /// <summary>
+    /// The amplification ports from the shared port registry. A NEW UDP packet from one of them is a reflection
+    /// flood: a real answer from these services is a reply to the site and never NEW. <c>multiport</c> takes 15 at
+    /// most, so the registry may flag no more than that.
+    /// </summary>
+    public static IReadOnlyList<int> ReflectionSourcePorts => NetworkOptimizer.Core.Helpers.NetworkUtilities.AmplificationPorts;
+
     /// <summary>The source of the test drop: TEST-NET-2, which no real traffic comes from.</summary>
     public const string TestDropSource = "198.51.100.1";
     /// <summary>The port of the test drop (discard).</summary>
@@ -106,7 +113,13 @@ public static class WanFloodRules
     {
         var drop = state.Enforce ? " -j DROP" : "";
         var guard = v6 ? GuardV6 : GuardV4;
-        var rules = new List<string> { $"-A {Chain} -m set --match-set {guard} src -j RETURN" };
+        var rules = new List<string>
+        {
+            $"-A {Chain} -m set --match-set {guard} src -j RETURN",
+            // Reflection: only NEW packets reach this chain, and a real DNS/NTP reply is ESTABLISHED. 53 and 123 to
+            // themselves are server-to-server (DNS NOTIFY, NTP peering) and are left alone.
+            $"-A {Chain} -p udp -m multiport --sports {string.Join(',', ReflectionSourcePorts)} -m multiport ! --dports 53,123{drop}",
+        };
         // Attribution is IPv4 only: it names targets for the tc drop, which is IPv4 only. Match-only rules.
         if (state.Attribution && !v6)
         {

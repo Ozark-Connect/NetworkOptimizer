@@ -111,12 +111,13 @@ public sealed class WanFloodGuard
             foreach (var tool in new[] { "iptables", "ip6tables" })
             {
                 if (Run(tool, ["-w", "-t", "mangle", "-N", ProbeChain], null).Exit != 0) return $"{tool} -N";
-                // Match-only: proves addrtype, conntrack, and hashlimit load together. No target.
+                // Match-only: proves addrtype, conntrack, multiport, and hashlimit load together. No target.
                 var rule = new[] { "-w", "-t", "mangle", "-A", ProbeChain,
+                    "-p", "udp", "-m", "multiport", "--sports", "53,123",
                     "-m", "addrtype", "--dst-type", "LOCAL", "-m", "conntrack", "--ctstate", "NEW",
                     "-m", "hashlimit", "--hashlimit-above", "1/sec", "--hashlimit-mode", "srcip",
                     "--hashlimit-name", "nof_probe" };
-                if (Run(tool, rule, null).Exit != 0) return $"{tool} hashlimit/addrtype";
+                if (Run(tool, rule, null).Exit != 0) return $"{tool} hashlimit/addrtype/multiport";
             }
             foreach (var tool in new[] { "iptables-restore", "ip6tables-restore", "iptables-save", "ip6tables-save" })
                 if (Run(tool, ["--version"], null).Exit != 0) return tool;

@@ -97,6 +97,30 @@ public class WanFloodRulesTests
     }
 
     [Fact]
+    public void ReflectionRule_SecondInBothFamilies_AlwaysOn()
+    {
+        foreach (var v6 in new[] { false, true })
+        {
+            foreach (var state in new[] { Suspected, Suspected with { PerSource = false }, WanFloodRules.ChainState.Steady(true) })
+            {
+                var rule = WanFloodRules.Rules(v6, Limits, state)[1];
+                rule.Should().Contain("-p udp -m multiport --sports 19,53,").And.EndWith("-j DROP");
+                rule.Should().Contain("-m multiport ! --dports 53,123");
+                rule.Should().NotContain("hashlimit");
+            }
+        }
+        WanFloodRules.Rules(false, Limits, WanFloodRules.ChainState.Steady(false))[1].Should().NotContain("-j DROP");
+    }
+
+    [Fact]
+    public void ReflectionPorts_FitMultiportAndLeaveRealInboundAlone()
+    {
+        WanFloodRules.ReflectionSourcePorts.Should().HaveCountLessThanOrEqualTo(15).And.OnlyHaveUniqueItems();
+        // BitTorrent DHT and Steam queries arrive as real inbound NEW connections.
+        WanFloodRules.ReflectionSourcePorts.Should().NotContain([6881, 27015]);
+    }
+
+    [Fact]
     public void NeverDropCoversPortForwardsToo()
     {
         WanFloodRules.ForwardRules(false, Limits, Suspected)[0].Should().Contain(WanFloodRules.GuardV4).And.EndWith("-j RETURN");
