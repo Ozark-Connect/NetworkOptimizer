@@ -4280,8 +4280,9 @@
 
     protected override void OnParametersSet()
     {
-        // Handle query param changes when already on this page (Blazor reuses the component)
-        if (TabParam != _lastTabParam && _lastTabParam != null)
+        // Handle query param changes when already on this page (Blazor reuses the component). A page
+        // opened from a #card link has no tab param, so a later ?tab= link must still switch from null.
+        if (TabParam != _lastTabParam)
         {
             var newTab = ResolveTab(TabParam);
             if (newTab != _activeTab)
@@ -4293,7 +4294,16 @@
             }
         }
         _lastTabParam = TabParam;
+
+        // A new ?configure= link (the agent banner, clicked again from another tab) opens its row again.
+        if (ConfigureSiteParam != _lastConfigureSiteParam)
+        {
+            _configureSiteHandled = false;
+            _lastConfigureSiteParam = ConfigureSiteParam;
+        }
     }
+
+    private string? _lastConfigureSiteParam;
 
     private async Task HandleFragmentNavigationAsync()
     {

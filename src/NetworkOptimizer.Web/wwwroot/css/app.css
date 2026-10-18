@@ -7384,6 +7384,25 @@ a.path-hop.hop-clickable:hover {
     margin: 0 0 1rem;
 }
 
+/* WAN Flood Protection's Advanced: the guide's border-top already divides; its first section adds none. */
+.wan-flood .setup-guide-content {
+    padding-top: 1.25rem;
+}
+
+.wan-flood .setup-guide-content > .ab-section:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+/* The guide's content is muted; section titles keep the card's own heading color. */
+.wan-flood .setup-guide-content .ab-section-title {
+    color: var(--text-primary);
+}
+
+.wan-flood .setup-guide {
+    margin-bottom: 1.5rem;
+}
+
 .automatic-blocking .ab-section > .form-help,
 .trusted-sources .ab-section > .form-help {
     margin: 0 0 1rem;

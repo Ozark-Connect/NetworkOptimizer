@@ -68,21 +68,81 @@ public sealed class WanFloodGuard
         _guardHosts = guardHosts;
     }
 
-    /// <summary>Whether iptables, iptables-restore, ipset, and tc are present and usable (Linux, root). Answered once at startup.</summary>
+    private const string ProbeChain = "NETOPT_PROBE";
+    private const string ProbeSet = "netopt_probe";
+    private const string ProbeDevice = "netopt_probe";
+
+    /// <summary>
+    /// Whether the gateway can run WAN Flood Protection, proved by using each piece once and removing it
+    /// (Linux, root). Answered once at startup. A list of loaded matches or module files cannot answer this:
+    /// iptables loads a module only on first use, so a shipped-but-unloaded match reads as absent, and newer
+    /// kernels build these in, so no .ko exists. So probe by attempt instead.
+    /// </summary>
     public static bool Available()
     {
         if (!OperatingSystem.IsLinux()) return false;
         try
         {
-            return Run("iptables", ["-w", "-t", "mangle", "-S", "PREROUTING"], null).Exit == 0
-                && Run("iptables-restore", ["--version"], null).Exit == 0
-                && Run("ip6tables-restore", ["--version"], null).Exit == 0
-                && Run("ipset", ["list", "-n"], null).Exit == 0
-                && Run("tc", ["-V"], null).Exit == 0;
+            if (Probe() is { } failed)
+            {
+                Console.Error.WriteLine($"WAN flood protection: capability probe failed at {failed}");
+                return false;
+            }
+            return true;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
             return false;
+        }
+    }
+
+    // Runs each kernel feature once; returns the step that failed, or null when all pass. Cleanup in finally
+    // removes everything whether a step failed or not.
+    private static string? Probe()
+    {
+        var ownsDevice = false;
+        try
+        {
+            foreach (var tool in new[] { "iptables", "ip6tables" })
+            {
+                if (Run(tool, ["-w", "-t", "mangle", "-N", ProbeChain], null).Exit != 0) return $"{tool} -N";
+                // Match-only: proves addrtype, conntrack, and hashlimit load together. No target.
+                var rule = new[] { "-w", "-t", "mangle", "-A", ProbeChain,
+                    "-m", "addrtype", "--dst-type", "LOCAL", "-m", "conntrack", "--ctstate", "NEW",
+                    "-m", "hashlimit", "--hashlimit-above", "1/sec", "--hashlimit-mode", "srcip",
+                    "--hashlimit-name", "nof_probe" };
+                if (Run(tool, rule, null).Exit != 0) return $"{tool} hashlimit/addrtype";
+            }
+            if (Run("iptables-restore", ["--version"], null).Exit != 0) return "iptables-restore";
+            if (Run("ip6tables-restore", ["--version"], null).Exit != 0) return "ip6tables-restore";
+            if (Run("ipset", ["create", ProbeSet, "hash:net", "-exist"], null).Exit != 0) return "ipset";
+
+            // A dummy device, so the tc probe never touches a WAN netdev; lo as a fallback where dummy
+            // is unavailable (lo has no ingress qdisc of its own, so ours adds and removes cleanly).
+            var device = ProbeDevice;
+            if (Run("ip", ["link", "add", ProbeDevice, "type", "dummy"], null).Exit == 0) ownsDevice = true;
+            else device = "lo";
+            // On the lo fallback the qdisc may already exist; add only if it does not, and remove only ours.
+            var hadQdisc = Run("tc", ["qdisc", "show", "dev", device, "ingress"], null).Stdout.Contains("ingress ffff:", StringComparison.Ordinal);
+            if (!hadQdisc && Run("tc", ["qdisc", "add", "dev", device, "handle", "ffff:", "ingress"], null).Exit != 0) return "tc ingress qdisc";
+            // TEST-NET-2 to itself, so even on lo the filter matches nothing. Proves cls_u32 + act_gact.
+            var filter = WanFloodRules.TcFilterAdd(device, WanFloodRules.DropPref(1),
+                "198.51.100.1", "198.51.100.1", "udp", 9, drop: true);
+            var ok = Run("tc", filter, null).Exit == 0;
+            if (hadQdisc) Run("tc", WanFloodRules.TcFilterDel(device, WanFloodRules.DropPref(1)), null);
+            else Run("tc", ["qdisc", "del", "dev", device, "ingress"], null);
+            if (!ok) return "tc u32/gact filter";
+            return null;
+        }
+        finally
+        {
+            foreach (var tool in new[] { "iptables", "ip6tables" })
+            {
+                Run(tool, ["-w", "-t", "mangle", "-F", ProbeChain], null);
+                Run(tool, ["-w", "-t", "mangle", "-X", ProbeChain], null);
+            }
+            Run("ipset", ["destroy", ProbeSet], null);
+            if (ownsDevice) Run("ip", ["link", "del", ProbeDevice], null);
         }
     }
 

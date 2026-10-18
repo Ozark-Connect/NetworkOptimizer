@@ -15,7 +15,7 @@
     <div class="card-body">
         <p class="section-description">
             Keep a flood of unsolicited traffic from overloading the gateway. Each source may open only so many new
-            connections to the gateway per second, and when one CPU is overwhelmed the source carrying the flood is
+            connections to the gateway per second, and when one CPU core is overwhelmed the source carrying the flood is
             dropped at the WAN for a while. It needs the On-Site Agent on the gateway.
         </p>
 
@@ -47,70 +47,75 @@
                 <small class="form-help">Each drop ends on its own, and a drop that has stopped seeing traffic ends sooner.</small>
             </div>
 
-            <div class="ab-section">
-                <h3 class="ab-section-title">New Connections to the Gateway</h3>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">UDP per source (per second)</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpPerSource" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">UDP burst</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpBurst" />
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">TCP per source (per second)</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynPerSource" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">TCP burst</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynBurst" />
-                    </div>
-                </div>
+            <div class="form-group">
+                <label class="form-label">Never limit or drop</label>
+                <textarea class="form-control" rows="3" placeholder="One address or range per line" @bind="_form.NeverDrop"></textarea>
+                <small class="form-help">Network Optimizer's own address is never limited.</small>
             </div>
 
-            <div class="ab-section">
-                <h3 class="ab-section-title">Port Forwards</h3>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">New connections per port forward (per second)</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedPort" />
+            <details class="setup-guide">
+                <summary>Advanced</summary>
+                <div class="setup-guide-content">
+                    <div class="ab-section">
+                        <h3 class="ab-section-title">New Connections to the Gateway</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">UDP per source (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New UDP connections per second one internet address may open to the gateway, port forwards included, before the rest are dropped. Replies to connections your own network opened never count. Raise it if one address legitimately opens many sessions at once, such as a carrier's shared address reaching a game server you host. Lower it to cut off a single-source flood sooner.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpPerSource" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">UDP burst <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How many new UDP connections one address may open in a quick burst before the per-second limit applies. Raise it for clients that reopen many sessions at once, for example after their connection drops. Lower it so a flood is limited from its first moments.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpBurst" />
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">TCP per source (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New TCP connections per second one internet address may open to the gateway, port forwards included. A TCP SYN flood overloads the gateway at a small fraction of the bandwidth a UDP flood needs. Raise it if you host a busy service that many people reach from one shared address. Lower it if the gateway hosts nothing over TCP.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynPerSource" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">TCP burst <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How many new TCP connections one address may open in a quick burst before the per-second limit applies. Raise it for a web app whose pages open many connections at once. Lower it so a SYN flood is limited from its first moments.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynBurst" />
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">While the connection table is filling</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedCapped" />
-                        <small class="form-help">Connections already open are never limited.</small>
-                    </div>
-                </div>
-            </div>
 
-            <div class="ab-section">
-                <h3 class="ab-section-title">Drops</h3>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Drop for (seconds)</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.DropTtlSeconds" />
+                    <div class="ab-section">
+                        <h3 class="ab-section-title">Port Forwards</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">New connections per port forward (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="New connections per second to one port forward, from every source together. Each new connection holds an entry in the gateway's connection table for up to two minutes, so a flood here can fill the table and break connections for the whole network. Raise it for a port forward that really takes this many new connections. Lower it to protect the table sooner.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedPort" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">While the connection table is filling <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The tighter limit put on the busiest port forwards while the gateway's connection table is over 80% full. New sessions to that port may be refused during the attack; sessions already open keep working. Raise it if a service must keep accepting new users during an attack. Lower it to protect the rest of the network first.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedCapped" />
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Longest drop (seconds)</label>
-                        <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.MaxDropTtlSeconds" />
+
+                    <div class="ab-section">
+                        <h3 class="ab-section-title">Drops</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Drop for (seconds) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How long a drop of a flood's source lasts before it is checked again; a drop that still sees traffic is extended. Raise it to re-check less often during a long attack. Lower it so an address that was dropped by mistake recovers sooner.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.DropTtlSeconds" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Longest drop (seconds) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The longest a drop can be extended. After it, the drop is removed and a flood that is still going is detected again from scratch, so no drop outlives the attack it was for. Raise it for attacks that run for hours. Lower it if legitimate users share an address with an attacker, as behind a carrier's shared address.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.MaxDropTtlSeconds" />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_form.TestDrop" />
+                                <span>Hold a test drop</span>
+                            </label>
+                            <small class="form-help">Drops traffic from 198.51.100.1, a documentation address no real traffic comes from, so you can check that a Smart Queues change on the gateway does not remove the drops. Its status shows on Threat Intelligence.</small>
+                        </div>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Never limit or drop</label>
-                    <textarea class="form-control" rows="3" placeholder="One address or range per line" @bind="_form.NeverDrop"></textarea>
-                    <small class="form-help">Network Optimizer's own address is never limited.</small>
-                </div>
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="_form.TestDrop" />
-                        <span>Hold a test drop</span>
-                    </label>
-                    <small class="form-help">Drops traffic from 198.51.100.1, a documentation address no real traffic comes from, so you can check that a Smart Queues change on the gateway does not remove the drops. Its status shows on Threat Intelligence.</small>
-                </div>
-            </div>
+            </details>
 
             <div class="action-buttons ab-save">
                 <button class="btn btn-primary" disabled="@_busy" @onclick="Save">

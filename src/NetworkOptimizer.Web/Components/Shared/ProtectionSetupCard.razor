@@ -11,11 +11,11 @@
 
 @if (_status != null && !_status.Hidden)
 {
-    @if (_status.Complete)
+    @if (AllComplete)
     {
         <div class="protection-setup-done">
             <span class="status-dot online"></span>
-            <span>Protection: blocking on @EnforcingOn.</span>
+            <span>Protection: blocking on @EnforcingOn@(FloodDone ? ", WAN flood protection on" : "").</span>
             <a href="/settings#automatic-blocking">Settings</a>
         </div>
     }
@@ -24,7 +24,7 @@
         <div class="card card-spaced protection-setup" data-tour="protection-setup">
             <div class="card-header">
                 <h3 class="card-title">Protection Setup</h3>
-                <span class="protection-setup-count">@Done of 4 done</span>
+                <span class="protection-setup-count">@Done of @TotalSteps done</span>
             </div>
             <div class="card-body">
                 <ul class="protection-steps">
@@ -99,7 +99,7 @@
                     </li>
                     @if (_flood != null)
                     {
-                        <li class="@StepClass(_flood.Settings.Mode == WanFloodMode.Enforce && _flood.AgentCapable, optional: true)">
+                        <li class="@StepClass(FloodDone, optional: !FloodRequired)">
                             <span class="protection-step-text">@FloodText</span>
                             @if (_flood.Settings.Mode != WanFloodMode.Enforce)
                             {
@@ -150,20 +150,28 @@
         }
     }
 
-    // Optional, like the WAF: not counted in the four steps, so sites that finished the setup keep it folded.
+    // Required only where the gateway's On-Site Agent can run it; a site without one cannot complete the step,
+    // so it stays optional there instead of holding the checklist open for good.
+    private bool FloodRequired => _flood is { AgentCapable: true };
+    private bool FloodDone => _flood is { AgentCapable: true, Settings.Mode: WanFloodMode.Enforce };
+    private bool AllComplete => _status!.Complete && (!FloodRequired || FloodDone);
+    private int TotalSteps => 4 + (FloodRequired ? 1 : 0);
+
     private string FloodText => (_flood!.Settings.Mode, _flood.AgentCapable) switch
     {
         (WanFloodMode.Enforce, true) => "WAN Flood Protection on, enforced by the gateway's On-Site Agent",
         (WanFloodMode.Detect, true) => "WAN Flood Protection in Detection Only. Review what it would drop on the Blocking tab, then turn it on.",
         (not WanFloodMode.Off, false) => "WAN Flood Protection is on, but no On-Site Agent on the gateway is connected to enforce it",
+        (WanFloodMode.Off, true) => "WAN Flood Protection is off: it keeps floods of unsolicited traffic from overloading the gateway",
         _ => "WAN Flood Protection (optional): keeps floods of unsolicited traffic from overloading the gateway. Needs the On-Site Agent on the gateway.",
     };
 
-    // The four steps the recommended setup needs; the WAF is optional and not counted.
+    // The steps the recommended setup needs; the WAF is optional and not counted. WAN flood protection
+    // counts where it is required (FloodRequired).
     private int Done => new[]
     {
         _status!.EventsSeen, _status.SiteAddresses > 0, _status.Mode == BlockingMode.Enforce, _status.BlockingTargetReady
-    }.Count(d => d);
+    }.Count(d => d) + (FloodRequired && FloodDone ? 1 : 0);
 
     private string GatewayText => _status!.GatewaySetUp
         ? "Gateway blocking configured"
