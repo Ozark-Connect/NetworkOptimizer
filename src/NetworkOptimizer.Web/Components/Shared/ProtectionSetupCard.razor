@@ -5,6 +5,7 @@
 @inject IWanFloodAdmin WanFlood
 @inject IWafConnectionAdmin WafAdmin
 @inject NavigationManager Nav
+@inject SiteContextService SiteContext
 
 @* Threat Intelligence - Overview: the recommended protection setup for the site in context, in
    the order it should be done. Folds to one line once complete. *@
@@ -101,7 +102,13 @@
                     {
                         <li class="@StepClass(FloodDone, optional: !FloodRequired)">
                             <span class="protection-step-text">@FloodText</span>
-                            @if (_flood.Settings.Mode != WanFloodMode.Enforce)
+                            @if (_flood.AgentState == WanFloodAgentState.NeedsUpdate)
+                            {
+                                <SiteAdminOnly>
+                                    <a class="btn btn-sm btn-primary" href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Upgrade Agent</a>
+                                </SiteAdminOnly>
+                            }
+                            else if (_flood.Settings.Mode != WanFloodMode.Enforce)
                             {
                                 <SiteAdminOnly>
                                     <a class="btn btn-sm btn-contrast" href="/settings#wan-flood-protection">Set Up</a>
@@ -150,14 +157,18 @@
         }
     }
 
-    // Required only where the gateway's On-Site Agent can run it; a site without one cannot complete the step,
-    // so it stays optional there instead of holding the checklist open for good.
-    private bool FloodRequired => _flood is { AgentCapable: true };
+    // Required where the gateway's On-Site Agent runs it or an agent update would; a site without one cannot
+    // complete the step, so it stays optional there instead of holding the checklist open for good.
+    private bool FloodRequired => _flood is { AgentCapable: true } or { AgentState: WanFloodAgentState.NeedsUpdate };
     private bool FloodDone => _flood is { AgentCapable: true, Settings.Mode: WanFloodMode.Enforce };
     private bool AllComplete => _status!.Complete && (!FloodRequired || FloodDone);
     private int TotalSteps => 4 + (FloodRequired ? 1 : 0);
 
-    private string FloodText => (_flood!.Settings.Mode, _flood.AgentCapable) switch
+    private string FloodText => _flood!.AgentState == WanFloodAgentState.NeedsUpdate
+        ? "WAN Flood Protection needs a newer On-Site Agent on the gateway. A flood of unsolicited traffic can max out the gateway's CPU, stalling internet access, inter-VLAN traffic, and the UniFi apps it runs."
+        : _flood.AgentState == WanFloodAgentState.Unsupported
+            ? "WAN Flood Protection (optional): this gateway can't run it."
+        : (_flood.Settings.Mode, _flood.AgentCapable) switch
     {
         (WanFloodMode.Enforce, true) => "WAN Flood Protection on, enforced by the gateway's On-Site Agent",
         (WanFloodMode.Detect, true) => "WAN Flood Protection in Detection Only. Review what it would drop on the Blocking tab, then turn it on.",

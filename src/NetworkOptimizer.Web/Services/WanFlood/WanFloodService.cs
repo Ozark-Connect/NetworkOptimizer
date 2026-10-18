@@ -27,6 +27,19 @@ public sealed record WanFloodWanView(string Wan, bool HooksPresent, bool SmartQu
 public sealed record WanFloodStatusView(bool Ok, string? Error, string State, bool Current, bool TableFull,
     int ConntrackCount, int ConntrackMax, IReadOnlyList<WanFloodWanView> Wans, IReadOnlyList<WanFloodDropView> Drops, DateTime ReportedAt);
 
+/// <summary>What the site's gateway agent can do about WAN Flood Protection.</summary>
+public enum WanFloodAgentState
+{
+    /// <summary>No On-Site Agent on the gateway is connected.</summary>
+    NoAgent,
+    /// <summary>The gateway agent runs it.</summary>
+    Capable,
+    /// <summary>The gateway agent predates it: updating the agent turns it on.</summary>
+    NeedsUpdate,
+    /// <summary>The gateway agent knows it, but the gateway lacks what it needs.</summary>
+    Unsupported,
+}
+
 /// <summary>
 /// The site's WAN Flood Protection: its settings, the gateway agent that enforces it (null when none is
 /// connected), and that agent's last report.
@@ -35,6 +48,9 @@ public sealed record WanFloodOverview(WanFloodSettings Settings, string? AgentNa
 {
     /// <summary>Each WAN interface's name as the rest of the app shows it ("Fiber (WAN1)"), keyed by interface.</summary>
     public IReadOnlyDictionary<string, string> WanLabels { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>What the gateway agent can do about it, for the update prompt.</summary>
+    public WanFloodAgentState AgentState { get; init; } = WanFloodAgentState.NoAgent;
 
     /// <summary>Each WAN interface's WAN number (WAN1 = 1), for ordering.</summary>
     public IReadOnlyDictionary<string, int> WanOrder { get; init; } = new Dictionary<string, int>();
@@ -378,13 +394,31 @@ public sealed class WanFloodService : BackgroundService
         var agent = Capable(slug).FirstOrDefault();
         if (agent == null) return (null, false, null);
         if (!_status.TryGetValue(agent.AgentId, out var s)) return (agent.AgentName, true, null);
+        return (agent.AgentName, true, StatusView(slug, s.Status, s.At));
+    }
+
+    /// <summary>
+    /// What the site's gateway agent can do about WAN Flood Protection. Keyed off capabilities, never a version, so
+    /// <see cref="WanFloodAgentState.NeedsUpdate"/> clears on the first hello from an updated agent.
+    /// </summary>
+    public WanFloodAgentState AgentState(string slug)
+    {
+        var onGateway = _registry.GetForSite(slug).Where(c => c.OnGateway == true && !c.IsStale).ToList();
+        if (onGateway.Any(c => c.HasCapability(WanFloodRules.Capability))) return WanFloodAgentState.Capable;
+        if (onGateway.Count == 0) return WanFloodAgentState.NoAgent;
+        return onGateway.Any(c => c.HasCapability(WanFloodRules.UnavailableCapability))
+            ? WanFloodAgentState.Unsupported
+            : WanFloodAgentState.NeedsUpdate;
+    }
+
+    private WanFloodStatusView StatusView(string slug, WanFloodStatus status, DateTime at)
+    {
         var desired = _desired.TryGetValue(slug, out var d) ? d.Fingerprint : null;
-        var status = s.Status;
-        return (agent.AgentName, true, new WanFloodStatusView(
+        return new WanFloodStatusView(
             status.Ok, string.IsNullOrEmpty(status.Error) ? null : status.Error, status.State,
             desired == null || status.Fingerprint == desired, status.TableFull, status.ConntrackCount, status.ConntrackMax,
             status.Wans.Select(w => new WanFloodWanView(w.Wan, w.HooksPresent, w.SmartQueues, w.SqRedirectPresent)).ToList(),
-            status.Drops.Select(View).ToList(), s.At));
+            status.Drops.Select(View).ToList(), at);
     }
 
     /// <summary>Asks the agent to end a drop or limit now; it is not re-added for one time to live.</summary>

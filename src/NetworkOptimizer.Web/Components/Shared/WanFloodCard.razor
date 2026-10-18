@@ -22,7 +22,12 @@
         <div class="card-body">
             @if (_overview.Settings.Mode != WanFloodMode.Off && !_overview.AgentCapable)
             {
-                <div class="alert alert-warning">No On-Site Agent on this site's gateway is connected, so nothing is enforcing WAN Flood Protection.</div>
+                <div class="alert alert-warning">@(_overview.AgentState switch
+                {
+                    WanFloodAgentState.NeedsUpdate => "The On-Site Agent on this site's gateway needs an update to enforce WAN Flood Protection.",
+                    WanFloodAgentState.Unsupported => "This gateway can't run WAN Flood Protection, so nothing is enforcing it.",
+                    _ => "No On-Site Agent on this site's gateway is connected, so nothing is enforcing WAN Flood Protection.",
+                })</div>
             }
             else if (_overview.Status is { } status)
             {

@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Threats.WanFlood
 @using NetworkOptimizer.Web.Services.WanFlood
 @inject IWanFloodAdmin WanFlood
+@inject SiteContextService SiteContext
 
 @* Settings - Security & Alerts: WAN Flood Protection for the site in context. *@
 
@@ -19,6 +20,31 @@
             WAN, before the firewall touches them. In testing, that cut CPU load by about three quarters and kept latency
             normal. It needs the On-Site Agent on the gateway.
         </p>
+
+        @if (_agentState == WanFloodAgentState.NeedsUpdate)
+        {
+            <div class="connection-banner pwa-banner hogs-agent-notice">
+                <div class="banner-content">
+                    <span class="banner-icon" style="background: var(--info-color); color: white;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                            <polyline points="21 3 21 9 15 9" />
+                        </svg>
+                    </span>
+                    <div class="banner-text">
+                        <strong style="color: var(--info-color);">Update the On-Site Agent on your Gateway</strong>
+                        <span style="color: var(--text-secondary);">Newer Agent builds add WAN Flood Protection.</span>
+                    </div>
+                    <div class="banner-actions">
+                        <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">Upgrade Agent</a>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_agentState == WanFloodAgentState.Unsupported)
+        {
+            <div class="alert alert-info">This gateway can't run WAN Flood Protection.</div>
+        }
 
         @if (_form == null)
         {
@@ -146,6 +172,7 @@
 
     private Form? _form;
     private WanFloodSettings? _saved;
+    private WanFloodAgentState _agentState;
     private bool _busy;
     private string? _message;
     private string _messageClass = "info";
@@ -156,7 +183,9 @@
     {
         try
         {
-            var s = (await WanFlood.GetOverviewAsync()).Settings;
+            var overview = await WanFlood.GetOverviewAsync();
+            var s = overview.Settings;
+            _agentState = overview.AgentState;
             _saved = s;
             _form = new Form
             {

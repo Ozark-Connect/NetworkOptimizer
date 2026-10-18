@@ -51,7 +51,11 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
         var current = await WanFloodSettings.LoadAsync(k => settings.GetSettingAsync(k, ct), SiteKey);
         var (agent, capable, status) = service.Describe(Slug);
         var (labels, order, active) = await WanNamesAsync(ct);
-        return new WanFloodOverview(current, agent, capable, status) { WanLabels = labels, WanOrder = order, ActiveWans = active };
+        return new WanFloodOverview(current, agent, capable, status)
+        {
+            WanLabels = labels, WanOrder = order, ActiveWans = active,
+            AgentState = capable ? WanFloodAgentState.Capable : service.AgentState(Slug),
+        };
     }
 
     // The agent reports WANs by interface. The WAN profiles map an interface to its WAN key, and the gateway's WAN

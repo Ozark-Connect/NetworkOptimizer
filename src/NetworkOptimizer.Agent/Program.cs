@@ -243,6 +243,7 @@ if (conntrackCapable) capabilityList.Add("conntrack-accounting");
 if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
 if (blocklistCapable) capabilityList.Add(GatewayBlocklistEnforcer.Capability);
 if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
+else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
 var capabilities = capabilityList.ToArray();
 if (config.OnGateway == true)
 {

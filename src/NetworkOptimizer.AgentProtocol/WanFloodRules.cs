@@ -23,6 +23,12 @@ public static class WanFloodRules
     /// <summary>The capability string, shared by agent and server.</summary>
     public const string Capability = "wan-flood";
 
+    /// <summary>
+    /// Sent instead by an on-gateway agent whose gateway failed the probe, so the server can tell a gateway that
+    /// cannot run it from an agent too old to know about it (which sends neither).
+    /// </summary>
+    public const string UnavailableCapability = "wan-flood-unavailable";
+
     public const string Chain = "NETOPT_FLOOD";
     public const string ForwardChain = "NETOPT_FLOOD_FWD";
     public const string GuardV4 = "netopt_flood_guard_v4";
