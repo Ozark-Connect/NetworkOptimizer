@@ -32,7 +32,7 @@
                     <span>@Summary(status, wans.Count)</span>
                     @if (status.ConntrackMax > 0)
                     {
-                        <span class="waf-meta">Connection table @(100L * status.ConntrackCount / status.ConntrackMax)% full</span>
+                        <span class="waf-meta">Connection table @ConntrackFill(status) full</span>
                     }
                 </div>
 
@@ -233,6 +233,13 @@
         : "online";
 
     private static string Plural(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
+
+    // Whole percent, except a table in use but under 1% (a quiet gateway), which would otherwise read 0%.
+    private static string ConntrackFill(WanFloodStatusView s)
+    {
+        var pct = 100L * s.ConntrackCount / s.ConntrackMax;
+        return pct == 0 && s.ConntrackCount > 0 ? "under 1%" : $"{pct}%";
+    }
 
     private static string KindLabel(string kind) => kind switch
     {
