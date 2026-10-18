@@ -232,6 +232,8 @@ public static class UniFiProductDatabase
         { "USC8P450", "USW-Industrial" },
         { "USWED97", "USW-Industrial-DIN-8-PoE" },
         { "USWED98", "USW-Industrial-DIN-8" },
+        // TODO(#1287): inferred from sysid ed9b; public.json has no Network model code for it yet.
+        { "USWED9B", "USW-Industrial-DIN-2.5G-8-PoE" },
         { "USL16P", "USW-16-PoE" },
         { "USL16PB", "USW-16-PoE" },
         { "USL24", "USW-24" },
