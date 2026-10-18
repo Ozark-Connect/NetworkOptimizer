@@ -1,8 +1,12 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1061,5 +1065,349 @@ func TestMarkMask_UsesConfiguredMask(t *testing.T) {
 	w := WANInterface{FWMark: "0x216e0000", FWMask: "0x3ffe0000"}
 	if w.markWithMask() != "0x216e0000/0x3ffe0000" {
 		t.Errorf("unexpected mark/mask: %s", w.markWithMask())
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+// Probability backends (statistic / dyn_random / none)
+// ---------------------------------------------------------------------------
+
+// captureRun replaces run with a recorder. fail decides which iptables calls fail.
+func captureRun(t *testing.T, fail func(args []string) bool) *[][]string {
+	t.Helper()
+	calls := &[][]string{}
+	orig := run
+	run = func(name string, args ...string) error {
+		*calls = append(*calls, append([]string{name}, args...))
+		if fail != nil && fail(args) {
+			return errors.New("simulated failure")
+		}
+		return nil
+	}
+	t.Cleanup(func() { run = orig })
+	return calls
+}
+
+func withBackend(t *testing.T, b probBackend) {
+	t.Helper()
+	orig := activeBackend
+	activeBackend = b
+	t.Cleanup(func() { activeBackend = orig })
+}
+
+// captureProcWrites replaces the /proc writer and returns path -> value.
+func captureProcWrites(t *testing.T) map[string]string {
+	t.Helper()
+	writes := map[string]string{}
+	orig := writeProcFile
+	writeProcFile = func(path, value string) error {
+		writes[path] = value
+		return nil
+	}
+	t.Cleanup(func() { writeProcFile = orig })
+	return writes
+}
+
+// markRules returns the MARK rule commands, joined for substring checks.
+func markRules(calls [][]string) []string {
+	var out []string
+	for _, c := range calls {
+		line := strings.Join(c, " ")
+		if strings.Contains(line, "-j MARK") {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func containsAny(line string, subs ...string) bool {
+	for _, s := range subs {
+		if strings.Contains(line, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFullClass_EmitsNoProbabilityMatch(t *testing.T) {
+	for _, b := range []probBackend{backendStatistic, backendDynRandom, backendNone} {
+		t.Run(string(b), func(t *testing.T) {
+			withBackend(t, b)
+			calls := captureRun(t, nil)
+			writes := captureProcWrites(t)
+			cfg := validConfig()
+			wan := cfg.WANInterfaces["backup"]
+
+			if err := addTrafficClassRules(&cfg.TrafficClasses[0], &wan, 1.0, dynRandomName(0, &wan)); err != nil {
+				t.Fatal(err)
+			}
+			rules := markRules(*calls)
+			if len(rules) != 1 {
+				t.Fatalf("expected 1 MARK rule, got %d", len(rules))
+			}
+			if containsAny(rules[0], "statistic", "dyn_random", "--mark 0x0/") {
+				t.Errorf("100%% class must emit no probability match or guard: %s", rules[0])
+			}
+			if len(writes) != 0 {
+				t.Errorf("100%% class must not write dyn_random entries: %v", writes)
+			}
+		})
+	}
+}
+
+func TestWeightedClass_StatisticBackend(t *testing.T) {
+	withBackend(t, backendStatistic)
+	calls := captureRun(t, nil)
+	writes := captureProcWrites(t)
+	cfg := validConfig()
+	cfg.TrafficClasses[0].Probability = 0.33
+	wan := cfg.WANInterfaces["backup"]
+
+	if err := addTrafficClassRules(&cfg.TrafficClasses[0], &wan, 0.33, dynRandomName(0, &wan)); err != nil {
+		t.Fatal(err)
+	}
+	rules := markRules(*calls)
+	want := "-m state --state NEW -m mark --mark 0x0/0x7e0000 -m statistic --mode nth --every 3 --packet 0 -j MARK"
+	if len(rules) != 1 || !strings.Contains(rules[0], want) {
+		t.Errorf("expected %q in MARK rule, got %v", want, rules)
+	}
+	if len(writes) != 0 {
+		t.Errorf("statistic backend must not write dyn_random entries: %v", writes)
+	}
+}
+
+func TestWeightedClass_DynRandomBackend(t *testing.T) {
+	withBackend(t, backendDynRandom)
+	calls := captureRun(t, nil)
+	writes := captureProcWrites(t)
+	cfg := validConfig()
+	cfg.TrafficClasses[0].Probability = 0.5
+	cfg.TrafficClasses[0].Match.DstCIDRs = []string{"192.0.2.0/24", "198.51.100.0/24"}
+	wan := cfg.WANInterfaces["backup"]
+
+	if err := addTrafficClassRules(&cfg.TrafficClasses[0], &wan, 0.5, dynRandomName(0, &wan)); err != nil {
+		t.Fatal(err)
+	}
+	rules := markRules(*calls)
+	want := "-m state --state NEW -m mark --mark 0x0/0x7e0000 -m dyn_random --prob-name netopt-ws-40000-0 -j MARK"
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 MARK rules, got %d", len(rules))
+	}
+	for _, r := range rules {
+		if !strings.Contains(r, want) || strings.Contains(r, "statistic") {
+			t.Errorf("expected %q in MARK rule, got %s", want, r)
+		}
+	}
+	// (3 << 8) | floor(0.5*255) = 0x37f, the value native UniFi writes for 50%
+	if got := writes["/proc/net/xt_dyn_random/netopt-ws-40000-0"]; got != "895" {
+		t.Errorf("expected dyn_random value 895, got %q (all writes: %v)", got, writes)
+	}
+}
+
+func TestDynRandomValue(t *testing.T) {
+	tests := []struct {
+		p    float64
+		want int
+	}{
+		{0.5, 3<<8 | 127},
+		{1.0, 3<<8 | 255},
+		{0.6, 3<<8 | 153},
+		{0.01, 3<<8 | 2},
+	}
+	for _, tt := range tests {
+		if got := dynRandomValue(tt.p); got != tt.want {
+			t.Errorf("dynRandomValue(%v) = %d, want %d", tt.p, got, tt.want)
+		}
+	}
+}
+
+func cascadeConfig(probs ...float64) *Config {
+	cfg := validConfig()
+	cfg.WANInterfaces["third"] = WANInterface{Interface: "eth2", FWMark: "0x60000"}
+	cfg.WANInterfaces["fourth"] = WANInterface{Interface: "eth3", FWMark: "0x80000"}
+	targets := []string{"backup", "third", "fourth"}
+	cfg.TrafficClasses = nil
+	for i, p := range probs {
+		cfg.TrafficClasses = append(cfg.TrafficClasses, TrafficClass{
+			Name:        fmt.Sprintf("way%d", i),
+			Match:       MatchCriteria{Protocol: "udp"},
+			Probability: p,
+			TargetWAN:   targets[i],
+			Enabled:     true,
+		})
+	}
+	return cfg
+}
+
+func TestConditionalProbabilities_Cascade(t *testing.T) {
+	got := conditionalProbabilities(cascadeConfig(0.5, 0.3, 0.2).TrafficClasses)
+	want := []float64{0.5, 0.6, 1.0}
+	for i := range want {
+		if math.Abs(got[i]-want[i]) > 1e-9 {
+			t.Errorf("class %d: conditional %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestConditionalProbabilities_DifferentMatchKeepsAbsolute(t *testing.T) {
+	cfg := cascadeConfig(0.5, 0.3)
+	cfg.TrafficClasses[1].Match = MatchCriteria{Protocol: "tcp"}
+	got := conditionalProbabilities(cfg.TrafficClasses)
+	if got[0] != 0.5 || got[1] != 0.3 {
+		t.Errorf("expected absolute 0.5/0.3 for different matches, got %v", got)
+	}
+}
+
+func TestConditionalProbabilities_SkipsDisabledAndFull(t *testing.T) {
+	// A disabled class (an unhealthy WAN, via reapplyRules) leaves the cascade, so the
+	// survivors keep their absolute share: 30% then 20% of the whole.
+	cfg := cascadeConfig(0.5, 0.3, 0.2)
+	cfg.TrafficClasses[0].Enabled = false
+	got := conditionalProbabilities(cfg.TrafficClasses)
+	if math.Abs(got[1]-0.3) > 1e-9 || math.Abs(got[2]-0.2/0.7) > 1e-9 {
+		t.Errorf("expected 0.3, %v; got %v", 0.2/0.7, got)
+	}
+
+	full := cascadeConfig(1.0, 0.5)
+	got = conditionalProbabilities(full.TrafficClasses)
+	if got[0] != 1.0 || got[1] != 0.5 {
+		t.Errorf("a 100%% class must not shrink the next class's share, got %v", got)
+	}
+}
+
+func TestApplyRules_CascadeStatistic(t *testing.T) {
+	withBackend(t, backendStatistic)
+	calls := captureRun(t, nil)
+	captureProcWrites(t)
+
+	if err := applyRules(cascadeConfig(0.5, 0.25, 0.25)); err != nil {
+		t.Fatal(err)
+	}
+	rules := markRules(*calls)
+	if len(rules) != 3 {
+		t.Fatalf("expected 3 MARK rules, got %d", len(rules))
+	}
+	// 50% of all, 50% of the remaining half, then the rest: an exact 50/25/25 split
+	if !strings.Contains(rules[0], "--every 2 ") || !strings.Contains(rules[1], "--every 2 ") {
+		t.Errorf("expected --every 2 on the first two ways: %v", rules)
+	}
+	if strings.Contains(rules[2], "statistic") || !strings.Contains(rules[2], "--mark 0x0/0x7e0000") {
+		t.Errorf("last way must take every unmarked connection, guarded: %s", rules[2])
+	}
+	for _, r := range rules {
+		if !strings.Contains(r, "--mark 0x0/0x7e0000 ") {
+			t.Errorf("weighted MARK rule missing unmarked-only guard: %s", r)
+		}
+	}
+}
+
+func TestApplyRules_CascadeDynRandom(t *testing.T) {
+	withBackend(t, backendDynRandom)
+	calls := captureRun(t, nil)
+	writes := captureProcWrites(t)
+
+	if err := applyRules(cascadeConfig(0.5, 0.3, 0.2)); err != nil {
+		t.Fatal(err)
+	}
+	rules := markRules(*calls)
+	if len(rules) != 3 {
+		t.Fatalf("expected 3 MARK rules, got %d", len(rules))
+	}
+	want := map[string]string{
+		"/proc/net/xt_dyn_random/netopt-ws-40000-0": "895", // 0.5
+		"/proc/net/xt_dyn_random/netopt-ws-60000-1": "921", // 0.3 / 0.5 = 0.6
+	}
+	if len(writes) != len(want) {
+		t.Errorf("expected %d dyn_random writes, got %v", len(want), writes)
+	}
+	for path, v := range want {
+		if writes[path] != v {
+			t.Errorf("%s = %q, want %q", path, writes[path], v)
+		}
+	}
+	if strings.Contains(rules[2], "dyn_random") || !strings.Contains(rules[2], "--mark 0x0/0x7e0000") {
+		t.Errorf("last way must take every unmarked connection, guarded: %s", rules[2])
+	}
+}
+
+func TestResolveProbBackend(t *testing.T) {
+	origDelay := probeRetryDelay
+	probeRetryDelay = 0
+	t.Cleanup(func() { probeRetryDelay = origDelay })
+
+	failing := func(matches ...string) func([]string) bool {
+		return func(args []string) bool {
+			line := strings.Join(args, " ")
+			if !strings.Contains(line, "-A "+probeChain) {
+				return false
+			}
+			return containsAny(line, matches...)
+		}
+	}
+
+	tests := []struct {
+		name string
+		fail func([]string) bool
+		want probBackend
+	}{
+		{"statistic loads", nil, backendStatistic},
+		{"statistic missing", failing("statistic"), backendDynRandom},
+		{"both missing", failing("statistic", "dyn_random"), backendNone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := captureRun(t, tt.fail)
+			if got := resolveProbBackend(); got != tt.want {
+				t.Errorf("got %s, want %s", got, tt.want)
+			}
+			last := strings.Join((*calls)[len(*calls)-1], " ")
+			if !strings.Contains(last, "-X "+probeChain) {
+				t.Errorf("probe chain not removed, last call: %s", last)
+			}
+		})
+	}
+}
+
+func TestNoBackend_RefusesWeightedKeepsFull(t *testing.T) {
+	withBackend(t, backendNone)
+	calls := captureRun(t, nil)
+	captureProcWrites(t)
+	cfg := cascadeConfig(1.0, 0.5)
+
+	if err := applyRules(cfg); err != nil {
+		t.Fatal(err)
+	}
+	rules := markRules(*calls)
+	if len(rules) != 1 || !strings.Contains(rules[0], "-j MARK --set-xmark 0x40000/") {
+		t.Errorf("expected only the 100%% class's MARK rule, got %v", rules)
+	}
+	if got := unsupportedClasses(cfg); len(got) != 1 || got[0] != "way1" {
+		t.Errorf("expected unsupported [way1], got %v", got)
+	}
+	if got := expectedRuleCount(cfg, nil); got != 2 {
+		t.Errorf("refused class must not count toward drift detection: expected 2 rules, got %d", got)
+	}
+
+	h := newHealthChecker(cfg, nil)
+	status := buildStatus(cfg, time.Now(), time.Now(), 0, h, false)
+	if status.ProbBackend != "none" || len(status.UnsupportedClasses) != 1 {
+		t.Errorf("status mismatch: backend %q, unsupported %v", status.ProbBackend, status.UnsupportedClasses)
+	}
+}
+
+func TestDynRandomName_StableAndUnique(t *testing.T) {
+	wan := WANInterface{FWMark: "0x1A0000"}
+	a, b := dynRandomName(0, &wan), dynRandomName(1, &wan)
+	if a == b {
+		t.Errorf("names must differ per class: %s", a)
+	}
+	if a != dynRandomName(0, &wan) {
+		t.Error("name must be stable across calls")
+	}
+	for _, n := range []string{a, b} {
+		if containsAny(n, "wf-group", "randomweight") || !strings.HasPrefix(n, "netopt-ws-") {
+			t.Errorf("name %q may collide with UniFi's entries", n)
+		}
 	}
 }

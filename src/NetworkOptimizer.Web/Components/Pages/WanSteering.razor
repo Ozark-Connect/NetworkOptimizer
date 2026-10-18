@@ -134,6 +134,15 @@
                     </div>
                 }
             </div>
+            @if (_parsedStatus?.UnsupportedClasses.Count > 0)
+            {
+                <div class="alert alert-warning" style="margin-top: 1rem;">
+                    <strong>Some rules are not applied.</strong>
+                    This gateway's kernel has neither the xt_statistic nor the dyn_random iptables match, so rules with
+                    a Ratio below 100% are skipped: @(string.Join(", ", UnsupportedRuleNames())). Set their Ratio to 100%
+                    or disable them.
+                </div>
+            }
             @if (_showVersionWarning)
             {
                 <div class="alert alert-warning" style="margin-top: 1rem;">
@@ -1182,6 +1191,11 @@
         CheckBinaryVersion();
     }
 
+    /// <summary>Maps the daemon's sanitized class names back to the rule names shown on this page.</summary>
+    private IEnumerable<string> UnsupportedRuleNames() =>
+        (_parsedStatus?.UnsupportedClasses ?? []).Select(name =>
+            _rules.FirstOrDefault(r => WanSteerDeploymentService.SanitizeWanKey(r.Name) == name)?.Name ?? name);
+
     private void CheckBinaryVersion()
     {
         // Advisory only - the Deploy/Redeploy buttons are never gated on this. The service returns
@@ -1333,6 +1347,8 @@
         public Dictionary<string, ParsedWanHealth> WanHealth { get; set; } = new();
         public List<ParsedTrafficClassStatus> TrafficClasses { get; set; } = new();
         public int ActiveTrafficClassCount => TrafficClasses.Count(tc => tc.Enabled);
+        /// <summary>Enabled classes below 100% the daemon skipped: the gateway has no probability match.</summary>
+        public List<string> UnsupportedClasses { get; set; } = new();
     }
 
     private class ParsedTrafficClassStatus
