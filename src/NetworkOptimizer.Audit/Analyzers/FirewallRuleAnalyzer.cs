@@ -13,6 +13,8 @@ namespace NetworkOptimizer.Audit.Analyzers;
 /// </summary>
 public class FirewallRuleAnalyzer
 {
+    private static readonly string[] CarrierRegistrationDomains = ["trafficmanager.net", "t-mobile.com", "gsma.com"];
+
     private readonly ILogger<FirewallRuleAnalyzer> _logger;
     private readonly FirewallRuleParser _parser;
 
@@ -841,8 +843,7 @@ public class FirewallRuleAnalyzer
             return true;
 
         // Check for 5G/LTE carrier domains
-        var carrierDomains = new[] { "trafficmanager.net", "t-mobile.com", "gsma.com" };
-        if (rule.WebDomains?.Any(d => carrierDomains.Any(cd => d.Contains(cd, StringComparison.OrdinalIgnoreCase))) == true)
+        if (Allows5GRegistrationDomains(rule))
             return true;
 
         return false;
@@ -1603,7 +1604,7 @@ public class FirewallRuleAnalyzer
     /// <param name="has5GDevice">Whether a 5G/LTE device is present on the network</param>
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating port-based rule destinations</param>
     /// <param name="cellularDevices">Actual modem inventory for device-scoped source matching. Without it, only network-wide access can be established.</param>
-    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks, bool has5GDevice = false, string? externalZoneId = null, IReadOnlyList<JsonElement>? cellularDevices = null)
+    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks, bool has5GDevice = false, string? externalZoneId = null, IReadOnlyList<CellularModemIdentity>? cellularDevices = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -1788,18 +1789,18 @@ public class FirewallRuleAnalyzer
 
             if (has5GDevice || cellularDevices?.Count > 0)
             {
-                // Unknown placement retains a conservative network-wide check. A modem known
-                // to be on another network must not borrow this network's exceptions.
+                // Unknown placement retains identity for block matching, but only network-wide
+                // allows can establish access. Known modems on other networks are excluded.
                 var modems = cellularDevices?.Select(d => new
                 {
                     Device = d,
                     Network = networks.FirstOrDefault(n =>
-                        NetworkUtilities.IsIpInSubnet(d.GetStringOrNull("ip") ?? "", n.Subnet))
+                        NetworkUtilities.IsIpInSubnet(d.Ip ?? "", n.Subnet))
                 }).Where(d => d.Network == null || d.Network.Id == mgmtNetwork.Id).ToList();
 
                 var has5GModemAccess = modems is { Count: > 0 }
                     ? modems.All(d => Has5GModemAccess(rules, mgmtNetwork,
-                        d.Network == null ? null : d.Device, externalZoneId))
+                        d.Device, externalZoneId, networkKnown: d.Network != null))
                     : cellularDevices is { Count: > 0 } ||
                         Has5GModemAccess(rules, mgmtNetwork, null, externalZoneId);
 
@@ -1816,11 +1817,11 @@ public class FirewallRuleAnalyzer
                         {
                             { "network", mgmtNetwork.Name },
                             { "vlan", mgmtNetwork.VlanId },
-                            { "required_domains", "trafficmanager.net, t-mobile.com, gsma.com" }
+                            { "required_domains", string.Join(", ", CarrierRegistrationDomains) }
                         },
                         RuleId = "FW-MGMT-003",
                         ScoreImpact = 0,
-                        RecommendedAction = "Add firewall rule allowing 5G/LTE modem registration traffic (trafficmanager.net, t-mobile.com, gsma.com). If rule exists, ensure it isn't overridden by a block rule higher in the rule order."
+                        RecommendedAction = $"Add firewall rule allowing 5G/LTE modem registration traffic ({string.Join(", ", CarrierRegistrationDomains)}). If rule exists, ensure it isn't overridden by a block rule higher in the rule order."
                     });
                 }
             }
@@ -1939,9 +1940,7 @@ public class FirewallRuleAnalyzer
     private static bool Allows5GRegistrationDomains(FirewallRule rule)
     {
         return rule.WebDomains?.Any(d =>
-            d.Contains("trafficmanager.net", StringComparison.OrdinalIgnoreCase) ||
-            d.Contains("t-mobile.com", StringComparison.OrdinalIgnoreCase) ||
-            d.Contains("gsma.com", StringComparison.OrdinalIgnoreCase)) == true;
+            CarrierRegistrationDomains.Any(domain => d.Contains(domain, StringComparison.OrdinalIgnoreCase))) == true;
     }
 
     /// <summary>
@@ -2173,28 +2172,30 @@ public class FirewallRuleAnalyzer
     private static bool Has5GModemAccess(
         List<FirewallRule> rules,
         NetworkInfo mgmtNetwork,
-        JsonElement? modem,
-        string? externalZoneId)
+        CellularModemIdentity? modem,
+        string? externalZoneId,
+        bool networkKnown = true)
     {
-        var ip = modem?.GetStringOrNull("ip");
-        var mac = modem?.GetStringOrNull("mac");
+        var ip = modem?.Ip;
+        var mac = modem?.Mac;
         var ipSource = new FirewallRule
         {
             Id = "modem-ip",
             SourceMatchingTarget = "IP",
             SourceIps = string.IsNullOrEmpty(ip) ? [] : [ip],
-            SourceZoneId = mgmtNetwork.FirewallZoneId
+            SourceZoneId = networkKnown ? mgmtNetwork.FirewallZoneId : null
         };
         var macSource = new FirewallRule
         {
             Id = "modem-mac",
             SourceMatchingTarget = string.IsNullOrEmpty(mac) ? "ANY" : "CLIENT",
             SourceClientMacs = string.IsNullOrEmpty(mac) ? [] : [mac],
-            SourceZoneId = mgmtNetwork.FirewallZoneId
+            SourceZoneId = networkKnown ? mgmtNetwork.FirewallZoneId : null
         };
 
         bool MatchesSource(FirewallRule rule) => rule.SourceMatchingTarget?.ToUpperInvariant() switch
         {
+            "IP" or "CLIENT" when !networkKnown && rule.ActionType.IsAllowAction() => false,
             "IP" when modem != null => !string.IsNullOrEmpty(ip) && BlockRuleAffectsSameSource(rule, ipSource),
             "IP" when rule.SourceMatchOppositeIps && rule.ActionType.IsAllowAction() => false,
             // Without a MAC, a device-specific block might affect this modem, but a
@@ -2206,6 +2207,7 @@ public class FirewallRuleAnalyzer
 
         return rules.Where(r =>
             r.Enabled &&
+            !r.Predefined &&
             r.ActionType.IsAllowAction() &&
             r.MatchesIpFamily(IpFamily.IPv4) &&
             MatchesSource(r) &&
@@ -2227,7 +2229,7 @@ public class FirewallRuleAnalyzer
                     Id = "modem-registration",
                     WebDomains = allowRule.WebDomains?.Count > 0
                         ? allowRule.WebDomains
-                        : ["trafficmanager.net", "t-mobile.com", "gsma.com"]
+                        : CarrierRegistrationDomains.ToList()
                 };
                 return FirewallRuleEvaluator.Evaluate(rules, r =>
                     MatchesSource(r) &&

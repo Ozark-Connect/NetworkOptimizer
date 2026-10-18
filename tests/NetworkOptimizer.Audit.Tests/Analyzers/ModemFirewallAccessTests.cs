@@ -26,6 +26,21 @@ public class ModemFirewallAccessTests
         MissingAccess(rules).Should().BeFalse();
     }
 
+    [Fact]
+    public void PredefinedAllowAllDoesNotEstablishAccessWhenInternetIsDisabled()
+    {
+        MissingAccess([CreateAllow("predefined-any")]).Should().BeTrue();
+        MissingAccess([CreateAllow("predefined-any"), CreateAllow(), CreateBlock()]).Should().BeFalse();
+        MissingAccess([CreateAllow("predefined-any"), CreateAllow("different-mac"), CreateBlock()])
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void PredefinedBlockStillEclipsesModemException()
+    {
+        MissingAccess([CreateAllow(), CreateBlock(index: 5, predefined: true)]).Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("different-mac", true)]
     [InlineData("disabled", true)]
@@ -90,7 +105,7 @@ public class ModemFirewallAccessTests
     [Fact]
     public void EveryModemOnManagementNetworkNeedsAccess()
     {
-        var devices = new List<JsonElement>
+        var devices = new List<CellularModemIdentity>
         {
             Modem("192.0.2.5", "02:00:00:00:00:01"),
             Modem("192.0.2.6", "02:00:00:00:00:02")
@@ -136,6 +151,34 @@ public class ModemFirewallAccessTests
     }
 
     [Theory]
+    [InlineData("", "mac", true)]
+    [InlineData("", "different-mac", false)]
+    [InlineData("198.51.100.5", "mac", true)]
+    [InlineData("198.51.100.5", "different-mac", false)]
+    [InlineData("198.51.100.5", "ip", false)]
+    [InlineData("198.51.100.5", "unplaced-ip", true)]
+    [InlineData("", "all", true)]
+    public void UnknownPlacementRetainsKnownIdentityForBlocks(string ip, string block, bool expectedFinding)
+    {
+        MissingAccess([CreateAllow("network"), CreateBlock(block, index: 5)],
+            [Modem(ip, "02:00:00:00:00:01")]).Should().Be(expectedFinding);
+    }
+
+    [Fact]
+    public void UnknownPlacementDoesNotEstablishAccessFromDeviceException()
+    {
+        MissingAccess([CreateAllow(), CreateBlock()],
+            [Modem("198.51.100.5", "02:00:00:00:00:01")]).Should().BeTrue();
+    }
+
+    [Fact]
+    public void UnknownPlacementAndMissingMacRetainConservativeBlockMatching()
+    {
+        MissingAccess([CreateAllow("network"), CreateBlock("mac", index: 5)],
+            [Modem("", "")]).Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData("MAC", "macs")]
     [InlineData("CLIENT", "client_macs")]
     public void ParsedDeviceSourcesUseCanonicalMacMatching(string target, string field)
@@ -164,9 +207,10 @@ public class ModemFirewallAccessTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task FullAuditPassesModemInventoryToFirewallCheck(bool differentDevice)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task FullAuditPassesModemInventoryToFirewallCheck(bool differentDevice, bool predefinedOnly)
     {
         var engine = new ConfigAuditEngine(
             NullLogger<ConfigAuditEngine>.Instance, NullLoggerFactory.Instance);
@@ -190,7 +234,9 @@ public class ModemFirewallAccessTests
                 ]
                 """,
             NetworkPurposeOverrides = new() { ["management"] = "Management" },
-            FirewallRules = [CreateAllow(differentDevice ? "different-mac" : "mac"), CreateBlock()],
+            FirewallRules = predefinedOnly
+                ? [CreateAllow("predefined-any")]
+                : [CreateAllow("predefined-any"), CreateAllow(differentDevice ? "different-mac" : "mac"), CreateBlock()],
             FirewallZones =
             [
                 new UniFiFirewallZone
@@ -201,10 +247,10 @@ public class ModemFirewallAccessTests
         });
 
         result.Networks.Should().Contain(n => n.Id == "management" && n.Purpose == NetworkPurpose.Management);
-        result.Issues.Any(i => i.Type == IssueTypes.MgmtMissing5gAccess).Should().Be(differentDevice);
+        result.Issues.Any(i => i.Type == IssueTypes.MgmtMissing5gAccess).Should().Be(differentDevice || predefinedOnly);
     }
 
-    private static bool MissingAccess(List<FirewallRule> rules, List<JsonElement>? devices = null) =>
+    private static bool MissingAccess(List<FirewallRule> rules, List<CellularModemIdentity>? devices = null) =>
         CreateAnalyzer().AnalyzeManagementNetworkFirewallAccess(rules, [Management()],
                 has5GDevice: true, externalZoneId: "external",
                 cellularDevices: devices ?? [Modem("192.0.2.5", "02:00:00:00:00:01")])
@@ -214,8 +260,7 @@ public class ModemFirewallAccessTests
         NullLogger<FirewallRuleAnalyzer>.Instance,
         new FirewallRuleParser(NullLogger<FirewallRuleParser>.Instance));
 
-    private static JsonElement Modem(string ip, string mac) =>
-        JsonSerializer.SerializeToElement(new { model = "U5G", type = "u5g", ip, mac });
+    private static CellularModemIdentity Modem(string ip, string mac) => new(ip, mac);
 
     private static NetworkInfo Management() => new()
     {
@@ -232,6 +277,7 @@ public class ModemFirewallAccessTests
     {
         Id = "allow-modem",
         Enabled = variant != "disabled",
+        Predefined = variant == "predefined-any",
         Index = 10,
         Action = "allow",
         SourceZoneId = variant == "different-source-zone" ? "other-zone" : "management-zone",
@@ -239,7 +285,7 @@ public class ModemFirewallAccessTests
         {
             "ip" or "cidr" or "different-ip" or "excluded-ip" or "other-excluded-ip" or "domain-ip" => "IP",
             "network" or "domain-network" => "NETWORK",
-            "any" => "ANY",
+            "any" or "predefined-any" => "ANY",
             _ => "CLIENT"
         },
         SourceClientMacs = [variant.Contains("different-mac") ? "02:00:00:00:00:02" : "02:00:00:00:00:01"],
@@ -279,22 +325,24 @@ public class ModemFirewallAccessTests
             variant == "new-state" ? ["NEW", "ESTABLISHED", "RELATED"] : null
     };
 
-    private static FirewallRule CreateBlock(string variant = "all", int index = 100) => new()
+    private static FirewallRule CreateBlock(string variant = "all", int index = 100, bool predefined = false) => new()
     {
         Id = $"block-{variant}",
         Enabled = variant != "disabled",
+        Predefined = predefined,
         Index = index,
         Action = "drop",
         SourceZoneId = variant == "different-zone" ? "other-zone" : "management-zone",
         SourceMatchingTarget = variant switch
         {
             "mac" or "different-mac" => "CLIENT",
-            "ip" or "different-ip" => "IP",
+            "ip" or "different-ip" or "unplaced-ip" => "IP",
             "network" => "NETWORK",
             _ => "ANY"
         },
         SourceClientMacs = [variant == "different-mac" ? "02:00:00:00:00:02" : "02:00:00:00:00:01"],
-        SourceIps = [variant == "different-ip" ? "192.0.2.6" : "192.0.2.5"],
+        SourceIps = [variant == "different-ip" ? "192.0.2.6" :
+            variant == "unplaced-ip" ? "198.51.100.5" : "192.0.2.5"],
         SourceNetworkIds = ["management"],
         DestinationZoneId = variant == "internal" ? "internal" : "external",
         DestinationMatchingTarget = variant == "domain" ? "WEB" : "ANY",

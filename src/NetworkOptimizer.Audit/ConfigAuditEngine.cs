@@ -952,7 +952,9 @@ public class ConfigAuditEngine
                 UniFi.UniFiProductDatabase.IsCellularModem(
                     d.GetStringOrNull("model"),
                     d.GetStringOrNull("shortname"),
-                    d.GetStringOrNull("type"))).ToList()
+                    d.GetStringOrNull("type")))
+                .Select(d => new CellularModemIdentity(d.GetStringOrNull("ip"), d.GetStringOrNull("mac")))
+                .ToList()
             : [];
         var has5GDevice = cellularDevices.Count > 0;
 

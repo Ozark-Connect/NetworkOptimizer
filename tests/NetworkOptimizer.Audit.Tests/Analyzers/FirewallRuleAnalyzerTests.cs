@@ -10150,8 +10150,8 @@ public class FirewallRuleAnalyzerTests
 
     #region Helper Methods
 
-    private static List<JsonElement> CreateCellularDevices() =>
-        [JsonSerializer.SerializeToElement(new { ip = "192.168.99.5", mac = "aa:bb:cc:dd:ee:ff" })];
+    private static List<CellularModemIdentity> CreateCellularDevices() =>
+        [new("192.168.99.5", "aa:bb:cc:dd:ee:ff")];
 
     private static NetworkInfo CreateNetwork(
         string name,
