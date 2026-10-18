@@ -47,15 +47,15 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Source</th>
-                                <th>Reason</th>
-                                <th class="hide-mobile">Blocked</th>
-                                <th>Ends</th>
+                                <th class="sortable @ActiveSortClass(BlockColumn.Source)" @onclick="() => ToggleActiveSort(BlockColumn.Source)">Source</th>
+                                <th class="sortable @ActiveSortClass(BlockColumn.Reason)" @onclick="() => ToggleActiveSort(BlockColumn.Reason)">Reason</th>
+                                <th class="sortable hide-mobile @ActiveSortClass(BlockColumn.Blocked)" @onclick="() => ToggleActiveSort(BlockColumn.Blocked)">Blocked</th>
+                                <th class="sortable @ActiveSortClass(BlockColumn.Ends)" @onclick="() => ToggleActiveSort(BlockColumn.Ends)">Ends</th>
                                 <th></th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var b in _overview.Active)
+                            @foreach (var b in ActivePageRows)
                             {
                                 <tr>
                                     <td><a href="@DrilldownUrl(b.SourceIp)"><code>@b.SourceIp</code></a>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
@@ -72,6 +72,14 @@
                         </tbody>
                     </table>
                 </div>
+                @if (ActivePages > 1)
+                {
+                    <div class="pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage <= 1)" @onclick="() => _activePage--"><span class="pag-arrow">←</span> Prev</button>
+                        <span class="pagination-info">Page @_activePage of @ActivePages (@_overview.Active.Count total)</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage >= ActivePages)" @onclick="() => _activePage++">Next <span class="pag-arrow">→</span></button>
+                    </div>
+                }
             }
             @if (_overview.Shared.Count > 0)
             {
@@ -86,18 +94,18 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Source</th>
-                                <th>Site</th>
-                                <th class="hide-mobile">Reason</th>
-                                <th>Ends</th>
+                                <th class="sortable @SharedSortClass(BlockColumn.Source)" @onclick="() => ToggleSharedSort(BlockColumn.Source)">Source</th>
+                                <th class="sortable @SharedSortClass(BlockColumn.Site)" @onclick="() => ToggleSharedSort(BlockColumn.Site)">Site</th>
+                                <th class="sortable hide-mobile @SharedSortClass(BlockColumn.Reason)" @onclick="() => ToggleSharedSort(BlockColumn.Reason)">Reason</th>
+                                <th class="sortable @SharedSortClass(BlockColumn.Ends)" @onclick="() => ToggleSharedSort(BlockColumn.Ends)">Ends</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var s in _overview.Shared)
+                            @foreach (var s in SharedPageRows)
                             {
                                 <tr>
                                     <td><a href="@DrilldownUrl(s.Block.SourceIp)"><code>@s.Block.SourceIp</code></a></td>
-                                    <td>@(s.SiteSlug == null ? "Other site" : _siteNames.GetValueOrDefault(s.SiteSlug, s.SiteSlug))</td>
+                                    <td>@SiteName(s)</td>
                                     <td class="hide-mobile">@s.Block.Reason</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(s.Block.ExpiresAt - DateTime.UtcNow)</td>
                                 </tr>
@@ -105,6 +113,14 @@
                         </tbody>
                     </table>
                 </div>
+                @if (SharedPages > 1)
+                {
+                    <div class="pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage <= 1)" @onclick="() => _sharedPage--"><span class="pag-arrow">←</span> Prev</button>
+                        <span class="pagination-info">Page @_sharedPage of @SharedPages (@_overview.Shared.Count total)</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage >= SharedPages)" @onclick="() => _sharedPage++">Next <span class="pag-arrow">→</span></button>
+                    </div>
+                }
             }
             @if (_overview.Recent.Count > 0)
             {
@@ -123,6 +139,59 @@
     [Parameter] public bool ShowWhenOff { get; set; }
 
     private BlockingOverview? _overview;
+
+    // Column sort, three states per header like Bandwidth Hogs: descending, ascending, then the default order.
+    // Each table pages separately; a new sort goes back to its first page.
+    private enum BlockColumn { Source, Reason, Blocked, Ends, Site }
+    private const int PageSize = 20;
+    private BlockColumn? _activeSort;
+    private bool _activeAsc;
+    private int _activePage = 1;
+    private BlockColumn? _sharedSort;
+    private bool _sharedAsc;
+    private int _sharedPage = 1;
+
+    private static void Toggle(ref BlockColumn? sort, ref bool asc, BlockColumn col)
+    {
+        if (sort != col) { sort = col; asc = false; }
+        else if (!asc) asc = true;
+        else sort = null;
+    }
+
+    private static string SortClass(BlockColumn? sort, bool asc, BlockColumn col) =>
+        sort != col ? "" : asc ? "sort-asc" : "sort-desc";
+
+    private void ToggleActiveSort(BlockColumn col) { Toggle(ref _activeSort, ref _activeAsc, col); _activePage = 1; }
+    private void ToggleSharedSort(BlockColumn col) { Toggle(ref _sharedSort, ref _sharedAsc, col); _sharedPage = 1; }
+    private string ActiveSortClass(BlockColumn col) => SortClass(_activeSort, _activeAsc, col);
+    private string SharedSortClass(BlockColumn col) => SortClass(_sharedSort, _sharedAsc, col);
+
+    private static IComparable BlockKey(ThreatBlock b, BlockColumn col) => col switch
+    {
+        BlockColumn.Source => NetworkOptimizer.Core.Helpers.NetworkUtilities.IpSortKey(b.SourceIp),
+        BlockColumn.Reason => b.Reason,
+        BlockColumn.Blocked => b.CreatedAt,
+        _ => b.ExpiresAt,
+    };
+
+    private static IEnumerable<T> Sorted<T>(IEnumerable<T> rows, BlockColumn? sort, bool asc, Func<T, BlockColumn, IComparable> key) =>
+        sort is not { } col ? rows : asc ? rows.OrderBy(r => key(r, col)) : rows.OrderByDescending(r => key(r, col));
+
+    private static int Pages(int count) => Math.Max(1, (count + PageSize - 1) / PageSize);
+
+    private int ActivePages => Pages(_overview?.Active.Count ?? 0);
+    private int SharedPages => Pages(_overview?.Shared.Count ?? 0);
+
+    // The page is clamped here, not when the list changes: a release or a refresh can shrink the list under it.
+    private IEnumerable<ThreatBlock> ActivePageRows => Sorted(_overview!.Active, _activeSort, _activeAsc, BlockKey)
+        .Skip((Math.Min(_activePage, ActivePages) - 1) * PageSize).Take(PageSize);
+
+    private IEnumerable<SharedBlock> SharedPageRows => Sorted(_overview!.Shared, _sharedSort, _sharedAsc,
+            (s, col) => col == BlockColumn.Site ? SiteName(s) : BlockKey(s.Block, col))
+        .Skip((Math.Min(_sharedPage, SharedPages) - 1) * PageSize).Take(PageSize);
+
+    private string SiteName(SharedBlock s) =>
+        s.SiteSlug == null ? "Other site" : _siteNames.GetValueOrDefault(s.SiteSlug, s.SiteSlug);
     private string? _recommendationNote;
     private Dictionary<string, string> _siteNames = [];
     private bool _sharedSkewed;
