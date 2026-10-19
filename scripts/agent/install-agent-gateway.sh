@@ -490,6 +490,16 @@ CFGJS
         sed -i "/listen/ s/24443/${SPEED_TEST_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
     fi
 
+    # Same opt-out as install-native.sh (AGENT_SPEEDTEST_TLS=0 at install time): plain http on
+    # the speed test port. Not persisted, so the next re-run without it restores TLS.
+    if [ "${AGENT_SPEEDTEST_TLS:-1}" = "0" ]; then
+        sed -i \
+            -e 's/^\([[:space:]]*listen[[:space:]][^;]*\) ssl\([^;]*;\)/\1\2/' \
+            -e '/^[[:space:]]*ssl_/d' \
+            "${INSTALL_DIR}/nginx-speedtest-server.conf"
+        note "AGENT_SPEEDTEST_TLS=0 - serving plain http on port ${SPEED_TEST_PORT}"
+    fi
+
     # SANs are the LAN bridge addresses only: hostname -I on a gateway includes the WAN IP.
     CERTDIR="${INSTALL_DIR}/speedtest-tls"
     mkdir -p "$CERTDIR"
