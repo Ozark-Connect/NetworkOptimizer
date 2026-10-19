@@ -548,7 +548,8 @@ RestartSec=5
 WantedBy=${SERVICE_NAME}.service
 UNIT
 
-    "$NGINX_BIN" -t -q -c "${INSTALL_DIR}/nginx-speedtest.conf" \
+    # Under the unit's file limit: the SSH shell's 1024 warns about worker_connections.
+    ( ulimit -n 8192 2>/dev/null || true; "$NGINX_BIN" -t -q -c "${INSTALL_DIR}/nginx-speedtest.conf" ) \
         || err "nginx config test failed. Diagnose: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
     systemctl daemon-reload
     systemctl reenable --quiet "${SPEEDTEST_SERVICE}.service"
