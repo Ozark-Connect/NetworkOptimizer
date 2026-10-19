@@ -323,7 +323,9 @@ public sealed class ThreatBlockingOperations
             Mode = BlockingMode.Enforce,
             UsePatterns = true,
             Share = true,
-            Feeds = recommendation.Lists,
+            // Adds the recommended lists to the site's selection; never turns one off.
+            Feeds = PublicBlockLists.All.Select(l => l.Id)
+                .Where(id => recommendation.Lists.Contains(id) || current.Feeds.Contains(id)).ToList(),
             FeedsOutbound = gatewayError == null,
             TargetGateway = gatewayError == null,
             TargetWaf = waf,
