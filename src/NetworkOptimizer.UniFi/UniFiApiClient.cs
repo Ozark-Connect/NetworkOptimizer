@@ -43,6 +43,9 @@ public class UniFiApiClient : IDisposable
     private string? _csrfToken;
     private readonly IAsyncPolicy _retryPolicy;
     private readonly SemaphoreSlim _authLock = new(1, 1);
+    // Cancelled in Dispose(), so a login queued on _authLock gives up instead of signing in on a
+    // client that is being thrown away.
+    private readonly CancellationTokenSource _disposeCts = new();
     // Set in Dispose() before the HttpClient is torn down. A concurrent reconnect
     // can dispose this client while a data call is in flight; the flag and the
     // ObjectDisposedException catch in ExecuteRequestAsync turn that into a benign
@@ -68,6 +71,13 @@ public class UniFiApiClient : IDisposable
     /// lockout, so a changed password never locks the account before the new one is saved.
     /// </summary>
     public static readonly TimeSpan RejectedPasswordRetryInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How long a login waits for another login on this client to finish. A login's own calls are
+    /// bounded well inside this, so a longer wait means the lock was lost; the caller reads it as
+    /// not authenticated rather than waiting forever.
+    /// </summary>
+    internal TimeSpan AuthLockWait { get; set; } = TimeSpan.FromSeconds(60);
 
     /// <summary>Whether this client's last login was refused because of its password.</summary>
     public bool PasswordRejected => _passwordRejectedAt != DateTime.MinValue;
@@ -409,7 +419,8 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public async Task<bool> LoginAsync(CancellationToken cancellationToken = default)
     {
-        await _authLock.WaitAsync(cancellationToken);
+        if (!await EnterAuthLockAsync(cancellationToken))
+            return false;
         try
         {
             if (_isAuthenticated)
@@ -573,13 +584,33 @@ public class UniFiApiClient : IDisposable
         }
         finally
         {
-            // On a reconnect the client (and its _authLock) can be disposed while this login
-            // is still in flight; Release() would then throw ObjectDisposedException out of the
-            // finally and surface as a scary "Cannot access a disposed object" console-connection
-            // error. There's nothing to release on a disposed semaphore, so ignore just that case.
+            // Dispose() leaves _authLock alone, so this release always lands; the catch stays as a
+            // guard so a release can never throw out of the finally.
             try { _authLock.Release(); }
             catch (ObjectDisposedException) { }
         }
+    }
+
+    /// <summary>
+    /// Takes the login lock, or returns false when it was not free within <see cref="AuthLockWait"/>.
+    /// A disposed client throws <see cref="ObjectDisposedException"/>, as a login on one always
+    /// has, so callers keep treating it as a skip; the caller's own cancellation still throws.
+    /// </summary>
+    private async Task<bool> EnterAuthLockAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _disposeCts.Token);
+            if (await _authLock.WaitAsync(AuthLockWait, wait.Token))
+                return true;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ObjectDisposedException(nameof(UniFiApiClient));
+        }
+
+        _logger.LogWarning("Login to {Url} skipped: another login held the lock for {Seconds:0} s", _controllerUrl, AuthLockWait.TotalSeconds);
+        return false;
     }
 
     /// <summary>
@@ -4403,7 +4434,10 @@ public class UniFiApiClient : IDisposable
         // Flag first so any in-flight/queued request skips instead of racing the
         // HttpClient teardown (see ExecuteRequestAsync).
         _disposed = true;
-        _authLock?.Dispose();
+        try { _disposeCts.Cancel(); }
+        catch (ObjectDisposedException) { }
+        // Never dispose _authLock: SemaphoreSlim.Dispose drops its queue of async waiters, and a
+        // waiter cancelled or timed out after that awaits forever. It holds nothing unmanaged.
         _httpClient?.Dispose();
         GC.SuppressFinalize(this);
     }
