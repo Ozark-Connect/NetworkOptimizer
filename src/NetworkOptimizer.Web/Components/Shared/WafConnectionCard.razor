@@ -10,7 +10,15 @@
 
 <div class="card settings-tab-security" id="waf">
     <div class="card-header">
-        <h2 class="card-title">Web Application Firewall</h2>
+        <div class="card-header-left">
+            <h2 class="card-title">Web Application Firewall</h2>
+            @if (ShowPageLink)
+            {
+                <a href="/threats/waf" class="settings-title-link" data-tooltip="Open Web Application Firewall">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            }
+        </div>
         <div class="card-header-badges">
             @if (_enabled && _hasToken)
             {
@@ -105,6 +113,9 @@
 </div>
 
 @code {
+    /// <summary>Show the title link to the WAF page. Off on the WAF page's own Setup tab.</summary>
+    [Parameter] public bool ShowPageLink { get; set; }
+
     private bool _enabled;
     private string _url = "";
 
