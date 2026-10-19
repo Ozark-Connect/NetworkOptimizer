@@ -526,8 +526,17 @@ CFGJS
     mkdir -p "$TEMPDIR"
     sed -i "s#^http {#http {\n    client_body_temp_path ${TEMPDIR}/client_body;\n    proxy_temp_path ${TEMPDIR}/proxy;\n    fastcgi_temp_path ${TEMPDIR}/fastcgi;\n    uwsgi_temp_path ${TEMPDIR}/uwsgi;\n    scgi_temp_path ${TEMPDIR}/scgi;#" \
         "${INSTALL_DIR}/nginx-speedtest.conf"
-    grep -q "proxy_temp_path ${TEMPDIR}/proxy;" "${INSTALL_DIR}/nginx-speedtest.conf" \
-        || err "could not set the speed test nginx's temp paths; refusing to start it on UniFi's."
+    # Fail closed before nginx ever starts: every temp path the binary was built with, plus the
+    # five every build has (unlisted ones default under --prefix), must point at our dir. A
+    # firmware whose nginx adds one we do not override stops here instead of re-owning it.
+    TEMP_DIRECTIVES="client_body_temp_path proxy_temp_path fastcgi_temp_path uwsgi_temp_path scgi_temp_path"
+    for opt in $("$NGINX_BIN" -V 2>&1 | tr ' ' '\n' | sed -n 's/^--http-\(.*\)-temp-path=.*/\1/p'); do
+        TEMP_DIRECTIVES="$TEMP_DIRECTIVES $(echo "$opt" | tr '-' '_')_temp_path"
+    done
+    for d in $(echo "$TEMP_DIRECTIVES" | tr ' ' '\n' | sort -u); do
+        grep -qE "^[[:space:]]*${d}[[:space:]]+${TEMPDIR}/" "${INSTALL_DIR}/nginx-speedtest.conf" \
+            || err "this gateway's nginx has a temp path (${d}) the speed test does not override, so starting it would take that directory from UniFi's nginx. Re-run without --lan-speed-test."
+    done
 
     cat > "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" <<UNIT
 [Unit]
