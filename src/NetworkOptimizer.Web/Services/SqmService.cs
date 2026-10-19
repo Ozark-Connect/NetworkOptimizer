@@ -252,10 +252,13 @@ public class SqmService : ISqmService
                 _logger.LogWarning("No WAN network configs found from controller (no networks with purpose=wan)");
             }
 
-            // Build lookup by IP (for WANs with static IPs)
+            // Build lookup by IP (for WANs with static IPs). Two enabled WAN configs can carry the
+            // same wan_ip; an IP claimed twice is ambiguous, so it names neither.
             var ipToName = wanConfigs
                 .Where(w => !string.IsNullOrEmpty(w.WanIp))
-                .ToDictionary(w => w.WanIp!, w => w.Name);
+                .GroupBy(w => w.WanIp!)
+                .Where(g => g.Count() == 1)
+                .ToDictionary(g => g.Key, g => g.First().Name);
 
             // Build lookup by wan_networkgroup for SmartQ status (e.g., "WAN" -> true, "WAN2" -> true)
             var networkGroupToSmartq = wanConfigs
