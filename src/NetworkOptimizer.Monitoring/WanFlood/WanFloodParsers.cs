@@ -78,7 +78,8 @@ public static partial class WanFloodParsers
     /// </summary>
     /// <remarks>
     /// <c>insert_failed</c> is left out on purpose: parallel A/AAAA DNS lookups raise it all day on multi-core
-    /// gateways, so counting it reports a full table that is not.
+    /// gateways, so counting it reports a full table that is not. <c>drop</c> also rises on an insert clash the
+    /// kernel cannot merge, at any fill, so a caller reads a rise as refusal only while the table is near full.
     /// </remarks>
     public static long? ParseConntrackDrops(string text)
     {

@@ -196,9 +196,10 @@ public sealed class WanFloodDetector
         Counters = Counters with { Count = count, Max = max };
         // Only the table turning connections away counts (drop, early_drop); see ParseConntrackDrops.
         var drops = WanFloodParsers.ParseConntrackDrops(ReadFile("/proc/net/stat/nf_conntrack"));
-        var dropping = drops is { } d && _lastConntrackFailures is { } ld && d > ld;
-        _lastConntrackFailures = drops;
         var percent = max > 0 ? (int)(100L * count / max) : 0;
+        // Below the fill threshold a drop is an unresolved insert clash, not a full table: never pressure on its own.
+        var dropping = percent >= t.ConntrackFillPercent && drops is { } d && _lastConntrackFailures is { } ld && d > ld;
+        _lastConntrackFailures = drops;
 
         if (percent >= t.ConntrackFillPercent || dropping) { _fillSeconds++; _clearSeconds = 0; }
         else if (percent < t.ConntrackClearPercent) { _clearSeconds++; _fillSeconds = 0; }
