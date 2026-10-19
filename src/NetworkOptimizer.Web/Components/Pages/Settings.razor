@@ -1901,7 +1901,13 @@
                             <tr>
                                 <td>@ont.Name</td>
                                 <td><code>@ont.Host</code></td>
-                                <td>@GetOntProviderDisplayName(ont.Provider)</td>
+                                <td>
+                                    @GetOntProviderDisplayName(ont.Provider)
+                                    @if (ont.AttachedSfpId is int attachedId)
+                                    {
+                                        <span class="status-badge status-info" data-tooltip="@OntAttachmentTooltip(attachedId)">Attached</span>
+                                    }
+                                </td>
                                 <td>
                                     @if (ont.Enabled)
                                     {
@@ -7888,6 +7894,14 @@
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
     };
+
+    private string OntAttachmentTooltip(int sfpId)
+    {
+        var sfp = _attachableSfps.FirstOrDefault(s => s.Id == sfpId);
+        return sfp != null
+            ? $"Attached to {AttachableSfpLabel(sfp)}. Its PON stats show on that module's SFP Stats."
+            : "Attached to an SFP module that is no longer monitored.";
+    }
 
     private static string AttachableSfpLabel(MonitoredSfp sfp)
     {
