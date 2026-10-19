@@ -34,6 +34,8 @@
 #   --lan-speed-test       Host the LAN speed test page on the gateway (port 24443).
 #                          Stays on across re-runs once enabled.
 #   --speed-test-port N    Serve the LAN speed test page on N instead of 24443
+#   --speed-test-http-port N  Plain HTTP listener the HTTPS page hands the test to after taking
+#                          the GPS fix (default 24080; 0 keeps the whole test on HTTPS)
 #   --no-lan-speed-test    Remove the LAN speed test and keep the agent running
 #   --uninstall    Stop + remove the service and install dir, then exit
 #
@@ -68,6 +70,7 @@ LAN_SPEED_TEST=false
 NO_LAN_SPEED_TEST=false
 SPEED_TEST_PORT=24443
 PORT_REQUESTED=false
+HTTP_PORT=""
 SPEEDTEST_SERVICE="netopt-speedtest-nginx"
 
 while [ $# -gt 0 ]; do
@@ -80,6 +83,7 @@ while [ $# -gt 0 ]; do
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
         --no-lan-speed-test) NO_LAN_SPEED_TEST=true; shift ;;
         --speed-test-port) SPEED_TEST_PORT="$2"; PORT_REQUESTED=true; shift 2 ;;
+        --speed-test-http-port) HTTP_PORT="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -104,6 +108,22 @@ if [ "$PORT_REQUESTED" != true ] && [ "$SERVING_SPEED_TEST" = true ]; then
     EXISTING_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${INSTALL_DIR}/agent.json" | head -1)
     [ -n "$EXISTING_PORT" ] && SPEED_TEST_PORT="$EXISTING_PORT"
 fi
+
+# The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
+if [ -z "$HTTP_PORT" ]; then
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);.*/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
+    [ -n "$HTTP_PORT" ] || HTTP_PORT=24080
+fi
+case "$HTTP_PORT" in
+    ''|*[!0-9]*) echo "Invalid --speed-test-http-port: $HTTP_PORT" >&2; exit 1 ;;
+esac
+
+# Git ref the speed test page and nginx config are fetched from. Testing a branch's installer
+# against its own assets: AGENT_ASSETS_REF=<branch or commit>. Default main.
+ASSETS_REF="${AGENT_ASSETS_REF:-main}"
+case "$ASSETS_REF" in
+    *[!A-Za-z0-9._/-]*|'') echo "Invalid AGENT_ASSETS_REF: $ASSETS_REF" >&2; exit 1 ;;
+esac
 
 # --release pins the binaries to one release (the one the server runs) instead of GitHub's
 # "latest", which skips prereleases: a preview server would otherwise install a stable agent.
@@ -455,22 +475,24 @@ if [ "$LAN_SPEED_TEST" = true ]; then
     # Ours is stopped here (the agent restart below would stop it anyway), so a port still in
     # use belongs to something else.
     systemctl stop "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
-    for p in "$SPEED_TEST_PORT" 3002; do
+    for p in "$SPEED_TEST_PORT" "$HTTP_PORT" 3002; do
+        [ "$p" = "0" ] && continue
         if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${p}\$"; then
-            err "port ${p} is already in use on this gateway - pick another with --speed-test-port, or re-run without --lan-speed-test."
+            err "port ${p} is already in use on this gateway - pick another with --speed-test-port or --speed-test-http-port, or re-run without --lan-speed-test."
         fi
     done
     find /data -maxdepth 0 -perm -o+x | grep -q . \
         || err "/data is not world-traversable, so nginx's unprivileged workers cannot reach the page."
 
     WEBROOT="${INSTALL_DIR}/speedtest-web"
-    RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
+    RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/${ASSETS_REF}"
     mkdir -p "$WEBROOT/assets/js"
     note "Fetching the OpenSpeedTest page"
     # Streamed, never saved: /tmp is RAM on a gateway and the repo tarball is large.
     TMPX="$(mktemp -d)"
-    curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/main.tar.gz" \
-        | tar -xzf - -C "$TMPX" --strip-components=3 "NetworkOptimizer-main/src/OpenSpeedTest"
+    # GitHub names the archive's top dir after the ref, with / turned into -.
+    curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/${ASSETS_REF}.tar.gz" \
+        | tar -xzf - -C "$TMPX" --strip-components=3 "NetworkOptimizer-$(echo "$ASSETS_REF" | tr '/' '-')/src/OpenSpeedTest"
     cp -r "$TMPX/." "$WEBROOT/"
     rm -rf "$TMPX"
     cat > "$WEBROOT/assets/js/config.js" <<'CFGJS'
@@ -481,6 +503,7 @@ var externalServerId = "";
 var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
 var OpenSpeedTestdb = "";
 CFGJS
+    echo "var plainHttpPort = ${HTTP_PORT};" >> "$WEBROOT/assets/js/config.js"
     chmod 755 "$INSTALL_DIR"
     chmod -R a+rX "$WEBROOT"
 
@@ -490,14 +513,13 @@ CFGJS
         sed -i "/listen/ s/24443/${SPEED_TEST_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
     fi
 
-    # Same opt-out as install-native.sh (AGENT_SPEEDTEST_TLS=0 at install time): plain http on
-    # the speed test port. Not persisted, so the next re-run without it restores TLS.
-    if [ "${AGENT_SPEEDTEST_TLS:-1}" = "0" ]; then
-        sed -i \
-            -e 's/^\([[:space:]]*listen[[:space:]][^;]*\) ssl\([^;]*;\)/\1\2/' \
-            -e '/^[[:space:]]*ssl_/d' \
-            "${INSTALL_DIR}/nginx-speedtest-server.conf"
-        note "AGENT_SPEEDTEST_TLS=0 - serving plain http on port ${SPEED_TEST_PORT}"
+    # The plain HTTP twin listener the HTTPS page hands the test to (0 removes it).
+    if [ "$HTTP_PORT" = "0" ]; then
+        sed -i '/listen.*24080/d' "${INSTALL_DIR}/nginx-speedtest-server.conf"
+        note "Plain HTTP handoff off - the whole test runs on HTTPS"
+    elif [ "$HTTP_PORT" != "24080" ]; then
+        sed -i "/listen/ s/24080/${HTTP_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
+        note "Plain HTTP handoff on port ${HTTP_PORT}"
     fi
 
     # SANs are the LAN bridge addresses only: hostname -I on a gateway includes the WAN IP.

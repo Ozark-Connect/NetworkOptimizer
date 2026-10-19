@@ -9,3 +9,6 @@ var apiPath = "/api/public/speedtest/results";
 var externalServerId = "";
 var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
 var OpenSpeedTestdb = "";
+// Plain HTTP listener the HTTPS page hands the test to (geolocation.js); 0 disables the handoff.
+// The entrypoint rewrites this line when AGENT_SPEEDTEST_HTTP_PORT is set.
+var plainHttpPort = 24080;

@@ -11,6 +11,66 @@ var geoLocation = {
 };
 
 /**
+ * Plain-HTTP handoff. Geolocation needs a secure context, but TLS roughly halves throughput
+ * on modest hosts (no sendfile on the download leg). So when config.js names a plain HTTP
+ * target, the HTTPS page takes one fix and hands it to the same page over HTTP in the URL
+ * fragment, which the result POST below then carries.
+ *   plainHttpUrl  - full http:// origin (the server, whose plain host can differ)
+ *   plainHttpPort - port on this same host (agents)
+ */
+function plainHttpHandoffUrl() {
+    if (window.location.protocol !== "https:") {
+        return null;
+    }
+    var origin = null;
+    if (typeof plainHttpUrl === "string" && /^http:\/\/[^\/]+/.test(plainHttpUrl)) {
+        origin = plainHttpUrl.replace(/\/+$/, "");
+    } else if (typeof plainHttpPort === "number" && plainHttpPort > 0) {
+        origin = "http://" + window.location.hostname + ":" + plainHttpPort;
+    }
+    return origin ? origin + window.location.pathname + window.location.search : null;
+}
+
+function handOffToPlainHttp(url) {
+    var done = false;
+    function go(position) {
+        if (done) return;
+        done = true;
+        var fragment = position
+            ? "#lat=" + position.coords.latitude.toFixed(6) +
+              "&lng=" + position.coords.longitude.toFixed(6) +
+              "&acc=" + Math.round(position.coords.accuracy)
+            : "";
+        window.location.replace(url + fragment);
+    }
+    // A pending permission prompt holds the geolocation timeout, so cap the wait here too.
+    setTimeout(function() { go(null); }, 8000);
+    if (navigator.geolocation && window.isSecureContext) {
+        navigator.geolocation.getCurrentPosition(go, function() { go(null); },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 });
+    } else {
+        go(null);
+    }
+}
+
+// Runs before the app script parses the URL, so the fragment never reaches its parameters.
+(function() {
+    var m = /^#lat=(-?\d+(?:\.\d+)?)&lng=(-?\d+(?:\.\d+)?)&acc=(\d+)$/.exec(window.location.hash);
+    if (!m) return;
+    geoLocation.latitude = parseFloat(m[1]);
+    geoLocation.longitude = parseFloat(m[2]);
+    geoLocation.accuracy = parseInt(m[3], 10);
+    if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+})();
+
+var plainHttpTarget = plainHttpHandoffUrl();
+if (plainHttpTarget) {
+    handOffToPlainHttp(plainHttpTarget);
+}
+
+/**
  * Start watching location with high accuracy
  */
 function startLocationWatch() {
@@ -139,9 +199,11 @@ function getLocationFormData() {
     };
 })();
 
-// Start location tracking when page loads
-if (document.readyState === 'complete') {
-    startLocationWatch();
-} else {
-    window.addEventListener('load', startLocationWatch);
+// Start location tracking when page loads (not while handing off: the HTTP page gets the fix)
+if (!plainHttpTarget) {
+    if (document.readyState === 'complete') {
+        startLocationWatch();
+    } else {
+        window.addEventListener('load', startLocationWatch);
+    }
 }

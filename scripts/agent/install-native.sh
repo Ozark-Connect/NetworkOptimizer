@@ -17,7 +17,9 @@
 #   --lan-speed-test Host the LAN speed test page (port 24443) and iperf3 (5201)
 #   --speed-test-port N  Serve the LAN speed test page on N instead of 24443. The agent tells the
 #                    server which port it uses, so in-app links follow automatically.
-#   --insecure       Accept a self-signed cert on the server's reverse proxy
+#   --speed-test-http-port N  Plain HTTP listener the HTTPS page hands the test to after taking
+#                    the GPS fix (default 24080; 0 keeps the whole test on HTTPS). Kept on re-runs.
+#   --insecure      Accept a self-signed cert on the server's reverse proxy
 #   --release TAG    Install this release (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --force-native   Skip the UniFi gateway refusal (this installer targets a
 #                    separate box; on a UniFi OS gateway use install-agent-gateway.sh)
@@ -34,6 +36,7 @@ TOKEN=""
 LAN_SPEED_TEST=false
 SPEED_TEST_PORT=24443
 PORT_REQUESTED=false
+HTTP_PORT=""
 INSECURE=false
 UNINSTALL=false
 FORCE_NATIVE=false
@@ -51,6 +54,7 @@ while [ $# -gt 0 ]; do
         --token) TOKEN="$2"; shift 2 ;;
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
         --speed-test-port) SPEED_TEST_PORT="$2"; PORT_REQUESTED=true; shift 2 ;;
+        --speed-test-http-port) HTTP_PORT="$2"; shift 2 ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         --force-native) FORCE_NATIVE=true; shift ;;
@@ -101,6 +105,22 @@ if [ "$SPEED_TEST_PORT" = "24443" ] && [ -f "${INSTALL_DIR}/agent.json" ]; then
     EXISTING_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${INSTALL_DIR}/agent.json" | head -1)
     [ -n "$EXISTING_PORT" ] && SPEED_TEST_PORT="$EXISTING_PORT"
 fi
+
+# The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
+if [ -z "$HTTP_PORT" ]; then
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);.*/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
+    [ -n "$HTTP_PORT" ] || HTTP_PORT=24080
+fi
+case "$HTTP_PORT" in
+    *[!0-9]*|'') echo "Invalid --speed-test-http-port: $HTTP_PORT" >&2; exit 1 ;;
+esac
+
+# Git ref the speed test page and nginx config are fetched from. Testing a branch's installer
+# against its own assets: AGENT_ASSETS_REF=<branch or commit>. Default main.
+ASSETS_REF="${AGENT_ASSETS_REF:-main}"
+case "$ASSETS_REF" in
+    *[!A-Za-z0-9._/-]*|'') echo "Invalid AGENT_ASSETS_REF: $ASSETS_REF" >&2; exit 1 ;;
+esac
 
 # --- Output helpers -----------------------------------------------------------
 # Colorized, structured output; colors collapse to empty when stdout isn't a
@@ -598,12 +618,13 @@ if [ "$LAN_SPEED_TEST" = true ]; then
         # Webroot lives beside the deployables, not in /usr/share/nginx/html (which
         # may belong to the system nginx or sit on a read-only root on appliances).
         WEBROOT="${INSTALL_DIR}/speedtest-web"
-        RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
+        RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/${ASSETS_REF}"
         mkdir -p "$WEBROOT/assets/js"
         note "Fetching the OpenSpeedTest page"
         TARBALL="$(mktemp)"; TMPX="$(mktemp -d)"
-        curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/main.tar.gz" -o "$TARBALL"
-        tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-main/src/OpenSpeedTest"
+        curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/${ASSETS_REF}.tar.gz" -o "$TARBALL"
+        # GitHub names the archive's top dir after the ref, with / turned into -.
+        tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-$(echo "$ASSETS_REF" | tr '/' '-')/src/OpenSpeedTest"
         cp -r "$TMPX/." "$WEBROOT/"
         rm -rf "$TARBALL" "$TMPX"
 
@@ -616,6 +637,7 @@ var externalServerId = "";
 var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
 var OpenSpeedTestdb = "";
 CFGJS
+        echo "var plainHttpPort = ${HTTP_PORT};" >> "$WEBROOT/assets/js/config.js"
         # World-readable so nginx's unprivileged workers can serve it wherever the
         # install dir lives (e.g. under /root on some appliances).
         chmod -R a+rX "$WEBROOT"
@@ -633,6 +655,14 @@ CFGJS
         if [ "$SPEED_TEST_PORT" != "24443" ]; then
             sed -i "/listen/ s/24443/${SPEED_TEST_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
             note "LAN speed test page on port ${SPEED_TEST_PORT}"
+        fi
+        # The plain HTTP twin listener the HTTPS page hands the test to (0 removes it).
+        if [ "$HTTP_PORT" = "0" ]; then
+            sed -i '/listen.*24080/d' "${INSTALL_DIR}/nginx-speedtest-server.conf"
+            note "Plain HTTP handoff off - the whole test runs on HTTPS"
+        elif [ "$HTTP_PORT" != "24080" ]; then
+            sed -i "/listen/ s/24080/${HTTP_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
+            note "Plain HTTP handoff on port ${HTTP_PORT}"
         fi
 
         if [ "${AGENT_SPEEDTEST_TLS:-1}" = "0" ]; then
