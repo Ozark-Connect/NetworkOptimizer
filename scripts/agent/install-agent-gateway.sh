@@ -15,7 +15,7 @@
 #   - installs to /data (persistent on UniFi OS) rather than /opt
 #   - a systemd unit tuned for a shared router box: workstation GC and a memory
 #     fence so the agent stays well clear of routing/IPS
-#   - the speed test nginx runs as nobody with 2 workers inside its own memory fence,
+#   - the speed test nginx runs as nobody with up to 4 workers inside its own memory fence,
 #     and UniFi's nginx is never touched
 #   - the agent's own iperf3 server replaces UniFi's iperf3.service on 5201 (stopped
 #     and masked while the speed test is on, restored on removal); no uwnspeedtest
@@ -509,14 +509,17 @@ CFGJS
         -e "s#__KEYFILE__#${CERTDIR}/key.pem#" \
         "${INSTALL_DIR}/nginx-speedtest-server.conf"
 
-    # Gateway limits: two workers instead of one per core, and nobody (some gateways have no
-    # nginx account, and where one exists it is UniFi's).
+    # Gateway limits: one worker per core up to 4 (To Device TLS encryption runs in the workers,
+    # so fewer workers caps that leg; the unit's memory fence bounds the rest), and nobody (some
+    # gateways have no nginx account, and where one exists it is UniFi's).
+    WORKERS=$(nproc 2>/dev/null || echo 2)
+    [ "$WORKERS" -gt 4 ] && WORKERS=4
     curl -fsSL "$RAW/docker/agent/nginx-standalone.conf" -o "${INSTALL_DIR}/nginx-speedtest.conf"
     sed -i \
         -e "s#__PIDFILE__#${INSTALL_DIR}/nginx.pid#" \
         -e "s#__ERRORLOG__#${INSTALL_DIR}/nginx-error.log#" \
         -e "s#__SERVERCONF__#${INSTALL_DIR}/nginx-speedtest-server.conf#" \
-        -e "s#^worker_processes auto;#worker_processes 2;#" \
+        -e "s#^worker_processes auto;#worker_processes ${WORKERS};#" \
         "${INSTALL_DIR}/nginx-speedtest.conf"
     sed -i "1i user nobody nogroup;" "${INSTALL_DIR}/nginx-speedtest.conf"
     # Never UniFi's: the borrowed binary's compiled-in temp paths are /var/cache/nginx/*_temp,
