@@ -7371,15 +7371,36 @@ a.path-hop.hop-clickable:hover {
 
 /* Settings - Automatic Blocking: divided sections like .audit-options, one target per block */
 .automatic-blocking .ab-section,
-.trusted-sources .ab-section {
+.trusted-sources .ab-section,
+.wan-flood .ab-section {
     border-top: 1px solid var(--border-color);
     padding-top: 1.25rem;
 }
 
 .automatic-blocking .ab-section-title,
-.trusted-sources .ab-section-title {
+.trusted-sources .ab-section-title,
+.wan-flood .ab-section-title {
     font-size: 1rem;
     margin: 0 0 1rem;
+}
+
+/* WAN Flood Protection's Advanced: the guide's border-top already divides; its first section adds none. */
+.wan-flood .setup-guide-content {
+    padding-top: 1.25rem;
+}
+
+.wan-flood .setup-guide-content > .ab-section:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+/* The guide's content is muted; section titles keep the card's own heading color. */
+.wan-flood .setup-guide-content .ab-section-title {
+    color: var(--text-primary);
+}
+
+.wan-flood .setup-guide {
+    margin-bottom: 1.5rem;
 }
 
 .automatic-blocking .ab-section > .form-help,
@@ -7402,7 +7423,8 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* The card's Save, set off from the last target's own buttons like a section. */
-.automatic-blocking .ab-save {
+.automatic-blocking .ab-save,
+.wan-flood .ab-save {
     border-top: 1px solid var(--border-color);
     padding-top: 1.25rem;
 }
@@ -7576,7 +7598,8 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
-.protection-setup-done {
+.protection-setup-done,
+.wan-flood-status .wan-flood-summary {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -7665,13 +7688,15 @@ a.path-hop.hop-clickable:hover {
     color: var(--warning-color);
 }
 
-.automatic-blocking .form-row {
+.automatic-blocking .form-row,
+.wan-flood .form-row {
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
 }
 
-.automatic-blocking .form-row > .form-group {
+.automatic-blocking .form-row > .form-group,
+.wan-flood .form-row > .form-group {
     flex: 1 1 180px;
     min-width: 0;
 }
@@ -7836,7 +7861,29 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Threat Intelligence - Blocked Sources */
-.blocked-sources .blocked-sources-subtitle {
+/* WAN Flood Protection's status line keeps the connection table on its right edge; on a phone it wraps below. */
+.wan-flood-status .wan-flood-summary {
+    flex-wrap: wrap;
+}
+
+.wan-flood-status .wan-flood-summary .waf-meta {
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .wan-flood-status .wan-flood-summary .waf-meta {
+        flex-basis: 100%;
+        margin-left: calc(8px + 0.5rem);
+    }
+
+    /* Two short columns are left on a phone (hide-mobile), so the tables fit without scrolling sideways. */
+    .wan-flood-status .data-table {
+        min-width: 0;
+    }
+}
+
+.blocked-sources .blocked-sources-subtitle,
+.wan-flood-status .wan-flood-subtitle {
     font-size: 0.95rem;
     margin: 1.5rem 0 0.75rem;
 }
@@ -7862,12 +7909,14 @@ a.path-hop.hop-clickable:hover {
 }
 
 @media (max-width: 768px) {
-    .automatic-blocking .form-row {
+    .automatic-blocking .form-row,
+    .wan-flood .form-row {
         flex-direction: column;
         gap: 0;
     }
 
-    .automatic-blocking .form-row > .form-group {
+    .automatic-blocking .form-row > .form-group,
+    .wan-flood .form-row > .form-group {
         flex: 0 0 auto;
     }
 }

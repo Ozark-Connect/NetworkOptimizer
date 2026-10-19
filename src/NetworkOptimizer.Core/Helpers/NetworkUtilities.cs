@@ -727,76 +727,93 @@ public static class NetworkUtilities
         return result;
     }
 
+    /// <summary>A well-known port: its service name, and whether the service is a UDP amplification vector.</summary>
+    public sealed record WellKnownPort(int Port, string Name, bool Amplification = false);
+
     /// <summary>
-    /// Well-known port-to-service name map. Single source of truth used by
-    /// threat dashboard, drilldowns, and any future port labeling.
-    /// Returns the friendly service name, or null if the port is not in the map.
+    /// Well-known ports. Single source of truth used by threat dashboard, drilldowns, WAN Flood Protection's
+    /// reflection rule, and any future port labeling.
     /// </summary>
-    public static string? GetPortServiceName(int port)
-    {
-        return port switch
-        {
-            20 => "FTP Data",
-            21 => "FTP",
-            22 => "SSH",
-            23 => "Telnet",
-            25 => "SMTP",
-            53 => "DNS",
-            80 => "HTTP",
-            110 => "POP3",
-            111 => "RPC",
-            123 => "NTP",
-            135 => "MS-RPC",
-            137 => "NetBIOS-NS",
-            138 => "NetBIOS-DGM",
-            139 => "NetBIOS",
-            143 => "IMAP",
-            161 => "SNMP",
-            162 => "SNMP Trap",
-            389 => "LDAP",
-            443 => "HTTPS",
-            445 => "SMB",
-            465 => "SMTPS",
-            500 => "IKE",
-            502 => "Modbus",
-            587 => "SMTP Submit",
-            636 => "LDAPS",
-            993 => "IMAPS",
-            995 => "POP3S",
-            1080 => "SOCKS",
-            1433 => "MSSQL",
-            1434 => "MSSQL Browser",
-            1521 => "Oracle",
-            1723 => "PPTP",
-            1883 => "MQTT",
-            2049 => "NFS",
-            2222 => "SSH-Alt",
-            2375 => "Docker",
-            2376 => "Docker TLS",
-            3306 => "MySQL",
-            3389 => "RDP",
-            4500 => "IPSec NAT-T",
-            5060 => "SIP",
-            5405 => "Corosync",
-            5406 => "Corosync",
-            5432 => "PostgreSQL",
-            5672 => "AMQP",
-            5900 => "VNC",
-            6379 => "Redis",
-            6443 => "Kubernetes",
-            8006 => "Proxmox",
-            8080 => "HTTP-Alt",
-            8086 => "InfluxDB",
-            8443 => "HTTPS-Alt",
-            8883 => "MQTT-TLS",
-            9200 => "Elasticsearch",
-            9300 => "Elasticsearch",
-            11211 => "Memcached",
-            22067 => "Syncthing Relay",
-            27017 => "MongoDB",
-            _ => null
-        };
-    }
+    public static readonly IReadOnlyList<WellKnownPort> WellKnownPorts =
+    [
+        new(19, "Chargen", Amplification: true),
+        new(20, "FTP Data"),
+        new(21, "FTP"),
+        new(22, "SSH"),
+        new(23, "Telnet"),
+        new(25, "SMTP"),
+        new(53, "DNS", Amplification: true),
+        new(69, "TFTP", Amplification: true),
+        new(80, "HTTP"),
+        new(110, "POP3"),
+        new(111, "RPC", Amplification: true),
+        new(123, "NTP", Amplification: true),
+        new(135, "MS-RPC"),
+        new(137, "NetBIOS-NS", Amplification: true),
+        new(138, "NetBIOS-DGM"),
+        new(139, "NetBIOS"),
+        new(143, "IMAP"),
+        new(161, "SNMP", Amplification: true),
+        new(162, "SNMP Trap"),
+        new(389, "LDAP", Amplification: true),
+        new(443, "HTTPS"),
+        new(445, "SMB"),
+        new(465, "SMTPS"),
+        new(500, "IKE"),
+        new(502, "Modbus"),
+        new(587, "SMTP Submit"),
+        new(636, "LDAPS"),
+        new(993, "IMAPS"),
+        new(995, "POP3S"),
+        new(1080, "SOCKS"),
+        new(1433, "MSSQL"),
+        new(1434, "MSSQL Browser"),
+        new(1521, "Oracle"),
+        new(1723, "PPTP"),
+        new(1883, "MQTT"),
+        new(1900, "SSDP", Amplification: true),
+        new(2049, "NFS"),
+        new(2222, "SSH-Alt"),
+        new(2375, "Docker"),
+        new(2376, "Docker TLS"),
+        new(3283, "Apple Remote Desktop", Amplification: true),
+        new(3306, "MySQL"),
+        new(3389, "RDP"),
+        new(3702, "WS-Discovery", Amplification: true),
+        new(4500, "IPSec NAT-T"),
+        new(5060, "SIP"),
+        new(5353, "mDNS", Amplification: true),
+        new(5405, "Corosync"),
+        new(5406, "Corosync"),
+        new(5432, "PostgreSQL"),
+        new(5672, "AMQP"),
+        new(5900, "VNC"),
+        new(6379, "Redis"),
+        new(6443, "Kubernetes"),
+        new(8006, "Proxmox"),
+        new(8080, "HTTP-Alt"),
+        new(8086, "InfluxDB"),
+        new(8443, "HTTPS-Alt"),
+        new(8883, "MQTT-TLS"),
+        new(9200, "Elasticsearch"),
+        new(9300, "Elasticsearch"),
+        new(10001, "Ubiquiti Discovery", Amplification: true),
+        new(11211, "Memcached", Amplification: true),
+        new(22067, "Syncthing Relay"),
+        new(27017, "MongoDB"),
+        new(37810, "DVR Discovery", Amplification: true),
+    ];
+
+    private static readonly Dictionary<int, string> PortNames = WellKnownPorts.ToDictionary(p => p.Port, p => p.Name);
+
+    /// <summary>
+    /// UDP services that answer a small forged request with a much larger reply, so attackers use them to reflect
+    /// floods. A NEW packet from one of these ports is never a reply to the site.
+    /// </summary>
+    public static readonly IReadOnlyList<int> AmplificationPorts = WellKnownPorts.Where(p => p.Amplification).Select(p => p.Port).ToList();
+
+    /// <summary>Returns the friendly service name of a well-known port, or null if the port is not in the map.</summary>
+    public static string? GetPortServiceName(int port) => PortNames.GetValueOrDefault(port);
 
     /// <summary>
     /// Parse CIDR notation into network address and prefix length.

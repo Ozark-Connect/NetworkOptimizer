@@ -148,6 +148,43 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 3600 // 1 hour per device
         },
+        // --- Threat Intelligence: WAN Flood Protection (one alert per flood episode, raised by the gateway agent's report) ---
+        new AlertRule
+        {
+            Name = "Threat Intelligence: WAN Flood",
+            IsEnabled = true,
+            EventTypePattern = "threats.wan_flood",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Threat Intelligence: WAN Flood Conntrack Pressure",
+            IsEnabled = true,
+            EventTypePattern = "threats.wan_flood_conntrack",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Threat Intelligence: WAN Flood Protection Table Full",
+            IsEnabled = true,
+            EventTypePattern = "threats.wan_flood_table_full",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
+        new AlertRule
+        {
+            Name = "Threat Intelligence: WAN Flood Protection Not Enforced",
+            IsEnabled = true,
+            EventTypePattern = "threats.wan_flood_unenforced",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 21600 // 6 hours
+        },
         new AlertRule
         {
             Name = "Threat Intelligence: Early-Stage Attack Chain",

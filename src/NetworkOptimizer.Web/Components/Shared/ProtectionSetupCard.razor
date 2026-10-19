@@ -1,18 +1,22 @@
 @using NetworkOptimizer.Threats.Blocking
+@using NetworkOptimizer.Threats.WanFlood
+@using NetworkOptimizer.Web.Services.WanFlood
 @inject IThreatBlockingAdmin Blocking
+@inject IWanFloodAdmin WanFlood
 @inject IWafConnectionAdmin WafAdmin
 @inject NavigationManager Nav
+@inject SiteContextService SiteContext
 
 @* Threat Intelligence - Overview: the recommended protection setup for the site in context, in
    the order it should be done. Folds to one line once complete. *@
 
 @if (_status != null && !_status.Hidden)
 {
-    @if (_status.Complete)
+    @if (AllComplete)
     {
         <div class="protection-setup-done">
             <span class="status-dot online"></span>
-            <span>Protection: blocking on @EnforcingOn.</span>
+            <span>Protection: blocking on @EnforcingOn@(FloodDone ? " + WAN Flood Protection on" : "").</span>
             <a href="/settings#automatic-blocking">Settings</a>
         </div>
     }
@@ -21,7 +25,7 @@
         <div class="card card-spaced protection-setup" data-tour="protection-setup">
             <div class="card-header">
                 <h3 class="card-title">Protection Setup</h3>
-                <span class="protection-setup-count">@Done of 4 done</span>
+                <span class="protection-setup-count">@Done of @TotalSteps done</span>
             </div>
             <div class="card-body">
                 <ul class="protection-steps">
@@ -94,6 +98,24 @@
                             @GatewayText
                         </span>
                     </li>
+                    @if (_flood != null)
+                    {
+                        <li class="@StepClass(FloodDone, optional: !FloodRequired)">
+                            <span class="protection-step-text">@FloodText</span>
+                            @if (_flood.AgentState == WanFloodAgentState.NeedsUpdate)
+                            {
+                                <SiteAdminOnly>
+                                    <a class="btn btn-sm btn-primary" href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Upgrade Agent</a>
+                                </SiteAdminOnly>
+                            }
+                            else if (_flood.Settings.Mode != WanFloodMode.Enforce)
+                            {
+                                <SiteAdminOnly>
+                                    <a class="btn btn-sm btn-contrast" href="/settings#wan-flood-protection">Set Up</a>
+                                </SiteAdminOnly>
+                            }
+                        </li>
+                    }
                 </ul>
                 <p class="form-help protection-optional">
                     Optional: <a href="/settings#automatic-blocking">Cloudflare edge blocking</a>@(_status.CloudflareSetUp ? " (set up)" : "")
@@ -119,13 +141,48 @@
     private string? _message;
     private string _messageClass = "info";
 
-    protected override async Task OnInitializedAsync() => _status = await Blocking.GetProtectionStatusAsync();
+    private WanFloodOverview? _flood;
 
-    // The four steps the recommended setup needs; the WAF is optional and not counted.
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await Blocking.GetProtectionStatusAsync();
+        try
+        {
+            _flood = await WanFlood.GetOverviewAsync();
+        }
+        catch (Exception)
+        {
+            // Optional step: without it the checklist reads as before.
+            _flood = null;
+        }
+    }
+
+    // Required where the gateway's On-Site Agent runs it or an agent update would; a site without one cannot
+    // complete the step, so it stays optional there instead of holding the checklist open for good.
+    private bool FloodRequired => _flood is { AgentCapable: true } or { AgentState: WanFloodAgentState.NeedsUpdate };
+    private bool FloodDone => _flood is { AgentCapable: true, Settings.Mode: WanFloodMode.Enforce };
+    private bool AllComplete => _status!.Complete && (!FloodRequired || FloodDone);
+    private int TotalSteps => 4 + (FloodRequired ? 1 : 0);
+
+    private string FloodText => _flood!.AgentState == WanFloodAgentState.NeedsUpdate
+        ? "WAN Flood Protection stops floods of unsolicited traffic before they max out the gateway's CPU and stall internet access, inter-VLAN traffic, and UniFi apps. Update the gateway's On-Site Agent to turn it on."
+        : _flood.AgentState == WanFloodAgentState.Unsupported
+            ? "WAN Flood Protection (optional): this gateway can't run it."
+        : (_flood.Settings.Mode, _flood.AgentCapable) switch
+    {
+        (WanFloodMode.Enforce, true) => "WAN Flood Protection on, enforced by the gateway's On-Site Agent",
+        (WanFloodMode.Detect, true) => "WAN Flood Protection in Detection Only. Review what it would drop on the Blocking tab, then turn it on.",
+        (not WanFloodMode.Off, false) => "WAN Flood Protection is on, but no On-Site Agent on the gateway is connected to enforce it",
+        (WanFloodMode.Off, true) => "WAN Flood Protection is off. A flood of unsolicited traffic can max out the gateway's CPU, stalling internet access, inter-VLAN traffic, and the UniFi apps it runs.",
+        _ => "WAN Flood Protection (optional): keeps floods of unsolicited traffic from overloading the gateway. Needs the On-Site Agent on the gateway.",
+    };
+
+    // The steps the recommended setup needs; the WAF is optional and not counted. WAN flood protection
+    // counts where it is required (FloodRequired).
     private int Done => new[]
     {
         _status!.EventsSeen, _status.SiteAddresses > 0, _status.Mode == BlockingMode.Enforce, _status.BlockingTargetReady
-    }.Count(d => d);
+    }.Count(d => d) + (FloodRequired && FloodDone ? 1 : 0);
 
     private string GatewayText => _status!.GatewaySetUp
         ? "Gateway blocking configured"
@@ -159,7 +216,7 @@
         try
         {
             var r = await Blocking.TurnOnRecommendedAsync();
-            _status = await Blocking.GetProtectionStatusAsync();
+            await OnInitializedAsync();
             _message = r.GatewayError == null ? null : $"Blocking, but the gateway was not set up: {r.GatewayError}";
             _messageClass = "warning";
         }

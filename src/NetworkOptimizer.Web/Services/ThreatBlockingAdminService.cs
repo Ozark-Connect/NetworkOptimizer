@@ -22,8 +22,8 @@ public interface IThreatBlockingAdmin
 
     /// <summary>
     /// One click from Dry Run (the default) to the setup a homelab wants: Enforce, patterns on,
-    /// sharing on, the gateway set up and used, and the WAF used when one is connected. Cloudflare
-    /// is left as it is: it needs a token.
+    /// sharing on, the gateway set up and used, the WAF used when one is connected, and WAN Flood
+    /// Protection on where the gateway's On-Site Agent can run it. Cloudflare is left as it is: it needs a token.
     /// </summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_blocking")]
@@ -155,10 +155,11 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
 /// <summary>
 /// One site's Automatic Blocking at a glance, for its row in Settings - Multi-Site.
 /// <see cref="ActiveBlocks"/> includes <see cref="SharedBlocks"/>, the sources other sites raised;
-/// <see cref="FeedEntries"/> is null until the site's gateway has had a public list write.
+/// <see cref="FeedEntries"/> is null until the site's gateway has had a public list write;
+/// <see cref="WanFloodPending"/> when its gateway agent can run WAN Flood Protection and it is not Protecting.
 /// </summary>
 public sealed record BlockingSiteSummary(BlockingMode Mode, bool Share, bool GatewaySetUp, int ActiveBlocks, string? RecommendedNote,
-    int SharedBlocks = 0, int? FeedEntries = null);
+    int SharedBlocks = 0, int? FeedEntries = null, bool WanFloodPending = false);
 
 /// <summary>
 /// Automatic Blocking for a named site, for Settings - Multi-Site, which lists every site rather than
@@ -214,10 +215,11 @@ public sealed class ThreatBlockingSiteAdminService(ThreatBlockingOperations ops,
         var own = overview.Active.Where(b => b.Enforced).Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var shared = overview.Shared.Select(s => s.Block.SourceIp).Where(ip => !own.Contains(ip))
             .Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var floodPending = await ops.WanFloodPendingAsync(siteSlug, ct);
         return new BlockingSiteSummary(overview.Settings.Mode, overview.Settings.Share,
             await ops.IsGatewaySetUpAsync(siteSlug, ct), own.Count + shared,
-            overview.Settings.Mode == BlockingMode.Enforce ? null : (await ops.RecommendAsync(siteSlug, ct)).Note,
-            shared, ops.GatewayFeedEntries(siteSlug));
+            overview.Settings.Mode == BlockingMode.Enforce && !floodPending ? null : (await ops.RecommendAsync(siteSlug, ct)).Note,
+            shared, ops.GatewayFeedEntries(siteSlug), floodPending);
     }
 
     public async Task SetModeAsync(string siteSlug, BlockingMode mode, CancellationToken ct = default)

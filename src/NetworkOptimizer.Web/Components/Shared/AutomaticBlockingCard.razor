@@ -7,7 +7,12 @@
 
 <div class="card settings-tab-security automatic-blocking" id="automatic-blocking" data-tour="automatic-blocking">
     <div class="card-header">
-        <h2 class="card-title">Automatic Blocking</h2>
+        <div class="card-header-left">
+            <h2 class="card-title">Automatic Blocking</h2>
+            <a href="/threats?tab=blocking" class="settings-title-link" data-tooltip="Open Threat Intelligence - Blocking">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+            </a>
+        </div>
         @if (_saved != null && _saved.Mode != BlockingMode.Off)
         {
             <span class="status-badge @(_saved.Mode == BlockingMode.Enforce ? "status-active" : "")">@(_saved.Mode == BlockingMode.Enforce ? "Blocking" : "Detection Only")</span>
@@ -147,7 +152,7 @@
                             @view.List.Description
                             @if (!view.List.Outbound)
                             {
-                                <span> <strong>Blocked inbound only:</strong> these addresses often host legitimate sites too.</span>
+                                <span>@(" ")<strong>Blocked inbound only:</strong> these addresses often host legitimate sites too.</span>
                             }
                             <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
@@ -547,6 +552,7 @@
         if (r.Gateway) where.Add("the gateway");
         if (r.Waf) where.Add("the WAF");
         var on = where.Count > 0 ? $"Blocking on {string.Join(" and ", where)}." : "Blocking is on, but there is nowhere to block yet.";
+        if (r.WanFlood) on += " WAN Flood Protection is on.";
         return r.GatewayError == null ? on : $"{on} The gateway was not set up: {r.GatewayError}";
     });
 

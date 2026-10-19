@@ -46,6 +46,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly AgentSnmpQueryService _snmpQuery;
     private readonly CableModemProviders.Uci.UciInformService _uciInforms;
     private readonly GatewayAgentBlocklist _gatewayBlocklist;
+    private readonly WanFlood.WanFloodService _wanFlood;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<AgentTunnelService> _logger;
 
@@ -60,10 +61,12 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         AgentSnmpQueryService snmpQuery,
         CableModemProviders.Uci.UciInformService uciInforms,
         GatewayAgentBlocklist gatewayBlocklist,
+        WanFlood.WanFloodService wanFlood,
         Licensing.LicenseStateService licenseState,
         ILogger<AgentTunnelService> logger)
     {
         _gatewayBlocklist = gatewayBlocklist;
+        _wanFlood = wanFlood;
         _enrollment = enrollment;
         _registry = registry;
         _probeResultSink = probeResultSink;
@@ -152,6 +155,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
 
             await _probeResultSink.OnAgentConnectedAsync(connection, ct, initialConnect: true);
             _gatewayBlocklist.OnAgentConnected(connection);
+            _wanFlood.OnAgentConnected(connection);
 
             while (await requestStream.MoveNext(ct))
             {
@@ -249,6 +253,24 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     case AgentMessage.PayloadOneofCase.GatewayBlocklistHits:
                         _gatewayBlocklist.OnHits(connection, message.GatewayBlocklistHits);
                         break;
+                    case AgentMessage.PayloadOneofCase.WanFloodStatus:
+                        _wanFlood.OnStatus(connection, message.WanFloodStatus);
+                        break;
+                    case AgentMessage.PayloadOneofCase.WanFloodIncident:
+                        // Store-and-forward like the result batches: acked once persisted, replayed otherwise.
+                        try
+                        {
+                            await _wanFlood.OnIncidentAsync(connection, message.WanFloodIncident, ct);
+                        }
+                        catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteCantOpen)
+                        {
+                            _logger.LogWarning("Site {Slug} has no database any more; closing this agent's tunnel", siteSlug);
+                            connection.Drop();
+                            break;
+                        }
+                        if (message.Sequence > 0)
+                            connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
+                        break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
                         break;
@@ -273,6 +295,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             _snmpQuery.OnAgentDisconnected(connection);
             _probeResultSink.OnAgentDisconnected(connection);
             _gatewayBlocklist.OnAgentDisconnected(connection);
+            _wanFlood.OnAgentDisconnected(connection);
             streamCts.Cancel();
             await AwaitQuietlyAsync(pumpTask);
             await AwaitQuietlyAsync(refreshTask);

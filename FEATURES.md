@@ -391,7 +391,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - Suricata signature enrichment
 - **Overview** - totals, threat timeline, kill chain distribution, blocked vs detected
   - **Top Sources**, **Top Targeted Ports**, **Attack Patterns** (scan, brute force, exploit campaign, DDoS)
-  - **Protection Setup** - four-step checklist from watching to blocking, with **Turn On Recommended**
+  - **Protection Setup** - checklist from watching to blocking, with **Turn On Recommended**
 - **Blocking** - every blocked source with its reason and end time, plus those shared from your other sites by site; **Release**; each links to its IP details
 - **Exposure** - port forwards cross-referenced with threats; **Geo-Block Recommendation**
 - **Geographic** - country breakdown (MaxMind GeoIP)
@@ -424,6 +424,20 @@ Set up in **Settings - Security & Alerts**, per site.
   - Optional outbound block keeps an infected device from reaching its botnet command server (attacker lists stay inbound only)
   - A device reaching a listed address raises an alert, Detection Only included
 - **What Triggers a Block** thresholds and **Maximum blocked sources**
+
+### WAN Flood Protection
+
+Set up in **Settings - Security & Alerts**, per site, and run by the gateway's [On-Site Agent](#on-site-agent).
+
+- Limits unsolicited new UDP and TCP SYN connections to the gateway, per source
+- Drops reflection floods from DNS, NTP, memcached, and other amplification services
+- Drops a detected flood's source at the WAN, lifted after the flood stops
+- Limits new connections per port forward so a flood cannot fill the connection table
+- **Off**, **Detection Only**, and **Protecting** modes, with tuning under **Advanced**
+- **Never limit or drop** addresses and ranges
+- **Blocking** card: per-WAN status, **Active Drops** (**Release** each), **Floods in the Last 7 Days**
+- Alerts when a flood starts, the connection table fills, or protection is not enforced
+- A **Protection Setup** step wherever the gateway's On-Site Agent can run it
 
 ### Trusted Sources
 

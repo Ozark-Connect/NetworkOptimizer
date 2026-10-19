@@ -2,6 +2,7 @@ using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Threats.Blocking;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
+using NetworkOptimizer.Threats.WanFlood;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -19,14 +20,20 @@ public sealed record BlockingOverview(
     IReadOnlyList<SharedBlock> Shared,
     IReadOnlyList<BlockTargetStatus> Targets);
 
-/// <summary>What Turn On Recommended enabled. <see cref="GatewayError"/> says why the gateway was left out.</summary>
-public sealed record RecommendedResult(bool Gateway, string? GatewayError, bool Waf, BlockingProfile Profile = BlockingProfile.Home);
+/// <summary>
+/// What Turn On Recommended enabled. <see cref="GatewayError"/> says why the gateway was left out;
+/// <see cref="WanFlood"/> is WAN Flood Protection enforcing afterwards.
+/// </summary>
+public sealed record RecommendedResult(bool Gateway, string? GatewayError, bool Waf, BlockingProfile Profile = BlockingProfile.Home,
+    bool WanFlood = false);
 
 /// <summary>
 /// The profile Turn On Recommended applies to a site, why, and the lists it turns on.
-/// <see cref="ThreatFoxKeyMissing"/> when a free abuse.ch Auth-Key would add live command-server coverage.
+/// <see cref="ThreatFoxKeyMissing"/> when a free abuse.ch Auth-Key would add live command-server coverage;
+/// <see cref="WanFlood"/> when it would also turn on WAN Flood Protection.
 /// </summary>
-public sealed record BlockingRecommendation(BlockingProfile Profile, string Reason, IReadOnlyList<string> Lists, bool ThreatFoxKeyMissing)
+public sealed record BlockingRecommendation(BlockingProfile Profile, string Reason, IReadOnlyList<string> Lists, bool ThreatFoxKeyMissing,
+    bool WanFlood = false)
 {
     /// <summary>The one-line note under Turn On Recommended.</summary>
     public string Note
@@ -42,6 +49,7 @@ public sealed record BlockingRecommendation(BlockingProfile Profile, string Reas
                 _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}",
             };
             var note = $"Uses the {BlockingProfiles.Name(Profile)} profile for this site ({Reason}): {lists}, with command servers blocked outbound too.";
+            if (WanFlood) note += " Also turns on WAN Flood Protection.";
             return ThreatFoxKeyMissing ? note + " A free abuse.ch Auth-Key adds ThreatFox's live botnet servers." : note;
         }
     }
@@ -123,6 +131,7 @@ public sealed class ThreatBlockingOperations
     private readonly SiteConnectionRegistry? _connections;
     private readonly IUniFiClientAccessor? _clients;
     private readonly IBlockListPool? _pools;
+    private readonly WanFlood.WanFloodService? _wanFlood;
 
     public ThreatBlockingOperations(
         IThreatSettingsAccessor settings,
@@ -138,8 +147,10 @@ public sealed class ThreatBlockingOperations
         NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null,
         SiteConnectionRegistry? connections = null,
         IUniFiClientAccessor? clients = null,
-        IBlockListPool? pools = null)
+        IBlockListPool? pools = null,
+        WanFlood.WanFloodService? wanFlood = null)
     {
+        _wanFlood = wanFlood;
         _pools = pools;
         _clients = clients;
         _connections = connections;
@@ -269,7 +280,24 @@ public sealed class ThreatBlockingOperations
         var lists = BlockingProfiles.Lists(chosen, tokens.Contains);
         var threatFoxMissing = !tokens.Contains(PublicBlockLists.ThreatFox)
                                && BlockingProfiles.Lists(chosen, _ => true).Contains(PublicBlockLists.ThreatFox);
-        return new BlockingRecommendation(chosen, reason, lists, threatFoxMissing);
+        return new BlockingRecommendation(chosen, reason, lists, threatFoxMissing, await WanFloodPendingAsync(slug, ct));
+    }
+
+    /// <summary>The site's gateway agent can run WAN Flood Protection and it is not yet Protecting.</summary>
+    public async Task<bool> WanFloodPendingAsync(string slug, CancellationToken ct) =>
+        _wanFlood?.AgentState(slug) == WanFlood.WanFloodAgentState.Capable
+        && (await WanFloodSettings.LoadAsync(k => _settings.GetSettingAsync(k, ct), Site(slug))).Mode != WanFloodMode.Enforce;
+
+    // Part of the recommended set where the gateway agent can run it; true when it is Protecting afterwards.
+    private async Task<bool> TurnOnWanFloodAsync(string slug, CancellationToken ct)
+    {
+        if (_wanFlood?.AgentState(slug) != WanFlood.WanFloodAgentState.Capable) return false;
+        if (await WanFloodPendingAsync(slug, ct))
+        {
+            await _settings.SaveSettingAsync(WanFloodSettingKeys.ForSite(WanFloodSettingKeys.Mode, Site(slug)), WanFloodMode.Enforce.ToString(), ct);
+            _wanFlood.Trigger();
+        }
+        return true;
     }
 
     public async Task<RecommendedResult> TurnOnRecommendedAsync(string slug, CancellationToken ct, BlockingProfile? profile = null)
@@ -295,12 +323,14 @@ public sealed class ThreatBlockingOperations
             Mode = BlockingMode.Enforce,
             UsePatterns = true,
             Share = true,
-            Feeds = recommendation.Lists,
+            // Adds the recommended lists to the site's selection; never turns one off.
+            Feeds = PublicBlockLists.All.Select(l => l.Id)
+                .Where(id => recommendation.Lists.Contains(id) || current.Feeds.Contains(id)).ToList(),
             FeedsOutbound = gatewayError == null,
             TargetGateway = gatewayError == null,
             TargetWaf = waf,
         }, ct);
-        return new RecommendedResult(gatewayError == null, gatewayError, waf, recommendation.Profile);
+        return new RecommendedResult(gatewayError == null, gatewayError, waf, recommendation.Profile, await TurnOnWanFloodAsync(slug, ct));
     }
 
     /// <summary>Manual block lengths offered next to an address, in minutes.</summary>

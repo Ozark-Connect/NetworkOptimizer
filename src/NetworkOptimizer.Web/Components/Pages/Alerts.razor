@@ -1860,6 +1860,10 @@
                         <div @onclick='() => SelectEventType("threats.public_list_contact")'><code>threats.public_list_contact</code> <span>Device reached a public block list address</span></div>
                         <div @onclick='() => SelectEventType("threats.public_list_attempt")'><code>threats.public_list_attempt</code> <span>Device tried to reach a public block list address</span></div>
                         <div @onclick='() => SelectEventType("threats.attack_pattern")'><code>threats.attack_pattern</code> <span>Scan, brute force, DDoS, or exploit pattern</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood")'><code>threats.wan_flood</code> <span>Flood of unsolicited traffic at the gateway's WAN</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood_conntrack")'><code>threats.wan_flood_conntrack</code> <span>Port-forward flood filling the gateway's connection table</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood_table_full")'><code>threats.wan_flood_table_full</code> <span>WAN Flood Protection paused its per-source limits</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood_unenforced")'><code>threats.wan_flood_unenforced</code> <span>WAN Flood Protection is on but not enforced</span></div>
                     </div>
                 </div>
                 <div>

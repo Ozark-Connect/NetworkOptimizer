@@ -6,7 +6,7 @@
 
 @* Settings - Multi-Site: Turn On Recommended for every site the caller administers. One gated,
    audited call per site, so a site the caller cannot administer is never touched. Hidden once
-   every one of those sites is Blocking, like the per-site banner. *@
+   every one of those sites is Blocking with WAN Flood Protection on wherever its agent can run it. *@
 
 @if (_adminSlugs.Count > 1 && !AllBlocking)
 {
@@ -14,7 +14,7 @@
         <div class="banner-content">
             <div class="banner-text">
                 <span>Automatic Blocking: start blocking repeat attackers on all @_adminSlugs.Count sites at once, sharing what each one blocks.</span>
-                <small class="form-help">Also blocks each site's selected public block lists right on its gateway.</small>
+                <small class="form-help">Also blocks each site's selected public block lists right on its gateway, and turns on WAN Flood Protection where the gateway's On-Site Agent can run it.</small>
             </div>
             <div class="banner-actions">
                 <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="TurnOnAll">Turn On Recommended for All Sites</button>
@@ -67,7 +67,8 @@ else if (_result != null)
         {
             try
             {
-                if ((await SiteBlocking.GetSummaryAsync(slug)).Mode == BlockingMode.Enforce)
+                var summary = await SiteBlocking.GetSummaryAsync(slug);
+                if (summary.Mode == BlockingMode.Enforce && !summary.WanFloodPending)
                     blocking.Add(slug);
             }
             catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException)
@@ -84,6 +85,7 @@ else if (_result != null)
         _busy = true;
         _result = null;
         var done = 0;
+        var flood = 0;
         var problems = new List<string>();
         foreach (var slug in _adminSlugs)
         {
@@ -91,6 +93,7 @@ else if (_result != null)
             {
                 var r = await SiteBlocking.TurnOnRecommendedAsync(slug);
                 done++;
+                if (r.WanFlood) flood++;
                 if (r.GatewayError != null) problems.Add($"{slug}: gateway not set up ({r.GatewayError})");
             }
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
@@ -98,9 +101,8 @@ else if (_result != null)
                 problems.Add($"{slug}: {ex.Message}");
             }
         }
-        _result = problems.Count == 0
-            ? $"Blocking on {done} sites."
-            : $"Blocking on {done} sites. {string.Join(" ", problems)}";
+        var on = flood > 0 ? $"Blocking on {done} sites, WAN Flood Protection on {flood}." : $"Blocking on {done} sites.";
+        _result = problems.Count == 0 ? on : $"{on} {string.Join(" ", problems)}";
         await LoadModesAsync();
         _busy = false;
         await OnChanged.InvokeAsync();

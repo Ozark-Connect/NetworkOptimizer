@@ -4082,6 +4082,78 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("WanDiscoveryContexts", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanFloodIncident", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ActionsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Delivery")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("HotCpu")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("IncidentId")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PeakConntrackPercent")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PeakSoftirqPercent")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PeakUnsolicitedPps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("SoftnetDropped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("TableFull")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Wan")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentId")
+                        .IsUnique();
+
+                    b.HasIndex("StartedAt");
+
+                    b.ToTable("WanFloodIncidents", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanProfile", b =>
                 {
                     b.Property<int>("Id")
