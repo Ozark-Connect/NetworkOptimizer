@@ -109,10 +109,11 @@ fi
 # The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
 # An automatic off (port was taken) carries a trailing comment and is not read back: rechecked.
 HTTP_PORT_NOTE=""
-if [ -z "$HTTP_PORT" ]; then
-    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
-    [ -n "$HTTP_PORT" ] || HTTP_PORT=24080
+# Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
+if [ -z "$HTTP_PORT" ] && [ -f "${INSTALL_DIR}/speedtest-web/assets/js/config.js" ]; then
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" | head -1)
 fi
+[ -n "$HTTP_PORT" ] || HTTP_PORT=24080
 case "$HTTP_PORT" in
     *[!0-9]*|'') echo "Invalid --speed-test-http-port: $HTTP_PORT" >&2; exit 1 ;;
 esac
