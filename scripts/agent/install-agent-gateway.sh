@@ -8,7 +8,7 @@
 #
 # The LAN speed test is optional (--lan-speed-test). The gateway terminates the test's
 # TCP itself, so a running test loads every core for its ~15 s and the ceiling is the
-# gateway's own TCP stack (about 2.5 Gbps on the UXG/UCG-Fiber class). For faster LAN
+# gateway's own TCP stack (under about 3 Gbps on the UXG/UCG-Fiber class). For faster LAN
 # numbers, run a Docker or bare-metal agent on a separate box (see install-native.sh).
 #
 # Differences from install-native.sh, all for the gateway environment:
@@ -167,8 +167,9 @@ agent_pids() {
 
 agent_running() { [ -n "$(agent_pids)" ]; }
 
-# UniFi's iperf3.service is unmanaged (nothing restarts or re-provisions it), so the speed test
-# takes 5201 over for the agent's own iperf3 server, which also captures client results.
+# UniFi only runs iperf3.service (nothing in UniFi configures it), so the speed test takes 5201
+# over for the agent's own iperf3 server, which also captures client results. Masked, because
+# the unit has Restart=always.
 # Its prior state is recorded so removal puts it back exactly as found.
 IPERF3_STATE="${INSTALL_DIR}/unifi-iperf3.state"
 take_over_unifi_iperf3() {
@@ -466,7 +467,7 @@ else
 fi
 
 # Same layout as install-native.sh --lan-speed-test (own nginx master, webroot, cert, unit;
-# config files fetched from main), with gateway limits applied on top. UniFi's nginx is
+# page and nginx config fetched from AGENT_ASSETS_REF), with gateway limits applied on top. UniFi's nginx is
 # never touched: we only borrow its binary.
 if [ "$LAN_SPEED_TEST" = true ]; then
     step "Setting up the LAN speed test (nginx)"
@@ -541,12 +542,12 @@ CFGJS
         -e "s#__KEYFILE__#${CERTDIR}/key.pem#" \
         "${INSTALL_DIR}/nginx-speedtest-server.conf"
 
-    # Gateway limits: one worker per core up to 4 (To Device TLS encryption runs in the workers,
-    # so fewer workers caps that leg; the unit's memory fence bounds the rest), and nobody (some
-    # gateways have no nginx account, and where one exists it is UniFi's).
+    # Gateway limits: one worker per core up to 4 (4 measured faster than 2 on a 4-core gateway;
+    # the unit's memory fence bounds the rest), and nobody (some gateways have no nginx account,
+    # and where one exists it is UniFi's).
     WORKERS=$(nproc 2>/dev/null || echo 2)
     [ "$WORKERS" -gt 4 ] && WORKERS=4
-    # Install-time override for tuning (AGENT_SPEEDTEST_WORKERS=N); not persisted, like TLS=0.
+    # Install-time override for tuning (AGENT_SPEEDTEST_WORKERS=N); not persisted.
     case "${AGENT_SPEEDTEST_WORKERS:-}" in
         '') ;;
         *[!0-9]*|0) err "AGENT_SPEEDTEST_WORKERS must be a positive integer" ;;

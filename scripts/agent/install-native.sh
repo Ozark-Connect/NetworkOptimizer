@@ -19,7 +19,7 @@
 #                    server which port it uses, so in-app links follow automatically.
 #   --speed-test-http-port N  Plain HTTP listener the HTTPS page hands the test to after taking
 #                    the GPS fix (default 24080; 0 keeps the whole test on HTTPS). Kept on re-runs.
-#   --insecure      Accept a self-signed cert on the server's reverse proxy
+#   --insecure       Accept a self-signed cert on the server's reverse proxy
 #   --release TAG    Install this release (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --force-native   Skip the UniFi gateway refusal (this installer targets a
 #                    separate box; on a UniFi OS gateway use install-agent-gateway.sh)
