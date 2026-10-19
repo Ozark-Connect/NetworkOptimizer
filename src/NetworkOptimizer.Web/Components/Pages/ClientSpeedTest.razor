@@ -59,7 +59,7 @@
             else if (agentOnGateway)
             {
                 <div class="alert alert-info">
-                    <strong>Agent on Gateway:</strong> This site's Agent runs on the UniFi Gateway itself, which doesn't host the LAN speed test. To enable client speed tests here, deploy a Docker or bare-metal Agent on a separate box at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>).
+                    <strong>Agent on Gateway:</strong> This site's Agent runs on the UniFi Gateway itself, without the LAN speed test. To enable client speed tests here, re-run the gateway installer with <code>--lan-speed-test</code>, or deploy a Docker or bare-metal Agent on a separate box at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>).
                 </div>
             }
             else if (agentSiteOffline)

@@ -78,8 +78,7 @@ and holds an outbound tunnel back to the server. You need one when:
   the recommended agent is the one that runs **on the UniFi gateway itself**
   (installed from the app's setup panel), which needs no extra container. Use a
   Proxmox agent instead when you would rather keep the agent off the gateway, or
-  when the site also needs a LAN speed test host, which the gateway agent
-  deliberately does not run.
+  when the site needs a faster LAN speed test host than the gateway can be.
 
 A site the server already reaches over VPN does not need an agent for management,
 auditing, or SNMP. The full when-and-why, including a capability table, is in the

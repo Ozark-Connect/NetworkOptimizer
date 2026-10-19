@@ -5023,7 +5023,7 @@
         if (!_speedTestHosts.TryGetValue(site.Id, out var selection) || selection.Host == null)
         {
             return selection is { AnyOnGateway: true }
-                ? "none - the agent runs on the UniFi gateway; enter a separate box hosting the speed test"
+                ? "none - the gateway agent isn't hosting the speed test; re-run it with --lan-speed-test or enter a separate box"
                 : "e.g. 192.168.1.50 or https://speed.example.com";
         }
         return $"auto: https://{selection.Host.LanIp}:{selection.Host.Port} (agent's detected LAN IP)";

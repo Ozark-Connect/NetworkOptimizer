@@ -471,7 +471,7 @@ fi
 if [ "$FORCE_NATIVE" != true ] && command -v ubnt-device-info >/dev/null 2>&1; then
     err "This host is a UniFi OS gateway ($(ubnt-device-info model 2>/dev/null || echo model unknown)) - use the on-gateway installer instead:
   curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --server ... --token ...
-Re-run with --force-native to override (not recommended: no memory fence, and the LAN speed test does not belong on the router)."
+Re-run with --force-native to override (not recommended: the gateway installer adds the memory fence and gateway-safe speed test setup)."
 fi
 
 [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"

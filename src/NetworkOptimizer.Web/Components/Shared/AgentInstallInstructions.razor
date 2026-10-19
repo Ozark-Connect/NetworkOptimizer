@@ -68,12 +68,12 @@
     </p>
     <CopyableCommand Text="@NativeOneLiner()" Tooltip="Copy the native install command" />
 
-    <h4 class="agent-flavor-title">On a UniFi gateway <span class="agent-flavor-note">monitoring only - recommended for multi-WAN monitoring</span></h4>
+    <h4 class="agent-flavor-title">On a UniFi gateway <span class="agent-flavor-note">recommended for multi-WAN monitoring</span></h4>
     <p class="form-hint">
         Run the agent on the gateway itself (any current UniFi gateway - UCG, UXG, UDM, UDR, EFG) instead of a
-        separate box. It does not host the LAN speed test - that needs one of the options above - and installs
-        to <code>/data</code> with a memory-fenced service. UniFi gateways SSH in as root, so run it there
-        directly:
+        separate box. It installs to <code>/data</code> with a memory-fenced service. Add
+        <code>--lan-speed-test</code> to also host the LAN speed test (up to 10 Gbps on the EFG and UDM-Beast,
+        under about 3 Gbps on the UXG/UCG-Fiber class; it loads the gateway while a test runs). UniFi gateways SSH in as root, so run it there directly:
     </p>
     <CopyableCommand Text="@GatewayOneLiner()" Tooltip="Copy the gateway install command" />
     @if (!string.IsNullOrWhiteSpace(SiteSlug))
