@@ -524,6 +524,12 @@ CFGJS
     # gateways have no nginx account, and where one exists it is UniFi's).
     WORKERS=$(nproc 2>/dev/null || echo 2)
     [ "$WORKERS" -gt 4 ] && WORKERS=4
+    # Install-time override for tuning (AGENT_SPEEDTEST_WORKERS=N); not persisted, like TLS=0.
+    case "${AGENT_SPEEDTEST_WORKERS:-}" in
+        '') ;;
+        *[!0-9]*|0) err "AGENT_SPEEDTEST_WORKERS must be a positive integer" ;;
+        *) WORKERS="$AGENT_SPEEDTEST_WORKERS" ;;
+    esac
     curl -fsSL "$RAW/docker/agent/nginx-standalone.conf" -o "${INSTALL_DIR}/nginx-speedtest.conf"
     sed -i \
         -e "s#__PIDFILE__#${INSTALL_DIR}/nginx.pid#" \
