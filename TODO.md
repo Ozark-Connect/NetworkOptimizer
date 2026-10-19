@@ -768,6 +768,19 @@ performance against firmware is the point of collecting them. Never as tags: a t
 series key, so it would fork every modem's series the day it upgrades. Do the same for the cable
 modem and ONT measurements when their fields land.
 
+## VPN Clients Dashboard
+
+A dashboard for clients reaching the site over a VPN: connections through an external Tailscale
+server, and every UniFi VPN variant - Teleport, one-click VPN, the VPN servers, and site-to-site
+tunnels. Speed test path analysis already tells Tailscale, Teleport, and VPN hops apart; nothing
+yet shows who is connected through which tunnel, or how much they move.
+
+The same data feeds three existing surfaces, so collect it once and share it:
+
+- **Monitoring - Live View**: VPN clients and tunnels as nodes on the topology maps.
+- **Bandwidth Hogs**: VPN clients and site-to-site traffic as attributable consumers.
+- **Client Performance**: a VPN client gets a page like any other client.
+
 ## Multi-Tenant / Multi-Site Support
 
 ### Agent SNMP Watchdog (detect wedged console snmpd, opt-in auto-restart)
