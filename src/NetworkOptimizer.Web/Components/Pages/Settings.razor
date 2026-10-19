@@ -3105,7 +3105,12 @@
     <!-- MaxMind GeoIP Configuration -->
     <div class="card settings-tab-security" id="maxmind">
         <div class="card-header">
-            <h2 class="card-title">MaxMind GeoIP</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">MaxMind GeoIP</h2>
+                <a href="/threats?tab=geographic" class="settings-title-link" data-tooltip="Open Threat Intelligence - Geographic">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
             @if (_multiSiteEnabled)
             {
                 <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
@@ -3268,9 +3273,11 @@
     </div>
     }
 
-    <WafConnectionCard />
+    <WafConnectionCard ShowPageLink="true" />
 
     <AutomaticBlockingCard />
+
+    <WanFloodSettingsCard />
 
     <TrustedSourcesCard />
 
@@ -4153,6 +4160,7 @@
         ["crowdsec"] = "security",
         ["waf"] = "security",
         ["automatic-blocking"] = "security",
+        ["wan-flood-protection"] = "security",
         ["trusted-sources"] = "security",
         ["trusted-sources-matrix"] = "multisite",
         ["admin-password"] = "application",
@@ -4277,8 +4285,9 @@
 
     protected override void OnParametersSet()
     {
-        // Handle query param changes when already on this page (Blazor reuses the component)
-        if (TabParam != _lastTabParam && _lastTabParam != null)
+        // Handle query param changes when already on this page (Blazor reuses the component). A page
+        // opened from a #card link has no tab param, so a later ?tab= link must still switch from null.
+        if (TabParam != _lastTabParam)
         {
             var newTab = ResolveTab(TabParam);
             if (newTab != _activeTab)
@@ -4290,7 +4299,16 @@
             }
         }
         _lastTabParam = TabParam;
+
+        // A new ?configure= link (the agent banner, clicked again from another tab) opens its row again.
+        if (ConfigureSiteParam != _lastConfigureSiteParam)
+        {
+            _configureSiteHandled = false;
+            _lastConfigureSiteParam = ConfigureSiteParam;
+        }
     }
+
+    private string? _lastConfigureSiteParam;
 
     private async Task HandleFragmentNavigationAsync()
     {

@@ -630,6 +630,12 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockin
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingSiteAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingSiteAdminService>(sp));
+// WAN Flood Protection: the loop configures each site's gateway agent and records what it reports.
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWanFloodIncidentRepository, NetworkOptimizer.Storage.Repositories.WanFloodIncidentRepository>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.WanFlood.WanFloodService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.WanFlood.WanFloodService>());
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.WanFlood.IWanFloodAdmin>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WanFlood.WanFloodAdminService>(sp));
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
 
 // Register Schedule services (scheduling engine for periodic audits, speed tests)

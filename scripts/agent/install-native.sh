@@ -351,6 +351,48 @@ remove_gateway_blocklist() {
     done
 }
 
+# WAN Flood Protection's rules from an agent on a gateway: the mangle chains and their jumps, the guard
+# sets, our tc filters (priorities 100-163 and 200-263), and an ingress qdisc the agent added and left
+# empty. UniFi's own filters and qdiscs are never touched. Reads wan-flood.json, so run before the dir goes.
+remove_wan_flood() {
+    local t c ch s d p o owned
+    for t in iptables ip6tables; do
+        command -v "$t" >/dev/null 2>&1 || continue
+        for c in PREROUTING FORWARD; do
+            "$t" -w -t mangle -S "$c" 2>/dev/null | grep -E -e '-j NETOPT_FLOOD(_FWD)?$' | sed 's/^-A/-D/' \
+                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done
+        done
+        for ch in NETOPT_FLOOD NETOPT_FLOOD_FWD NETOPT_PROBE; do
+            "$t" -w -t mangle -F "$ch" 2>/dev/null || true
+            "$t" -w -t mangle -X "$ch" 2>/dev/null || true
+        done
+    done
+    if command -v ipset >/dev/null 2>&1; then
+        for s in netopt_flood_guard_v4 netopt_flood_guard_v6 netopt_probe; do
+            ipset destroy "${s}_tmp" 2>/dev/null || true
+            ipset destroy "$s" 2>/dev/null || true
+        done
+    fi
+    if command -v tc >/dev/null 2>&1; then
+        owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" 2>/dev/null | tr -d '"' | tr ',' ' ')
+        for d in $(ls /sys/class/net 2>/dev/null); do
+            tc qdisc show dev "$d" ingress 2>/dev/null | grep -q 'ingress ffff:' || continue
+            for p in $(tc filter show dev "$d" parent ffff: 2>/dev/null | grep -o 'pref [0-9]*' | awk '{print $2}' | sort -u); do
+                if { [ "$p" -ge 100 ] && [ "$p" -le 163 ]; } || { [ "$p" -ge 200 ] && [ "$p" -le 263 ]; }; then
+                    tc filter del dev "$d" parent ffff: pref "$p" 2>/dev/null || true
+                fi
+            done
+            for o in $owned; do
+                if [ "$o" = "$d" ] && [ -z "$(tc filter show dev "$d" parent ffff: 2>/dev/null)" ]; then
+                    tc qdisc del dev "$d" ingress 2>/dev/null || true
+                fi
+            done
+        done
+    fi
+    ip link del netopt_probe 2>/dev/null || true
+    systemctl stop netopt-flood-cleanup.timer netopt-flood-cleanup.service 2>/dev/null || true
+}
+
 uninstall_agent() {
     step "Removing the Network Optimizer agent"
     note "${SERVICE_NAME} + ${INSTALL_DIR}"
@@ -360,6 +402,7 @@ uninstall_agent() {
     [ -f "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" ] && had_speedtest=1
     stop_and_reap_agent
     remove_gateway_blocklist
+    remove_wan_flood
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service" \
           "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" \
           "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}.service"

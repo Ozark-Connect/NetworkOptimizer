@@ -16,4 +16,8 @@
     <Protobuf Include="Protos\agent_tunnel.proto" GrpcServices="Both" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
+  </ItemGroup>
+
 </Project>

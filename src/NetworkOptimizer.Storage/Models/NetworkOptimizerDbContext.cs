@@ -63,6 +63,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<CrowdSecReputation> CrowdSecReputations { get; set; }
     public DbSet<ThreatNoiseFilter> ThreatNoiseFilters { get; set; }
     public DbSet<ThreatBlock> ThreatBlocks { get; set; }
+    public DbSet<WanFloodIncident> WanFloodIncidents { get; set; }
     public DbSet<ScheduledTask> ScheduledTasks { get; set; }
     public DbSet<WanDataUsageConfig> WanDataUsageConfigs { get; set; }
     public DbSet<WanDataUsageSnapshot> WanDataUsageSnapshots { get; set; }
@@ -628,6 +629,19 @@ public class NetworkOptimizerDbContext : DbContext
             entity.Property(e => e.Trigger).HasConversion<int>();
             entity.HasIndex(e => e.ExpiresAt);
             entity.HasIndex(e => new { e.SourceIp, e.CreatedAt });
+        });
+
+        // WanFloodIncident configuration (WAN Flood Protection)
+        modelBuilder.Entity<WanFloodIncident>(entity =>
+        {
+            entity.ToTable("WanFloodIncidents");
+            entity.Property(e => e.IncidentId).HasMaxLength(36);
+            entity.Property(e => e.Wan).HasMaxLength(128);
+            entity.Property(e => e.Kind).HasMaxLength(16);
+            entity.Property(e => e.Delivery).HasMaxLength(16);
+            entity.Property(e => e.Mode).HasMaxLength(16);
+            entity.HasIndex(e => e.IncidentId).IsUnique();
+            entity.HasIndex(e => e.StartedAt);
         });
 
         // ScheduledTask configuration
