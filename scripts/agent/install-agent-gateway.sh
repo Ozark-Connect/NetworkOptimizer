@@ -4,16 +4,21 @@
 #
 # For running the agent directly on a UniFi gateway instead of a separate site
 # box. Any current UniFi OS gateway (UCG, UXG, UDM, UDR, EFG lines) works - there is
-# no model gate; the memory pre-flight below is the only capability check. Monitoring only: the LAN speed test
-# is intentionally NOT installed here - hosting an nginx/iperf3 speed-test server
-# on the router would compete with the data plane. For LAN speed testing, run a
-# Docker or bare-metal agent on a separate box (see install-native.sh).
+# no model gate; the memory pre-flight below is the only capability check.
+#
+# The LAN speed test is optional (--lan-speed-test). The gateway terminates the test's
+# TCP itself, so a running test loads every core for its ~15 s and the ceiling is the
+# gateway's own TCP stack (about 2.5 Gbps on the UXG/UCG-Fiber class). For faster LAN
+# numbers, run a Docker or bare-metal agent on a separate box (see install-native.sh).
 #
 # Differences from install-native.sh, all for the gateway environment:
 #   - installs to /data (persistent on UniFi OS) rather than /opt
 #   - a systemd unit tuned for a shared router box: workstation GC and a memory
 #     fence so the agent stays well clear of routing/IPS
-#   - no speed-test machinery (no nginx, no iperf3, no uwnspeedtest)
+#   - the speed test nginx runs as nobody with 2 workers inside its own memory fence,
+#     and UniFi's nginx is never touched
+#   - the agent's own iperf3 server replaces UniFi's iperf3.service on 5201 (stopped
+#     and masked while the speed test is on, restored on removal); no uwnspeedtest
 #   - an --uninstall path for clean teardown
 #
 # UniFi gateways SSH in as root, so no sudo is needed:
@@ -26,6 +31,10 @@
 #   --token  TOK   One-time enrollment token (required on first install)
 #   --insecure     Accept a self-signed cert on the server's reverse proxy
 #   --release TAG  Install this release (e.g. v2.9.1-preview1) instead of the latest stable one
+#   --lan-speed-test       Host the LAN speed test page on the gateway (port 24443).
+#                          Stays on across re-runs once enabled.
+#   --speed-test-port N    Serve the LAN speed test page on N instead of 24443
+#   --no-lan-speed-test    Remove the LAN speed test and keep the agent running
 #   --uninstall    Stop + remove the service and install dir, then exit
 #
 # The install directory is fixed at /data/netopt-agent and is intentionally NOT
@@ -55,6 +64,11 @@ INSECURE=false
 UNINSTALL=false
 RELEASE_BASE="https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest/download"
 RELEASE_TAG=""
+LAN_SPEED_TEST=false
+NO_LAN_SPEED_TEST=false
+SPEED_TEST_PORT=24443
+PORT_REQUESTED=false
+SPEEDTEST_SERVICE="netopt-speedtest-nginx"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -63,9 +77,29 @@ while [ $# -gt 0 ]; do
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         --release) RELEASE_TAG="$2"; shift 2 ;;
+        --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
+        --no-lan-speed-test) NO_LAN_SPEED_TEST=true; shift ;;
+        --speed-test-port) SPEED_TEST_PORT="$2"; PORT_REQUESTED=true; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+if [ "$LAN_SPEED_TEST" = true ] && [ "$NO_LAN_SPEED_TEST" = true ]; then
+    echo "--lan-speed-test and --no-lan-speed-test cannot be combined" >&2; exit 1
+fi
+case "$SPEED_TEST_PORT" in
+    ''|*[!0-9]*) echo "Invalid --speed-test-port: $SPEED_TEST_PORT" >&2; exit 1 ;;
+esac
+
+# Same stickiness as install-native.sh: an install that serves the speed test keeps serving it
+# on a plain upgrade re-run, and keeps its recorded port unless this run names another.
+if [ "$NO_LAN_SPEED_TEST" != true ] && grep -q '"lanSpeedTest"[[:space:]]*:[[:space:]]*true' "${INSTALL_DIR}/agent.json" 2>/dev/null; then
+    LAN_SPEED_TEST=true
+fi
+if [ "$PORT_REQUESTED" != true ] && [ -f "${INSTALL_DIR}/agent.json" ]; then
+    EXISTING_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${INSTALL_DIR}/agent.json" | head -1)
+    [ -n "$EXISTING_PORT" ] && SPEED_TEST_PORT="$EXISTING_PORT"
+fi
 
 # --release pins the binaries to one release (the one the server runs) instead of GitHub's
 # "latest", which skips prereleases: a preview server would otherwise install a stable agent.
@@ -109,6 +143,40 @@ agent_pids() {
 
 agent_running() { [ -n "$(agent_pids)" ]; }
 
+# UniFi's iperf3.service is unmanaged (nothing restarts or re-provisions it), so the speed test
+# takes 5201 over for the agent's own iperf3 server, which also captures client results.
+# Its prior state is recorded so removal puts it back exactly as found.
+IPERF3_STATE="${INSTALL_DIR}/unifi-iperf3.state"
+take_over_unifi_iperf3() {
+    systemctl cat iperf3.service >/dev/null 2>&1 || return 0
+    if [ ! -f "$IPERF3_STATE" ]; then
+        printf 'enabled=%s\nactive=%s\n' \
+            "$(systemctl is-enabled iperf3.service 2>/dev/null || true)" \
+            "$(systemctl is-active iperf3.service 2>/dev/null || true)" > "$IPERF3_STATE"
+    fi
+    systemctl stop iperf3.service 2>/dev/null || true
+    systemctl mask --quiet iperf3.service 2>/dev/null || true
+}
+restore_unifi_iperf3() {
+    [ -f "$IPERF3_STATE" ] || return 0
+    systemctl unmask --quiet iperf3.service 2>/dev/null || true
+    grep -q '^enabled=enabled$' "$IPERF3_STATE" && systemctl enable --quiet iperf3.service 2>/dev/null || true
+    grep -q '^active=active$' "$IPERF3_STATE" && systemctl start iperf3.service 2>/dev/null || true
+    rm -f "$IPERF3_STATE"
+}
+
+# Removes the speed test nginx and its files; leaves the agent and agent.json alone.
+remove_speedtest() {
+    systemctl stop "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    systemctl disable --quiet "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    rm -f "/etc/systemd/system/${SPEEDTEST_SERVICE}.service"
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl reset-failed "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    rm -rf "${INSTALL_DIR}/speedtest-web" "${INSTALL_DIR}/speedtest-tls"
+    rm -f "${INSTALL_DIR}/nginx-speedtest.conf" "${INSTALL_DIR}/nginx-speedtest-server.conf" \
+          "${INSTALL_DIR}/nginx.pid" "${INSTALL_DIR}/nginx-error.log"
+}
+
 [ "$(id -u)" -eq 0 ] || err "Run as root (the gateway's default SSH user is root)."
 command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not found)."
 
@@ -116,6 +184,7 @@ command -v systemctl >/dev/null 2>&1 || err "systemd is required (systemctl not 
 if [ "$UNINSTALL" = true ]; then
     step "Removing the Network Optimizer agent"
     note "${SERVICE_NAME} + ${INSTALL_DIR}"
+    remove_speedtest
     # 'disable --now' alone is NOT enough: a prior partial uninstall can leave the
     # unit 'Loaded: not-found' but still 'active (running)', and disable then aborts
     # on the missing unit file and skips the '--now' stop, leaving the cgroup alive.
@@ -197,11 +266,30 @@ if [ "$UNINSTALL" = true ]; then
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     systemctl daemon-reload 2>/dev/null || true
     systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
+    # After the agent is gone, so its iperf3 child no longer holds 5201.
+    restore_unifi_iperf3
     rm -rf "$INSTALL_DIR"
     if agent_running; then
         err "Agent process is STILL running after teardown (PID(s): $(agent_pids | tr '\n' ' ')). Kill it manually (e.g. kill -9 <pid>) and re-run --uninstall."
     fi
     ok "Removed - the gateway is back to stock."
+    printf '\n'
+    exit 0
+fi
+
+# --- Speed test removal (agent stays) -------------------------------------------
+if [ "$NO_LAN_SPEED_TEST" = true ]; then
+    step "Removing the LAN speed test"
+    remove_speedtest
+    if [ -f "${INSTALL_DIR}/agent.json" ]; then
+        sed -i 's/"lanSpeedTest":[[:space:]]*true/"lanSpeedTest": false/' "${INSTALL_DIR}/agent.json"
+    fi
+    # The restart drops the agent's iperf3 server, which frees 5201 for UniFi's again.
+    if systemctl is-enabled --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
+        systemctl restart "${SERVICE_NAME}.service"
+    fi
+    restore_unifi_iperf3
+    ok "LAN speed test removed; the agent keeps running."
     printf '\n'
     exit 0
 fi
@@ -225,20 +313,34 @@ esac
 # fences it at MemoryHigh=256M, so require that much headroom before installing.
 # Skipped when the service is already running (an update re-run - its memory
 # is already accounted for in MemAvailable).
-MIN_AVAILABLE_MB=256
-if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+MIN_AVAILABLE_MB=0
+systemctl is-active --quiet "${SERVICE_NAME}.service" || MIN_AVAILABLE_MB=256
+# The speed test nginx is fenced at MemoryHigh=256M, and holds ~200 MB of upload buffers after
+# its first test, so it needs its own headroom on top of the agent's.
+if [ "$LAN_SPEED_TEST" = true ] && ! systemctl is-active --quiet "${SPEEDTEST_SERVICE}.service"; then
+    MIN_AVAILABLE_MB=$((MIN_AVAILABLE_MB + 256))
+fi
+if [ "$MIN_AVAILABLE_MB" -gt 0 ]; then
     step "Memory pre-flight"
     AVAILABLE_MB="$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)"
     if [ -z "$AVAILABLE_MB" ]; then
         warn "could not read MemAvailable from /proc/meminfo - skipping the memory check."
     elif [ "$AVAILABLE_MB" -lt "$MIN_AVAILABLE_MB" ]; then
+        if [ "$LAN_SPEED_TEST" = true ]; then
+            err "only ${AVAILABLE_MB} MB of memory is available; the agent plus the LAN speed test need ${MIN_AVAILABLE_MB} MB of headroom so they stay well clear of routing/IPS. Re-run without --lan-speed-test, or run the agent on a separate box (see install-native.sh)."
+        fi
         err "only ${AVAILABLE_MB} MB of memory is available; the agent needs ${MIN_AVAILABLE_MB} MB of headroom so it stays well clear of routing/IPS. Free up memory (e.g. remove unused UniFi applications) or run the agent on a separate box (see install-native.sh)."
     else
         ok "${AVAILABLE_MB} MB available (need ${MIN_AVAILABLE_MB} MB)"
     fi
 fi
 
-printf '\n%sNetwork Optimizer on-site agent (gateway, monitoring-only)%s\n' "$_b" "$_rst"
+if [ "$LAN_SPEED_TEST" = true ]; then
+    MODE_LABEL="gateway, with LAN speed test"
+else
+    MODE_LABEL="gateway, monitoring-only"
+fi
+printf '\n%sNetwork Optimizer on-site agent (%s)%s\n' "$_b" "$MODE_LABEL" "$_rst"
 note "Installing to ${INSTALL_DIR}  (${RID})"
 mkdir -p "$INSTALL_DIR"
 
@@ -305,6 +407,21 @@ if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
         grep -q '"onGateway"' "$CONFIG" || warn "could not add onGateway to ${CONFIG} - add \"onGateway\": true by hand"
         ok "Marked the install on-gateway in agent.json"
     fi
+    # Unlike install-native.sh, the speed test is normally ADDED to an enrolled gateway agent,
+    # so the switch and the port are written into the kept config here.
+    if [ "$LAN_SPEED_TEST" = true ]; then
+        if grep -q '"lanSpeedTest"' "$CONFIG"; then
+            sed -i 's/"lanSpeedTest":[[:space:]]*false/"lanSpeedTest": true/' "$CONFIG"
+        else
+            sed -i '0,/{/s/{/{\n  "lanSpeedTest": true,/' "$CONFIG"
+        fi
+        if grep -q '"lanSpeedTestPort"' "$CONFIG"; then
+            sed -i "s/\"lanSpeedTestPort\":[[:space:]]*[0-9]*/\"lanSpeedTestPort\": ${SPEED_TEST_PORT}/" "$CONFIG"
+        elif [ "$SPEED_TEST_PORT" != "24443" ]; then
+            sed -i "0,/{/s/{/{\n  \"lanSpeedTestPort\": ${SPEED_TEST_PORT},/" "$CONFIG"
+        fi
+        grep -q '"lanSpeedTest":[[:space:]]*true' "$CONFIG" || err "could not enable lanSpeedTest in ${CONFIG}"
+    fi
 else
     [ -n "$TOKEN" ] || err "--token is required for a first-time install."
     {
@@ -313,11 +430,126 @@ else
         echo "  \"tunnelUrl\": \"${SERVER%/}\","
         echo "  \"enrollmentToken\": \"${TOKEN}\","
         echo "  \"onGateway\": true,"
-        printf '  "ignoreSslErrors": %s\n' "$INSECURE"
-        echo "}"
+        printf '  "ignoreSslErrors": %s' "$INSECURE"
+        if [ "$LAN_SPEED_TEST" = true ]; then
+            printf ',\n  "lanSpeedTest": true'
+            [ "$SPEED_TEST_PORT" != "24443" ] && printf ',\n  "lanSpeedTestPort": %s' "$SPEED_TEST_PORT"
+        fi
+        printf '\n}\n'
     } > "$CONFIG"
     chmod 600 "$CONFIG"
     ok "Wrote ${CONFIG}"
+fi
+
+# Same layout as install-native.sh --lan-speed-test (own nginx master, webroot, cert, unit;
+# config files fetched from main), with gateway limits applied on top. UniFi's nginx is
+# never touched: we only borrow its binary.
+if [ "$LAN_SPEED_TEST" = true ]; then
+    step "Setting up the LAN speed test (nginx)"
+    NGINX_BIN="$(command -v nginx 2>/dev/null || echo /usr/sbin/nginx)"
+    [ -x "$NGINX_BIN" ] || err "nginx not found on this gateway - re-run without --lan-speed-test."
+    # Ours is stopped here (the agent restart below would stop it anyway), so a port still in
+    # use belongs to something else.
+    systemctl stop "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+    for p in "$SPEED_TEST_PORT" 3002; do
+        if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${p}\$"; then
+            err "port ${p} is already in use on this gateway - pick another with --speed-test-port, or re-run without --lan-speed-test."
+        fi
+    done
+    find /data -maxdepth 0 -perm -o+x | grep -q . \
+        || err "/data is not world-traversable, so nginx's unprivileged workers cannot reach the page."
+
+    WEBROOT="${INSTALL_DIR}/speedtest-web"
+    RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
+    mkdir -p "$WEBROOT/assets/js"
+    note "Fetching the OpenSpeedTest page"
+    # Streamed, never saved: /tmp is RAM on a gateway and the repo tarball is large.
+    TMPX="$(mktemp -d)"
+    curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/main.tar.gz" \
+        | tar -xzf - -C "$TMPX" --strip-components=3 "NetworkOptimizer-main/src/OpenSpeedTest"
+    cp -r "$TMPX/." "$WEBROOT/"
+    rm -rf "$TMPX"
+    cat > "$WEBROOT/assets/js/config.js" <<'CFGJS'
+var saveData = true;
+var saveDataURL = window.location.protocol + "//" + window.location.host + "/api/public/speedtest/results";
+var apiPath = "/api/public/speedtest/results";
+var externalServerId = "";
+var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
+var OpenSpeedTestdb = "";
+CFGJS
+    chmod 755 "$INSTALL_DIR"
+    chmod -R a+rX "$WEBROOT"
+
+    curl -fsSL "$RAW/docker/agent/nginx.conf" -o "${INSTALL_DIR}/nginx-speedtest-server.conf"
+    sed -i "s#root /usr/share/nginx/html;#root ${WEBROOT};#" "${INSTALL_DIR}/nginx-speedtest-server.conf"
+    if [ "$SPEED_TEST_PORT" != "24443" ]; then
+        sed -i "/listen/ s/24443/${SPEED_TEST_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
+    fi
+
+    # SANs are the LAN bridge addresses only: hostname -I on a gateway includes the WAN IP.
+    CERTDIR="${INSTALL_DIR}/speedtest-tls"
+    mkdir -p "$CERTDIR"
+    if [ ! -f "$CERTDIR/cert.pem" ]; then
+        LAN_IPS=$(ip -4 -o addr show 2>/dev/null | awk '$2 ~ /^br/ {sub("/.*", "", $4); print $4}')
+        SAN="DNS:$(hostname),DNS:localhost"
+        for ip in $LAN_IPS; do SAN="$SAN,IP:$ip"; done
+        CN=$(echo "$LAN_IPS" | head -n 1)
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout "$CERTDIR/key.pem" -out "$CERTDIR/cert.pem" \
+            -subj "/CN=${CN:-agent}" -addext "subjectAltName=$SAN" >/dev/null 2>&1 \
+            || err "self-signed cert generation failed."
+        chmod 600 "$CERTDIR/key.pem"
+    fi
+    sed -i \
+        -e "s#__CERTFILE__#${CERTDIR}/cert.pem#" \
+        -e "s#__KEYFILE__#${CERTDIR}/key.pem#" \
+        "${INSTALL_DIR}/nginx-speedtest-server.conf"
+
+    # Gateway limits: two workers instead of one per core, and nobody (some gateways have no
+    # nginx account, and where one exists it is UniFi's).
+    curl -fsSL "$RAW/docker/agent/nginx-standalone.conf" -o "${INSTALL_DIR}/nginx-speedtest.conf"
+    sed -i \
+        -e "s#__PIDFILE__#${INSTALL_DIR}/nginx.pid#" \
+        -e "s#__ERRORLOG__#${INSTALL_DIR}/nginx-error.log#" \
+        -e "s#__SERVERCONF__#${INSTALL_DIR}/nginx-speedtest-server.conf#" \
+        -e "s#^worker_processes auto;#worker_processes 2;#" \
+        "${INSTALL_DIR}/nginx-speedtest.conf"
+    sed -i "1i user nobody nogroup;" "${INSTALL_DIR}/nginx-speedtest.conf"
+
+    cat > "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" <<UNIT
+[Unit]
+Description=Network Optimizer LAN speed test (nginx)
+# Results relay through the agent, so nginx stops with it (BindsTo) and starts with it
+# (WantedBy below), as in install-native.sh.
+After=network-online.target ${SERVICE_NAME}.service
+Wants=network-online.target
+BindsTo=${SERVICE_NAME}.service
+
+[Service]
+Type=forking
+PIDFile=${INSTALL_DIR}/nginx.pid
+ExecStartPre=${NGINX_BIN} -t -q -c ${INSTALL_DIR}/nginx-speedtest.conf
+ExecStart=${NGINX_BIN} -c ${INSTALL_DIR}/nginx-speedtest.conf
+ExecReload=${NGINX_BIN} -s reload -c ${INSTALL_DIR}/nginx-speedtest.conf
+ExecStop=${NGINX_BIN} -s quit -c ${INSTALL_DIR}/nginx-speedtest.conf
+# Upload buffers stay resident after the first test (~200 MB); the fence keeps that
+# well clear of routing/IPS. LimitNOFILE matches worker_connections.
+MemoryHigh=256M
+MemoryMax=384M
+LimitNOFILE=8192
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=${SERVICE_NAME}.service
+UNIT
+
+    "$NGINX_BIN" -t -q -c "${INSTALL_DIR}/nginx-speedtest.conf" \
+        || err "nginx config test failed. Diagnose: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
+    systemctl daemon-reload
+    systemctl reenable --quiet "${SPEEDTEST_SERVICE}.service"
+    take_over_unifi_iperf3
+    ok "LAN speed test ready on port ${SPEED_TEST_PORT} (starts with the agent)"
 fi
 
 step "Installing the agent service"
@@ -352,9 +584,19 @@ systemctl enable --quiet "${SERVICE_NAME}.service"
 systemctl restart "${SERVICE_NAME}.service"
 ok "${SERVICE_NAME}.service installed and started"
 
+# BindsTo stopped nginx with the agent restart; start it now the agent is up.
+if [ "$LAN_SPEED_TEST" = true ]; then
+    systemctl start "${SPEEDTEST_SERVICE}.service"
+    ok "${SPEEDTEST_SERVICE}.service started"
+fi
+
 step "Done"
-ok "Agent installed and running (monitoring-only)"
+ok "Agent installed and running (${MODE_LABEL#gateway, })"
 note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
 note "Logs:   journalctl -u ${SERVICE_NAME} -f"
+if [ "$LAN_SPEED_TEST" = true ]; then
+    note "A running speed test loads the gateway's CPU for its duration."
+    note "Remove the speed test only: curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --no-lan-speed-test"
+fi
 note "Remove: curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --uninstall"
 printf '\n'
