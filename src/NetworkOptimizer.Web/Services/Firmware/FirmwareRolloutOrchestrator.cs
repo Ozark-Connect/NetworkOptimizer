@@ -1947,6 +1947,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _logger.LogWarning(
             "UniFi Network on site {Site} did not come up within {Minutes:0} minutes of UniFi OS; settling the UniFi OS step",
             _siteSlug, NetworkStartBudget.TotalMinutes);
+
+        // Before any recovery ran this is the step's old behavior; after one, nothing else will say it.
+        if (state.NetworkRestartedAt != null)
+            await PublishNetworkUnreachableAsync(plan, document, steps, cancellationToken);
         return true;
     }
 
@@ -1987,17 +1991,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return false;
         }
 
-        state.Error = "UniFi OS was not routing to UniFi Network after a UniFi Network restart and a Console reboot.";
+        await PublishNetworkUnreachableAsync(plan, document, steps, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// The Critical for a UniFi Network still unreachable after recovery. Names only the actions
+    /// that ran, and says "tried" because an SSH command can fail without the step knowing why.
+    /// </summary>
+    private async Task PublishNetworkUnreachableAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
+    {
+        var state = document.UniFiOsUpdate;
+        var tried = state.ConsoleRebootedAt != null
+            ? "restarting UniFi Network, then rebooting the Console"
+            : "restarting UniFi Network";
+        state.Error = $"UniFi Network was unreachable after UniFi OS updated. Network Optimizer tried {tried}.";
         await PersistDocumentAsync(plan, document, cancellationToken);
         await PublishAsync(
             RolloutAlerts.DeviceStuckOffline,
             AlertSeverity.Critical,
             $"UniFi Network Unreachable After UniFi OS Update{_siteSuffix}",
-            $"The Console is on UniFi OS {ShortVersion(state.TargetVersion) ?? "its new build"} and UniFi Network is running, but UniFi OS is not routing to it. Network Optimizer restarted UniFi Network and then rebooted the Console, and neither fixed it.",
+            $"The Console is on UniFi OS {ShortVersion(state.TargetVersion) ?? "its new build"}, but UniFi Network is unreachable. Network Optimizer tried {tried}. UniFi Network is still unreachable.",
             steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
             steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
             cancellationToken);
-        return true;
     }
 
     private async Task ProgressStepAsync(

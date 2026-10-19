@@ -577,9 +577,11 @@ public class RolloutConsoleUpdateTests
         var stored = (await harness.PlanAsync(plan.Id))!;
         stored.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
         Stored(stored).UniFiOsUpdate.Outcome.Should().Be("updated");
-        Stored(stored).UniFiOsUpdate.Error.Should().Contain("not routing to UniFi Network");
-        harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.DeviceStuckOffline)
-            .Title.Should().StartWith("UniFi Network Unreachable After UniFi OS Update");
+        Stored(stored).UniFiOsUpdate.Error.Should().Contain("tried restarting UniFi Network, then rebooting the Console");
+        var alert = harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+        alert.Title.Should().StartWith("UniFi Network Unreachable After UniFi OS Update");
+        alert.Message.Should().Be(
+            "The Console is on UniFi OS 4.3.6, but UniFi Network is unreachable. Network Optimizer tried restarting UniFi Network, then rebooting the Console. UniFi Network is still unreachable.");
         CallCount(harness, "ssh-restart-network").Should().Be(1);
         CallCount(harness, "ssh-reboot-console").Should().Be(1);
     }
@@ -599,6 +601,30 @@ public class RolloutConsoleUpdateTests
         stored.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
         Stored(stored).UniFiOsUpdate.Outcome.Should().Be("updated");
         CallCount(harness, "ssh-restart-network").Should().Be(0);
+        CallCount(harness, "ssh-reboot-console").Should().Be(0);
+        // No recovery ran, so this is the step's old behavior: no alert.
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+    }
+
+    [Fact]
+    public async Task NetworkThatNeverStartsAfterTheRestart_RaisesACriticalNamingOnlyTheRestart()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+        await TickMinutesAsync(harness, 6);
+        CallCount(harness, "ssh-restart-network").Should().Be(1);
+
+        harness.Commands.NetworkRoute = NetworkRouteState.NotReady;
+        await TickMinutesAsync(harness, 19);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+
+        await TickMinutesAsync(harness, 2);
+
+        var stored = (await harness.PlanAsync(plan.Id))!;
+        stored.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
+        harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.DeviceStuckOffline).Message.Should().Be(
+            "The Console is on UniFi OS 4.3.6, but UniFi Network is unreachable. Network Optimizer tried restarting UniFi Network. UniFi Network is still unreachable.");
         CallCount(harness, "ssh-reboot-console").Should().Be(0);
     }
 
