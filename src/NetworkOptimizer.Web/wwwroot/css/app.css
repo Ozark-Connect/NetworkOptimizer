@@ -1225,6 +1225,11 @@ a.stat-card-link:active {
     gap: 16px;
 }
 
+/* Keeps the Active Alerts card's size when its last alert is dismissed */
+#active-alerts .card-body {
+    min-height: 180px;
+}
+
 .dashboard-card-wrapper.card-span-2 {
     grid-column: span 2;
 }
