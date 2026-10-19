@@ -620,10 +620,10 @@ if [ "$LAN_SPEED_TEST" = true ]; then
         # Webroot lives beside the deployables, not in /usr/share/nginx/html (which
         # may belong to the system nginx or sit on a read-only root on appliances).
         # A port something else holds would stop nginx from starting at all, taking the 24443 page
-        # with it, so a taken handoff port turns the handoff off instead. Ours is stopped first so
-        # an upgrade's own listener does not count (the agent restart below relights it).
-        if [ "$HTTP_PORT" != "0" ]; then
-            systemctl stop "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+        # with it, so a taken handoff port turns the handoff off instead. A port our current config
+        # already listens on is ours: skip the check rather than stop our nginx to make it.
+        if [ "$HTTP_PORT" != "0" ] \
+            && ! grep -qE "^[[:space:]]*listen[[:space:]]+(\[::\]:)?${HTTP_PORT}[[:space:];]" "${INSTALL_DIR}/nginx-speedtest-server.conf" 2>/dev/null; then
             if awk -v h=":$(printf '%04X' "$HTTP_PORT")" '$4 == "0A" && toupper($2) ~ (h "$") { f = 1 } END { exit !f }' \
                 /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
                 warn "port ${HTTP_PORT} is in use on this host - plain HTTP handoff off, the test stays on HTTPS (pick another with --speed-test-http-port)."
