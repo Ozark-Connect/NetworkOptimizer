@@ -93,10 +93,14 @@ esac
 
 # Same stickiness as install-native.sh: an install that serves the speed test keeps serving it
 # on a plain upgrade re-run, and keeps its recorded port unless this run names another.
-if [ "$NO_LAN_SPEED_TEST" != true ] && grep -q '"lanSpeedTest"[[:space:]]*:[[:space:]]*true' "${INSTALL_DIR}/agent.json" 2>/dev/null; then
+SERVING_SPEED_TEST=false
+grep -q '"lanSpeedTest"[[:space:]]*:[[:space:]]*true' "${INSTALL_DIR}/agent.json" 2>/dev/null && SERVING_SPEED_TEST=true
+if [ "$NO_LAN_SPEED_TEST" != true ] && [ "$SERVING_SPEED_TEST" = true ]; then
     LAN_SPEED_TEST=true
 fi
-if [ "$PORT_REQUESTED" != true ] && [ -f "${INSTALL_DIR}/agent.json" ]; then
+# Only a port that was actually served is kept. Gateway agents usually gain the speed test
+# after enrolling, and older configs carry a lanSpeedTestPort (3000) nobody ever served on.
+if [ "$PORT_REQUESTED" != true ] && [ "$SERVING_SPEED_TEST" = true ]; then
     EXISTING_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${INSTALL_DIR}/agent.json" | head -1)
     [ -n "$EXISTING_PORT" ] && SPEED_TEST_PORT="$EXISTING_PORT"
 fi
