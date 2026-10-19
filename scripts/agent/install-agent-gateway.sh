@@ -110,8 +110,10 @@ if [ "$PORT_REQUESTED" != true ] && [ "$SERVING_SPEED_TEST" = true ]; then
 fi
 
 # The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
+# An automatic off (port was taken) carries a trailing comment and is not read back: rechecked.
+HTTP_PORT_NOTE=""
 if [ -z "$HTTP_PORT" ]; then
-    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);.*/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
     [ -n "$HTTP_PORT" ] || HTTP_PORT=24080
 fi
 case "$HTTP_PORT" in
@@ -476,12 +478,17 @@ if [ "$LAN_SPEED_TEST" = true ]; then
     # Ours is stopped here (the agent restart below would stop it anyway), so a port still in
     # use belongs to something else.
     systemctl stop "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
-    for p in "$SPEED_TEST_PORT" "$HTTP_PORT" 3002; do
-        [ "$p" = "0" ] && continue
+    for p in "$SPEED_TEST_PORT" 3002; do
         if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${p}\$"; then
-            err "port ${p} is already in use on this gateway - pick another with --speed-test-port or --speed-test-http-port, or re-run without --lan-speed-test."
+            err "port ${p} is already in use on this gateway - pick another with --speed-test-port, or re-run without --lan-speed-test."
         fi
     done
+    # A taken handoff port only costs the handoff, never the install (upgrade re-runs included).
+    if [ "$HTTP_PORT" != "0" ] && ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${HTTP_PORT}\$"; then
+        warn "port ${HTTP_PORT} is in use on this gateway - plain HTTP handoff off, the test stays on HTTPS (pick another with --speed-test-http-port)."
+        HTTP_PORT=0
+        HTTP_PORT_NOTE=" // off: port in use, rechecked on the next install run"
+    fi
     find /data -maxdepth 0 -perm -o+x | grep -q . \
         || err "/data is not world-traversable, so nginx's unprivileged workers cannot reach the page."
 
@@ -504,7 +511,7 @@ var externalServerId = "";
 var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
 var OpenSpeedTestdb = "";
 CFGJS
-    echo "var plainHttpPort = ${HTTP_PORT};" >> "$WEBROOT/assets/js/config.js"
+    echo "var plainHttpPort = ${HTTP_PORT};${HTTP_PORT_NOTE}" >> "$WEBROOT/assets/js/config.js"
     chmod 755 "$INSTALL_DIR"
     chmod -R a+rX "$WEBROOT"
 

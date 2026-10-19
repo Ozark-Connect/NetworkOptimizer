@@ -30,9 +30,21 @@ fi
 # repeated boots converge on the current setting.
 HTTP_PORT="${AGENT_SPEEDTEST_HTTP_PORT:-24080}"
 case "$HTTP_PORT" in
+    *[!0-9]*|'') echo "entrypoint: invalid AGENT_SPEEDTEST_HTTP_PORT '$HTTP_PORT', using 24080"; HTTP_PORT=24080 ;;
+esac
+# A port something else holds would stop nginx from starting at all, taking the 24443 page with it,
+# so a taken port turns the handoff off instead. /proc, because the image ships no ss.
+port_in_use() {
+    awk -v h=":$(printf '%04X' "$1")" '$4 == "0A" && toupper($2) ~ (h "$") { f = 1 } END { exit !f }' \
+        /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+if [ "$HTTP_PORT" != "0" ] && port_in_use "$HTTP_PORT"; then
+    echo "entrypoint: port ${HTTP_PORT} is in use on this host - plain HTTP handoff off, the test stays on HTTPS"
+    HTTP_PORT=0
+fi
+case "$HTTP_PORT" in
     0) sed -i '/listen.*24080/d' /etc/nginx/netopt-speedtest-server.conf
        echo "entrypoint: plain HTTP handoff off" ;;
-    *[!0-9]*|'') echo "entrypoint: invalid AGENT_SPEEDTEST_HTTP_PORT '$HTTP_PORT', using 24080"; HTTP_PORT=24080 ;;
     24080) ;;
     *) sed -i "/listen/ s/24080/${HTTP_PORT}/" /etc/nginx/netopt-speedtest-server.conf
        echo "entrypoint: plain HTTP handoff on port ${HTTP_PORT}" ;;

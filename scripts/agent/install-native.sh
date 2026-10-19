@@ -107,8 +107,10 @@ if [ "$SPEED_TEST_PORT" = "24443" ] && [ -f "${INSTALL_DIR}/agent.json" ]; then
 fi
 
 # The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
+# An automatic off (port was taken) carries a trailing comment and is not read back: rechecked.
+HTTP_PORT_NOTE=""
 if [ -z "$HTTP_PORT" ]; then
-    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);.*/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
     [ -n "$HTTP_PORT" ] || HTTP_PORT=24080
 fi
 case "$HTTP_PORT" in
@@ -617,6 +619,18 @@ if [ "$LAN_SPEED_TEST" = true ]; then
     if [ -x "$NGINX_BIN" ]; then
         # Webroot lives beside the deployables, not in /usr/share/nginx/html (which
         # may belong to the system nginx or sit on a read-only root on appliances).
+        # A port something else holds would stop nginx from starting at all, taking the 24443 page
+        # with it, so a taken handoff port turns the handoff off instead. Ours is stopped first so
+        # an upgrade's own listener does not count (the agent restart below relights it).
+        if [ "$HTTP_PORT" != "0" ]; then
+            systemctl stop "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
+            if awk -v h=":$(printf '%04X' "$HTTP_PORT")" '$4 == "0A" && toupper($2) ~ (h "$") { f = 1 } END { exit !f }' \
+                /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+                warn "port ${HTTP_PORT} is in use on this host - plain HTTP handoff off, the test stays on HTTPS (pick another with --speed-test-http-port)."
+                HTTP_PORT=0
+                HTTP_PORT_NOTE=" // off: port in use, rechecked on the next install run"
+            fi
+        fi
         WEBROOT="${INSTALL_DIR}/speedtest-web"
         RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/${ASSETS_REF}"
         mkdir -p "$WEBROOT/assets/js"
@@ -637,7 +651,7 @@ var externalServerId = "";
 var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
 var OpenSpeedTestdb = "";
 CFGJS
-        echo "var plainHttpPort = ${HTTP_PORT};" >> "$WEBROOT/assets/js/config.js"
+        echo "var plainHttpPort = ${HTTP_PORT};${HTTP_PORT_NOTE}" >> "$WEBROOT/assets/js/config.js"
         # World-readable so nginx's unprivileged workers can serve it wherever the
         # install dir lives (e.g. under /root on some appliances).
         chmod -R a+rX "$WEBROOT"
