@@ -708,6 +708,28 @@ CFGJS
             -e "s#__SERVERCONF__#${INSTALL_DIR}/nginx-speedtest-server.conf#" \
             "${INSTALL_DIR}/nginx-speedtest.conf"
 
+        # Temp paths under the install dir, set before any `nginx -t` below: the borrowed
+        # binary's compiled-in ones belong to the host's own nginx (/var/lib/nginx/* on
+        # Debian), and a master (even `nginx -t`) re-owns them to its worker user, locking the
+        # host nginx's workers out of buffering uploads and proxied responses.
+        TEMPDIR="${INSTALL_DIR}/nginx-temp"
+        mkdir -p "$TEMPDIR"
+        sed -i "s#^http {#http {\n    client_body_temp_path ${TEMPDIR}/client_body;\n    proxy_temp_path ${TEMPDIR}/proxy;\n    fastcgi_temp_path ${TEMPDIR}/fastcgi;\n    uwsgi_temp_path ${TEMPDIR}/uwsgi;\n    scgi_temp_path ${TEMPDIR}/scgi;#" \
+            "${INSTALL_DIR}/nginx-speedtest.conf"
+        # Every compiled temp path, plus the five every build has, must now point at ours. A
+        # build with one we do not override skips the speed test rather than take it.
+        NGINX_TEMP_SAFE=true
+        TEMP_DIRECTIVES="client_body_temp_path proxy_temp_path fastcgi_temp_path uwsgi_temp_path scgi_temp_path"
+        for opt in $("$NGINX_BIN" -V 2>&1 | tr ' ' '\n' | sed -n 's/^--http-\(.*\)-temp-path=.*/\1/p'); do
+            TEMP_DIRECTIVES="$TEMP_DIRECTIVES $(echo "$opt" | tr '-' '_')_temp_path"
+        done
+        for d in $(echo "$TEMP_DIRECTIVES" | tr ' ' '\n' | sort -u); do
+            if ! grep -qE "^[[:space:]]*${d}[[:space:]]+${TEMPDIR}/" "${INSTALL_DIR}/nginx-speedtest.conf"; then
+                NGINX_TEMP_SAFE=false
+                warn "this host's nginx has a temp path (${d}) the speed test does not override, so starting it would take that directory from the host's own nginx. Skipping the LAN speed test."
+            fi
+        done
+
         # If the install dir isn't world-traversable (e.g. under /root, mode 700),
         # unprivileged nginx workers can't reach the webroot and every request 403s.
         # Run the workers as root in that case so the page serves wherever it lives;
@@ -752,11 +774,17 @@ UNIT
         # our install dir, add a local override and let the re-test below decide. This
         # is skipped entirely when the test already passes, so working hosts are
         # untouched.
-        if ! "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
+        if [ "$NGINX_TEMP_SAFE" != true ]; then
+            # Never even `nginx -t` it, and keep an earlier install's enabled unit from
+            # starting at the end of this run.
+            systemctl disable --now --quiet netopt-speedtest-nginx.service 2>/dev/null || true
+        elif ! "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
             maybe_fix_apparmor_nginx
         fi
 
-        if "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
+        if [ "$NGINX_TEMP_SAFE" != true ]; then
+            :
+        elif "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
             systemctl daemon-reload
             # Enable now, but START it below, after the agent unit is installed and
             # running - nginx BindsTo the agent, so starting it before the agent exists
