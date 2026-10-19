@@ -8,8 +8,8 @@
 #
 # The LAN speed test is optional (--lan-speed-test). The gateway terminates the test's
 # TCP itself, so a running test loads every core for its ~15 s and the ceiling is the
-# gateway's own TCP stack (10 Gbps on the EFG and UDM-Beast, 2.5-5 Gbps on the
-# UXG/UCG-Fiber class with IPS on, 1-2.5 Gbps on the UDR7 and other IPQ5332 gateways). For faster LAN
+# gateway's own TCP stack (10 Gbps on the EFG and UDM-Beast, under about 3 Gbps on the
+# UXG/UCG-Fiber class, lower on less capable gateways like the UDR7). For faster LAN
 # numbers there, run a Docker or bare-metal agent on a separate box (see install-native.sh).
 #
 # Differences from install-native.sh, all for the gateway environment:
@@ -113,11 +113,10 @@ fi
 # The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
 # An automatic off (port was taken) carries a trailing comment and is not read back: rechecked.
 HTTP_PORT_NOTE=""
-# Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
-if [ -z "$HTTP_PORT" ] && [ -f "${INSTALL_DIR}/speedtest-web/assets/js/config.js" ]; then
-    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" | head -1)
+if [ -z "$HTTP_PORT" ]; then
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
+    [ -n "$HTTP_PORT" ] || HTTP_PORT=24080
 fi
-[ -n "$HTTP_PORT" ] || HTTP_PORT=24080
 case "$HTTP_PORT" in
     ''|*[!0-9]*) echo "Invalid --speed-test-http-port: $HTTP_PORT" >&2; exit 1 ;;
 esac
@@ -249,17 +248,14 @@ if [ "$UNINSTALL" = true ]; then
             ipset destroy "$s" 2>/dev/null || true
         done
     fi
-    # Its dead-man timer would otherwise stay armed for up to an hour on a gateway already back to stock.
-    systemctl stop netopt-blocklist-cleanup.timer netopt-blocklist-cleanup.service 2>/dev/null || true
     # WAN Flood Protection's rules: the mangle chains and their jumps, the guard sets, our tc filters
     # (priorities 100-163 and 200-263), and an ingress qdisc the agent added and left empty. UniFi's own
     # filters and qdiscs are never touched. Reads wan-flood.json, so this runs before the dir is removed.
     for t in iptables ip6tables; do
         command -v "$t" >/dev/null 2>&1 || continue
         for c in PREROUTING FORWARD; do
-            # || true: with no flood rules grep exits 1, and under pipefail set -e would end the uninstall.
             "$t" -w -t mangle -S "$c" 2>/dev/null | grep -E -e '-j NETOPT_FLOOD(_FWD)?$' | sed 's/^-A/-D/' \
-                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done || true
+                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done
         done
         for ch in NETOPT_FLOOD NETOPT_FLOOD_FWD NETOPT_PROBE; do
             "$t" -w -t mangle -F "$ch" 2>/dev/null || true
@@ -273,11 +269,7 @@ if [ "$UNINSTALL" = true ]; then
         done
     fi
     if command -v tc >/dev/null 2>&1; then
-        # Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
-        owned=""
-        if [ -f "${INSTALL_DIR}/wan-flood.json" ]; then
-            owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" | tr -d '"' | tr ',' ' ')
-        fi
+        owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" 2>/dev/null | tr -d '"' | tr ',' ' ')
         for d in $(ls /sys/class/net 2>/dev/null); do
             tc qdisc show dev "$d" ingress 2>/dev/null | grep -q 'ingress ffff:' || continue
             for p in $(tc filter show dev "$d" parent ffff: 2>/dev/null | grep -o 'pref [0-9]*' | awk '{print $2}' | sort -u); do
@@ -402,7 +394,7 @@ if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
         if [ "$INSECURE" = true ] || grep -q '"ignoreSslErrors":[[:space:]]*true' "$CONFIG"; then CURL_TLS="-k"; fi
         KEY_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 $CURL_TLS \
             -H 'Content-Type: application/json' -d "{\"agentKey\":\"${CURRENT_KEY}\"}" \
-            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null || true)   # unreachable: 000, not a set -e exit
+            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null)
         case "$KEY_STATUS" in
             204)
                 note "Existing enrollment is still valid - keeping the agent key (the token is not needed)"

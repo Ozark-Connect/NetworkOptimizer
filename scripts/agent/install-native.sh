@@ -105,18 +105,14 @@ if [ "$SPEED_TEST_PORT" = "24443" ] && [ -f "${INSTALL_DIR}/agent.json" ]; then
     EXISTING_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${INSTALL_DIR}/agent.json" | head -1)
     [ -n "$EXISTING_PORT" ] && SPEED_TEST_PORT="$EXISTING_PORT"
 fi
-case "$SPEED_TEST_PORT" in
-    ''|*[!0-9]*) echo "Invalid --speed-test-port: $SPEED_TEST_PORT" >&2; exit 1 ;;
-esac
 
 # The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
 # An automatic off (port was taken) carries a trailing comment and is not read back: rechecked.
 HTTP_PORT_NOTE=""
-# Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
-if [ -z "$HTTP_PORT" ] && [ -f "${INSTALL_DIR}/speedtest-web/assets/js/config.js" ]; then
-    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" | head -1)
+if [ -z "$HTTP_PORT" ]; then
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" 2>/dev/null | head -1)
+    [ -n "$HTTP_PORT" ] || HTTP_PORT=24080
 fi
-[ -n "$HTTP_PORT" ] || HTTP_PORT=24080
 case "$HTTP_PORT" in
     *[!0-9]*|'') echo "Invalid --speed-test-http-port: $HTTP_PORT" >&2; exit 1 ;;
 esac
@@ -294,12 +290,6 @@ remove_apparmor_override() {
     return 0
 }
 
-# True if something listens on TCP port $1, IPv4 or IPv6. Reads /proc, so no ss or netstat needed.
-port_listening() {
-    awk -v h=":$(printf '%04X' "$1")" '$4 == "0A" && toupper($2) ~ (h "$") { f = 1 } END { exit !f }' \
-        /proc/net/tcp /proc/net/tcp6 2>/dev/null
-}
-
 # nginx workers drop privileges after start, so an install dir whose ancestors are
 # not world-traversable (e.g. under /root, mode 700) makes them 403 - they can't
 # reach the webroot. True in that case, so the wrapper should run workers as root.
@@ -376,8 +366,6 @@ remove_gateway_blocklist() {
         "$t" -F NETOPT_BLOCK 2>/dev/null || true
         "$t" -X NETOPT_BLOCK 2>/dev/null || true
     done
-    # Its dead-man timer would otherwise stay armed for up to an hour on a host already cleaned up.
-    systemctl stop netopt-blocklist-cleanup.timer netopt-blocklist-cleanup.service 2>/dev/null || true
     command -v ipset >/dev/null 2>&1 || return 0
     for s in netopt_block_v4 netopt_block_v6 netopt_guard_v4 netopt_guard_v6 netopt_out_v4 netopt_out_v6; do
         ipset destroy "${s}_tmp" 2>/dev/null || true
@@ -393,9 +381,8 @@ remove_wan_flood() {
     for t in iptables ip6tables; do
         command -v "$t" >/dev/null 2>&1 || continue
         for c in PREROUTING FORWARD; do
-            # || true: with no flood rules grep exits 1, and under pipefail set -e would end the uninstall.
             "$t" -w -t mangle -S "$c" 2>/dev/null | grep -E -e '-j NETOPT_FLOOD(_FWD)?$' | sed 's/^-A/-D/' \
-                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done || true
+                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done
         done
         for ch in NETOPT_FLOOD NETOPT_FLOOD_FWD NETOPT_PROBE; do
             "$t" -w -t mangle -F "$ch" 2>/dev/null || true
@@ -409,11 +396,7 @@ remove_wan_flood() {
         done
     fi
     if command -v tc >/dev/null 2>&1; then
-        # Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
-        owned=""
-        if [ -f "${INSTALL_DIR}/wan-flood.json" ]; then
-            owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" | tr -d '"' | tr ',' ' ')
-        fi
+        owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" 2>/dev/null | tr -d '"' | tr ',' ' ')
         for d in $(ls /sys/class/net 2>/dev/null); do
             tc qdisc show dev "$d" ingress 2>/dev/null | grep -q 'ingress ffff:' || continue
             for p in $(tc filter show dev "$d" parent ffff: 2>/dev/null | grep -o 'pref [0-9]*' | awk '{print $2}' | sort -u); do
@@ -546,7 +529,7 @@ if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
         if [ "$INSECURE" = true ] || grep -q '"ignoreSslErrors":[[:space:]]*true' "$CONFIG"; then CURL_TLS="-k"; fi
         KEY_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 $CURL_TLS \
             -H 'Content-Type: application/json' -d "{\"agentKey\":\"${CURRENT_KEY}\"}" \
-            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null || true)   # unreachable: 000, not a set -e exit
+            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null)
         case "$KEY_STATUS" in
             204)
                 note "Existing enrollment is still valid - keeping the agent key (the token is not needed)"
@@ -631,18 +614,13 @@ if [ "$LAN_SPEED_TEST" = true ]; then
     if [ -x "$NGINX_BIN" ]; then
         # Webroot lives beside the deployables, not in /usr/share/nginx/html (which
         # may belong to the system nginx or sit on a read-only root on appliances).
-        # A port something else holds would stop nginx from starting at all. A taken page port skips
-        # the speed test (its start is the last step, after the agent is up); a taken handoff port
-        # turns the handoff off. A port our current config already listens on is ours: no check.
-        SPEEDTEST_OK=true
-        if ! grep -qE "^[[:space:]]*listen[[:space:]]+(\[::\]:)?${SPEED_TEST_PORT}[[:space:];]" "${INSTALL_DIR}/nginx-speedtest-server.conf" 2>/dev/null \
-            && port_listening "$SPEED_TEST_PORT"; then
-            SPEEDTEST_OK=false
-            warn "port ${SPEED_TEST_PORT} is in use on this host - skipping the LAN speed test (pick another with --speed-test-port)."
-        fi
+        # A port something else holds would stop nginx from starting at all, taking the 24443 page
+        # with it, so a taken handoff port turns the handoff off instead. A port our current config
+        # already listens on is ours: skip the check rather than stop our nginx to make it.
         if [ "$HTTP_PORT" != "0" ] \
             && ! grep -qE "^[[:space:]]*listen[[:space:]]+(\[::\]:)?${HTTP_PORT}[[:space:];]" "${INSTALL_DIR}/nginx-speedtest-server.conf" 2>/dev/null; then
-            if port_listening "$HTTP_PORT"; then
+            if awk -v h=":$(printf '%04X' "$HTTP_PORT")" '$4 == "0A" && toupper($2) ~ (h "$") { f = 1 } END { exit !f }' \
+                /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
                 warn "port ${HTTP_PORT} is in use on this host - plain HTTP handoff off, the test stays on HTTPS (pick another with --speed-test-http-port)."
                 HTTP_PORT=0
                 HTTP_PORT_NOTE=" // off: port in use, rechecked on the next install run"
@@ -749,13 +727,14 @@ CFGJS
             "${INSTALL_DIR}/nginx-speedtest.conf"
         # Every compiled temp path, plus the five every build has, must now point at ours. A
         # build with one we do not override skips the speed test rather than take it.
+        NGINX_TEMP_SAFE=true
         TEMP_DIRECTIVES="client_body_temp_path proxy_temp_path fastcgi_temp_path uwsgi_temp_path scgi_temp_path"
         for opt in $("$NGINX_BIN" -V 2>&1 | tr ' ' '\n' | sed -n 's/^--http-\(.*\)-temp-path=.*/\1/p'); do
             TEMP_DIRECTIVES="$TEMP_DIRECTIVES $(echo "$opt" | tr '-' '_')_temp_path"
         done
         for d in $(echo "$TEMP_DIRECTIVES" | tr ' ' '\n' | sort -u); do
             if ! grep -qE "^[[:space:]]*${d}[[:space:]]+${TEMPDIR}/" "${INSTALL_DIR}/nginx-speedtest.conf"; then
-                SPEEDTEST_OK=false
+                NGINX_TEMP_SAFE=false
                 warn "this host's nginx has a temp path (${d}) the speed test does not override, so starting it would take that directory from the host's own nginx. Skipping the LAN speed test."
             fi
         done
@@ -804,7 +783,7 @@ UNIT
         # our install dir, add a local override and let the re-test below decide. This
         # is skipped entirely when the test already passes, so working hosts are
         # untouched.
-        if [ "$SPEEDTEST_OK" != true ]; then
+        if [ "$NGINX_TEMP_SAFE" != true ]; then
             # Never even `nginx -t` it, and keep an earlier install's enabled unit from
             # starting at the end of this run.
             systemctl disable --now --quiet netopt-speedtest-nginx.service 2>/dev/null || true
@@ -812,7 +791,7 @@ UNIT
             maybe_fix_apparmor_nginx
         fi
 
-        if [ "$SPEEDTEST_OK" != true ]; then
+        if [ "$NGINX_TEMP_SAFE" != true ]; then
             :
         elif "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
             systemctl daemon-reload
