@@ -31,6 +31,39 @@ function plainHttpHandoffUrl() {
     return origin ? origin + window.location.pathname + window.location.search : null;
 }
 
+// Blocks the HTTPS page while the handoff waits on a permission prompt: a test started here
+// would be cut off by the redirect once the user answers.
+function showHandoffOverlay(message, onSkip) {
+    function build() {
+        var overlay = document.createElement("div");
+        overlay.id = "netopt-handoff";
+        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;" +
+            "align-items:center;justify-content:center;background:rgba(0,0,0,0.6);" +
+            "font-family:sans-serif;";
+        var card = document.createElement("div");
+        card.style.cssText = "max-width:320px;margin:16px;padding:20px;border-radius:8px;" +
+            "background:#161618;color:#ededef;text-align:center;line-height:1.4;";
+        var text = document.createElement("p");
+        text.style.cssText = "margin:0 0 16px;";
+        text.textContent = message;
+        var skip = document.createElement("button");
+        skip.type = "button";
+        skip.textContent = "Skip";
+        skip.style.cssText = "padding:8px 20px;border:0;border-radius:6px;background:#0550B5;" +
+            "color:#fff;font-size:15px;cursor:pointer;";
+        skip.addEventListener("click", onSkip);
+        card.appendChild(text);
+        card.appendChild(skip);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+    }
+    if (document.body) {
+        build();
+    } else {
+        document.addEventListener("DOMContentLoaded", build);
+    }
+}
+
 function handOffToPlainHttp(url) {
     var done = false;
     function go(position) {
@@ -43,13 +76,37 @@ function handOffToPlainHttp(url) {
             : "";
         window.location.replace(url + fragment);
     }
-    // A pending permission prompt holds the geolocation timeout, so cap the wait here too.
-    setTimeout(function() { go(null); }, 8000);
-    if (navigator.geolocation && window.isSecureContext) {
+    function locate() {
         navigator.geolocation.getCurrentPosition(go, function() { go(null); },
             { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 });
-    } else {
+    }
+    if (!navigator.geolocation || !window.isSecureContext) {
         go(null);
+        return;
+    }
+    // The query (including the app's ?R auto-start) moves to the HTTP page only; left here,
+    // the app would start a test on this page before the redirect.
+    if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, "", window.location.pathname);
+    }
+    var ASK = "Allow location access to tag this result with where you are, or skip.";
+    var LOCATING = "Getting your location...";
+    function wait(message) {
+        showHandoffOverlay(message, function() { go(null); });
+        locate();
+    }
+    // A pending prompt holds the geolocation timeout, and Firefox's "Not now" never calls back.
+    setTimeout(function() { go(null); }, 15000);
+    if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "geolocation" }).then(function(status) {
+            if (status.state === "denied") {
+                go(null);
+            } else {
+                wait(status.state === "granted" ? LOCATING : ASK);
+            }
+        }, function() { wait(ASK); });
+    } else {
+        wait(ASK);
     }
 }
 
