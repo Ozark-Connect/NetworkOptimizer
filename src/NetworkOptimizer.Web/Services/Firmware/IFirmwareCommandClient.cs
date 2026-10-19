@@ -240,6 +240,35 @@ public interface IFirmwareCommandClient
     /// <see cref="TriggerSshNetworkAppUpdateAsync"/> started stands. Null when it cannot be read.
     /// </summary>
     Task<NetworkInstallLog?> ReadSshNetworkInstallLogAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Over gateway SSH: whether UniFi OS routes <c>/proxy/network</c> to a running UniFi Network.
+    /// Both sides are read on the console itself, so our own connection to it plays no part.
+    /// Null when SSH did not answer.
+    /// </summary>
+    Task<NetworkRouteState?> ProbeNetworkRouteAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Over gateway SSH: restarts UniFi Network (<c>unifi.service</c>) and returns without waiting
+    /// for it to come up, which can take as long as the unit's 15-minute start timeout.
+    /// </summary>
+    Task<FirmwareCommandResult> RestartNetworkApplicationAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Over gateway SSH: reboots the console, backgrounded so the session returns first.</summary>
+    Task<FirmwareCommandResult> RebootConsoleAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>Where UniFi Network stands behind UniFi OS, read on the console.</summary>
+public enum NetworkRouteState
+{
+    /// <summary>Network is running and UniFi OS routes to it.</summary>
+    Routed,
+
+    /// <summary>Network is running and UniFi OS does not route to it: <c>/proxy/network</c> serves the login page.</summary>
+    Unrouted,
+
+    /// <summary>Network is not running yet, or one side answered in a way this check does not recognize.</summary>
+    NotReady,
 }
 
 /// <summary>Where a detached SSH Network install stands.</summary>

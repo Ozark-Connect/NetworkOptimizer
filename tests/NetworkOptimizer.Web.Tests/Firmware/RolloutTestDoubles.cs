@@ -315,6 +315,30 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default) =>
         Task.FromResult(NetworkPackages);
+
+    /// <summary>What the route probe reads; null is SSH not answering. Routed by default.</summary>
+    public NetworkRouteState? NetworkRoute { get; set; } = NetworkRouteState.Routed;
+
+    public FirmwareCommandResult RestartNetworkResult { get; set; } = FirmwareCommandResult.Ok();
+    public FirmwareCommandResult RebootConsoleResult { get; set; } = FirmwareCommandResult.Ok();
+
+    public Task<NetworkRouteState?> ProbeNetworkRouteAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-network-route");
+        return Task.FromResult(NetworkRoute);
+    }
+
+    public Task<FirmwareCommandResult> RestartNetworkApplicationAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-restart-network");
+        return Task.FromResult(RestartNetworkResult);
+    }
+
+    public Task<FirmwareCommandResult> RebootConsoleAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-reboot-console");
+        return Task.FromResult(RebootConsoleResult);
+    }
 }
 
 /// <summary>A device table the test moves through offline, upgrading and back-online states.</summary>

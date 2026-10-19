@@ -697,6 +697,104 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         }
     }
 
+    // UniFi OS answers an unregistered /proxy path with its login page (200 text/html), and answers
+    // a registered one itself (401 JSON) even while Network is stopped. So the route says only
+    // whether UniFi OS knows Network; Network's own port says whether it is up.
+    private const string NetworkRouteCommand =
+        "echo \"NETOPT_STATUS $(curl -s -m 5 http://127.0.0.1:8081/status 2>/dev/null | tr -d '\\r\\n')\"; "
+        + "echo \"NETOPT_ROUTE $(curl -sk -m 5 -o /dev/null -w '%{content_type}' https://127.0.0.1/proxy/network/status 2>/dev/null)\"";
+
+    /// <inheritdoc />
+    public async Task<NetworkRouteState?> ProbeNetworkRouteAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                NetworkRouteCommand, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success ? ParseNetworkRoute(output) : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the UniFi Network route on site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Unrouted only on both signals together: Network says it is running, and UniFi OS serves its
+    /// login page for the route. Anything unrecognized reads as not ready, which acts on nothing.
+    /// </summary>
+    internal static NetworkRouteState ParseNetworkRoute(string? output)
+    {
+        string? status = null;
+        string? route = null;
+        foreach (var raw in (output ?? string.Empty).Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.StartsWith("NETOPT_STATUS ", StringComparison.Ordinal))
+                status = line["NETOPT_STATUS ".Length..];
+            else if (line.StartsWith("NETOPT_ROUTE ", StringComparison.Ordinal))
+                route = line["NETOPT_ROUTE ".Length..].Trim();
+        }
+
+        UniFiNetworkStatus? parsed = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(status))
+                parsed = System.Text.Json.JsonSerializer.Deserialize<UniFiNetworkStatus>(status);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // A truncated or non-JSON answer reads as not ready below.
+        }
+
+        if (parsed?.IsRunning != true)
+            return NetworkRouteState.NotReady;
+        if (route != null && route.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+            return NetworkRouteState.Routed;
+        if (route != null && route.StartsWith("text/html", StringComparison.OrdinalIgnoreCase))
+            return NetworkRouteState.Unrouted;
+        return NetworkRouteState.NotReady;
+    }
+
+    /// <inheritdoc />
+    public async Task<FirmwareCommandResult> RestartNetworkApplicationAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                "systemctl restart --no-block unifi && echo restarting", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success && output.Contains("restarting", StringComparison.Ordinal)
+                ? FirmwareCommandResult.Ok(output)
+                : FirmwareCommandResult.Failed(string.IsNullOrWhiteSpace(output) ? "UniFi Network could not be restarted over SSH." : output.Trim());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "SSH restart of UniFi Network on site {Site} threw", _siteSlug);
+            return FirmwareCommandResult.Failed($"The SSH restart of UniFi Network failed: {ex.Message}");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<FirmwareCommandResult> RebootConsoleAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Backgrounded with a short delay, as the health check reboot remedy is, so the session
+            // gets its answer back before the console goes away.
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                "( sleep 2; reboot ) >/dev/null 2>&1 & echo rebooting", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success && output.Contains("rebooting", StringComparison.Ordinal)
+                ? FirmwareCommandResult.Ok(output)
+                : FirmwareCommandResult.Failed(string.IsNullOrWhiteSpace(output) ? "The Console could not be rebooted over SSH." : output.Trim());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "SSH reboot of the console on site {Site} threw", _siteSlug);
+            return FirmwareCommandResult.Failed($"The SSH reboot of the Console failed: {ex.Message}");
+        }
+    }
+
     /// <summary>One read per site per window: every preview and Deploy Known Firmware asks for it.</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, ConsoleNetworkPackages Read)> NetworkPackageReads =
         new(StringComparer.OrdinalIgnoreCase);

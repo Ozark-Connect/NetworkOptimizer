@@ -174,6 +174,8 @@ public static class AuditActions
     public const string FirmwareRolloutSoakEnded = "firmware_rollout.soak_ended";
     public const string FirmwareRolloutUniFiAutoUpdateDisabled = "firmware_rollout.unifi_auto_update.disabled";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
+    /// <summary>A rollout restarted UniFi Network or rebooted the console because UniFi OS did not route to Network. System actor.</summary>
+    public const string FirmwareRolloutNetworkRecovery = "firmware_rollout.network_recovery";
     public const string FirmwareSharedBuildAdded = "firmware_rollout.shared_build.added";
 
     // AP Agent (the telemetry agent deployed onto an access point, not the on-site Agent)

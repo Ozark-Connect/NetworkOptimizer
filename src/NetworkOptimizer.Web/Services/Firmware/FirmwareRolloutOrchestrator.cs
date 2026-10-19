@@ -100,6 +100,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public static readonly TimeSpan UniFiOsUpdateBudget =
         TimeSpan.FromSeconds(FirmwareTimingEstimator.CloudGatewayOfflineBudgetSeconds);
 
+    /// <summary>How often the Network route is read over SSH while UniFi OS is back and the Network API is not.</summary>
+    public static readonly TimeSpan NetworkRouteProbeInterval = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// How long Network must run unrouted before the rollout acts. UniFi OS registers Network within
+    /// a second of each Network start, so this is a margin, not an estimate.
+    /// </summary>
+    public static readonly TimeSpan NetworkUnroutedHold = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How long Network gets to come up after UniFi OS is back, or after a recovery action, before
+    /// the step stops waiting. Longer than unifi.service's own 15-minute start timeout.
+    /// </summary>
+    public static readonly TimeSpan NetworkStartBudget = TimeSpan.FromMinutes(20);
+
     /// <summary>
     /// No OS-update judgment before this much has passed since the trigger: the state fields can
     /// lag the accept, and download runs with the console still answering on the old version.
@@ -1131,7 +1146,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             _suppression.RefreshOsCycle(_siteSlug, Now);
         }
 
-        if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, cancellationToken))
+        if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, consoleDark, cancellationToken))
             return;
 
         await CompleteAsync(plan, document, steps, cancellationToken);
@@ -1491,6 +1506,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         FirmwareRolloutPlan plan,
         RolloutPlanDocument document,
         List<FirmwareRolloutStep> steps,
+        bool consoleDark,
         CancellationToken cancellationToken)
     {
         var state = document.UniFiOsUpdate;
@@ -1525,7 +1541,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 await PersistDocumentAsync(plan, document, cancellationToken);
             }
 
-            if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
+            // The rollout's own recovery reboot restarts the clock: the budget began before it.
+            if (ElapsedReachable(state.ConsoleRebootedAt ?? triggeredAt) < UniFiOsUpdateBudget)
                 return false;
 
             await SettleUniFiOsAsync(plan, document, "stuck", cancellationToken);
@@ -1563,6 +1580,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             if (OsVersionMatches(installed, state.TargetVersion))
             {
+                if (!await NetworkRoutedAfterUniFiOsAsync(plan, document, steps, consoleDark, cancellationToken))
+                    return false;
+
                 await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
                 _logger.LogInformation(
                     "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);
@@ -1861,6 +1881,123 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         document.UniFiOsUpdate.Settled = true;
         document.UniFiOsUpdate.Outcome = outcome;
         await PersistDocumentAsync(plan, document, cancellationToken);
+    }
+
+    private DateTime _lastNetworkRouteProbe = DateTime.MinValue;
+
+    /// <summary>
+    /// Whether UniFi OS routes to UniFi Network after its own update, recovering over SSH when it
+    /// does not. Returns true when there is nothing left to wait for.
+    /// <para>
+    /// UniFi OS can come back on its new build without registering Network: Network runs, and
+    /// /proxy/network serves the login page until something restarts Network. Registration follows
+    /// each Network start within a second, so a Network restart comes first and a console reboot
+    /// only if that did not take. Each runs once per rollout.
+    /// </para>
+    /// </summary>
+    private async Task<bool> NetworkRoutedAfterUniFiOsAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        bool consoleDark,
+        CancellationToken cancellationToken)
+    {
+        // Devices answered, so the Network API did. Without gateway SSH the route cannot be read,
+        // and the step settles as it did before this check existed.
+        if (!consoleDark || !await _commands.HasGatewaySshAsync(cancellationToken))
+            return true;
+
+        if (Now - _lastNetworkRouteProbe < NetworkRouteProbeInterval)
+            return false;
+        _lastNetworkRouteProbe = Now;
+
+        var state = document.UniFiOsUpdate;
+        var route = await _commands.ProbeNetworkRouteAsync(cancellationToken);
+        if (route == NetworkRouteState.Routed)
+            return true;
+
+        if (route == NetworkRouteState.Unrouted)
+        {
+            if (state.NetworkUnroutedSince == null)
+            {
+                state.NetworkUnroutedSince = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
+                _logger.LogWarning(
+                    "UniFi Network is running on site {Site} but UniFi OS is not routing to it", _siteSlug);
+            }
+
+            if (ElapsedReachable(state.NetworkUnroutedSince.Value) < NetworkUnroutedHold)
+                return false;
+
+            return await RecoverNetworkRouteAsync(plan, document, steps, cancellationToken);
+        }
+
+        // Still starting, or SSH did not answer. Neither is the failure this looks for, so the hold
+        // starts over and only the wait is bounded.
+        if (state.NetworkUnroutedSince != null)
+        {
+            state.NetworkUnroutedSince = null;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+        }
+
+        var since = state.ConsoleRebootedAt ?? state.NetworkRestartedAt ?? state.BackAt ?? state.TriggeredAt ?? Now;
+        if (ElapsedReachable(since) < NetworkStartBudget)
+            return false;
+
+        _logger.LogWarning(
+            "UniFi Network on site {Site} did not come up within {Minutes:0} minutes of UniFi OS; settling the UniFi OS step",
+            _siteSlug, NetworkStartBudget.TotalMinutes);
+        return true;
+    }
+
+    /// <summary>
+    /// The next recovery action for an unrouted Network: restart it, then reboot the console, then
+    /// say so. Each action is stamped before it is sent, so a restarted server never repeats it.
+    /// </summary>
+    private async Task<bool> RecoverNetworkRouteAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
+    {
+        var state = document.UniFiOsUpdate;
+        state.NetworkUnroutedSince = null;
+
+        if (state.NetworkRestartedAt == null || state.ConsoleRebootedAt == null)
+        {
+            var restart = state.NetworkRestartedAt == null;
+            if (restart) state.NetworkRestartedAt = Now;
+            else state.ConsoleRebootedAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+
+            var result = restart
+                ? await _commands.RestartNetworkApplicationAsync(cancellationToken)
+                : await _commands.RebootConsoleAsync(cancellationToken);
+            _logger.LogWarning(
+                "UniFi OS on site {Site} has not routed to UniFi Network for {Minutes:0} minutes; {Action}: {Result}",
+                _siteSlug, NetworkUnroutedHold.TotalMinutes, restart ? "restarted UniFi Network" : "rebooted the console",
+                result.IsOk ? "accepted" : result.Message);
+            RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutNetworkRecovery, _siteSlug, plan.Id, new
+            {
+                action = restart ? "restart_network" : "reboot_console",
+                reason = "UniFi OS was not routing to UniFi Network after the UniFi OS update",
+                accepted = result.IsOk,
+                error = result.IsOk ? null : result.Message,
+            });
+            return false;
+        }
+
+        state.Error = "UniFi OS was not routing to UniFi Network after a UniFi Network restart and a Console reboot.";
+        await PersistDocumentAsync(plan, document, cancellationToken);
+        await PublishAsync(
+            RolloutAlerts.DeviceStuckOffline,
+            AlertSeverity.Critical,
+            $"UniFi Network Unreachable After UniFi OS Update{_siteSuffix}",
+            $"The Console is on UniFi OS {ShortVersion(state.TargetVersion) ?? "its new build"} and UniFi Network is running, but UniFi OS is not routing to it. Network Optimizer restarted UniFi Network and then rebooted the Console, and neither fixed it.",
+            steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
+            steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
+            cancellationToken);
+        return true;
     }
 
     private async Task ProgressStepAsync(
