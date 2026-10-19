@@ -340,7 +340,7 @@ else
                         @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
                     </span>
                 </div>
-                @if (stats?.OntTemperatureC is double ontTemp)
+                @if (stats?.DistinctOntTemperatureC is double ontTemp)
                 {
                     <div class="metric-row">
                         <span class="metric-label">ONT Temp:</span>

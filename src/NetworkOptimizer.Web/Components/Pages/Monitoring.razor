@@ -3494,8 +3494,8 @@
     private readonly Dictionary<int, bool> _temperatureSourceEdits = new();
 
     /// <summary>
-    /// SFP ONTs whose host device's DDM and attached ONT both report a temperature right now. A module
-    /// with one sensor has nothing to choose between, so it is not offered.
+    /// SFP ONTs whose host device's DDM and attached ONT both report a distinct temperature right now. A
+    /// module with one sensor (both readings equal) has nothing to choose between, so it is not offered.
     /// </summary>
     private List<(MonitoredSfp Module, double DdmC, double OntC)> DualTemperatureModules()
     {
@@ -3503,7 +3503,7 @@
         foreach (var module in _allSfps.Where(s => s.IsPon).OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName))
         {
             var live = LiveStats.GetSfpStats(module.DeviceMac, module.PortName);
-            if (live?.TemperatureC is double ddm && live.OntTemperatureC is double ont)
+            if (live?.TemperatureC is double ddm && live.DistinctOntTemperatureC is double ont)
                 list.Add((module, ddm, ont));
         }
         return list;

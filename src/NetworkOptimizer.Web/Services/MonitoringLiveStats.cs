@@ -1286,6 +1286,15 @@ public record SfpLiveStats
     /// <summary>The ONT's own temperature sensor. Set only when the host device's DDM read its own
     /// <see cref="TemperatureC"/> too; otherwise that field already holds this reading.</summary>
     public double? OntTemperatureC { get; init; }
+    /// <summary>
+    /// <see cref="OntTemperatureC"/> when it is a second reading, or null when it matches
+    /// <see cref="TemperatureC"/> at display precision. A stick ONT is its own SFP module, so DDM and
+    /// its web UI read the same sensor. For display only: Influx keeps both fields.
+    /// </summary>
+    public double? DistinctOntTemperatureC =>
+        OntTemperatureC is double ont && !(TemperatureC is double ddm && Math.Round(ddm, 2) == Math.Round(ont, 2))
+            ? ont
+            : null;
     /// <summary>OLT vendor ID the attached ONT reports (e.g. "CALX"), raw.</summary>
     public string? OltVendorId { get; init; }
     /// <summary>OLT model the attached ONT reports (e.g. "E7").</summary>
