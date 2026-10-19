@@ -1230,6 +1230,12 @@ a.stat-card-link:active {
     min-height: 180px;
 }
 
+@media (max-width: 768px) {
+    #active-alerts .card-body {
+        min-height: 172px;
+    }
+}
+
 .dashboard-card-wrapper.card-span-2 {
     grid-column: span 2;
 }
