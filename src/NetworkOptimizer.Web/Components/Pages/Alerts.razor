@@ -884,7 +884,7 @@
                                     @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
                                     {
                                         <span class="alert-source">
-                                            @alert.Source
+                                            @AlertSourceDisplay.GetName(alert.Source)
                                             @if (!string.IsNullOrEmpty(alert.DeviceName))
                                             {
                                                 <text> &middot; @alert.DeviceName</text>
@@ -897,7 +897,7 @@
                                     }
                                     else
                                     {
-                                        <span class="alert-source">@alert.Source</span>
+                                        <span class="alert-source">@AlertSourceDisplay.GetName(alert.Source)</span>
                                     }
                                 </div>
                                 <div class="alert-actions">
@@ -951,7 +951,7 @@
                                     @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
                                     {
                                         <span class="alert-source">
-                                            @alert.Source
+                                            @AlertSourceDisplay.GetName(alert.Source)
                                             @if (!string.IsNullOrEmpty(alert.DeviceName))
                                             {
                                                 <text> &middot; @alert.DeviceName</text>
@@ -964,7 +964,7 @@
                                     }
                                     else
                                     {
-                                        <span class="alert-source">@alert.Source</span>
+                                        <span class="alert-source">@AlertSourceDisplay.GetName(alert.Source)</span>
                                     }
                                 </div>
                                 <div class="alert-actions">
@@ -1062,7 +1062,7 @@
                                             </span>
                                         </td>
                                         <td>@alert.Title</td>
-                                        <td>@alert.Source</td>
+                                        <td>@AlertSourceDisplay.GetName(alert.Source)</td>
                                         <td class="hide-mobile">@FormatDeviceColumn(alert.DeviceName, alert.DeviceIp)</td>
                                         <td>
                                             <span class="status-badge @GetStatusBadgeClass(alert.Status)">
