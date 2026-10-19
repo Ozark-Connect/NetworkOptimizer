@@ -607,6 +607,18 @@ public class RolloutConsoleStepState
     /// <summary>When the console answered again on its new version.</summary>
     public DateTime? BackAt { get; set; }
 
+    /// <summary>
+    /// UniFi OS only: first probe of the current stretch in which Network was running and UniFi OS
+    /// was not routing to it. Null whenever the last probe saw anything else.
+    /// </summary>
+    public DateTime? NetworkUnroutedSince { get; set; }
+
+    /// <summary>UniFi OS only: when the rollout restarted UniFi Network to get it routed. Runs once.</summary>
+    public DateTime? NetworkRestartedAt { get; set; }
+
+    /// <summary>UniFi OS only: when the rollout rebooted the console because a Network restart did not get it routed. Runs once.</summary>
+    public DateTime? ConsoleRebootedAt { get; set; }
+
     /// <summary>Wave this phase runs in: 0 for the application, after the last device for UniFi OS.</summary>
     public int Wave { get; set; }
 }
