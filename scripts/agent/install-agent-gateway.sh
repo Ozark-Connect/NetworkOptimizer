@@ -176,7 +176,7 @@ remove_speedtest() {
     rm -f "/etc/systemd/system/${SPEEDTEST_SERVICE}.service"
     systemctl daemon-reload 2>/dev/null || true
     systemctl reset-failed "${SPEEDTEST_SERVICE}.service" 2>/dev/null || true
-    rm -rf "${INSTALL_DIR}/speedtest-web" "${INSTALL_DIR}/speedtest-tls"
+    rm -rf "${INSTALL_DIR}/speedtest-web" "${INSTALL_DIR}/speedtest-tls" "${INSTALL_DIR}/nginx-temp"
     rm -f "${INSTALL_DIR}/nginx-speedtest.conf" "${INSTALL_DIR}/nginx-speedtest-server.conf" \
           "${INSTALL_DIR}/nginx.pid" "${INSTALL_DIR}/nginx-error.log"
 }
@@ -519,6 +519,15 @@ CFGJS
         -e "s#^worker_processes auto;#worker_processes 2;#" \
         "${INSTALL_DIR}/nginx-speedtest.conf"
     sed -i "1i user nobody nogroup;" "${INSTALL_DIR}/nginx-speedtest.conf"
+    # Never UniFi's: the borrowed binary's compiled-in temp paths are /var/cache/nginx/*_temp,
+    # and a master re-owns those to its worker user at start, which locks UniFi's nginx out of
+    # buffering every authenticated /proxy/network response.
+    TEMPDIR="${INSTALL_DIR}/nginx-temp"
+    mkdir -p "$TEMPDIR"
+    sed -i "s#^http {#http {\n    client_body_temp_path ${TEMPDIR}/client_body;\n    proxy_temp_path ${TEMPDIR}/proxy;\n    fastcgi_temp_path ${TEMPDIR}/fastcgi;\n    uwsgi_temp_path ${TEMPDIR}/uwsgi;\n    scgi_temp_path ${TEMPDIR}/scgi;#" \
+        "${INSTALL_DIR}/nginx-speedtest.conf"
+    grep -q "proxy_temp_path ${TEMPDIR}/proxy;" "${INSTALL_DIR}/nginx-speedtest.conf" \
+        || err "could not set the speed test nginx's temp paths; refusing to start it on UniFi's."
 
     cat > "/etc/systemd/system/${SPEEDTEST_SERVICE}.service" <<UNIT
 [Unit]
