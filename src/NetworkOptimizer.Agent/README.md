@@ -84,9 +84,8 @@ fault, keeping it well clear of routing and IPS. Even a 2 GB gateway has ample
 headroom.
 
 The LAN speed test is optional here (`--lan-speed-test`). Higher-end gateways
-like the EFG and UDM-Beast can max out 10 Gbps; results top out under about
-3 Gbps on the UXG/UCG-Fiber class, and lower on less capable gateways like the
-UDR7. A running test loads the gateway for its duration. For faster LAN
+like the EFG and UDM-Beast can max out 10 Gbps; the UXG/UCG-Fiber class sees
+2.5-5 Gbps with IPS on, and less capable gateways like the UDR7 see less. A running test loads the gateway for its duration. For faster LAN
 numbers, run a Docker or bare-metal agent on a separate box (and size that box
 to the LAN speed, per above).
 

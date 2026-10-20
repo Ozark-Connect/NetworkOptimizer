@@ -8,8 +8,8 @@
 #
 # The LAN speed test is optional (--lan-speed-test). The gateway terminates the test's
 # TCP itself, so a running test loads every core for its ~15 s and the ceiling is the
-# gateway's own TCP stack (10 Gbps on the EFG and UDM-Beast, under about 3 Gbps on the
-# UXG/UCG-Fiber class, lower on less capable gateways like the UDR7). For faster LAN
+# gateway's own TCP stack (10 Gbps on the EFG and UDM-Beast, 2.5-5 Gbps on the
+# UXG/UCG-Fiber class with IPS on, lower on less capable gateways like the UDR7). For faster LAN
 # numbers there, run a Docker or bare-metal agent on a separate box (see install-native.sh).
 #
 # Differences from install-native.sh, all for the gateway environment:
