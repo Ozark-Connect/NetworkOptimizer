@@ -13,7 +13,7 @@
 # Options:
 #   --server URL     Central server HTTPS address (required; same URL as the app)
 #   --token  TOKEN   One-time enrollment token (required on first install)
-#   --lan-speed-test Host the LAN speed test page (port 24443) and iperf3 (5201)
+#   --lan-speed-test Host the LAN speed test page (port 24443, test on plain HTTP 24080) and iperf3 (5201)
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
 #   --release TAG    Run this release's image (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --dir PATH       Install directory (default: /opt/network-optimizer-agent)
@@ -192,7 +192,7 @@ if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
         if [ "$INSECURE" = true ] || $SUDO grep -q '"ignoreSslErrors":[[:space:]]*true' "$CONFIG"; then CURL_TLS="-k"; fi
         KEY_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 $CURL_TLS \
             -H 'Content-Type: application/json' -d "{\"agentKey\":\"${CURRENT_KEY}\"}" \
-            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null)
+            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null || true)   # unreachable: 000, not a set -e exit
         case "$KEY_STATUS" in
             204)
                 note "Existing enrollment is still valid - keeping the agent key (the token is not needed)"

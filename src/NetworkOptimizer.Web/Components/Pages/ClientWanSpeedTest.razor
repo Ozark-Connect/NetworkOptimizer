@@ -88,9 +88,10 @@
                         {
                             <div class="alert alert-info">
                                 <strong>Agent on Gateway:</strong> This site's Agent runs on the UniFi Gateway itself,
-                                which doesn't host the speed-test pages that relay client WAN results back to this
-                                server. To enable client WAN tests here, deploy a Docker or bare-metal Agent on a
-                                separate box at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>).
+                                without the speed-test pages that relay client WAN results back to this server. To
+                                enable client WAN tests here, re-run the gateway installer with
+                                <code>--lan-speed-test</code>, or deploy a Docker or bare-metal Agent on a separate box
+                                at the site (<a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">Settings &gt; Multi-Site</a>).
                             </div>
                         }
                         else if (AgentRequiredButOffline)
