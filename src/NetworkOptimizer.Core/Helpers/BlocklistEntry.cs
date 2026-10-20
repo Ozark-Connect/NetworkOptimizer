@@ -27,6 +27,53 @@ public static class BlocklistEntry
         return (prefix == max ? network.ToString() : $"{network}/{prefix}", v6);
     }
 
+    /// <summary>
+    /// <paramref name="range"/> without <paramref name="holes"/>: the fewest prefixes that cover the rest
+    /// of it, at most one per bit of host part per hole. Holes outside the range are ignored, so a range
+    /// with none inside comes back whole.
+    /// </summary>
+    public static List<IPNetwork> CutOut(IPNetwork range, IEnumerable<IPAddress> holes)
+    {
+        var family = range.BaseAddress.AddressFamily;
+        var bits = family == AddressFamily.InterNetworkV6 ? 128 : 32;
+        var inside = holes
+            .Select(h => h.IsIPv4MappedToIPv6 ? h.MapToIPv4() : h)
+            .Where(h => h.AddressFamily == family && range.Contains(h))
+            .Select(ToNumber)
+            .Distinct()
+            .ToList();
+        var pieces = new List<IPNetwork>();
+        Split(ToNumber(range.BaseAddress), range.PrefixLength, inside);
+        return pieces;
+
+        void Split(UInt128 network, int prefix, List<UInt128> within)
+        {
+            if (within.Count == 0)
+            {
+                pieces.Add(new IPNetwork(ToAddress(network, bits), prefix));
+                return;
+            }
+            if (prefix == bits) return;
+            var upper = UInt128.One << (bits - prefix - 1);
+            Split(network, prefix + 1, within.Where(h => (h & upper) == 0).ToList());
+            Split(network | upper, prefix + 1, within.Where(h => (h & upper) != 0).ToList());
+        }
+    }
+
+    private static UInt128 ToNumber(IPAddress ip)
+    {
+        UInt128 n = 0;
+        foreach (var b in ip.GetAddressBytes()) n = (n << 8) | b;
+        return n;
+    }
+
+    private static IPAddress ToAddress(UInt128 n, int bits)
+    {
+        var bytes = new byte[bits / 8];
+        for (var i = bytes.Length - 1; i >= 0; i--, n >>= 8) bytes[i] = (byte)(n & 0xFF);
+        return new IPAddress(bytes);
+    }
+
     private static IPAddress Mask(IPAddress ip, int prefix)
     {
         var bytes = ip.GetAddressBytes();

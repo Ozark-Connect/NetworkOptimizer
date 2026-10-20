@@ -623,6 +623,7 @@ builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IGatewayBlocklistWr
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockSharingScope, NetworkOptimizer.Threats.Blocking.InstanceBlockSharingScope>();
 // Public lists that need a key are shared within a pool: the install here; a multi-tenant host decorates this.
 builder.Services.AddScoped<NetworkOptimizer.Threats.Blocking.IBlockListPool, NetworkOptimizer.Threats.Blocking.InstanceBlockListPool>();
+builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IProbedAddressProvider, NetworkOptimizer.Web.Services.LatencyTargetAddressProvider>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IWafConnectionAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WafConnectionAdminService>(sp));

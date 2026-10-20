@@ -122,4 +122,31 @@ public class PublicBlockListsTests
         PublicBlockLists.RecommendedNote([PublicBlockLists.SpamhausDrop, PublicBlockLists.Feodo, PublicBlockLists.DShield])
             .Should().Be("Includes the public block lists Spamhaus DROP, abuse.ch Feodo Tracker, and DShield Top 20.");
     }
+
+    [Fact]
+    public void CutAroundProbed_LeavesEntriesWithoutTargetsAlone()
+    {
+        System.Net.IPAddress[] probed = [System.Net.IPAddress.Parse("192.0.2.1")];
+        ThreatBlockingService.CutAroundProbed("198.51.100.0/24", probed).Should().Equal("198.51.100.0/24");
+        ThreatBlockingService.CutAroundProbed("203.0.113.5", probed).Should().Equal("203.0.113.5");
+        ThreatBlockingService.CutAroundProbed("198.51.100.0/24", []).Should().Equal("198.51.100.0/24");
+    }
+
+    [Fact]
+    public void CutAroundProbed_DropsAnEntryThatIsATarget()
+    {
+        ThreatBlockingService.CutAroundProbed("203.0.113.5", [System.Net.IPAddress.Parse("203.0.113.5")]).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CutAroundProbed_CutsTargetsOutOfARange()
+    {
+        var pieces = ThreatBlockingService.CutAroundProbed("198.51.100.0/24",
+            [System.Net.IPAddress.Parse("198.51.100.63"), System.Net.IPAddress.Parse("198.51.100.219")]);
+
+        pieces.Should().Contain(["198.51.100.64/26", "198.51.100.62/32", "198.51.100.218/32"]);
+        pieces.Should().NotContain(p => System.Net.IPNetwork.Parse(p).Contains(System.Net.IPAddress.Parse("198.51.100.63")));
+        pieces.Should().NotContain(p => System.Net.IPNetwork.Parse(p).Contains(System.Net.IPAddress.Parse("198.51.100.219")));
+        pieces.Should().OnlyContain(p => PublicBlockLists.Normalize(p) == p);
+    }
 }

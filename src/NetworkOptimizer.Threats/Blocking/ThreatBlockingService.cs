@@ -39,6 +39,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     public const int MaxConsoleEntries = 10_000;
     private readonly ConcurrentDictionary<string, int> _feedsCapped = new();
     private readonly ConcurrentDictionary<string, int> _consoleCapped = new();
+    // Public list entries cut around each site's latency targets at its last cycle, for the log.
+    private readonly ConcurrentDictionary<string, int> _feedsCut = new();
 
     /// <summary>Public list entries the caps left out on a site at its last cycle (null site = default site).</summary>
     public int FeedEntriesCapped(string? site) => _feedsCapped.TryGetValue(Key(site), out var n) ? n : 0;
@@ -382,7 +384,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             // devices reaching them are flagged, and the first Enforce has them at once.
             // The site's own blocks come first in what UniFi Network's Network Lists hold.
             var pool = services.GetService<IBlockListPool>() is { } pools ? await pools.GetPoolAsync(site, ct) : "";
-            var set = await FeedEntriesAsync(site, pool, accessor, settings, allowlist, MaxConsoleEntries - desired.Count, now, ct);
+            var probed = services.GetService<IProbedAddressProvider>() is { } targets ? await targets.GetAsync(ct) : [];
+            var set = await FeedEntriesAsync(site, pool, accessor, settings, allowlist, probed, MaxConsoleEntries - desired.Count, now, ct);
             _listMatchers[Key(site)] = set.Matcher;
             if (settings.Mode == BlockingMode.Enforce)
             {
@@ -541,10 +544,12 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         return new BlockAllowlist($"{settings.Allowlist}\n{extras}", filters, addresses, cloudflare);
     }
 
-    // The enabled public lists' entries, minus anything overlapping protected space. Every list blocks
-    // inbound; only Outbound lists are blocked outbound and matched for contact alerts.
+    // The enabled public lists' entries, minus anything overlapping protected space and with the site's
+    // probed addresses cut out. Every list blocks inbound; only Outbound lists are blocked outbound and
+    // matched for contact alerts.
     private async Task<FeedSet> FeedEntriesAsync(string? site, string pool, IThreatSettingsAccessor accessor,
-        BlockingSettings settings, BlockAllowlist allowlist, int consoleBudget, DateTime now, CancellationToken ct)
+        BlockingSettings settings, BlockAllowlist allowlist, IReadOnlyList<System.Net.IPAddress> probed, int consoleBudget,
+        DateTime now, CancellationToken ct)
     {
         if (_lists == null || settings.Feeds.Count == 0)
         {
@@ -555,6 +560,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         var outbound = new Dictionary<string, PublicBlockList>(StringComparer.OrdinalIgnoreCase);
         var perList = new List<(PublicBlockList List, List<string> Entries)>();
         var dropped = 0;
+        var cut = 0;
         // Outbound lists first, so an entry on several lists is credited to the one that alerts; then by
         // usefulness, so the caps cut the least useful lists.
         foreach (var list in PublicBlockLists.All.Where(l => settings.Feeds.Contains(l.Id)).OrderBy(l => l.Outbound ? 0 : 1))
@@ -564,24 +570,34 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 : null;
             var kept = new List<string>();
             perList.Add((list, kept));
-            foreach (var entry in await _lists.GetAsync(list.Id, accessor, now, ct, token, pool))
+            foreach (var listed in await _lists.GetAsync(list.Id, accessor, now, ct, token, pool))
             {
-                if (allowlist.ExemptsRange(entry) != null || all.Contains(entry)) continue;
-                if (all.Count >= MaxFeedEntries)
+                if (allowlist.ExemptsRange(listed) != null) continue;
+                var pieces = CutAroundProbed(listed, probed);
+                if (pieces.Count != 1 || pieces[0] != listed) cut++;
+                foreach (var entry in pieces)
                 {
-                    dropped++;
-                    continue;
+                    if (all.Contains(entry)) continue;
+                    if (all.Count >= MaxFeedEntries)
+                    {
+                        dropped++;
+                        continue;
+                    }
+                    all.Add(entry);
+                    kept.Add(entry);
+                    // Past the outbound cap an entry is still blocked inbound; it only stops being blocked outbound.
+                    if (list.Outbound && outbound.Count < MaxOutboundFeedEntries) outbound.TryAdd(entry, list);
                 }
-                all.Add(entry);
-                kept.Add(entry);
-                // Past the outbound cap an entry is still blocked inbound; it only stops being blocked outbound.
-                if (list.Outbound && outbound.Count < MaxOutboundFeedEntries) outbound.TryAdd(entry, list);
             }
         }
         if (dropped > 0 && dropped != _feedsCapped.GetValueOrDefault(Key(site)))
             _logger.LogWarning("Automatic Blocking: public block lists on {Site} capped at {Max:N0} entries; {Dropped:N0} left out",
                 site ?? "main", MaxFeedEntries, dropped);
         _feedsCapped[Key(site)] = dropped;
+        if (cut > 0 && cut != _feedsCut.GetValueOrDefault(Key(site)))
+            _logger.LogInformation("Automatic Blocking: {Cut} public list entries on {Site} cut around its latency targets",
+                cut, site ?? "main");
+        _feedsCut[Key(site)] = cut;
 
         // UniFi Network's Network List gets a share of every list, within what the gateway accepts after the
         // site's own blocks; the gateway agent holds them all.
@@ -594,6 +610,24 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             outbound.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList(),
             console.Order(StringComparer.OrdinalIgnoreCase).ToList(),
             consoleOut.Order(StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    /// <summary>
+    /// A public list entry with the site's probed addresses cut out: the entry itself when it holds none,
+    /// nothing when it is one, otherwise the prefixes covering the rest of it.
+    /// </summary>
+    internal static IReadOnlyList<string> CutAroundProbed(string entry, IReadOnlyList<System.Net.IPAddress> probed)
+    {
+        if (probed.Count == 0) return [entry];
+        System.Net.IPNetwork range;
+        if (System.Net.IPAddress.TryParse(entry, out var single))
+            range = new System.Net.IPNetwork(single, single.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32);
+        else if (!System.Net.IPNetwork.TryParse(entry, out range))
+            return [entry];
+        if (!probed.Any(range.Contains)) return [entry];
+        return NetworkOptimizer.Core.Helpers.BlocklistEntry.CutOut(range, probed)
+            .Select(p => PublicBlockLists.Normalize(p.ToString())!)
+            .ToList();
     }
 
     /// <summary>
