@@ -359,8 +359,9 @@ remove_wan_flood() {
     for t in iptables ip6tables; do
         command -v "$t" >/dev/null 2>&1 || continue
         for c in PREROUTING FORWARD; do
+            # || true: with no flood rules grep exits 1, and under pipefail set -e would end the uninstall.
             "$t" -w -t mangle -S "$c" 2>/dev/null | grep -E -e '-j NETOPT_FLOOD(_FWD)?$' | sed 's/^-A/-D/' \
-                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done
+                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done || true
         done
         for ch in NETOPT_FLOOD NETOPT_FLOOD_FWD NETOPT_PROBE; do
             "$t" -w -t mangle -F "$ch" 2>/dev/null || true
