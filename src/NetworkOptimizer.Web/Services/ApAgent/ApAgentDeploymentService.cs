@@ -1004,7 +1004,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         {
             DeviceMac = deviceMac,
             DeviceName = deviceName,
-            Token = _credentialProtection.Encrypt(GenerateToken()),
+            Token = _credentialProtection.EncryptForSite(GenerateToken(), _siteSlug),
         };
         db.ApAgentDeployments.Add(record);
         await db.SaveChangesAsync(ct);
@@ -1022,7 +1022,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             record = new ApAgentDeployment
             {
                 DeviceMac = deviceMac,
-                Token = _credentialProtection.Encrypt(GenerateToken()),
+                Token = _credentialProtection.EncryptForSite(GenerateToken(), _siteSlug),
             };
             db.ApAgentDeployments.Add(record);
         }
@@ -1046,7 +1046,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     private async Task<string> RotateTokenAsync(string deviceMac, CancellationToken ct)
     {
         var token = GenerateToken();
-        await UpdateRecordAsync(deviceMac, r => r.Token = _credentialProtection.Encrypt(token), ct);
+        await UpdateRecordAsync(deviceMac, r => r.Token = _credentialProtection.EncryptForSite(token, _siteSlug), ct);
         _directory.Invalidate(_siteSlug);
         return token;
     }

@@ -446,7 +446,7 @@ public sealed class ThreatBlockingOperations
         var list = await client.EnsureListAsync(useToken, accountId, listId, ct);
 
         if (!string.IsNullOrWhiteSpace(token))
-            await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareToken), _credentials.Encrypt(useToken), ct);
+            await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareToken), _credentials.EncryptForSite(useToken, slug), ct);
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareAccountId), accountId, ct);
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.CloudflareListId), list.Id, ct);
         // Setting up the target enables it, so it does not depend on a separate Save of the card.
@@ -522,7 +522,7 @@ public sealed class ThreatBlockingOperations
     {
         if (PublicBlockLists.Find(listId) is not { NeedsToken: true })
             throw new ArgumentException("That public block list does not take a token.");
-        var value = string.IsNullOrWhiteSpace(token) ? "" : _credentials.Encrypt(token.Trim());
+        var value = string.IsNullOrWhiteSpace(token) ? "" : _credentials.EncryptForSite(token.Trim(), slug);
         await _settings.SaveSettingAsync(Key(slug, BlockingSettingKeys.FeedToken(listId)), value, ct);
         // A token is only ever added to use its list, so saving one turns the list on; nothing else changes.
         var feeds = (await GetSettingsAsync(slug, ct)).Feeds;
