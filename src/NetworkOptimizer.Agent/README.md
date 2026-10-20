@@ -85,7 +85,7 @@ headroom.
 
 The LAN speed test is optional here (`--lan-speed-test`). Higher-end gateways
 like the EFG and UDM-Beast can max out 10 Gbps; the UXG/UCG-Fiber class sees
-2.5-5 Gbps with IPS on, and less capable gateways like the UDR7 see less. A running test loads the gateway for its duration. For faster LAN
+2.5-5 Gbps with IPS on, and the UDR7 and other IPQ5332 gateways 1-2.5 Gbps. A running test loads the gateway for its duration. For faster LAN
 numbers, run a Docker or bare-metal agent on a separate box (and size that box
 to the LAN speed, per above).
 
