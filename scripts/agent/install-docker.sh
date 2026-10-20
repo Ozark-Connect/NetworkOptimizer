@@ -192,7 +192,7 @@ if $SUDO grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
         if [ "$INSECURE" = true ] || $SUDO grep -q '"ignoreSslErrors":[[:space:]]*true' "$CONFIG"; then CURL_TLS="-k"; fi
         KEY_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 $CURL_TLS \
             -H 'Content-Type: application/json' -d "{\"agentKey\":\"${CURRENT_KEY}\"}" \
-            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null)
+            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null || true)   # unreachable: 000, not a set -e exit
         case "$KEY_STATUS" in
             204)
                 note "Existing enrollment is still valid - keeping the agent key (the token is not needed)"

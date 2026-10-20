@@ -249,6 +249,8 @@ if [ "$UNINSTALL" = true ]; then
             ipset destroy "$s" 2>/dev/null || true
         done
     fi
+    # Its dead-man timer would otherwise stay armed for up to an hour on a gateway already back to stock.
+    systemctl stop netopt-blocklist-cleanup.timer netopt-blocklist-cleanup.service 2>/dev/null || true
     # WAN Flood Protection's rules: the mangle chains and their jumps, the guard sets, our tc filters
     # (priorities 100-163 and 200-263), and an ingress qdisc the agent added and left empty. UniFi's own
     # filters and qdiscs are never touched. Reads wan-flood.json, so this runs before the dir is removed.
@@ -400,7 +402,7 @@ if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
         if [ "$INSECURE" = true ] || grep -q '"ignoreSslErrors":[[:space:]]*true' "$CONFIG"; then CURL_TLS="-k"; fi
         KEY_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 $CURL_TLS \
             -H 'Content-Type: application/json' -d "{\"agentKey\":\"${CURRENT_KEY}\"}" \
-            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null)
+            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null || true)   # unreachable: 000, not a set -e exit
         case "$KEY_STATUS" in
             204)
                 note "Existing enrollment is still valid - keeping the agent key (the token is not needed)"
