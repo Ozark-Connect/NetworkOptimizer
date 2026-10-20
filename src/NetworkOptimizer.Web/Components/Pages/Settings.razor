@@ -373,7 +373,7 @@
             <div class="card-header-badges">
                 @if (_multiSiteEnabled)
                 {
-                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                    <ScopeBadge />
                 }
                 <span class="status-badge status-@(adminPasswordSource == AdminPasswordSource.None ? "disconnected" : "connected")">
                     @GetAdminPasswordSourceLabel()
@@ -2314,7 +2314,7 @@
             </div>
             @if (_multiSiteEnabled)
             {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                <ScopeBadge />
             }
         </div>
         <div class="card-body">
@@ -2377,7 +2377,7 @@
             </div>
             @if (_multiSiteEnabled)
             {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                <ScopeBadge />
             }
         </div>
         <div class="card-body">
@@ -2547,7 +2547,7 @@
             <h2 class="card-title">Application Settings</h2>
             @if (_multiSiteEnabled)
             {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                <ScopeBadge />
             }
         </div>
         <div class="card-body">
@@ -2708,7 +2708,7 @@
             <div class="card-header-badges">
                 @if (_multiSiteEnabled && SiteContext.IsDefault)
                 {
-                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                    <ScopeBadge />
                 }
                 @if (alertChannels?.Count > 0)
                 {
@@ -3032,7 +3032,7 @@
             </div>
             @if (_multiSiteEnabled && SiteContext.IsDefault)
             {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                <ScopeBadge />
             }
         </div>
         <div class="card-body">
@@ -3119,7 +3119,7 @@
             </div>
             @if (_multiSiteEnabled)
             {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                <ScopeBadge />
             }
         </div>
         <div class="card-body">
@@ -3197,7 +3197,7 @@
             <div class="card-header-badges">
                 @if (_multiSiteEnabled)
                 {
-                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                    <ScopeBadge />
                 }
                 @if (crowdsecEnabled)
                 {
@@ -3297,7 +3297,7 @@
             <h2 class="card-title">UI / Display Settings</h2>
             @if (_multiSiteEnabled)
             {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                <ScopeBadge />
             }
         </div>
         <div class="card-body">
@@ -3318,7 +3318,7 @@
             <div class="card-header-badges">
                 @if (_multiSiteEnabled)
                 {
-                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                    <ScopeBadge />
                 }
                 <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "info")">
                     @(!string.IsNullOrEmpty(_mapboxToken) ? "Mapbox (commercial)" : "Esri (non-commercial)")
@@ -3380,7 +3380,7 @@
             <h2 class="card-title">Data Management</h2>
             @if (_multiSiteEnabled)
             {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                <ScopeBadge />
             }
         </div>
         <div class="card-body">
