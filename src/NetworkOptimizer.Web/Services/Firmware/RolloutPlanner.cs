@@ -695,11 +695,13 @@ public class RolloutPlanner
         var aps = input.Devices.Count(d => d.Type == DeviceType.AccessPoint);
         var most = doc.MaxApsInFlight == 1 ? "one" : doc.MaxApsInFlight.ToString();
         var bound = $"no more than {most} of this site's {aps} APs will be down at once";
-        if (aps >= 2 && input.Neighbors == null)
+        // AP parallelism only matters when the plan upgrades more than one AP.
+        var apsUpgrading = candidates.Count(d => d.Type == DeviceType.AccessPoint);
+        if (apsUpgrading >= 2 && input.Neighbors == null)
         {
             doc.Notes.Add($"No AP placement or roaming data, so {bound}.");
         }
-        else if (aps >= 2 && input.Neighbors?.HasPlacementData == false)
+        else if (apsUpgrading >= 2 && input.Neighbors?.HasPlacementData == false)
         {
             doc.Notes.Add($"AP placements are not set - parallel APs were chosen from UniFi roaming neighbors, and {bound}.");
         }

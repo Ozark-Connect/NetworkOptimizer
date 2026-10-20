@@ -1533,6 +1533,23 @@ public class RolloutPlannerTests
     }
 
     [Fact]
+    public void Plan_FewerThanTwoApsUpgrading_OmitsTheApParallelismNote()
+    {
+        var devices = new List<PlannerDevice>
+        {
+            Gw(),
+            Ap("aa:bb:cc:dd:22:01", "AP-1", upgradable: false),
+            Ap("aa:bb:cc:dd:22:02", "AP-2", upgradable: false),
+        };
+
+        var withoutOracle = Plan(devices).Document;
+        var withoutPlacements = Plan(devices, neighbors: new ApNeighborOracle(hasPlacementData: false)).Document;
+
+        withoutOracle.Notes.Should().NotContain(n => n.Contains("No AP placement"));
+        withoutPlacements.Notes.Should().NotContain(n => n.Contains("roaming neighbors"));
+    }
+
+    [Fact]
     public void Plan_SingleAp_HasNoParallelismNote()
     {
         var doc = Plan([Ap(ApMac, "AP-1", "SKU-AP1")]).Document;
