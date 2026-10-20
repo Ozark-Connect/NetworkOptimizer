@@ -119,8 +119,38 @@ note "Installing to ${INSTALL_DIR}"
 $SUDO mkdir -p "${INSTALL_DIR}/data"
 
 step "Fetching the compose template"
-$SUDO curl -fsSL "$COMPOSE_URL" -o "${INSTALL_DIR}/docker-compose.yml"
-ok "docker-compose.yml"
+COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
+TMP_COMPOSE="$(mktemp)"
+TMP_PAIRS="$(mktemp)"
+trap 'rm -f "$TMP_COMPOSE" "$TMP_PAIRS" "${TMP_COMPOSE}.merged"' EXIT
+curl -fsSL "$COMPOSE_URL" -o "$TMP_COMPOSE"
+# The template is refreshed on every run, so an upgrade carries the user's environment settings
+# (every active "- KEY=VALUE" line) into it: a key the template has, active or commented out, takes
+# the user's line in place; any other key goes under environment:. [ \t] rather than [[:space:]]
+# because mawk 1.3.3 (older Debian/Ubuntu) has no character classes.
+if [ -f "$COMPOSE_FILE" ]; then
+    printf '#\n' > "$TMP_PAIRS"   # header line, so FNR == 1 fires even when no keys are set
+    $SUDO awk '/^[ \t]*-[ \t]*[A-Za-z_][A-Za-z0-9_]*=/ { sub(/^[ \t]*-[ \t]*/, ""); print }' "$COMPOSE_FILE" >> "$TMP_PAIRS"
+    awk '
+        function keyof(s) { sub(/^[ \t]*#?[ \t]*-[ \t]*/, "", s); sub(/=.*/, "", s); return s }
+        FNR == 1 { f++ }
+        f == 1 { if ($0 !~ /^#/) { k = keyof($0); if (!(k in val)) { val[k] = $0; ord[++n] = k } } next }
+        f == 2 { if ($0 ~ /^[ \t]*#?[ \t]*-[ \t]*[A-Za-z_][A-Za-z0-9_]*=/) intpl[keyof($0)] = 1; next }
+        {
+            if ($0 ~ /^[ \t]*#?[ \t]*-[ \t]*[A-Za-z_][A-Za-z0-9_]*=/) {
+                k = keyof($0)
+                if ((k in val) && !(k in done)) {
+                    ind = $0; sub(/[^ \t].*$/, "", ind); print ind "- " val[k]; done[k] = 1; next
+                }
+            }
+            print
+            if ($0 ~ /^[ \t]*environment:[ \t]*$/) {
+                ind = $0; sub(/[^ \t].*$/, "", ind)
+                for (i = 1; i <= n; i++) if (!(ord[i] in intpl)) { print ind "  - " val[ord[i]]; done[ord[i]] = 1 }
+            }
+        }' "$TMP_PAIRS" "$TMP_COMPOSE" "$TMP_COMPOSE" > "${TMP_COMPOSE}.merged"
+    mv "${TMP_COMPOSE}.merged" "$TMP_COMPOSE"
+fi
 # --release pins the image to one release (the one the server runs) instead of :latest, which
 # only moves on stable releases: a preview server would otherwise run a stable agent.
 if [ -n "$RELEASE_TAG" ]; then
@@ -128,8 +158,18 @@ if [ -n "$RELEASE_TAG" ]; then
         *[!A-Za-z0-9.-]*) err "Invalid --release tag: $RELEASE_TAG" ;;
     esac
     IMAGE_TAG="${RELEASE_TAG#v}"
-    $SUDO sed -i "s#\(image: ghcr.io/ozark-connect/agent\):latest#\1:${IMAGE_TAG}#" "${INSTALL_DIR}/docker-compose.yml"
-    $SUDO grep -q "agent:${IMAGE_TAG}" "${INSTALL_DIR}/docker-compose.yml" || err "Could not pin the image to ${IMAGE_TAG}"
+    sed -i "s#\(image: ghcr.io/ozark-connect/agent\):latest#\1:${IMAGE_TAG}#" "$TMP_COMPOSE"
+    grep -q "agent:${IMAGE_TAG}" "$TMP_COMPOSE" || err "Could not pin the image to ${IMAGE_TAG}"
+fi
+# Anything outside environment: (ports, volumes, other edits) is not carried, so keep the old file.
+if [ -f "$COMPOSE_FILE" ] && ! $SUDO cmp -s "$COMPOSE_FILE" "$TMP_COMPOSE"; then
+    $SUDO cp -p "$COMPOSE_FILE" "${COMPOSE_FILE}.bak"
+    note "Previous compose file saved to ${COMPOSE_FILE}.bak (environment settings carried over)"
+fi
+$SUDO cp "$TMP_COMPOSE" "$COMPOSE_FILE"
+$SUDO chmod 644 "$COMPOSE_FILE"
+ok "docker-compose.yml"
+if [ -n "$RELEASE_TAG" ]; then
     ok "Image pinned to agent:${IMAGE_TAG}"
 fi
 
