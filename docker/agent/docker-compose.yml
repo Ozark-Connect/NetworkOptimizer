@@ -3,7 +3,7 @@
 # The agent dials OUT to the central server over HTTPS only - no inbound access
 # to the site is required for the tunnel. Host networking is used so latency/loss
 # probes see the site's real network position (and per-WAN source binding works),
-# and so the optional LAN speed test (port 24443) and iperf3 (port 5201) are
+# and so the optional LAN speed test (ports 24443 and 24080) and iperf3 (port 5201) are
 # reachable by site clients on the host's address.
 #
 # scripts/agent/install.sh writes ./data/agent.json (server URL + enrollment
@@ -26,6 +26,9 @@ services:
       # Uncomment to serve the LAN speed test page on a different port (the agent tells the
       # server, so in-app links follow). Host networking, so this must be free on the host.
       #- AGENT_SPEEDTEST_PORT=443
+      # The HTTPS page takes the GPS fix, then runs the test on a plain HTTP listener (24080) for
+      # throughput. Uncomment to move that listener, or set 0 to keep the whole test on HTTPS.
+      #- AGENT_SPEEDTEST_HTTP_PORT=24080
       # Uncomment to override the agent's auto-detected LAN IP (e.g. when running
       # in Docker bridge mode instead of host networking, or on a multi-NIC host).
       #- NO_AGENT_LAN_IP=192.168.1.50

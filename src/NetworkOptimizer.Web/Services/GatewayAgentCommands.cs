@@ -18,14 +18,15 @@ public static class GatewayAgentCommands
         string.IsNullOrWhiteSpace(serverUrl) ? PlaceholderServerUrl : serverUrl.TrimEnd('/');
 
     /// <summary>
-    /// First-time install one-liner. Monitoring-only gateway installer: no --lan-speed-test (the
-    /// router must not host a speed-test server) and no sudo (UniFi gateways SSH in as root).
+    /// First-time install one-liner. --lan-speed-test only when asked for (it loads the gateway
+    /// during a test), and no sudo (UniFi gateways SSH in as root).
     /// </summary>
-    public static string Install(string? serverUrl, string token) =>
-        Install(serverUrl, token, AppVersionInfo.AgentReleaseTag);
+    public static string Install(string? serverUrl, string token, bool lanSpeedTest = false) =>
+        Install(serverUrl, token, AppVersionInfo.AgentReleaseTag, lanSpeedTest);
 
-    internal static string Install(string? serverUrl, string token, string? releaseTag) =>
+    internal static string Install(string? serverUrl, string token, string? releaseTag, bool lanSpeedTest = false) =>
         $"curl -fsSL {ScriptUrl} | bash -s -- \\\n  --server \"{ServerValue(serverUrl)}\" \\\n  --token \"{token}\""
+        + (lanSpeedTest ? " \\\n  --lan-speed-test" : "")
         + (releaseTag == null ? "" : $" \\\n  --release \"{releaseTag}\"");
 
     /// <summary>Upgrade one-liner: same script, no token - an enrolled agent.json is kept.</summary>

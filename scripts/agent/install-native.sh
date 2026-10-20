@@ -17,6 +17,8 @@
 #   --lan-speed-test Host the LAN speed test page (port 24443) and iperf3 (5201)
 #   --speed-test-port N  Serve the LAN speed test page on N instead of 24443. The agent tells the
 #                    server which port it uses, so in-app links follow automatically.
+#   --speed-test-http-port N  Plain HTTP listener the HTTPS page hands the test to after taking
+#                    the GPS fix (default 24080; 0 keeps the whole test on HTTPS). Kept on re-runs.
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
 #   --release TAG    Install this release (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --force-native   Skip the UniFi gateway refusal (this installer targets a
@@ -34,6 +36,7 @@ TOKEN=""
 LAN_SPEED_TEST=false
 SPEED_TEST_PORT=24443
 PORT_REQUESTED=false
+HTTP_PORT=""
 INSECURE=false
 UNINSTALL=false
 FORCE_NATIVE=false
@@ -51,6 +54,7 @@ while [ $# -gt 0 ]; do
         --token) TOKEN="$2"; shift 2 ;;
         --lan-speed-test) LAN_SPEED_TEST=true; shift ;;
         --speed-test-port) SPEED_TEST_PORT="$2"; PORT_REQUESTED=true; shift 2 ;;
+        --speed-test-http-port) HTTP_PORT="$2"; shift 2 ;;
         --insecure) INSECURE=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         --force-native) FORCE_NATIVE=true; shift ;;
@@ -101,6 +105,28 @@ if [ "$SPEED_TEST_PORT" = "24443" ] && [ -f "${INSTALL_DIR}/agent.json" ]; then
     EXISTING_PORT=$(sed -n 's/.*"lanSpeedTestPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${INSTALL_DIR}/agent.json" | head -1)
     [ -n "$EXISTING_PORT" ] && SPEED_TEST_PORT="$EXISTING_PORT"
 fi
+case "$SPEED_TEST_PORT" in
+    ''|*[!0-9]*) echo "Invalid --speed-test-port: $SPEED_TEST_PORT" >&2; exit 1 ;;
+esac
+
+# The plain HTTP handoff port lives only in the served config.js, so a re-run reads it back there.
+# An automatic off (port was taken) carries a trailing comment and is not read back: rechecked.
+HTTP_PORT_NOTE=""
+# Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
+if [ -z "$HTTP_PORT" ] && [ -f "${INSTALL_DIR}/speedtest-web/assets/js/config.js" ]; then
+    HTTP_PORT=$(sed -n 's/^var plainHttpPort = \([0-9][0-9]*\);$/\1/p' "${INSTALL_DIR}/speedtest-web/assets/js/config.js" | head -1)
+fi
+[ -n "$HTTP_PORT" ] || HTTP_PORT=24080
+case "$HTTP_PORT" in
+    *[!0-9]*|'') echo "Invalid --speed-test-http-port: $HTTP_PORT" >&2; exit 1 ;;
+esac
+
+# Git ref the speed test page and nginx config are fetched from. Testing a branch's installer
+# against its own assets: AGENT_ASSETS_REF=<branch or commit>. Default main.
+ASSETS_REF="${AGENT_ASSETS_REF:-main}"
+case "$ASSETS_REF" in
+    *[!A-Za-z0-9._/-]*|'') echo "Invalid AGENT_ASSETS_REF: $ASSETS_REF" >&2; exit 1 ;;
+esac
 
 # --- Output helpers -----------------------------------------------------------
 # Colorized, structured output; colors collapse to empty when stdout isn't a
@@ -268,6 +294,12 @@ remove_apparmor_override() {
     return 0
 }
 
+# True if something listens on TCP port $1, IPv4 or IPv6. Reads /proc, so no ss or netstat needed.
+port_listening() {
+    awk -v h=":$(printf '%04X' "$1")" '$4 == "0A" && toupper($2) ~ (h "$") { f = 1 } END { exit !f }' \
+        /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+
 # nginx workers drop privileges after start, so an install dir whose ancestors are
 # not world-traversable (e.g. under /root, mode 700) makes them 403 - they can't
 # reach the webroot. True in that case, so the wrapper should run workers as root.
@@ -344,6 +376,8 @@ remove_gateway_blocklist() {
         "$t" -F NETOPT_BLOCK 2>/dev/null || true
         "$t" -X NETOPT_BLOCK 2>/dev/null || true
     done
+    # Its dead-man timer would otherwise stay armed for up to an hour on a host already cleaned up.
+    systemctl stop netopt-blocklist-cleanup.timer netopt-blocklist-cleanup.service 2>/dev/null || true
     command -v ipset >/dev/null 2>&1 || return 0
     for s in netopt_block_v4 netopt_block_v6 netopt_guard_v4 netopt_guard_v6 netopt_out_v4 netopt_out_v6; do
         ipset destroy "${s}_tmp" 2>/dev/null || true
@@ -449,7 +483,7 @@ fi
 if [ "$FORCE_NATIVE" != true ] && command -v ubnt-device-info >/dev/null 2>&1; then
     err "This host is a UniFi OS gateway ($(ubnt-device-info model 2>/dev/null || echo model unknown)) - use the on-gateway installer instead:
   curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- --server ... --token ...
-Re-run with --force-native to override (not recommended: no memory fence, and the LAN speed test does not belong on the router)."
+Re-run with --force-native to override (not recommended: the gateway installer adds the memory fence and gateway-safe speed test setup)."
 fi
 
 [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
@@ -512,7 +546,7 @@ if grep -q '"agentKey"' "$CONFIG" 2>/dev/null; then
         if [ "$INSECURE" = true ] || grep -q '"ignoreSslErrors":[[:space:]]*true' "$CONFIG"; then CURL_TLS="-k"; fi
         KEY_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 $CURL_TLS \
             -H 'Content-Type: application/json' -d "{\"agentKey\":\"${CURRENT_KEY}\"}" \
-            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null)
+            "${SERVER_URL%/}/api/public/agents/heartbeats" 2>/dev/null || true)   # unreachable: 000, not a set -e exit
         case "$KEY_STATUS" in
             204)
                 note "Existing enrollment is still valid - keeping the agent key (the token is not needed)"
@@ -597,13 +631,31 @@ if [ "$LAN_SPEED_TEST" = true ]; then
     if [ -x "$NGINX_BIN" ]; then
         # Webroot lives beside the deployables, not in /usr/share/nginx/html (which
         # may belong to the system nginx or sit on a read-only root on appliances).
+        # A port something else holds would stop nginx from starting at all. A taken page port skips
+        # the speed test (its start is the last step, after the agent is up); a taken handoff port
+        # turns the handoff off. A port our current config already listens on is ours: no check.
+        SPEEDTEST_OK=true
+        if ! grep -qE "^[[:space:]]*listen[[:space:]]+(\[::\]:)?${SPEED_TEST_PORT}[[:space:];]" "${INSTALL_DIR}/nginx-speedtest-server.conf" 2>/dev/null \
+            && port_listening "$SPEED_TEST_PORT"; then
+            SPEEDTEST_OK=false
+            warn "port ${SPEED_TEST_PORT} is in use on this host - skipping the LAN speed test (pick another with --speed-test-port)."
+        fi
+        if [ "$HTTP_PORT" != "0" ] \
+            && ! grep -qE "^[[:space:]]*listen[[:space:]]+(\[::\]:)?${HTTP_PORT}[[:space:];]" "${INSTALL_DIR}/nginx-speedtest-server.conf" 2>/dev/null; then
+            if port_listening "$HTTP_PORT"; then
+                warn "port ${HTTP_PORT} is in use on this host - plain HTTP handoff off, the test stays on HTTPS (pick another with --speed-test-http-port)."
+                HTTP_PORT=0
+                HTTP_PORT_NOTE=" // off: port in use, rechecked on the next install run"
+            fi
+        fi
         WEBROOT="${INSTALL_DIR}/speedtest-web"
-        RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
+        RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/${ASSETS_REF}"
         mkdir -p "$WEBROOT/assets/js"
         note "Fetching the OpenSpeedTest page"
         TARBALL="$(mktemp)"; TMPX="$(mktemp -d)"
-        curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/main.tar.gz" -o "$TARBALL"
-        tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-main/src/OpenSpeedTest"
+        curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/${ASSETS_REF}.tar.gz" -o "$TARBALL"
+        # GitHub names the archive's top dir after the ref, with / turned into -.
+        tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-$(echo "$ASSETS_REF" | tr '/' '-')/src/OpenSpeedTest"
         cp -r "$TMPX/." "$WEBROOT/"
         rm -rf "$TARBALL" "$TMPX"
 
@@ -616,6 +668,7 @@ var externalServerId = "";
 var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
 var OpenSpeedTestdb = "";
 CFGJS
+        echo "var plainHttpPort = ${HTTP_PORT};${HTTP_PORT_NOTE}" >> "$WEBROOT/assets/js/config.js"
         # World-readable so nginx's unprivileged workers can serve it wherever the
         # install dir lives (e.g. under /root on some appliances).
         chmod -R a+rX "$WEBROOT"
@@ -633,6 +686,14 @@ CFGJS
         if [ "$SPEED_TEST_PORT" != "24443" ]; then
             sed -i "/listen/ s/24443/${SPEED_TEST_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
             note "LAN speed test page on port ${SPEED_TEST_PORT}"
+        fi
+        # The plain HTTP twin listener the HTTPS page hands the test to (0 removes it).
+        if [ "$HTTP_PORT" = "0" ]; then
+            sed -i '/listen.*24080/d' "${INSTALL_DIR}/nginx-speedtest-server.conf"
+            note "Plain HTTP handoff off - the whole test runs on HTTPS"
+        elif [ "$HTTP_PORT" != "24080" ]; then
+            sed -i "/listen/ s/24080/${HTTP_PORT}/" "${INSTALL_DIR}/nginx-speedtest-server.conf"
+            note "Plain HTTP handoff on port ${HTTP_PORT}"
         fi
 
         if [ "${AGENT_SPEEDTEST_TLS:-1}" = "0" ]; then
@@ -678,6 +739,27 @@ CFGJS
             -e "s#__SERVERCONF__#${INSTALL_DIR}/nginx-speedtest-server.conf#" \
             "${INSTALL_DIR}/nginx-speedtest.conf"
 
+        # Temp paths under the install dir, set before any `nginx -t` below: the borrowed
+        # binary's compiled-in ones belong to the host's own nginx (/var/lib/nginx/* on
+        # Debian), and a master (even `nginx -t`) re-owns them to its worker user, locking the
+        # host nginx's workers out of buffering uploads and proxied responses.
+        TEMPDIR="${INSTALL_DIR}/nginx-temp"
+        mkdir -p "$TEMPDIR"
+        sed -i "s#^http {#http {\n    client_body_temp_path ${TEMPDIR}/client_body;\n    proxy_temp_path ${TEMPDIR}/proxy;\n    fastcgi_temp_path ${TEMPDIR}/fastcgi;\n    uwsgi_temp_path ${TEMPDIR}/uwsgi;\n    scgi_temp_path ${TEMPDIR}/scgi;#" \
+            "${INSTALL_DIR}/nginx-speedtest.conf"
+        # Every compiled temp path, plus the five every build has, must now point at ours. A
+        # build with one we do not override skips the speed test rather than take it.
+        TEMP_DIRECTIVES="client_body_temp_path proxy_temp_path fastcgi_temp_path uwsgi_temp_path scgi_temp_path"
+        for opt in $("$NGINX_BIN" -V 2>&1 | tr ' ' '\n' | sed -n 's/^--http-\(.*\)-temp-path=.*/\1/p'); do
+            TEMP_DIRECTIVES="$TEMP_DIRECTIVES $(echo "$opt" | tr '-' '_')_temp_path"
+        done
+        for d in $(echo "$TEMP_DIRECTIVES" | tr ' ' '\n' | sort -u); do
+            if ! grep -qE "^[[:space:]]*${d}[[:space:]]+${TEMPDIR}/" "${INSTALL_DIR}/nginx-speedtest.conf"; then
+                SPEEDTEST_OK=false
+                warn "this host's nginx has a temp path (${d}) the speed test does not override, so starting it would take that directory from the host's own nginx. Skipping the LAN speed test."
+            fi
+        done
+
         # If the install dir isn't world-traversable (e.g. under /root, mode 700),
         # unprivileged nginx workers can't reach the webroot and every request 403s.
         # Run the workers as root in that case so the page serves wherever it lives;
@@ -722,11 +804,17 @@ UNIT
         # our install dir, add a local override and let the re-test below decide. This
         # is skipped entirely when the test already passes, so working hosts are
         # untouched.
-        if ! "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
+        if [ "$SPEEDTEST_OK" != true ]; then
+            # Never even `nginx -t` it, and keep an earlier install's enabled unit from
+            # starting at the end of this run.
+            systemctl disable --now --quiet netopt-speedtest-nginx.service 2>/dev/null || true
+        elif ! "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
             maybe_fix_apparmor_nginx
         fi
 
-        if "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
+        if [ "$SPEEDTEST_OK" != true ]; then
+            :
+        elif "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
             systemctl daemon-reload
             # Enable now, but START it below, after the agent unit is installed and
             # running - nginx BindsTo the agent, so starting it before the agent exists

@@ -126,6 +126,10 @@ else if (_available && ShowRunButton)
     [Parameter]
     public string? EnrollmentToken { get; set; }
 
+    /// <summary>Whether the install command carries --lan-speed-test (ignored for an upgrade).</summary>
+    [Parameter]
+    public bool LanSpeedTest { get; set; }
+
     private bool _available;
     private bool _checking = true;
     private bool _startedHere;
@@ -173,7 +177,7 @@ else if (_available && ShowRunButton)
         var prior = _run;
         var task = IsUpgrade
             ? GatewayInstall.RunUpgradeAsync(SiteSlug, OnRunStarted)
-            : GatewayInstall.RunInstallAsync(SiteSlug, EnrollmentToken ?? "", OnRunStarted);
+            : GatewayInstall.RunInstallAsync(SiteSlug, EnrollmentToken ?? "", LanSpeedTest, OnRunStarted);
         _ = ObserveAsync(task, prior);
     }
 

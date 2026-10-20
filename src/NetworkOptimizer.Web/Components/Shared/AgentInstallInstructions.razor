@@ -68,19 +68,25 @@
     </p>
     <CopyableCommand Text="@NativeOneLiner()" Tooltip="Copy the native install command" />
 
-    <h4 class="agent-flavor-title">On a UniFi gateway <span class="agent-flavor-note">monitoring only - recommended for multi-WAN monitoring</span></h4>
+    <h4 class="agent-flavor-title">On a UniFi gateway <span class="agent-flavor-note">recommended for multi-WAN monitoring</span></h4>
     <p class="form-hint">
         Run the agent on the gateway itself (any current UniFi gateway - UCG, UXG, UDM, UDR, EFG) instead of a
-        separate box. It does not host the LAN speed test - that needs one of the options above - and installs
-        to <code>/data</code> with a memory-fenced service. UniFi gateways SSH in as root, so run it there
-        directly:
+        separate box. It installs to <code>/data</code> with a memory-fenced service. Add
+        <code>--lan-speed-test</code> to also host the LAN speed test (up to 10 Gbps on the EFG and UDM-Beast,
+        2.5-5 Gbps on the UXG/UCG-Fiber class with IPS on, 1-2.5 Gbps on the UDR7 and other IPQ5332 gateways; it loads the gateway while a test runs). UniFi gateways SSH in as root, so run it there directly:
     </p>
+    <div class="form-group">
+        <label class="checkbox-label">
+            <input type="checkbox" @bind="_gatewayLanSpeedTest" />
+            <span>Host the LAN speed test on the gateway</span>
+        </label>
+    </div>
     <CopyableCommand Text="@GatewayOneLiner()" Tooltip="Copy the gateway install command" />
     @if (!string.IsNullOrWhiteSpace(SiteSlug))
     {
-        <GatewayAgentRunPanel SiteSlug="@SiteSlug" EnrollmentToken="@_token" />
+        <GatewayAgentRunPanel SiteSlug="@SiteSlug" EnrollmentToken="@_token" LanSpeedTest="@_gatewayLanSpeedTest" />
     }
-    @if (LanSpeedTest)
+    @if (LanSpeedTest && !_gatewayLanSpeedTest)
     {
         <p class="form-hint">
             You asked for LAN speed testing, so this site still needs one of the options above on a separate
@@ -133,6 +139,7 @@
     private string _lastTokenParameter = "";
     private bool _refreshing;
     private string? _refreshNote;
+    private bool _gatewayLanSpeedTest;
 
     protected override void OnParametersSet()
     {
@@ -240,5 +247,5 @@
 
     // The shared builder also feeds the "Run It for Me" SSH run, so the displayed
     // command and the executed one cannot drift.
-    private string GatewayOneLiner() => GatewayAgentCommands.Install(ServerUrl, _token);
+    private string GatewayOneLiner() => GatewayAgentCommands.Install(ServerUrl, _token, _gatewayLanSpeedTest);
 }

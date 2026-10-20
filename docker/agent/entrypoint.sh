@@ -25,6 +25,32 @@ if [ -n "$PAGE_PORT" ] && [ "$PAGE_PORT" != "24443" ]; then
     echo "entrypoint: LAN speed test page on port ${PAGE_PORT}"
 fi
 
+# Plain HTTP twin listener the HTTPS page hands the test to (AGENT_SPEEDTEST_HTTP_PORT, default
+# 24080; 0 removes it and turns the handoff off). config.js is rewritten in place by pattern, so
+# repeated boots converge on the current setting.
+HTTP_PORT="${AGENT_SPEEDTEST_HTTP_PORT:-24080}"
+case "$HTTP_PORT" in
+    *[!0-9]*|'') echo "entrypoint: invalid AGENT_SPEEDTEST_HTTP_PORT '$HTTP_PORT', using 24080"; HTTP_PORT=24080 ;;
+esac
+# A port something else holds would stop nginx from starting at all, taking the 24443 page with it,
+# so a taken port turns the handoff off instead. /proc, because the image ships no ss.
+port_in_use() {
+    awk -v h=":$(printf '%04X' "$1")" '$4 == "0A" && toupper($2) ~ (h "$") { f = 1 } END { exit !f }' \
+        /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+if [ "$HTTP_PORT" != "0" ] && port_in_use "$HTTP_PORT"; then
+    echo "entrypoint: port ${HTTP_PORT} is in use on this host - plain HTTP handoff off, the test stays on HTTPS"
+    HTTP_PORT=0
+fi
+case "$HTTP_PORT" in
+    0) sed -i '/listen.*24080/d' /etc/nginx/netopt-speedtest-server.conf
+       echo "entrypoint: plain HTTP handoff off" ;;
+    24080) ;;
+    *) sed -i "/listen/ s/24080/${HTTP_PORT}/" /etc/nginx/netopt-speedtest-server.conf
+       echo "entrypoint: plain HTTP handoff on port ${HTTP_PORT}" ;;
+esac
+sed -i "s/^var plainHttpPort = .*/var plainHttpPort = ${HTTP_PORT};/" /usr/share/nginx/html/assets/js/config.js
+
 # Self-signed TLS opt-out (AGENT_SPEEDTEST_TLS=0): serve the speed test listener as
 # plain http instead - for sites already behind their own reverse proxy / TLS, or
 # shaving TLS overhead on high-throughput LANs. Strips ssl from the listener and
