@@ -228,7 +228,16 @@ window.noScrollTo = function (id, block) {
 // not the scroll offset, so the page moves to keep the element still rather than the other way
 // round. Scroll-anchoring the browser does on its own stops at the first layout; the table settles
 // over several, once the new series have loaded, so this watches for a window.
+//
+// A call for an element already held extends that hold instead of starting another: two loops
+// would each correct the same shift. Call it BEFORE the change, since it measures at the call.
+var noActiveHolds = {};
 window.noHoldScroll = function (id, windowMs) {
+    var active = noActiveHolds[id];
+    if (active) {
+        active.until = Math.max(active.until, performance.now() + (windowMs || 1500));
+        return;
+    }
     var el = document.getElementById(id);
     if (!el) return;
     // Off screen it is not what the reader is looking at, so holding it would move what is.
@@ -242,7 +251,8 @@ window.noHoldScroll = function (id, windowMs) {
         ? window.scrollRestoration.container()
         : null;
     var startTop = rect.top;
-    var until = performance.now() + (windowMs || 1500);
+    var hold = { until: performance.now() + (windowMs || 1500) };
+    noActiveHolds[id] = hold;
     var released = false;
     function release() { released = true; }
     // The user's own scroll wins outright - they have just moved the fixed point themselves. Only
@@ -251,7 +261,8 @@ window.noHoldScroll = function (id, windowMs) {
     window.addEventListener('touchmove', release, { passive: true });
     window.addEventListener('keydown', release);
     function tick(now) {
-        if (released || now >= until) {
+        if (released || now >= hold.until) {
+            delete noActiveHolds[id];
             window.removeEventListener('wheel', release);
             window.removeEventListener('touchmove', release);
             window.removeEventListener('keydown', release);
