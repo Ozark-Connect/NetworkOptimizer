@@ -1034,6 +1034,10 @@ public class UniFiProductDatabaseTests
     [InlineData("USW-Pro-XG-8-PoE")]
     [InlineData("USW-Pro-Max-16")]
     [InlineData("USW-Pro-Max-16-PoE")]
+    [InlineData("USW-Pro-Max-24")]
+    [InlineData("USW-Pro-Max-24-PoE")]
+    [InlineData("USW-Pro-Max-48")]
+    [InlineData("USW-Pro-Max-48-PoE")]
     public void CanRunIperf3_IndustrialAndProMax_ReturnsFalse(string productName)
     {
         // Act
