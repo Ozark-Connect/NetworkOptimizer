@@ -267,6 +267,8 @@ builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
+// Scoped so a host that partitions the instance can answer per caller.
+builder.Services.AddScoped<IScopeBadgeText, InstanceScopeBadgeText>();
 // Registered twice so pages can subscribe to the same instance the circuit calls.
 builder.Services.AddScoped<CircuitReconnectNotifier>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(sp => sp.GetRequiredService<CircuitReconnectNotifier>());
