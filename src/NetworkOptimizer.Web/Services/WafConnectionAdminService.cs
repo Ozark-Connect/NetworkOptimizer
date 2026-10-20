@@ -88,7 +88,7 @@ public sealed class WafConnectionAdminService(
         await settings.SaveSettingAsync(Key(WafSettingKeys.Enabled), enabled ? "true" : "false", ct);
         await settings.SaveSettingAsync(Key(WafSettingKeys.Url), url, ct);
         if (!string.IsNullOrWhiteSpace(token))
-            await settings.SaveSettingAsync(Key(WafSettingKeys.Token), credentials.Encrypt(token.Trim()), ct);
+            await settings.SaveSettingAsync(Key(WafSettingKeys.Token), credentials.EncryptForSite(token.Trim(), siteContext.Slug), ct);
         collector.TriggerCollection();
         blocking.Trigger();
     }
