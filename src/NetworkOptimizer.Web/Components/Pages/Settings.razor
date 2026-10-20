@@ -4461,6 +4461,9 @@
                             await LoadSpeedTestHostAsync(openSite);
                             _collectorAgentIds[openSite.Slug] = await ProbeSink.GetCollectorAgentIdAsync(openSite.Slug);
                         }
+                        // An agent enrolling mid-setup adds rows above the wizard.
+                        if (_setupWizard?.InProgress == true)
+                            await JS.InvokeVoidAsync("noHoldScroll", SiteSetupWizard.ElementId);
                         StateHasChanged();
                     });
                 }

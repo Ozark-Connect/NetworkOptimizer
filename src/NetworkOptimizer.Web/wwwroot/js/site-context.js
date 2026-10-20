@@ -231,6 +231,9 @@ window.noScrollTo = function (id, block) {
 window.noHoldScroll = function (id, windowMs) {
     var el = document.getElementById(id);
     if (!el) return;
+    // Off screen it is not what the reader is looking at, so holding it would move what is.
+    var rect = el.getBoundingClientRect();
+    if (rect.bottom <= 0 || rect.top >= window.innerHeight) return;
     // The page does not scroll the window. .page-content owns the scrollbar on desktop and
     // .main-content does on mobile, so window.scrollBy moves nothing and does not error either -
     // it just silently does nothing at all. scrollRestoration already resolves which of the two it
@@ -238,7 +241,7 @@ window.noHoldScroll = function (id, windowMs) {
     var box = window.scrollRestoration && window.scrollRestoration.container
         ? window.scrollRestoration.container()
         : null;
-    var startTop = el.getBoundingClientRect().top;
+    var startTop = rect.top;
     var until = performance.now() + (windowMs || 1500);
     var released = false;
     function release() { released = true; }

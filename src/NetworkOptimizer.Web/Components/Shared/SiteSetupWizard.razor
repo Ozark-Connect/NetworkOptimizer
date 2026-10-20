@@ -11,6 +11,7 @@
 @inject SiteSwitchService SiteSwitch
 @inject SiteContextService SiteCtx
 @inject ISiteConfigurationService SiteConfig
+@inject IJSRuntime JS
 @implements IDisposable
 
 @* Step 1 creates a site, which is instance administration. Everything after it sets up an existing
@@ -18,7 +19,7 @@
    took the agent setup away from the Site Admin who is meant to do it, so the gate is on the step. *@
 @if (_step > 1 || _canCreateSites)
 {
-<div class="site-wizard">
+<div class="site-wizard" id="@ElementId">
     <div class="site-wizard-steps">
         @{
             var stepNames = new[] { "Name", "Console", "Agent", "Done" };
@@ -292,6 +293,12 @@
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    /// <summary>The wizard's root element id, for holding it on screen with noHoldScroll.</summary>
+    public const string ElementId = "site-wizard";
+
+    /// <summary>Whether a site is mid-setup (past the Name step), so the page keeps the wizard in view.</summary>
+    public bool InProgress => _step > 1;
+
     /// <summary>Whether this caller may add a site at all - the wizard's first step.</summary>
     private bool _canCreateSites;
 
@@ -306,6 +313,16 @@
     }
 
     private async Task RefreshLimitAsync() => _remainingSlots = await SiteManagement.RemainingSiteSlotsAsync();
+
+    /// <summary>
+    /// Refreshes the Sites table above the wizard while holding the wizard still on screen: the
+    /// table grows by the new site's row and its agent rows, which otherwise pushes the wizard away.
+    /// </summary>
+    private async Task NotifySitesChangedAsync()
+    {
+        await JS.InvokeVoidAsync("noHoldScroll", ElementId);
+        await OnSitesChanged.InvokeAsync();
+    }
 
     // The Add Site gate depends on the license-derived site limit, so re-evaluate it
     // when license state changes (e.g. a key is added or removed).
@@ -418,7 +435,7 @@
             _step = 2;
             _message = $"Site '{_site.Name}' created with ID '{_site.Slug}'";
             _messageClass = "success";
-            await OnSitesChanged.InvokeAsync();
+            await NotifySitesChangedAsync();
         }
         catch (Exception ex)
         {
@@ -517,7 +534,7 @@
                     : $"Connected to {_consoleName}. Credentials saved to the site's database.";
                 _messageClass = "success";
                 _step = 3;
-                await OnSitesChanged.InvokeAsync();
+                await NotifySitesChangedAsync();
             }
             else
             {
@@ -573,7 +590,7 @@
                 await SiteConfig.SetDevicesViaAgentAsync(_site.Slug, true);
             }
 
-            await OnSitesChanged.InvokeAsync();
+            await NotifySitesChangedAsync();
 
             // The configuration panel for this site is usually still open behind the wizard, showing
             // the checkboxes these options just moved. Tell it to re-read them.
@@ -636,7 +653,7 @@
     {
         await RefreshLimitAsync();
         ResetForm();
-        await OnSitesChanged.InvokeAsync();
+        await NotifySitesChangedAsync();
     }
 
     /// <summary>
