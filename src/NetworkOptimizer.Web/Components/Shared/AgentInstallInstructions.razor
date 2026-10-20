@@ -75,12 +75,18 @@
         <code>--lan-speed-test</code> to also host the LAN speed test (up to 10 Gbps on the EFG and UDM-Beast,
         under about 3 Gbps on the UXG/UCG-Fiber class; it loads the gateway while a test runs). UniFi gateways SSH in as root, so run it there directly:
     </p>
+    <div class="form-group">
+        <label class="checkbox-label">
+            <input type="checkbox" @bind="_gatewayLanSpeedTest" />
+            <span>Host the LAN speed test on the gateway</span>
+        </label>
+    </div>
     <CopyableCommand Text="@GatewayOneLiner()" Tooltip="Copy the gateway install command" />
     @if (!string.IsNullOrWhiteSpace(SiteSlug))
     {
-        <GatewayAgentRunPanel SiteSlug="@SiteSlug" EnrollmentToken="@_token" />
+        <GatewayAgentRunPanel SiteSlug="@SiteSlug" EnrollmentToken="@_token" LanSpeedTest="@_gatewayLanSpeedTest" />
     }
-    @if (LanSpeedTest)
+    @if (LanSpeedTest && !_gatewayLanSpeedTest)
     {
         <p class="form-hint">
             You asked for LAN speed testing, so this site still needs one of the options above on a separate
@@ -133,6 +139,7 @@
     private string _lastTokenParameter = "";
     private bool _refreshing;
     private string? _refreshNote;
+    private bool _gatewayLanSpeedTest;
 
     protected override void OnParametersSet()
     {
@@ -240,5 +247,5 @@
 
     // The shared builder also feeds the "Run It for Me" SSH run, so the displayed
     // command and the executed one cannot drift.
-    private string GatewayOneLiner() => GatewayAgentCommands.Install(ServerUrl, _token);
+    private string GatewayOneLiner() => GatewayAgentCommands.Install(ServerUrl, _token, _gatewayLanSpeedTest);
 }

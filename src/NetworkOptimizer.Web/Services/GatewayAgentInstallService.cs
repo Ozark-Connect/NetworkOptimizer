@@ -99,8 +99,8 @@ public class GatewayAgentInstallService : IGatewayAgentInstallService
         Task.FromResult(_state.GetRun(siteSlug));
 
     /// <inheritdoc />
-    public Task RunInstallAsync(string siteSlug, string enrollmentToken, Action<GatewayAgentInstallRun>? onStarted = null) =>
-        RunAsync(siteSlug, GatewayAgentCommands.Install(_serverUrl.Url, enrollmentToken), isUpgrade: false, onStarted);
+    public Task RunInstallAsync(string siteSlug, string enrollmentToken, bool lanSpeedTest = false, Action<GatewayAgentInstallRun>? onStarted = null) =>
+        RunAsync(siteSlug, GatewayAgentCommands.Install(_serverUrl.Url, enrollmentToken, lanSpeedTest), isUpgrade: false, onStarted);
 
     /// <inheritdoc />
     public Task RunUpgradeAsync(string siteSlug, Action<GatewayAgentInstallRun>? onStarted = null) =>

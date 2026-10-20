@@ -41,15 +41,22 @@ public class GatewayAgentCommandsTests
     }
 
     [Fact]
-    public void Install_IsMonitoringOnlyAndRootRun()
+    public void Install_IsMonitoringOnlyAndRootRunByDefault()
     {
         var command = GatewayAgentCommands.Install("https://optimizer.example.com", "noa_abc123");
 
-        // The gateway installer must never host the LAN speed test, and UniFi gateways SSH in
-        // as root, so neither flag nor sudo may creep in.
+        // The LAN speed test is opt-in, and UniFi gateways SSH in as root, so no sudo.
         command.Should().NotContain("--lan-speed-test");
         command.Should().NotContain("sudo");
         command.Should().NotContain("--insecure");
+    }
+
+    [Fact]
+    public void Install_WithLanSpeedTest_AddsTheFlagBeforeTheRelease()
+    {
+        var command = GatewayAgentCommands.Install("https://optimizer.example.com", "noa_abc123", "v2.10.0-preview1", lanSpeedTest: true);
+
+        command.Should().Contain("--token \"noa_abc123\" \\\n  --lan-speed-test \\\n  --release \"v2.10.0-preview1\"");
     }
 
     [Fact]
