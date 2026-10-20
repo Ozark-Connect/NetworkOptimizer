@@ -39,6 +39,7 @@ public sealed class ManagedSpeedtestInstallerTests
     [InlineData("404", "x86_64", "amd64")]
     [InlineData("404", "aarch64", "arm64")]
     [InlineData("410", "armv7l", "armhf")]
+    [InlineData("000", "aarch64", "arm64")]
     public void InstallManagedSpeedtest_UsesVerifiedPackagecloudPackageForMissingTarball(string status, string arch, string packageArch)
     {
         if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash"))
@@ -61,8 +62,7 @@ public sealed class ManagedSpeedtestInstallerTests
 
     [Theory]
     [InlineData("500")]
-    [InlineData("000")]
-    public void InstallManagedSpeedtest_NonNotFoundDownloadFailureDoesNotTryPackageFallback(string status)
+    public void InstallManagedSpeedtest_ServerErrorDoesNotTryPackageFallback(string status)
     {
         if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash"))
             return;
