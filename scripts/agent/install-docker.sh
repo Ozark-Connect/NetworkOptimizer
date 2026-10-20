@@ -13,7 +13,7 @@
 # Options:
 #   --server URL     Central server HTTPS address (required; same URL as the app)
 #   --token  TOKEN   One-time enrollment token (required on first install)
-#   --lan-speed-test Host the LAN speed test page (port 24443) and iperf3 (5201)
+#   --lan-speed-test Host the LAN speed test page (port 24443, test on plain HTTP 24080) and iperf3 (5201)
 #   --insecure       Accept a self-signed cert on the server's reverse proxy
 #   --release TAG    Run this release's image (e.g. v2.9.1-preview1) instead of the latest stable one
 #   --dir PATH       Install directory (default: /opt/network-optimizer-agent)
