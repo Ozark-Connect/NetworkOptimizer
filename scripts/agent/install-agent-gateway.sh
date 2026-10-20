@@ -172,7 +172,11 @@ if [ "$UNINSTALL" = true ]; then
         done
     fi
     if command -v tc >/dev/null 2>&1; then
-        owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" 2>/dev/null | tr -d '"' | tr ',' ' ')
+        # Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
+        owned=""
+        if [ -f "${INSTALL_DIR}/wan-flood.json" ]; then
+            owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" | tr -d '"' | tr ',' ' ')
+        fi
         for d in $(ls /sys/class/net 2>/dev/null); do
             tc qdisc show dev "$d" ingress 2>/dev/null | grep -q 'ingress ffff:' || continue
             for p in $(tc filter show dev "$d" parent ffff: 2>/dev/null | grep -o 'pref [0-9]*' | awk '{print $2}' | sort -u); do
