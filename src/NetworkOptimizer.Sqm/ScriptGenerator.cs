@@ -97,6 +97,8 @@ public class ScriptGenerator
         sb.AppendLine("PING_SCRIPT=\"$SQM_DIR/${SQM_NAME}-ping.sh\"");
         sb.AppendLine("RESULT_FILE=\"$SQM_DIR/${SQM_NAME}-result.txt\"");
         sb.AppendLine("LOG_FILE=\"/var/log/sqm-${SQM_NAME}.log\"");
+        // udm-boot runs on_boot.d without HOME, and the Ookla CLI aborts on --version without it.
+        sb.AppendLine("export HOME=\"${HOME:-/root}\"");
         sb.AppendLine($"SPEEDTEST_BIN=\"{ManagedSpeedtestPath}\"");
         sb.AppendLine($"SPEEDTEST_RELEASE=\"{ManagedSpeedtestArchiveRelease}\"");
         sb.AppendLine($"SPEEDTEST_CLI_VERSION=\"{ManagedSpeedtestCliVersion}\"");

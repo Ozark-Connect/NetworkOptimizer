@@ -192,6 +192,25 @@ public sealed class ManagedSpeedtestInstallerTests
         fixture.AssertNoStagingRemains();
     }
 
+    [Fact]
+    public void InstallManagedSpeedtest_ValidBinaryPassesWithoutHomeAtBoot()
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash"))
+            return;
+
+        using var fixture = InstallerFixture.Create();
+        Directory.CreateDirectory(Path.GetDirectoryName(fixture.ManagedBinaryPath)!);
+        File.WriteAllBytes(fixture.ManagedBinaryPath, fixture.BinaryBytes);
+        File.SetUnixFileMode(fixture.ManagedBinaryPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        var result = fixture.Run(primaryStatus: "500", unsetHome: true);
+
+        result.ExitCode.Should().Be(0, result.CombinedOutput);
+        result.CurlUrls.Should().BeEmpty();
+        result.CombinedOutput.Should().NotContain("installation failed");
+        result.CombinedOutput.Should().Contain(DeploymentSentinel);
+    }
+
     private sealed class InstallerFixture : IDisposable
     {
         private readonly string _root;
@@ -216,7 +235,8 @@ public sealed class ManagedSpeedtestInstallerTests
             Directory.CreateDirectory(_stubDirectory);
             Directory.CreateDirectory(_fixtureDirectory);
 
-            BinaryBytes = Encoding.UTF8.GetBytes($"#!/bin/sh\nprintf '%s\\n' '{ExpectedVersionLine}'\n");
+            // Like the real Ookla CLI, the stub aborts without HOME.
+            BinaryBytes = Encoding.UTF8.GetBytes($"#!/bin/sh\n[ -n \"$HOME\" ] || exit 134\nprintf '%s\\n' '{ExpectedVersionLine}'\n");
             BinarySha256 = Convert.ToHexString(SHA256.HashData(BinaryBytes)).ToLowerInvariant();
             var binarySource = Path.Combine(_fixtureDirectory, "speedtest");
             File.WriteAllBytes(binarySource, BinaryBytes);
@@ -258,7 +278,8 @@ public sealed class ManagedSpeedtestInstallerTests
             bool badPackageHash = false,
             bool badBinaryHash = false,
             bool failDpkg = false,
-            string arch = "x86_64")
+            string arch = "x86_64",
+            bool unsetHome = false)
         {
             var generated = File.ReadAllText(_scriptPath);
             if (badPackageHash)
@@ -285,6 +306,8 @@ public sealed class ManagedSpeedtestInstallerTests
             psi.Environment["PACKAGE_ARCHIVE"] = _packageArchivePath;
             psi.Environment["DPKG_MARKER"] = DpkgMarkerPath;
             psi.Environment["DPKG_FAIL"] = failDpkg ? "1" : "0";
+            if (unsetHome)
+                psi.Environment.Remove("HOME");
 
             using var process = Process.Start(psi)!;
             var stdout = process.StandardOutput.ReadToEndAsync();
