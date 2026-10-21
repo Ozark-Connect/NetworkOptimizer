@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=16';
+import * as flowData from './lan-flow-data.js?v=17';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -397,6 +397,7 @@ class LanFlowMap2D {
         cancelAnimationFrame(this._animId);
         if(this._unsub)this._unsub();
         if(this._resizeObs)this._resizeObs.disconnect();
+        if(this._visObs)this._visObs.disconnect();
         if(this._onKeyDown)document.removeEventListener('keydown',this._onKeyDown);
         if(this._isFullscreen)(this._fsTarget||this._el).classList.remove('lan-flow-map-fullscreen');
         this._streams=[];
@@ -716,11 +717,16 @@ class LanFlowMap2D {
         this._resizeObs=new ResizeObserver(()=>this._resize());
         this._resizeObs.observe(this._el);
         this._resize();
+        // Off screen (Live View stacks both maps) or in a hidden page, nothing is drawn.
+        this._onScreen=true;
+        this._visObs=new IntersectionObserver((entries)=>{for(const e of entries)this._onScreen=e.isIntersecting;});
+        this._visObs.observe(canvas);
     }
 
     _resize(){
         const rect=this._canvas.getBoundingClientRect();
-        this._dpr=window.devicePixelRatio||1;
+        // Capped like the 3D map's: past 2 the canvas costs more per frame than the eye can tell.
+        this._dpr=Math.min(window.devicePixelRatio||1,2);
         this._cw=rect.width; this._ch=rect.height;
         this._canvas.width=rect.width*this._dpr;
         this._canvas.height=rect.height*this._dpr;
@@ -1220,7 +1226,8 @@ class LanFlowMap2D {
         for(const e of this._edges){if(e.lk.toNodeId===d.id&&e.lk.kind===LK.MeshBackhaul){isMeshUplink=true;break;}}
 
         // Negotiated link speed (wired port or wireless PHY), directly above throughput.
-        if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
+        const wiredSpeed=cs?.wiredLinkSpeedMbps??d.wiredLinkSpeedMbps;
+        if(wiredSpeed)rows.push(['Link speed',formatSpeed(wiredSpeed)]);
         else if(cs?.phyTxKbps||cs?.phyRxKbps||d.phyTxKbps||d.phyRxKbps){
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
             // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap.
@@ -1414,7 +1421,37 @@ class LanFlowMap2D {
             tn._roamFadeUntil=now+ROAM_FADE_MS;
             changed=true;
         }
+        // Mesh APs follow their historic parent too, carrying their subtree with them. The
+        // backhaul link is snapshot-shared, so only the edge's endpoint moves, as for a client.
+        for(const e of this._edges){
+            if(e.lk.kind!==LK.MeshBackhaul||!e.tn)continue;
+            const tn=e.tn,id=tn.d.id;
+            const baseline=e.lk.fromNodeId;
+            const desired=stats[id]?.apNodeId||baseline;
+            const cur=this._appliedAssoc.get(id)||baseline;
+            if(desired===cur)continue;
+            const newParent=this._treeMap.get(desired);
+            if(!newParent||isClient(newParent.d.kind))continue;
+            // A parent inside the AP's own subtree would make a cycle; leave it where it is.
+            if(this._inSubtree(tn,newParent))continue;
+            for(const[,p]of this._treeMap){
+                const i=p.infra.indexOf(tn);
+                if(i>=0)p.infra.splice(i,1);
+            }
+            newParent.infra.push(tn);
+            e.fn=newParent;
+            this._appliedAssoc.set(id,desired);
+            tn._roamFadeUntil=now+ROAM_FADE_MS;
+            changed=true;
+        }
         if(changed){this._roamFadeUntil=now+ROAM_FADE_MS;this._relayout();}
+    }
+
+    _inSubtree(root,n){
+        for(const c of root.infra){
+            if(c===n||this._inSubtree(c,n))return true;
+        }
+        return false;
     }
 
     // Compute contour (left/right extent at each depth relative to node x=0)
@@ -1742,9 +1779,9 @@ class LanFlowMap2D {
             for(const c of n.infra){
                 // VirtualHub renders as a small ring (r=10), not a full box
                 const cIn=leadIn(c,c.d.kind===NK.VirtualHub?12:G.boxH/2);
-                const edge=this._edges.find(e=>
-                    (e.lk.fromNodeId===n.d.id&&e.lk.toNodeId===c.d.id)
-                    ||(e.lk.fromNodeId===c.d.id&&e.lk.toNodeId===n.d.id));
+                // By TN identity, as for clients below: a mesh AP re-parented in playback keeps its
+                // snapshot link, and only the edge's endpoint follows the tree.
+                const edge=this._edges.find(e=>(e.fn===n&&e.tn===c)||(e.fn===c&&e.tn===n));
                 if(edge){edge._x1=pOut.x;edge._y1=pOut.y;edge._x2=cIn.x;edge._y2=cIn.y;edge._isCl=false;edge._hz=hz;sibEdges.push(edge);}
                 matchTree(c);
             }
@@ -2531,6 +2568,7 @@ class LanFlowMap2D {
         const now=performance.now();
         const dt=Math.min((now-this._lastFrame)/1000,0.1);
         this._lastFrame=now;
+        if(!this._onScreen||document.hidden){this._animId=requestAnimationFrame(()=>this._animate());return;}
 
         if(this._liveOnly||!flowData.isPaused()){
             for(const s of this._streams)s.advance(dt);

@@ -8,6 +8,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.WiFi.Data
 @using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.WiFi.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
@@ -4162,6 +4163,7 @@
             // Keep the in-memory floor consistent so content/position checks below see the walls.
             floor.WallsJson = wallsJson;
             await FloorPlanAdmin.UpdateFloorAsync(floor.Id, swLat: swLat, swLng: swLng, neLat: neLat, neLng: neLng);
+            await RefitStrandedUnderlaysAsync((swLat + neLat) / 2, (swLng + neLng) / 2);
 
             // Update building center from the union of floors that have real content. A bare
             // floor sits at the building's placeholder center, so including it would drag the
@@ -4186,6 +4188,34 @@
         catch { }
     }
 
+    /// <summary>
+    /// An underlay dropped before any walls exist gets a 50 m box around the building's
+    /// placeholder center, which can be hundreds of km from where the walls are then drawn.
+    /// Once the walls fix the building's location, move such underlays onto the outline.
+    /// </summary>
+    private async Task RefitStrandedUnderlaysAsync(double wallsLat, double wallsLng)
+    {
+        var stranded = _floorImages.Where(img => PropagationService.HaversineDistance(
+                wallsLat, wallsLng,
+                (img.SwLatitude + img.NeLatitude) / 2, (img.SwLongitude + img.NeLongitude) / 2) > 1000)
+            .ToList();
+        if (stranded.Count == 0) return;
+
+        var outline = ComputeBuildingOutline();
+        foreach (var img in stranded)
+        {
+            await FloorPlanAdmin.UpdateFloorImageAsync(img.Id,
+                swLat: outline.swLat, swLng: outline.swLng,
+                neLat: outline.neLat, neLng: outline.neLng,
+                rotationDeg: outline.rotationDeg);
+            img.SwLatitude = outline.swLat;
+            img.SwLongitude = outline.swLng;
+            img.NeLatitude = outline.neLat;
+            img.NeLongitude = outline.neLng;
+            img.RotationDeg = outline.rotationDeg;
+        }
+        await UpdateFloorOverlays();
+    }
     public async ValueTask DisposeAsync()
     {
         _sliderSaveTimer?.Dispose();

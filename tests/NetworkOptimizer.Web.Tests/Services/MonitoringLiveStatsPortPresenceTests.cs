@@ -120,6 +120,44 @@ public class MonitoringLiveStatsPortPresenceTests
     }
 
     [Fact]
+    public void Inbound_traffic_outweighs_a_cached_down()
+    {
+        // A host waking from sleep: the link is back and sending, but ifOperStatus is still the
+        // value the last 30 s walk read.
+        var stats = Stats();
+        stats.RecordPortStats(Rated(null, null, 2, T0));
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(1), TimeSpan.FromSeconds(90)).Should().BeTrue();
+
+        stats.RecordPortStats(Rated(115_000, 2_000, 2, T0.AddSeconds(5)));
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(6), TimeSpan.FromSeconds(90)).Should().BeFalse();
+        Port(stats).RateInBps.Should().Be(115_000);
+
+        // A quiet sample inside the window keeps it up.
+        stats.RecordPortStats(Rated(null, null, 2, T0.AddSeconds(7)));
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(8), TimeSpan.FromSeconds(90)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Inbound_traffic_older_than_the_window_leaves_the_down_standing()
+    {
+        var stats = Stats();
+        stats.RecordPortStats(Rated(50_000, 1_000, 1, T0));
+        var after = T0 + MonitoringLiveStats.InboundProvesLink + TimeSpan.FromSeconds(1);
+        stats.RecordPortStats(Rated(null, null, 2, after));
+        stats.IsPortLinkDown(Switch, "eth1", after.AddSeconds(1), TimeSpan.FromSeconds(90)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Outbound_alone_does_not_outweigh_a_down()
+    {
+        // The switch floods broadcast out of a port whatever the host is doing.
+        var stats = Stats();
+        stats.RecordPortStats(Rated(null, 8_000, 2, T0));
+        stats.IsPortLinkDown(Switch, "eth1", T0.AddSeconds(1), TimeSpan.FromSeconds(90)).Should().BeTrue();
+        Port(stats).RateOutBps.Should().Be(0);
+    }
+
+    [Fact]
     public void The_listed_wired_clients_are_replaced_whole_and_stamped()
     {
         var stats = Stats();

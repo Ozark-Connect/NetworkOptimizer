@@ -34,6 +34,25 @@ public class ThreatNoiseFilter
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Classifies the filter so the audit report can surface Infrastructure and
+    /// TrustedUser matches in separate sub-tables, while Noise stays fully hidden.
+    /// </summary>
+    public ThreatFilterCategory Category { get; set; } = ThreatFilterCategory.Noise;
+
+    /// <summary>
+    /// Optional short label shown alongside the IP in categorized sub-tables
+    /// (e.g., "Network Optimizer (device management)", "DNS proxy"). Distinct from
+    /// Description, which is shown in the management UI.
+    /// </summary>
+    public string? Label { get; set; }
+
+    /// <summary>
+    /// System-managed entry that the UI prevents deleting or disabling: the per-port
+    /// Infrastructure filters the collector keeps for this host and each On-Site Agent.
+    /// </summary>
+    public bool IsSystem { get; set; }
+
     public bool Enabled { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

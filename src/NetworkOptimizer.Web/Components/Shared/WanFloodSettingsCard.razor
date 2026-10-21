@@ -1,0 +1,249 @@
+@using NetworkOptimizer.Threats.WanFlood
+@using NetworkOptimizer.Web.Services.WanFlood
+@inject IWanFloodAdmin WanFlood
+@inject SiteContextService SiteContext
+
+@* Settings - Security & Alerts: WAN Flood Protection for the site in context. *@
+
+<div class="card settings-tab-security wan-flood" id="wan-flood-protection" data-tour="wan-flood-protection">
+    <div class="card-header">
+        <div class="card-header-left">
+            <h2 class="card-title">WAN Flood Protection</h2>
+            <a href="/threats?tab=blocking" class="settings-title-link" data-tooltip="Open Threat Intelligence - Blocking">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+            </a>
+        </div>
+        @if (_saved != null && _saved.Mode != WanFloodMode.Off)
+        {
+            <span class="status-badge @(_saved.Mode == WanFloodMode.Enforce ? "status-active" : "")">@ModeLabel(_saved.Mode)</span>
+        }
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            A flood of unsolicited traffic can max out the gateway's CPU, stalling internet access, inter-VLAN traffic,
+            and the UniFi apps it runs. WAN Flood Protection finds a flood's sources within seconds and drops them at the
+            WAN, before the firewall touches them. In testing, that cut CPU load by about three quarters and kept latency
+            normal. It needs the On-Site Agent on the gateway.
+        </p>
+
+        @if (_agentState == WanFloodAgentState.NeedsUpdate)
+        {
+            <div class="connection-banner pwa-banner hogs-agent-notice">
+                <div class="banner-content">
+                    <span class="banner-icon" style="background: var(--info-color); color: white;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                            <polyline points="21 3 21 9 15 9" />
+                        </svg>
+                    </span>
+                    <div class="banner-text">
+                        <strong style="color: var(--info-color);">Update the On-Site Agent on your Gateway</strong>
+                        <span style="color: var(--text-secondary);">Newer Agent builds add WAN Flood Protection.</span>
+                    </div>
+                    <div class="banner-actions">
+                        <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">Upgrade Agent</a>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_agentState == WanFloodAgentState.Unsupported)
+        {
+            <div class="alert alert-info">This gateway can't run WAN Flood Protection.</div>
+        }
+
+        @if (_form == null)
+        {
+            <div class="loading-container"><span class="spinner spinner-sm"></span></div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label class="form-label">Mode</label>
+                <div class="radio-group">
+                    @foreach (var mode in new[] { WanFloodMode.Off, WanFloodMode.Detect, WanFloodMode.Enforce })
+                    {
+                        <label class="radio-label">
+                            <input type="radio" name="wan-flood-mode" checked="@(_form.Mode == mode)" @onchange="() => _form.Mode = mode" />
+                            <span>@ModeLabel(mode)</span>
+                        </label>
+                    }
+                </div>
+                <small class="form-help"><strong>Detection Only</strong> reports what it would limit or drop, without touching any traffic. <strong>Protecting</strong> limits and drops. A flood from a very large number of sources can still crowd out new connections from sources the gateway hasn't seen before.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Never limit or drop</label>
+                <textarea class="form-control" rows="3" placeholder="One address or range per line" @bind="_form.NeverDrop"></textarea>
+            </div>
+
+            <details class="setup-guide">
+                <summary>Advanced</summary>
+                <div class="setup-guide-content">
+                    <div class="ab-section">
+                        <h3 class="ab-section-title">New Connections to the Gateway</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">UDP per source (per second) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How many new UDP connections one address can open to your gateway per second. Replies to traffic you started don't count. Raise it if you host something lots of people reach from one shared address; lower it to shut down a single-source flood faster.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpPerSource" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">UDP burst <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How many new UDP connections one address can open all at once before the per-second limit kicks in. Raise it if clients reconnect a bunch of sessions at once.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.UdpBurst" />
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">TCP per source (per second) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="The same limit for new TCP connections. A SYN flood takes down a gateway with a fraction of the bandwidth, which is why this one starts lower. Raise it if you host a busy web service.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynPerSource" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">TCP burst <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How many new TCP connections one address can open all at once before the limit kicks in. Raise it for web apps that open lots of connections per page.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.SynBurst" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ab-section">
+                        <h3 class="ab-section-title">Port Forwards</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">New connections per port forward (per second) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="New connections per second one port forward accepts, from everyone combined. Each one holds a spot in the gateway's connection table for up to two minutes, so a flood here can break connections for your whole network.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedPort" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">While the connection table is filling <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="The tighter limit on your busiest port forwards once the connection table is over 80% full. New sessions may be turned away during the attack (WireGuard handshakes included); connections already open keep working.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinRate" max="@WanFloodSettings.MaxRate" @bind="_form.ForwardedCapped" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ab-section">
+                        <h3 class="ab-section-title">Drops</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Drop for (seconds) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="How long a flood's source stays dropped before it's checked again. The drop is extended for as long as the flood keeps coming.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.DropTtlSeconds" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Longest drop (seconds) <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="The longest any one drop can last. After that it's removed, and a flood that's still going gets caught again.">?</span></label>
+                                <input type="number" class="form-control" min="@WanFloodSettings.MinTtl" max="@WanFloodSettings.MaxTtl" @bind="_form.MaxDropTtlSeconds" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <div class="action-buttons ab-save">
+                <button class="btn btn-primary" disabled="@_busy" @onclick="Save">
+                    @if (_busy)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    <span>Save</span>
+                </button>
+            </div>
+
+            @if (_message != null)
+            {
+                <div class="alert alert-@_messageClass">@_message</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private sealed class Form
+    {
+        public WanFloodMode Mode { get; set; }
+        public int UdpPerSource { get; set; }
+        public int UdpBurst { get; set; }
+        public int SynPerSource { get; set; }
+        public int SynBurst { get; set; }
+        public int ForwardedPort { get; set; }
+        public int ForwardedCapped { get; set; }
+        public int DropTtlSeconds { get; set; }
+        public int MaxDropTtlSeconds { get; set; }
+        public string NeverDrop { get; set; } = "";
+    }
+
+    private Form? _form;
+    private WanFloodSettings? _saved;
+    private WanFloodAgentState _agentState;
+    private bool _busy;
+    private string? _message;
+    private string _messageClass = "info";
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            var overview = await WanFlood.GetOverviewAsync();
+            var s = overview.Settings;
+            _agentState = overview.AgentState;
+            _saved = s;
+            _form = new Form
+            {
+                Mode = s.Mode,
+                UdpPerSource = s.UdpPerSource,
+                UdpBurst = s.UdpBurst,
+                SynPerSource = s.SynPerSource,
+                SynBurst = s.SynBurst,
+                ForwardedPort = s.ForwardedPort,
+                ForwardedCapped = s.ForwardedCapped,
+                DropTtlSeconds = s.DropTtlSeconds,
+                MaxDropTtlSeconds = s.MaxDropTtlSeconds,
+                NeverDrop = s.NeverDrop,
+            };
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not load WAN Flood Protection: {ex.Message}";
+            _messageClass = "danger";
+        }
+    }
+
+    private async Task Save()
+    {
+        if (_form == null || _saved == null) return;
+        _busy = true;
+        _message = null;
+        try
+        {
+            await WanFlood.SaveSettingsAsync(_saved with
+            {
+                Mode = _form.Mode,
+                UdpPerSource = _form.UdpPerSource,
+                UdpBurst = _form.UdpBurst,
+                SynPerSource = _form.SynPerSource,
+                SynBurst = _form.SynBurst,
+                ForwardedPort = _form.ForwardedPort,
+                ForwardedBurst = _form.ForwardedPort * 2,
+                ForwardedCapped = _form.ForwardedCapped,
+                DropTtlSeconds = _form.DropTtlSeconds,
+                MaxDropTtlSeconds = _form.MaxDropTtlSeconds,
+                NeverDrop = _form.NeverDrop,
+            });
+            await Load();
+            _message = "Saved. The gateway's On-Site Agent applies it within a few seconds.";
+            _messageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    internal static string ModeLabel(WanFloodMode mode) => mode switch
+    {
+        WanFloodMode.Enforce => "Protecting",
+        WanFloodMode.Detect => "Detection Only",
+        _ => "Off"
+    };
+}

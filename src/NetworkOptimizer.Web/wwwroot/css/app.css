@@ -1225,6 +1225,17 @@ a.stat-card-link:active {
     gap: 16px;
 }
 
+/* Keeps the Active Alerts card's size when its last alert is dismissed */
+#active-alerts .card-body {
+    min-height: 180px;
+}
+
+@media (max-width: 768px) {
+    #active-alerts .card-body {
+        min-height: 172px;
+    }
+}
+
 .dashboard-card-wrapper.card-span-2 {
     grid-column: span 2;
 }
@@ -2765,9 +2776,11 @@ a.stat-card-link:active {
     color: var(--danger-color);
 }
 
-.status-badge.status-provisioning {
+.status-badge.status-provisioning,
+.status-badge.status-warning {
     background: rgba(231, 150, 19, 0.2);
     color: var(--warning-color);
+    font-weight: 600;
 }
 
 .status-badge.status-info {
@@ -3438,6 +3451,11 @@ select.form-control {
     margin-bottom: 0.5rem;
 }
 
+/* A posted action button that sits in a row with circuit buttons. */
+.account-inline-form {
+    display: inline;
+}
+
 .account-note {
     margin: 0 0 0.75rem;
     font-size: 0.875rem;
@@ -3592,6 +3610,10 @@ select.form-control {
     background: rgba(245, 158, 11, 0.1);
     border: 1px solid var(--warning-color);
     color: var(--warning-color);
+}
+
+.alert.speedtest-invalid-alert {
+    margin: 0 1rem 1rem;
 }
 
 .alert-warning a {
@@ -7352,6 +7374,558 @@ a.path-hop.hop-clickable:hover {
     gap: 0.625rem;
 }
 
+/* Settings - Automatic Blocking: divided sections like .audit-options, one target per block */
+.automatic-blocking .ab-section,
+.trusted-sources .ab-section,
+.wan-flood .ab-section {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1.25rem;
+}
+
+.automatic-blocking .ab-section-title,
+.trusted-sources .ab-section-title,
+.wan-flood .ab-section-title {
+    font-size: 1rem;
+    margin: 0 0 1rem;
+}
+
+/* WAN Flood Protection's Advanced: the guide's border-top already divides; its first section adds none. */
+.wan-flood .setup-guide-content {
+    padding-top: 1.25rem;
+}
+
+.wan-flood .setup-guide-content > .ab-section:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+/* The guide's content is muted; section titles keep the card's own heading color. */
+.wan-flood .setup-guide-content .ab-section-title {
+    color: var(--text-primary);
+}
+
+.wan-flood .setup-guide {
+    margin-bottom: 1.5rem;
+}
+
+.automatic-blocking .ab-section > .form-help,
+.trusted-sources .ab-section > .form-help {
+    margin: 0 0 1rem;
+}
+
+.automatic-blocking .ab-setup-hidden .form-help {
+    margin: 0 0 0.5rem;
+}
+
+/* The form row above already ends in a 1.5rem margin; the guide sits on it and keeps one below. */
+.automatic-blocking .setup-guide {
+    margin: 0 0 1.5rem;
+}
+
+/* An option that belongs to the target above it: indented to its checkbox text. */
+.automatic-blocking .ab-suboption {
+    margin-left: 1.625rem;
+}
+
+/* The card's Save, set off from the last target's own buttons like a section. */
+.automatic-blocking .ab-save,
+.wan-flood .ab-save {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1.25rem;
+}
+
+/* WAF card headers (Threat Intelligence Overview and the WAF page): paranoia beside the mode badge */
+.waf-card-mode {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.waf-meta {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+.automatic-blocking .ab-list {
+    margin-bottom: 1rem;
+}
+
+/* Public Block Lists: the profile picker sits on the right of the section title */
+.automatic-blocking .ab-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.automatic-blocking .ab-section-header .ab-section-title {
+    margin: 0;
+}
+
+.automatic-blocking .ab-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.automatic-blocking .ab-profile .form-control {
+    width: auto;
+}
+
+.automatic-blocking .ab-saved {
+    color: var(--success-color);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.automatic-blocking .ab-token {
+    margin-top: 0.5rem;
+}
+
+/* Settings: each card's bottom button row sits on the right on desktop (centered on mobile, as everywhere) */
+@media (min-width: 769px) {
+    .settings-container > .card > .card-body > .action-buttons:not(:has(~ .action-buttons)) {
+        justify-content: flex-end;
+    }
+}
+
+/* Its primary button, floated while the row is scrolled out of view (settings-section-save.js) */
+.settings-floating-save {
+    position: fixed;
+    z-index: 900;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.settings-floating-save[hidden] {
+    display: none;
+}
+
+/* How the floating Save went: a check, a cross, or a warning mark beside it */
+.settings-floating-result {
+    position: fixed;
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.settings-floating-result[hidden] {
+    display: none;
+}
+
+.settings-floating-result.is-success {
+    color: var(--success-color);
+}
+
+.settings-floating-result.is-error {
+    color: var(--danger-color);
+}
+
+.settings-floating-result.is-warning {
+    color: var(--warning-color);
+}
+
+/* Threat Intelligence - Protection Setup checklist: one row per step, its action on the right */
+.protection-setup .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.protection-setup-count {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.protection-steps {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+}
+
+.protection-step {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.protection-step:last-child {
+    border-bottom: none;
+}
+
+.protection-step::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 50%;
+    border: 2px solid var(--text-muted);
+}
+
+.protection-step.is-done::before {
+    border-color: var(--success-color);
+    background: var(--success-color);
+}
+
+.protection-step.is-optional::before {
+    border-style: dashed;
+}
+
+.protection-step-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.protection-step.is-done .protection-step-text {
+    color: var(--text-secondary);
+}
+
+.protection-step .btn {
+    flex: 0 0 auto;
+}
+
+.protection-optional {
+    margin: 0 0 1rem;
+}
+
+.protection-hide {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.protection-setup-done,
+.wan-flood-status .wan-flood-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .protection-step {
+        flex-wrap: wrap;
+    }
+
+    .protection-step-text {
+        flex-basis: calc(100% - 2.25rem);
+    }
+
+    .protection-step .btn {
+        margin-left: 1.875rem;
+    }
+}
+/* Settings - Trusted Sources: one block per site, its addresses in a table under it */
+.trusted-sources .trusted-site {
+    margin-bottom: 1.5rem;
+}
+
+.trusted-sources .trusted-site > .checkbox-label {
+    margin-bottom: 0.5rem;
+}
+
+.trusted-sources .ab-status {
+    color: var(--text-secondary);
+}
+
+/* Three short columns fit a phone; no sideways scroll like wider tables. */
+.data-table.trusted-addresses {
+    min-width: 0;
+}
+
+.data-table.trusted-addresses td {
+    white-space: normal;
+}
+
+.data-table.trusted-addresses code {
+    word-break: break-all;
+}
+
+.trusted-addresses .trusted-action {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.trusted-addresses tr.trusted-stale td {
+    color: var(--text-secondary);
+}
+
+.trusted-matrix .trusted-matrix-cell {
+    text-align: center;
+}
+
+.trusted-matrix .table-responsive {
+    margin-top: 0.5rem;
+}
+
+.automatic-blocking .ab-target {
+    margin-bottom: 1.5rem;
+}
+
+.automatic-blocking .ab-status {
+    color: var(--text-secondary);
+}
+
+.automatic-blocking .ab-status.is-ok {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--success-color);
+}
+
+.automatic-blocking .ab-check {
+    flex: 0 0 auto;
+}
+
+.automatic-blocking .ab-status.is-warning {
+    color: var(--warning-color);
+}
+
+.automatic-blocking .form-row,
+.wan-flood .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.automatic-blocking .form-row > .form-group,
+.wan-flood .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+/* Threat Intelligence header row: page tabs on the left, filters and time range on the right.
+   Shared by the main page and the WAF page, so it lives here rather than in either page. */
+.threat-header-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    min-height: 34px;
+}
+
+.threat-header-bar > .wifi-view-tabs-wrapper {
+    flex: 1 1 auto;
+    min-width: 200px;
+}
+
+.threat-header-bar > div:last-child {
+    margin-left: auto;
+}
+
+.threat-header-bar .wifi-tabs-scroll-btn {
+    border-bottom: none;
+    margin-top: 0.35rem;
+}
+
+.threat-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .threat-header-bar {
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .threat-header-bar > div:last-child {
+        margin-left: unset;
+        justify-content: space-between;
+    }
+
+    .threat-time-preset {
+        padding: 0.35rem 0.5rem;
+        font-size: 0.75rem;
+    }
+}
+
+/* Threat Intelligence stat tiles and paired tables: shared by the main page and the WAF page, so
+   they live here rather than in either page's style block. */
+.threat-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.threat-summary-grid .card {
+    margin-bottom: 1.5rem;
+}
+
+.threat-summary-grid-compact .card {
+    margin-bottom: 0.75rem;
+}
+
+.threat-stat-card {
+    text-align: center;
+    padding: 1.25rem 1rem;
+}
+
+.threat-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.threat-stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.waf-stats {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.threat-two-chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .threat-summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .threat-two-chart-row {
+        grid-template-columns: 1fr;
+        margin-bottom: 1rem;
+    }
+}
+
+/* The tiles' own 0.75rem margin plus this is the 1.5rem rhythm to the link. */
+.waf-card-link {
+    margin-top: 0.75rem;
+}
+
+/* Settings - Multi-Site: a site's Automatic Blocking in its Configuration panel */
+.site-blocking .site-blocking-mode {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.site-blocking .site-blocking-mode .form-label {
+    margin-bottom: 0;
+}
+
+.site-blocking .site-blocking-mode .form-control {
+    width: auto;
+}
+
+/* The status line is its own row, not the toggle's help. */
+.site-blocking .form-help {
+    margin: 0.5rem 0;
+}
+
+/* Threat Intelligence - block one address from its details */
+.ip-block-control {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.ip-block-control .ip-block-duration {
+    width: auto;
+    padding: 0.25rem 0.5rem;
+    height: 28px;
+}
+
+.ip-block-control .ip-block-until,
+.ip-block-control .ip-block-message {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.ip-block-message.is-ok {
+    color: var(--success-color);
+}
+
+.ip-block-message.is-error {
+    color: var(--danger-color);
+}
+
+/* Threat Intelligence - Blocked Sources */
+/* WAN Flood Protection's status line keeps the connection table on its right edge; on a phone it wraps below. */
+.wan-flood-status .wan-flood-summary {
+    flex-wrap: wrap;
+}
+
+.wan-flood-status .wan-flood-summary .waf-meta {
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .wan-flood-status .wan-flood-summary .waf-meta {
+        flex-basis: 100%;
+        margin-left: calc(8px + 0.5rem);
+    }
+
+    /* Two short columns are left on a phone (hide-mobile), so the tables fit without scrolling sideways. */
+    .wan-flood-status .data-table {
+        min-width: 0;
+    }
+}
+
+.blocked-sources .blocked-sources-subtitle,
+.wan-flood-status .wan-flood-subtitle {
+    font-size: 0.95rem;
+    margin: 1.5rem 0 0.75rem;
+}
+
+.blocked-sources .blocked-sources-dry,
+.blocked-sources .blocked-sources-strikes {
+    margin-left: 0.5rem;
+}
+
+.blocked-sources .blocked-sources-strikes {
+    color: var(--warning-color);
+    font-size: 0.8rem;
+}
+
+.blocked-sources .blocked-sources-skew {
+    margin-left: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 400;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+    cursor: help;
+}
+
+@media (max-width: 768px) {
+    .automatic-blocking .form-row,
+    .wan-flood .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .automatic-blocking .form-row > .form-group,
+    .wan-flood .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+}
+
 @media (max-width: 768px) {
     .audit-controls,
     .gateway-actions {
@@ -9793,9 +10367,9 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
-/* MLO mesh cards only: the multi-row link block reads top-down, so the client stat
-   aligns top like non-mesh cards, the row tightens to make width for the grid, and
-   the mesh block hugs the right edge as one unit (the grid keeps columns aligned). */
+/* MLO mesh cards and parents with stacked children: the multi-row block reads top-down,
+   so the client stat aligns top like non-mesh cards, the row tightens to make width for
+   the grid, and the mesh block hugs the right edge as one unit (the grid keeps columns aligned). */
 .ap-stats-mlo {
     gap: 1.25rem;
 }
@@ -9844,6 +10418,43 @@ a.path-hop.hop-clickable:hover {
 
 .ap-mesh-info-with-action {
     margin-top: -1.75rem;
+}
+
+/* A parent's mesh children, paged: the pager sits bottom right, clear of a Re-pair Uplink
+   button above, and every page shares one grid cell so the card holds the tallest page's height. */
+.ap-mesh-children {
+    display: flex;
+    flex-direction: column;
+    margin-left: auto;
+    min-width: 0;
+    touch-action: pan-y;
+}
+
+.mesh-child-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    align-self: flex-end;
+    margin-top: 0.35rem;
+}
+
+.mesh-child-pages {
+    display: grid;
+}
+
+.mesh-child-page {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mesh-child-page:not(.active) {
+    visibility: hidden;
+}
+
+.mesh-child-page .ap-mesh-info {
+    margin-left: 0;
 }
 
 .mesh-signal {
@@ -20162,7 +20773,14 @@ body.kiosk-mode .status-indicators {
 /* .data-table holds a 500px floor, so on a phone this row runs past the wrapper's visible width
    into its scroll overflow, taking anything at its right edge - the command copy buttons - with
    it. Capped to the scroller's own inline size instead. */
-.table-responsive:has(> .sites-table) {
+.table-responsive:has(> .sites-table),
+.waf-events .waf-matched {
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.table-responsive:has(> .waf-events) {
     container-type: inline-size;
 }
 
@@ -20174,6 +20792,51 @@ body.kiosk-mode .status-indicators {
 
 .site-config-row .site-config-panel {
     max-width: 100cqw;
+}
+
+/* Threat Intelligence - WAF Events: the panel's gap spaces the exclusion help and its code block */
+.waf-events .site-config-panel > .section-description,
+.waf-events .site-config-panel .code-copy-block pre {
+    margin: 0;
+}
+
+/* The exclusion form keeps the form-group rhythm, so the panel's flex gap is off here */
+.waf-events .waf-exclusion-form {
+    gap: 0;
+}
+
+.waf-events .waf-exclusion-form > .section-description {
+    margin: 0 0 1rem;
+}
+
+.waf-events .waf-exclusion-form > .alert {
+    margin: 0;
+}
+
+.waf-exclusion-form .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.waf-exclusion-form .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    .waf-exclusion-form .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .waf-exclusion-form .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+}
+
+.waf-events tr:not(.history-details-row) > td:first-child {
+    white-space: nowrap;
 }
 
 .site-config-section {

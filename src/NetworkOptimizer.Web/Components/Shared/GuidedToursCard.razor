@@ -11,7 +11,7 @@
         <h2 class="card-title">Guided Tours</h2>
         @if (_multiSiteEnabled)
         {
-            <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            <ScopeBadge />
         }
     </div>
     <div class="card-body">
@@ -22,7 +22,7 @@
 
         <div class="form-group">
             <label class="checkbox-label">
-                <input type="checkbox" @bind="_toursDisabled" @bind:after="SaveDisabledAsync" />
+                <input type="checkbox" data-autosave @bind="_toursDisabled" @bind:after="SaveDisabledAsync" />
                 Don't offer tours automatically
             </label>
             <p class="form-help">No tour is ever offered on its own while this is set. Tours stay available below.</p>

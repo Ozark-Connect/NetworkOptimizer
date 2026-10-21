@@ -947,14 +947,19 @@ public class ConfigAuditEngine
 
         // Check if there's a 5G/LTE device on the network
         // Check all raw devices since 5G modems may not have port tables (not in Switches)
-        var has5GDevice = ctx.DeviceData.ValueKind is JsonValueKind.Array or JsonValueKind.Object &&
-            ctx.DeviceData.UnwrapDataArray().Any(d =>
+        var cellularDevices = ctx.DeviceData.ValueKind is JsonValueKind.Array or JsonValueKind.Object
+            ? ctx.DeviceData.UnwrapDataArray().Where(d =>
                 UniFi.UniFiProductDatabase.IsCellularModem(
                     d.GetStringOrNull("model"),
                     d.GetStringOrNull("shortname"),
-                    d.GetStringOrNull("type")));
+                    d.GetStringOrNull("type")))
+                .Select(d => new CellularModemIdentity(d.GetStringOrNull("ip"), d.GetStringOrNull("mac")))
+                .ToList()
+            : [];
+        var has5GDevice = cellularDevices.Count > 0;
 
-        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, ctx.Networks, has5GDevice, ctx.ExternalZoneId);
+        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(
+            firewallRules, ctx.Networks, has5GDevice, ctx.ExternalZoneId, cellularDevices);
 
         // Analyze internet access with firewall rules to detect both methods of blocking:
         // 1. internet_access_enabled=false in network config

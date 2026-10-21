@@ -1,0 +1,246 @@
+@using NetworkOptimizer.Threats.Blocking
+@using NetworkOptimizer.Threats.Waf
+@inject IWafConnectionAdmin WafAdmin
+@inject IThreatBlockingAdmin Blocking
+@inject SiteContextService SiteContext
+@inject NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor ThreatSettings
+
+@* The site in context's netopt-waf connection. Rendered in Settings - Security & Alerts and on
+   Threat Intelligence - Web Application Firewall - Setup. *@
+
+<div class="card settings-tab-security" id="waf">
+    <div class="card-header">
+        <div class="card-header-left">
+            <h2 class="card-title">Web Application Firewall</h2>
+            @if (ShowPageLink)
+            {
+                <a href="/threats/waf" class="settings-title-link" data-tooltip="Open Web Application Firewall">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            }
+        </div>
+        <div class="card-header-badges">
+            @if (_enabled && _hasToken)
+            {
+                <span class="status-badge status-active">Enabled</span>
+            }
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Read attacks caught by the WAF in <a href="https://github.com/Ozark-Connect/NetworkOptimizer-Proxy#web-application-firewall-optional" target="_blank" rel="noopener noreferrer">NetworkOptimizer-Proxy</a> into Threat Intelligence, next to the gateway's IPS events.
+        </p>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_enabled" />
+                <span>Read WAF events</span>
+            </label>
+        </div>
+
+        @if (_enabled)
+        {
+            <div class="form-group">
+                <label class="form-label">WAF URL</label>
+                <input type="text" class="form-control" @bind="_url" @bind:event="oninput" placeholder="http://127.0.0.1:8044 or https://waf.example.com" />
+                <small class="form-help">
+                    Where netopt-waf listens. http://127.0.0.1:8044 when the proxy runs beside @(SiteContext.IsDefault ? "Network Optimizer" : "this site's On-Site Agent").
+                    From another host, use the proxy's HTTPS management host instead, such as https://waf.example.com (the <code>waf-api</code> router in NetworkOptimizer-Proxy).
+                </small>
+                @if (PlainHttpOffHost(_url))
+                {
+                    <small class="form-error">This sends the API token unencrypted across the network. Keep the WAF on 127.0.0.1, or reach it through an HTTPS host in Traefik (see the NetworkOptimizer-Proxy README).</small>
+                }
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">API Token</label>
+                <input type="password" class="form-control" @bind="_token" @bind:event="oninput" autocomplete="new-password" placeholder="@(_hasToken ? "Saved - enter new to update" : "WAF_API_TOKEN from the proxy's .env")" data-1p-ignore data-lpignore="true" data-bwignore />
+            </div>
+        }
+
+        <div class="action-buttons">
+            <button class="btn btn-primary" @onclick="Save" disabled="@_saving">
+                @if (_saving)
+                {
+                    <span class="spinner"></span>
+                    <span>Saving...</span>
+                }
+                else
+                {
+                    <span>Save</span>
+                }
+            </button>
+            @if (_enabled && (_hasToken || !string.IsNullOrEmpty(_token)))
+            {
+                <button class="btn btn-secondary" @onclick="Test" disabled="@_testing">
+                    @if (_testing)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test Connection</span>
+                    }
+                </button>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="alert alert-@_messageClass">@_message</div>
+        }
+
+        @if (_offerRecommended)
+        {
+            <div class="alert alert-info">
+                <div class="banner-content">
+                    <div class="banner-text">
+                        <span><strong>The WAF is connected.</strong> Turn on recommended blocking to have it refuse repeat attackers, and the gateway too.</span>
+                        @if (_listNote != null)
+                        {
+                            <small class="form-help">@_listNote</small>
+                        }
+                    </div>
+                    <div class="banner-actions">
+                        <button class="btn btn-sm btn-primary" disabled="@_turningOn" @onclick="TurnOnRecommended">Turn On Recommended</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Show the title link to the WAF page. Off on the WAF page's own Setup tab.</summary>
+    [Parameter] public bool ShowPageLink { get; set; }
+
+    private bool _enabled;
+    private string _url = "";
+
+    // http:// is fine on loopback; anywhere else the bearer token crosses a network in the clear.
+    private static bool PlainHttpOffHost(string url) =>
+        Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttp && !u.IsLoopback;
+    private string _token = "";
+    private bool _hasToken;
+    private bool _saving;
+    private bool _testing;
+    private string _message = "";
+    private string _messageClass = "";
+    private bool _offerRecommended;
+    private string? _listNote;
+    private bool _turningOn;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var c = await WafAdmin.GetAsync();
+            (_enabled, _url, _hasToken) = (c.Enabled, c.Url, c.HasToken);
+        }
+        catch (Exception)
+        {
+            // Below Site Admin the read is refused; the card is Settings-only and shows its defaults.
+        }
+    }
+
+    private string? Site => SiteContext.IsDefault ? null : SiteContext.Slug;
+
+    private async Task Save()
+    {
+        _saving = true;
+        _message = "";
+        try
+        {
+            await WafAdmin.SaveAsync(_enabled, _url, _token);
+            if (!string.IsNullOrEmpty(_token)) _hasToken = true;
+            _token = "";
+            // The WAF ban list follows the connection unless Automatic Blocking set it explicitly.
+            var targetSet = await ThreatSettings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.TargetWaf, Site)) != null;
+            _message = _enabled && !targetSet
+                ? "WAF settings saved. When Automatic Blocking is in Blocking mode, the WAF also refuses the sources it blocks."
+                : "WAF settings saved.";
+            _messageClass = "success";
+            _offerRecommended = false;
+            if (_enabled && _hasToken && !string.IsNullOrWhiteSpace(_url))
+            {
+                // Saved settings are tested at once, and recommended blocking is offered only for a
+                // WAF that answers: turning it on against a dead URL would only add a failing target.
+                try
+                {
+                    await WafAdmin.TestAsync(_url, null);
+                    var blocking = (await Blocking.GetOverviewAsync()).Settings;
+                    _offerRecommended = blocking.Mode != BlockingMode.Enforce;
+                    _listNote = _offerRecommended ? (await Blocking.GetRecommendationAsync()).Note : null;
+                }
+                catch (WafClientException ex)
+                {
+                    _message = $"WAF settings saved, but the WAF did not answer: {ex.Message}";
+                    _messageClass = "warning";
+                }
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            _message = ex.Message;
+            _messageClass = "warning";
+        }
+        catch (Exception ex)
+        {
+            _message = $"Error saving settings: {ex.Message}";
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task TurnOnRecommended()
+    {
+        _turningOn = true;
+        try
+        {
+            var r = await Blocking.TurnOnRecommendedAsync();
+            _offerRecommended = false;
+            _message = r.GatewayError == null
+                ? $"Blocking on {(r.Gateway ? "the gateway and " : "")}the WAF."
+                : $"Blocking on the WAF. The gateway was not set up: {r.GatewayError}";
+            _messageClass = r.GatewayError == null ? "success" : "warning";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _turningOn = false;
+        }
+    }
+
+    private async Task Test()
+    {
+        _testing = true;
+        _message = "";
+        try
+        {
+            var page = await WafAdmin.TestAsync(_url, _token);
+            var mode = page.Mode == "block" ? "Blocking" : "Detection Only";
+            var crs = string.IsNullOrEmpty(page.Crs) ? "" : $" (CRS {page.Crs})";
+            var version = string.IsNullOrEmpty(page.Version) ? "" : $"netopt-waf {page.Version}{crs}, ";
+            _message = $"Connected: {version}{mode}, paranoia level {page.Paranoia}, {page.Stats.Inspected:N0} requests inspected since it started.";
+            _messageClass = "success";
+        }
+        catch (WafClientException ex)
+        {
+            _message = ex.Message;
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+}

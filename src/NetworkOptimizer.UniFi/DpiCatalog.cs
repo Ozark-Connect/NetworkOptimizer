@@ -4,10 +4,11 @@ namespace NetworkOptimizer.UniFi;
 
 /// <summary>
 /// Names for UniFi Network's DPI application and category ids, which no API serves. Taken from the
-/// table the Network app ships for its own UI (<c>dynamic.dpi.js</c>, catalog version 1.406): names,
-/// and for the few applications that have one, the domain whose favicon the app shows and the Font
-/// Awesome brand class it uses (mapped to Font Awesome 6 names). Refresh by re-parsing a newer
-/// bundle into <c>Resources/dpi-catalog.json</c>.
+/// tables the Network app ships for its own UI: the legacy <c>dynamic.dpi.js</c> (catalog 1.406), with
+/// names and categories from the React UI's newer catalog (2.128) layered on top, since that one drops
+/// ids older signatures still report. The legacy table also gives, for the few applications that have
+/// one, the domain whose favicon the app shows and the Font Awesome brand class it uses (mapped to
+/// Font Awesome 6 names). Refresh by re-parsing newer bundles into <c>Resources/dpi-catalog.json</c>.
 ///
 /// An application key packs the category into the high half: <c>(category &lt;&lt; 16) | application</c>,
 /// which is how the traffic endpoints' separate <c>category</c> / <c>application</c> ids map onto it.
@@ -67,6 +68,56 @@ public static class DpiCatalog
         ["Web Streaming"] = "fa-solid fa-play",
         ["ICMP"] = "fa-solid fa-satellite-dish",
         ["eBay"] = "fa-brands fa-ebay",
+        ["Discord"] = "fa-brands fa-discord",
+        ["TikTok"] = "fa-brands fa-tiktok",
+        ["Facebook Messenger"] = "fa-brands fa-facebook-messenger",
+        ["Google Drive"] = "fa-brands fa-google-drive",
+        ["Youtube Kids"] = "fa-brands fa-youtube",
+        ["bilibili"] = "fa-brands fa-bilibili",
+        ["Threads"] = "fa-brands fa-threads",
+        ["Waze"] = "fa-brands fa-waze",
+        ["Trello"] = "fa-brands fa-trello",
+        ["Lyft"] = "fa-brands fa-lyft",
+        ["Uber"] = "fa-brands fa-uber",
+        ["Uber Eats"] = "fa-brands fa-uber",
+        ["Reddit"] = "fa-brands fa-reddit",
+        ["Docker"] = "fa-brands fa-docker",
+        ["Jira"] = "fa-brands fa-jira",
+        ["Salesforce"] = "fa-brands fa-salesforce",
+        ["MailChimp"] = "fa-brands fa-mailchimp",
+        ["Evernote"] = "fa-brands fa-evernote",
+        ["Yammer"] = "fa-brands fa-yammer",
+        ["LinkedIn Pulse"] = "fa-brands fa-linkedin",
+        ["Skype for Business"] = "fa-brands fa-skype",
+        ["Viber"] = "fa-brands fa-viber",
+        ["LINE"] = "fa-brands fa-line",
+        ["TeamSpeak"] = "fa-brands fa-teamspeak",
+        ["Weibo"] = "fa-brands fa-weibo",
+        ["RenRen"] = "fa-brands fa-renren",
+        ["Blogger"] = "fa-brands fa-blogger",
+        ["500px"] = "fa-brands fa-500px",
+        ["Periscope"] = "fa-brands fa-periscope",
+        ["Mix"] = "fa-brands fa-mix",
+        ["Mendeley"] = "fa-brands fa-mendeley",
+        ["Deezer"] = "fa-brands fa-deezer",
+        ["Audible"] = "fa-brands fa-audible",
+        ["Napster"] = "fa-brands fa-napster",
+        ["Dailymotion"] = "fa-brands fa-dailymotion",
+        ["iTunes Festival"] = "fa-brands fa-itunes",
+        ["Battle.net"] = "fa-brands fa-battle-net",
+        ["Opera browser"] = "fa-brands fa-opera",
+        ["Opera VPN"] = "fa-brands fa-opera",
+        ["Java Applet"] = "fa-brands fa-java",
+        ["JAVA Update"] = "fa-brands fa-java",
+        ["Bitcoin Core"] = "fa-brands fa-bitcoin",
+        ["CPanel"] = "fa-brands fa-cpanel",
+        ["Blackberry(SSL)"] = "fa-brands fa-blackberry",
+        ["Mozilla Firefox"] = "fa-brands fa-firefox",
+        ["Sony PlayStation"] = "fa-brands fa-playstation",
+        ["APP Store Connect"] = "fa-brands fa-app-store",
+        ["Yandex.Disk"] = "fa-brands fa-yandex",
+        ["Yandex.Mail"] = "fa-brands fa-yandex",
+        ["Yandex.Browser"] = "fa-brands fa-yandex",
     };
 
     /// <summary>A brand word anywhere in the name ("Microsoft.com", "Google Drive") is that brand's mark.</summary>
@@ -78,6 +129,7 @@ public static class DpiCatalog
         ("Amazon", "fa-brands fa-amazon"),
         ("Facebook", "fa-brands fa-facebook"),
         ("Yahoo", "fa-brands fa-yahoo"),
+        ("Windows", "fa-brands fa-windows"),
     };
 
     /// <summary>What an application in each category is broadly doing, for one with no mark of its own.</summary>

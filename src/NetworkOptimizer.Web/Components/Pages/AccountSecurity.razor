@@ -102,7 +102,11 @@
         {
             <p class="account-note">Two-factor authentication is <strong>enabled</strong>.</p>
             <button class="btn btn-secondary btn-sm" @onclick="RegenerateCodesAsync">Regenerate recovery codes</button>
-            <button class="btn btn-danger btn-sm" @onclick="DisableMfaAsync">Disable</button>
+            @* Posted, like enabling: turning it off rotates the security stamp. *@
+            <form method="post" action="/api/auth/mfa/disable" class="account-inline-form">
+                <AntiforgeryToken />
+                <button type="submit" class="btn btn-danger btn-sm">Disable</button>
+            </form>
             @if (!string.IsNullOrEmpty(_mfaMessage)) { <div class="alert alert-warning">@_mfaMessage</div> }
         }
         else if (_setup is not null)
@@ -256,6 +260,7 @@
 @code {
     [SupplyParameterFromQuery(Name = "setup")] private string? Setup { get; set; }
     [SupplyParameterFromQuery(Name = "enroll")] private string? Enroll { get; set; }
+    [SupplyParameterFromQuery(Name = "mfa")] private string? MfaResult { get; set; }
 
     private ApplicationUser? _user;
     private bool _mfaEnabled;
@@ -334,6 +339,19 @@
             // Codes minted by the enrollment endpoint, handed over once and only once.
             if (Enroll == "done")
                 _recoveryCodes = EnrollmentCodes.Take(_user.Id);
+
+            // A wrong code comes back as a fresh page load. Reopen the setup with the same key, or the
+            // QR, the key and the error all vanish behind the "Set up authenticator" button.
+            if (_enrollError && !_mfaEnabled)
+                _setup = await Mfa.BeginEnrollmentAsync(_user);
+
+            if (MfaResult == "failed")
+                _mfaMessage = "That could not be saved - reload the page and try again.";
+
+            // One-shot results: drop them so a reload does not repeat a stale message.
+            if (Enroll == "failed" || MfaResult is not null)
+                Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(
+                    new Dictionary<string, object?> { ["enroll"] = null, ["mfa"] = null }), replace: true);
         }
     }
 
@@ -378,19 +396,6 @@
     {
         if (_user is null) return;
         _recoveryCodes = await Mfa.GenerateRecoveryCodesAsync(_user);
-    }
-
-    private async Task DisableMfaAsync()
-    {
-        if (_user is null) return;
-        _mfaMessage = null;
-        if (!await Mfa.DisableAsync(_user))
-        {
-            _mfaMessage = "That could not be saved - reload the page and try again.";
-            return;
-        }
-        _mfaEnabled = false;
-        _recoveryCodes = null;
     }
 
     private async Task RegisterPasskeyAsync()

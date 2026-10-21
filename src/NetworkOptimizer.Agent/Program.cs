@@ -213,6 +213,16 @@ SnmpRunner? snmpRunner = null;
 ConntrackRunner? conntrackRunner = null;
 UciInformCapture? uciCapture = null;
 Task? uciCaptureTask = null;
+GatewayBlocklistEnforcer? blocklist = null;
+Task? blocklistTask = null;
+GatewayBlocklistHitReporter? blocklistHits = null;
+Task? blocklistHitsTask = null;
+KernelLogFollower? kernelLog = null;
+Task? kernelLogTask = null;
+WanFloodGuard? floodGuard = null;
+Task? floodGuardTask = null;
+WanFloodDetector? floodDetector = null;
+Task? floodDetectorTask = null;
 Task? probeTask = null;
 Task? snmpTask = null;
 Task? conntrackTask = null;
@@ -224,9 +234,16 @@ Task? watchdogTask = null;
 var conntrackCapable = config.OnGateway == true && ConntrackRunner.SourceReadable();
 // UCI informs cross the gateway's WAN port, so only an on-gateway agent can see them.
 var uciCaptureCapable = config.OnGateway == true && UciInformCapture.Available();
+// Blocking on the gateway itself needs the gateway's own ipset and iptables.
+var blocklistCapable = config.OnGateway == true && GatewayBlocklistEnforcer.Available();
+// WAN Flood Protection needs the gateway's iptables, ipset, and tc.
+var floodCapable = config.OnGateway == true && WanFloodGuard.Available();
 var capabilityList = new List<string>();
 if (conntrackCapable) capabilityList.Add("conntrack-accounting");
 if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
+if (blocklistCapable) capabilityList.Add(GatewayBlocklistEnforcer.Capability);
+if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
+else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
 var capabilities = capabilityList.ToArray();
 if (config.OnGateway == true)
 {
@@ -236,6 +253,12 @@ if (config.OnGateway == true)
     Console.WriteLine(uciCaptureCapable
         ? "UCI inform capture available (packet socket opens)"
         : "On-gateway install, but a packet socket cannot be opened - UCI inform capture unavailable");
+    Console.WriteLine(blocklistCapable
+        ? "Gateway blocklist available (ipset and iptables usable)"
+        : "On-gateway install, but ipset or iptables is not usable - gateway blocklist unavailable");
+    Console.WriteLine(floodCapable
+        ? "WAN flood protection available (iptables, ipset, and tc usable)"
+        : "On-gateway install, but iptables, ipset, or tc is not usable - WAN flood protection unavailable");
 }
 var spoolPath = Path.Combine(
     Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "result-spool.bin");
@@ -299,6 +322,34 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
         uciCapture = new UciInformCapture();
         uciCaptureTask = uciCapture.RunAsync(cts.Token);
     }
+    if (blocklistCapable)
+    {
+        // Started before the tunnel: the cached set goes back on at once after a gateway reboot.
+        var guardHosts = new[] { config.ServerUrl, config.TunnelUrl }
+            .Select(u => Uri.TryCreate(u, UriKind.Absolute, out var uri) ? uri.Host : null)
+            .OfType<string>().Distinct().ToList();
+        blocklist = new GatewayBlocklistEnforcer(
+            Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "gateway-blocklist.json"), guardHosts);
+        blocklistTask = blocklist.RunAsync(cts.Token);
+        kernelLog ??= new KernelLogFollower();
+        blocklistHits = new GatewayBlocklistHitReporter(kernelLog);
+        blocklistHitsTask = blocklistHits.RunAsync(cts.Token);
+    }
+    if (floodCapable)
+    {
+        // Started before the tunnel: the cached config and drops go back on at once after a gateway reboot.
+        var guardHosts = new[] { config.ServerUrl, config.TunnelUrl }
+            .Select(u => Uri.TryCreate(u, UriKind.Absolute, out var uri) ? uri.Host : null)
+            .OfType<string>().Distinct().ToList();
+        floodGuard = new WanFloodGuard(
+            Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath)) ?? ".", "wan-flood.json"), guardHosts);
+        floodGuardTask = floodGuard.RunAsync(cts.Token);
+        kernelLog ??= new KernelLogFollower();
+        floodDetector = new WanFloodDetector(floodGuard, resultBuffer.Enqueue, kernelLog);
+        floodDetectorTask = floodDetector.RunAsync(cts.Token);
+    }
+    // One kernel log reader for every subscriber, started once they have all subscribed.
+    kernelLogTask = kernelLog?.RunAsync(cts.Token);
 }
 
 // Restart-based self-heal for a wedged async socket engine (every install
@@ -334,6 +385,17 @@ while (!cts.IsCancellationRequested)
         {
             tunnel.OnUciCaptureConfig = uciCapture.UpdateConfig;
             uciCapture.LiveSend = tunnel.TrySend;
+        }
+        if (blocklist != null)
+        {
+            tunnel.OnGatewayBlocklist = blocklist.Update;
+            blocklist.LiveSend = tunnel.TrySend;
+        }
+        if (blocklistHits != null) blocklistHits.LiveSend = tunnel.TrySend;
+        if (floodGuard != null)
+        {
+            tunnel.OnWanFloodConfig = floodGuard.Update;
+            floodGuard.LiveSend = tunnel.TrySend;
         }
         tunnel.OnWanSpeedTestConfig = wanConfig => speedTestServer?.UpdateWanServers(
             wanConfig.Servers.Select(s => new SpeedTestServer.WanServerEntry(s.ServerId, s.Url)).ToList(),
@@ -384,6 +446,9 @@ while (!cts.IsCancellationRequested)
         {
             if (conntrackRunner != null) conntrackRunner.LiveSend = null;
             if (uciCapture != null) uciCapture.LiveSend = null;
+            if (blocklist != null) blocklist.LiveSend = null;
+            if (blocklistHits != null) blocklistHits.LiveSend = null;
+            if (floodGuard != null) floodGuard.LiveSend = null;
             connectionCts.Cancel();
             // Nothing to salvage: the drain only peeks, so every unacked frame is
             // still in the buffer and replays on the next connection.
@@ -439,6 +504,19 @@ if (conntrackTask != null)
 if (uciCaptureTask != null)
 {
     try { await uciCaptureTask; } catch (OperationCanceledException) { }
+}
+if (blocklistTask != null)
+{
+    try { await blocklistTask; } catch (OperationCanceledException) { }
+}
+if (blocklistHitsTask != null)
+{
+    try { await blocklistHitsTask; } catch (OperationCanceledException) { }
+}
+foreach (var task in new[] { floodGuardTask, floodDetectorTask, kernelLogTask })
+{
+    if (task == null) continue;
+    try { await task; } catch (OperationCanceledException) { }
 }
 if (watchdogTask != null)
 {

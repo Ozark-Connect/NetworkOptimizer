@@ -140,6 +140,47 @@ public class FirmwareUrlParserTests
         parsed.Output.Should().NotContain("NETOPT_EXIT");
     }
 
+    [Theory]
+    [InlineData("NETOPT_START a1b2c3d4e5f6\nVersion: UDR7.ipq5322.v6.0.12\nNETOPT_EXIT 0\n", "a1b2c3d4e5f6", 0)]
+    [InlineData("NETOPT_START a1b2c3d4e5f6\ncurl: (22) The requested URL returned error: 404\nNETOPT_EXIT 1\n", "a1b2c3d4e5f6", 1)]
+    [InlineData("NETOPT_START a1b2c3d4e5f6\nVersion: UDR7.ipq5322.v6.0.12\n", "a1b2c3d4e5f6", null)]
+    [InlineData("", null, null)]
+    public void UniFiOsInstallLog_NamesTheAttemptAndReadsTheExitCodeOnlyOnceItHasEnded(string log, string? attemptId, int? exitCode)
+    {
+        var parsed = FirmwareCommandClient.ParseUniFiOsInstallLog(log);
+
+        parsed.AttemptId.Should().Be(attemptId);
+        parsed.ExitCode.Should().Be(exitCode);
+        parsed.Output.Should().NotContain("NETOPT_");
+    }
+
+    private const string NetworkUp = "{\"meta\":{\"rc\":\"ok\",\"server_version\":\"11.0.89\",\"server_running\":true,\"db_running\":true}}";
+    private const string NetworkStarting = "{\"meta\":{\"rc\":\"ok\",\"server_version\":\"11.0.89\",\"server_running\":false}}";
+
+    // Read live on a UCG-Fiber and a UDR7: a registered route answers 401 JSON from UniFi OS itself,
+    // even with Network stopped; an unregistered one serves the login page.
+    [Theory]
+    [InlineData(NetworkUp, "application/json; charset=utf-8", NetworkRouteState.Routed)]
+    [InlineData(NetworkUp, "text/html", NetworkRouteState.Unrouted)]
+    [InlineData(NetworkUp, "text/html; charset=utf-8", NetworkRouteState.Unrouted)]
+    [InlineData("", "application/json; charset=utf-8", NetworkRouteState.NotReady)]
+    [InlineData("", "text/html", NetworkRouteState.NotReady)]
+    [InlineData(NetworkStarting, "text/html", NetworkRouteState.NotReady)]
+    [InlineData("{\"meta\":{\"rc\":\"ok\",\"server_ru", "text/html", NetworkRouteState.NotReady)]
+    [InlineData(NetworkUp, "", NetworkRouteState.NotReady)]
+    public void NetworkRoute_IsUnroutedOnlyWhenNetworkRunsAndUniFiOsServesItsLoginPage(string status, string route, NetworkRouteState expected)
+    {
+        var output = $"NETOPT_STATUS {status}\nNETOPT_ROUTE {route}\n";
+
+        FirmwareCommandClient.ParseNetworkRoute(output).Should().Be(expected);
+    }
+
+    [Fact]
+    public void NetworkRoute_WithNoOutput_IsNotReady()
+    {
+        FirmwareCommandClient.ParseNetworkRoute(string.Empty).Should().Be(NetworkRouteState.NotReady);
+    }
+
     [Fact]
     public void NetworkInstallError_NamesTheUnmetDependency()
     {

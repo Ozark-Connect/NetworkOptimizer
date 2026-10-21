@@ -69,8 +69,8 @@ launchctl unload ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
 # Start
 launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
 
-# Logs
-tail -f ~/network-optimizer/logs/stdout.log
+# Logs (today's file)
+tail -f "$(ls -t ~/network-optimizer/logs/networkoptimizer-*.log | head -1)"
 ```
 
 ## Code Coverage

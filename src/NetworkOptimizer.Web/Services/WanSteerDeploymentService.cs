@@ -194,6 +194,12 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
             if (!deploySuccess)
                 return (false, deployError);
 
+            // Refuse before starting the daemon, so an unsupported gateway never shows it as running
+            progress?.Report("Checking gateway compatibility...");
+            var unsupportedError = await CheckRatioSupportAsync(ct);
+            if (unsupportedError != null)
+                return (false, unsupportedError);
+
             // Discover WANs
             progress?.Report("Discovering WAN interfaces...");
             var wans = await DiscoverWanInterfacesAsync();
@@ -273,6 +279,10 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
             var wans = await DiscoverWanInterfacesAsync();
             if (wans.Count == 0)
                 return (false, "No WAN interfaces discovered");
+
+            var unsupportedError = await CheckRatioSupportAsync(CancellationToken.None);
+            if (unsupportedError != null)
+                return (false, unsupportedError);
 
             var configJson = await GenerateConfigJsonAsync(wans);
             var base64Config = GatewayFile.ToBase64(configJson);
@@ -478,6 +488,39 @@ public class WanSteerDeploymentService : IWanSteerDeploymentService
         };
 
         return JsonSerializer.Serialize(config, ConfigJsonOptions);
+    }
+
+    /// <summary>
+    /// Asks the deployed binary which probability match the gateway supports, when any enabled rule
+    /// has a Ratio below 100%. Returns the error to show, or null when the deploy can go ahead.
+    /// </summary>
+    private async Task<string?> CheckRatioSupportAsync(CancellationToken ct)
+    {
+        await using var db = CreateSiteDb();
+        var weightedRules = await db.WanSteerTrafficClasses
+            .Where(tc => tc.Enabled && tc.Probability < 1.0)
+            .OrderBy(tc => tc.SortOrder)
+            .Select(tc => tc.Name)
+            .ToListAsync(ct);
+        if (weightedRules.Count == 0)
+            return null;
+
+        var probe = await _gatewaySsh.RunCommandAsync(
+            $"{RemoteBinaryPath} -probe 2>/dev/null", TimeSpan.FromSeconds(45), ct);
+        return BuildUnsupportedRatioError(probe.success ? probe.output : null, weightedRules);
+    }
+
+    /// <summary>
+    /// The deploy error for rules below 100% on a gateway with no probability match, or null.
+    /// A binary that predates <c>-probe</c> gives no answer, which is not a "none" answer.
+    /// </summary>
+    internal static string? BuildUnsupportedRatioError(string? probeOutput, IReadOnlyList<string> weightedRuleNames)
+    {
+        if (weightedRuleNames.Count == 0 || probeOutput?.Trim() != "none")
+            return null;
+        return "This gateway's kernel has neither the xt_statistic nor the dyn_random iptables match, so rules " +
+               $"with a Ratio below 100% can't run here: {string.Join(", ", weightedRuleNames)}. " +
+               "Set their Ratio to 100% or disable them, then deploy again.";
     }
 
     private async Task<(bool Success, string? Error)> DeployBinaryAsync(CancellationToken ct)

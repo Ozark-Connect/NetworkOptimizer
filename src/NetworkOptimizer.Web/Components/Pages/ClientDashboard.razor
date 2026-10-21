@@ -492,6 +492,29 @@
                             </div>
                         </div>
                     }
+
+                    @* Speed Test Buttons *@
+                    @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
+                    {
+                        <div class="speed-actions">
+                            <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
+                                Run Speed Test
+                            </a>
+                            <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
+                               data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
+                                Quick Test
+                            </a>
+                        </div>
+                    }
+                    else if (_isOwnDevice && _agentOnGateway)
+                    {
+                        <p class="form-hint">
+                            Speed tests aren't available at this site - its agent runs on the UniFi gateway,
+                            which doesn't host the LAN speed test. Deploy a Docker or bare-metal agent on a
+                            separate box at the site to enable them.
+                        </p>
+                    }
+
                     @if (_latestSpeedResult != null)
                     {
                         <div class="card speed-hero">
@@ -544,28 +567,6 @@
                         <div class="empty-state">
                             <p>No speed tests found for this time range.</p>
                         </div>
-                    }
-
-                    @* Speed Test Buttons *@
-                    @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
-                    {
-                        <div class="speed-actions">
-                            <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
-                                Run Speed Test
-                            </a>
-                            <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
-                               data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
-                                Quick Test
-                            </a>
-                        </div>
-                    }
-                    else if (_isOwnDevice && _agentOnGateway)
-                    {
-                        <p class="form-hint">
-                            Speed tests aren't available at this site - its agent runs on the UniFi gateway,
-                            which doesn't host the LAN speed test. Deploy a Docker or bare-metal agent on a
-                            separate box at the site to enable them.
-                        </p>
                     }
 
                     @* Speed History Chart *@
@@ -1336,7 +1337,7 @@
     // The image request carries no fetch wrapper to stamp the tab's site, so it is stamped here.
     private string AppIconUrl(string domain)
     {
-        var path = $"/api/client-dashboard/app-icon/{Uri.EscapeDataString(domain)}";
+        var path = $"/api/client-dashboard/apps/{Uri.EscapeDataString(domain)}/icon";
         return SiteContext.IsDefault ? path : $"{path}?site={Uri.EscapeDataString(SiteContext.Slug)}";
     }
     private List<SpeedChartPoint> _wanDownData = new();
@@ -4712,6 +4713,8 @@
         color: var(--text-primary);
     }
     .app-icon img {
+        width: 100%;
+        height: 100%;
         object-fit: contain;
         background: var(--bg-tertiary);
     }

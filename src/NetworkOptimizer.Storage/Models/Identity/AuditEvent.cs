@@ -136,6 +136,28 @@ public static class AuditActions
     public const string AlertRuleChanged = "alert_rule.changed";
     public const string MonitoringSetupChanged = "monitoring_setup.changed";
 
+    // Threat Intelligence - Automatic Blocking
+    /// <summary>A source was blocked on the gateway, WAF, or Cloudflare. Usually the system actor.</summary>
+    public const string ThreatSourceBlocked = "threat_block.added";
+    /// <summary>A block ended: released by a user, or expired (system actor).</summary>
+    public const string ThreatSourceUnblocked = "threat_block.released";
+    /// <summary>A blocking target was set up (console objects or a Cloudflare list created).</summary>
+    public const string ThreatBlockingTargetSetUp = "threat_block.target.set_up";
+    /// <summary>A blocking target's console objects were removed.</summary>
+    public const string ThreatBlockingTargetRemoved = "threat_block.target.removed";
+
+    // Threat Intelligence - WAN Flood Protection
+    /// <summary>The gateway agent dropped a flood source or port, or limited a port. System actor.</summary>
+    public const string WanFloodDropApplied = "wan_flood.drop.applied";
+    /// <summary>A drop or limit ended at its time to live. System actor.</summary>
+    public const string WanFloodDropExpired = "wan_flood.drop.expired";
+    /// <summary>A user ended a drop or limit early.</summary>
+    public const string WanFloodDropReleased = "wan_flood.drop.released";
+    /// <summary>The gateway agent put back rules a provision removed. System actor.</summary>
+    public const string WanFloodRulesReapplied = "wan_flood.rules.reapplied";
+    /// <summary>A per-source table filled and its rules were removed, or were restored. System actor.</summary>
+    public const string WanFloodTableFull = "wan_flood.table_full";
+
     // Device health checks
     public const string HealthCheckChanged = "health_check.changed";
     public const string HealthCheckTested = "health_check.tested";
@@ -164,6 +186,8 @@ public static class AuditActions
     public const string FirmwareRolloutSoakEnded = "firmware_rollout.soak_ended";
     public const string FirmwareRolloutUniFiAutoUpdateDisabled = "firmware_rollout.unifi_auto_update.disabled";
     public const string FirmwareRolloutRollback = "firmware_rollout.rollback";
+    /// <summary>A rollout restarted UniFi Network or rebooted the console because UniFi OS did not route to Network. System actor.</summary>
+    public const string FirmwareRolloutNetworkRecovery = "firmware_rollout.network_recovery";
     public const string FirmwareSharedBuildAdded = "firmware_rollout.shared_build.added";
 
     // AP Agent (the telemetry agent deployed onto an access point, not the on-site Agent)

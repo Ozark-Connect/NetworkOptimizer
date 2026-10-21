@@ -77,7 +77,10 @@ public interface IMfaService
     Task<ApplicationUser?> GetPendingTwoFactorUserAsync();
 
     /// <summary>Disables MFA and clears the authenticator key.</summary>
-    /// <summary>Turns the authenticator off. False when the write was refused and MFA is still on.</summary>
+    /// <summary>
+    /// Turns the authenticator off. False when the write was refused and MFA is still on. Rotates the
+    /// security stamp, so call it from an HTTP endpoint that re-issues the cookie, never a circuit.
+    /// </summary>
     Task<bool> DisableAsync(ApplicationUser user);
 }
 
@@ -86,6 +89,10 @@ public sealed class MfaService : IMfaService
 {
     private const string Issuer = "Network Optimizer";
     private const int RecoveryCodeCount = 10;
+
+    // Where Identity's UserStoreBase keeps the authenticator key; GetAuthenticatorKeyAsync reads it here.
+    private const string AuthenticatorKeyProvider = "[AspNetUserStore]";
+    private const string AuthenticatorKeyName = "AuthenticatorKey";
 
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<ApplicationRole> _roleManager;
@@ -131,7 +138,13 @@ public sealed class MfaService : IMfaService
         var key = await _userManager.GetAuthenticatorKeyAsync(user);
         if (string.IsNullOrEmpty(key))
         {
-            await _userManager.ResetAuthenticatorKeyAsync(user);
+            // Never ResetAuthenticatorKeyAsync here: it rotates the security stamp, and this runs in
+            // the circuit, which cannot re-issue the cookie, so the enable POST arrives revoked once
+            // the cookie is past the revalidation interval. Nothing is enrolled yet to protect.
+            var result = await _userManager.SetAuthenticationTokenAsync(
+                user, AuthenticatorKeyProvider, AuthenticatorKeyName, _userManager.GenerateNewAuthenticatorKey());
+            if (!result.Succeeded)
+                throw new InvalidOperationException("The authenticator key could not be saved.");
             key = await _userManager.GetAuthenticatorKeyAsync(user);
         }
 

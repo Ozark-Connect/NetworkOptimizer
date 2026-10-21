@@ -30,4 +30,7 @@ type UwnConfig struct {
 	UploadOnly   bool
 	TimeoutSecs  int
 	StartAt      int64 // Unix timestamp to synchronize throughput start (0 = start immediately)
+	LossSecs     int   // Idle packet loss phase length (0 = skip)
+	NoLoss       bool  // Skip all packet loss probing
+	LossTarget   string // host:port the loss probes connect to (set after server selection)
 }

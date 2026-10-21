@@ -1,0 +1,305 @@
+@using NetworkOptimizer.Threats.Blocking
+@using NetworkOptimizer.Threats.Models
+@inject IThreatBlockingAdmin Blocking
+@inject ISiteManagementService SiteManagement
+@inject AuthenticationStateProvider AuthState
+
+@if (_overview != null && (ShowWhenOff || _overview.Settings.Mode != BlockingMode.Off || _overview.Active.Count > 0 || _overview.Shared.Count > 0))
+{
+    <div class="card card-spaced blocked-sources" data-tour="threats-blocked-sources">
+        <div class="card-header">
+            <h3 class="card-title">Blocked Sources</h3>
+            <span class="status-badge @(_overview.Settings.Mode == BlockingMode.Enforce ? "status-active" : "")">@ModeLabel(_overview.Settings.Mode)</span>
+        </div>
+        <div class="card-body">
+            @if (_overview.Settings.Mode == BlockingMode.DryRun)
+            {
+                <div class="alert alert-info">
+                    <div class="banner-content">
+                        <div class="banner-text">
+                            <span>Detection Only: these sources would be blocked. Nothing is sent to the gateway, the WAF, or Cloudflare yet.</span>
+                            @if (_recommendationNote is { } listNote)
+                            {
+                                <small class="form-help">@listNote</small>
+                            }
+                        </div>
+                        <SiteAdminOnly>
+                            <div class="banner-actions">
+                                <button class="btn btn-sm btn-primary" disabled="@_turningOn" @onclick="TurnOnRecommended">Turn On Recommended</button>
+                            </div>
+                        </SiteAdminOnly>
+                    </div>
+                </div>
+            }
+            @foreach (var t in _overview.Targets.Where(t => !t.Ok))
+            {
+                <div class="alert alert-warning">@TargetLabel(t.Kind): @t.Error</div>
+            }
+            @if (_overview.Active.Count == 0)
+            {
+                <div class="empty-state">
+                    <p>@(_overview.Shared.Count > 0 ? "This site has no blocks of its own right now." : "Nothing is blocked right now.")</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable @ActiveSortClass(BlockColumn.Source)" @onclick="() => ToggleActiveSort(BlockColumn.Source)">Source</th>
+                                <th class="sortable @ActiveSortClass(BlockColumn.Reason)" @onclick="() => ToggleActiveSort(BlockColumn.Reason)">Reason</th>
+                                <th class="sortable hide-mobile @ActiveSortClass(BlockColumn.Blocked)" @onclick="() => ToggleActiveSort(BlockColumn.Blocked)">Blocked</th>
+                                <th class="sortable @ActiveSortClass(BlockColumn.Ends)" @onclick="() => ToggleActiveSort(BlockColumn.Ends)">Ends</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in ActivePageRows)
+                            {
+                                <tr>
+                                    <td><a href="@DrilldownUrl(b.SourceIp)"><code>@b.SourceIp</code></a>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
+                                    <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
+                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt)</td>
+                                    <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
+                                    <td>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-contrast btn-sm" disabled="@(_releasing == b.Id)" @onclick="() => Release(b)">Release</button>
+                                        </SiteAdminOnly>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (ActivePages > 1)
+                {
+                    <div class="pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage <= 1)" @onclick="() => _activePage--"><span class="pag-arrow">←</span> Prev</button>
+                        <span class="pagination-info">Page @_activePage of @ActivePages (@_overview.Active.Count total)</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage >= ActivePages)" @onclick="() => _activePage++">Next <span class="pag-arrow">→</span></button>
+                    </div>
+                }
+            }
+            @if (_overview.Shared.Count > 0)
+            {
+                <h4 class="blocked-sources-subtitle">
+                    Shared From Other Sites
+                    @if (_sharedSkewed)
+                    {
+                        <span class="blocked-sources-skew" data-tooltip="@SkewTooltip">Seeing skewed blocks from one or two sites?</span>
+                    }
+                </h4>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable @SharedSortClass(BlockColumn.Source)" @onclick="() => ToggleSharedSort(BlockColumn.Source)">Source</th>
+                                <th class="sortable @SharedSortClass(BlockColumn.Site)" @onclick="() => ToggleSharedSort(BlockColumn.Site)">Site</th>
+                                <th class="sortable hide-mobile @SharedSortClass(BlockColumn.Reason)" @onclick="() => ToggleSharedSort(BlockColumn.Reason)">Reason</th>
+                                <th class="sortable @SharedSortClass(BlockColumn.Ends)" @onclick="() => ToggleSharedSort(BlockColumn.Ends)">Ends</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in SharedPageRows)
+                            {
+                                <tr>
+                                    <td><a href="@DrilldownUrl(s.Block.SourceIp)"><code>@s.Block.SourceIp</code></a></td>
+                                    <td>@SiteName(s)</td>
+                                    <td class="hide-mobile">@s.Block.Reason</td>
+                                    <td>in @TimeFormatHelper.FormatDurationCompact(s.Block.ExpiresAt - DateTime.UtcNow)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (SharedPages > 1)
+                {
+                    <div class="pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage <= 1)" @onclick="() => _sharedPage--"><span class="pag-arrow">←</span> Prev</button>
+                        <span class="pagination-info">Page @_sharedPage of @SharedPages (@_overview.Shared.Count total)</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage >= SharedPages)" @onclick="() => _sharedPage++">Next <span class="pag-arrow">→</span></button>
+                    </div>
+                }
+            }
+            @if (_overview.Recent.Count > 0)
+            {
+                <p class="form-help">@(_overview.Recent.Count == 1 ? "1 block" : $"{_overview.Recent.Count} blocks") ended in the last 24 hours.</p>
+            }
+            @if (_message != null)
+            {
+                <div class="alert alert-danger">@_message</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Render even when Automatic Blocking is Off with nothing blocked (the Blocking tab, which would otherwise be blank).</summary>
+    [Parameter] public bool ShowWhenOff { get; set; }
+
+    private BlockingOverview? _overview;
+
+    // Column sort, three states per header like Bandwidth Hogs: descending, ascending, then the default order.
+    // Each table pages separately; a new sort goes back to its first page.
+    private enum BlockColumn { Source, Reason, Blocked, Ends, Site }
+    private const int PageSize = 20;
+    private BlockColumn? _activeSort;
+    private bool _activeAsc;
+    private int _activePage = 1;
+    private BlockColumn? _sharedSort;
+    private bool _sharedAsc;
+    private int _sharedPage = 1;
+
+    private static void Toggle(ref BlockColumn? sort, ref bool asc, BlockColumn col)
+    {
+        if (sort != col) { sort = col; asc = false; }
+        else if (!asc) asc = true;
+        else sort = null;
+    }
+
+    private static string SortClass(BlockColumn? sort, bool asc, BlockColumn col) =>
+        sort != col ? "" : asc ? "sort-asc" : "sort-desc";
+
+    private void ToggleActiveSort(BlockColumn col) { Toggle(ref _activeSort, ref _activeAsc, col); _activePage = 1; }
+    private void ToggleSharedSort(BlockColumn col) { Toggle(ref _sharedSort, ref _sharedAsc, col); _sharedPage = 1; }
+    private string ActiveSortClass(BlockColumn col) => SortClass(_activeSort, _activeAsc, col);
+    private string SharedSortClass(BlockColumn col) => SortClass(_sharedSort, _sharedAsc, col);
+
+    private static IComparable BlockKey(ThreatBlock b, BlockColumn col) => col switch
+    {
+        BlockColumn.Source => NetworkOptimizer.Core.Helpers.NetworkUtilities.IpSortKey(b.SourceIp),
+        BlockColumn.Reason => b.Reason,
+        BlockColumn.Blocked => b.CreatedAt,
+        _ => b.ExpiresAt,
+    };
+
+    private static IEnumerable<T> Sorted<T>(IEnumerable<T> rows, BlockColumn? sort, bool asc, Func<T, BlockColumn, IComparable> key) =>
+        sort is not { } col ? rows : asc ? rows.OrderBy(r => key(r, col)) : rows.OrderByDescending(r => key(r, col));
+
+    private static int Pages(int count) => Math.Max(1, (count + PageSize - 1) / PageSize);
+
+    private int ActivePages => Pages(_overview?.Active.Count ?? 0);
+    private int SharedPages => Pages(_overview?.Shared.Count ?? 0);
+
+    // The page is clamped here, not when the list changes: a release or a refresh can shrink the list under it.
+    private IEnumerable<ThreatBlock> ActivePageRows => Sorted(_overview!.Active, _activeSort, _activeAsc, BlockKey)
+        .Skip((Math.Min(_activePage, ActivePages) - 1) * PageSize).Take(PageSize);
+
+    private IEnumerable<SharedBlock> SharedPageRows => Sorted(_overview!.Shared, _sharedSort, _sharedAsc,
+            (s, col) => col == BlockColumn.Site ? SiteName(s) : BlockKey(s.Block, col))
+        .Skip((Math.Min(_sharedPage, SharedPages) - 1) * PageSize).Take(PageSize);
+
+    private string SiteName(SharedBlock s) =>
+        s.SiteSlug == null ? "Other site" : _siteNames.GetValueOrDefault(s.SiteSlug, s.SiteSlug);
+    private string? _recommendationNote;
+    private Dictionary<string, string> _siteNames = [];
+    private bool _sharedSkewed;
+    private int? _releasing;
+
+    private const string SkewTooltip =
+        "Network Optimizer can only block scanners that UniFi logs. Sites using scanner block lists (CINS Army, IPsum, " +
+        "blocklist.de, DShield) drop most scanners at the gateway before UniFi logs them, so they detect and share few. " +
+        "A site without those lists sees, blocks, and shares far more. The skew comes from each site's block lists, " +
+        "not from how often each site is scanned.";
+    private string? _message;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            _overview = await Blocking.GetOverviewAsync();
+            _recommendationNote = _overview.Settings.Mode == BlockingMode.DryRun ? (await Blocking.GetRecommendationAsync()).Note : null;
+            if (_overview.Shared.Count > 0)
+                _siteNames = (await SiteManagement.GetSitesAsync()).ToDictionary(s => s.Slug, s => s.Name);
+            // The caller's own site is in the list, so the other sites are one fewer.
+            _sharedSkewed = SharedIsSkewed(_overview.Shared, _siteNames.Count - 1);
+        }
+        catch (Exception)
+        {
+            // A Viewer read: if it fails the card simply stays hidden.
+            _overview = null;
+        }
+    }
+
+    private bool _turningOn;
+
+    private async Task TurnOnRecommended()
+    {
+        _turningOn = true;
+        _message = null;
+        try
+        {
+            var r = await Blocking.TurnOnRecommendedAsync();
+            if (r.GatewayError != null)
+                _message = $"Blocking is on, but the gateway was not set up: {r.GatewayError}";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not turn on blocking: {ex.Message}";
+        }
+        finally
+        {
+            _turningOn = false;
+        }
+    }
+
+    private async Task Release(ThreatBlock block)
+    {
+        _releasing = block.Id;
+        _message = null;
+        try
+        {
+            var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name ?? "a user";
+            if (!await Blocking.ReleaseAsync(block.Id, user))
+                _message = $"{block.SourceIp} is no longer blocked.";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not release {block.SourceIp}: {ex.Message}";
+        }
+        finally
+        {
+            _releasing = null;
+        }
+    }
+
+    private static string ModeLabel(BlockingMode mode) => mode switch
+    {
+        BlockingMode.Enforce => "Blocking",
+        BlockingMode.DryRun => "Detection Only",
+        _ => "Off"
+    };
+
+    /// <summary>Whether the block goes to the targets: Detection Only sends manual blocks only, even ones made in Blocking mode.</summary>
+    private bool IsSent(ThreatBlock b) =>
+        b.Enforced && (_overview!.Settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual);
+
+    /// <summary>
+    /// Whether one site (of two others) or two sites (of three or more) hold at least 80% of 20+ shared
+    /// blocks. Blocks from sites the caller cannot see count as one site.
+    /// </summary>
+    private static bool SharedIsSkewed(IReadOnlyList<SharedBlock> shared, int otherSites)
+    {
+        if (shared.Count < 20 || otherSites < 2)
+            return false;
+        var top = otherSites == 2 ? 1 : 2;
+        var held = shared.GroupBy(s => s.SiteSlug).Select(g => g.Count()).OrderDescending().Take(top).Sum();
+        return held >= shared.Count * 0.8;
+    }
+
+    private static string DrilldownUrl(string ip) => "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(ip);
+
+    internal static string TargetLabel(BlockTargetKind kind) => kind switch
+    {
+        BlockTargetKind.Gateway => "Gateway",
+        BlockTargetKind.Waf => "WAF",
+        BlockTargetKind.Cloudflare => "Cloudflare",
+        BlockTargetKind.GatewayAgent => "Gateway On-Site Agent",
+        _ => kind.ToString()
+    };
+}

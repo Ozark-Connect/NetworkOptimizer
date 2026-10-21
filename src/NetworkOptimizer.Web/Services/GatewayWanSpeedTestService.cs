@@ -31,6 +31,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly IAlertEventBus? _alertEventBus;
+    private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
@@ -85,7 +86,8 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         IServiceProvider serviceProvider,
         Licensing.LicenseStateService? licenseState = null,
         IAlertEventBus? alertEventBus = null,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        MonitoringInfluxRegistry? influxRegistry = null)
     {
         _licenseState = licenseState;
         _logger = logger;
@@ -97,6 +99,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         _siteDbFactory = siteDbFactory;
         _pathAnalyzer = pathAnalyzer;
         _alertEventBus = alertEventBus;
+        _influxRegistry = influxRegistry;
         _serviceProvider = serviceProvider;
     }
 
@@ -282,7 +285,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                 if (!deploySuccess)
                 {
                     Report("Error", 0, deployError);
-                    return FailResult(deployError, wanNetworkGroup, wanName, options);
+                    return await FailResultAsync(deployError, wanNetworkGroup, wanName, options);
                 }
             }
             Report("Preparing", 8, "Binary ready");
@@ -307,7 +310,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             _logger.LogError(ex, "Gateway WAN speed test failed");
             lock (_lock) { _currentPhase = "Error"; _currentPercent = 0; _currentStatus = ex.Message; }
             onProgress?.Invoke(("Error", 0, ex.Message));
-            return FailResult(ex.Message, wanNetworkGroup, wanName, options);
+            return await FailResultAsync(ex.Message, wanNetworkGroup, wanName, options);
         }
         finally
         {
@@ -336,6 +339,9 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             streams = Math.Clamp(options.Streams.Value, 1, 48);
         var duration = Math.Clamp(options.DurationSeconds, 2, 60);
         var binaryCommand = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} -duration {duration}";
+        // An ephemeral sample (SQM learning) skips the idle loss phase: it only holds the shaper lift longer.
+        if (options.Ephemeral)
+            binaryCommand += " -loss-duration 0";
 
         // With a shaper lift the binary runs inside a wrapper that raises the WAN's HTB roots to
         // the probe rates first and restores them from an EXIT trap, all in the one SSH session.
@@ -363,17 +369,17 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var error = $"Gateway speed test failed: {ExtractBinaryError(result.output)}";
             _logger.LogWarning("Gateway speed test failed: {Output}", result.output);
             report("Error", 0, error);
-            return FailResult(error, wanNetworkGroup, wanName, options);
+            return await FailResultAsync(error, wanNetworkGroup, wanName, options);
         }
 
         report("Parsing", 95, "Processing results...");
-        var testResult = ParseResult(result.output, interfaceName, wanNetworkGroup, wanName);
+        var testResult = ParseResult(result.output, interfaceName, wanNetworkGroup, wanName, out var phases);
 
         if (testResult == null)
         {
             var error = "Failed to parse speed test output";
             report("Error", 0, error);
-            return FailResult(error, wanNetworkGroup, wanName, options);
+            return await FailResultAsync(error, wanNetworkGroup, wanName, options);
         }
 
         if (options.Ephemeral)
@@ -384,7 +390,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             return testResult;
         }
 
-        return await SaveAndCompleteResult(testResult, interfaceName, report, cancellationToken);
+        return await SaveAndCompleteResult(testResult, interfaceName, report, cancellationToken, phases);
     }
 
     /// <summary>
@@ -406,10 +412,10 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
     }
 
     /// <summary>A failed result: stored for a normal run, returned unstored for an ephemeral one.</summary>
-    private Iperf3Result? FailResult(string? errorMessage, string? wanNetworkGroup, string? wanName, GatewayWanTestOptions options) =>
+    private async Task<Iperf3Result?> FailResultAsync(string? errorMessage, string? wanNetworkGroup, string? wanName, GatewayWanTestOptions options) =>
         options.Ephemeral
             ? BuildFailedResult(errorMessage, wanNetworkGroup, wanName)
-            : SaveFailedResult(errorMessage, wanNetworkGroup, wanName);
+            : await SaveFailedResultAsync(errorMessage, wanNetworkGroup, wanName);
 
     private async Task<Iperf3Result?> RunParallelWanTests(
         IReadOnlyList<WanInterfaceInfo> interfaces,
@@ -426,7 +432,8 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         // Launch parallel SSH commands, one per WAN interface
         // Synchronized start: all binaries do setup independently, then begin throughput at the same time
         // Split connections proportionally based on WAN count and max mode
-        var startAt = DateTimeOffset.UtcNow.AddSeconds(10).ToUnixTimeSeconds();
+        // 25 s covers setup plus the idle packet loss phase; the binary trims that phase to fit.
+        var startAt = DateTimeOffset.UtcNow.AddSeconds(25).ToUnixTimeSeconds();
         var (perWanServers, perWanStreams) = (interfaces.Count, maxMode) switch
         {
             (1, true) => (6, 24),
@@ -488,7 +495,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var failNames = interfaces
                 .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
                 .Distinct().OrderBy(n => n);
-            return SaveFailedResult("All WAN interface tests failed",
+            return await SaveFailedResultAsync("All WAN interface tests failed",
                 string.Join("+", failGroups), string.Join(" + ", failNames));
         }
 
@@ -586,7 +593,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             .Select(r => !string.IsNullOrEmpty(r.wan.Name) ? r.wan.Name : r.wan.NetworkGroup ?? "WAN")
             .Distinct().OrderBy(n => n));
 
-        return new Iperf3Result
+        var aggregate = new Iperf3Result
         {
             Direction = SpeedTestDirection.UwnWanGateway,
             DeviceHost = primaryServerHost ?? "UWN Test",
@@ -610,19 +617,23 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             TestTime = DateTime.UtcNow,
             Success = true,
         };
+        WanLossMapper.Apply(aggregate, results.Select(r => r.json).ToList());
+        return aggregate;
     }
 
     private async Task<Iperf3Result?> SaveAndCompleteResult(
         Iperf3Result testResult,
         string interfaceLabel,
         Action<string, int, string?> report,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        WanTestPhases? phases = null)
     {
         report("Saving", 98, "Saving results...");
         await using var db = CreateSiteDb();
         db.Iperf3Results.Add(testResult);
         await db.SaveChangesAsync(cancellationToken);
         var resultId = testResult.Id;
+        await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, testResult, _logger);
 
         _logger.LogInformation(
             "Gateway WAN speed test complete ({Interface}): Down {Download:F1} Mbps, Up {Upload:F1} Mbps, Latency {Latency:F1} ms",
@@ -638,6 +649,11 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
 
         var resolvedWanGroup = testResult.WanNetworkGroup;
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
+
+        if (testResult.Success)
+            WanTestBackgroundCheck.Schedule(
+                _serviceProvider.GetRequiredService<IServiceScopeFactory>(), _siteSlug, resultId, resolvedWanGroup, phases,
+                () => Task.FromResult(CreateSiteDb()), id => OnPathAnalysisComplete?.Invoke(id), _logger);
 
         return testResult;
     }
@@ -687,6 +703,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         db.Iperf3Results.Remove(result);
         await db.SaveChangesAsync();
         _logger.LogInformation("Deleted gateway WAN speed test result {Id}", id);
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, result, _logger);
         return true;
     }
 
@@ -717,19 +734,22 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                             && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
+        var original = (Iperf3Result)db.Entry(result).CurrentValues.Clone().ToObject();
         result.WanNetworkGroup = wanNetworkGroup;
         result.WanName = wanName;
         result.PathAnalysisJson = null;
         await db.SaveChangesAsync();
 
         _logger.LogInformation("Reassigned WAN for gateway result {Id} to {Group} ({Name})", id, wanNetworkGroup, wanName);
+        await SpeedTestInfluxExporter.SynchronizeMutationAsync(_influxRegistry, _siteSlug, original, _logger);
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(id, resolvedWanGroup: wanNetworkGroup), CancellationToken.None);
 
         return true;
     }
 
-    private Iperf3Result? ParseResult(string jsonOutput, string interfaceName, string? wanNetworkGroup, string? wanName)
+    private Iperf3Result? ParseResult(string jsonOutput, string interfaceName, string? wanNetworkGroup, string? wanName, out WanTestPhases? phases)
     {
+        phases = null;
         try
         {
             var json = JsonSerializer.Deserialize<WanSpeedTestResult>(jsonOutput, JsonOptions);
@@ -756,7 +776,7 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var edgeInfo = !string.IsNullOrEmpty(serverInfo) ? serverInfo : "UWN";
             var serverHost = !string.IsNullOrEmpty(json.Metadata?.ServerHost) ? json.Metadata.ServerHost : "UWN Test";
 
-            return new Iperf3Result
+            var result = new Iperf3Result
             {
                 Direction = SpeedTestDirection.UwnWanGateway,
                 DeviceHost = serverHost,
@@ -779,6 +799,9 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
                 TestTime = DateTime.UtcNow,
                 Success = true,
             };
+            WanLossMapper.Apply(result, [json]);
+            phases = WanTestPhases.From(json);
+            return result;
         }
         catch (JsonException ex)
         {
@@ -800,14 +823,15 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         ErrorMessage = errorMessage,
     };
 
-    private Iperf3Result? SaveFailedResult(string? errorMessage, string? wanNetworkGroup, string? wanName)
+    private async Task<Iperf3Result?> SaveFailedResultAsync(string? errorMessage, string? wanNetworkGroup, string? wanName)
     {
         try
         {
             var failedResult = BuildFailedResult(errorMessage, wanNetworkGroup, wanName);
-            using var context = CreateSiteDb();
+            await using var context = CreateSiteDb();
             context.Iperf3Results.Add(failedResult);
-            context.SaveChanges();
+            await context.SaveChangesAsync();
+            await SpeedTestInfluxExporter.ExportAsync(_influxRegistry, _siteSlug, failedResult, _logger);
             return failedResult;
         }
         catch (Exception saveEx)
@@ -858,39 +882,4 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         Converters = { new JsonStringEnumConverter() }
     };
 
-    // JSON deserialization models matching the Go binary output
-    private sealed class WanSpeedTestResult
-    {
-        public bool Success { get; set; }
-        public string? Error { get; set; }
-        public WanMetadata? Metadata { get; set; }
-        public WanLatency? Latency { get; set; }
-        public WanThroughput? Download { get; set; }
-        public WanThroughput? Upload { get; set; }
-        public int Streams { get; set; }
-        public int DurationSeconds { get; set; }
-    }
-
-    private sealed class WanMetadata
-    {
-        public string Ip { get; set; } = "";
-        public string Colo { get; set; } = "";
-        public string Country { get; set; } = "";
-        public string ServerHost { get; set; } = "";
-        public List<string>? ServerIps { get; set; }
-    }
-
-    private sealed class WanLatency
-    {
-        public double UnloadedMs { get; set; }
-        public double JitterMs { get; set; }
-    }
-
-    private sealed class WanThroughput
-    {
-        public double Bps { get; set; }
-        public long Bytes { get; set; }
-        public double LoadedLatencyMs { get; set; }
-        public double LoadedJitterMs { get; set; }
-    }
 }

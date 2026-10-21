@@ -484,6 +484,207 @@ public class RolloutConsoleUpdateTests
         (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
     }
 
+    // --- UniFi OS back, UniFi Network not routed ---------------------------------------------------
+
+    /// <summary>
+    /// Runs the plan to the point UniFi OS is back on its new build while the Network API is still
+    /// dark: devices are through, the console went down and answers again on 4.3.6.
+    /// </summary>
+    private static async Task<FirmwareRolloutPlan> ConsoleBackWithNetworkDarkAsync(RolloutHarness harness)
+    {
+        harness.Commands.PendingUniFiOs = new UniFiConsoleFirmwareRelease { Version = "4.3.6" };
+        var plan = await harness.SeedRunningPlanAsync(UniFiOsPlan(), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Commands.ConsoleInfo = null;
+        harness.Observer.ConsoleDark = true;
+        await harness.TickAsync(TimeSpan.FromMinutes(3));
+
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.3.6" },
+        };
+        harness.Commands.PendingUniFiOs = null;
+        return plan;
+    }
+
+    private static async Task TickMinutesAsync(RolloutHarness harness, int minutes)
+    {
+        for (var i = 0; i < minutes; i++)
+            await harness.TickAsync(TimeSpan.FromMinutes(1));
+    }
+
+    private static int CallCount(RolloutHarness harness, string call) => harness.Commands.Calls.Count(c => c == call);
+
+    [Fact]
+    public async Task UnroutedNetwork_IsRestartedOnceAfterTheHold_AndTheStepSettlesOnceItIsRouted()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+
+        // The first probe starts the hold; nothing is restarted inside it.
+        await TickMinutesAsync(harness, 5);
+        CallCount(harness, "ssh-restart-network").Should().Be(0);
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
+
+        await TickMinutesAsync(harness, 1);
+        CallCount(harness, "ssh-restart-network").Should().Be(1);
+        harness.AuditLog.Events.Should().Contain(e =>
+            e.Action == NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutNetworkRecovery
+            && e.DetailsJson!.Contains("restart_network"));
+
+        harness.Commands.NetworkRoute = NetworkRouteState.Routed;
+        await TickMinutesAsync(harness, 1);
+
+        var stored = (await harness.PlanAsync(plan.Id))!;
+        stored.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
+        Stored(stored).UniFiOsUpdate.Outcome.Should().Be("updated");
+        CallCount(harness, "ssh-reboot-console").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task NetworkStillUnroutedAfterTheRestart_RebootsOnce_ThenRaisesACritical()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+
+        await TickMinutesAsync(harness, 6);
+        CallCount(harness, "ssh-restart-network").Should().Be(1);
+
+        // The hold starts over after the restart.
+        await TickMinutesAsync(harness, 5);
+        CallCount(harness, "ssh-reboot-console").Should().Be(0);
+        await TickMinutesAsync(harness, 1);
+        CallCount(harness, "ssh-reboot-console").Should().Be(1);
+
+        // Dark past the UniFi OS budget as measured from the original trigger: the reboot is the
+        // rollout's own, so the clock runs from it and the console is not called stuck.
+        harness.Commands.ConsoleInfo = null;
+        await TickMinutesAsync(harness, 20);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+
+        harness.Commands.ConsoleInfo = new UniFiConsoleSystemInfo
+        {
+            Hardware = new UniFiConsoleHardware { FirmwareVersion = "4.3.6" },
+        };
+        await TickMinutesAsync(harness, 6);
+
+        var stored = (await harness.PlanAsync(plan.Id))!;
+        stored.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
+        Stored(stored).UniFiOsUpdate.Outcome.Should().Be("updated");
+        Stored(stored).UniFiOsUpdate.Error.Should().Contain("tried restarting UniFi Network, then rebooting the Console");
+        var alert = harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+        alert.Title.Should().StartWith("UniFi Network Unreachable After UniFi OS Update");
+        alert.Message.Should().Be(
+            "The Console is on UniFi OS 4.3.6, but UniFi Network is unreachable. Network Optimizer tried restarting UniFi Network, then rebooting the Console. UniFi Network is still unreachable.");
+        CallCount(harness, "ssh-restart-network").Should().Be(1);
+        CallCount(harness, "ssh-reboot-console").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task NetworkStillStarting_IsNeverRestarted_AndTheWaitIsBounded()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.NetworkRoute = NetworkRouteState.NotReady;
+
+        await TickMinutesAsync(harness, 15);
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
+
+        await TickMinutesAsync(harness, 10);
+        var stored = (await harness.PlanAsync(plan.Id))!;
+        stored.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
+        Stored(stored).UniFiOsUpdate.Outcome.Should().Be("updated");
+        CallCount(harness, "ssh-restart-network").Should().Be(0);
+        CallCount(harness, "ssh-reboot-console").Should().Be(0);
+        // No recovery ran, so this is the step's old behavior: no alert.
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+    }
+
+    [Fact]
+    public async Task NetworkThatNeverStartsAfterTheRestart_RaisesACriticalNamingOnlyTheRestart()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+        await TickMinutesAsync(harness, 6);
+        CallCount(harness, "ssh-restart-network").Should().Be(1);
+
+        harness.Commands.NetworkRoute = NetworkRouteState.NotReady;
+        await TickMinutesAsync(harness, 19);
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline);
+
+        await TickMinutesAsync(harness, 2);
+
+        var stored = (await harness.PlanAsync(plan.Id))!;
+        stored.Status.Should().Be(FirmwareRolloutStatus.SoakWait);
+        harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.DeviceStuckOffline).Message.Should().Be(
+            "The Console is on UniFi OS 4.3.6, but UniFi Network is unreachable. Network Optimizer tried restarting UniFi Network. UniFi Network is still unreachable.");
+        CallCount(harness, "ssh-reboot-console").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task AnUnroutedStretchBrokenByNetworkRestarting_StartsTheHoldOver()
+    {
+        using var harness = new RolloutHarness();
+        await ConsoleBackWithNetworkDarkAsync(harness);
+
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+        await TickMinutesAsync(harness, 4);
+        harness.Commands.NetworkRoute = NetworkRouteState.NotReady;
+        await TickMinutesAsync(harness, 1);
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+        await TickMinutesAsync(harness, 5);
+
+        CallCount(harness, "ssh-restart-network").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task AnUnreadableRoute_ActsOnNothing()
+    {
+        using var harness = new RolloutHarness();
+        await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.NetworkRoute = null;
+
+        await TickMinutesAsync(harness, 10);
+
+        CallCount(harness, "ssh-network-route").Should().BeGreaterThan(0);
+        CallCount(harness, "ssh-restart-network").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task DevicesAnswering_SettlesWithoutReadingTheRoute()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+        harness.Observer.ConsoleDark = false;
+
+        await TickMinutesAsync(harness, 1);
+
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Outcome.Should().Be("updated");
+        CallCount(harness, "ssh-network-route").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task WithoutGatewaySsh_TheStepSettlesAsBefore()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await ConsoleBackWithNetworkDarkAsync(harness);
+        harness.Commands.GatewaySshConfigured = false;
+        harness.Commands.NetworkRoute = NetworkRouteState.Unrouted;
+
+        await TickMinutesAsync(harness, 1);
+
+        Stored((await harness.PlanAsync(plan.Id))!).UniFiOsUpdate.Outcome.Should().Be("updated");
+        CallCount(harness, "ssh-network-route").Should().Be(0);
+    }
+
     /// <summary>Walks one commanded device all the way through to its litmus verdict.</summary>
     private static async Task RunDeviceToLitmusAsync(RolloutHarness harness, string mac)
     {

@@ -1,0 +1,172 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
+
+namespace NetworkOptimizer.Threats.Waf;
+
+/// <summary>
+/// Talks to netopt-waf (NetworkOptimizer-Proxy) over its token-protected API: reads events and
+/// keeps its ban list.
+/// </summary>
+public sealed class WafClient
+{
+    /// <summary>Largest page netopt-waf serves.</summary>
+    public const int PageSize = 500;
+
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private readonly HttpClient _http;
+
+    public WafClient(HttpClient http) => _http = http;
+
+    /// <summary>
+    /// Why <paramref name="url"/> cannot carry the API token, or null when it can. Plain http is
+    /// allowed only to loopback (127.0.0.0/8, ::1, localhost), where the token never crosses a network.
+    /// </summary>
+    public static string? UrlProblem(string url)
+    {
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return "The WAF URL must be an http:// or https:// address.";
+        if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
+            return "Use https:// for the WAF URL. Plain http:// is allowed only to 127.0.0.1, ::1, or localhost.";
+        return null;
+    }
+
+    /// <summary>
+    /// Fetches events with sequence number at or after <paramref name="since"/>.
+    /// Throws <see cref="WafClientException"/> with a user-readable message on any failure.
+    /// </summary>
+    public Task<WafEventPage> GetEventsAsync(string baseUrl, string token, ulong since,
+        CancellationToken cancellationToken, int limit = PageSize) =>
+        SendAsync<WafEventPage>(HttpMethod.Get, baseUrl, $"/api/events?since={since}&limit={limit}", token, null,
+            "The address answered, but not with netopt-waf events. Check the URL.", cancellationToken);
+
+    /// <summary>
+    /// Replaces the WAF's ban list with <paramref name="bans"/> and returns how many it holds.
+    /// Throws <see cref="WafClientException"/> with a user-readable message on any failure.
+    /// </summary>
+    public async Task<int> PutBansAsync(string baseUrl, string token, IReadOnlyList<WafBan> bans,
+        CancellationToken cancellationToken)
+    {
+        var page = await SendAsync<WafBanPage>(HttpMethod.Put, baseUrl, "/api/bans", token,
+            JsonContent.Create(new { bans }),
+            "The WAF does not support a ban list. Update NetworkOptimizer-Proxy.", cancellationToken);
+        return page.Count;
+    }
+
+    /// <summary>
+    /// Switches the WAF between detect and block. Throws <see cref="WafClientException"/> on any failure,
+    /// including a WAF too old to switch modes.
+    /// </summary>
+    public Task<WafModeState> PutModeAsync(string baseUrl, string token, string mode, CancellationToken cancellationToken) =>
+        SendAsync<WafModeState>(HttpMethod.Put, baseUrl, "/api/mode", token, JsonContent.Create(new { mode }),
+            "The WAF cannot switch modes from here. Update NetworkOptimizer-Proxy.", cancellationToken);
+
+    /// <summary>
+    /// Replaces one of the WAF's allow lists (routes opt in with <c>/check?allow=name</c>) and
+    /// returns how many entries it holds. Throws <see cref="WafClientException"/> on any failure.
+    /// </summary>
+    public async Task<int> PutAllowListAsync(string baseUrl, string token, string name, IReadOnlyList<string> entries,
+        CancellationToken cancellationToken)
+    {
+        var lists = await SendAsync<List<WafAllowList>>(HttpMethod.Put, baseUrl, $"/api/allowlists/{Uri.EscapeDataString(name)}", token,
+            JsonContent.Create(new { entries }),
+            "The WAF does not support allow lists. Update NetworkOptimizer-Proxy.", cancellationToken);
+        return lists.FirstOrDefault(l => l.Name == name)?.Entries.Count ?? 0;
+    }
+
+    /// <summary>
+    /// Reads the WAF's built-in app sets and managed exclusions. Throws <see cref="WafClientException"/>
+    /// on any failure, including a WAF too old to manage exclusions.
+    /// </summary>
+    public Task<WafExclusionSet> GetExclusionsAsync(string baseUrl, string token, CancellationToken cancellationToken) =>
+        SendAsync<WafExclusionSet>(HttpMethod.Get, baseUrl, "/api/exclusions", token, null, ExclusionsUnsupported, cancellationToken);
+
+    /// <summary>
+    /// Replaces the WAF's managed exclusions. The WAF refuses a set it cannot build and keeps the
+    /// one it has. Throws <see cref="WafClientException"/> on any failure.
+    /// </summary>
+    public Task<WafExclusionSet> PutExclusionsAsync(string baseUrl, string token, IReadOnlyList<WafRuleExclusion> exclusions,
+        CancellationToken cancellationToken) =>
+        SendAsync<WafExclusionSet>(HttpMethod.Put, baseUrl, "/api/exclusions", token,
+            JsonContent.Create(new { exclusions = exclusions.Select(x => x.ForWaf()) }), ExclusionsUnsupported, cancellationToken);
+
+    private const string ExclusionsUnsupported = "The WAF cannot manage exclusions. Update NetworkOptimizer-Proxy.";
+
+    private async Task<T> SendAsync<T>(HttpMethod method, string baseUrl, string pathAndQuery, string token,
+        HttpContent? content, string wrongShapeMessage, CancellationToken cancellationToken)
+    {
+        if (UrlProblem(baseUrl) is { } problem)
+            throw new WafClientException(problem);
+        if (!Uri.TryCreate(baseUrl.Trim().TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var uri))
+            throw new WafClientException("The WAF URL must be an http:// or https:// address.");
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(Timeout);
+        using var request = new HttpRequestMessage(method, uri) { Content = content };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, cts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new WafClientException($"No answer from {uri.GetLeftPart(UriPartial.Authority)} within {Timeout.TotalSeconds:0} seconds.");
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new WafClientException($"Could not reach {uri.GetLeftPart(UriPartial.Authority)}: {ex.Message}");
+        }
+
+        using (response)
+        {
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                throw new WafClientException("The WAF rejected the API token. It must match WAF_API_TOKEN in the proxy's .env.");
+            // An older netopt-waf has no /api/bans: its mux answers 404 or 405.
+            if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+                throw new WafClientException(wrongShapeMessage);
+            // netopt-waf says why it refused a request in the body.
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                var reason = (await response.Content.ReadAsStringAsync(cts.Token)).Trim();
+                throw new WafClientException(reason.Length is > 0 and <= 300 ? $"The WAF refused it: {reason}" : "The WAF refused the request.");
+            }
+            if (!response.IsSuccessStatusCode)
+                throw new WafClientException($"The WAF answered HTTP {(int)response.StatusCode}.");
+            try
+            {
+                return await response.Content.ReadFromJsonAsync<T>(cts.Token)
+                    ?? throw new WafClientException("The WAF returned an empty response.");
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                throw new WafClientException(wrongShapeMessage);
+            }
+        }
+    }
+}
+
+/// <summary>One entry of netopt-waf's ban list.</summary>
+public sealed record WafBan(
+    [property: JsonPropertyName("ip")] string Ip,
+    [property: JsonPropertyName("expires")] DateTimeOffset Expires);
+
+/// <summary>One allow list in netopt-waf's GET/PUT /api/allowlists response.</summary>
+public sealed class WafAllowList
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("entries")] public List<string> Entries { get; set; } = [];
+}
+
+/// <summary>netopt-waf's GET/PUT /api/bans response.</summary>
+public sealed class WafBanPage
+{
+    [JsonPropertyName("count")] public int Count { get; set; }
+    [JsonPropertyName("bans")] public List<WafBan> Bans { get; set; } = [];
+}
+
+/// <summary>A WAF API failure with a message fit to show the user.</summary>
+public sealed class WafClientException(string message) : Exception(message);

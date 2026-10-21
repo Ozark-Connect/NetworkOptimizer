@@ -55,12 +55,18 @@ public class OntAlertEvaluator
         long? hecErrors = null,
         bool? fecEnabled = null,
         string? sourceUrl = null,
+        long? uptimeSeconds = null,
         CancellationToken ct = default)
     {
         var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
         // Where a raised alert links to. Attached SFP ONTs surface on SFP Stats, standalone
         // ONTs on ONT Stats; the caller passes the deep link to the triggering module.
         state.SourceUrl = string.IsNullOrEmpty(sourceUrl) ? DefaultSourceUrl : sourceUrl;
+
+        if (uptimeSeconds.HasValue)
+        {
+            await CheckReboot(state, ontId, ontName, uptimeSeconds.Value, ct);
+        }
 
         if (rxPowerDbm.HasValue)
         {
@@ -99,6 +105,84 @@ public class OntAlertEvaluator
         {
             await CheckTemperature(state, ontId, ontName, temperatureC.Value, tempHighC, ct);
         }
+    }
+
+    /// <summary>
+    /// Flags an attached ONT whose own page stops answering while its SFP module's DDM still reads
+    /// light: the optics are fine and the management side has hung. A DDM read below the RX low
+    /// threshold (or none) is a fiber or optic fault, which the RX and PON link alerts own.
+    /// </summary>
+    public async ValueTask EvaluateManagementAsync(
+        int ontId, string ontName, bool pollSucceeded, double? ddmRxPowerDbm, double rxPowerLowDbm,
+        string? sourceUrl = null, CancellationToken ct = default)
+    {
+        var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
+        if (pollSucceeded)
+        {
+            state.FailedPolls = 0;
+            state.ManagementDown = false;
+            return;
+        }
+
+        var hasLight = ddmRxPowerDbm is double rx && rx >= rxPowerLowDbm;
+        state.FailedPolls = hasLight ? state.FailedPolls + 1 : 0;
+        if (state.ManagementDown || state.FailedPolls < PonThresholds.OntManagementFailedPolls) return;
+
+        state.ManagementDown = true;
+        _logger.LogDebug("ONT {Name} unresponsive for {Polls} polls with DDM RX {Rx} dBm", ontName, state.FailedPolls, ddmRxPowerDbm);
+
+        await _eventBus.PublishAsync(new AlertEvent
+        {
+            EventType = "ont.management_unresponsive",
+            Source = "ont",
+            Severity = AlertSeverity.Warning,
+            Title = $"{ontName} not responding{_siteSuffix}",
+            Message = $"ONT {ontName} has not answered {state.FailedPolls} polls in a row while its SFP module reads " +
+                $"{ddmRxPowerDbm:0.##} dBm RX. The optics are fine; the module's management side may be hung.",
+            DeviceName = ontName,
+            MetricValue = state.FailedPolls,
+            ThresholdValue = PonThresholds.OntManagementFailedPolls,
+            SourceUrl = string.IsNullOrEmpty(sourceUrl) ? state.SourceUrl : sourceUrl,
+            Tags = ["ont", "management"],
+            Context = new Dictionary<string, string>
+            {
+                ["ont_id"] = ontId.ToString(),
+                ["metric"] = "management"
+            }
+        }, ct);
+    }
+
+    /// <summary>
+    /// Flags an ONT whose uptime went backwards since the last poll, which only a reboot causes.
+    /// The first reading only sets the baseline.
+    /// </summary>
+    private async ValueTask CheckReboot(
+        OntAlertState state, int ontId, string ontName, long uptimeSeconds, CancellationToken ct)
+    {
+        var previous = state.PreviousUptimeSeconds;
+        state.PreviousUptimeSeconds = uptimeSeconds;
+        if (previous is not long prev || uptimeSeconds >= prev) return;
+
+        _logger.LogDebug("ONT {Name} uptime went from {Prev} s to {Now} s", ontName, prev, uptimeSeconds);
+
+        await _eventBus.PublishAsync(new AlertEvent
+        {
+            EventType = "ont.rebooted",
+            Source = "ont",
+            Severity = AlertSeverity.Warning,
+            Title = $"{ontName} rebooted{_siteSuffix}",
+            Message = $"ONT {ontName} restarted: its uptime went from {TimeSpan.FromSeconds(prev):d\\.hh\\:mm\\:ss} " +
+                $"to {TimeSpan.FromSeconds(uptimeSeconds):d\\.hh\\:mm\\:ss}.",
+            DeviceName = ontName,
+            MetricValue = uptimeSeconds,
+            SourceUrl = state.SourceUrl,
+            Tags = ["ont", "reboot"],
+            Context = new Dictionary<string, string>
+            {
+                ["ont_id"] = ontId.ToString(),
+                ["metric"] = "uptime"
+            }
+        }, ct);
     }
 
     private async ValueTask CheckRxPower(
@@ -298,6 +382,9 @@ public class OntAlertEvaluator
         public long? PreviousFecErrors;
         public long? PreviousBipErrors;
         public long? PreviousHecErrors;
+        public long? PreviousUptimeSeconds;
+        public int FailedPolls;
+        public bool ManagementDown;
         public string SourceUrl = DefaultSourceUrl;
     }
 }

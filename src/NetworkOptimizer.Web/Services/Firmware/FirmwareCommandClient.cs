@@ -264,7 +264,11 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         if (console != null)
         {
             availability.CurrentUniFiOsChannel = console.Firmware?.ReleaseChannel;
-            availability.AvailableUniFiOsChannels = console.Firmware?.Channels ?? [];
+            // A channel the console holds a build for is offered, whether or not channels lists it.
+            availability.AvailableUniFiOsChannels = (console.Firmware?.Channels ?? [])
+                .Concat(console.Firmware?.LatestByChannel?.Keys ?? Enumerable.Empty<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             availability.CurrentNetworkAppChannel = console.NetworkApplication?.ReleaseChannel;
             availability.CurrentNetworkAppVersion = console.NetworkApplication?.Version;
         }
@@ -286,19 +290,22 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             : "none";
 
         _logger.LogInformation(
-            "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}), os={Os}, osByChannel=[{OsByChannel}]",
+            "Channels on site {Site}: devices={Device} (offers {DeviceOptions}), network={App} ({AppVersion}, offers {AppOptions}), os={Os} (offers {OsOptions}), osByChannel=[{OsByChannel}]",
             _siteSlug,
             availability.CurrentDeviceChannel ?? "unknown",
-            availability.AvailableDeviceChannels.Count > 0
-                ? string.Join("/", availability.AvailableDeviceChannels)
-                : "unreadable",
+            OptionsSummary(availability.AvailableDeviceChannels),
             availability.CurrentNetworkAppChannel ?? "unknown",
             availability.CurrentNetworkAppVersion ?? "unknown",
+            OptionsSummary(availability.AvailableNetworkAppChannels),
             availability.CurrentUniFiOsChannel ?? "unknown",
+            OptionsSummary(availability.AvailableUniFiOsChannels),
             osByChannelSummary);
 
         return availability;
     }
+
+    private static string OptionsSummary(List<string> options) =>
+        options.Count > 0 ? string.Join("/", options) : "unreadable";
 
     /// <inheritdoc />
     public async Task<bool?> GetAutoUpgradeEnabledAsync(CancellationToken cancellationToken = default)
@@ -375,7 +382,13 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         if (networkAppChannel == null && unifiOsChannel == null) return true;
 
         var client = await ConnectedClientAsync(cancellationToken);
-        if (client == null) return false;
+        if (client == null)
+        {
+            _logger.LogWarning(
+                "Cannot set the console update channels on site {Site} (Network application: {App}, UniFi OS: {Os}): the UniFi Console is not connected",
+                _siteSlug, networkAppChannel ?? "unchanged", unifiOsChannel ?? "unchanged");
+            return false;
+        }
 
         try
         {
@@ -602,30 +615,71 @@ public class FirmwareCommandClient : IFirmwareCommandClient
     private static bool IsPlainPackageUrl(string url) =>
         System.Text.RegularExpressions.Regex.IsMatch(url, @"^https://[A-Za-z0-9.-]+/[A-Za-z0-9._~/+-]+\.deb$");
 
+    private const string OsInstallScript = "/tmp/netopt-unifi-os.sh";
+    private const string OsInstallLog = "/tmp/netopt-unifi-os.log";
+
     /// <inheritdoc />
     public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(
-        string firmwareUrl, CancellationToken cancellationToken = default)
+        string firmwareUrl, string attemptId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(firmwareUrl))
             return FirmwareCommandResult.Failed("No firmware URL for the SSH UniFi OS update.");
         if (!NetworkOptimizer.Core.Helpers.UrlSafety.IsSafeHttpUrl(firmwareUrl))
             return FirmwareCommandResult.Failed("The firmware image URL is not a usable http(s) URL.");
+        if (string.IsNullOrWhiteSpace(attemptId) || !attemptId.All(char.IsAsciiLetterOrDigit))
+            return FirmwareCommandResult.Failed("The install attempt id must be alphanumeric.");
 
         try
         {
-            var (success, output) = await _gatewaySsh.RunCommandAsync(
-                $"ubnt-systool fwupdate '{firmwareUrl}'", timeout: TimeSpan.FromMinutes(5), cancellationToken: cancellationToken);
-            if (success)
+            // Detached, as the Network install is: the download and write take minutes, and the
+            // writer must outlive the SSH session that started it. The start line is what tells a
+            // later read that this attempt reached the gateway when the session itself dropped.
+            var script = NetworkOptimizer.Core.Helpers.GatewayFile.ToBase64(
+                $"echo \"NETOPT_START {attemptId}\"; ubnt-systool fwupdate '{firmwareUrl}'; echo \"NETOPT_EXIT $?\"");
+            var command = $"echo {script} | base64 -d > {OsInstallScript} && "
+                + $"nohup sh {OsInstallScript} > {OsInstallLog} 2>&1 < /dev/null & echo started";
+            var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
+            if (success && output.Contains("started", StringComparison.Ordinal))
                 return FirmwareCommandResult.Ok(output);
 
             return FirmwareCommandResult.Failed(
-                string.IsNullOrWhiteSpace(output) ? "The SSH UniFi OS update failed." : output.Trim());
+                string.IsNullOrWhiteSpace(output) ? "The SSH UniFi OS update could not be started." : output.Trim());
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "SSH UniFi OS update for site {Site} threw", _siteSlug);
             return FirmwareCommandResult.Failed($"The SSH UniFi OS update failed: {ex.Message}");
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<UniFiOsInstallLog?> ReadSshUniFiOsInstallLogAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                $"tail -c 4000 {OsInstallLog} 2>/dev/null", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success ? ParseUniFiOsInstallLog(output) : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the UniFi OS install log on site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>The attempt that wrote the log, its exit code once it has one, and the output between.</summary>
+    internal static UniFiOsInstallLog ParseUniFiOsInstallLog(string? output)
+    {
+        var text = output ?? string.Empty;
+        var start = System.Text.RegularExpressions.Regex.Match(text, @"NETOPT_START (\w+)");
+        var exit = System.Text.RegularExpressions.Regex.Match(text, @"NETOPT_EXIT (\d+)");
+        var from = start.Success ? start.Index + start.Length : 0;
+        var to = exit.Success ? exit.Index : text.Length;
+        return new UniFiOsInstallLog(
+            start.Success ? start.Groups[1].Value : null,
+            exit.Success ? int.Parse(exit.Groups[1].Value) : null,
+            text[from..Math.Max(from, to)].Trim());
     }
 
     /// <inheritdoc />
@@ -640,6 +694,104 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         {
             _logger.LogDebug(ex, "Could not read gateway SSH settings for site {Site}", _siteSlug);
             return false;
+        }
+    }
+
+    // UniFi OS answers an unregistered /proxy path with its login page (200 text/html), and answers
+    // a registered one itself (401 JSON) even while Network is stopped. So the route says only
+    // whether UniFi OS knows Network; Network's own port says whether it is up.
+    private const string NetworkRouteCommand =
+        "echo \"NETOPT_STATUS $(curl -s -m 5 http://127.0.0.1:8081/status 2>/dev/null | tr -d '\\r\\n')\"; "
+        + "echo \"NETOPT_ROUTE $(curl -sk -m 5 -o /dev/null -w '%{content_type}' https://127.0.0.1/proxy/network/status 2>/dev/null)\"";
+
+    /// <inheritdoc />
+    public async Task<NetworkRouteState?> ProbeNetworkRouteAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                NetworkRouteCommand, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success ? ParseNetworkRoute(output) : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the UniFi Network route on site {Site}", _siteSlug);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Unrouted only on both signals together: Network says it is running, and UniFi OS serves its
+    /// login page for the route. Anything unrecognized reads as not ready, which acts on nothing.
+    /// </summary>
+    internal static NetworkRouteState ParseNetworkRoute(string? output)
+    {
+        string? status = null;
+        string? route = null;
+        foreach (var raw in (output ?? string.Empty).Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.StartsWith("NETOPT_STATUS ", StringComparison.Ordinal))
+                status = line["NETOPT_STATUS ".Length..];
+            else if (line.StartsWith("NETOPT_ROUTE ", StringComparison.Ordinal))
+                route = line["NETOPT_ROUTE ".Length..].Trim();
+        }
+
+        UniFiNetworkStatus? parsed = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(status))
+                parsed = System.Text.Json.JsonSerializer.Deserialize<UniFiNetworkStatus>(status);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // A truncated or non-JSON answer reads as not ready below.
+        }
+
+        if (parsed?.IsRunning != true)
+            return NetworkRouteState.NotReady;
+        if (route != null && route.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+            return NetworkRouteState.Routed;
+        if (route != null && route.StartsWith("text/html", StringComparison.OrdinalIgnoreCase))
+            return NetworkRouteState.Unrouted;
+        return NetworkRouteState.NotReady;
+    }
+
+    /// <inheritdoc />
+    public async Task<FirmwareCommandResult> RestartNetworkApplicationAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                "systemctl restart --no-block unifi && echo restarting", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success && output.Contains("restarting", StringComparison.Ordinal)
+                ? FirmwareCommandResult.Ok(output)
+                : FirmwareCommandResult.Failed(string.IsNullOrWhiteSpace(output) ? "UniFi Network could not be restarted over SSH." : output.Trim());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "SSH restart of UniFi Network on site {Site} threw", _siteSlug);
+            return FirmwareCommandResult.Failed($"The SSH restart of UniFi Network failed: {ex.Message}");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<FirmwareCommandResult> RebootConsoleAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Backgrounded with a short delay, as the health check reboot remedy is, so the session
+            // gets its answer back before the console goes away.
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                "( sleep 2; reboot ) >/dev/null 2>&1 & echo rebooting", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+            return success && output.Contains("rebooting", StringComparison.Ordinal)
+                ? FirmwareCommandResult.Ok(output)
+                : FirmwareCommandResult.Failed(string.IsNullOrWhiteSpace(output) ? "The Console could not be rebooted over SSH." : output.Trim());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "SSH reboot of the console on site {Site} threw", _siteSlug);
+            return FirmwareCommandResult.Failed($"The SSH reboot of the Console failed: {ex.Message}");
         }
     }
 

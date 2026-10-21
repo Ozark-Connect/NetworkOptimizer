@@ -190,6 +190,7 @@ public class BandwidthHogsService
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
         var measured = new List<(LanNode Node, double Down, double Up, double? CapDown, double? CapUp, string? HistoryKey)>();
+        var clientCount = 0;
         foreach (var node in nodes)
         {
             var isHub = node.Kind == LanNodeKind.VirtualHub;
@@ -197,7 +198,9 @@ public class BandwidthHogsService
             if (!isHub && node.ParentId != null && membersByHub.ContainsKey(node.ParentId)) continue;
             if (!linksInto.TryGetValue(node.Id, out var into)) continue;
             var link = into.FirstOrDefault(l => l.Kind is LanLinkKind.WifiClient or LanLinkKind.WiredClient);
-            if (link == null || !rates.TryGetValue(link.Id, out var rate)) continue;
+            if (link == null) continue;
+            clientCount++;
+            if (!rates.TryGetValue(link.Id, out var rate)) continue;
             if (rate.DownstreamBps <= 0 && rate.UpstreamBps <= 0) continue;
             var (capDown, capUp) = ChainCap(node.ParentId, nodeById, linksInto, rates);
             // Where this row's rate history lives in the live cache: the client's own Wi-Fi
@@ -448,6 +451,7 @@ public class BandwidthHogsService
         return new HogsResult
         {
             Rows = rows,
+            ClientCount = clientCount,
             WanDownBps = wanDownBps,
             WanUpBps = wanUpBps,
             WanCapacityDownBps = capDownTotal,

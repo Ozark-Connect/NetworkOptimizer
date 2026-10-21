@@ -83,10 +83,15 @@ a safety backstop. In practice it uses ~50 MB; the limit only bounds a worst-cas
 fault, keeping it well clear of routing and IPS. Even a 2 GB gateway has ample
 headroom.
 
-This path is **monitoring-only**: the LAN speed test stays off, because hosting
-an nginx/iperf3 speed-test server on the router would compete with the data
-plane. For LAN speed testing, run a Docker or bare-metal agent on a separate box
-(and size that box to the LAN speed, per above).
+The LAN speed test is optional here (`--lan-speed-test`). Higher-end gateways
+like the EFG and UDM-Beast can max out 10 Gbps; the UXG/UCG-Fiber class sees
+2.5-5 Gbps with IPS on, and the UDR7 and other IPQ5332 gateways 1-2.5 Gbps. A running test loads the gateway for its duration. For faster LAN
+numbers, run a Docker or bare-metal agent on a separate box (and size that box
+to the LAN speed, per above).
+
+On a gateway, networks with IPS enabled send slower: UniFi turns off the
+offloads on those bridges so IPS can inspect traffic. A network excluded from
+IPS tests faster, but only for clients on that network.
 
 It survives UniFi OS firmware upgrades with nothing to re-run: on UniFi OS the
 root filesystem is an overlay whose writable upper layer is the persistent
@@ -163,6 +168,9 @@ The Docker and bare-metal scripts accept:
   nginx's listener and records the port in `agent.json`; the agent announces it to the server, so
   in-app speed test links follow with no override needed. Docker equivalent: `AGENT_SPEEDTEST_PORT=N`
   in the container environment.
+- `--speed-test-http-port N` (bare metal and gateway) - the plain HTTP port the test continues on
+  after the HTTPS page takes the location (default 24080; `0` keeps the whole test on HTTPS). Docker
+  equivalent: `AGENT_SPEEDTEST_HTTP_PORT=N`.
 
 Both nginx and the agent resolve the port the same way, so the listener and the announcement can
 never disagree: the environment variable if set, otherwise `"lanSpeedTestPort"` from `agent.json`,
@@ -363,8 +371,9 @@ normal operation.
 
 To run the agent on the gateway itself (any current UniFi OS gateway)
 rather than a separate box, use the gateway installer. It installs to `/data`
-(persistent on UniFi OS) with a memory-fenced systemd unit, monitoring-only (no
-speed test). UniFi gateways SSH in as root, so no `sudo`:
+(persistent on UniFi OS) with a memory-fenced systemd unit, monitoring by default;
+add `--lan-speed-test` to host the LAN speed test. UniFi gateways SSH in as root,
+so no `sudo`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- \
@@ -372,13 +381,20 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
   --token  "noa_..."
 ```
 
-It accepts `--insecure` and `--uninstall` (clean teardown). The install directory
+It accepts `--insecure`, `--uninstall` (clean teardown), `--lan-speed-test`,
+`--speed-test-http-port N`, and `--no-lan-speed-test` (removes the speed test and
+keeps the agent running). The install directory
 is fixed at `/data/netopt-agent` (there is no `--dir`): only `/data` survives a
 UniFi OS firmware upgrade, so the gateway agent is deliberately not relocatable. See
 "Where to run it > On a UniFi gateway" for the footprint, firmware-upgrade
 persistence, and the isolation trade-off.
 
 ### Speed test listener: TLS, plain HTTP, and reverse proxies
+
+The page opens on HTTPS (24443) so the browser can share location, then continues
+on plain HTTP (24080) for speed. Open 24080 alongside 24443 in any host firewall.
+`--speed-test-http-port 0` (Docker: `AGENT_SPEEDTEST_HTTP_PORT=0`) keeps the whole
+test on HTTPS.
 
 The LAN speed test listener serves self-signed HTTPS by default (a secure
 context, so browser geolocation works for GPS-tagged results). Two supported

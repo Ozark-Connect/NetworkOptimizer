@@ -77,7 +77,7 @@
                 }
                 else if (hasResults)
                 {
-                    <a href="/api/reports/latest/pdf" class="btn btn-secondary" download>
+                    <a href="@LatestPdfUrl" class="btn btn-secondary" download>
                         Download PDF
                     </a>
                 }
@@ -942,6 +942,7 @@
         ("IoT", "IoT"),
         ("Security", "Security"),
         ("Guest", "Guest"),
+        ("ManagementAccess", "Management Access"),
         ("Management", "Management"),
         ("Printer", "Printer"),
         ("Dmz", "DMZ"),
@@ -1084,13 +1085,16 @@
 
     private string? exportError;
 
+    // Threat table row counts come from Settings - Security Audit on the server.
+    private const string LatestPdfUrl = "/api/reports/latest/pdf";
+
     private async Task DownloadLatestPdf()
     {
         try
         {
             // Use JS fetch + blob to force download - Safari PWA opens PDFs inline with <a download>
             await JSRuntime.InvokeVoidAsync("eval", @"
-                fetch('/api/reports/latest/pdf')
+                fetch('" + LatestPdfUrl + @"')
                     .then(r => r.blob())
                     .then(b => {
                         const a = document.createElement('a');

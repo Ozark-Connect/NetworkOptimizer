@@ -36,6 +36,12 @@ public class MonitoredSfp
     [MaxLength(200)]
     public string? FriendlyName { get; set; }
 
+    /// <summary>
+    /// SFP temperature alerts read the attached ONT's own sensor instead of the host device's DDM
+    /// reading (a gateway, or a switch VLAN'd back to it). Only takes effect while an attached ONT config reports a temperature.
+    /// </summary>
+    public bool UseOntTemperature { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

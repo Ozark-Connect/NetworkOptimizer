@@ -84,8 +84,11 @@ public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmi
         var setting = await db.SystemSettings.FindAsync(key);
         if (setting == null)
             db.SystemSettings.Add(new SystemSetting { Key = key, Value = value });
-        else
+        else if (setting.Value != value)
+        {
             setting.Value = value;
+            setting.UpdatedAt = DateTime.UtcNow;
+        }
         await db.SaveChangesAsync();
     }
 

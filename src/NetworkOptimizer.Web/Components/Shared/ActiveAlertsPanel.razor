@@ -42,7 +42,7 @@
                         </div>
                         <p class="alert-message">@alert.Message</p>
                         <span class="alert-source">
-                            @alert.Source
+                            @AlertSourceDisplay.GetName(alert.Source)
                             @if (!string.IsNullOrEmpty(alert.DeviceName))
                             {
                                 <text> &middot; @alert.DeviceName</text>

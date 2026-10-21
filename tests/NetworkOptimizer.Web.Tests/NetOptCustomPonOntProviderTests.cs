@@ -114,6 +114,47 @@ public class NetOptCustomPonOntProviderTests
     }
 
     [Fact]
+    public void OltVendorId_MapsToBothModes_AndIsOptional()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload("""{ "ploam": { "curr_state": 5 }, "olt_vendor_id": " CALX " }""")!;
+
+        NetOptCustomPonOntProvider.MapToSupplemental(p).OltVendorId.Should().Be("CALX");
+        NetOptCustomPonOntProvider.MapToOntStats(p).OltVendor.Should().Be("CALX", "standalone, it rides the ont measurement's olt_vendor tag");
+
+        var without = NetOptCustomPonOntProvider.ParsePayload(SamplePayload)!;
+        NetOptCustomPonOntProvider.MapToSupplemental(without).OltVendorId.Should().BeNull();
+        NetOptCustomPonOntProvider.MapToOntStats(without).OltVendor.Should().BeNull();
+    }
+
+    [Fact]
+    public void SfpFwVersion_MapsToFirmwareVersionInBothModes_AndIsOptional()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload("""{ "ploam": { "curr_state": 5 }, "sfp_fw_version": " V1.0-220923 " }""")!;
+
+        NetOptCustomPonOntProvider.MapToSupplemental(p).FirmwareVersion.Should().Be("V1.0-220923");
+        NetOptCustomPonOntProvider.MapToOntStats(p).Pon!.FirmwareVersion.Should().Be("V1.0-220923", "standalone carries the same PON detail");
+
+        var without = NetOptCustomPonOntProvider.ParsePayload(SamplePayload)!;
+        NetOptCustomPonOntProvider.MapToSupplemental(without).FirmwareVersion.Should().BeNull();
+    }
+
+    [Fact]
+    public void OltModelAndVersion_MapToBothModes_AndAreOptional()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload(
+            """{ "olt_vendor_id": "CALX", "olt_model": " E7 ", "olt_version": "1.2.3" }""")!;
+
+        var s = NetOptCustomPonOntProvider.MapToSupplemental(p);
+        s.OltModel.Should().Be("E7");
+        s.OltVersion.Should().Be("1.2.3");
+        NetOptCustomPonOntProvider.MapToOntStats(p).OltModel.Should().Be("E7", "standalone, it rides the ont measurement's olt_model tag");
+
+        var without = NetOptCustomPonOntProvider.MapToSupplemental(NetOptCustomPonOntProvider.ParsePayload(SamplePayload)!);
+        without.OltModel.Should().BeNull();
+        without.OltVersion.Should().BeNull();
+    }
+
+    [Fact]
     public void ParsePayload_ErrorShape_SurfacesErrorCode()
     {
         var p = NetOptCustomPonOntProvider.ParsePayload(

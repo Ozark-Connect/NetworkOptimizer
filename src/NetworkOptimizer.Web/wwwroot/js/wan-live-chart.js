@@ -3,7 +3,7 @@
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=16';
+import * as flowData from './lan-flow-data.js?v=17';
 import { valueSortedTooltip } from './chart-tooltip.js?v=17';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 
@@ -43,6 +43,11 @@ let compareBuffers = new Map();
 const WAN_DASH = [0, 6, 2, 10, 4, 8];
 let elId = null;
 let visHandler = null;
+// Every scroll step rebuilds the chart's SVG, so the timed redraws skip while it cannot be seen.
+// Discrete draws (a seek, a return to live) still land.
+let onScreen = true;
+let visObserver = null;
+const canBeSeen = () => onScreen && !document.hidden;
 let mountGen = 0;
 let lastSampleTime = 0;
 // Whether a LIVE poll has landed this mount. Separate from lastSampleTime, which history and
@@ -927,8 +932,15 @@ async function doMount(containerId, opts) {
     const interval = pollMsOverride || pollMs;
 
     pollTimer = setInterval(pollLive, interval);
-    scrollTimer = setInterval(updateChart, SCROLL_MS);
+    scrollTimer = setInterval(() => { if (canBeSeen()) updateChart(); }, SCROLL_MS);
     startBackfillCatchUp();
+
+    if (visObserver) visObserver.disconnect();
+    onScreen = true;
+    visObserver = new IntersectionObserver((entries) => {
+        for (const e of entries) onScreen = e.isIntersecting;
+    });
+    visObserver.observe(el);
 
     if (visHandler) document.removeEventListener('visibilitychange', visHandler);
     visHandler = async () => {
@@ -1097,7 +1109,7 @@ async function enterLive() {
         if (gen !== mountGen || histAt > 0 || pollTimer) return;
         updateChart();
         pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
-        scrollTimer = setInterval(updateChart, SCROLL_MS);
+        scrollTimer = setInterval(() => { if (canBeSeen()) updateChart(); }, SCROLL_MS);
         startBackfillCatchUp();
     } finally {
         liveEntryInFlight = false;
@@ -1253,6 +1265,7 @@ export async function seekTime(isoTimestamp) {
     renderHistoric(at, mapPlaybackRate() <= 0);
     if (!histTimer) {
         histTimer = setInterval(() => {
+            if (!canBeSeen()) return;
             const rate = mapPlaybackRate();
             if (rate <= 0) {
                 // Not playing (paused, scrubbing, or no map): settle back on
@@ -1285,6 +1298,7 @@ export function unmount() {
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
     if (visHandler) { document.removeEventListener('visibilitychange', visHandler); visHandler = null; }
+    if (visObserver) { visObserver.disconnect(); visObserver = null; }
     if (chart) { chart.destroy(); chart = null; }
     removeMouseTracking();
     buffer = [];

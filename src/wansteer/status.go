@@ -21,6 +21,10 @@ type Status struct {
 	TrafficClasses  []TrafficClassStatus    `json:"traffic_classes"`
 	InBackoff       bool                    `json:"in_backoff"`
 	UnstableWANs    []string                `json:"unstable_wans,omitempty"`
+	// ProbBackend is the match that applies probabilities below 100% (see probBackend).
+	ProbBackend     string                  `json:"prob_backend"`
+	// UnsupportedClasses are enabled classes below 100% skipped because ProbBackend is none.
+	UnsupportedClasses []string             `json:"unsupported_classes,omitempty"`
 }
 
 // WANHealth is the health state of a single WAN link.
@@ -84,5 +88,7 @@ func buildStatus(cfg *Config, startedAt time.Time, lastReconcile time.Time, reco
 		TrafficClasses: classes,
 		InBackoff:      inBackoff,
 		UnstableWANs:   unstableNames,
+		ProbBackend:    string(activeBackend),
+		UnsupportedClasses: unsupportedClasses(cfg),
 	}
 }

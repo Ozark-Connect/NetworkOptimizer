@@ -1,0 +1,13 @@
+@inject IScopeBadgeText ScopeText
+
+@* Rendered once the text is known, so a tooltip is never set up with text that changes. *@
+@if (_text is not null)
+{
+    <span class="status-badge global-badge" data-tooltip="@_text.Tooltip">@_text.Label</span>
+}
+
+@code {
+    private ScopeBadgeText? _text;
+
+    protected override async Task OnInitializedAsync() => _text = await ScopeText.GetAsync();
+}

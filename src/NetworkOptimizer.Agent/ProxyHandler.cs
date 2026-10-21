@@ -47,6 +47,11 @@ public sealed class ProxyHandler
 
     public async Task HandleOpenAsync(ProxyOpen open, CancellationToken ct)
     {
+        // One budget for resolve plus connect: the server gives up on an open at 8 s and reads
+        // that as the tunnel being dead, so a live agent must answer inside it either way.
+        using var dialCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        dialCts.CancelAfter(ConnectTimeout);
+
         IPAddress[] addresses;
         if (IPAddress.TryParse(open.Host, out var literal))
         {
@@ -56,7 +61,12 @@ public sealed class ProxyHandler
         {
             try
             {
-                addresses = await Dns.GetHostAddressesAsync(open.Host, ct);
+                addresses = await Dns.GetHostAddressesAsync(open.Host, dialCts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                await SendOpenFailureAsync(open.ConnectionId, $"could not resolve '{open.Host}': resolver timed out", ct);
+                return;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -96,11 +106,9 @@ public sealed class ProxyHandler
         var client = new TcpClient();
         try
         {
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            connectCts.CancelAfter(ConnectTimeout);
             // Dial the validated addresses, never the name - re-resolving here
             // would let a changed DNS answer bypass the policy check above.
-            await client.ConnectAsync(addresses, open.Port, connectCts.Token);
+            await client.ConnectAsync(addresses, open.Port, dialCts.Token);
         }
         catch (Exception ex)
         {

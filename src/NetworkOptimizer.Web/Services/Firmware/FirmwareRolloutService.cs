@@ -774,7 +774,9 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         if (preview.HasActivePlan)
             preview.Warnings.Add("A rollout is already scheduled or running on this site.");
 
-        if (!preview.Channels.EarlyAccessAvailable &&
+        // A Cloud Gateway's own firmware is UniFi OS, so a site with nothing else has no device to warn about.
+        var hasNonConsoleDevices = preview.TotalDeviceCount > (preview.HasCloudGatewayHardware ? 1 : 0);
+        if (hasNonConsoleDevices && !preview.Channels.DeviceEarlyAccessAvailable &&
             UsesChannel(settings, FirmwareChannels.Beta))
         {
             preview.Warnings.Add("This console does not offer early access builds, so those devices will stay on their current channel.");

@@ -26,7 +26,9 @@ public static class AsyncIoWatchdog
     /// <summary>EX_SOFTWARE: distinguishes a watchdog restart from a crash in journal/systemd status.</summary>
     public const int ExitCode = 70;
 
-    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(60);
+    // 10 s x 3 strikes bounds the dark window at about a minute. Three strikes stay: a real wedge
+    // never clears on its own, and a single slow loopback connect on a starved box must not restart.
+    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan CanaryTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>

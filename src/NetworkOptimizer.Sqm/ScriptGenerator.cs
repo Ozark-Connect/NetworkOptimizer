@@ -97,6 +97,8 @@ public class ScriptGenerator
         sb.AppendLine("PING_SCRIPT=\"$SQM_DIR/${SQM_NAME}-ping.sh\"");
         sb.AppendLine("RESULT_FILE=\"$SQM_DIR/${SQM_NAME}-result.txt\"");
         sb.AppendLine("LOG_FILE=\"/var/log/sqm-${SQM_NAME}.log\"");
+        // udm-boot runs on_boot.d without HOME, and the Ookla CLI aborts on --version without it.
+        sb.AppendLine("export HOME=\"${HOME:-/root}\"");
         sb.AppendLine($"SPEEDTEST_BIN=\"{ManagedSpeedtestPath}\"");
         sb.AppendLine($"SPEEDTEST_RELEASE=\"{ManagedSpeedtestArchiveRelease}\"");
         sb.AppendLine($"SPEEDTEST_CLI_VERSION=\"{ManagedSpeedtestCliVersion}\"");
@@ -193,8 +195,9 @@ public class ScriptGenerator
         sb.AppendLine("            || { log_speedtest_install_error \"failed to extract Ookla speedtest\"; return 1; }");
         sb.AppendLine("    else");
         // install.speedtest.net answers 403, not 404, for a release it no longer hosts.
+        // 000 is no HTTP response at all (DNS filter, refused, timeout), which may not affect Packagecloud.
         sb.AppendLine("        case \"$SPEEDTEST_HTTP_STATUS\" in");
-        sb.AppendLine("            403|404|410) ;;");
+        sb.AppendLine("            000|403|404|410) ;;");
         sb.AppendLine("            *) log_speedtest_install_error \"failed to download Ookla speedtest (HTTP $SPEEDTEST_HTTP_STATUS)\"; return 1 ;;");
         sb.AppendLine("        esac");
         sb.AppendLine("        echo \"[$(date)] Ookla archive unavailable (HTTP $SPEEDTEST_HTTP_STATUS); trying the verified Packagecloud package\" >> \"$LOG_FILE\"");

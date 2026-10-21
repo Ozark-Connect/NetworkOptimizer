@@ -276,11 +276,27 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
     /// <summary>Runs while the SSH UniFi OS install is in flight, before it returns.</summary>
     public Func<Task>? DuringSshUniFiOsUpdate { get; set; }
 
-    public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, CancellationToken cancellationToken = default)
+    /// <summary>The attempt id the last SSH UniFi OS install was started with.</summary>
+    public string? LastSshUniFiOsAttemptId { get; private set; }
+
+    /// <summary>
+    /// What the gateway's install log reads. Null: unreadable. A function, so a test can answer
+    /// with the attempt id the orchestrator generated.
+    /// </summary>
+    public Func<UniFiOsInstallLog?>? SshUniFiOsLog { get; set; }
+
+    public async Task<FirmwareCommandResult> TriggerSshUniFiOsUpdateAsync(string firmwareUrl, string attemptId, CancellationToken cancellationToken = default)
     {
         Calls.Add("ssh-unifi-os-update");
+        LastSshUniFiOsAttemptId = attemptId;
         if (DuringSshUniFiOsUpdate != null) await DuringSshUniFiOsUpdate();
         return SshUniFiOsResult;
+    }
+
+    public Task<UniFiOsInstallLog?> ReadSshUniFiOsInstallLogAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-unifi-os-log");
+        return Task.FromResult(SshUniFiOsLog?.Invoke());
     }
 
     public bool GatewaySshConfigured { get; set; } = true;
@@ -299,6 +315,30 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
 
     public Task<ConsoleNetworkPackages?> ReadConsoleNetworkPackagesAsync(bool fresh = false, CancellationToken cancellationToken = default) =>
         Task.FromResult(NetworkPackages);
+
+    /// <summary>What the route probe reads; null is SSH not answering. Routed by default.</summary>
+    public NetworkRouteState? NetworkRoute { get; set; } = NetworkRouteState.Routed;
+
+    public FirmwareCommandResult RestartNetworkResult { get; set; } = FirmwareCommandResult.Ok();
+    public FirmwareCommandResult RebootConsoleResult { get; set; } = FirmwareCommandResult.Ok();
+
+    public Task<NetworkRouteState?> ProbeNetworkRouteAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-network-route");
+        return Task.FromResult(NetworkRoute);
+    }
+
+    public Task<FirmwareCommandResult> RestartNetworkApplicationAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-restart-network");
+        return Task.FromResult(RestartNetworkResult);
+    }
+
+    public Task<FirmwareCommandResult> RebootConsoleAsync(CancellationToken cancellationToken = default)
+    {
+        Calls.Add("ssh-reboot-console");
+        return Task.FromResult(RebootConsoleResult);
+    }
 }
 
 /// <summary>A device table the test moves through offline, upgrading and back-online states.</summary>

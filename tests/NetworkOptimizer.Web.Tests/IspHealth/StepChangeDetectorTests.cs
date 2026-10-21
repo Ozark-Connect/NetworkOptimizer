@@ -39,6 +39,77 @@ public class StepChangeDetectorTests
         events[0].DeltaMs.Should().Be(-10);
     }
 
+    private static AsnSeries SteppedSeries(int asn, string name, double fromMs, double toMs)
+    {
+        var stepAt = TestSeries.Start.AddHours(12);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: fromMs, jitterMs: 0.2)
+            .WithSegment(stepAt, TestSeries.Start + Day, rttMs: toMs, jitterMs: 0.2);
+        return TestSeries.Asn(asn, name, samples);
+    }
+
+    [Fact]
+    public void A_lone_step_under_the_floor_is_not_reported()
+    {
+        var events = StepChangeDetector.Detect(new[] { SteppedSeries(64500, "TransitOne", 10.6, 9.5) }, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_small_step_two_series_share_is_reported_once()
+    {
+        // A routing change: three paths through one transit network all drop ~1.1 ms together.
+        var events = StepChangeDetector.Detect(new[]
+        {
+            SteppedSeries(64500, "TransitOne", 10.6, 9.5),
+            SteppedSeries(64501, "TransitTwo", 16.8, 15.75),
+            SteppedSeries(64502, "TransitThree", 15.7, 14.55),
+        }, Options);
+
+        events.Should().ContainSingle();
+        events[0].Direction.Should().Be(PathShiftDirection.Down);
+        events[0].CorrelatedTargetCount.Should().Be(3);
+    }
+
+    [Fact]
+    public void Members_of_a_two_level_cluster_corroborate_a_small_step()
+    {
+        // Real 30-minute levels from a transit shift: the nearest hop drops 0.89 ms; two deeper
+        // hops ~1 ms apart drop 0.85 and 0.90 ms but share one cluster, whose merged samples
+        // straddle both levels. Under the lone 6% relative floor neither deeper hop qualifies.
+        var near = SteppedSeries(3356, "Transit", 10.51, 9.62);
+        var deepA = SteppedSeries(3356, "Transit", 15.41, 14.56).Samples;
+        var deepB = SteppedSeries(3356, "Transit", 16.65, 15.75).Samples;
+        var cluster = new AsnSeries
+        {
+            AsnNumber = 3356,
+            AsnName = "Transit (+5 ms hop)",
+            TargetIds = new List<string> { "deep-a", "deep-b" },
+            Samples = deepA.Concat(deepB).OrderBy(s => s.Time).ToList(),
+            SamplesByTarget = new Dictionary<string, List<LatencySample>> { ["deep-a"] = deepA, ["deep-b"] = deepB },
+        };
+
+        StepChangeDetector.Detect(new[] { near }, Options).Should().BeEmpty();
+        var mergedOnly = new AsnSeries { AsnNumber = 3356, TargetIds = cluster.TargetIds, Samples = cluster.Samples };
+        StepChangeDetector.Detect(new[] { near, mergedOnly }, Options).Should().BeEmpty(
+            "the merged cluster straddles two levels and cannot vouch for the step on its own");
+
+        var events = StepChangeDetector.Detect(new[] { near, cluster }, Options);
+
+        events.Should().ContainSingle();
+        events[0].Direction.Should().Be(PathShiftDirection.Down);
+        events[0].BeforeMedianMs.Should().BeApproximately(10.51, 0.05);
+    }
+
+    [Fact]
+    public void A_lone_step_over_the_floor_needs_no_corroboration()
+    {
+        var events = StepChangeDetector.Detect(new[] { SteppedSeries(64500, "TransitOne", 10, 11.5) }, Options);
+
+        events.Should().ContainSingle();
+        events[0].NeedsCorroboration.Should().BeFalse();
+    }
+
     [Fact]
     public void Dip_and_return_reports_two_events()
     {

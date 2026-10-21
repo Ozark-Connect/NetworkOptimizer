@@ -3,7 +3,9 @@
 
 param(
     [string]$OutputDir = "$PSScriptRoot",
-    [string]$Version = "3.6.9"
+    [string]$Version = "3.6.9",
+    # NetworkOptimizer-Proxy branch or tag that netopt-waf is built from
+    [string]$WafRef = "main"
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,6 +109,46 @@ foreach ($Template in $Templates) {
             exit 1
         }
     }
+}
+
+# Build netopt-waf (the companion repo's optional WAF) from source with Go.
+# Optional: without Go, or offline, a staged copy is kept, and with none the MSI
+# simply ships without the WAF (the WiX component is included only when it exists).
+$WafExePath = Join-Path $OutputDir "netopt-waf.exe"
+$Go = Get-Command go -ErrorAction SilentlyContinue
+if ($Go) {
+    $WafWork = Join-Path $env:TEMP "netopt-waf-build"
+    Remove-Item -Recurse -Force $WafWork -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $WafWork | Out-Null
+    $WafZip = Join-Path $WafWork "src.zip"
+    Write-Host "Building netopt-waf from NetworkOptimizer-Proxy $WafRef..."
+    $PrevCgo = $env:CGO_ENABLED
+    try {
+        Invoke-WebRequest -Uri "https://codeload.github.com/Ozark-Connect/NetworkOptimizer-Proxy/zip/$WafRef" -OutFile $WafZip
+        Expand-Archive -Path $WafZip -DestinationPath $WafWork -Force
+        $WafSrc = Get-ChildItem -Path $WafWork -Directory -Recurse -Filter "waf" | Where-Object { Test-Path (Join-Path $_.FullName "go.mod") } | Select-Object -First 1
+        if (-not $WafSrc) { throw "no waf/go.mod in NetworkOptimizer-Proxy@$WafRef" }
+        $env:CGO_ENABLED = "0"
+        $Built = Join-Path $WafWork "netopt-waf.exe"
+        Push-Location $WafSrc.FullName
+        try { & go build -trimpath -ldflags "-s -w" -o $Built . } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Built)) { throw "go build exited $LASTEXITCODE" }
+        Move-Item -Path $Built -Destination $WafExePath -Force
+        Write-Host "  Saved to $WafExePath"
+    }
+    catch {
+        Write-Warning "netopt-waf build failed: $_"
+    }
+    finally {
+        $env:CGO_ENABLED = $PrevCgo
+        Remove-Item -Recurse -Force $WafWork -ErrorAction SilentlyContinue
+    }
+}
+else {
+    Write-Warning "Go is not installed, so netopt-waf.exe was not rebuilt."
+}
+if (-not (Test-Path $WafExePath)) {
+    Write-Warning "netopt-waf.exe is not staged: this MSI will not include the web application firewall."
 }
 
 # List contents

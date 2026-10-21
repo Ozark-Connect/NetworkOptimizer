@@ -397,6 +397,31 @@ public class PortLockRuleTests
         _rule.Evaluate(port, []).Should().NotBeNull();
     }
 
+    [Theory]
+    [InlineData("US-16-XG")]
+    [InlineData("USW-Mission-Critical")]
+    [InlineData("US-8")]
+    [InlineData("US-8-150W")]
+    public void Evaluate_SwitchModelWithoutTheLock_ReturnsNull(string modelName)
+    {
+        _rule.SetNetworkApplicationVersion("11.0.5");
+        var port = CreatePort(client: ProtectClient(), firmwareVersion: "7.6.7", modelName: modelName);
+
+        _rule.Evaluate(port, []).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("11.0.5", "7.6.7.18000", true)]
+    [InlineData("11.0.5", "7.6.6.17900", false)]
+    [InlineData("10.6.106", "7.6.7.18000", false)]
+    public void Evaluate_UswFlex_GatedOnFirmware767AndNetwork11(string appVersion, string firmware, bool expectIssue)
+    {
+        _rule.SetNetworkApplicationVersion(appVersion);
+        var port = CreatePort(client: ProtectClient(), firmwareVersion: firmware, modelName: "USW-Flex");
+
+        (_rule.Evaluate(port, []) != null).Should().Be(expectIssue);
+    }
+
     #endregion
 
     #region Ports That Should Trigger Issue
@@ -571,12 +596,14 @@ public class PortLockRuleTests
         UniFiPortProfile? assignedProfile = null,
         string? portProfileId = null,
         string[]? seenMacs = null,
-        string? switchType = "usw")
+        string? switchType = "usw",
+        string? modelName = null)
     {
         var switchInfo = new SwitchInfo
         {
             Name = "Test Switch",
             MacAddress = "00:11:22:33:44:55",
+            ModelName = modelName,
             Type = switchType,
             FirmwareVersion = firmwareVersion,
             Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 32 }

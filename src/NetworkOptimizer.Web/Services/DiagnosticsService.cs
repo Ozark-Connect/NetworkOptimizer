@@ -25,6 +25,7 @@ public class DiagnosticsService
     private readonly SiteContextService _siteContext;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Ssh.GatewayShaperProbeService _shaperProbe;
+    private readonly Storage.Services.MonitoringInfluxClient _influx;
 
     public DiagnosticsService(
         ILogger<DiagnosticsService> logger,
@@ -35,8 +36,10 @@ public class DiagnosticsService
         ILoggerFactory loggerFactory,
         SiteContextService siteContext,
         Licensing.LicenseStateService licenseState,
-        Ssh.GatewayShaperProbeService shaperProbe)
+        Ssh.GatewayShaperProbeService shaperProbe,
+        Storage.Services.MonitoringInfluxClient influx)
     {
+        _influx = influx;
         _siteContext = siteContext;
         _licenseState = licenseState;
         _logger = logger;
@@ -153,8 +156,10 @@ public class DiagnosticsService
                 _loggerFactory.CreateLogger<Diagnostics.Analyzers.PortProfileSuggestionAnalyzer>(),
                 performanceLogger: _loggerFactory.CreateLogger<Diagnostics.Analyzers.PerformanceAnalyzer>());
 
+            var wanLinkSpeedHistory = await ReadWanLinkSpeedHistoryAsync(devices, options);
+
             var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options, clientHistory,
-                settingsDoc, qosRulesDoc, wanEnrichedDoc, wanShaperStates);
+                settingsDoc, qosRulesDoc, wanEnrichedDoc, wanShaperStates, wanLinkSpeedHistory);
 
             // Cache the result
             _cache.Set(CacheKeyLastResult, result);
@@ -205,6 +210,26 @@ public class DiagnosticsService
         }
 
         return await _shaperProbe.RunAsync();
+    }
+
+    /// <summary>
+    /// Each gateway WAN port's recorded link speed history. Empty when InfluxDB is not set up or
+    /// cannot be read: the check it feeds is skipped, never the run.
+    /// </summary>
+    private async Task<List<WanLinkSpeedHistory>> ReadWanLinkSpeedHistoryAsync(
+        List<UniFi.Models.UniFiDeviceResponse> devices, DiagnosticsOptions? options)
+    {
+        if (!(options?.RunPerformanceAnalyzer ?? true)) return new List<WanLinkSpeedHistory>();
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            return await Monitoring.WanLinkSpeedHistoryReader.ReadAsync(_influx, devices, DateTime.UtcNow, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WAN link speed history unavailable for diagnostics");
+            return new List<WanLinkSpeedHistory>();
+        }
     }
 
     private static DiagnosticsResult CreateErrorResult(string title, string message)

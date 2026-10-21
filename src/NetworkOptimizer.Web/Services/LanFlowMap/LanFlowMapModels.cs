@@ -51,6 +51,14 @@ public class LanFlowMapSnapshot
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Dictionary<string, LanPlacement> AnchorsByMac { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Interface name map per (device MAC, port number). Server-side only: a wired client rebuilt
+    /// for a historic instant has no snapshot link, so this is how it finds its port's rate series,
+    /// label, and speed.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Dictionary<(string mac, int port), NetworkOptimizer.Storage.Models.InterfaceNameMap> PortNameMaps { get; set; } = new();
 }
 
 public enum LanNodeKind
@@ -415,6 +423,9 @@ public class NodeClientStats
     public int? SignalDbm { get; set; }
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
+
+    /// <summary>A wired client's negotiated port speed at the instant, from its switch port sample.</summary>
+    public int? WiredLinkSpeedMbps { get; set; }
 
     /// <summary>
     /// The same per-band class and bar count the snapshot node carries. A client's signal often

@@ -386,6 +386,17 @@ public static class RadioBandExtensions
     }
 
     /// <summary>
+    /// Convert a channel center frequency in MHz to RadioBand enum
+    /// </summary>
+    public static RadioBand FromFrequencyMhz(int mhz) => mhz switch
+    {
+        >= 2400 and < 2500 => RadioBand.Band2_4GHz,
+        >= 5000 and < 5925 => RadioBand.Band5GHz,
+        >= 5925 and < 7200 => RadioBand.Band6GHz,
+        _ => RadioBand.Unknown
+    };
+
+    /// <summary>
     /// Get display string for band
     /// </summary>
     public static string ToDisplayString(this RadioBand band)

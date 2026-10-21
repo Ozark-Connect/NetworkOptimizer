@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using NetworkOptimizer.Threats.Interfaces;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Models;
 
 namespace NetworkOptimizer.Threats.CrowdSec;
@@ -11,31 +11,42 @@ namespace NetworkOptimizer.Threats.CrowdSec;
 public class CrowdSecEnrichmentService
 {
     private readonly CrowdSecClient _client;
+    private readonly ICtiReputationCache _cache;
     private readonly ILogger<CrowdSecEnrichmentService> _logger;
 
     public CrowdSecEnrichmentService(
         CrowdSecClient client,
+        ICtiReputationCache cache,
         ILogger<CrowdSecEnrichmentService> logger)
     {
         _client = client;
+        _cache = cache;
         _logger = logger;
     }
 
     /// <summary>
-    /// Get reputation for an IP, checking cache first.
+    /// Get reputation for an IP, checking the instance-wide cache first.
     /// Positive hits are cached for <paramref name="cacheTtlHours"/> (default 720 = 30 days).
     /// Negative hits (IP not in CrowdSec DB) are cached for 24 hours to avoid wasting API calls.
     /// Rate-limited or errored lookups are NOT cached so the IP can be retried later.
+    /// RFC1918/loopback/link-local IPs short-circuit with NotApplicable before any cache
+    /// or API call, since CrowdSec's CTI database is for public IPs only and a private-IP
+    /// lookup would burn quota for no value.
     /// </summary>
     public async Task<(CrowdSecIpInfo? Info, CrowdSecLookupOutcome Outcome)> GetReputationAsync(
         string ipAddress,
         string apiKey,
-        IThreatRepository repository,
         int cacheTtlHours = 720,
         CancellationToken cancellationToken = default)
     {
+        // Centralized guard: private/loopback/link-local IPs cannot have public reputation,
+        // so we short-circuit before touching cache or the API. Inline guards at call sites
+        // remain as defense-in-depth.
+        if (NetworkUtilities.IsPrivateIpAddress(ipAddress))
+            return (null, CrowdSecLookupOutcome.NotApplicable);
+
         // Check cache first
-        var cached = await repository.GetCrowdSecCacheAsync(ipAddress, cancellationToken);
+        var cached = await _cache.GetAsync(ipAddress, cancellationToken);
         if (cached != null)
         {
             // Negative cache entry - API previously returned 404 for this IP
@@ -71,7 +82,7 @@ public class CrowdSecEnrichmentService
                         ? DateTime.UtcNow.AddHours(cacheTtlHours)   // positive: 30 days
                         : DateTime.UtcNow.AddHours(24)               // negative: 24 hours
                 };
-                await repository.SaveCrowdSecCacheAsync(reputation, cancellationToken);
+                await _cache.SaveAsync(reputation, cancellationToken);
             }
             catch (Exception ex)
             {

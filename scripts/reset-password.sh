@@ -291,7 +291,9 @@ reset_macos() {
         install_dir="$HOME/network-optimizer"
     fi
 
-    local log_file="$install_dir/logs/stdout.log"
+    # The app writes a dated log file (networkoptimizer-YYYYMMDD.log, 7 kept); launchd's stdout goes to /dev/null.
+    local log_file
+    log_file=$(ls -t "$install_dir"/logs/networkoptimizer-*.log 2>/dev/null | head -1)
     msg_info "Install directory: $install_dir"
 
     # Verify database
@@ -339,22 +341,30 @@ reset_macos() {
     # Wait for health
     wait_for_health || true
 
-    # Poll for new password in log (up to 15s)
+    # Poll for new password in log (up to 15s). The restart may have rolled to a new dated file,
+    # in which case the whole new file is new output.
     echo ""
     local password=""
-    if [[ -f "$log_file" ]]; then
-        local deadline=$((SECONDS + 15))
-        while [[ $SECONDS -lt $deadline ]]; do
-            local new_bytes=$(( $(wc -c < "$log_file") - log_size_before ))
+    local deadline=$((SECONDS + 15))
+    while [[ $SECONDS -lt $deadline ]]; do
+        local current
+        current=$(ls -t "$install_dir"/logs/networkoptimizer-*.log 2>/dev/null | head -1)
+        if [[ -n "$current" ]]; then
+            local new_bytes
+            if [[ "$current" == "$log_file" ]]; then
+                new_bytes=$(( $(wc -c < "$current") - log_size_before ))
+            else
+                new_bytes=$(wc -c < "$current")
+            fi
             if [[ $new_bytes -gt 0 ]]; then
-                password=$(tail -c "$new_bytes" "$log_file" \
+                password=$(tail -c "$new_bytes" "$current" \
                     | grep "Password:" | tail -1 \
                     | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
                 if [[ -n "$password" ]]; then break; fi
             fi
-            sleep 1
-        done
-    fi
+        fi
+        sleep 1
+    done
 
     show_result "$password"
 }
@@ -594,7 +604,7 @@ show_result() {
         if [[ "$MODE" == "docker" ]]; then
             echo "  docker logs $CONTAINER 2>&1 | grep -A5 'AUTO-GENERATED'"
         elif [[ "$MODE" == "macos" ]]; then
-            echo "  grep 'Password:' ~/network-optimizer/logs/stdout.log | tail -1"
+            echo "  grep 'Password:' \"\$(ls -t ~/network-optimizer/logs/networkoptimizer-*.log | head -1)\" | tail -1"
         else
             echo "  journalctl -u networkoptimizer --since '5 minutes ago' | grep 'Password:'"
         fi

@@ -100,6 +100,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     public static readonly TimeSpan UniFiOsUpdateBudget =
         TimeSpan.FromSeconds(FirmwareTimingEstimator.CloudGatewayOfflineBudgetSeconds);
 
+    /// <summary>How often the Network route is read over SSH while UniFi OS is back and the Network API is not.</summary>
+    public static readonly TimeSpan NetworkRouteProbeInterval = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// How long Network must run unrouted before the rollout acts. UniFi OS registers Network within
+    /// a second of each Network start, so this is a margin, not an estimate.
+    /// </summary>
+    public static readonly TimeSpan NetworkUnroutedHold = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How long Network gets to come up after UniFi OS is back, or after a recovery action, before
+    /// the step stops waiting. Longer than unifi.service's own 15-minute start timeout.
+    /// </summary>
+    public static readonly TimeSpan NetworkStartBudget = TimeSpan.FromMinutes(20);
+
     /// <summary>
     /// No OS-update judgment before this much has passed since the trigger: the state fields can
     /// lag the accept, and download runs with the console still answering on the old version.
@@ -763,8 +778,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // them, so a rollout that skipped it would command devices the console has nothing ready for.
         await RefreshCatalogAsync(force: true, cancellationToken);
 
-        await ApplyNetworkAppChannelAsync(plan, document, settings, cancellationToken);
-        await TriggerNetworkAppUpdateAsync(document, cancellationToken);
+        var appChannelInForce = await ApplyNetworkAppChannelAsync(plan, document, settings, cancellationToken);
+        await TriggerNetworkAppUpdateAsync(document, appChannelInForce, cancellationToken);
 
         // The first advance pass is a full tick away and the application can drop inside it, so
         // the suppression window opens at the trigger rather than on the next pass.
@@ -1131,7 +1146,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             _suppression.RefreshOsCycle(_siteSlug, Now);
         }
 
-        if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, cancellationToken))
+        if (!await AdvanceUniFiOsUpdateAsync(plan, document, steps, consoleDark, cancellationToken))
             return;
 
         await CompleteAsync(plan, document, steps, cancellationToken);
@@ -1141,7 +1156,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Commands the UniFi Network application update once, at rollout start. A console with nothing
     /// to install says so by refusing, which is not a failure of anything.
     /// </summary>
-    private async Task TriggerNetworkAppUpdateAsync(RolloutPlanDocument document, CancellationToken cancellationToken)
+    private async Task TriggerNetworkAppUpdateAsync(RolloutPlanDocument document, bool channelInForce, CancellationToken cancellationToken)
     {
         var state = document.NetworkAppUpdate;
         if (!document.IncludesUniFiNetworkUpdate)
@@ -1196,7 +1211,28 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
         }
 
-        var apiPathAvailable = application is not { HasUpdate: false }
+        // A console that refused the channel switch offers whichever build its own channel carries.
+        // Only the build the plan captured may go through the API then, as on the UniFi OS step.
+        var offerIsPlanned = channelInForce
+            || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(application?.UpdateAvailable, state.TargetVersion);
+        var declined = false;
+        if (!state.Pinned && application is { HasUpdate: true } && !offerIsPlanned)
+        {
+            declined = true;
+            state.Error = $"The Console stayed on its own channel and offers {ShortVersion(application.UpdateAvailable) ?? application.UpdateAvailable}, not the planned {ShortVersion(state.TargetVersion) ?? "build"}.";
+            _logger.LogError(
+                "Declining the UniFi Network update on site {Site}: the console would not take the planned channel and offers {Offered}, not the planned {Planned}",
+                _siteSlug, application.UpdateAvailable, state.TargetVersion ?? "build");
+            await PublishAsync(
+                RolloutAlerts.NetworkAppUpdateRefused,
+                AlertSeverity.Warning,
+                $"UniFi Network Update Declined{_siteSuffix}",
+                $"The Console would not switch to the planned UniFi Network channel and is offering {ShortVersion(application.UpdateAvailable) ?? application.UpdateAvailable} instead of the planned {ShortVersion(state.TargetVersion) ?? "build"}. It was not installed.",
+                document.ConsoleMac, document.ConsoleName, cancellationToken);
+        }
+
+        var apiPathAvailable = !declined
+            && application is not { HasUpdate: false }
             && !string.IsNullOrWhiteSpace(application?.Version)
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(application.UpdateAvailable, application.Version);
 
@@ -1243,6 +1279,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 state.Triggered = true;
                 state.ViaSsh = true;
                 state.TriggeredAt = Now;
+                state.Error = null;
                 _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
                 return;
             }
@@ -1251,10 +1288,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             state.Error = ConsoleStepError(ssh.Message);
         }
 
-        // A chosen build, or an SSH install that was tried and failed, is a refusal, not nothing to do:
-        // the report and the history must not read it as a clean run. The console's API declining an
-        // unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
-        var refused = state.Pinned || sshAttempted;
+        // A chosen build, an SSH install that was tried and failed, or a declined offer is a refusal,
+        // not nothing to do: the report and the history must not read it as a clean run. The console's
+        // API declining an unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
+        var refused = state.Pinned || sshAttempted || declined;
         state.Settled = true;
         state.Outcome = refused ? "refused" : "nothing-to-update";
         if (refused)
@@ -1469,6 +1506,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         FirmwareRolloutPlan plan,
         RolloutPlanDocument document,
         List<FirmwareRolloutStep> steps,
+        bool consoleDark,
         CancellationToken cancellationToken)
     {
         var state = document.UniFiOsUpdate;
@@ -1503,7 +1541,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 await PersistDocumentAsync(plan, document, cancellationToken);
             }
 
-            if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
+            // The rollout's own recovery reboot restarts the clock: the budget began before it.
+            if (ElapsedReachable(state.ConsoleRebootedAt ?? triggeredAt) < UniFiOsUpdateBudget)
                 return false;
 
             await SettleUniFiOsAsync(plan, document, "stuck", cancellationToken);
@@ -1541,10 +1580,31 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             if (OsVersionMatches(installed, state.TargetVersion))
             {
+                if (!await NetworkRoutedAfterUniFiOsAsync(plan, document, steps, consoleDark, cancellationToken))
+                    return false;
+
                 await SettleUniFiOsAsync(plan, document, "updated", cancellationToken);
                 _logger.LogInformation(
                     "The console on site {Site} is back on UniFi OS {Version}", _siteSlug, installed);
                 return true;
+            }
+
+            // A detached SSH install is judged by its own log, not by the console's progress state,
+            // which an fwupdate started from the shell does not drive: a failed exit says why, and
+            // anything else gets the whole budget, since the reboot that proves it is still ahead.
+            if (state.ViaSsh)
+            {
+                var log = await ReadOsInstallLogAsync(cancellationToken);
+                if (log is { ExitCode: > 0 })
+                {
+                    state.Error = ConsoleStepError(log.Output);
+                    await SettleUniFiOsAsync(plan, document, "refused", cancellationToken);
+                    _logger.LogWarning(
+                        "SSH install of UniFi OS {Version} failed on site {Site}: {Reason}", state.TargetVersion, _siteSlug, state.Error);
+                    return true;
+                }
+                if (ElapsedReachable(triggeredAt) < UniFiOsUpdateBudget)
+                    return false;
             }
 
             if (!UniFiOsUpdateInProgress(info))
@@ -1657,7 +1717,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 await _litmus.CaptureStatsAsync(document.ConsoleMac, Now - preWindow, Now, cancellationToken));
         }
 
-        // A build chosen by hand installs by URL or not at all: the API installs the console's newest.
+        // A build chosen by hand installs by URL, since the API installs the console's newest. When
+        // the console's newest IS the chosen build, the API is the fallback for a failed SSH start.
         if (document.UniFiOsUpdate.Pinned)
         {
             var pinnedNewer = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(
@@ -1665,6 +1726,20 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (pinnedNewer && !string.IsNullOrWhiteSpace(document.UniFiOsUpdate.Url)
                 && await TrySshUniFiOsUpdateAsync(plan, document, cancellationToken))
                 return false;
+
+            var consoleOffersPin = apiPathAvailable && pending?.Version != null
+                && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(pending.Version, document.UniFiOsUpdate.TargetVersion);
+            if (pinnedNewer && consoleOffersPin && await _commands.TriggerUniFiOsUpdateAsync(cancellationToken))
+            {
+                document.UniFiOsUpdate.Error = null;
+                document.UniFiOsUpdate.Triggered = true;
+                document.UniFiOsUpdate.TriggeredAt = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
+                _logger.LogInformation(
+                    "Installing the chosen UniFi OS {Version} through the console on site {Site}, which offers that build itself; expect it to go dark",
+                    pending!.Version, _siteSlug);
+                return false;
+            }
 
             await SettleUniFiOsAsync(plan, document, pinnedNewer ? "refused" : "nothing-to-update", cancellationToken);
             return true;
@@ -1731,34 +1806,73 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             "Installing UniFi OS {Version} over SSH on site {Site} ({Url})",
             document.UniFiOsUpdate.TargetVersion, _siteSlug, document.UniFiOsUpdate.Url);
 
-        // The command returns only after the gateway has downloaded the image, so the step shows as
-        // upgrading from the moment it is sent rather than a minute or more later.
         document.UniFiOsUpdate.SendingAt = Now;
         await PersistDocumentAsync(plan, document, cancellationToken);
 
+        var attemptId = Guid.NewGuid().ToString("N")[..12];
         FirmwareCommandResult ssh;
         try
         {
-            ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, cancellationToken);
+            ssh = await _commands.TriggerSshUniFiOsUpdateAsync(document.UniFiOsUpdate.Url!, attemptId, cancellationToken);
         }
         finally
         {
             document.UniFiOsUpdate.SendingAt = null;
         }
 
-        if (ssh.IsOk)
+        // A failed call is not a failed start: the session can drop (an agent tunnel reset) after
+        // the gateway took the command. The install log's start line is the gateway's own answer.
+        var accepted = ssh.IsOk || await SshUniFiOsStartLoggedAsync(attemptId, cancellationToken);
+        if (accepted)
         {
             document.UniFiOsUpdate.Triggered = true;
+            document.UniFiOsUpdate.ViaSsh = true;
             document.UniFiOsUpdate.TriggeredAt = Now;
             await PersistDocumentAsync(plan, document, cancellationToken);
             _logger.LogInformation(
-                "SSH UniFi OS update accepted on site {Site}; expect it to go dark", _siteSlug);
+                ssh.IsOk
+                    ? "SSH UniFi OS update started on site {Site}; expect it to go dark"
+                    : "The SSH session for the UniFi OS update on site {Site} dropped, but the gateway logged the start; the command took",
+                _siteSlug);
             return true;
         }
 
+        document.UniFiOsUpdate.Error = ConsoleStepError(ssh.Message);
         await PersistDocumentAsync(plan, document, cancellationToken);
         _logger.LogWarning("SSH UniFi OS update failed on site {Site}: {Reason}", _siteSlug, ssh.Message);
         return false;
+    }
+
+    /// <summary>
+    /// Whether the gateway's install log names this attempt, re-read for up to
+    /// <see cref="SshDropSettleWindow"/>: the read goes over the same SSH route that just dropped.
+    /// </summary>
+    private async Task<bool> SshUniFiOsStartLoggedAsync(string attemptId, CancellationToken cancellationToken)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var log = await _commands.ReadSshUniFiOsInstallLogAsync(cancellationToken);
+            if (string.Equals(log?.AttemptId, attemptId, StringComparison.Ordinal))
+                return true;
+
+            if (waited.Elapsed >= SshDropSettleWindow)
+                return false;
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+    }
+
+    private DateTime _lastOsInstallLogRead = DateTime.MinValue;
+
+    /// <summary>
+    /// How a detached UniFi OS install stands, read at most once a minute while the console still
+    /// answers on its old version. Null when the log cannot be read, or was read too recently.
+    /// </summary>
+    private async Task<UniFiOsInstallLog?> ReadOsInstallLogAsync(CancellationToken cancellationToken)
+    {
+        if (Now - _lastOsInstallLogRead < InstallLogReadInterval) return null;
+        _lastOsInstallLogRead = Now;
+        return await _commands.ReadSshUniFiOsInstallLogAsync(cancellationToken);
     }
 
     private async Task SettleUniFiOsAsync(
@@ -1767,6 +1881,144 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         document.UniFiOsUpdate.Settled = true;
         document.UniFiOsUpdate.Outcome = outcome;
         await PersistDocumentAsync(plan, document, cancellationToken);
+    }
+
+    private DateTime _lastNetworkRouteProbe = DateTime.MinValue;
+
+    /// <summary>
+    /// Whether UniFi OS routes to UniFi Network after its own update, recovering over SSH when it
+    /// does not. Returns true when there is nothing left to wait for.
+    /// <para>
+    /// UniFi OS can come back on its new build without registering Network: Network runs, and
+    /// /proxy/network serves the login page until something restarts Network. Registration follows
+    /// each Network start within a second, so a Network restart comes first and a console reboot
+    /// only if that did not take. Each runs once per rollout.
+    /// </para>
+    /// </summary>
+    private async Task<bool> NetworkRoutedAfterUniFiOsAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        bool consoleDark,
+        CancellationToken cancellationToken)
+    {
+        // Devices answered, so the Network API did. Without gateway SSH the route cannot be read,
+        // and the step settles as it did before this check existed.
+        if (!consoleDark || !await _commands.HasGatewaySshAsync(cancellationToken))
+            return true;
+
+        if (Now - _lastNetworkRouteProbe < NetworkRouteProbeInterval)
+            return false;
+        _lastNetworkRouteProbe = Now;
+
+        var state = document.UniFiOsUpdate;
+        var route = await _commands.ProbeNetworkRouteAsync(cancellationToken);
+        if (route == NetworkRouteState.Routed)
+            return true;
+
+        if (route == NetworkRouteState.Unrouted)
+        {
+            if (state.NetworkUnroutedSince == null)
+            {
+                state.NetworkUnroutedSince = Now;
+                await PersistDocumentAsync(plan, document, cancellationToken);
+                _logger.LogWarning(
+                    "UniFi Network is running on site {Site} but UniFi OS is not routing to it", _siteSlug);
+            }
+
+            if (ElapsedReachable(state.NetworkUnroutedSince.Value) < NetworkUnroutedHold)
+                return false;
+
+            return await RecoverNetworkRouteAsync(plan, document, steps, cancellationToken);
+        }
+
+        // Still starting, or SSH did not answer. Neither is the failure this looks for, so the hold
+        // starts over and only the wait is bounded.
+        if (state.NetworkUnroutedSince != null)
+        {
+            state.NetworkUnroutedSince = null;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+        }
+
+        var since = state.ConsoleRebootedAt ?? state.NetworkRestartedAt ?? state.BackAt ?? state.TriggeredAt ?? Now;
+        if (ElapsedReachable(since) < NetworkStartBudget)
+            return false;
+
+        _logger.LogWarning(
+            "UniFi Network on site {Site} did not come up within {Minutes:0} minutes of UniFi OS; settling the UniFi OS step",
+            _siteSlug, NetworkStartBudget.TotalMinutes);
+
+        // Before any recovery ran this is the step's old behavior; after one, nothing else will say it.
+        if (state.NetworkRestartedAt != null)
+            await PublishNetworkUnreachableAsync(plan, document, steps, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// The next recovery action for an unrouted Network: restart it, then reboot the console, then
+    /// say so. Each action is stamped before it is sent, so a restarted server never repeats it.
+    /// </summary>
+    private async Task<bool> RecoverNetworkRouteAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
+    {
+        var state = document.UniFiOsUpdate;
+        state.NetworkUnroutedSince = null;
+
+        if (state.NetworkRestartedAt == null || state.ConsoleRebootedAt == null)
+        {
+            var restart = state.NetworkRestartedAt == null;
+            if (restart) state.NetworkRestartedAt = Now;
+            else state.ConsoleRebootedAt = Now;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+
+            var result = restart
+                ? await _commands.RestartNetworkApplicationAsync(cancellationToken)
+                : await _commands.RebootConsoleAsync(cancellationToken);
+            _logger.LogWarning(
+                "UniFi OS on site {Site} has not routed to UniFi Network for {Minutes:0} minutes; {Action}: {Result}",
+                _siteSlug, NetworkUnroutedHold.TotalMinutes, restart ? "restarted UniFi Network" : "rebooted the console",
+                result.IsOk ? "accepted" : result.Message);
+            RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutNetworkRecovery, _siteSlug, plan.Id, new
+            {
+                action = restart ? "restart_network" : "reboot_console",
+                reason = "UniFi OS was not routing to UniFi Network after the UniFi OS update",
+                accepted = result.IsOk,
+                error = result.IsOk ? null : result.Message,
+            });
+            return false;
+        }
+
+        await PublishNetworkUnreachableAsync(plan, document, steps, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// The Critical for a UniFi Network still unreachable after recovery. Names only the actions
+    /// that ran, and says "tried" because an SSH command can fail without the step knowing why.
+    /// </summary>
+    private async Task PublishNetworkUnreachableAsync(
+        FirmwareRolloutPlan plan,
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        CancellationToken cancellationToken)
+    {
+        var state = document.UniFiOsUpdate;
+        var tried = state.ConsoleRebootedAt != null
+            ? "restarting UniFi Network, then rebooting the Console"
+            : "restarting UniFi Network";
+        state.Error = $"UniFi Network was unreachable after UniFi OS updated. Network Optimizer tried {tried}.";
+        await PersistDocumentAsync(plan, document, cancellationToken);
+        await PublishAsync(
+            RolloutAlerts.DeviceStuckOffline,
+            AlertSeverity.Critical,
+            $"UniFi Network Unreachable After UniFi OS Update{_siteSuffix}",
+            $"The Console is on UniFi OS {ShortVersion(state.TargetVersion) ?? "its new build"}, but UniFi Network is unreachable. Network Optimizer tried {tried}. UniFi Network is still unreachable.",
+            steps.FirstOrDefault(IsGatewayStep)?.DeviceMac,
+            steps.FirstOrDefault(IsGatewayStep)?.DeviceName,
+            cancellationToken);
     }
 
     private async Task ProgressStepAsync(
@@ -2398,6 +2650,38 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
         }
 
+        // A failed AP that stays offline has settled, so the cap no longer counts it. Hold a wave
+        // that would take the last AP still up, then skip it rather than leave the site without Wi-Fi.
+        if (!inFlightWaves.Contains(wave))
+        {
+            if (TakesLastApUp(document, steps, waveSteps, byMac))
+            {
+                document.LastApHoldSince ??= Now;
+                if (Now - document.LastApHoldSince.Value >= LastApHoldTimeout)
+                {
+                    foreach (var step in waveSteps.Where(s => !IsSettled(s) && IsAccessPointStep(s)))
+                    {
+                        step.State = FirmwareRolloutStepState.AbortedSku;
+                        step.Error = "Skipped: it was the last access point still online";
+                        await PersistStepAsync(step, cancellationToken);
+                        _logger.LogWarning(
+                            "Skipped {Ap} on site {Site}: it was the last access point still online",
+                            step.DeviceName, _siteSlug);
+                    }
+                    document.LastApHoldSince = null;
+                }
+                plan.PlanJson = JsonSerializer.Serialize(document);
+                await PersistPlanAsync(plan, cancellationToken);
+                return;
+            }
+            if (document.LastApHoldSince != null)
+            {
+                document.LastApHoldSince = null;
+                plan.PlanJson = JsonSerializer.Serialize(document);
+                await PersistPlanAsync(plan, cancellationToken);
+            }
+        }
+
         if (waveSteps.All(s => s.State == FirmwareRolloutStepState.Held))
         {
             // Nothing in this wave can move and no canary is left to release it. Rather than stall
@@ -2767,8 +3051,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     }
 
     /// <summary>
-    /// Ends a soak before its window closes: the report is built from whatever comparisons are in,
-    /// and the plan becomes Reported, which frees the site to plan again.
+    /// Ends a soak before its window closes: any comparison whose window has already closed is
+    /// captured, the report is built from those, and the plan becomes Reported, which frees the
+    /// site to plan again.
     /// </summary>
     /// <param name="planId">The soaking plan.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -2785,6 +3070,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
             if (steps.Any(IsInFlight))
                 return "A rollback is still running. The soak can end once it finishes.";
+
+            // A window can close between ticks; capture it first, or the report drops after-stats it could have had.
+            await RunDueResourceComparisonsAsync(steps, plan, ParseDocument(plan), cancellationToken);
 
             var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
             var measured = steps.Where(s => s.State is FirmwareRolloutStepState.LitmusPassed
@@ -3095,24 +3383,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Puts the UniFi Network application on the channel this rollout wants, before the wave-0
     /// update reads what that channel is offering. A surface the rollout does not update is a
     /// surface it does not re-channel, so this only runs when the application is included.
+    /// False only when the console refused the switch: it is then offering its own channel's build.
     /// </summary>
-    private async Task ApplyNetworkAppChannelAsync(
+    private async Task<bool> ApplyNetworkAppChannelAsync(
         FirmwareRolloutPlan plan,
         RolloutPlanDocument document,
         FirmwareRolloutSettings settings,
         CancellationToken cancellationToken)
     {
         if (!document.IncludesUniFiNetworkUpdate || document.ConsoleChannels.NetworkAppChannel != null)
-            return;
+            return true;
 
         var channel = settings.EffectiveNetworkAppChannel;
         if (string.IsNullOrWhiteSpace(channel))
-            return;
+            return true;
 
         var console = await _commands.GetConsoleSystemInfoAsync(cancellationToken);
         var current = console?.NetworkApplication?.ReleaseChannel;
         if (RolloutChannelManager.AlreadyOn(current, channel))
-            return;
+            return true;
 
         if (string.IsNullOrWhiteSpace(current))
         {
@@ -3121,7 +3410,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             _logger.LogWarning(
                 "Leaving the UniFi Network application channel alone on site {Site}: the console does not report the one it is on",
                 _siteSlug);
-            return;
+            return true;
         }
 
         plan.OriginalChannelSettingsJson = await _channels.CaptureAsync(
@@ -3129,10 +3418,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PersistDocumentAsync(plan, document, cancellationToken);
 
         if (!await _channels.ApplyNetworkAppChannelAsync(channel, cancellationToken))
-            return;
+            return false;
 
         document.ConsoleChannels.NetworkAppChannel = channel;
         await PersistDocumentAsync(plan, document, cancellationToken);
+        return true;
     }
 
     /// <summary>
@@ -3392,6 +3682,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var type = FirmwareDeviceTypes.Parse(step.DeviceType);
         return FirmwareTimingEstimator.OfflineBudgetSeconds(
             FirmwareTimingEstimator.Classify(type, step.Model, step.Model));
+    }
+
+    /// <summary>How long a wave waits on an offline AP before it is skipped as the last one up.</summary>
+    internal static readonly TimeSpan LastApHoldTimeout = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Whether commanding this wave leaves no AP on the site online. False on plans without the
+    /// site's AP list, and while the Console is dark: nothing it says can be judged then.
+    /// </summary>
+    private static bool TakesLastApUp(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        List<FirmwareRolloutStep> waveSteps,
+        Dictionary<string, RolloutDeviceObservation> byMac)
+    {
+        if (document.SiteApMacs.Count < 2 || byMac.Count == 0)
+            return false;
+
+        var going = waveSteps.Where(IsAccessPointStep)
+            .Concat(steps.Where(IsInFlight))
+            .Select(s => s.DeviceMac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!waveSteps.Any(IsAccessPointStep))
+            return false;
+
+        return !document.SiteApMacs.Any(mac => !going.Contains(mac)
+            && byMac.TryGetValue(mac, out var seen)
+            && seen.State != (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Disconnected);
     }
 
     private static int InFlightCount(IEnumerable<FirmwareRolloutStep> steps, DeviceType type) =>
@@ -3675,11 +3993,20 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 parts.Add("The Console has not answered since its UniFi OS update.");
                 break;
             case "refused":
-                parts.Add("The Console would not take its UniFi OS update.");
+                parts.Add(UniFiOsRefusedSummary(document));
                 break;
         }
 
         return parts.Count == 0 ? "" : " " + string.Join(" ", parts);
+    }
+
+    /// <summary>The refusal with its reason when one was recorded, for the alert and the report alike.</summary>
+    internal static string UniFiOsRefusedSummary(RolloutPlanDocument document)
+    {
+        var error = document.UniFiOsUpdate.Error;
+        return string.IsNullOrWhiteSpace(error)
+            ? "The Console would not take its UniFi OS update."
+            : $"The Console would not take its UniFi OS update: {error}";
     }
 
     private async Task PersistDocumentAsync(

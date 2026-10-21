@@ -13,7 +13,7 @@
         <h2 class="card-title">Licensing</h2>
         @if (_multiSiteEnabled)
         {
-            <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            <ScopeBadge />
         }
     </div>
     <div class="card-body">
@@ -132,7 +132,7 @@
                     {
                         <span class="status-badge @GetSiteBadgeClass(status)">@GetSiteBadgeLabel(status)</span>
                     }
-                    <select class="form-control license-site-select" value="@(AssignedKeyId(site.Id)?.ToString() ?? "")"
+                    <select class="form-control license-site-select" data-autosave value="@(AssignedKeyId(site.Id)?.ToString() ?? "")"
                             @onchange="e => OnAssignmentChangedAsync(site.Slug, e)">
                         <option value="">Not covered</option>
                         @foreach (var key in _keys)

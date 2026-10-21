@@ -48,6 +48,12 @@ public sealed record HogsResult
 {
     public IReadOnlyList<HogRow> Rows { get; init; } = Array.Empty<HogRow>();
 
+    /// <summary>
+    /// Clients on the map at the instant, moving traffic or not. Throughput only: <see cref="Rows"/>
+    /// holds just the ones with a rate, so the card pads to this to hold a steady height.
+    /// </summary>
+    public int ClientCount { get; init; }
+
     /// <summary>The selected WAN(s)' rate at the instant; null when nothing could say.</summary>
     public double? WanDownBps { get; init; }
     public double? WanUpBps { get; init; }

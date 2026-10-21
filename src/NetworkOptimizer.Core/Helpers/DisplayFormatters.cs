@@ -626,4 +626,41 @@ public static class DisplayFormatters
     }
 
     #endregion
+
+    #region PON
+
+    /// <summary>
+    /// The OLT an ONT reports, as "Nokia (ALCL)" or "Calix E7 (CALX)". The raw ID stays visible
+    /// because it is what the ONT and the ISP's tooling show. Null when neither part is known.
+    /// </summary>
+    public static string? FormatOltVendor(string? vendorId, string? model = null)
+    {
+        var id = vendorId?.Trim();
+        var mdl = model?.Trim();
+        if (string.IsNullOrEmpty(id))
+            return string.IsNullOrEmpty(mdl) ? null : mdl;
+
+        var name = NetworkFormatHelpers.PonVendorName(id);
+        var head = name ?? id;
+        if (!string.IsNullOrEmpty(mdl)) head = $"{head} {mdl}";
+        return name != null ? $"{head} ({id.ToUpperInvariant()})" : head;
+    }
+
+    /// <summary>
+    /// ONT registration with the OLT plus its key exchange, as "Yes · key OK". Values the device
+    /// words some other way are shown as it words them. Null when the device reports neither.
+    /// </summary>
+    public static string? FormatPonRegistration(string? registration, string? keyExchange)
+    {
+        var reg = registration?.Trim();
+        var key = keyExchange?.Trim();
+        var parts = new List<string>(2);
+        if (!string.IsNullOrEmpty(reg))
+            parts.Add(reg.Equals("Registered", StringComparison.OrdinalIgnoreCase) ? "Yes" : reg);
+        if (!string.IsNullOrEmpty(key))
+            parts.Add(key.Equals("success", StringComparison.OrdinalIgnoreCase) ? "key OK" : $"key {key}");
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
+
+    #endregion
 }

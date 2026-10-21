@@ -45,7 +45,13 @@
     </div>
 }
 
-@if (_available && ShowRunButton)
+@if (_checking && ShowRunButton)
+{
+    <div class="gw-run-action gw-run-checking">
+        <span class="spinner spinner-sm"></span>
+    </div>
+}
+else if (_available && ShowRunButton)
 {
     <div class="gw-run-action">
         <button type="button" class="btn btn-primary btn-sm" @onclick="Start">
@@ -66,6 +72,11 @@
         align-items: center;
         gap: 0.75rem;
         margin: 0.5rem 0;
+    }
+
+    /* Holds the button row's height (btn-sm) so the button does not shift the page in. */
+    .gw-run-checking {
+        min-height: 28px;
     }
 
     .gw-run-hint {
@@ -115,7 +126,12 @@
     [Parameter]
     public string? EnrollmentToken { get; set; }
 
+    /// <summary>Whether the install command carries --lan-speed-test (ignored for an upgrade).</summary>
+    [Parameter]
+    public bool LanSpeedTest { get; set; }
+
     private bool _available;
+    private bool _checking = true;
     private bool _startedHere;
     private GatewayAgentInstallRun? _run;
 
@@ -134,15 +150,25 @@
     protected override async Task OnInitializedAsync()
     {
         if (string.IsNullOrWhiteSpace(SiteSlug))
+        {
+            _checking = false;
             return;
+        }
 
         // A run from earlier in the process (finished, or still going after a navigation)
-        // renders immediately; the button waits for the availability gate to resolve so it
-        // never flashes in and disables.
-        _run = await GatewayInstall.GetRunAsync(SiteSlug);
-        if (_run != null)
-            Subscribe(_run);
-        _available = await GatewayInstall.IsAvailableAsync(SiteSlug);
+        // renders immediately; the button's row spins until the availability gate resolves,
+        // so the button never pops in late or flashes in and disables.
+        try
+        {
+            _run = await GatewayInstall.GetRunAsync(SiteSlug);
+            if (_run != null)
+                Subscribe(_run);
+            _available = await GatewayInstall.IsAvailableAsync(SiteSlug);
+        }
+        finally
+        {
+            _checking = false;
+        }
     }
 
     private void Start()
@@ -151,7 +177,7 @@
         var prior = _run;
         var task = IsUpgrade
             ? GatewayInstall.RunUpgradeAsync(SiteSlug, OnRunStarted)
-            : GatewayInstall.RunInstallAsync(SiteSlug, EnrollmentToken ?? "", OnRunStarted);
+            : GatewayInstall.RunInstallAsync(SiteSlug, EnrollmentToken ?? "", LanSpeedTest, OnRunStarted);
         _ = ObserveAsync(task, prior);
     }
 

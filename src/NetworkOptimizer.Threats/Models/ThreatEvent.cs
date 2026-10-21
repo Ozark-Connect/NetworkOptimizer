@@ -9,6 +9,14 @@ public class ThreatEvent
     public int Id { get; set; }
 
     /// <summary>
+    /// The source device's MAC when the event came with one (a flow record, a gateway agent's drop).
+    /// Not stored: it only names the device in an alert, which matters for IPv6 clients the
+    /// console's client list knows by their IPv4 address alone.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? SourceMac { get; set; }
+
+    /// <summary>
     /// When the event occurred (UTC).
     /// </summary>
     public DateTime Timestamp { get; set; }
@@ -49,13 +57,33 @@ public class ThreatEvent
     /// </summary>
     public string InnerAlertId { get; set; } = string.Empty;
 
-    // --- Geo/ASN enrichment ---
+    // --- Source IP geo/ASN enrichment ---
+    // These reflect the SOURCE IP. For RFC1918 sources, all fields remain null.
     public string? CountryCode { get; set; }
     public string? City { get; set; }
     public int? Asn { get; set; }
     public string? AsnOrg { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+
+    // --- Destination IP geo/ASN enrichment ---
+    // These reflect the DEST IP. Populated for traffic-flow events where the
+    // external endpoint is the destination. Kept separate from the source fields
+    // so source-IP grouping (Top Threat Sources) does not display destination
+    // ASNs as if they belonged to the source.
+    public string? DestCountryCode { get; set; }
+    public string? DestCity { get; set; }
+    public int? DestAsn { get; set; }
+    public string? DestAsnOrg { get; set; }
+    public double? DestLatitude { get; set; }
+    public double? DestLongitude { get; set; }
+
+    /// <summary>
+    /// True once geo enrichment has been attempted on this event. Drives the
+    /// backfill loop's predicate so RFC1918 events (which will always have null
+    /// source geo) are not re-processed forever.
+    /// </summary>
+    public bool GeoEnriched { get; set; }
 
     /// <summary>
     /// Kill chain classification assigned by the classifier.
@@ -103,6 +131,12 @@ public class ThreatEvent
     /// Raw risk level from UniFi ("low", "medium", "high").
     /// </summary>
     public string? RiskLevel { get; set; }
+
+    /// <summary>
+    /// WAF events: what the top rule matched, as "VARIABLE:key=value" entries joined by " | ",
+    /// values cut by the WAF to 200 characters. Null for IPS and flow events.
+    /// </summary>
+    public string? MatchedData { get; set; }
 
     /// <summary>
     /// FK to a detected ThreatPattern if this event is part of one.

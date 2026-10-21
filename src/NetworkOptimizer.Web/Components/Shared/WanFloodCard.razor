@@ -1,0 +1,265 @@
+@using NetworkOptimizer.Threats.WanFlood
+@using NetworkOptimizer.Web.Services.WanFlood
+@inject IWanFloodAdmin WanFlood
+@implements IDisposable
+
+@* Threat Intelligence - Blocking: WAN Flood Protection's state, drops, and episodes. *@
+
+
+@if (_overview != null && (_overview.Settings.Mode != WanFloodMode.Off || _incidents.Count > 0))
+{
+    <div class="card card-spaced wan-flood-status" id="wan-flood" data-tour="wan-flood">
+        <div class="card-header">
+            <h3 class="card-title">WAN Flood Protection</h3>
+            <div class="waf-card-mode">
+                @if (_overview.AgentCapable)
+                {
+                    <span class="waf-meta">Gateway On-Site Agent</span>
+                }
+                <span class="status-badge @(_overview.Settings.Mode == WanFloodMode.Enforce ? "status-active" : "")">@WanFloodSettingsCard.ModeLabel(_overview.Settings.Mode)</span>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (_overview.Settings.Mode != WanFloodMode.Off && !_overview.AgentCapable)
+            {
+                <div class="alert alert-warning">@(_overview.AgentState switch
+                {
+                    WanFloodAgentState.NeedsUpdate => "The On-Site Agent on this site's gateway needs an update to enforce WAN Flood Protection.",
+                    WanFloodAgentState.Unsupported => "This gateway can't run WAN Flood Protection, so nothing is enforcing it.",
+                    _ => "No On-Site Agent on this site's gateway is connected, so nothing is enforcing WAN Flood Protection.",
+                })</div>
+            }
+            else if (_overview.Status is { } status)
+            {
+                var wans = status.Wans.Where(w => _overview.ShowsWan(w.Wan)).OrderBy(w => _overview.WanRank(w.Wan)).ThenBy(w => _overview.WanLabel(w.Wan)).ToList();
+                <div class="wan-flood-summary">
+                    <span class="status-dot @SummaryDot(status, wans)"></span>
+                    <span>@Summary(status, wans.Count)</span>
+                    @if (status.ConntrackMax > 0)
+                    {
+                        <span class="waf-meta">Connection table @ConntrackFill(status) full</span>
+                    }
+                </div>
+
+                @if (!status.Ok)
+                {
+                    <div class="alert alert-warning">The gateway could not apply WAN Flood Protection: @status.Error</div>
+                }
+                @if (status.TableFull)
+                {
+                    <div class="alert alert-warning">A flood filled one of the limit tables, so that limit is paused until the flood drains. Drops stay on.</div>
+                }
+
+                @if (wans.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>WAN</th>
+                                    <th>Protection</th>
+                                    <th class="hide-mobile">Smart Queues</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var w in wans)
+                                {
+                                    <tr>
+                                        <td>@_overview.WanLabel(w.Wan)</td>
+                                        <td><span class="status-badge @(w.HooksPresent ? "status-active" : "status-warning")">@(w.HooksPresent ? "Protected" : "Rules missing")</span></td>
+                                        <td class="hide-mobile">@(w.SmartQueues ? "On" : "Off")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @if (status.Drops.Any(d => _overview.ShowsWan(d.Wan)))
+                {
+                    <h4 class="wan-flood-subtitle">Active Drops</h4>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>What</th>
+                                    <th class="hide-mobile">WAN</th>
+                                    <th class="hide-mobile">Dropped</th>
+                                    <th class="hide-mobile">Ends</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in status.Drops.Where(d => _overview.ShowsWan(d.Wan)).OrderBy(d => d.Kind == "tc-test").ThenBy(d => _overview.WanRank(d.Wan)))
+                                {
+                                    <tr>
+                                        <td>@DropLabel(d)</td>
+                                        <td class="hide-mobile">@_overview.WanLabel(d.Wan)</td>
+                                        <td class="hide-mobile">@(d.Kind is "tc-source" or "tc-port" or "tc-test" ? d.Packets.ToString("N0") : "-")</td>
+                                        <td class="hide-mobile">@(d.ExpiresAt is { } end ? "in " + TimeFormatHelper.FormatDurationCompact(end - DateTime.UtcNow) : "while held")</td>
+                                        <td>
+                                            @if (d.Kind != "tc-test")
+                                            {
+                                                <SiteAdminOnly>
+                                                    <button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="() => Release(d)">Release</button>
+                                                </SiteAdminOnly>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+
+            @if (_incidents.Count > 0)
+            {
+                <h4 class="wan-flood-subtitle">Floods in the Last 7 Days</h4>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Started</th>
+                                <th>Kind</th>
+                                <th class="hide-mobile">Peak</th>
+                                <th class="hide-mobile">Lasted</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var i in _incidents)
+                            {
+                                <tr>
+                                    <td>@TimeFormatHelper.FormatRelativeTime(i.StartedAt)</td>
+                                    <td>@KindLabel(i.Kind)</td>
+                                    <td class="hide-mobile">@(i.Kind == "conntrack" ? $"{i.PeakConntrackPercent}% table" : $"{i.PeakUnsolicitedPps:N0}/s, CPU core {i.PeakSoftirqPercent}%")</td>
+                                    <td class="hide-mobile">@(i.EndedAt is { } end ? TimeFormatHelper.FormatDurationCompact(end - i.StartedAt) : "ongoing")</td>
+                                    <td>@ActionSummary(i)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (_message != null)
+            {
+                <div class="alert alert-danger">@_message</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private WanFloodOverview? _overview;
+    private IReadOnlyList<WanFloodIncidentView> _incidents = [];
+    private bool _busy;
+    private string? _message;
+    private System.Threading.Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await Load();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            _overview = await WanFlood.GetOverviewAsync();
+            _incidents = await WanFlood.GetIncidentsAsync(7);
+        }
+        catch (Exception)
+        {
+            // A Viewer read: if it fails the card simply stays hidden.
+            _overview = null;
+        }
+    }
+
+    private async Task Release(WanFloodDropView drop)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            await WanFlood.ReleaseAsync(drop);
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not release it: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string DropLabel(WanFloodDropView d) => d.Kind switch
+    {
+        "tc-test" => "Test drop (198.51.100.1)",
+        "tc-source" => $"Dropping {d.Protocol.ToUpperInvariant()} from {d.Source} to port {d.Port}",
+        "tc-port" => $"Dropping all {d.Protocol.ToUpperInvariant()} to closed port {d.Port}",
+        "port-limit" => $"Limiting new {d.Protocol.ToUpperInvariant()} connections to port {d.Port}",
+        "forward-cap" => $"Limiting new {d.Protocol.ToUpperInvariant()} connections to {d.Destination}:{d.Port}",
+        _ => d.Kind,
+    };
+
+    // The status line: what is happening now, or the recent history when nothing is.
+    private string Summary(WanFloodStatusView status, int wanCount)
+    {
+        var drops = status.Drops.Count(d => d.Kind != "tc-test");
+        return status.State switch
+        {
+            "suspected" => "Flood suspected, finding its source.",
+            "mitigating" => drops > 0 ? $"Mitigating a flood: {Plural(drops, "drop", "drops")} in place." : "Mitigating a flood.",
+            "cooling" => "A flood is ending.",
+            _ => $"Watching {Plural(wanCount, "WAN", "WANs")}. "
+                + (_incidents.Count == 0 ? "No floods in the last 7 days." : $"{Plural(_incidents.Count, "flood", "floods")} in the last 7 days."),
+        };
+    }
+
+    private static string SummaryDot(WanFloodStatusView status, List<WanFloodWanView> wans) =>
+        !status.Ok || wans.Any(w => !w.HooksPresent) ? "error"
+        : status.State is "suspected" or "mitigating" or "cooling" ? "provisioning"
+        : "online";
+
+    private static string Plural(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
+
+    // Whole percent, except a table in use but under 1% (a quiet gateway), which would otherwise read 0%.
+    private static string ConntrackFill(WanFloodStatusView s)
+    {
+        var pct = 100L * s.ConntrackCount / s.ConntrackMax;
+        return pct == 0 && s.ConntrackCount > 0 ? "under 1%" : $"{pct}%";
+    }
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "udp" => "UDP flood",
+        "syn" => "TCP SYN flood",
+        "conntrack" => "Port forward flood",
+        _ => "Flood",
+    };
+
+    private static string ActionSummary(WanFloodIncidentView i)
+    {
+        if (i.Actions.Count == 0) return i.Mode == "detect" ? "Would do nothing" : "Limits only";
+        var verb = i.Mode == "detect" ? "Would drop" : "Dropped";
+        return $"{verb} {i.Actions.Count} source(s) or port(s)";
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

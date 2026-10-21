@@ -884,7 +884,7 @@
                                     @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
                                     {
                                         <span class="alert-source">
-                                            @alert.Source
+                                            @AlertSourceDisplay.GetName(alert.Source)
                                             @if (!string.IsNullOrEmpty(alert.DeviceName))
                                             {
                                                 <text> &middot; @alert.DeviceName</text>
@@ -897,7 +897,7 @@
                                     }
                                     else
                                     {
-                                        <span class="alert-source">@alert.Source</span>
+                                        <span class="alert-source">@AlertSourceDisplay.GetName(alert.Source)</span>
                                     }
                                 </div>
                                 <div class="alert-actions">
@@ -951,7 +951,7 @@
                                     @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
                                     {
                                         <span class="alert-source">
-                                            @alert.Source
+                                            @AlertSourceDisplay.GetName(alert.Source)
                                             @if (!string.IsNullOrEmpty(alert.DeviceName))
                                             {
                                                 <text> &middot; @alert.DeviceName</text>
@@ -964,7 +964,7 @@
                                     }
                                     else
                                     {
-                                        <span class="alert-source">@alert.Source</span>
+                                        <span class="alert-source">@AlertSourceDisplay.GetName(alert.Source)</span>
                                     }
                                 </div>
                                 <div class="alert-actions">
@@ -1062,7 +1062,7 @@
                                             </span>
                                         </td>
                                         <td>@alert.Title</td>
-                                        <td>@alert.Source</td>
+                                        <td>@AlertSourceDisplay.GetName(alert.Source)</td>
                                         <td class="hide-mobile">@FormatDeviceColumn(alert.DeviceName, alert.DeviceIp)</td>
                                         <td>
                                             <span class="status-badge @GetStatusBadgeClass(alert.Status)">
@@ -1854,9 +1854,16 @@
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("threats.ips_event")'><code>threats.ips_event</code> <span>High-severity IPS/IDS event</span></div>
                         <div @onclick='() => SelectEventType("threats.traffic_flow")'><code>threats.traffic_flow</code> <span>High-severity traffic flow</span></div>
+                        <div @onclick='() => SelectEventType("threats.waf_event")'><code>threats.waf_event</code> <span>High-severity Web Application Firewall event</span></div>
                         <div @onclick='() => SelectEventType("threats.attack_chain")'><code>threats.attack_chain</code> <span>Multi-stage kill chain detected</span></div>
                         <div @onclick='() => SelectEventType("threats.attack_chain_attempt")'><code>threats.attack_chain_attempt</code> <span>Early-stage attack chain</span></div>
+                        <div @onclick='() => SelectEventType("threats.public_list_contact")'><code>threats.public_list_contact</code> <span>Device reached a public block list address</span></div>
+                        <div @onclick='() => SelectEventType("threats.public_list_attempt")'><code>threats.public_list_attempt</code> <span>Device tried to reach a public block list address</span></div>
                         <div @onclick='() => SelectEventType("threats.attack_pattern")'><code>threats.attack_pattern</code> <span>Scan, brute force, DDoS, or exploit pattern</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood")'><code>threats.wan_flood</code> <span>Flood of unsolicited traffic at the gateway's WAN</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood_conntrack")'><code>threats.wan_flood_conntrack</code> <span>Port-forward flood filling the gateway's connection table</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood_table_full")'><code>threats.wan_flood_table_full</code> <span>WAN Flood Protection paused its per-source limits</span></div>
+                        <div @onclick='() => SelectEventType("threats.wan_flood_unenforced")'><code>threats.wan_flood_unenforced</code> <span>WAN Flood Protection is on but not enforced</span></div>
                     </div>
                 </div>
                 <div>
@@ -1893,6 +1900,8 @@
                         <div @onclick='() => SelectEventType("monitoring.wan_outage")'><code>monitoring.wan_outage</code> <span>Internet down on a WAN - one alert per outage instead of one per target</span></div>
                         <div @onclick='() => SelectEventType("monitoring.wan_outage_partial")'><code>monitoring.wan_outage_partial</code> <span>Partial internet outage on a WAN - some destinations unreachable while the connection still passes traffic</span></div>
                         <div @onclick='() => SelectEventType("monitoring.wan_recovered")'><code>monitoring.wan_recovered</code> <span>A WAN's internet connection is back</span></div>
+                        <div @onclick='() => SelectEventType("wan.link_speed_degraded")'><code>wan.link_speed_degraded</code> <span>Gateway WAN port negotiated below its usual speed or at half duplex</span></div>
+                        <div @onclick='() => SelectEventType("wan.link_speed_recovered")'><code>wan.link_speed_recovered</code> <span>Gateway WAN port is back at its usual speed</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_rx_power")'><code>monitoring.sfp_rx_power</code> <span>SFP/PON RX power below threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_tx_power")'><code>monitoring.sfp_tx_power</code> <span>SFP/PON TX power above threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_temperature")'><code>monitoring.sfp_temperature</code> <span>SFP temperature above threshold</span></div>
@@ -1935,6 +1944,8 @@
                         <div @onclick='() => SelectEventType("ont.pon_link_down")'><code>ont.pon_link_down</code> <span>PON link lost</span></div>
                         <div @onclick='() => SelectEventType("ont.fec_errors")'><code>ont.fec_errors</code> <span>FEC error rate spike</span></div>
                         <div @onclick='() => SelectEventType("ont.high_temperature")'><code>ont.high_temperature</code> <span>Temperature above threshold</span></div>
+                        <div @onclick='() => SelectEventType("ont.management_unresponsive")'><code>ont.management_unresponsive</code> <span>ONT page not answering while its SFP module reads light</span></div>
+                        <div @onclick='() => SelectEventType("ont.rebooted")'><code>ont.rebooted</code> <span>ONT uptime went backwards</span></div>
                         <div @onclick='() => SelectEventType("ont.*")'><code>ont.*</code> <span>All ONT events</span></div>
                     </div>
                 </div>

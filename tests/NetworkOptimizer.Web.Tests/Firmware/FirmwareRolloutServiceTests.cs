@@ -169,6 +169,23 @@ public class FirmwareRolloutServiceTests
         preview.NetworkApplication.UpdateAvailable.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task BuildPreviewAsync_LeavesOutAConsoleSurfaceTheConsoleWouldNotMoveToThePlannedChannel()
+    {
+        using var harness = HarnessWithTwoAps();
+        harness.Commands.ConsoleInfo!.NetworkApplication!.ReleaseChannel = "beta";
+        harness.Commands.ConsoleChannelsAccepted = false;
+
+        var preview = await harness.Service.BuildPreviewAsync(Settings(s =>
+        {
+            s.IncludeUniFiNetwork = true;
+            s.GlobalChannel = FirmwareChannels.ReleaseCandidate;
+        }));
+
+        preview.Plan.IncludesUniFiNetworkUpdate.Should().BeFalse("the console still offers beta's build, not the planned channel's");
+        preview.Plan.Notes.Should().ContainSingle(n => n.Contains("left out of this rollout"));
+    }
+
     // --- Shared device builds -------------------------------------------------------------------
 
     private static Task SeedSharedDeviceBuildAsync(RolloutHarness harness, string version) =>
@@ -556,11 +573,11 @@ public class FirmwareRolloutServiceTests
         using var harness = HarnessWithTwoAps();
 
         var withoutEa = await harness.Service.BuildPreviewAsync(Settings());
-        withoutEa.Channels.EarlyAccessAvailable.Should().BeFalse();
+        withoutEa.Channels.DeviceEarlyAccessAvailable.Should().BeFalse();
 
         harness.Commands.AvailableDeviceChannels = ["release", "release-candidate", "beta"];
         var withEa = await harness.Service.BuildPreviewAsync(Settings());
-        withEa.Channels.EarlyAccessAvailable.Should().BeTrue();
+        withEa.Channels.DeviceEarlyAccessAvailable.Should().BeTrue();
     }
 
     [Fact]
@@ -573,8 +590,42 @@ public class FirmwareRolloutServiceTests
 
         var preview = await harness.Service.BuildPreviewAsync(Settings(s => s.GlobalChannel = "beta"));
 
-        preview.Channels.EarlyAccessAvailable.Should().BeTrue();
+        preview.Channels.DeviceEarlyAccessAvailable.Should().BeTrue();
         preview.Warnings.Should().NotContain(w => w.Contains("does not offer early access"));
+    }
+
+    [Fact]
+    public void ChannelAvailability_EachSurfaceAnswersForItself()
+    {
+        // Devices offer only GA while the console itself is on Early Access.
+        var channels = new RolloutChannelAvailability
+        {
+            CurrentDeviceChannel = "release",
+            AvailableDeviceChannels = ["release"],
+            CurrentNetworkAppChannel = "beta",
+            AvailableNetworkAppChannels = ["release"],
+            CurrentUniFiOsChannel = "release",
+            AvailableUniFiOsChannels = ["release", "beta"],
+        };
+
+        channels.DeviceEarlyAccessAvailable.Should().BeFalse();
+        channels.NetworkAppEarlyAccessAvailable.Should().BeTrue();
+        channels.UniFiOsEarlyAccessAvailable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ChannelAvailability_ReadableSurfaceWithoutBeta_WithholdsEarlyAccess()
+    {
+        var channels = new RolloutChannelAvailability
+        {
+            CurrentNetworkAppChannel = "release",
+            AvailableNetworkAppChannels = ["release", "release-candidate"],
+            CurrentUniFiOsChannel = "release",
+            AvailableUniFiOsChannels = ["release"],
+        };
+
+        channels.NetworkAppEarlyAccessAvailable.Should().BeFalse();
+        channels.UniFiOsEarlyAccessAvailable.Should().BeFalse();
     }
 
     // --- Scheduling and starting ----------------------------------------------------------------

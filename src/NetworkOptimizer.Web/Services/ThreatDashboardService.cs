@@ -33,17 +33,23 @@ public interface IThreatFilterAdminService
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_noise_filter")]
     Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default);
+
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "threat_noise_filter")]
+    Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default);
 }
 
 public class ThreatDashboardService : IThreatFilterAdminService
 {
     private readonly ExposureValidator _exposureValidator;
     private readonly CrowdSecEnrichmentService _crowdSecService;
+    private readonly CrowdSecClient _crowdSecClient;
+    private readonly ICtiReputationCache _ctiCache;
+    private readonly ICtiCredentialScope _ctiCredentials;
     private readonly GeoEnrichmentService _geoService;
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
     private readonly SiteContextService _siteContext;
     private readonly IThreatSettingsAccessor _settingsAccessor;
-    private readonly ICredentialProtectionService _credentialService;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ThreatDashboardService> _logger;
 
@@ -63,24 +69,50 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public ThreatDashboardService(
         ExposureValidator exposureValidator,
         CrowdSecEnrichmentService crowdSecService,
+        CrowdSecClient crowdSecClient,
+        ICtiReputationCache ctiCache,
+        ICtiCredentialScope ctiCredentials,
         GeoEnrichmentService geoService,
         IUniFiClientAccessor uniFiClientAccessor,
         SiteContextService siteContext,
         IThreatSettingsAccessor settingsAccessor,
-        ICredentialProtectionService credentialService,
         IServiceProvider serviceProvider,
         ILogger<ThreatDashboardService> logger)
     {
         _exposureValidator = exposureValidator;
         _crowdSecService = crowdSecService;
+        _crowdSecClient = crowdSecClient;
+        _ctiCache = ctiCache;
+        _ctiCredentials = ctiCredentials;
         _geoService = geoService;
         _uniFiClientAccessor = uniFiClientAccessor;
         _siteContext = siteContext;
         _settingsAccessor = settingsAccessor;
-        _credentialService = credentialService;
         _serviceProvider = serviceProvider;
         _logger = logger;
     }
+
+    // The site in context as the threat services name it: null is the default site.
+    private string? Site
+    {
+        get
+        {
+            var slug = _siteContext.Slug;
+            return string.IsNullOrEmpty(slug) || slug == SiteManagementService.DefaultSiteSlug ? null : slug;
+        }
+    }
+
+    // The site's enabled public lists as Automatic Blocking last built them.
+    private NetworkOptimizer.Threats.Blocking.PublicBlockList? PublicListFor(string ip) =>
+        _serviceProvider.GetService<NetworkOptimizer.Threats.Blocking.IPublicListLookup>()?.For(Site).Find(ip);
+
+    /// <summary>Whether this site has a CrowdSec CTI key to look up with.</summary>
+    public async Task<bool> IsCtiConfiguredAsync(CancellationToken cancellationToken = default) =>
+        await _ctiCredentials.GetAsync(Site, cancellationToken) != null;
+
+    /// <summary>Whether this site's CTI key has hit CrowdSec's daily quota.</summary>
+    public async Task<bool> IsCtiRateLimitedAsync(CancellationToken cancellationToken = default) =>
+        await _ctiCredentials.GetAsync(Site, cancellationToken) is { } credential && _crowdSecClient.IsRateLimited(credential.ApiKey);
 
     /// <summary>
     /// Create a fresh DI scope and resolve a private <see cref="IThreatRepository"/> from it.
@@ -105,14 +137,22 @@ public class ThreatDashboardService : IThreatFilterAdminService
         try
         {
             using var scope = NewRepositoryScope(out var repo);
-            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+
+            // Top Sources applies only Noise filters, so Infrastructure / TrustedUser sources stay
+            // in the table with a badge. Every other widget below applies the full filter set.
+            var allEnabled = FiltersDisabled
+                ? new List<ThreatNoiseFilter>()
+                : await GetActiveFiltersAsync(repo, cancellationToken);
+            var nonNoiseFilters = allEnabled
+                .Where(f => f.Category != ThreatFilterCategory.Noise)
+                .ToList();
+            repo.SetNoiseFilters(allEnabled.Where(f => f.Category == ThreatFilterCategory.Noise).ToList());
             repo.SetSeverityFilter(SeverityFilter);
-            var summary = await repo.GetThreatSummaryAsync(from, to, cancellationToken);
-            var killChain = await repo.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topSources = await repo.GetTopSourcesAsync(from, to, 10, cancellationToken);
 
-            // Re-enrich geo data directly on source IPs.
-            // Event-level CountryCode/AsnOrg may reflect the destination for flow events with private sources.
+            // Re-enrich geo data directly on source IPs. Event-level CountryCode/AsnOrg
+            // is null for RFC1918 sources post-fix, but this also handles older rows
+            // that might still have stale values until the migration scrub runs.
             foreach (var source in topSources)
             {
                 var geo = _geoService.Enrich(source.SourceIp);
@@ -120,14 +160,30 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 source.City = geo.City;
                 source.Asn = geo.Asn;
                 source.AsnOrg = geo.AsnOrg;
+
+                // Attach matched category for badge rendering. Exact-match filters take
+                // precedence over CIDR matches when both apply.
+                var match = nonNoiseFilters
+                    .Where(f => f.Matches(source.SourceIp, null, null))
+                    .OrderBy(f => f.SourceIp != null && f.SourceIp.Contains('/') ? 1 : 0)
+                    .FirstOrDefault();
+                if (match != null)
+                {
+                    source.MatchedFilterCategory = match.Category;
+                    source.Label = match.Label;
+                }
             }
 
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            repo.SetSeverityFilter(SeverityFilter);
+            var summary = await repo.GetThreatSummaryAsync(from, to, cancellationToken);
+            var killChain = await repo.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topPorts = await repo.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
             var patterns = await repo.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
             repo.SetSeverityFilter(null);
 
             // Enrich from DB cache (instant, no API calls) so previously looked-up IPs show badges
-            await EnrichFromCacheAsync(repo, topSources, cancellationToken);
+            await EnrichFromCacheAsync(topSources, cancellationToken);
 
             // Determine which IPs need hydration and kick off background API calls.
             // Returns the count so the caller can schedule a follow-up refresh.
@@ -159,12 +215,9 @@ public class ThreatDashboardService : IThreatFilterAdminService
     {
         try
         {
-            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
-            if (apiKey == null) return 0;
-
-            var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
-            var quota = int.TryParse(quotaStr, out var q) ? q : 30;
-            var autoBudget = Math.Max(1, quota / 2);
+            if (await _ctiCredentials.GetAsync(Site, cancellationToken) is not { } credential) return 0;
+            var apiKey = credential.ApiKey;
+            var autoBudget = Math.Max(1, credential.DailyQuota / 2);
 
             // Snapshot the IPs that need hydration before the scoped service disposes
             var ipsToHydrate = sources
@@ -177,19 +230,12 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
             _logger.LogDebug("CrowdSec background hydration starting for {Count} IPs", ipsToHydrate.Count);
 
-            // Run in a new scope so scoped services (repository) stay alive. Capture the
-            // site slug NOW: the continuation can outlive the triggering circuit scope and
-            // its HTTP context, so the fresh scope must be pinned explicitly or the
-            // repository could resolve to the default site's database.
-            var siteSlug = _siteContext.Slug;
+            // Only singletons are used below (the client and the instance-wide cache), so the
+            // continuation may outlive the triggering circuit scope.
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    using var scope = _serviceProvider.CreateScope();
-                    scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
-                    var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
-
                     foreach (var ip in ipsToHydrate)
                     {
                         // Retry up to 3 times on burst throttle (backoff is built into the client)
@@ -197,7 +243,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
                         for (var attempt = 0; attempt < 3; attempt++)
                         {
                             (_, outcome) = await _crowdSecService.GetReputationAsync(
-                                ip, apiKey, repository, cancellationToken: CancellationToken.None);
+                                ip, apiKey, cancellationToken: CancellationToken.None);
 
                             if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
                             {
@@ -230,15 +276,14 @@ public class ThreatDashboardService : IThreatFilterAdminService
     /// This ensures previously looked-up IPs (both positive and negative hits) show their badge
     /// even for low-quota users who use manual lookups.
     /// </summary>
-    private async Task EnrichFromCacheAsync(IThreatRepository repository, List<SourceIpSummary> sources,
-        CancellationToken cancellationToken)
+    private async Task EnrichFromCacheAsync(List<SourceIpSummary> sources, CancellationToken cancellationToken)
     {
         foreach (var source in sources)
         {
             if (source.CrowdSecReputation != null) continue;
             if (NetworkUtilities.IsPrivateIpAddress(source.SourceIp)) continue;
 
-            var cached = await GetCachedCtiCoreAsync(repository, source.SourceIp, cancellationToken);
+            var cached = await GetCachedCtiAsync(source.SourceIp, cancellationToken);
             if (cached == null) continue;
 
             source.CrowdSecReputation = cached.CrowdSecReputation;
@@ -255,16 +300,9 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public async Task<SourceIpSummary?> GetCachedCtiAsync(string ip,
         CancellationToken cancellationToken = default)
     {
-        using var scope = NewRepositoryScope(out var repo);
-        return await GetCachedCtiCoreAsync(repo, ip, cancellationToken);
-    }
-
-    private async Task<SourceIpSummary?> GetCachedCtiCoreAsync(IThreatRepository repository, string ip,
-        CancellationToken cancellationToken = default)
-    {
         try
         {
-            var cached = await repository.GetCrowdSecCacheAsync(ip, cancellationToken);
+            var cached = await _ctiCache.GetAsync(ip, cancellationToken);
             if (cached == null) return null;
 
             CrowdSecIpInfo? info = null;
@@ -303,11 +341,9 @@ public class ThreatDashboardService : IThreatFilterAdminService
     {
         try
         {
-            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
-            if (apiKey == null) return (null, false);
+            if (await _ctiCredentials.GetAsync(Site, cancellationToken) is not { } credential) return (null, false);
 
-            using var scope = NewRepositoryScope(out var repo);
-            var rateLimited = await EnrichSourcesAsync(repo, [source], apiKey, cancellationToken);
+            var rateLimited = await EnrichSourcesAsync([source], credential.ApiKey, cancellationToken);
             return (source, rateLimited);
         }
         catch (Exception ex)
@@ -317,14 +353,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
         }
     }
 
-    private async Task<string?> GetDecryptedApiKeyAsync(CancellationToken cancellationToken)
-    {
-        var stored = await _settingsAccessor.GetSettingAsync("crowdsec.api_key", cancellationToken);
-        if (string.IsNullOrWhiteSpace(stored)) return null;
-        return _credentialService.IsEncrypted(stored) ? _credentialService.Decrypt(stored) : stored;
-    }
-
-    private async Task<bool> EnrichSourcesAsync(IThreatRepository repository, List<SourceIpSummary> sources, string apiKey,
+    private async Task<bool> EnrichSourcesAsync(List<SourceIpSummary> sources, string apiKey,
         CancellationToken cancellationToken)
     {
         foreach (var source in sources)
@@ -340,7 +369,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 for (var attempt = 0; attempt < 3; attempt++)
                 {
                     (info, outcome) = await _crowdSecService.GetReputationAsync(
-                        source.SourceIp, apiKey, repository, cancellationToken: cancellationToken);
+                        source.SourceIp, apiKey, cancellationToken: cancellationToken);
 
                     if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
                         return true; // daily quota exhausted - stop enriching and show banner
@@ -465,14 +494,6 @@ public class ThreatDashboardService : IThreatFilterAdminService
             _logger.LogError(ex, "Failed to get recent events");
             return [];
         }
-    }
-
-    public async Task<CrowdSecIpInfo?> GetCrowdSecReputationAsync(string ip, string apiKey,
-        int cacheTtlHours = 720, CancellationToken cancellationToken = default)
-    {
-        using var scope = NewRepositoryScope(out var repo);
-        var (info, _) = await _crowdSecService.GetReputationAsync(ip, apiKey, repo, cacheTtlHours, cancellationToken);
-        return info;
     }
 
     /// <summary>
@@ -604,6 +625,22 @@ public class ThreatDashboardService : IThreatFilterAdminService
         }
     }
 
+    public async Task<List<PublicListContactSummary>> GetPublicListContactsAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetPublicListContactsAsync(from, to, 50, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get public block list contacts");
+            return [];
+        }
+    }
+
     public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
@@ -632,12 +669,15 @@ public class ThreatDashboardService : IThreatFilterAdminService
             var asSource = events.Where(e => e.SourceIp == ip).ToList();
             var asDest = events.Where(e => e.DestIp == ip).ToList();
 
-            // Peer groups: destinations when IP is source
+            // Peer groups: destinations when IP is source. WAF events carry the requested host and
+            // no destination address, so those group per host.
             var destinations = asSource
-                .GroupBy(e => e.DestIp)
-                .Select(g => BuildPeerGroup(g.Key, g.ToList()))
+                .GroupBy(e => (Ip: e.DestIp ?? "", Host: string.IsNullOrEmpty(e.DestIp) ? e.Domain : null))
+                .Select(g => BuildPeerGroup(g.Key.Ip, g.ToList()))
                 .OrderByDescending(p => p.EventCount)
                 .ToList();
+            foreach (var dest in destinations.Where(d => d.Ip.Length > 0))
+                dest.PublicList = PublicListFor(dest.Ip)?.Name;
 
             // Peer groups: sources when IP is destination
             var sources = asDest
@@ -689,7 +729,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
                 Destinations = destinations,
                 Sources = sources,
                 PortRanges = portRanges,
-                TopSignatures = signatures
+                TopSignatures = signatures,
+                PublicList = PublicListFor(ip)?.Name
             };
         }
         catch (Exception ex)
@@ -712,10 +753,11 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
             // Top destination IPs (what's being targeted on this port)
             var topDestinations = events
-                .GroupBy(e => e.DestIp)
+                .GroupBy(e => (Ip: e.DestIp ?? "", Host: string.IsNullOrEmpty(e.DestIp) ? e.Domain : null))
                 .Select(g => new PortDrilldownDest
                 {
-                    Ip = g.Key,
+                    Ip = g.Key.Ip,
+                    Host = g.Key.Host,
                     EventCount = g.Count(),
                     BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
                     UniqueSourceIps = g.Select(e => e.SourceIp).Distinct().Count()
@@ -1010,6 +1052,42 @@ public class ThreatDashboardService : IThreatFilterAdminService
         repository.SetSeverityFilter(null);
     }
 
+    /// <summary>
+    /// netopt-waf events in the range for the Web Application Firewall card, noise filters applied.
+    /// </summary>
+    public async Task<NetworkOptimizer.Threats.Waf.WafSummary> GetWafSummaryAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetWafSummaryAsync(from, to, 5, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAF summary");
+            return new NetworkOptimizer.Threats.Waf.WafSummary();
+        }
+    }
+
+    /// <summary>The WAF events page: newest first, noise filters applied, optionally searched.</summary>
+    public async Task<List<ThreatEvent>> GetWafEventsAsync(DateTime from, DateTime to, string? search, int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetWafEventsAsync(from, to, search, limit, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAF events");
+            return [];
+        }
+    }
+
     // --- Noise Filter Management ---
 
     public async Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default)
@@ -1020,6 +1098,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
     public async Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default)
     {
+        // System entries are created only by the collector, never by a user save.
+        filter.IsSystem = false;
         using var scope = NewRepositoryScope(out var repo);
         await repo.SaveNoiseFilterAsync(filter, cancellationToken);
         _activeFilters = null; // Invalidate cache
@@ -1028,6 +1108,8 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public async Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default)
     {
         using var scope = NewRepositoryScope(out var repo);
+        if (await IsSystemFilterAsync(repo, filterId, cancellationToken))
+            throw new InvalidOperationException("System noise filters cannot be deleted.");
         await repo.DeleteNoiseFilterAsync(filterId, cancellationToken);
         _activeFilters = null;
     }
@@ -1035,9 +1117,14 @@ public class ThreatDashboardService : IThreatFilterAdminService
     public async Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default)
     {
         using var scope = NewRepositoryScope(out var repo);
+        if (await IsSystemFilterAsync(repo, filterId, cancellationToken))
+            throw new InvalidOperationException("System noise filters cannot be disabled.");
         await repo.ToggleNoiseFilterAsync(filterId, enabled, cancellationToken);
         _activeFilters = null;
     }
+
+    private static async Task<bool> IsSystemFilterAsync(IThreatRepository repo, int filterId, CancellationToken cancellationToken) =>
+        (await repo.GetNoiseFiltersAsync(cancellationToken)).Any(f => f.Id == filterId && f.IsSystem);
 
     private async Task<List<ThreatNoiseFilter>> GetActiveFiltersAsync(IThreatRepository repository, CancellationToken cancellationToken = default)
     {
@@ -1092,6 +1179,9 @@ public record ThreatTrendPoint
 public class IpDrilldownData
 {
     public string Ip { get; set; } = string.Empty;
+
+    /// <summary>The site's public block list holding this address, or null; the same match the contact alerts use.</summary>
+    public string? PublicList { get; set; }
     public string? CountryCode { get; set; }
     public string? AsnOrg { get; set; }
     public int TotalEvents { get; set; }
@@ -1118,6 +1208,9 @@ public class IpPeerGroup
     public string? Services { get; set; }
     public int EventCount { get; set; }
     public int BlockedCount { get; set; }
+
+    /// <summary>The site's public block list holding this destination, or null. Set on destinations only.</summary>
+    public string? PublicList { get; set; }
 }
 
 /// <summary>
@@ -1183,6 +1276,8 @@ public class PortDrilldownSource
 public class PortDrilldownDest
 {
     public string Ip { get; set; } = string.Empty;
+    /// <summary>The requested host, for WAF events, which record no destination address.</summary>
+    public string? Host { get; set; }
     public int EventCount { get; set; }
     public int BlockedCount { get; set; }
     public int UniqueSourceIps { get; set; }

@@ -1,0 +1,634 @@
+@page "/threats/waf"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = Policies.RequireViewer)]
+@using Microsoft.AspNetCore.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@using NetworkOptimizer.Threats.Models
+@using NetworkOptimizer.Threats.Waf
+@inject ThreatDashboardService DashboardService
+@inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
+@inject SiteContextService SiteContext
+@inject IWafConnectionAdmin WafAdmin
+@inject NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor ThreatSettings
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+<PageTitle>Web Application Firewall - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <PageBackButton />
+    <h1>Web Application Firewall</h1>
+    <p class="page-description">Attacks on the apps behind this site's NetworkOptimizer-Proxy, and the sources it refuses</p>
+</div>
+
+@* Same header row as Threat Intelligence: page tabs left, time range right. *@
+<div class="threat-header-bar">
+    <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
+            @foreach (var (id, label) in Tabs)
+            {
+                <button class="wifi-view-tab @(_tab == id ? "active" : "")" @onclick="() => SetTab(id)">@label</button>
+            }
+        </div>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+    </div>
+    <div class="threat-controls" style="@(_tab is "overview" or "events" ? "" : "visibility:hidden;")">
+        <div class="time-range-selector">
+            @foreach (var range in new[] { "24h", "7d", "30d" })
+            {
+                <button class="time-btn threat-time-preset @(_range == range ? "active" : "")" @onclick="() => SetRange(range)">@range</button>
+            }
+        </div>
+    </div>
+</div>
+
+@if (_tab == "overview")
+{
+    @if (_status == null && _configured)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <p>Connected. Waiting for the WAF's first report, which takes up to a minute.</p>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_status == null)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <p>No WAF is connected to this site yet.</p>
+                    <SiteAdminOnly>
+                        <button class="btn btn-primary" @onclick='() => SetTab("setup")'>Set Up</button>
+                    </SiteAdminOnly>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        @if (_status.Error != null)
+        {
+            <div class="alert alert-warning">@_status.Error</div>
+        }
+        @if (WafUpdateAvailable)
+        {
+            <div class="alert alert-info">
+                <div class="banner-content">
+                    <div class="banner-text">
+                        <span><strong>netopt-waf @AppVersionInfo.LatestWafVersion is available.</strong>
+                            @(_status.Version is { Length: > 0 } v ? $"This WAF runs {v}." : "This WAF predates version reporting.")
+                            Updating brings newer OWASP CRS rules, which recognize newer attacks and flag fewer legitimate requests.</span>
+                    </div>
+                    <div class="banner-actions">
+                        <a class="btn btn-sm btn-secondary" href="@AppVersionInfo.WafUpdateUrl" target="_blank" rel="noopener">How to Update</a>
+                    </div>
+                </div>
+            </div>
+        }
+        <div class="threat-summary-grid">
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#ef4444;">@(_summary?.Blocked ?? 0)</div>
+                <div class="threat-stat-label">Blocked</div>
+            </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#f59e0b;">@(_summary?.Detected ?? 0)</div>
+                <div class="threat-stat-label">Detected</div>
+            </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:var(--text-primary);">@(_status.Stats?.Banned ?? 0)</div>
+                <div class="threat-stat-label">Refused by Ban List Since WAF Start</div>
+            </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:var(--text-primary);">@(_status.Stats?.Inspected ?? 0)</div>
+                <div class="threat-stat-label">Requests Inspected Since WAF Start</div>
+            </div>
+        </div>
+        <div class="card card-spaced">
+            <div class="card-header">
+                <h3 class="card-title">Mode</h3>
+                <div class="waf-card-mode">
+                    @if (_status.Version is { Length: > 0 })
+                    {
+                        <span class="waf-meta hide-mobile">@WafVersionText</span>
+                    }
+                    <span class="waf-meta">Paranoia Level @_status.Paranoia <span class="tooltip-icon tooltip-icon-sm" data-tooltip="OWASP CRS paranoia level, set by WAF_PARANOIA in the proxy's .env. Level 1 suits most sites. Higher levels catch more and flag more legitimate requests.">?</span></span>
+                    <span class="status-badge @(_status.Mode == "block" ? "status-active" : "")">@(_status.Mode == "block" ? "Blocking" : "Detection Only")</span>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (_status.Mode != "block" && DetectDays >= 7)
+                {
+                    <div class="alert alert-info">
+                        <div class="banner-content">
+                            <div class="banner-text">
+                                <span><strong>@DetectDays days in Detection Only.</strong> In the last 7 days it flagged @(_week?.Detected ?? 0) requests.
+                                    Review them on Events and add exclusions for anything legitimate, then switch to Blocking.</span>
+                            </div>
+                            <SiteAdminOnly>
+                                <div class="banner-actions">
+                                    <button class="btn btn-sm btn-primary" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Blocking</button>
+                                </div>
+                            </SiteAdminOnly>
+                        </div>
+                    </div>
+                }
+                <p class="section-description">
+                    @if (_status.Mode == "block")
+                    {
+                        <text>Blocking@(SinceText). A request that crosses the CRS anomaly threshold gets a 403.</text>
+                    }
+                    else if (DetectDays >= 7)
+                    {
+                        <text>Detection Only@(SinceText). Attacks are logged and let through.</text>
+                    }
+                    else
+                    {
+                        <text>Detection Only@(SinceText). Attacks are logged and let through. Run it for a week, review <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>, then switch to Blocking.</text>
+                    }
+                </p>
+                @if (_status.Mode == "block" || DetectDays < 7)
+                {
+                    <SiteAdminOnly>
+                        <div class="action-buttons">
+                            @if (_status.Mode == "block")
+                            {
+                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("detect")'>Switch to Detection Only</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-contrast" disabled="@_modeBusy" @onclick='() => SetMode("block")'>Switch to Blocking</button>
+                            }
+                        </div>
+                    </SiteAdminOnly>
+                }
+                @if (_modeMessage != null)
+                {
+                    <div class="alert alert-@_modeMessageClass">@_modeMessage</div>
+                }
+            </div>
+        </div>
+        @if ((_summary?.Total ?? 0) > 0)
+        {
+            <div class="threat-two-chart-row">
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Top Rules</th><th>Events</th></tr></thead>
+                        <tbody>
+                            @foreach (var rule in _summary!.TopRules)
+                            {
+                                <tr><td class="text-truncate-300"><a href="@EventsUrl(rule.RuleId.ToString())" @onclick="() => ShowEvents(rule.RuleId.ToString())" @onclick:preventDefault><code>@rule.RuleId</code> @rule.Message</a></td><td>@rule.Count</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Top Hosts</th><th>Events</th></tr></thead>
+                        <tbody>
+                            @foreach (var host in _summary!.TopHosts)
+                            {
+                                <tr><td class="text-truncate-300"><a href="@EventsUrl(host.Host)" @onclick="() => ShowEvents(host.Host)" @onclick:preventDefault>@host.Host</a></td><td>@host.Count</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+}
+else if (_tab == "events")
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="form-group">
+                <input type="search" class="form-control" placeholder="Search source, host, request, or rule" @bind="_search" @bind:event="oninput" @bind:after="LoadEvents" />
+            </div>
+            @if (_events.Count == 0)
+            {
+                <div class="empty-state"><p>No WAF events in this period.</p></div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="data-table waf-events">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Source</th>
+                                <th>Host</th>
+                                <th>Request</th>
+                                <th>Rule</th>
+                                <th>Action</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var e in _events)
+                            {
+                                <tr>
+                                    <td>@e.Timestamp.ToLocalTime().ToString("MMM d HH:mm")</td>
+                                    <td><a href="/threats?tab=drilldown&ip=@Uri.EscapeDataString(e.SourceIp)"><code>@e.SourceIp</code></a></td>
+                                    <td class="text-truncate-300">@e.Domain</td>
+                                    <td class="text-truncate-300"><code>@e.Service</code></td>
+                                    <td>
+                                        <div class="text-truncate-300" data-tooltip="@e.SignatureName" data-tooltip-truncated><code>@e.SignatureId</code> @e.SignatureName</div>
+                                        @if (!string.IsNullOrEmpty(e.MatchedData))
+                                        {
+                                            <div class="waf-matched text-truncate-300" data-tooltip="@e.MatchedData" data-tooltip-truncated>Matched <code>@e.MatchedData</code></div>
+                                        }
+                                    </td>
+                                    <td><span class="status-badge @(e.Action == ThreatAction.Blocked ? "status-error" : "")">@(e.Action == ThreatAction.Blocked ? "Blocked" : "Detected")</span></td>
+                                    <td>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-sm btn-contrast" @onclick="() => ShowExclusion(e)">@(_exclusionFor == e.Id ? "Hide" : "Add Exclusion")</button>
+                                        </SiteAdminOnly>
+                                    </td>
+                                </tr>
+                                @if (_exclusionFor == e.Id)
+                                {
+                                    <tr class="history-details-row site-config-row">
+                                        <td colspan="7">
+                                            <div class="expand-wrapper expanded">
+                                                <div class="expand-content">
+                                                    <div class="site-config-panel waf-exclusion-form">
+                                                        @if (_added != null)
+                                                        {
+                                                            <div class="alert alert-success">Exclusion added: rule @_added.RuleId is off for @ScopeText(_added).</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <p class="section-description">Turn rule @e.SignatureId off for requests like this one. The WAF applies it right away, with no restart.</p>
+                                                            <div class="form-row">
+                                                                <div class="form-group">
+                                                                    <label class="form-label" for="ex-host">Host</label>
+                                                                    <input id="ex-host" class="form-control" @bind="_exHost" />
+                                                                </div>
+                                                                <div class="form-group">
+                                                                    <label class="form-label" for="ex-method">Method</label>
+                                                                    <select id="ex-method" class="form-control" @bind="_exMethod">
+                                                                        <option value="">Any</option>
+                                                                        @foreach (var m in Methods)
+                                                                        {
+                                                                            <option value="@m">@m</option>
+                                                                        }
+                                                                    </select>
+                                                                </div>
+                                                                <div class="form-group">
+                                                                    <label class="form-label" for="ex-path">Path starts with</label>
+                                                                    <input id="ex-path" class="form-control" @bind="_exPath" />
+                                                                </div>
+                                                            </div>
+                                                            <div class="form-group">
+                                                                <label class="form-label" for="ex-note">Note (optional)</label>
+                                                                <input id="ex-note" class="form-control" maxlength="200" @bind="_exNote" />
+                                                                <small class="form-help">Narrow the path to the part of the app that sends this request. Leave Host empty to cover every host behind the WAF.</small>
+                                                            </div>
+                                                            @if (_exError != null)
+                                                            {
+                                                                <p class="form-error">@_exError</p>
+                                                            }
+                                                            <div class="action-buttons">
+                                                                <button class="btn btn-primary" disabled="@_exBusy" @onclick="() => AddExclusion(e)">Add Exclusion</button>
+                                                                <button class="btn btn-contrast" @onclick="() => _exclusionFor = null">Cancel</button>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+else if (_tab == "exclusions")
+{
+    <div class="card">
+        <div class="card-body">
+            @if (_exView?.WafError != null)
+            {
+                <div class="alert alert-warning">@_exView.WafError</div>
+            }
+            @if (_removeError != null)
+            {
+                <p class="form-error">@_removeError</p>
+            }
+            @if (_exView == null)
+            {
+                <span class="spinner spinner-sm"></span>
+            }
+            else if (_exView.Exclusions.Count == 0)
+            {
+                <div class="empty-state"><p>No exclusions. Add one from an event on <a href="/threats/waf?tab=events" @onclick='() => SetTab("events")' @onclick:preventDefault>Events</a>.</p></div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Rule</th>
+                                <th>Host</th>
+                                <th>Method</th>
+                                <th>Path</th>
+                                <th>Note</th>
+                                <th>Added</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var x in _exView.Exclusions)
+                            {
+                                <tr>
+                                    <td><code>@x.RuleId</code></td>
+                                    <td class="text-truncate-300">@(x.Host ?? "Any")</td>
+                                    <td>@(x.Method ?? "Any")</td>
+                                    <td class="text-truncate-300">@if (x.Path != null) { <code>@x.Path</code> } else { <text>Any</text> }</td>
+                                    <td class="text-truncate-300">@x.Note</td>
+                                    <td>@x.CreatedAt.ToLocalTime().ToString("MMM d")@(x.CreatedBy != null ? $" by {x.CreatedBy}" : "")</td>
+                                    <td>
+                                        <SiteAdminOnly>
+                                            <button class="btn btn-sm btn-contrast" disabled="@_exBusy" @onclick="() => RemoveExclusion(x.Id)">Remove</button>
+                                        </SiteAdminOnly>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            @if (_exView?.Apps?.Any() == true)
+            {
+                <p class="form-help">The WAF also has built-in exclusions for Grafana and other common homelab services, on routers that use the matching waf-&lt;app&gt; middleware (see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer-Proxy#exclusions-and-app-plugins" target="_blank" rel="noopener noreferrer">NetworkOptimizer-Proxy README</a>).</p>
+            }
+        </div>
+    </div>
+}
+else if (_tab == "blocking")
+{
+    <BlockedSourcesCard />
+    <p class="form-help">
+        Automatic Blocking is set up in <a href="/settings?tab=security#automatic-blocking">Settings - Security &amp; Alerts</a>.
+    </p>
+}
+else if (_tab == "setup")
+{
+    <SiteAdminOnly>
+        <ChildContent>
+            <WafConnectionCard />
+        </ChildContent>
+        <NotAuthorized>
+            <div class="card"><div class="card-body"><p class="form-help">A Site Admin sets up this site's WAF connection.</p></div></div>
+        </NotAuthorized>
+    </SiteAdminOnly>
+}
+
+@code {
+    private static readonly (string Id, string Label)[] Tabs =
+        [("overview", "Overview"), ("events", "Events"), ("exclusions", "Exclusions"), ("blocking", "Blocking"), ("setup", "Setup")];
+
+    private static readonly string[] Methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? SearchParam { get; set; }
+
+    private string _tab = "overview";
+    private string _range = "24h";
+    private WafStatus? _status;
+    private bool _configured;
+    private WafSummary? _summary;
+    private WafSummary? _week;
+    private bool _modeBusy;
+    private string? _modeMessage;
+    private string _modeMessageClass = "info";
+
+    // A WAF that reports no version predates version reporting, so it is older than any release.
+    private bool WafUpdateAvailable => _status is { Error: null } &&
+        (string.IsNullOrEmpty(_status.Version) ||
+         NetworkOptimizer.Core.Helpers.VersionUtilities.IsOlderThan(_status.Version, AppVersionInfo.LatestWafVersion));
+
+    private string WafVersionText => _status is { Crs: { Length: > 0 } crs } s
+        ? $"netopt-waf {s.Version}, CRS {crs}"
+        : $"netopt-waf {_status?.Version}";
+
+    private int DetectDays => _status?.ModeSince is { } since ? (int)(DateTimeOffset.UtcNow - since).TotalDays : 0;
+
+    private string SinceText => _status?.ModeSince is { } since
+        ? $" has been running for {TimeFormatHelper.FormatDurationCompact(DateTimeOffset.UtcNow - since)}"
+        : " is on";
+
+    private async Task SetMode(string mode)
+    {
+        _modeBusy = true;
+        _modeMessage = null;
+        try
+        {
+            var state = await WafAdmin.SetModeAsync(mode);
+            _status = _status! with { Mode = state.Mode, ModeSince = state.Since };
+            _modeMessage = (state.Mode == "block"
+                ? "Switched to Blocking. Requests that cross the CRS anomaly threshold now get a 403. If a legitimate app breaks, add an exclusion from Events or switch back here."
+                : "Switched to Detection Only. CRS rule matches are now logged and let through. Bans and the trusted list still refuse what they did before.")
+                + (state.Persisted ? "" : " This WAF has no state directory, so a restart returns it to the mode in its WAF_MODE setting. Update NetworkOptimizer-Proxy to keep the switch.");
+            _modeMessageClass = state.Persisted ? "success" : "warning";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _modeMessage = ex.Message;
+            _modeMessageClass = "danger";
+        }
+        finally
+        {
+            _modeBusy = false;
+        }
+    }
+    private List<ThreatEvent> _events = [];
+    private string _search = "";
+    private int? _exclusionFor;
+    private string? _exHost;
+    private string _exMethod = "";
+    private string? _exPath;
+    private string? _exNote;
+    private string? _exError;
+    private bool _exBusy;
+    private WafRuleExclusion? _added;
+    private WafExclusionsView? _exView;
+    private string? _removeError;
+
+    // The URL the page last pushed or applied; a different one means Back, Forward, or a link.
+    private string? _lastTabParam;
+    private string? _lastSearchParam;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Tabs.Any(t => t.Id == TabParam)) _tab = TabParam!;
+        if (!string.IsNullOrWhiteSpace(SearchParam)) _search = SearchParam;
+        (_lastTabParam, _lastSearchParam) = (TabParam, SearchParam);
+        await Load();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (TabParam == _lastTabParam && SearchParam == _lastSearchParam) return;
+        (_lastTabParam, _lastSearchParam) = (TabParam, SearchParam);
+        var tab = Tabs.Any(t => t.Id == TabParam) ? TabParam! : "overview";
+        if (tab == "events") _search = SearchParam ?? "";
+        await SetTab(tab, pushHistory: false);
+    }
+
+    private static string EventsUrl(string search) => $"/threats/waf?tab=events&search={Uri.EscapeDataString(search)}";
+
+    // Overview rows open Events filtered to that rule or host, keeping the time range.
+    private async Task ShowEvents(string search)
+    {
+        _search = search;
+        await SetTab("events");
+    }
+
+    private (DateTime From, DateTime To) Window()
+    {
+        var to = DateTime.UtcNow;
+        return (_range switch { "7d" => to.AddDays(-7), "30d" => to.AddDays(-30), _ => to.AddHours(-24) }, to);
+    }
+
+    private async Task SetRange(string range)
+    {
+        _range = range;
+        await Load();
+    }
+
+    // Re-read on every view tab: a connection saved on Setup shows up without a page reload.
+    // Each switch is a history entry, so Back returns to the previous tab and a tab can be linked.
+    private async Task SetTab(string id, bool pushHistory = true)
+    {
+        _tab = id;
+        if (pushHistory)
+        {
+            var search = id == "events" && !string.IsNullOrWhiteSpace(_search) ? _search : null;
+            (_lastTabParam, _lastSearchParam) = (id, search);
+            NavigationManager.NavigateTo(search != null ? EventsUrl(search) : $"/threats/waf?tab={id}");
+        }
+        if (id != "setup") await Load();
+    }
+
+    private async Task Load()
+    {
+        _status = CollectionService.WafStatusFor(SiteContext.Slug);
+        var site = SiteContext.IsDefault ? null : SiteContext.Slug;
+        _configured = await NetworkOptimizer.Threats.Blocking.BlockingSettings.WafConnectedAsync(k => ThreatSettings.GetSettingAsync(k), site);
+        var (from, to) = Window();
+        _summary = await DashboardService.GetWafSummaryAsync(from, to);
+        _week = await DashboardService.GetWafSummaryAsync(to.AddDays(-7), to);
+        await LoadEvents();
+        // Only on its tab: the list asks the WAF which built-in sets it has.
+        if (_tab == "exclusions") _exView = await WafAdmin.GetExclusionsAsync();
+        WatchForFirstReport();
+    }
+
+    private System.Threading.Timer? _firstReportTimer;
+
+    // Connected but not reported yet: re-check every 5 seconds until the first report lands.
+    private void WatchForFirstReport()
+    {
+        if (_status != null || !_configured)
+        {
+            _firstReportTimer?.Dispose();
+            _firstReportTimer = null;
+            return;
+        }
+        _firstReportTimer ??= new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                if (CollectionService.WafStatusFor(SiteContext.Slug) == null) return;
+                await InvokeAsync(async () =>
+                {
+                    await Load();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    public void Dispose() => _firstReportTimer?.Dispose();
+
+    private async Task LoadEvents()
+    {
+        var (from, to) = Window();
+        _events = await DashboardService.GetWafEventsAsync(from, to, string.IsNullOrWhiteSpace(_search) ? null : _search);
+    }
+
+    private void ShowExclusion(ThreatEvent e)
+    {
+        if (_exclusionFor == e.Id)
+        {
+            _exclusionFor = null;
+            return;
+        }
+        // Prefilled from the event: its host, method, and path without the query string.
+        _exclusionFor = e.Id;
+        _added = null;
+        _exError = null;
+        _exHost = e.Domain;
+        var method = e.Service?.Split(' ', 2)[0].ToUpperInvariant() ?? "";
+        _exMethod = Methods.Contains(method) ? method : "";
+        _exPath = WafExclusion.PathOf(e.Service)?.Split('?', '#')[0];
+        _exNote = null;
+    }
+
+    private async Task AddExclusion(ThreatEvent e)
+    {
+        _exBusy = true;
+        _exError = null;
+        try
+        {
+            _added = await WafAdmin.AddExclusionAsync(e.SignatureId, _exHost, _exMethod, _exPath, _exNote);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _exError = ex.Message;
+        }
+        finally
+        {
+            _exBusy = false;
+        }
+    }
+
+    private async Task RemoveExclusion(string id)
+    {
+        _exBusy = true;
+        _removeError = null;
+        try
+        {
+            await WafAdmin.RemoveExclusionAsync(id);
+            _exView = await WafAdmin.GetExclusionsAsync();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _removeError = ex.Message;
+        }
+        finally
+        {
+            _exBusy = false;
+        }
+    }
+
+    private static string ScopeText(WafRuleExclusion x)
+    {
+        var target = x.Host != null ? $"{x.Host}{x.Path}" : $"{x.Path} on every host";
+        return x.Method != null ? $"{x.Method} {target}" : target;
+    }
+}

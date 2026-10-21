@@ -259,14 +259,27 @@ public class MonitoringLiveStats
     // When each port's rate was last computed rather than carried, for the hold above.
     private readonly ConcurrentDictionary<(string DeviceMac, string IfName), DateTime> _portRateAt = new();
 
+    /// <summary>
+    /// How recent inbound traffic on a port has to be to outweigh an ifOperStatus that says down.
+    /// Only the host behind a port can send into it, so inbound bytes prove the link is up; the
+    /// poller reads ifOperStatus every 30 s, while the counters behind the rate are read every poll.
+    /// </summary>
+    public static readonly TimeSpan InboundProvesLink = TimeSpan.FromSeconds(15);
+
+    // When each port last computed a nonzero inbound rate, recorded before a down link zeroes it.
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), DateTime> _portInboundAt = new();
+
     public void RecordPortStats(MonitoringInfluxClient.PortStatsPoint point)
     {
         if (string.IsNullOrEmpty(point.DeviceMac) || string.IsNullOrEmpty(point.IfName)) return;
         var key = (Normalize(point.DeviceMac), point.IfName);
         if (point.RateInBps.HasValue || point.RateOutBps.HasValue) _portRateAt[key] = point.Time;
+        var inbound = point.RateInBps is > 0;
+        if (inbound) _portInboundAt[key] = point.Time;
         // A down link carries nothing, and a rate held past its window is a port that went quiet,
-        // not one whose device has yet to refresh its counters.
-        var linkDown = point.OperStatus is { } oper && oper != 1;
+        // not one whose device has yet to refresh its counters. A sample that moved inbound bytes is
+        // not a down link, whatever the cached ifOperStatus says.
+        var linkDown = point.OperStatus is { } oper && oper != 1 && !inbound;
         var heldTooLong = !point.RateInBps.HasValue && !point.RateOutBps.HasValue
             && (!_portRateAt.TryGetValue(key, out var rateAt) || point.Time - rateAt > PortRateHold);
         if (linkDown || heldTooLong)
@@ -321,14 +334,19 @@ public class MonitoringLiveStats
     /// <summary>
     /// <see cref="IsPortLinkDown"/> with the sample it was read from. Down is ifOperStatus 2 (down)
     /// or 7 (lowerLayerDown) only; testing, unknown, dormant, and notPresent say nothing either way.
+    /// Inbound traffic within <see cref="InboundProvesLink"/> of the sample reads as up regardless.
     /// </summary>
     public PortLinkSample? PortLinkState(string deviceMac, string ifName, DateTime now, TimeSpan maxAge, DateTime? notBefore = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
-        if (!_portStats.TryGetValue((Normalize(deviceMac), ifName), out var row)) return null;
+        var key = (Normalize(deviceMac), ifName);
+        if (!_portStats.TryGetValue(key, out var row)) return null;
         if (row.OperStatus is not { } oper || now - row.Time > maxAge) return null;
         if (notBefore is { } floor && row.Time <= floor) return null;
-        return LinkDownFromOperStatus(oper) is { } down ? new PortLinkSample(down, oper, row.Time) : null;
+        if (LinkDownFromOperStatus(oper) is not { } down) return null;
+        if (down && _portInboundAt.TryGetValue(key, out var inboundAt) && row.Time - inboundAt <= InboundProvesLink)
+            down = false;
+        return new PortLinkSample(down, oper, row.Time);
     }
 
     /// <summary>
@@ -670,11 +688,15 @@ public class MonitoringLiveStats
     /// </summary>
     public void RecordSfpPon(string deviceMac, string portName, string? ponLinkStatus,
         long? bipErrors, long? fecErrors, long? hecUncorrected, bool? fecEnabled,
-        long? gemRxDropped, DateTime timestamp)
+        long? gemRxDropped, DateTime timestamp,
+        string? registrationStatus = null, string? keyExchangeStatus = null, double? ontTemperatureC = null,
+        string? oltVendorId = null, string? oltModel = null)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
         if (string.IsNullOrEmpty(ponLinkStatus) && !bipErrors.HasValue && !fecErrors.HasValue
-            && !hecUncorrected.HasValue && !gemRxDropped.HasValue)
+            && !hecUncorrected.HasValue && !gemRxDropped.HasValue
+            && string.IsNullOrEmpty(registrationStatus) && !ontTemperatureC.HasValue
+            && string.IsNullOrEmpty(oltVendorId))
             return;
 
         var key = (Normalize(deviceMac), portName);
@@ -688,6 +710,11 @@ public class MonitoringLiveStats
                 HecUncorrected = hecUncorrected,
                 FecEnabled = fecEnabled,
                 GemRxDropped = gemRxDropped,
+                RegistrationStatus = registrationStatus,
+                KeyExchangeStatus = keyExchangeStatus,
+                OntTemperatureC = ontTemperatureC,
+                OltVendorId = oltVendorId,
+                OltModel = oltModel,
                 LastUpdate = timestamp
             },
             (_, prior) => prior with
@@ -698,6 +725,11 @@ public class MonitoringLiveStats
                 HecUncorrected = hecUncorrected ?? prior.HecUncorrected,
                 FecEnabled = fecEnabled ?? prior.FecEnabled,
                 GemRxDropped = gemRxDropped ?? prior.GemRxDropped,
+                RegistrationStatus = registrationStatus ?? prior.RegistrationStatus,
+                KeyExchangeStatus = keyExchangeStatus ?? prior.KeyExchangeStatus,
+                OntTemperatureC = ontTemperatureC ?? prior.OntTemperatureC,
+                OltVendorId = oltVendorId ?? prior.OltVendorId,
+                OltModel = oltModel ?? prior.OltModel,
             });
     }
 
@@ -1247,6 +1279,26 @@ public record SfpLiveStats
     public bool? FecEnabled { get; init; }
     /// <summary>Absolute (cumulative) dropped GEM frames from the PON supplement.</summary>
     public long? GemRxDropped { get; init; }
+    /// <summary>ONT registration with the OLT, as the attached provider words it.</summary>
+    public string? RegistrationStatus { get; init; }
+    /// <summary>OLT key exchange result, as the attached provider words it.</summary>
+    public string? KeyExchangeStatus { get; init; }
+    /// <summary>The ONT's own temperature sensor. Set only when the host device's DDM read its own
+    /// <see cref="TemperatureC"/> too; otherwise that field already holds this reading.</summary>
+    public double? OntTemperatureC { get; init; }
+    /// <summary>
+    /// <see cref="OntTemperatureC"/> when it is a second reading, or null when it matches
+    /// <see cref="TemperatureC"/> at display precision. A stick ONT is its own SFP module, so DDM and
+    /// its web UI read the same sensor. For display only: Influx keeps both fields.
+    /// </summary>
+    public double? DistinctOntTemperatureC =>
+        OntTemperatureC is double ont && !(TemperatureC is double ddm && Math.Round(ddm, 2) == Math.Round(ont, 2))
+            ? ont
+            : null;
+    /// <summary>OLT vendor ID the attached ONT reports (e.g. "CALX"), raw.</summary>
+    public string? OltVendorId { get; init; }
+    /// <summary>OLT model the attached ONT reports (e.g. "E7").</summary>
+    public string? OltModel { get; init; }
 }
 
 public record PortLiveRate

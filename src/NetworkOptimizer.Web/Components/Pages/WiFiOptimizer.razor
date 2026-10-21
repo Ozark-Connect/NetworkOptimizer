@@ -639,7 +639,7 @@
                                         <span class="ap-status-text">@ap.Status.Label</span>
                                     </div>
                                 </div>
-                                <div class="ap-stats @(ap.IsMeshChild ? "ap-stats-mesh" : "") @(ap.MeshUplinkIsMlo || ap.MeshChildren.Any(c => c.IsMlo) ? "ap-stats-mlo" : "")">
+                                <div class="ap-stats @(ap.IsMeshChild ? "ap-stats-mesh" : "") @(ap.MeshUplinkIsMlo || ap.MeshChildren.Any(c => c.IsMlo) || ap.MeshChildren.Count > 1 ? "ap-stats-mlo" : "")">
                                     <div class="ap-stat clickable" @onclick="@(() => NavigateToTab("client", ap.Mac))" @onclick:stopPropagation="true">
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
@@ -722,7 +722,20 @@
                                     }
                                     @if (ap.MeshChildren.Count > 0)
                                     {
-                                        @foreach (var child in ap.MeshChildren)
+                                        var childPages = GetMeshChildPages(ap.MeshChildren);
+                                        var childPage = Math.Clamp(_meshChildPage.GetValueOrDefault(ap.Mac), 0, childPages.Count - 1);
+                                        var parentMac = ap.Mac;
+                                        var pageCount = childPages.Count;
+                                        @* One MLO child per page (its link rows stack), non-MLO children two to a page; the pager sits bottom right.
+                                           Every page sits in one grid cell so the card keeps the tallest page's height. *@
+                                        <div class="ap-mesh-children"
+                                             @ontouchstart="@(e => OnMeshChildTouchStart(parentMac, e))"
+                                             @ontouchend="@(e => OnMeshChildTouchEnd(parentMac, pageCount, e))">
+                                            <div class="mesh-child-pages">
+                                            @for (var p = 0; p < pageCount; p++)
+                                            {
+                                            <div class="mesh-child-page @(p == childPage ? "active" : "")">
+                                        @foreach (var child in childPages[p])
                                         {
                                             <div class="ap-mesh-info">
                                                 @if (child.IsMlo && child.Links.Count > 0)
@@ -777,6 +790,18 @@
                                                 <span class="ap-stat-label"><strong>Mesh Child@(child.IsMlo ? " (MLO)" : ""):</strong> @child.Name</span>
                                             </div>
                                         }
+                                            </div>
+                                            }
+                                            </div>
+                                            @if (pageCount > 1)
+                                            {
+                                                <div class="mesh-child-nav">
+                                                    <button class="nav-btn" @onclick="@(() => SetMeshChildPage(parentMac, childPage - 1, pageCount))" @onclick:stopPropagation="true" disabled="@(childPage == 0)">&#x2039;</button>
+                                                    <span class="modem-counter">@(childPage + 1)/@pageCount</span>
+                                                    <button class="nav-btn" @onclick="@(() => SetMeshChildPage(parentMac, childPage + 1, pageCount))" @onclick:stopPropagation="true" disabled="@(childPage >= pageCount - 1)">&#x203A;</button>
+                                                </div>
+                                            }
+                                        </div>
                                     }
                                 </div>
                                 <div class="ap-radios">
@@ -1033,6 +1058,62 @@
 
     // MACs of mesh children with an in-flight Optimize Mesh action (drives the per-card spinner).
     private readonly HashSet<string> _optimizingMacs = new();
+
+    /// <summary>Current mesh-child page per parent AP MAC, and where a swipe on it started.</summary>
+    private readonly Dictionary<string, int> _meshChildPage = new();
+    private readonly Dictionary<string, double> _meshChildTouchX = new();
+
+    /// <summary>Swipe distance in px that turns a mesh-child page.</summary>
+    private const double MeshChildSwipePx = 40;
+
+    /// <summary>
+    /// Pages of a parent's mesh children: an MLO child alone (its link rows fill the block), and
+    /// the rest two to a page, in list order.
+    /// </summary>
+    private static List<List<MeshChildInfo>> GetMeshChildPages(List<MeshChildInfo> children)
+    {
+        var pages = new List<List<MeshChildInfo>>();
+        List<MeshChildInfo>? pair = null;
+        foreach (var child in children)
+        {
+            if (child.IsMlo && child.Links.Count > 0)
+            {
+                pages.Add([child]);
+                pair = null;
+                continue;
+            }
+
+            if (pair == null || pair.Count == 2)
+            {
+                pair = [];
+                pages.Add(pair);
+            }
+            pair.Add(child);
+        }
+        return pages;
+    }
+
+    private void SetMeshChildPage(string parentMac, int page, int pageCount) =>
+        _meshChildPage[parentMac] = Math.Clamp(page, 0, pageCount - 1);
+
+    private void OnMeshChildTouchStart(string parentMac, TouchEventArgs e)
+    {
+        if (e.Touches.Length > 0)
+            _meshChildTouchX[parentMac] = e.Touches[0].ClientX;
+    }
+
+    private void OnMeshChildTouchEnd(string parentMac, int pageCount, TouchEventArgs e)
+    {
+        if (!_meshChildTouchX.Remove(parentMac, out var startX) || e.ChangedTouches.Length == 0 || pageCount < 2)
+            return;
+
+        var dx = e.ChangedTouches[0].ClientX - startX;
+        if (Math.Abs(dx) < MeshChildSwipePx)
+            return;
+
+        var current = _meshChildPage.GetValueOrDefault(parentMac);
+        SetMeshChildPage(parentMac, dx < 0 ? current + 1 : current - 1, pageCount);
+    }
     private string? _toastMessage;
     private string? _toastNote;
     private string _toastClass = "alert-info";

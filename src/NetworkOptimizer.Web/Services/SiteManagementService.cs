@@ -330,6 +330,18 @@ public class SiteManagementService : ISiteManagementService
         // carrying the removed site's console credentials with it.
         await SweepSiteRegistriesAsync(site.Slug, loopOwners: false);
 
+        // Threat settings live in the main database under the slug, so the site's files going does
+        // not take them; a site created later under the same slug would inherit its tokens and trust.
+        try
+        {
+            await using var db = await _mainDbFactory.CreateDbContextAsync();
+            await NetworkOptimizer.Storage.Repositories.ThreatSiteSettings.RemoveForSiteAsync(db, site.Slug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Site {Slug} was removed but its threat settings could not be cleared", site.Slug);
+        }
+
         // Free the site's license seat.
         await _licenseState.RecomputeAsync();
         _siteRoles.InvalidateAll();
