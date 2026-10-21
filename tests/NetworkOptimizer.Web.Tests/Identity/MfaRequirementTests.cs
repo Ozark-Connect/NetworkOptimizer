@@ -261,6 +261,66 @@ public sealed class MfaRequirementTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task BeginningEnrollmentLeavesTheSecurityStampAlone()
+    {
+        await using var provider = await BuildWithSchemaAsync();
+        using var scope = provider.CreateScope();
+        var user = await CreateUserAsync(scope, "enrolling");
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var stampBefore = await userManager.GetSecurityStampAsync(user);
+
+        var setup = await scope.ServiceProvider.GetRequiredService<IMfaService>().BeginEnrollmentAsync(user);
+
+        var stored = await userManager.FindByIdAsync(user.Id);
+        (await userManager.GetSecurityStampAsync(stored!)).Should().Be(stampBefore,
+            "enrollment begins in the circuit, which cannot re-issue a cookie for a new stamp");
+        (await userManager.GetAuthenticatorKeyAsync(stored!)).Should().Be(setup.SharedKey,
+            "the key shown must be the one the authenticator token provider verifies against");
+    }
+
+    [Fact]
+    public async Task BeginningEnrollmentAgainReturnsTheSameKey()
+    {
+        await using var provider = await BuildWithSchemaAsync();
+        using var scope = provider.CreateScope();
+        var user = await CreateUserAsync(scope, "retrying");
+        var mfa = scope.ServiceProvider.GetRequiredService<IMfaService>();
+
+        var first = await mfa.BeginEnrollmentAsync(user);
+        var second = await mfa.BeginEnrollmentAsync(user);
+
+        second.SharedKey.Should().Be(first.SharedKey,
+            "a wrong code reopens the setup, and the app the user already scanned must keep working");
+    }
+
+    [Fact]
+    public async Task ASessionIsCurrentUntilItsStampRotatesOrTheAccountIsDisabled()
+    {
+        await using var provider = await BuildWithSchemaAsync();
+        using var scope = provider.CreateScope();
+        AttachHttpContext(scope);
+        var user = await CreateUserAsync(scope, "sessionholder");
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var options = scope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<IdentityOptions>>().Value;
+        var principal = await scope.ServiceProvider
+            .GetRequiredService<IUserClaimsPrincipalFactory<ApplicationUser>>().CreateAsync(user);
+
+        (await SessionCurrency.IsCurrentAsync(principal, user, userManager, options)).Should().BeTrue();
+
+        (await userManager.UpdateSecurityStampAsync(user)).Succeeded.Should().BeTrue();
+        (await SessionCurrency.IsCurrentAsync(principal, user, userManager, options)).Should().BeFalse(
+            "a revoked cookie still authenticates until the interval check, and must not act or be re-issued");
+
+        var fresh = await scope.ServiceProvider
+            .GetRequiredService<IUserClaimsPrincipalFactory<ApplicationUser>>().CreateAsync(user);
+        user.IsEnabled = false;
+        (await SessionCurrency.IsCurrentAsync(fresh, user, userManager, options)).Should().BeFalse(
+            "a disabled account's cookie must not be refreshed back to life");
+        (await SessionCurrency.IsCurrentAsync(fresh, null, userManager, options)).Should().BeFalse();
+    }
+
     /// <summary>
     /// These tests never exercise the membership ownership guard, so the resolver only has to exist
     /// for the container to build.

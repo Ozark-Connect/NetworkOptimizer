@@ -3451,6 +3451,11 @@ select.form-control {
     margin-bottom: 0.5rem;
 }
 
+/* A posted action button that sits in a row with circuit buttons. */
+.account-inline-form {
+    display: inline;
+}
+
 .account-note {
     margin: 0 0 0.75rem;
     font-size: 0.875rem;

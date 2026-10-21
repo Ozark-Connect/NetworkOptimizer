@@ -129,6 +129,8 @@ public static class AuthEndpoints
             var user = await currentUser.GetAsync(context.User);
             if (user is null)
                 return Results.Redirect("/login");
+            if (!await SessionIsCurrentAsync(context, user))
+                return await EndStaleSessionAsync(signInService);
 
             var form = await context.Request.ReadFormAsync();
             var code = form["code"].ToString().Trim();
@@ -145,6 +147,39 @@ public static class AuthEndpoints
             // Enrolling your own second factor: signed in is the only requirement. A user in the
             // must-enroll state holds a cookie every other gate refuses, so this has to be the one
             // policy that admits it - otherwise the requirement could never be satisfied.
+            .RequireAuthorization(Policies.AccountSelfService);
+
+        // Turning the authenticator off rotates the security stamp too, so it is posted for the same
+        // reason as enrolling: done in the circuit, it signed the user out within the revalidation
+        // interval for succeeding.
+        app.MapPost("/api/auth/mfa/disable", async (
+            HttpContext context,
+            IMfaService mfa,
+            ICurrentUserAccessor currentUser,
+            IIdentitySignInService signInService,
+            IAntiforgery antiforgery) =>
+        {
+            try
+            {
+                await antiforgery.ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Redirect("/account/security?mfa=failed");
+            }
+
+            var user = await currentUser.GetAsync(context.User);
+            if (user is null)
+                return Results.Redirect("/login");
+            if (!await SessionIsCurrentAsync(context, user))
+                return await EndStaleSessionAsync(signInService);
+
+            if (!await mfa.DisableAsync(user))
+                return Results.Redirect("/account/security?mfa=failed");
+
+            await signInService.RefreshSignInAsync(user);
+            return Results.Redirect("/account/security");
+        })
             .RequireAuthorization(Policies.AccountSelfService);
 
         // Self-service password change. Posted rather than handled in the circuit for the same reason
@@ -171,6 +206,8 @@ public static class AuthEndpoints
             var user = await currentUser.GetAsync(context.User);
             if (user is null)
                 return Results.Redirect("/login");
+            if (!await SessionIsCurrentAsync(context, user))
+                return await EndStaleSessionAsync(signInService);
 
             // Captured BEFORE anything rotates: this is the id the asking browser's circuits are
             // holding right now. Reading it after the refresh names the cookie that was just minted,
@@ -231,6 +268,8 @@ public static class AuthEndpoints
             var user = await currentUser.GetAsync(context.User);
             if (user is null)
                 return Results.Redirect("/login");
+            if (!await SessionIsCurrentAsync(context, user))
+                return await EndStaleSessionAsync(signInService);
 
             // Captured before the stamp rotates, for the same reason as the password change.
             var sparedSession = context.User.FindFirstValue(NetOptClaims.SessionId);
@@ -259,25 +298,11 @@ public static class AuthEndpoints
         app.MapGet("/api/account/revalidate", async (
             HttpContext context,
             ICurrentUserAccessor currentUser,
-            UserManager<ApplicationUser> userManager,
-            IIdentitySignInService signInService,
-            IOptions<IdentityOptions> identityOptions) =>
+            IIdentitySignInService signInService) =>
         {
             var user = await currentUser.GetAsync(context.User);
-
-            var stillValid = user is not null && user.IsEnabled;
-            if (stillValid && userManager.SupportsUserSecurityStamp)
-            {
-                var onCookie = context.User.FindFirstValue(
-                    identityOptions.Value.ClaimsIdentity.SecurityStampClaimType);
-                stillValid = onCookie == await userManager.GetSecurityStampAsync(user!);
-            }
-
-            if (!stillValid)
-            {
-                await signInService.SignOutAsync();
-                return Results.Redirect("/login?error=session_ended");
-            }
+            if (!await SessionIsCurrentAsync(context, user))
+                return await EndStaleSessionAsync(signInService);
 
             return Results.LocalRedirect(SanitizeReturnUrl(context.Request.Query["returnUrl"].ToString()));
         })
@@ -290,38 +315,18 @@ public static class AuthEndpoints
         app.MapGet("/api/account/session", async (
             HttpContext context,
             ICurrentUserAccessor currentUser,
-            UserManager<ApplicationUser> userManager,
-            IIdentitySignInService signInService,
-            IOptions<IdentityOptions> identityOptions) =>
+            IIdentitySignInService signInService) =>
         {
             var user = await currentUser.GetAsync(context.User);
             if (user is null)
                 return Results.Redirect("/login");
 
-            // Refreshing re-issues the cookie from the store, so a disabled account must never reach
-            // it - that would hand a fresh cookie to someone who has just had access taken away.
-            if (!user.IsEnabled)
-            {
-                await signInService.SignOutAsync();
-                return Results.Redirect("/login?error=session_ended");
-            }
-
-            // ...and neither must a cookie whose stamp has already been rotated. The stamp is only
-            // re-read on an interval (5 min), so a revoked cookie still authenticates for that long -
-            // long enough to reach this endpoint, which would re-issue it carrying the CURRENT stamp
-            // and launder the revocation away. Polling here would then keep a signed-out session
-            // alive indefinitely, defeating sign out everywhere and password change both. Same
-            // question /api/account/revalidate asks, and it has to be asked here for the same reason.
-            if (userManager.SupportsUserSecurityStamp)
-            {
-                var onCookie = context.User.FindFirstValue(
-                    identityOptions.Value.ClaimsIdentity.SecurityStampClaimType);
-                if (onCookie != await userManager.GetSecurityStampAsync(user))
-                {
-                    await signInService.SignOutAsync();
-                    return Results.Redirect("/login?error=session_ended");
-                }
-            }
+            // Refreshing re-issues the cookie from the store, so neither a disabled account nor a
+            // cookie whose stamp was already rotated may reach it: the re-issued cookie would carry
+            // the CURRENT stamp and launder the revocation away, and polling here would then keep a
+            // signed-out session alive indefinitely, defeating sign out everywhere and password change.
+            if (!await SessionIsCurrentAsync(context, user))
+                return await EndStaleSessionAsync(signInService);
 
             await signInService.RefreshSignInAsync(user);
 
@@ -367,6 +372,24 @@ public static class AuthEndpoints
             query.Add($"{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(site)}");
         var suffix = query.Count > 0 ? "?" + string.Join("&", query) : "";
         return Results.Redirect($"/login{suffix}");
+    }
+
+    /// <summary>
+    /// The <see cref="SessionCurrency"/> question for this request. Asked before acting, not only before
+    /// re-issuing: a revoked session must not be able to change MFA, the password, or sessions either.
+    /// </summary>
+    private static Task<bool> SessionIsCurrentAsync(HttpContext context, ApplicationUser? user)
+        => SessionCurrency.IsCurrentAsync(
+            context.User,
+            user,
+            context.RequestServices.GetRequiredService<UserManager<ApplicationUser>>(),
+            context.RequestServices.GetRequiredService<IOptions<IdentityOptions>>().Value);
+
+    /// <summary>Signs a stale session out and sends it to sign in again.</summary>
+    private static async Task<IResult> EndStaleSessionAsync(IIdentitySignInService signInService)
+    {
+        await signInService.SignOutAsync();
+        return Results.Redirect("/login?error=session_ended");
     }
 
     /// <summary>
