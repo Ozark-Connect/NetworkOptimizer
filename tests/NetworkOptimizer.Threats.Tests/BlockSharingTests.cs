@@ -28,8 +28,11 @@ public class BlockSharingTests
     private sealed class RecordingGateway : IGatewayBlocklistWriter
     {
         public List<(string? Site, IReadOnlyList<string> Ips)> Syncs { get; } = [];
+        public HashSet<string?> TimesOut { get; } = [];
+
         public Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken ct)
         {
+            if (TimesOut.Contains(site)) throw ConsoleTimeout();
             Syncs.Add((site, ips));
             return Task.FromResult(BlockTargetResult.Success(ips.Count));
         }
@@ -46,9 +49,14 @@ public class BlockSharingTests
         public IReadOnlyList<string> LastFor(string? site) => Syncs.Last(s => s.Site == site).Ips;
     }
 
+    /// <summary>What an HttpClient timeout on a Console call throws.</summary>
+    private static TaskCanceledException ConsoleTimeout() =>
+        new("The request was canceled due to the configured HttpClient.Timeout of 15 seconds elapsing.", new TimeoutException());
+
     private sealed class Harness
     {
         public FakeSettings Settings { get; } = new();
+        public HashSet<string> DecideTimesOut { get; } = [];
         public RecordingGateway Gateway { get; } = new();
         public Dictionary<string, List<ThreatBlock>> Blocks { get; } = new() { [DefaultKey] = [], ["b"] = [] };
         public Dictionary<string, Dictionary<string, int>> Waf { get; } = new() { [DefaultKey] = new(), ["b"] = new() };
@@ -77,7 +85,7 @@ public class BlockSharingTests
             var repo = new Mock<IThreatRepository>();
             repo.Setup(r => r.GetNoiseFiltersAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
             repo.Setup(r => r.GetWafEventCountsBySourceAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new Dictionary<string, int>(Waf[site]));
+                .ReturnsAsync(() => DecideTimesOut.Contains(site) ? throw ConsoleTimeout() : new Dictionary<string, int>(Waf[site]));
             repo.Setup(r => r.GetPatternsSeenAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
             repo.Setup(r => r.GetBlocksAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((DateTime now, DateTime since, CancellationToken _) =>
@@ -114,6 +122,51 @@ public class BlockSharingTests
         h.Blocks[DefaultKey].Should().BeEmpty();
         h.Gateway.LastFor("b").Should().Equal("203.0.113.7");
         h.Gateway.LastFor(null).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ConsoleTimeoutWhileDeciding_OtherSitesStillEnforce()
+    {
+        var h = new Harness();
+        h.Enforce(null, share: false);
+        h.Enforce("b", share: false);
+        h.Waf["b"]["203.0.113.7"] = 9;
+        h.DecideTimesOut.Add(DefaultKey);
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+
+        h.Gateway.LastFor("b").Should().Equal("203.0.113.7");
+        h.Gateway.Syncs.Should().NotContain(s => s.Site == null);
+    }
+
+    [Fact]
+    public async Task ConsoleTimeoutWhileSyncing_OtherSitesStillSync()
+    {
+        var h = new Harness();
+        h.Enforce(null, share: false);
+        h.Enforce("b", share: false);
+        h.Waf["b"]["203.0.113.7"] = 9;
+        h.Gateway.TimesOut.Add(null);
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+
+        h.Gateway.LastFor("b").Should().Equal("203.0.113.7");
+    }
+
+    [Fact]
+    public async Task Shutdown_StillEndsTheCycle()
+    {
+        var h = new Harness();
+        h.Enforce(null, share: false);
+        h.Enforce("b", share: false);
+        h.DecideTimesOut.Add(DefaultKey);
+        using var stopping = new CancellationTokenSource();
+        stopping.Cancel();
+
+        var run = () => h.Service.RunCycleAsync(Now, stopping.Token);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+        h.Gateway.Syncs.Should().BeEmpty();
     }
 
     [Fact]

@@ -216,6 +216,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         if (_startedAt == DateTime.MinValue) _startedAt = now;
         var sites = await SitesAsync(ct);
         var settingsBySite = new Dictionary<string, BlockingSettings>();
+        // Filter on ct, not on OperationCanceledException: a Console's HttpClient timeout is one, and
+        // it must fail only its own site.
         foreach (var site in sites)
         {
             try
@@ -223,7 +225,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 await ObserveAddressesAsync(site, now, ct);
                 settingsBySite[Key(site)] = await DecideAsync(site, now, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 _logger.LogError(ex, "Automatic Blocking failed to decide for site {Site}", site ?? "main");
             }
@@ -235,7 +237,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             {
                 await ReconcileAsync(site, settings, now, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 _logger.LogError(ex, "Automatic Blocking failed to sync site {Site}", site ?? "main");
             }
@@ -243,7 +245,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             {
                 await SyncTrustedSourcesAsync(site, now, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 _logger.LogError(ex, "Trusted Sources failed to sync site {Site}", site ?? "main");
             }
@@ -251,7 +253,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             {
                 await SyncWafExclusionsAsync(site, now, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 _logger.LogError(ex, "WAF exclusions failed to sync site {Site}", site ?? "main");
             }
