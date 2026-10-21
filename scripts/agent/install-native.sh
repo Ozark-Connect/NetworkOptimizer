@@ -393,8 +393,9 @@ remove_wan_flood() {
     for t in iptables ip6tables; do
         command -v "$t" >/dev/null 2>&1 || continue
         for c in PREROUTING FORWARD; do
+            # || true: with no flood rules grep exits 1, and under pipefail set -e would end the uninstall.
             "$t" -w -t mangle -S "$c" 2>/dev/null | grep -E -e '-j NETOPT_FLOOD(_FWD)?$' | sed 's/^-A/-D/' \
-                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done
+                | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done || true
         done
         for ch in NETOPT_FLOOD NETOPT_FLOOD_FWD NETOPT_PROBE; do
             "$t" -w -t mangle -F "$ch" 2>/dev/null || true
@@ -408,7 +409,11 @@ remove_wan_flood() {
         done
     fi
     if command -v tc >/dev/null 2>&1; then
-        owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" 2>/dev/null | tr -d '"' | tr ',' ' ')
+        # Guarded by -f: under pipefail a sed on a missing file would fail the assignment and exit.
+        owned=""
+        if [ -f "${INSTALL_DIR}/wan-flood.json" ]; then
+            owned=$(sed -n 's/.*"ownedQdiscs":\[\([^]]*\)\].*/\1/p' "${INSTALL_DIR}/wan-flood.json" | tr -d '"' | tr ',' ' ')
+        fi
         for d in $(ls /sys/class/net 2>/dev/null); do
             tc qdisc show dev "$d" ingress 2>/dev/null | grep -q 'ingress ffff:' || continue
             for p in $(tc filter show dev "$d" parent ffff: 2>/dev/null | grep -o 'pref [0-9]*' | awk '{print $2}' | sort -u); do
