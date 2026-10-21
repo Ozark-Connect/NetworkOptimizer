@@ -83,8 +83,8 @@ public sealed class WafConnectionAdminService(
     public async Task SaveAsync(bool enabled, string url, string? token, CancellationToken ct = default)
     {
         url = url.Trim();
-        if (enabled && !(Uri.TryCreate(url, UriKind.Absolute, out var parsed) && parsed.Scheme is "http" or "https"))
-            throw new ArgumentException("Enter the WAF URL as an http:// or https:// address.");
+        if (enabled && WafClient.UrlProblem(url) is { } problem)
+            throw new ArgumentException(problem);
         await settings.SaveSettingAsync(Key(WafSettingKeys.Enabled), enabled ? "true" : "false", ct);
         await settings.SaveSettingAsync(Key(WafSettingKeys.Url), url, ct);
         if (!string.IsNullOrWhiteSpace(token))

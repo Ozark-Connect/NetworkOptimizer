@@ -20,6 +20,20 @@ public sealed class WafClient
     public WafClient(HttpClient http) => _http = http;
 
     /// <summary>
+    /// Why <paramref name="url"/> cannot carry the API token, or null when it can. Plain http is
+    /// allowed only to loopback (127.0.0.0/8, ::1, localhost), where the token never crosses a network.
+    /// </summary>
+    public static string? UrlProblem(string url)
+    {
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return "The WAF URL must be an http:// or https:// address.";
+        if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
+            return "Use https:// for the WAF URL. Plain http:// is allowed only to 127.0.0.1, ::1, or localhost.";
+        return null;
+    }
+
+    /// <summary>
     /// Fetches events with sequence number at or after <paramref name="since"/>.
     /// Throws <see cref="WafClientException"/> with a user-readable message on any failure.
     /// </summary>
@@ -83,8 +97,9 @@ public sealed class WafClient
     private async Task<T> SendAsync<T>(HttpMethod method, string baseUrl, string pathAndQuery, string token,
         HttpContent? content, string wrongShapeMessage, CancellationToken cancellationToken)
     {
-        if (!Uri.TryCreate(baseUrl.TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        if (UrlProblem(baseUrl) is { } problem)
+            throw new WafClientException(problem);
+        if (!Uri.TryCreate(baseUrl.Trim().TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var uri))
             throw new WafClientException("The WAF URL must be an http:// or https:// address.");
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
