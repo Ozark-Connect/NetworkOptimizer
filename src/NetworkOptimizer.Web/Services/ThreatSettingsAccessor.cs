@@ -49,7 +49,12 @@ public class ThreatSettingsAccessor : IThreatSettingsAccessor
         var setting = await db.SystemSettings.FindAsync([key], cancellationToken);
         if (setting != null)
         {
-            setting.Value = value;
+            // Only a changed value is a write: an unchanged save stays free.
+            if (setting.Value != value)
+            {
+                setting.Value = value;
+                setting.UpdatedAt = DateTime.UtcNow;
+            }
         }
         else
         {
