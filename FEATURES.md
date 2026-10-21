@@ -63,6 +63,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - UniFi Cable Internet DOCSIS capture (agent on the gateway)
 - [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound (agent on the gateway)
 - LAN speed test server (OpenSpeedTest and iperf3) and site-local WAN speed tests
+- LAN speed test hosted on the UniFi gateway itself (agent on the gateway, `--lan-speed-test`)
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
 - Falls back to HTTPS heartbeats when the tunnel cannot connect; refuses plain HTTP
 - `proxyAllowedCidrs` pins which addresses the tunnel may reach; every dial is logged on the agent host
