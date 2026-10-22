@@ -166,6 +166,8 @@
 
     private string FloodText => _flood!.AgentState == WanFloodAgentState.NeedsUpdate
         ? "WAN Flood Protection stops floods of unsolicited traffic before they max out the gateway's CPU and stall internet access, inter-VLAN traffic, and UniFi apps. Update the gateway's On-Site Agent to turn it on."
+        : _flood.NeedsUniFiOs6
+            ? "WAN Flood Protection (optional): this gateway needs UniFi OS 6.0 or later to run it."
         : _flood.AgentState == WanFloodAgentState.Unsupported
             ? "WAN Flood Protection (optional): this gateway can't run it."
         : (_flood.Settings.Mode, _flood.AgentCapable) switch

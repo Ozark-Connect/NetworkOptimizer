@@ -52,6 +52,22 @@ public sealed record WanFloodOverview(WanFloodSettings Settings, string? AgentNa
     /// <summary>What the gateway agent can do about it, for the update prompt.</summary>
     public WanFloodAgentState AgentState { get; init; } = WanFloodAgentState.NoAgent;
 
+    /// <summary>
+    /// The gateway's UniFi OS version in short form, read only when <see cref="AgentState"/> is
+    /// <see cref="WanFloodAgentState.Unsupported"/>; null otherwise or when the console did not report it.
+    /// </summary>
+    public string? GatewayFirmware { get; init; }
+
+    /// <summary>
+    /// The gateway cannot run it because it is on UniFi OS 5.x or older. No 5.x kernel builds <c>xt_hashlimit</c>
+    /// (UDM Pro, EFG, UDM-Beast, EF-Core, and UCG-Fiber 5.1.33 firmware), and every 6.0.x kernel does.
+    /// </summary>
+    public bool NeedsUniFiOs6 => AgentState == WanFloodAgentState.Unsupported && IsBeforeUniFiOs6(GatewayFirmware);
+
+    /// <summary>Whether a gateway firmware version is below UniFi OS 6.0. False when the version is unknown.</summary>
+    public static bool IsBeforeUniFiOs6(string? firmware) =>
+        !string.IsNullOrWhiteSpace(firmware) && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer("6.0.0", firmware);
+
     /// <summary>Each WAN interface's WAN number (WAN1 = 1), for ordering.</summary>
     public IReadOnlyDictionary<string, int> WanOrder { get; init; } = new Dictionary<string, int>();
 

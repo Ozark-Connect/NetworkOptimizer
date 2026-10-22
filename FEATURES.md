@@ -429,6 +429,7 @@ Set up in **Settings - Security & Alerts**, per site.
 ### WAN Flood Protection
 
 Set up in **Settings - Security & Alerts**, per site, and run by the gateway's [On-Site Agent](#on-site-agent).
+Requires UniFi OS 6.0 or later on the gateway.
 
 - Limits unsolicited new UDP and TCP SYN connections to the gateway, per source
 - Drops reflection floods from DNS, NTP, memcached, and other amplification services

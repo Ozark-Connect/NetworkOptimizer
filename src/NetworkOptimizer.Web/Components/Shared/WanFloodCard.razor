@@ -25,6 +25,8 @@
                 <div class="alert alert-warning">@(_overview.AgentState switch
                 {
                     WanFloodAgentState.NeedsUpdate => "The On-Site Agent on this site's gateway needs an update to enforce WAN Flood Protection.",
+                    WanFloodAgentState.Unsupported when _overview.NeedsUniFiOs6 =>
+                        $"WAN Flood Protection needs UniFi OS 6.0 or later, and this gateway runs UniFi OS {_overview.GatewayFirmware}, so nothing is enforcing it.",
                     WanFloodAgentState.Unsupported => "This gateway can't run WAN Flood Protection, so nothing is enforcing it.",
                     _ => "No On-Site Agent on this site's gateway is connected, so nothing is enforcing WAN Flood Protection.",
                 })</div>
