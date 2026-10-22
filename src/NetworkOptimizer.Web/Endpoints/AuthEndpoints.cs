@@ -220,20 +220,21 @@ public static class AuthEndpoints
             var current = form["currentPassword"].ToString();
             var next = form["newPassword"].ToString();
 
-            // Checked before "same": two empty fields are equal, and calling that a reused password
-            // sends someone hunting for a mistake they did not make.
             if (string.IsNullOrEmpty(current) || string.IsNullOrEmpty(next))
                 return Results.Redirect("/account/security?pw=missing");
 
-            // Told apart from a plain failure so the page can say why rather than sending someone to
-            // re-check a current password that was right.
-            if (string.Equals(current, next, StringComparison.Ordinal))
-                return Results.Redirect("/account/security?pw=same");
-
+            // One answer per failure, so the page names the field that is wrong.
             var result = await identityAdmin.ChangeOwnPasswordAsync(user.Id, current, next);
-
             if (!result.Succeeded)
-                return Results.Redirect("/account/security?pw=failed");
+            {
+                return Results.Redirect(result.Code switch
+                {
+                    PasswordChangeFailures.CurrentWrong => "/account/security?pw=wrong",
+                    PasswordChangeFailures.Same => "/account/security?pw=same",
+                    PasswordChangeFailures.Policy => "/account/security?pw=policy",
+                    _ => "/account/security?pw=failed",
+                });
+            }
 
             await signInService.RefreshSignInAsync(user);
 
@@ -249,7 +250,8 @@ public static class AuthEndpoints
             RevokeAfterResponse(context, revocations, user.Id, sparedSession);
             return Results.Redirect("/account/security?pw=done");
         })
-            .RequireAuthorization(Policies.AccountSelfService);
+            // It answers whether a current password is right, so it is rate limited like sign-in.
+            .RequireAuthorization(Policies.AccountSelfService).RequireRateLimiting("Authentication");
 
         // Ends every other session for the signed-in user. Posted from a form for the same reason the
         // password change is: rotating the stamp invalidates this browser's cookie too, and only an

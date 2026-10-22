@@ -202,6 +202,30 @@ public sealed class AdminSetPasswordTests : IDisposable
             (await FindAsync(scope, "selfadmin")).PasswordIsTemporary.Should().BeFalse("nobody else knows it");
     }
 
+    [Theory]
+    // A wrong current password is reported as wrong even when the new one repeats it: comparing
+    // the two fields first answered that typo with "choose a different password".
+    [InlineData("password1", "password1", PasswordChangeFailures.CurrentWrong)]
+    [InlineData("password1", Chosen, PasswordChangeFailures.CurrentWrong)]
+    [InlineData(AdminSet, AdminSet, PasswordChangeFailures.Same)]
+    [InlineData(AdminSet, "short1", PasswordChangeFailures.Policy)]
+    public async Task EachRefusalNamesTheOneThingThatIsWrong(string current, string next, string expected)
+    {
+        await using var provider = await BuildAsync();
+        await CreateAsync(provider, "typo");
+
+        string id;
+        using (var scope = provider.CreateScope())
+            id = (await FindAsync(scope, "typo")).Id;
+        using (var scope = provider.ScopeAs(id, Roles.Viewer))
+        {
+            var result = await scope.ServiceProvider.GetRequiredService<IIdentityAdminService>()
+                .ChangeOwnPasswordAsync(id, current, next);
+            result.Succeeded.Should().BeFalse();
+            result.Code.Should().Be(expected);
+        }
+    }
+
     private sealed class UnusedSiteRoleResolver : IEffectiveSiteRoleResolver
     {
         public void Invalidate(string userId) { }

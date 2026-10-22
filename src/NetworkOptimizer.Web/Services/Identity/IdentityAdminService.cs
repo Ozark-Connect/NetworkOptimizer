@@ -41,10 +41,23 @@ public sealed record SiteAccessGrant(int MembershipId, string UserId, string? Us
 public sealed record RoleMfaPolicy(string Role, bool RequireMfa);
 
 /// <summary>Result of an identity-admin mutation; carries a user-facing error for refusals (e.g. last-admin).</summary>
-public sealed record AdminActionResult(bool Succeeded, string? Error = null)
+/// <param name="Code">
+/// Set where a caller must tell failures apart, such as <see cref="PasswordChangeFailures"/>;
+/// null otherwise.
+/// </param>
+public sealed record AdminActionResult(bool Succeeded, string? Error = null, string? Code = null)
 {
     public static AdminActionResult Ok() => new(true);
     public static AdminActionResult Fail(string error) => new(false, error);
+    public static AdminActionResult Fail(string error, string code) => new(false, error, code);
+}
+
+/// <summary>Why <see cref="IIdentityAdminService.ChangeOwnPasswordAsync"/> refused, in the order it checks.</summary>
+public static class PasswordChangeFailures
+{
+    public const string CurrentWrong = "current_wrong";
+    public const string Same = "same";
+    public const string Policy = "policy";
 }
 
 /// <summary>
@@ -522,12 +535,17 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!await _userManager.HasPasswordAsync(user))
             return AdminActionResult.Fail("This account signs in without a password.");
 
-        if (await _userManager.CheckPasswordAsync(user, newPassword))
-            return AdminActionResult.Fail("The new password is the one already in use.");
+        // Proven first, so each refusal names the one thing that is wrong. Comparing the two fields
+        // first answered a mistyped current password with "choose a different one".
+        if (!await _userManager.CheckPasswordAsync(user, currentPassword))
+            return AdminActionResult.Fail("The current password is not correct.", PasswordChangeFailures.CurrentWrong);
+
+        if (string.Equals(currentPassword, newPassword, StringComparison.Ordinal))
+            return AdminActionResult.Fail("The new password is the one already in use.", PasswordChangeFailures.Same);
 
         var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
         if (!result.Succeeded)
-            return AdminActionResult.Fail(Describe(result));
+            return AdminActionResult.Fail(Describe(result), PasswordChangeFailures.Policy);
 
         await ClearTemporaryPasswordFlagAsync(user);
         await SyncAdminSettingsIfBuiltInAdminAsync(user, newPassword);
