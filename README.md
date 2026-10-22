@@ -25,7 +25,7 @@ On the UniFi Network side, we are introducing automatically managed Network List
 
 Your UniFi Gateway also gets optional auto-block functionality based upon both the public block lists (supplements CyberSecure / Suricata) and live WAF attack detections, so blocking for already-identified direct / non-Cloudflare traffic occurs right at the firewall level before it even hits Traefik. Cloudflare-proxied hosts can get the same blocks at Cloudflare's edge. Blocks are shared across your sites: an attacker caught at one site is blocked at all of them. With the On-Site Agent running on your gateway, blocks land in seconds through its own ipsets without reprovisioning the gateway, and the Network Lists in UniFi Network catch up overnight. The public block lists can block outbound too, so an infected device can't reach its botnet's command server, and any device on your network that reaches (or tries to reach) a listed address raises an alert.
 
-Also on the Gateway, we've got WAN flood mitigation support now, see engineering details here: https://github.com/Ozark-Connect/NetworkOptimizer/pull/1290
+Also on the Gateway, we've got WAN flood mitigation support now (for UniFi OS 6.0.x EA), see engineering details here: https://github.com/Ozark-Connect/NetworkOptimizer/pull/1290
 
 If you haven't already checked out [our Traefik based reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) it's definitely worth setting up with this coming soon.
 
