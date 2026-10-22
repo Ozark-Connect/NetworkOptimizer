@@ -29,23 +29,28 @@ public class AgentConnectionAlertMonitor : BackgroundService
     {
         public DateTime OfflineSince;
         public bool Alerted;
+        // The subject the offline alert used, so the reconnect names the agent the same way.
+        public string? Subject;
     }
 
     private readonly Dictionary<int, AgentState> _states = new();
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
+    private readonly AgentOnGatewayDetector _onGateway;
 
     public AgentConnectionAlertMonitor(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         AgentTunnelRegistry tunnelRegistry,
         IAlertEventBus alertBus,
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
+        AgentOnGatewayDetector onGateway,
         ILogger<AgentConnectionAlertMonitor> logger)
     {
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _alertBus = alertBus;
         _siteWorkGate = siteWorkGate;
+        _onGateway = onGateway;
         _logger = logger;
     }
 
@@ -85,6 +90,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
 
         var now = DateTime.UtcNow;
         var seen = new HashSet<int>();
+        var live = agents.ToDictionary(e => e.Agent.Id, e => _tunnelRegistry.IsAgentLive(e.Agent));
 
         foreach (var entry in agents)
         {
@@ -97,13 +103,13 @@ public class AgentConnectionAlertMonitor : BackgroundService
             if (!_siteWorkGate.IsSiteOperational(entry.Slug))
                 continue;
 
-            if (_tunnelRegistry.IsAgentLive(agent))
+            if (live[agent.Id])
             {
                 if (_states.Remove(agent.Id, out var prior) && prior.Alerted)
                 {
                     await PublishAsync("agent.reconnected", AlertSeverity.Info,
                         "On-Site Agent reconnected",
-                        $"{AgentLabel(agent.Name)} is back online.",
+                        $"{prior.Subject ?? AgentLabel(agent.Name)} is back online.",
                         agent, entry.Slug, ct);
                 }
                 continue;
@@ -121,9 +127,29 @@ public class AgentConnectionAlertMonitor : BackgroundService
                 var lastSeen = agent.LastSeenAt.HasValue
                     ? $"Last seen {agent.LastSeenAt:u}."
                     : "";
+                var minutes = (int)OfflineThreshold.TotalMinutes;
+
+                // Any live agent on the site carries its tunnel traffic, so with another one up only
+                // what runs on this agent is lost. Everything else reads as a whole-site outage.
+                var othersLive = agents.Count(e => e.Slug == entry.Slug && e.Agent.Id != agent.Id && live[e.Agent.Id]);
+                string message;
+                if (othersLive == 0)
+                {
+                    state.Subject = AgentLabel(agent.Name);
+                    message = $"{state.Subject} has been offline for over {minutes} minutes. Its site's monitoring, speed tests, and Console connection are unavailable until it reconnects.";
+                }
+                else
+                {
+                    var onGateway = await IsOnGatewayAsync(agent, entry.Slug, ct);
+                    state.Subject = AgentSubject(agent.Name, onGateway, agent.LanIp);
+                    var keeps = othersLive == 1 ? "other Agent keeps" : "other Agents keep";
+                    var runsOn = onGateway ? "the Gateway Agent" : "this Agent";
+                    message = $"{state.Subject} has been offline for over {minutes} minutes. This site's {keeps} the UniFi Console connection up. Monitoring and speed tests that run on {runsOn} are unavailable until it reconnects.";
+                }
+
                 await PublishAsync("agent.offline", AlertSeverity.Warning,
                     "On-Site Agent offline",
-                    $"{AgentLabel(agent.Name)} has been offline for over {(int)OfflineThreshold.TotalMinutes} minutes. Its site's monitoring, speed tests, and console connection are unavailable until it reconnects. {lastSeen}",
+                    $"{message} {lastSeen}",
                     agent, entry.Slug, ct);
             }
         }
@@ -134,16 +160,52 @@ public class AgentConnectionAlertMonitor : BackgroundService
     }
 
     /// <summary>
-    /// Subject phrase for an agent in alert copy. An agent with no distinctive name (the
-    /// literal default "agent", or nothing at all) would otherwise render the redundant
+    /// Subject phrase for an agent in alert copy. An agent with no distinctive name (a default
+    /// "Agent" / "Agent 2", or nothing at all) would otherwise render the redundant
     /// Agent "Agent" - fall back to a plain reference. A named agent keeps its quoted name.
     /// </summary>
-    internal static string AgentLabel(string? name)
+    internal static string AgentLabel(string? name) =>
+        IsDefaultName(name) ? "The On-Site Agent" : $"Agent \"{name!.Trim()}\"";
+
+    /// <summary>
+    /// Subject phrase for an agent on a site with more than one agent, where the reader has to know
+    /// which one is down: the Gateway Agent by its role, any other by its LAN IP. A distinctive name
+    /// is added in quotes.
+    /// </summary>
+    internal static string AgentSubject(string? name, bool onGateway, string? lanIp)
+    {
+        var quoted = IsDefaultName(name) ? "" : $" \"{name!.Trim()}\"";
+        if (onGateway)
+            return $"The Gateway Agent{quoted}";
+        return string.IsNullOrWhiteSpace(lanIp)
+            ? $"The On-Site Agent{quoted}"
+            : $"The On-Site Agent{quoted} on {lanIp}";
+    }
+
+    // Enrollment names agents "Agent", "Agent 2", and so on; none of those tells the reader anything.
+    private static bool IsDefaultName(string? name)
     {
         var trimmed = name?.Trim();
-        return string.IsNullOrEmpty(trimmed) || string.Equals(trimmed, "agent", StringComparison.OrdinalIgnoreCase)
-            ? "The On-Site Agent"
-            : $"Agent \"{trimmed}\"";
+        if (string.IsNullOrEmpty(trimmed))
+            return true;
+        if (!trimmed.StartsWith("agent", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var suffix = trimmed[5..].Trim();
+        return suffix.Length == 0 || suffix.All(char.IsAsciiDigit);
+    }
+
+    private async Task<bool> IsOnGatewayAsync(SiteAgent agent, string siteSlug, CancellationToken ct)
+    {
+        IReadOnlyList<string> candidates = string.IsNullOrEmpty(agent.LanIp) ? [] : [agent.LanIp];
+        try
+        {
+            return await _onGateway.IsAgentOnGatewayAsync(siteSlug, agent.Id, candidates, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "On-gateway check failed for agent {Id}; alerting without it", agent.Id);
+            return false;
+        }
     }
 
     private async Task PublishAsync(
