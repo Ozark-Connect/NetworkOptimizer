@@ -31,6 +31,9 @@ public enum SignInOutcome
 
     /// <summary>Local password login is disabled (SSO-only) and this attempt is not a break-glass admin login.</summary>
     LocalLoginDisabled,
+
+    /// <summary>Signed in with a password an administrator set - send the user to replace it.</summary>
+    RequiresPasswordChange,
 }
 
 /// <summary>
@@ -151,6 +154,10 @@ public sealed class IdentitySignInService : IIdentitySignInService
                     return SignInOutcome.RequiresPasskeySignIn;
                 }
             }
+
+            // The session is confined by the claim either way; this only lands the user on the page.
+            if (user.PasswordIsTemporary && !IdentityBootstrapService.IsBuiltInAdmin(user))
+                return SignInOutcome.RequiresPasswordChange;
 
             return SignInOutcome.Success;
         }

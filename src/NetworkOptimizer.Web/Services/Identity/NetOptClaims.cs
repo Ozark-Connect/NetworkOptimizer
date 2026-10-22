@@ -24,6 +24,14 @@ public static class NetOptClaims
     public const string MfaSetupPending = "netopt:mfa_setup";
 
     /// <summary>
+    /// Present when the account signs in with a password an administrator set, so the session may
+    /// reach the account security page to replace it and nothing else. Recomputed by
+    /// <see cref="AppUserClaimsPrincipalFactory"/> like <see cref="MfaSetupPending"/>, for the same
+    /// reason. Never present for the built-in admin, whose first-run password has its own flow.
+    /// </summary>
+    public const string PasswordChangePending = "netopt:pw_change";
+
+    /// <summary>
     /// Identifies the COOKIE a principal was built from - a fresh value every time one is issued, so
     /// two browsers signed in as the same account never share one, and every circuit of a single
     /// browser does.

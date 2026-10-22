@@ -13,7 +13,7 @@
 @if (_enrollmentPending)
 {
     @* Reached here rather than through the router's refusal - same state, same destination. *@
-    <MfaEnrollmentRedirect />
+    <AccountSetupRedirect />
 }
 else
 {
@@ -43,6 +43,6 @@ else
     protected override async Task OnInitializedAsync()
     {
         if (AuthState is not null)
-            _enrollmentPending = (await AuthState).User.IsConfinedToMfaEnrollment();
+            _enrollmentPending = (await AuthState).User.IsConfinedToAccountSetup();
     }
 }

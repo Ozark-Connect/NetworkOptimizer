@@ -31,9 +31,9 @@ public sealed class SiteRoleHandler : AuthorizationHandler<SiteRoleRequirement, 
             return;
         }
 
-        // Enrolment is outstanding, so this session can do nothing yet - a site role is not a way
-        // round that (see MfaEnrollmentGuard).
-        if (context.User.IsConfinedToMfaEnrollment())
+        // Account setup is outstanding, so this session can do nothing yet - a site role is not a way
+        // round that (see AccountSetupGuard).
+        if (context.User.IsConfinedToAccountSetup())
             return;
 
         var effective = await _resolver.GetEffectiveRoleAsync(context.User, resource);

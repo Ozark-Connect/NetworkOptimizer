@@ -199,6 +199,16 @@
             }
         }
 
+        // Show or hide the sibling password field (PasswordInput). Done here, not in the circuit:
+        // Blazor did not apply a changed type attribute to the input, so the field stayed masked.
+        function togglePasswordVisibility(button) {
+            const input = button.previousElementSibling;
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            button.setAttribute('aria-pressed', show ? 'true' : 'false');
+            button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        }
+
         // Copy a command block's text. Same tick-swap feedback as the input copiers; the text comes
         // from the sibling <pre>, whose textContent is exactly what was rendered.
         function copyFromCodeBlock(button) {
