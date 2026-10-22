@@ -357,10 +357,41 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             ParseTransposedUpstreamTable(tables.Upstream, stats);
 
         if (tables.ErrorCodewords != null)
+        {
             MergeErrorCodewords(tables.ErrorCodewords, stats);
+            ClearPrimaryCodewordEcho(stats);
+        }
 
         return stats;
     }
+
+    /// <summary>
+    /// The firmware fills the primary (first) SC-QAM column's codewords with the
+    /// last OFDM channel's counters, seen on XB10, CGM4331, CGM4981 and CGA4332.
+    /// Left in, totals count the OFDM errors twice and pin billions of them on one
+    /// SC-QAM channel. The primary's own counters are not on the page, so they read 0.
+    /// </summary>
+    private static void ClearPrimaryCodewordEcho(CableModemStats stats)
+    {
+        if (stats.DownstreamChannels.Count == 0)
+            return;
+
+        var primary = stats.DownstreamChannels[0];
+        if (IsOfdm(primary) || (primary.Correctables == 0 && primary.Uncorrectables == 0))
+            return;
+
+        var echoed = stats.DownstreamChannels.Skip(1).Any(ch => IsOfdm(ch)
+            && ch.Correctables == primary.Correctables
+            && ch.Uncorrectables == primary.Uncorrectables);
+        if (!echoed)
+            return;
+
+        primary.Correctables = 0;
+        primary.Uncorrectables = 0;
+    }
+
+    private static bool IsOfdm(DsChannel channel) =>
+        channel.Modulation.Contains("OFDM", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Locate the three DOCSIS tables by their header text.
@@ -451,6 +482,11 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
 
         for (int i = 0; i < channelIds.Count; i++)
         {
+            // Every .jst firmware seen labels the OFDMA channel's Channel Type "TDMA";
+            // only its Modulation row says OFDMA, and OFDMA detection reads ChannelType.
+            var modulation = GetAt(modulations, i);
+            var isOfdma = string.Equals(modulation, "OFDMA", StringComparison.OrdinalIgnoreCase);
+
             var channel = new UsChannel
             {
                 ChannelId = ParseInt(GetAt(channelIds, i)),
@@ -458,7 +494,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
                 Frequency = ParseFrequencyWithUnits(GetAt(frequencies, i)),
                 SymbolRate = ParseLong(GetAt(symbolRates, i)),
                 Power = ParseDouble(GetAt(powers, i)),
-                ChannelType = GetAt(channelTypes, i) ?? GetAt(modulations, i) ?? "",
+                ChannelType = isOfdma ? "OFDMA" : GetAt(channelTypes, i) ?? modulation ?? "",
             };
 
             stats.UpstreamChannels.Add(channel);

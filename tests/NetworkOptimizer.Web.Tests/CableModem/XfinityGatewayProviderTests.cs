@@ -71,6 +71,18 @@ public class XfinityGatewayProviderTests
         ofdma.Frequency.Should().Be(36_000_000);
         ofdma.SymbolRate.Should().Be(0);
         ofdma.Power.Should().Be(35.0);
+        ofdma.ChannelType.Should().Be("OFDMA");
+    }
+
+    [Fact]
+    public void ParseNetworkSetup_Residential_TypesOfdmaFromModulationNotChannelType()
+    {
+        // The firmware's Channel Type row reads "TDMA" on the OFDMA channels.
+        var stats = CreateProvider()
+            .ParseNetworkSetup(Fixture("xfinity-xb10-network-setup.html"), Context());
+
+        stats.UpstreamChannels.Take(4).Should().OnlyContain(ch => ch.ChannelType == "ATDMA");
+        stats.UpstreamChannels.Skip(4).Should().OnlyContain(ch => ch.ChannelType == "OFDMA");
     }
 
     [Fact]
@@ -81,11 +93,39 @@ public class XfinityGatewayProviderTests
 
         // This firmware's codeword table carries no Channel ID row, so the
         // columns line up with the downstream table by position alone.
-        stats.DownstreamChannels[0].Correctables.Should().Be(4256604764);
-        stats.DownstreamChannels[0].Uncorrectables.Should().Be(3992);
         stats.DownstreamChannels[1].Correctables.Should().Be(312);
         stats.DownstreamChannels[1].Uncorrectables.Should().Be(1630);
+        stats.DownstreamChannels[28].Correctables.Should().Be(4256604764);
         stats.DownstreamChannels[28].Uncorrectables.Should().Be(3992);
+    }
+
+    [Fact]
+    public void ParseNetworkSetup_ComcastBusiness_DropsThePrimaryChannelsCopyOfTheOfdmCounters()
+    {
+        var stats = CreateProvider()
+            .ParseNetworkSetup(Fixture("comcast-business-cga4332.html"), Context());
+
+        stats.DownstreamChannels[0].Correctables.Should().Be(0);
+        stats.DownstreamChannels[0].Uncorrectables.Should().Be(0);
+        stats.TotalUncorrectables.Should().Be(stats.DownstreamChannels.Skip(1).Sum(ch => ch.Uncorrectables));
+    }
+
+    [Fact]
+    public void ParseNetworkSetup_KeepsPrimaryCodewordsThatDoNotMatchAnOfdmChannel()
+    {
+        // Only an exact copy of an OFDM channel's counters is the firmware echo.
+        var html = ReplaceLast(Fixture("comcast-business-cga4332.html"), "4256604764", "4256604765");
+
+        var stats = CreateProvider().ParseNetworkSetup(html, Context());
+
+        stats.DownstreamChannels[0].Correctables.Should().Be(4256604764);
+        stats.DownstreamChannels[0].Uncorrectables.Should().Be(3992);
+    }
+
+    private static string ReplaceLast(string text, string oldValue, string newValue)
+    {
+        var index = text.LastIndexOf(oldValue, StringComparison.Ordinal);
+        return text[..index] + newValue + text[(index + oldValue.Length)..];
     }
 
     [Fact]
@@ -100,8 +140,12 @@ public class XfinityGatewayProviderTests
         // Residential firmware reports real DOCSIS channel IDs, not positions.
         stats.DownstreamChannels[0].ChannelId.Should().Be(17);
         stats.DownstreamChannels[0].Snr.Should().Be(48.7);
-        stats.DownstreamChannels[0].Correctables.Should().Be(509057704);
-        stats.DownstreamChannels[0].Uncorrectables.Should().Be(0);
+
+        // Channel 17 is the primary; its column repeats OFDM channel 194's counters.
+        stats.DownstreamChannels[0].Correctables.Should().Be(0);
+        var ofdm = stats.DownstreamChannels.Single(ch => ch.ChannelId == 194);
+        ofdm.Correctables.Should().Be(509057704);
+        ofdm.Uncorrectables.Should().Be(0);
     }
 
     [Theory]
