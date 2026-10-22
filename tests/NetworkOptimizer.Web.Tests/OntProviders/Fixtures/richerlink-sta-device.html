@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<HEAD>
+<TITLE>Device Information</TITLE>
+<META http-equiv=Content-Language content=zh-cn>
+<META http-equiv=Content-Type content="text/html; charset=gb2312">
+<LINK href="/JS/stylemain.css" type=text/css rel=stylesheet>
+<SCRIPT language=javascript src="/JS/menu.js"></SCRIPT>
+<SCRIPT language=javascript src="/JS/util.js"></SCRIPT>
+<SCRIPT language=JavaScript src="/JS/printtable.js"></SCRIPT>
+<SCRIPT language=javascript src="/JS/jquery-1.8.3.min.js"></SCRIPT> 
+<META content="MSHTML 6.00.6000.16809" name=GENERATOR>
+</HEAD>
+<BODY style="TEXT-ALIGN: center" vLink=#000000 aLink=#000000 link=#000000 leftMargin=0 topMargin=0 
+onload="DisplayLocation(getElement('Selected_Menu').value);FinishLoad();if(getElById('ConfigForm') != null)LoadFrame()" 
+onunload=DoUnload() marginheight="0" marginwidth="0">
+<TABLE cellSpacing=0 cellPadding=0 align=center border=0 class="major">
+	<TBODY>
+		<TR>
+			<TD class="header">
+				<TABLE cellSpacing=0 cellPadding=0 border=0 class="tbl_nav">
+					<TBODY>
+						<TR>
+							<TD>&nbsp;</TD>
+							<TD vAlign=top align=right>
+								<TABLE id=table8 cellSpacing=0 cellPadding=0 border=0>
+									<TBODY>
+										<TR>
+											<TD class="td_model">
+												<span>Model: </span> 
+												<span> 
+												<SCRIPT language=javascript> 
+													document.write(top.ModelName); 
+												</SCRIPT>
+												</span>
+											</TD>
+											<TD class=welcom>
+												<span>Welcome!</span> 
+												<SPAN class=curUserName>&nbsp;</SPAN>
+												<A onclick=DoLogout() href="/cgi-bin/logout.cgi" target=_top>
+												<SPAN name=logout class=logout>Logout</SPAN>
+												</A>
+												<INPUT id=Selected_Menu type=hidden value="Status->Device" name=Selected_Menu>
+											</TD>
+										</TR>
+									</TBODY>
+								</TABLE>
+							</TD>
+						</TR>
+					</TBODY>
+				</TABLE>
+				<TABLE cellSpacing=0 cellPadding=0 border=0 id=table2>
+					<TBODY>
+						<TR>
+							<TD id=MenuArea_L1></TD>
+						</TR>
+						<TR>
+							<TD id=MenuArea_L2></TD>
+						</TR>
+					</TBODY>
+				</TABLE>
+				<SCRIPT language=javascript>
+					MakeMenu(getElById ('Selected_Menu').value);
+				</SCRIPT>
+			</TD>
+		</TR>  
+		<TR>
+			<TD class="content">
+				<SCRIPT language=JavaScript type=text/javascript>
+					//when login the Home page,set the cookie of LOGFLAG to logged
+					document.cookie =  "LOGFLAG=logged;path=/;";
+
+
+					function stDeviceInfo(domain,ProductClass,SerialNumber,HardwareVersion,SoftwareVersion,ManufacturerOUI)
+					{
+						this.domain = domain;
+						this.ProductClass = ProductClass;
+						this.ManufacturerOUI = ManufacturerOUI;
+						this.SerialNumber = SerialNumber;
+						this.HardwareVersion = HardwareVersion;
+						this.SoftwareVersion = SoftwareVersion;
+					}
+					temp = new Array(new stDeviceInfo("InternetGatewayDevice.DeviceInfo",top.ModelName,"19191900AABB818180","HG530RRA.VER.C","V100R001C01B010","00AABB"),null);
+					var DeviceInfo = temp[0];
+					function LoadFrame()
+					{
+					}
+					var BatchNumber = "RWC00P0.000.00000";
+				</SCRIPT>
+				<FORM style="DISPLAY: none" name=ConfigForm></FORM>
+				<TABLE height="100%" cellSpacing=0 cellPadding=0 border=0 class="tblMain">
+					<TBODY>
+						<TR>
+                            <TD class="Item_T" rowspan="3" style="width:152px">
+								<ul class="TRD">
+									<li class="TSD">Device Information</li>
+								</ul>
+							</TD>
+							<TD width=7 bgColor=#FAFAFA>　</TD>
+							<TD class='w-828' height="20">
+							</TD>
+						</TR>
+						<TR>
+							<TD width=7 background=/img/panel3.gif>　</TD>
+							<TD valign="top">
+								<TABLE cellSpacing=0 cellPadding=0 width="100%" border=0>
+									<TBODY>
+										<TR>
+											<TD width=10>&nbsp;</TD>
+											<TD>
+												<TABLE name="deviceStatList" class="statblList" border="1">
+													<TBODY>
+														<TR>
+															<TD class=table_title width="20%">Device Type:</TD>
+															<TD>
+																<SCRIPT language=javascript>
+																	document.write(top.ModelName);
+																</SCRIPT> 
+																&nbsp;
+															</TD>
+														</TR>
+
+														<TR>
+															<TD class=table_title>Device ID:</TD>
+															<TD style="word-break:break-all">
+																1C184A-RLGM00000000
+																&nbsp; 
+															</TD>
+														</TR>
+														<TR>
+															<TD class=table_title>GPON SN:</TD>
+															<TD style="word-break:break-all">RLGM00000000</TD>
+														</TR>
+														
+															<TR>
+																<TD class=table_title>Hardware Version:</TD>
+																<TD>
+																	V2.0
+																	&nbsp; 
+																</TD>
+															</TR>
+															<TR>
+                      <TD class=table_title>RunTime:</TD>
+                      <TD width=300>
+                        <SCRIPT language=JavaScript type=text/javascript>
+                        var sysRunTime = "03:04:06:47";
+							          var curTimelist = sysRunTime.split(':');
+							          document.write(curTimelist[0] + 'days ' + curTimelist[1] + 'hrs ' + curTimelist[2] + 'mins ' + curTimelist[3] + 'secs ');
+					            	</SCRIPT>&nbsp;
+                      </TD>
+                      </TR>
+                    <TR>
+                      <TD class=table_title>CurrentTime:</TD>
+<!--
+                      <TD width=300>Sun Jan  4 04:06:46 1970
+</TD>
+-->
+                      <TD width=300>
+                      <SCRIPT>
+                        //?????
+                        function fix(num, length) {
+                          return ('' + num).length < length ? ((new Array(length + 1)).join('0') + num).slice(-length) : '' + num;
+                        }
+                        var currTime = '1/4/1970/4/6';
+                        var curTimelist = currTime.split('/');
+                        if ( 5 == curTimelist.length )
+                        {
+                          document.write(curTimelist[2] + '/' + fix(curTimelist[0], 2) + '/' + fix(curTimelist[1], 2) + '   ' + fix(curTimelist[3], 2)+ ':' + fix(curTimelist[4], 2));
+                        }
+                        else
+                          document.write('N/A');
+                        </SCRIPT></TD>
+                      </TR>
+						<TR>
+															<TD class=table_title>Software Version:</TD>
+															<TD>
+																V2.1.5-21783
+																&nbsp; 
+															</TD>
+														</TR>
+														
+														
+														
+													</TBODY>
+												</TABLE>
+											</TD>
+											<TD width=10>&nbsp;</TD>
+										</TR>
+										<TR>
+											<TD width=10>&nbsp;</TD>
+											<TD></TD>
+											<TD width=10>&nbsp;</TD>
+										</TR>
+									</TBODY>
+								</TABLE>
+							</TD>
+						</TR>
+						<TR> 
+							<TD width=7 background=/img/panel3.gif>　</TD>
+							<TD></TD>
+						</TR>
+					</TBODY>
+				</TABLE>
+			</TD>
+		</TR>
+		<!-- copyright bottom -->
+		<SCRIPT language=JavaScript type=text/javascript>
+			printCopyRightBottom();
+		</SCRIPT>
+	</TBODY>
+</TABLE>
+</BODY>
+</HTML>
