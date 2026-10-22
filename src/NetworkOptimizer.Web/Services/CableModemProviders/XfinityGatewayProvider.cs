@@ -9,10 +9,11 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
 /// Cable modem provider for gateways sharing the Comcast-derived .jst web UI,
-/// whatever the OEM: Xfinity XB8/XB10 (Sercomm), Comcast Business CGA4332
-/// (Technicolor), Cox CGM4981 (Technicolor). Authenticates via form POST to
+/// whatever the OEM: Xfinity XB8/XB10 (Sercomm), Xfinity XB7 / CGM4331, Comcast
+/// Business CGA4332 and Cox CGM4981 (Technicolor). Authenticates via form POST to
 /// /check.jst, then scrapes DOCSIS channel tables that use a transposed layout
-/// where each row is a metric and each column is a channel.
+/// where each row is a metric and each column is a channel. Speaks HTTP or HTTPS:
+/// XB7 firmware serves the same UI over HTTPS.
 ///
 /// Firmware families differ in two ways this provider absorbs rather than
 /// exposing as separate providers, because a user cannot tell them apart from
@@ -30,7 +31,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     public string ProviderKey => "xfinity-gateway";
 
     /// <inheritdoc/>
-    public string DisplayName => "Xfinity XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)";
+    public string DisplayName => "Xfinity XB7/XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)";
 
     /// <inheritdoc/>
     public CmCredentialRequirement Credentials => CmCredentialRequirement.Required;
@@ -67,6 +68,18 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     /// serving a stale answer.
     /// </summary>
     private sealed record DiscoveredPath(string? ConfiguredPath, string Path);
+
+    /// <summary>
+    /// Scheme that last served stats per configured modem, so an HTTPS-only
+    /// gateway skips the refused HTTP attempt on later polls.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, KnownScheme> _knownSchemes = new();
+
+    /// <summary>
+    /// A remembered scheme. <paramref name="ConfiguredPort"/> is the port in force
+    /// when it was learned, so editing that setting probes again.
+    /// </summary>
+    private sealed record KnownScheme(int ConfiguredPort, bool UseHttps);
 
     public XfinityGatewayProvider(ILogger<XfinityGatewayProvider> logger)
     {
@@ -170,15 +183,62 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     }
 
     /// <summary>
-    /// Authenticate via form POST, then fetch the first status page that yields
-    /// DOCSIS channels. The winning path is remembered for this modem, so the
-    /// probing cost is paid once rather than on every poll.
+    /// Fetch the status page over the scheme this gateway serves. Port 443 means
+    /// HTTPS. On the default port, HTTP goes first so gateways that answer it keep
+    /// one login; HTTPS follows when HTTP fails to connect or redirects to HTTPS,
+    /// as XB7 / CGM4331 firmware serves its UI over HTTPS.
     /// </summary>
     private async Task<string?> FetchStatusPageAsync(CmPollContext context, CancellationToken cancellationToken)
     {
-        var port = context.Port > 0 ? context.Port : 80;
-        var portSuffix = port == 80 ? "" : $":{port}";
-        var baseUrl = $"http://{context.Host}{portSuffix}";
+        var useHttps = StartsWithHttps(context);
+
+        while (true)
+        {
+            try
+            {
+                var (html, movedToHttps) = await FetchOverSchemeAsync(context, useHttps, cancellationToken);
+
+                if (movedToHttps && CanFallBackToHttps(context, useHttps))
+                {
+                    _logger.LogDebug("Xfinity Gateway at {Host} redirected HTTP to HTTPS, logging in over HTTPS",
+                        context.Host);
+                    useHttps = true;
+                    continue;
+                }
+
+                if (html == null)
+                    ForgetScheme(context);
+                else
+                    RememberScheme(context, useHttps);
+
+                return html;
+            }
+            catch (HttpRequestException ex) when (CanFallBackToHttps(context, useHttps))
+            {
+                _logger.LogDebug(ex, "Xfinity Gateway at {Host} failed over HTTP, trying HTTPS", context.Host);
+                useHttps = true;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                ForgetScheme(context);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Authenticate via form POST, then fetch the first status page that yields
+    /// DOCSIS channels. The winning path is remembered for this modem, so the
+    /// probing cost is paid once rather than on every poll. MovedToHttps reports
+    /// an HTTP login that a redirect carried to HTTPS: the redirect turned the
+    /// POST into a GET and dropped the credentials, so the login must be repeated.
+    /// </summary>
+    private async Task<(string? Html, bool MovedToHttps)> FetchOverSchemeAsync(
+        CmPollContext context,
+        bool useHttps,
+        CancellationToken cancellationToken)
+    {
+        var baseUrl = BuildBaseUrl(context, useHttps);
 
         using var handler = new SocketsHttpHandler
         {
@@ -186,6 +246,8 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             CookieContainer = new CookieContainer(),
             AllowAutoRedirect = true,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            // Accept the gateway's self-signed certificate, on 443 or a redirect to it.
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
         using var client = new HttpClient(handler)
         {
@@ -202,11 +264,14 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
 
         var loginResponse = await client.PostAsync($"{baseUrl}{LoginPath}", loginContent, cancellationToken);
 
+        if (!useHttps && loginResponse.RequestMessage?.RequestUri?.Scheme == Uri.UriSchemeHttps)
+            return (null, true);
+
         if (!loginResponse.IsSuccessStatusCode)
         {
             _logger.LogDebug("Xfinity Gateway login returned {Status} for {Host}",
                 loginResponse.StatusCode, context.Host);
-            return null;
+            return (null, false);
         }
 
         // Keep the first page that authenticated but had no tables: if no
@@ -230,11 +295,66 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             }
 
             Remember(context, path);
-            return html;
+            return (html, false);
         }
 
-        return readableButUnparsed;
+        return (readableButUnparsed, false);
     }
+
+    /// <summary>
+    /// Origin for one scheme. HTTPS on the default port moves to 443; any other
+    /// configured port is kept as given.
+    /// </summary>
+    internal static string BuildBaseUrl(CmPollContext context, bool useHttps)
+    {
+        var port = context.Port > 0 ? context.Port : 80;
+        if (useHttps && port == 80)
+            port = 443;
+
+        var scheme = useHttps ? "https" : "http";
+        var defaultPort = useHttps ? 443 : 80;
+        var suffix = port == defaultPort ? "" : $":{port}";
+        return $"{scheme}://{context.Host}{suffix}";
+    }
+
+    /// <summary>
+    /// First scheme to try: HTTPS when port 443 is configured or HTTPS served
+    /// this modem last time on the same port setting.
+    /// </summary>
+    internal bool StartsWithHttps(CmPollContext context)
+    {
+        if (context.Port == 443)
+            return true;
+
+        return IsDefaultPort(context)
+            && _knownSchemes.TryGetValue(context.CacheKey, out var known)
+            && known.ConfiguredPort == context.Port
+            && known.UseHttps;
+    }
+
+    /// <summary>
+    /// Only the default port falls back: a user who set a custom port chose it.
+    /// </summary>
+    internal static bool CanFallBackToHttps(CmPollContext context, bool useHttps) =>
+        !useHttps && IsDefaultPort(context);
+
+    private static bool IsDefaultPort(CmPollContext context) => context.Port is <= 0 or 80;
+
+    internal void RememberScheme(CmPollContext context, bool useHttps)
+    {
+        var entry = new KnownScheme(context.Port, useHttps);
+        var key = context.CacheKey;
+
+        if (_knownSchemes.TryGetValue(key, out var previous) && previous == entry)
+            return;
+
+        _knownSchemes[key] = entry;
+        _logger.LogDebug("Xfinity Gateway {Name} at {Host}: serving DOCSIS stats over {Scheme}",
+            context.Name, context.Host, useHttps ? "HTTPS" : "HTTP");
+    }
+
+    /// <summary>Drop the remembered scheme so the next poll probes again.</summary>
+    internal void ForgetScheme(CmPollContext context) => _knownSchemes.TryRemove(context.CacheKey, out _);
 
     /// <summary>
     /// GET one candidate path. A 404 or a bounce back to the login page is an
