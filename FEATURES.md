@@ -506,7 +506,6 @@ Requires Gateway SSH.
   - Every UniFi gateway, switch, and access point, with or without SNMP support
   - New models are added as Ubiquiti releases them
 - **Cable modems**
-  - FRITZ!Box Cable - 6690 Cable, FRITZ!OS 8.40 (other models/firmware unverified; RF includes OFDM/OFDMA, error totals cover DOCSIS 3.0 only)
   - ARRIS Surfboard - S33, S34, SB8200, SB6183, T25
   - Motorola - MB8611, MB8600, MB7621
   - Netgear - CM600, CM700, CM1000, CM1200, CM2050V (with OFDM/OFDMA)

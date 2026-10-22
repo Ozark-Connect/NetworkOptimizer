@@ -1688,6 +1688,10 @@
                                 <option value="vodafone-station">Vodafone Station (ARRIS TG3442DE)</option>
                                 <option value="xfinity-gateway">Xfinity XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)</option>
                             </select>
+                            @if (_editingCm.Provider == "fritzbox-cable")
+                            {
+                                <small class="form-help">Error totals cover DOCSIS 3.0 channels; OFDM error counts are not collected.</small>
+                            }
                         </div>
                     </div>
 
@@ -1776,10 +1780,6 @@
                             <input type="text" class="form-control" @bind="_editingCm.StatusPagePath" @bind:event="oninput"
                                    placeholder="@GetCmStatusPathPlaceholder(_editingCm.Provider)" />
                             <small class="form-help">Leave empty to use the provider default.@(IsCmHnapProvider(_editingCm.Provider) ? " Uses HNAP protocol on /HNAP1/." : "")</small>
-                            @if (_editingCm.Provider == "fritzbox-cable")
-                            {
-                                <small class="form-help">Error totals cover DOCSIS 3.0 channels; OFDM error counts are not collected.</small>
-                            }
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Polling Interval (sec)</label>

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
@@ -24,6 +25,18 @@ public sealed class FritzBoxCableProvider : ICableModemProvider
     private const string LoginPath = "/login_sid.lua?version=2";
     private const string FallbackModel = "FRITZ!Box Cable";
     private readonly ILogger<FritzBoxCableProvider> _logger;
+    private readonly ConcurrentDictionary<string, Session> _sessions = new();
+
+    // CacheKey includes the site: configuration IDs alone are not globally unique.
+    // Keep the gate with the SID so concurrent probe/poll calls cannot both sign in.
+    private sealed class Session
+    {
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+        public SessionIdentity? Identity { get; set; }
+        public string? Sid { get; set; }
+    }
+
+    private sealed record SessionIdentity(Uri Origin, string Username, string PasswordHash);
 
     public FritzBoxCableProvider(ILogger<FritzBoxCableProvider> logger) => _logger = logger;
 
@@ -80,54 +93,100 @@ public sealed class FritzBoxCableProvider : ICableModemProvider
             UseProxy = false,
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            // Like the other HTTPS modem providers, accept the device's self-signed certificate.
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         }) { BaseAddress = baseUri, Timeout = TimeSpan.FromSeconds(15) };
 
-        string? sid = null;
+        var session = _sessions.GetOrAdd(context.CacheKey, _ => new Session());
+        var identity = new SessionIdentity(baseUri, context.Username,
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(context.Password))));
+        await session.Gate.WaitAsync(ct);
         try
         {
-            var login = ReadSession(await client.GetStringAsync(LoginPath, ct));
-            if (!int.TryParse(login.Element("BlockTime")?.Value, NumberStyles.None,
-                    CultureInfo.InvariantCulture, out var blockTime))
-                throw new InvalidDataException("Missing login block time.");
-            if (blockTime > 0)
-                throw new InvalidOperationException($"FRITZ!Box sign-in is temporarily blocked. Try again in {blockTime} seconds.");
-
-            var response = CalculateResponse(login.Element("Challenge")?.Value ?? "", context.Password);
-            login = ReadSession(await PostFormAsync(client, LoginPath, new()
+            if (session.Identity != identity)
             {
-                ["username"] = context.Username,
-                ["response"] = response,
-            }, ct));
-            var candidate = login.Element("SID")?.Value;
-            if (candidate is not { Length: 16 } || !candidate.All(Uri.IsHexDigit)
-                || candidate == "0000000000000000")
-                throw new InvalidOperationException("FRITZ!Box rejected the sign-in. Check the account username and password.");
-            sid = candidate;
+                session.Sid = null;
+                session.Identity = identity;
+            }
 
-            using var document = JsonDocument.Parse(await PostFormAsync(client, statusUri.AbsoluteUri, new()
+            var document = session.Sid == null ? null
+                : await ReadDocsisAsync(client, statusUri, session.Sid, ct);
+            if (document == null)
             {
-                ["xhr"] = "1", ["sid"] = sid, ["lang"] = "de", ["page"] = "docInfo", ["xhrId"] = "all",
-            }, ct));
-            var stats = Parse(document.RootElement, context);
-            await ReadMetadataAsync(client, stats, ct);
-            return stats;
+                session.Sid = null;
+                session.Sid = await LoginAsync(client, context, ct);
+                document = await ReadDocsisAsync(client, statusUri, session.Sid, ct);
+                if (document == null)
+                {
+                    session.Sid = null;
+                    throw new InvalidOperationException("FRITZ!Box did not accept the session for cable statistics. Check the account permissions.");
+                }
+            }
+
+            using (document)
+            {
+                var stats = Parse(document.RootElement, context);
+                await ReadMetadataAsync(client, stats, ct);
+                return stats;
+            }
         }
         finally
         {
-            if (sid != null)
-            {
-                // Cleanup owns its token: a cancelled poll must still release only its own session.
-                using var logout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-                try
-                {
-                    await PostFormAsync(client, LoginPath, new() { ["sid"] = sid, ["logout"] = "1" }, logout.Token);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug("FRITZ!Box logout failed ({FailureType})", ex.GetType().Name);
-                }
-            }
+            // Successful reads renew AVM's session. Idle sessions expire on the modem;
+            // logging out here would generate a new sign-in on every scheduled poll.
+            session.Gate.Release();
         }
+    }
+
+    private static async Task<string> LoginAsync(HttpClient client, CmPollContext context, CancellationToken ct)
+    {
+        var login = ReadSession(await client.GetStringAsync(LoginPath, ct));
+        if (!int.TryParse(login.Element("BlockTime")?.Value, NumberStyles.None,
+                CultureInfo.InvariantCulture, out var blockTime))
+            throw new InvalidDataException("Missing login block time.");
+        if (blockTime > 0)
+            throw new InvalidOperationException($"FRITZ!Box sign-in is temporarily blocked. Try again in {blockTime} seconds.");
+
+        var response = CalculateResponse(login.Element("Challenge")?.Value ?? "", context.Password!);
+        login = ReadSession(await PostFormAsync(client, LoginPath, new()
+        {
+            ["username"] = context.Username!, ["response"] = response,
+        }, ct));
+        var sid = login.Element("SID")?.Value;
+        if (sid is not { Length: 16 } || !sid.All(Uri.IsHexDigit) || sid == "0000000000000000")
+            throw new InvalidOperationException("FRITZ!Box rejected the sign-in. Check the account username and password.");
+        return sid;
+    }
+
+    private static async Task<JsonDocument?> ReadDocsisAsync(HttpClient client, Uri uri, string sid, CancellationToken ct)
+    {
+        try
+        {
+            var document = JsonDocument.Parse(await PostFormAsync(client, uri.AbsoluteUri, new()
+            {
+                ["xhr"] = "1", ["sid"] = sid, ["lang"] = "de", ["page"] = "docInfo", ["xhrId"] = "all",
+            }, ct));
+            if (Text(document.RootElement, "pid") != "login") return document;
+            document.Dispose();
+            if (await SessionExpiredAsync(client, sid, ct)) return null;
+            throw new InvalidOperationException("FRITZ!Box did not grant access to cable statistics. Check the account permissions.");
+        }
+        catch (Exception ex) when (ex is JsonException or HttpRequestException
+               { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.SeeOther })
+        {
+            // The 6690 can return HTML with HTTP 200 or redirect with HTTP 303 for an expired SID. Check the SID
+            // without signing in: corrupt JSON or missing permissions must not cause login churn.
+            if (await SessionExpiredAsync(client, sid, ct)) return null;
+            throw;
+        }
+    }
+
+    private static async Task<bool> SessionExpiredAsync(HttpClient client, string sid, CancellationToken ct)
+    {
+        var response = ReadSession(await PostFormAsync(client, LoginPath, new() { ["sid"] = sid }, ct));
+        var returned = response.Element("SID")?.Value;
+        return returned == "0000000000000000" ? true : returned == sid ? false
+            : throw new InvalidDataException("Invalid AVM session validation response.");
     }
 
     private static async Task<string> PostFormAsync(

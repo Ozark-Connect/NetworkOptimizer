@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -194,7 +197,7 @@ public class FritzBoxCableProviderTests
     }
 
     [Fact]
-    public async Task Poll_UsesDialerAndPostsCredentialsThenReadsAndLogsOut()
+    public async Task Poll_UsesDialerAndPostsCredentialsThenReadsAndRetainsSession()
     {
         await using var device = new TestDevice();
         var provider = Provider();
@@ -211,7 +214,7 @@ public class FritzBoxCableProviderTests
         var data = device.Requests.Single(r => r.Path == "/data.lua");
         data.Form["page"].Should().Be("docInfo");
         data.Form["xhrId"].Should().Be("all");
-        device.Logouts.Should().Equal(data.Form["sid"]);
+        device.Logouts.Should().BeEmpty();
         provider.Credentials.Should().Be(CmCredentialRequirement.Required);
         provider.BlankUsernameMeansAdmin.Should().BeFalse();
     }
@@ -241,7 +244,7 @@ public class FritzBoxCableProviderTests
         login.Path.Should().Be("/login_sid.lua?version=2");
         login.Form["username"].Should().Be(username);
         login.Form["response"].Should().Be(response);
-        device.Logouts.Should().Equal(device.Requests.Single(r => r.Path == "/data.lua").Form["sid"]);
+        device.Logouts.Should().BeEmpty();
     }
 
     [Fact]
@@ -253,7 +256,7 @@ public class FritzBoxCableProviderTests
         var (success, message) = await Provider().TestConnectionAsync(Context(device));
         success.Should().BeTrue();
         message.Should().Contain("FRITZ!Box Cable").And.Contain("26 downstream, 4 upstream");
-        device.Logouts.Should().HaveCount(1);
+        device.Logouts.Should().BeEmpty();
     }
 
     [Theory]
@@ -308,40 +311,48 @@ public class FritzBoxCableProviderTests
     [InlineData("<html>Sign in</html>")]
     [InlineData("{\"pid\":\"login\"}")]
     [InlineData("{\"pid\":\"docInfo\",\"data\":{\"readyState\":\"ready\"}}")]
-    public async Task Poll_InvalidDataFailsAndStillLogsOut(string body)
+    public async Task Poll_InvalidDataWithValidSessionFailsWithoutSigningInAgain(string body)
     {
         await using var device = new TestDevice();
         device.Respond = (r, _) => Task.FromResult(r.Path == "/data.lua" ? new Reply(body) : device.DefaultReply(r));
-        var result = await Provider().PollAsync(Context(device));
+        var provider = Provider();
+        var result = await provider.PollAsync(Context(device));
         result.Success.Should().BeFalse();
         result.FailureReason.Should().NotBeNullOrWhiteSpace().And.NotContain(body);
-        device.Logouts.Should().HaveCount(1);
+        (await provider.PollAsync(Context(device))).Success.Should().BeFalse();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(1);
+        device.Logouts.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Poll_DoesNotFollowRedirectOrMaskOutcomeWithLogoutFailure()
+    public async Task Poll_DoesNotFollowRedirect()
     {
         await using var device = new TestDevice();
         device.Respond = (r, _) => Task.FromResult(r.Path == "/data.lua"
             ? new Reply("", 302, "http://example.invalid/elsewhere")
-            : r.Form.ContainsKey("logout") ? new Reply("failed", 500) : device.DefaultReply(r));
+            : device.DefaultReply(r));
         var result = await Provider().PollAsync(Context(device));
         result.Success.Should().BeFalse();
         device.Opens.Should().OnlyContain(o => o.Host == "192.0.2.10");
-        device.Logouts.Should().HaveCount(1);
+        device.Logouts.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Poll_LogoutFailureDoesNotDiscardValidStats()
+    public async Task Poll_ServerFailureDoesNotDiscardSession()
     {
         await using var device = new TestDevice();
-        device.Respond = (r, _) => Task.FromResult(r.Form.ContainsKey("logout")
+        var provider = Provider();
+        (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
+        device.Respond = (r, _) => Task.FromResult(r.Path == "/data.lua"
             ? new Reply("failed", 500) : device.DefaultReply(r));
-        (await Provider().PollAsync(Context(device))).Success.Should().BeTrue();
+        (await provider.PollAsync(Context(device))).Success.Should().BeFalse();
+        device.Respond = null;
+        (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(1);
     }
 
     [Fact]
-    public async Task OverlappingPolls_CancellationLogsOutOnlyItsOwnSession()
+    public async Task OverlappingSites_CancellationDoesNotInvalidateEitherSession()
     {
         await using var device = new TestDevice();
         using var cancelFirst = new CancellationTokenSource();
@@ -364,12 +375,145 @@ public class FritzBoxCableProviderTests
         cancelFirst.Cancel();
         var cancelled = async () => await first;
         await cancelled.Should().ThrowAsync<OperationCanceledException>();
-        device.Logouts.Should().ContainSingle();
-        device.Sessions[device.Logouts.Single()].Should().Be("alpha");
+        device.Logouts.Should().BeEmpty();
+        device.Sessions.Values.Should().BeEquivalentTo("alpha", "beta");
         second.IsCompleted.Should().BeFalse();
         release.SetResult();
         (await second).Success.Should().BeTrue();
-        device.Logouts.Should().HaveCount(2).And.OnlyHaveUniqueItems();
+        (await provider.PollAsync(Context(device) with { Username = "alpha" })).Success.Should().BeTrue();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(2);
+        device.Logouts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ProbeAndPoll_ReuseTheSessionWithoutAnotherLogin()
+    {
+        await using var device = new TestDevice();
+        var provider = Provider();
+        (await provider.TestConnectionAsync(Context(device))).Success.Should().BeTrue();
+        (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
+        (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(1);
+        device.Requests.Where(r => r.Path == "/data.lua").Select(r => r.Form["sid"])
+            .Distinct().Should().ContainSingle();
+        device.Logouts.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("html")]
+    [InlineData("login-json")]
+    [InlineData("401")]
+    [InlineData("403")]
+    [InlineData("303")]
+    public async Task Poll_ExpiredSessionReauthenticatesOnce(string rejection)
+    {
+        await using var device = new TestDevice();
+        var provider = Provider();
+        (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
+        device.Sessions.Clear();
+        device.Respond = (r, _) => Task.FromResult(r.Path == "/data.lua" && !device.Sessions.ContainsKey(r.Form["sid"])
+            ? rejection switch
+            {
+                "html" => new Reply("<html>Sign in</html>"),
+                "login-json" => new Reply("{\"pid\":\"login\"}"),
+                _ => new Reply("", int.Parse(rejection)),
+            } : device.DefaultReply(r));
+        (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(2);
+        device.Requests.Count(r => r.Path == "/data.lua").Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Poll_ForbiddenWithValidSessionDoesNotRetryCredentials()
+    {
+        await using var device = new TestDevice();
+        device.Respond = (r, _) => Task.FromResult(r.Path == "/data.lua" ? new Reply("", 403) : device.DefaultReply(r));
+        var provider = Provider();
+        (await provider.PollAsync(Context(device))).Success.Should().BeFalse();
+        (await provider.PollAsync(Context(device))).Success.Should().BeFalse();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Poll_FreshSessionRejectedDoesNotLoop()
+    {
+        await using var device = new TestDevice();
+        device.Respond = (r, _) =>
+        {
+            if (r.Path == "/data.lua")
+            {
+                device.Sessions.Clear();
+                return Task.FromResult(new Reply("<html>Sign in</html>"));
+            }
+            return Task.FromResult(device.DefaultReply(r));
+        };
+        (await Provider().PollAsync(Context(device))).Success.Should().BeFalse();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(1);
+        device.Requests.Count(r => r.Path == "/data.lua").Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("host")]
+    [InlineData("port")]
+    [InlineData("username")]
+    [InlineData("password")]
+    [InlineData("site")]
+    [InlineData("id")]
+    public async Task Poll_DifferentDeviceOrCredentialsCannotReuseSid(string change)
+    {
+        await using var device = new TestDevice();
+        var provider = Provider();
+        var context = Context(device);
+        (await provider.PollAsync(context)).Success.Should().BeTrue();
+        var changed = change switch
+        {
+            "host" => context with { Host = "192.0.2.11" },
+            "port" => context with { Port = 8080 },
+            "username" => context with { Username = "another-user" },
+            "password" => context with { Password = "another-password" },
+            "site" => context with { SiteSlug = "another-site" },
+            _ => context with { Id = 1 },
+        };
+        (await provider.PollAsync(changed)).Success.Should().BeTrue();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(2);
+        device.Requests.Where(r => r.Path == "/data.lua").Select(r => r.Form["sid"])
+            .Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public async Task ConcurrentPolls_CancelledWaiterDoesNotDuplicateOrPoisonSession()
+    {
+        await using var device = new TestDevice();
+        using var cancel = new CancellationTokenSource();
+        var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.Respond = async (r, ct) =>
+        {
+            if (r.Path == "/data.lua") { arrived.TrySetResult(); await release.Task.WaitAsync(ct); }
+            return device.DefaultReply(r);
+        };
+        var provider = Provider();
+        var first = provider.PollAsync(Context(device));
+        await arrived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var waiter = provider.PollAsync(Context(device), cancel.Token);
+        var second = provider.PollAsync(Context(device));
+        cancel.Cancel();
+        await ((Func<Task>)(async () => await waiter)).Should().ThrowAsync<OperationCanceledException>();
+        second.IsCompleted.Should().BeFalse();
+        release.SetResult();
+        (await first).Success.Should().BeTrue();
+        (await second).Success.Should().BeTrue();
+        device.Requests.Count(r => r.Form.ContainsKey("response")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Poll_HttpsAcceptsDeviceCertificateAndStillUsesSiteDialer()
+    {
+        await using var device = new TestDevice(https: true);
+        var result = await Provider().PollAsync(Context(device) with { Port = 443 });
+        result.Success.Should().BeTrue(result.FailureReason);
+        result.Stats!.LockedDsChannels.Should().Be(26);
+        device.Opens.Should().OnlyContain(o => o.Host == "192.0.2.10" && o.Port == 443);
     }
 
     [Fact]
@@ -395,6 +539,7 @@ public class FritzBoxCableProviderTests
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _accept;
         private readonly ConcurrentBag<Task> _connections = new();
+        private readonly X509Certificate2? _certificate;
         private int _session;
         public ConcurrentQueue<Request> Requests { get; } = new();
         public ConcurrentQueue<(string Host, int Port)> Opens { get; } = new();
@@ -402,8 +547,14 @@ public class FritzBoxCableProviderTests
         public IEnumerable<string> Logouts => Requests.Where(r => r.Form.ContainsKey("logout")).Select(r => r.Form["sid"]);
         public Func<Request, CancellationToken, Task<Reply>>? Respond { get; set; }
 
-        public TestDevice()
+        public TestDevice(bool https = false)
         {
+            if (https)
+            {
+                using var key = RSA.Create(2048);
+                var request = new CertificateRequest("CN=modem.invalid", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                _certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+            }
             _listener.Start();
             _accept = AcceptAsync();
         }
@@ -430,6 +581,8 @@ public class FritzBoxCableProviderTests
                 Sessions[sid] = request.Form["username"];
                 return new Reply(Session(sid));
             }
+            if (request.Path == "/login_sid.lua?version=2" && request.Form.TryGetValue("sid", out var check))
+                return new Reply(Session(Sessions.ContainsKey(check) ? check : "0000000000000000"));
             return request.Path switch
             {
                 "/data.lua" => new Reply(Fixture),
@@ -457,7 +610,9 @@ public class FritzBoxCableProviderTests
             {
                 using (client)
                 {
-                    var stream = client.GetStream();
+                    using Stream stream = _certificate == null ? client.GetStream() : new SslStream(client.GetStream());
+                    if (stream is SslStream tls)
+                        await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = _certificate }, _stop.Token);
                     using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
                     var line = (await reader.ReadLineAsync(_stop.Token))!.Split(' ');
                     var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -494,6 +649,7 @@ public class FritzBoxCableProviderTests
             _listener.Stop();
             await _accept;
             await Task.WhenAll(_connections);
+            _certificate?.Dispose();
             _stop.Dispose();
         }
     }
