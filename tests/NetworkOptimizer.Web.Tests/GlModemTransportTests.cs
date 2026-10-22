@@ -283,6 +283,52 @@ yes
         command.Should().Contain("timeout");
     }
 
+    // Pinned byte for byte: every GL.iNet MHI router runs this exact string, so any refactor
+    // of the builder must leave it unchanged.
+    [Theory]
+    [InlineData("AT+QENG=\"servingcell\"",
+        """echo -ne 'AT+QENG="servingcell"\r' > /dev/mhi_DUN; timeout 3 sh -c 'while IFS= read -r l; do echo "$l"; case "$l" in OK*|ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break;; esac; done < /dev/mhi_DUN'""")]
+    [InlineData("AT+COPS?",
+        """echo -ne 'AT+COPS?\r' > /dev/mhi_DUN; timeout 3 sh -c 'while IFS= read -r l; do echo "$l"; case "$l" in OK*|ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break;; esac; done < /dev/mhi_DUN'""")]
+    [InlineData("AT+CGMR",
+        """echo -ne 'AT+CGMR\r' > /dev/mhi_DUN; timeout 3 sh -c 'while IFS= read -r l; do echo "$l"; case "$l" in OK*|ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break;; esac; done < /dev/mhi_DUN'""")]
+    public void BuildMhiCommand_ExactString_IsPinned(string atCommand, string expected)
+    {
+        GlModemTransport.BuildMhiCommand("/dev/mhi_DUN", atCommand).Should().Be(expected);
+    }
+
+    // Shape of a non-GL OpenWrt router with a PCIe Quectel module (issue #1269): no GL ubus
+    // service, no /etc/glversion, but /dev/mhi_DUN exists. Documents that quectel-at already
+    // reaches such a box over MHI, with the OpenWrt base as its host version.
+    private const string NonGlMhiDiscovery = """
+===INFO===
+===STATUS===
+===GLVER===
+===BOARD===
+{
+        "release": {
+                "distribution": "OpenWrt",
+                "version": "15.05.1",
+                "description": "OpenWrt Chaos Calmer 15.05.1"
+        }
+}
+===MHI===
+yes
+""";
+
+    [Fact]
+    public void ParseDiscovery_NonGlOpenWrtWithMhi_TakesTheMhiPath()
+    {
+        var endpoint = GlModemTransport.ParseDiscovery(NonGlMhiDiscovery, configuredBus: "");
+
+        endpoint.IsMhi.Should().BeTrue();
+        endpoint.MhiDevice.Should().Be("/dev/mhi_DUN");
+        endpoint.Bus.Should().BeNull();
+        endpoint.HostVersion.Should().Be("OpenWrt Chaos Calmer 15.05.1");
+        endpoint.Product.Should().BeNull();
+        endpoint.Description.Should().BeNull();
+    }
+
     [Theory]
     [InlineData("/dev/mhi_DUN; reboot")]
     [InlineData("/dev/../etc/passwd")]
