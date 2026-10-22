@@ -1,0 +1,277 @@
+{
+  "pid": "docInfo",
+  "data": {
+    "readyState": "ready",
+    "channelDs": {
+      "docsis30": [
+        {
+          "powerLevel": "5.1",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 7,
+          "mse": "-37.6",
+          "channelID": 6,
+          "frequency": "594.000"
+        },
+        {
+          "powerLevel": "5.5",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 3,
+          "mse": "-37.4",
+          "channelID": 1,
+          "frequency": "114.000"
+        },
+        {
+          "powerLevel": "5.5",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 2,
+          "mse": "-37.6",
+          "channelID": 2,
+          "frequency": "130.000"
+        },
+        {
+          "powerLevel": "5.6",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 6,
+          "mse": "-37.6",
+          "channelID": 3,
+          "frequency": "570.000"
+        },
+        {
+          "powerLevel": "5.7",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 13,
+          "mse": "-38.6",
+          "channelID": 4,
+          "frequency": "578.000"
+        },
+        {
+          "powerLevel": "5.5",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 9,
+          "mse": "-38.6",
+          "channelID": 5,
+          "frequency": "586.000"
+        },
+        {
+          "powerLevel": "5.3",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 0,
+          "mse": "-37.6",
+          "channelID": 7,
+          "frequency": "602.000"
+        },
+        {
+          "powerLevel": "5.7",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 0,
+          "mse": "-39.0",
+          "channelID": 8,
+          "frequency": "618.000"
+        },
+        {
+          "powerLevel": "5.6",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 7,
+          "mse": "-37.6",
+          "channelID": 9,
+          "frequency": "626.000"
+        },
+        {
+          "powerLevel": "5.7",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 7,
+          "mse": "-38.6",
+          "channelID": 10,
+          "frequency": "634.000"
+        },
+        {
+          "powerLevel": "5.6",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 0,
+          "mse": "-37.4",
+          "channelID": 11,
+          "frequency": "642.000"
+        },
+        {
+          "powerLevel": "5.7",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 0,
+          "mse": "-38.6",
+          "channelID": 12,
+          "frequency": "650.000"
+        },
+        {
+          "powerLevel": "5.6",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 19,
+          "mse": "-37.4",
+          "channelID": 13,
+          "frequency": "658.000"
+        },
+        {
+          "powerLevel": "5.4",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 0,
+          "mse": "-39.0",
+          "channelID": 14,
+          "frequency": "666.000"
+        },
+        {
+          "powerLevel": "5.3",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 8,
+          "mse": "-38.6",
+          "channelID": 15,
+          "frequency": "674.000"
+        },
+        {
+          "powerLevel": "5.2",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 8,
+          "mse": "-37.4",
+          "channelID": 16,
+          "frequency": "682.000"
+        },
+        {
+          "powerLevel": "5.2",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 7,
+          "mse": "-37.6",
+          "channelID": 17,
+          "frequency": "690.000"
+        },
+        {
+          "powerLevel": "5.0",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 10,
+          "mse": "-37.4",
+          "channelID": 18,
+          "frequency": "698.000"
+        },
+        {
+          "powerLevel": "4.6",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 0,
+          "mse": "-37.4",
+          "channelID": 19,
+          "frequency": "706.000"
+        },
+        {
+          "powerLevel": "4.9",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 7,
+          "mse": "-37.6",
+          "channelID": 20,
+          "frequency": "714.000"
+        },
+        {
+          "powerLevel": "5.0",
+          "nonCorrErrors": 172,
+          "modulation": "256QAM",
+          "corrErrors": 66,
+          "mse": "-37.6",
+          "channelID": 21,
+          "frequency": "722.000"
+        },
+        {
+          "powerLevel": "4.8",
+          "nonCorrErrors": 3934,
+          "modulation": "256QAM",
+          "corrErrors": 803,
+          "mse": "-37.6",
+          "channelID": 22,
+          "frequency": "730.000"
+        },
+        {
+          "powerLevel": "4.3",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 3,
+          "mse": "-37.6",
+          "channelID": 23,
+          "frequency": "738.000"
+        },
+        {
+          "powerLevel": "3.7",
+          "nonCorrErrors": 0,
+          "modulation": "256QAM",
+          "corrErrors": 0,
+          "mse": "-37.4",
+          "channelID": 24,
+          "frequency": "746.000"
+        }
+      ],
+      "docsis31": [
+        {
+          "powerLevel": "5.8",
+          "nonCorrErrors": 0,
+          "modulation": "4096QAM",
+          "mer": "40",
+          "channelID": 33,
+          "frequency": "134.975 - 324.975"
+        },
+        {
+          "powerLevel": "-1.5",
+          "nonCorrErrors": 81274448,
+          "modulation": "4096QAM",
+          "mer": "34",
+          "channelID": 34,
+          "frequency": "750.975 - 860.975"
+        }
+      ]
+    },
+    "channelUs": {
+      "docsis30": [
+        {
+          "powerLevel": "43.3",
+          "modulation": "64QAM",
+          "multiplex": "ATDMA",
+          "channelID": 3,
+          "frequency": "44.600"
+        },
+        {
+          "powerLevel": "43.5",
+          "modulation": "64QAM",
+          "multiplex": "ATDMA",
+          "channelID": 2,
+          "frequency": "37.200"
+        },
+        {
+          "powerLevel": "43.3",
+          "modulation": "64QAM",
+          "multiplex": "ATDMA",
+          "channelID": 1,
+          "frequency": "30.800"
+        }
+      ],
+      "docsis31": [
+        {
+          "powerLevel": "39.0",
+          "modulation": "32QAM",
+          "channelID": 5,
+          "frequency": "48.025 - 64.825"
+        }
+      ]
+    }
+  }
+}

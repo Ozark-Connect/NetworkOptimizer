@@ -96,6 +96,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Technicolor CGA series** - CGA437A, CGA4233VOO, CGA4322DE, CGA6444VF (shipped by VOO and Vodafone)
 - **Vodafone Station** - ARRIS TG3442DE
 - **Sagemcom** - F3896LG (Virgin Media Hub 5, Ziggo SmartWifi)
+- **FRITZ!Box Cable** - 6690 Cable with FRITZ!OS 8.40; other models/firmware are unverified. Use a FRITZ!Box account with access to cable statistics. Error totals cover DOCSIS 3.0 channels; OFDM error counts are not collected. OFDM/OFDMA RF readings are included, with frequency bands shown at their midpoint.
 
 ![Cable Modem Stats card with downstream SNR gauge, channel counts, power levels and FEC error counts](docs/images/cable-modem-stats.png)
 
