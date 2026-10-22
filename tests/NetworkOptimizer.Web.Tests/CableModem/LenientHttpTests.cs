@@ -119,4 +119,28 @@ public class LenientHttpTests
 
         resp.Body.Should().Be("hello");
     }
+
+    // The ARRIS SB6141's exact header set: no Content-Length, body ended by closing the connection.
+    [Fact]
+    public void ParseRawHttpResponse_ReadsCloseDelimitedSb6141Response()
+    {
+        var raw = Raw(
+            "HTTP/1.1 200 Ok\n" +
+            "Pragma: no-cache\n" +
+            "Content-Type: text/html\n" +
+            "Date: Tue, 20 Oct 2026 12:02:46 GMT\n" +
+            "X-Frame-Options: SAMEORIGIN\n" +
+            "Expires: -1\n" +
+            "Connection: close\n" +
+            "Server: NET-DK/1.0\n" +
+            "\n" +
+            "<TABLE><TR><TH>Signal Stats (Codewords)</TH></TR></TABLE>");
+
+        var resp = LenientHttp.ParseRawHttpResponse(raw, raw.Length);
+
+        resp.StatusCode.Should().Be(200);
+        resp.Headers["Server"].Should().Be("NET-DK/1.0");
+        resp.Headers.Should().NotContainKey("Content-Length");
+        resp.Body.Should().Be("<TABLE><TR><TH>Signal Stats (Codewords)</TH></TR></TABLE>");
+    }
 }
