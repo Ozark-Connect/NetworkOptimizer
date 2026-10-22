@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Storage.Interfaces;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.WanFlood;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services.WanFlood;
@@ -55,26 +55,34 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
         var state = capable ? WanFloodAgentState.Capable : service.AgentState(Slug);
         return new WanFloodOverview(current, agent, capable, status)
         {
-            WanLabels = labels, WanOrder = order, ActiveWans = active,
+            WanLabels = labels,
+            WanOrder = order,
+            ActiveWans = active,
             AgentState = state,
             GatewayFirmware = state == WanFloodAgentState.Unsupported ? await GatewayFirmwareAsync(ct) : null,
         };
     }
 
-    // Tells "needs UniFi OS 6.0" apart from any other reason the gateway cannot run it.
+    private string? _gatewayFirmware;
+    private bool _gatewayFirmwareRead;
+
+    // Tells "needs UniFi OS 6.0" apart from any other reason the gateway cannot run it. Read once per scope: the card
+    // reloads every 10 s, and the device cache would otherwise re-run discovery against the Console every 30 s.
     private async Task<string?> GatewayFirmwareAsync(CancellationToken ct)
     {
+        if (_gatewayFirmwareRead) return _gatewayFirmware;
         try
         {
             var devices = await connection.GetDiscoveredDevicesAsync(ct);
             var gateway = devices.FirstOrDefault(d => d.Type.IsGateway());
-            return NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(gateway?.Firmware);
+            _gatewayFirmware = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(gateway?.Firmware);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Without it the card shows the generic message.
-            return null;
         }
+        _gatewayFirmwareRead = true;
+        return _gatewayFirmware;
     }
 
     // The agent reports WANs by interface. The WAN profiles map an interface to its WAN key, and the gateway's WAN
