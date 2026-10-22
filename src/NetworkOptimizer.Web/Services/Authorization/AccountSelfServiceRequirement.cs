@@ -36,8 +36,8 @@ public sealed class AccountSelfServiceHandler : AuthorizationHandler<AccountSelf
             return;
         }
 
-        // Deliberately does NOT consult NetOptClaims.MfaSetupPending - admitting that state is the
-        // entire reason this policy exists. It also does not check site access: an account with no
+        // Deliberately does NOT consult AccountSetupGuard - admitting that state is the entire reason
+        // this policy exists. It also does not check site access: an account with no
         // sites still owns its own credentials.
         if (context.User.Identity?.IsAuthenticated == true)
             context.Succeed(requirement);

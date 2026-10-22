@@ -47,6 +47,11 @@ public sealed class AppUserClaimsPrincipalFactory
         if (await _mfaFacts.MustEnrolAsync(user))
             identity.AddClaim(new Claim(NetOptClaims.MfaSetupPending, "1"));
 
+        // Derived the same way, so a cookie refresh cannot drop it and the password change clears it.
+        if (user.PasswordIsTemporary && !IdentityBootstrapService.IsBuiltInAdmin(user)
+            && await UserManager.HasPasswordAsync(user))
+            identity.AddClaim(new Claim(NetOptClaims.PasswordChangePending, "1"));
+
         return identity;
     }
 }

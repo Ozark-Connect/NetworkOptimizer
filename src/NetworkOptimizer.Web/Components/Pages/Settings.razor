@@ -409,13 +409,9 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">New Password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
-                <input type="password" class="form-control" @bind="adminNewPassword" @bind:event="oninput" @onclick:stopPropagation="true" @bind:after="OnAdminPasswordInput" placeholder="Enter new password" autocomplete="new-password" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Confirm Password</label>
-                <input type="password" class="form-control" @bind="adminConfirmPassword" @bind:event="oninput" @bind:after="OnAdminPasswordInput" placeholder="Confirm new password" autocomplete="new-password" />
+                <label class="form-label" for="admin-new-password">New Password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
+                <PasswordInput Id="admin-new-password" AutoComplete="new-password" Placeholder="Enter new password"
+                               @bind-Value="adminNewPassword" @bind-Value:after="OnAdminPasswordInput" />
             </div>
 
             <div class="action-buttons">
@@ -5359,7 +5355,6 @@
     private AdminPasswordSource adminPasswordSource = AdminPasswordSource.None;
     private string _passwordPolicy => NetworkOptimizer.Web.Services.Identity.PasswordPolicyText.Describe(IdentityOptions.Value.Password);
     private string adminNewPassword = "";
-    private string adminConfirmPassword = "";
     private bool savingAdminPassword = false;
     private string adminPasswordMessage = "";
     private string adminPasswordMessageClass = "";
@@ -8269,7 +8264,7 @@
     private async Task SaveAdminPassword()
     {
         // Validate using service
-        var validation = AdminAuth.ValidateNewPassword(adminNewPassword, adminConfirmPassword);
+        var validation = AdminAuth.ValidateNewPassword(adminNewPassword);
         if (!validation.IsValid)
         {
             adminPasswordMessage = validation.ErrorMessage ?? "Invalid password";
@@ -8313,7 +8308,6 @@
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
 
             adminNewPassword = "";
-            adminConfirmPassword = "";
             if (identityError is null)
             {
                 adminPasswordMessage = "Admin password settings saved successfully";

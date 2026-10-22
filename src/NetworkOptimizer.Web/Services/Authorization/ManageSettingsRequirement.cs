@@ -44,9 +44,9 @@ public sealed class ManageSettingsHandler : AuthorizationHandler<ManageSettingsR
             return;
         }
 
-        // Enrolment is outstanding, so this session opens nothing yet - Admin included
-        // (see MfaEnrollmentGuard).
-        if (context.User.IsConfinedToMfaEnrollment())
+        // Account setup is outstanding, so this session opens nothing yet - Admin included
+        // (see AccountSetupGuard).
+        if (context.User.IsConfinedToAccountSetup())
             return;
 
         if (context.User.IsInRole(Roles.Admin))

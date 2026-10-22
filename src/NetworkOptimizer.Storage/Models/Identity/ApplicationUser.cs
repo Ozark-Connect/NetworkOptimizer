@@ -32,10 +32,10 @@ public class ApplicationUser : IdentityUser
     public string? LastLoginMethod { get; set; }
 
     /// <summary>
-    /// True when the account's password is the auto-generated first-run temporary password carried
-    /// over at migration (the "lazy homelabber" who never set their own). Drives the un-dismissable
-    /// "set a real password" nag; cleared the first time the user sets their own password. Preserves
-    /// the pre-Identity auto-generated-password UX (design doc 02 migration).
+    /// True when the account's password is not one its holder chose. For the built-in admin that is the
+    /// auto-generated first-run password carried over at migration (design doc 02), which keeps its
+    /// own banners. For any other account it is a password an administrator set, and the session is
+    /// confined to replacing it. Cleared the first time the user sets their own password.
     /// </summary>
     public bool PasswordIsTemporary { get; set; }
 

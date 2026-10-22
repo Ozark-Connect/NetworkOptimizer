@@ -40,37 +40,38 @@
    nothing to prove and nothing to replace, so offering the form would be a dead end. *@
 @if (_hasPassword)
 {
-    <div class="card">
+    @if (_passwordChangeRequired)
+    {
+        <div class="alert alert-warning">
+            Your password was set by an administrator. Choose your own password to continue.
+        </div>
+    }
+    <div class="card @(_passwordChangeRequired ? "card-highlight" : null)">
         <div class="card-header"><span class="card-title">Password</span></div>
         <div class="card-body">
             @if (_passwordChanged)
             {
                 <div class="alert alert-success">Your password has been changed.</div>
             }
-            @if (_passwordUnchanged)
+            @if (PasswordMessage is { } message)
             {
-                <div class="alert alert-danger">Your new password has to be different from your current one.</div>
-            }
-            @if (_passwordFailed)
-            {
-                <div class="alert alert-danger">
-                    That did not work. Check your current password and that the new one meets the
-                    requirements.
-                </div>
+                <div class="alert alert-danger">@message</div>
             }
             @* Posted, not handled in the circuit: a password change rotates the security stamp, and
                only an HTTP response can re-issue the cookie that carries it. *@
             <form method="post" action="/api/account/password">
                 <AntiforgeryToken />
                 <div class="form-group">
-                    <label class="form-label" for="current-password">Current password</label>
-                    <input id="current-password" name="currentPassword" type="password"
-                           class="form-control" autocomplete="current-password" />
+                    <label class="form-label" for="current-password">@(_passwordChangeRequired ? "Temporary password" : "Current password")</label>
+                    <PasswordInput Id="current-password" Name="currentPassword" AutoComplete="current-password" />
+                    @if (_passwordChangeRequired)
+                    {
+                        <p class="form-help">The one you just signed in with.</p>
+                    }
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="new-password">New password <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@_passwordPolicy">?</span></label>
-                    <input id="new-password" name="newPassword" type="password"
-                           class="form-control" autocomplete="new-password" />
+                    <PasswordInput Id="new-password" Name="newPassword" AutoComplete="new-password" />
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm">Change password</button>
             </form>
@@ -278,6 +279,12 @@
     private bool _passkeyIsOnlyWayIn;
     private bool _hasPassword;
 
+    /// <summary>
+    /// Read from the cookie rather than the account: the claim is what confines the session, and the
+    /// password change re-issues the cookie, so the notice clears exactly when the confinement does.
+    /// </summary>
+    private bool _passwordChangeRequired;
+
     /// <summary>The configured policy, so the hint cannot drift from what the validator enforces.</summary>
     private string _passwordPolicy => PasswordPolicyText.Describe(IdentityOptions.Value.Password);
 
@@ -287,9 +294,25 @@
     private bool _sessionsRevoked => SessionsResult == "done";
     private bool _sessionsFailed => SessionsResult == "failed";
 
-    private bool _passwordChanged => PasswordResult == "done";
-    private bool _passwordFailed => PasswordResult == "failed";
-    private bool _passwordUnchanged => PasswordResult == "same";
+    /// <summary>
+    /// The pw= result, captured once: the parameter is stripped from the address so a reload does
+    /// not repeat a stale outcome.
+    /// </summary>
+    private string? _passwordResult;
+    private bool _passwordChanged => _passwordResult == "done";
+
+    /// <summary>One message per refusal, naming the field that is wrong.</summary>
+    private string? PasswordMessage => _passwordResult switch
+    {
+        "missing" => "Fill in both fields.",
+        "wrong" => _passwordChangeRequired
+            ? "The temporary password is not correct."
+            : "Your current password is not correct.",
+        "same" => "Your new password has to be different from your current one.",
+        "policy" => $"Your new password does not meet the requirements: {_passwordPolicy}",
+        "failed" => "That did not work. Reload the page and try again.",
+        _ => null,
+    };
     private AuthenticatorSetup? _setup;
     private bool _enrollError;
     private IReadOnlyList<string>? _recoveryCodes;
@@ -308,6 +331,7 @@
         {
             _mfaEnabled = await Mfa.IsEnabledAsync(_user);
             _hasPassword = await Mfa.HasPasswordAsync(_user);
+            _passwordChangeRequired = principal.HasClaim(c => c.Type == NetOptClaims.PasswordChangePending);
             _passkeys = await Passkeys.ListAsync(principal);
 
             // The requirement, not how they arrived. Asked of the role every time, so the guidance
@@ -348,10 +372,12 @@
             if (MfaResult == "failed")
                 _mfaMessage = "That could not be saved - reload the page and try again.";
 
+            _passwordResult = PasswordResult;
+
             // One-shot results: drop them so a reload does not repeat a stale message.
-            if (Enroll == "failed" || MfaResult is not null)
+            if (Enroll == "failed" || MfaResult is not null || PasswordResult is not null)
                 Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(
-                    new Dictionary<string, object?> { ["enroll"] = null, ["mfa"] = null }), replace: true);
+                    new Dictionary<string, object?> { ["enroll"] = null, ["mfa"] = null, ["pw"] = null }), replace: true);
         }
     }
 
@@ -417,7 +443,7 @@
                 // refusing - enrol, then get bounced back here by the very redirect that sent you.
                 // Enabling an authenticator does not hit this because it posts, and only an HTTP
                 // response can re-issue the cookie. This is that response.
-                if (principal.IsConfinedToMfaEnrollment())
+                if (principal.OwesSecondFactor())
                 {
                     Navigation.NavigateTo(
                         "/api/account/session?returnUrl=/account/security", forceLoad: true);

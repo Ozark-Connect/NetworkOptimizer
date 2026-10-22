@@ -128,8 +128,8 @@ public sealed class MethodSecurityInterceptor : AsyncInterceptorBase
         if (caller.Principal is null)
             Deny(caller, auditAttr, siteSlug, "no principal");
 
-        // No MFA-enrolment confinement here, deliberately - it belongs to the entry gates (see
-        // MfaEnrollmentGuard). A gated interface carries its reads alongside its writes, and the
+        // No account-setup confinement here, deliberately - it belongs to the entry gates (see
+        // AccountSetupGuard). A gated interface carries its reads alongside its writes, and the
         // interceptor cannot tell one from the other: NavMenu asks ISiteManagementService whether
         // multi-site is on to decide whether to draw one item, and the layout renders on every page.
         // Refusing here therefore took down the shell for a confined session - including the enrolment
