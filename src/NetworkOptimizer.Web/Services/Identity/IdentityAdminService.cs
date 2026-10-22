@@ -592,6 +592,8 @@ public sealed class IdentityAdminService : IIdentityAdminService
             UserName = username,
             DisplayName = displayName,
             IsEnabled = true,
+            // The admin chose it, so the account replaces it at its first sign-in.
+            PasswordIsTemporary = !string.IsNullOrEmpty(password),
         };
 
         var create = string.IsNullOrEmpty(password)
@@ -688,10 +690,15 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var result = await _userManager.ResetPasswordAsync(user, token, newPassword);
         if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
 
-        // Clearing the temporary flag: an admin-set password is no longer the auto-generated one.
-        await ClearTemporaryPasswordFlagAsync(user);
+        // Someone else's password is one the admin knows, so the account must replace it. The built-in
+        // admin keeps its own first-run flow, and an admin setting their own has nothing to replace.
+        var temporary = !IsSelf(userId) && !IdentityBootstrapService.IsBuiltInAdmin(user);
+        if (temporary)
+            await MarkPasswordTemporaryAsync(user);
+        else
+            await ClearTemporaryPasswordFlagAsync(user);
         await RetireLegacyTokensIfBuiltInAdminAsync(user);
-        Emit(AuditCategories.Auth, AuditActions.PasswordReset, user);
+        Emit(AuditCategories.Auth, AuditActions.PasswordReset, user, new { mustChange = temporary });
         return AdminActionResult.Ok();
     }
 
@@ -1123,12 +1130,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
     }
 
     /// <summary>
-    /// Clears the "this is still the auto-generated password" nag after a real one is set. Logged
-    /// rather than returned: the password change itself has already succeeded by this point, so
-    /// failing the call would report the opposite of what happened. The cost of losing it is that the
-    /// banner keeps asking for a password the user has already set.
-    /// </summary>
-    /// <summary>
     /// The install's own record of where the admin password comes from lives in AdminSettings, and it
     /// is what Settings - Application reports and what the "set a real password" nag reads. A password
     /// set through Settings goes through SaveAdminSettingsAsync and flips that row to Database; a
@@ -1154,6 +1155,12 @@ public sealed class IdentityAdminService : IIdentityAdminService
         }
     }
 
+    /// <summary>
+    /// Clears the temporary-password flag after the account's own password is set. Logged rather than
+    /// returned: the password change itself has already succeeded by this point, so failing the call
+    /// would report the opposite of what happened. The cost of losing it is that the account keeps
+    /// being asked for a password it has already set.
+    /// </summary>
     private async Task ClearTemporaryPasswordFlagAsync(ApplicationUser user)
     {
         if (!user.PasswordIsTemporary)
@@ -1165,6 +1172,25 @@ public sealed class IdentityAdminService : IIdentityAdminService
         {
             _logger.LogWarning(
                 "Password was changed for {User} but the temporary-password flag could not be cleared: {Errors}",
+                user.UserName, Describe(update));
+        }
+    }
+
+    /// <summary>
+    /// Flags an administrator-set password, so the account is confined to replacing it at its next
+    /// sign-in. Logged rather than returned, for the same reason as clearing it.
+    /// </summary>
+    private async Task MarkPasswordTemporaryAsync(ApplicationUser user)
+    {
+        if (user.PasswordIsTemporary)
+            return;
+
+        user.PasswordIsTemporary = true;
+        var update = await _userManager.UpdateAsync(user);
+        if (!update.Succeeded)
+        {
+            _logger.LogWarning(
+                "Password was set for {User} but it could not be flagged for replacement: {Errors}",
                 user.UserName, Describe(update));
         }
     }

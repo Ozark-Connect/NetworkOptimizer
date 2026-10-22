@@ -16,10 +16,10 @@
            when the install has authentication disabled, so nothing changes for those installs. *@
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
             <NotAuthorized Context="refused">
-                @if (refused.User.IsConfinedToMfaEnrollment())
+                @if (refused.User.IsConfinedToAccountSetup())
                 {
-                    @* Refused only because enrolment is outstanding: that has somewhere to go. *@
-                    <MfaEnrollmentRedirect />
+                    @* Refused only because account setup is outstanding: that has somewhere to go. *@
+                    <AccountSetupRedirect />
                 }
                 else
                 {

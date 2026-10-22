@@ -135,6 +135,10 @@
                                         {
                                             <span class="status-badge status-info">Password</span>
                                         }
+                                        @if (summary.HasPassword && user.PasswordIsTemporary && !IdentityBootstrapService.IsBuiltInAdmin(user))
+                                        {
+                                            <span class="status-badge status-warning" data-tooltip="Set by an administrator. The user must choose a new password at their next sign-in.">Must change</span>
+                                        }
                                         @if (summary.MfaEnabled)
                                         {
                                             <span class="status-badge status-active" data-tooltip="Authenticator app enrolled as a second factor">MFA</span>
@@ -210,7 +214,7 @@
                                                 <label class="form-label">New password for @user.UserName <span class="tooltip-icon tooltip-icon-sm tooltip-icon-contrast" data-tooltip="@_passwordPolicy">?</span></label>
                                                 <input type="password" class="form-control" @bind="_newPassword"
                                                        autocomplete="new-password" placeholder="Enter a new password" />
-                                                <p class="form-help">The user signs in with this password next time. Their MFA and passkeys are unchanged.</p>
+                                                <p class="form-help">@(IsSelf(user) || IdentityBootstrapService.IsBuiltInAdmin(user) ? "This account signs in with this password next time." : "The user signs in with this password once, then must choose their own.") Their MFA and passkeys are unchanged.</p>
                                             </div>
                                             <div class="identity-form-actions">
                                                 <button type="button" class="btn btn-primary btn-sm" @onclick="() => ResetPasswordAsync(user)">Set password</button>

@@ -63,6 +63,7 @@ public static class AuthEndpoints
                 SignInOutcome.RequiresTwoFactor => Results.Redirect(
                     TwoFactorRedirect(returnUrl, site, await mfa.HasRecoveryCodesAsync(username), await mfa.HasPasskeysAsync(username), rememberMe)),
                 SignInOutcome.RequiresMfaEnrollment => Results.Redirect("/account/security?setup=required"),
+                SignInOutcome.RequiresPasswordChange => Results.Redirect("/account/security"),
                 SignInOutcome.RequiresPasskeySignIn => LoginRedirect("use_passkey", site),
                 SignInOutcome.LockedOut => LoginRedirect("lockout", site),
                 SignInOutcome.LocalLoginDisabled => LoginRedirect("sso_only", site),
