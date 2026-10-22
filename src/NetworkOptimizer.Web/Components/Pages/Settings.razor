@@ -1992,6 +1992,7 @@
                                 <option value="telekom-modem2">Telekom Glasfaser-Modem 2 (HTTP)</option>
                                 <option value="nokia-xs010x-q">Nokia XS-010X-Q (HTTP)</option>
                                 <option value="zyxel-gpon-sfp">Zyxel GPON-SFP PMG3000 (HTTP)</option>
+                                <option value="richerlink-ont">Richerlink RL821GWV-D (HTTP)</option>
                                 <option value="netopt-custom">Network Optimizer Custom (HTTP JSON)</option>
                                 <option value="generic-http-ont">Generic HTTP ONT</option>
                             </select>
@@ -7919,7 +7920,8 @@
         "zyxel-gpon-sfp" => "10.10.1.1",
         // realtek-ont, netopt-custom and generic-http-ont have no single sensible
         // default (vendor-dependent stick, gateway-served JSON, or generic), so nothing
-        // is prefilled and the generic example placeholder is shown.
+        // is prefilled and the generic example placeholder is shown. richerlink-ont's
+        // factory address is unconfirmed (the one trace is a single ISP-provisioned unit).
         _ => "",
     };
 
@@ -7939,6 +7941,7 @@
         "telekom-modem2" => "Telekom Glasfaser-Modem 2 (HTTP)",
         "nokia-xs010x-q" => "Nokia XS-010X-Q (HTTP)",
         "zyxel-gpon-sfp" => "Zyxel GPON-SFP PMG3000 (HTTP)",
+        "richerlink-ont" => "Richerlink RL821GWV-D (HTTP)",
         "netopt-custom" => "Network Optimizer Custom (HTTP JSON)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,

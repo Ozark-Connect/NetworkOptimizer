@@ -411,6 +411,7 @@ builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
 builder.Services.AddSingleton<IOntProvider, TelekomModem2OntProvider>();
 builder.Services.AddSingleton<IOntProvider, NokiaXs010xOntProvider>();
 builder.Services.AddSingleton<IOntProvider, ZyxelGponSfpOntProvider>();
+builder.Services.AddSingleton<IOntProvider, RicherlinkOntProvider>();
 builder.Services.AddSingleton<IOntProvider, NetOptCustomPonOntProvider>();
 
 // Starlink terminal monitoring is per site through ModemMonitorRegistry, which
