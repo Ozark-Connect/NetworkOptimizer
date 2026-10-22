@@ -24,6 +24,10 @@ public sealed class IdentityBootstrapService : IIdentityBootstrapService
     /// <summary>The reserved local administrator username carried over from the single-password model.</summary>
     public const string AdminUserName = "admin";
 
+    /// <summary>True for the reserved local administrator this service seeds.</summary>
+    public static bool IsBuiltInAdmin(ApplicationUser user)
+        => string.Equals(user.UserName, AdminUserName, StringComparison.OrdinalIgnoreCase);
+
     private readonly IDbContextFactory<AuthDbContext> _authDbFactory;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly UserManager<ApplicationUser> _userManager;

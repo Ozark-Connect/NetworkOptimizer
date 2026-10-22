@@ -110,6 +110,6 @@ internal sealed class AuthenticationOnStub : IAdminAuthService
     public Task LogStartupConfigurationAsync(CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public PasswordValidationResult ValidateNewPassword(string password, string confirmPassword)
+    public PasswordValidationResult ValidateNewPassword(string password)
         => throw new NotSupportedException();
 }

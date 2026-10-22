@@ -47,10 +47,10 @@ public sealed class GlobalRoleHandler : AuthorizationHandler<GlobalRoleRequireme
         if (context.User.Identity?.IsAuthenticated != true)
             return;
 
-        // A role demands a second factor this account has not enrolled (see MfaEnrollmentGuard).
-        // Policies.AccountSelfService is the one way out, and it is what the security page and the
-        // enrolment endpoint use.
-        if (context.User.IsConfinedToMfaEnrollment())
+        // A role demands a second factor this account has not enrolled, or its password was set by an
+        // administrator (see AccountSetupGuard). Policies.AccountSelfService is the one way out, and it
+        // is what the security page and its endpoints use.
+        if (context.User.IsConfinedToAccountSetup())
             return;
 
         // A caller who may see no site at all may open no page that shows one. These policies are

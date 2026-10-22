@@ -21,7 +21,7 @@ public interface IAdminAuthService
     Task SaveAdminSettingsAsync(string? plainPassword, bool enabled, CancellationToken cancellationToken = default);
     Task ClearDatabasePasswordAsync(CancellationToken cancellationToken = default);
     Task LogStartupConfigurationAsync(CancellationToken cancellationToken = default);
-    PasswordValidationResult ValidateNewPassword(string password, string confirmPassword);
+    PasswordValidationResult ValidateNewPassword(string password);
 }
 
 /// <summary>
@@ -192,7 +192,7 @@ public class AdminAuthService : IAdminAuthService
     /// <summary>
     /// Validates a new password meets complexity requirements.
     /// </summary>
-    public PasswordValidationResult ValidateNewPassword(string password, string confirmPassword)
+    public PasswordValidationResult ValidateNewPassword(string password)
     {
         if (string.IsNullOrEmpty(password))
             return new PasswordValidationResult(false, "Please enter a new password");
@@ -202,9 +202,6 @@ public class AdminAuthService : IAdminAuthService
 
         if (!password.Any(char.IsLetter) || !password.Any(char.IsDigit))
             return new PasswordValidationResult(false, "Password must contain at least one letter and one number");
-
-        if (password != confirmPassword)
-            return new PasswordValidationResult(false, "Passwords do not match");
 
         return new PasswordValidationResult(true);
     }

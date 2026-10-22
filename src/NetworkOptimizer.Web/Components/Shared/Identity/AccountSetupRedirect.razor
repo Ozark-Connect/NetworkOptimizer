@@ -1,0 +1,32 @@
+@using NetworkOptimizer.Web.Services.Authorization
+@inject NavigationManager Navigation
+
+@* Renders nothing. It stands in for the refusal page when the refusal is "your account setup is not
+   finished", and sends the session to the one place it can do something about that.
+
+   Signing in already lands there: all three sign-in paths answer RequiresMfaEnrollment with
+   /account/security?setup=required. Being GRANTED an MFA-required role mid-session reaches the same
+   state by a different road - the principal refreshes, the claims factory stamps MfaSetupPending, and
+   every gate starts refusing - but nothing was routing it anywhere, so a promotion read as the app
+   breaking rather than as a step to take. Same state, same destination. An administrator-set password
+   confines the same way and goes to the same page, without setup=required, which means a factor.
+
+   The refusal itself is not what moves: the gates go on refusing regardless (see AccountSetupGuard).
+   This only decides what the person sees while they are refused. *@
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // After the first interactive render rather than in OnInitialized: this component is reached
+        // through the router's NotAuthorized fragment, which prerenders, and a redirect issued from
+        // there races the circuit it is about to replace.
+        if (!firstRender)
+            return;
+
+        var owesFactor = AuthState is not null && (await AuthState).User.OwesSecondFactor();
+        Navigation.NavigateTo(owesFactor ? "/account/security?setup=required" : "/account/security",
+            forceLoad: false, replace: true);
+    }
+}

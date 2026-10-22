@@ -20,7 +20,7 @@ namespace NetworkOptimizer.Web.Tests.Identity;
 /// (NavMenu asks ISiteManagementService whether multi-site is on). Entry gates are where a session-state
 /// question belongs; the role gates below it go on answering the role question.
 /// </summary>
-public class MfaEnrollmentConfinementTests
+public class AccountSetupConfinementTests
 {
     private static ServiceProvider Build()
     {
@@ -91,8 +91,24 @@ public class MfaEnrollmentConfinementTests
     [Fact]
     public void TheGuardReadsTheClaimItDocuments()
     {
-        Confined().IsConfinedToMfaEnrollment().Should().BeTrue();
-        Enrolled(Roles.Admin).IsConfinedToMfaEnrollment().Should().BeFalse();
+        Confined().IsConfinedToAccountSetup().Should().BeTrue();
+        Enrolled(Roles.Admin).IsConfinedToAccountSetup().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AnAdminSetPasswordConfinesLikeAnOutstandingFactor()
+    {
+        await using var provider = Build();
+        using var scope = provider.CreateScope();
+        var authz = scope.ServiceProvider.GetRequiredService<IAuthorizationService>();
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "u1"),
+            new Claim(NetOptClaims.PasswordChangePending, "1"),
+        }, "test"));
+
+        principal.IsConfinedToAccountSetup().Should().BeTrue();
+        (await authz.AuthorizeAsync(principal, "any-site", Policies.SiteViewer)).Succeeded.Should().BeFalse();
     }
 
     /// <summary>Grants SiteAdmin on every site, so a refusal can only be the enrolment confinement.</summary>
