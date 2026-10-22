@@ -205,8 +205,8 @@
             const input = button.previousElementSibling;
             const show = input.type === 'password';
             input.type = show ? 'text' : 'password';
-            button.textContent = show ? 'Hide' : 'Show';
             button.setAttribute('aria-pressed', show ? 'true' : 'false');
+            button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
         }
 
         // Copy a command block's text. Same tick-swap feedback as the input copiers; the text comes

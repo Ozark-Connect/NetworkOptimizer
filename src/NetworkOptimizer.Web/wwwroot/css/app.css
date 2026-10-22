@@ -3303,6 +3303,58 @@ select.form-control {
     white-space: nowrap;
 }
 
+/* Password field with the show/hide eye inside it, on the right (PasswordInput). */
+.password-field {
+    position: relative;
+}
+
+.password-field .form-control {
+    padding-right: 2.75rem;
+}
+
+/* Edge draws its own reveal eye; one is enough. */
+.password-field .form-control::-ms-reveal {
+    display: none;
+}
+
+.password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 0.5rem;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: var(--border-radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+    color: var(--text-primary);
+}
+
+.password-toggle svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+/* The eye offers to show; once shown, the slashed eye offers to hide. */
+.password-toggle .password-eye-slash,
+.password-toggle[aria-pressed="true"] .password-eye {
+    display: none;
+}
+
+.password-toggle[aria-pressed="true"] .password-eye-slash {
+    display: block;
+}
+
 .checkbox-label,
 .radio-label {
     display: flex;
