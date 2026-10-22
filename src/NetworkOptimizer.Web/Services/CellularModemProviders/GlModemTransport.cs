@@ -244,9 +244,7 @@ public sealed class GlModemTransport
     internal static string BuildMhiCommand(string device, string atCommand)
     {
         device = ValidMhiDevice(device);
-        return $"echo -ne '{atCommand}\\r' > {device}; " +
-               $"timeout 3 sh -c 'while IFS= read -r l; do echo \"$l\"; " +
-               $"case \"$l\" in OK*|ERROR*|+CME\\ ERROR*|+CMS\\ ERROR*) break;; esac; done < {device}'";
+        return AtDeviceShell.BuildTwoOpenCommand(device, atCommand, "timeout");
     }
 
     /// <summary>A bus is interpolated into a shell command, so it may only look like a path.</summary>
@@ -455,30 +453,8 @@ public sealed class GlModemTransport
     }
 
     private static Dictionary<string, string> SplitSections(
-        string output, IEnumerable<(string Key, string Marker)> markers)
-    {
-        var markerList = markers.ToList();
-        var sections = new Dictionary<string, string>();
-        string? current = null;
-        var buffer = new StringBuilder();
-
-        foreach (var line in output.Split('\n'))
-        {
-            var trimmed = line.Trim();
-            var match = markerList.FirstOrDefault(m => trimmed == m.Marker);
-            if (match.Marker != null)
-            {
-                if (current != null) sections[current] = buffer.ToString();
-                current = match.Key;
-                buffer.Clear();
-                continue;
-            }
-            buffer.AppendLine(line);
-        }
-
-        if (current != null) sections[current] = buffer.ToString();
-        return sections;
-    }
+        string output, IEnumerable<(string Key, string Marker)> markers) =>
+        AtDeviceShell.SplitSections(output, markers);
 
     private static bool TryParseJson(string? text, out JsonDocument document)
     {
