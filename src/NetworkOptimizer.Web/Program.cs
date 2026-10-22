@@ -342,6 +342,8 @@ builder.Services.AddSingleton<SshClientService>();
 // gl_modem addressing for GL.iNet routers. Singleton so the resolved bus and SIM slot
 // survive the per-site modem provider instances the registry rebuilds.
 builder.Services.AddSingleton<GlModemTransport>();
+// AT port discovery for generic Quectel routers, singleton for the same reason.
+builder.Services.AddSingleton<QuectelSshTransport>();
 
 // Gateway SSH per site: the registry owns one GatewaySshService per site (settings
 // from that site's DB, host fallback from that site's console). Scoped resolution of
