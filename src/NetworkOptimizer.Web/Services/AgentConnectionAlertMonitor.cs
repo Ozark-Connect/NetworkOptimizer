@@ -37,6 +37,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
     private readonly AgentOnGatewayDetector _onGateway;
+    private readonly SiteTunnelRouting _tunnelRouting;
 
     public AgentConnectionAlertMonitor(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
@@ -44,6 +45,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
         IAlertEventBus alertBus,
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         AgentOnGatewayDetector onGateway,
+        SiteTunnelRouting tunnelRouting,
         ILogger<AgentConnectionAlertMonitor> logger)
     {
         _mainDbFactory = mainDbFactory;
@@ -51,6 +53,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
         _alertBus = alertBus;
         _siteWorkGate = siteWorkGate;
         _onGateway = onGateway;
+        _tunnelRouting = tunnelRouting;
         _logger = logger;
     }
 
@@ -131,20 +134,24 @@ public class AgentConnectionAlertMonitor : BackgroundService
 
                 // Any live agent on the site carries its tunnel traffic, so with another one up only
                 // what runs on this agent is lost. Everything else reads as a whole-site outage.
+                // The Console is only mentioned when the site reaches it through the tunnel at all.
                 var othersLive = agents.Count(e => e.Slug == entry.Slug && e.Agent.Id != agent.Id && live[e.Agent.Id]);
+                var viaAgent = await _tunnelRouting.IsViaAgentAsync(entry.Slug);
                 string message;
                 if (othersLive == 0)
                 {
                     state.Subject = AgentLabel(agent.Name);
-                    message = $"{state.Subject} has been offline for over {minutes} minutes. Its site's monitoring, speed tests, and Console connection are unavailable until it reconnects.";
+                    var lost = viaAgent ? "monitoring, speed tests, and Console connection are" : "monitoring and speed tests are";
+                    message = $"{state.Subject} has been offline for over {minutes} minutes. Its site's {lost} unavailable until it reconnects.";
                 }
                 else
                 {
                     var onGateway = await IsOnGatewayAsync(agent, entry.Slug, ct);
                     state.Subject = AgentSubject(agent.Name, onGateway, agent.LanIp);
                     var keeps = othersLive == 1 ? "other Agent keeps" : "other Agents keep";
+                    var console = viaAgent ? $" This site's {keeps} the UniFi Console connection up." : "";
                     var runsOn = onGateway ? "the Gateway Agent" : "this Agent";
-                    message = $"{state.Subject} has been offline for over {minutes} minutes. This site's {keeps} the UniFi Console connection up. Monitoring and speed tests that run on {runsOn} are unavailable until it reconnects.";
+                    message = $"{state.Subject} has been offline for over {minutes} minutes.{console} Monitoring and speed tests that run on {runsOn} are unavailable until it reconnects.";
                 }
 
                 await PublishAsync("agent.offline", AlertSeverity.Warning,
