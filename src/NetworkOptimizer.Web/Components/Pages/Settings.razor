@@ -4,6 +4,7 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.Ssh
+@using NetworkOptimizer.Web.Services.CellularModemProviders
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
@@ -1229,7 +1230,7 @@
             }
 
             @if (sshSettings?.HasCredentials != true &&
-                 modemConfigs.Any(m => string.IsNullOrWhiteSpace(m.Provider) || m.Provider == "qmicli"))
+                 modemConfigs.Any(m => ModemProviderKeys.UsesSharedSsh(m.Provider)))
             {
                 <div class="alert alert-warning" style="margin-bottom: 1rem;">
                     <strong>SSH credentials required:</strong> One or more configured modems use the qmicli provider, which needs SSH credentials. Configure them in the Device SSH section above.
@@ -1432,7 +1433,7 @@
                             </div>
                         </div>
 
-                        @if (editingModem.Provider == "qmicli")
+                        @if (ModemProviderKeys.UsesSharedSsh(editingModem.Provider))
                         {
                             <div class="form-row">
                                 <div class="form-group" style="flex: 2;">
@@ -1442,7 +1443,7 @@
                                 </div>
                             </div>
                         }
-                        else if (editingModem.Provider == "quectel-at")
+                        else if (ModemProviderKeys.UsesPerModemSsh(editingModem.Provider))
                         {
                             <div class="form-row">
                                 <div class="form-group" style="flex: 1;">
@@ -5234,9 +5235,7 @@
     /// interface funnel has nothing to offer and only adds a wrong turn. Empty counts as UniFi:
     /// it is the default provider for rows that predate the column.
     /// </summary>
-    private static bool IsUniFiSshModem(string? provider) =>
-        string.IsNullOrWhiteSpace(provider)
-        || provider.Equals("qmicli", StringComparison.OrdinalIgnoreCase);
+    private static bool IsUniFiSshModem(string? provider) => ModemProviderKeys.UsesSharedSsh(provider);
 
     private static bool LooksUnreachable(string? message)
     {
@@ -7158,12 +7157,13 @@
 
     private async Task SaveModem()
     {
-        var isUniFiProvider = string.IsNullOrWhiteSpace(editingModem.Provider) ||
-                              editingModem.Provider == "qmicli";
-        var isQuectelProvider = editingModem.Provider == "quectel-at";
+        var isUniFiProvider = ModemProviderKeys.UsesSharedSsh(editingModem.Provider);
+        var isPerModemSshProvider = ModemProviderKeys.UsesPerModemSsh(editingModem.Provider);
+        var isGlInetProvider = editingModem.Provider == ModemProviderKeys.QuectelAt;
         var isInseegoProvider = editingModem.Provider == "inseego-fx";
         var isZyxelProvider = editingModem.Provider == "zyxel-cpe";
-        var isHttpProvider = !isUniFiProvider && !isQuectelProvider;
+        var isHttpProvider = !ModemProviderKeys.IsSsh(editingModem.Provider);
+        var sshModemKind = isGlInetProvider ? "GL-iNet" : "Quectel";
 
         // UniFi modems use shared SSH credentials; require them to be configured
         if (editingModem.Id == 0 && isUniFiProvider && sshSettings?.HasCredentials != true)
@@ -7183,17 +7183,17 @@
             return;
         }
 
-        // GL-iNet/Quectel modems need per-modem SSH credentials
-        if (isQuectelProvider && string.IsNullOrWhiteSpace(editingModem.Username))
+        // GL-iNet and Quectel modems need per-modem SSH credentials
+        if (isPerModemSshProvider && string.IsNullOrWhiteSpace(editingModem.Username))
         {
-            modemMessage = "SSH username is required for GL-iNet modems";
+            modemMessage = $"SSH username is required for {sshModemKind} modems";
             modemMessageClass = "danger";
             return;
         }
 
-        if (isQuectelProvider && string.IsNullOrWhiteSpace(editingModem.Password) && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath))
+        if (isPerModemSshProvider && string.IsNullOrWhiteSpace(editingModem.Password) && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath))
         {
-            modemMessage = "SSH password or private key path is required for GL-iNet modems";
+            modemMessage = $"SSH password or private key path is required for {sshModemKind} modems";
             modemMessageClass = "danger";
             return;
         }
@@ -7229,7 +7229,7 @@
         }
 
         // GL-iNet modems use the TransportPath for the gl_modem bus, not a QMI device
-        if (isQuectelProvider)
+        if (isGlInetProvider)
         {
             if (string.IsNullOrEmpty(editingModem.ModemType) ||
                 editingModem.ModemType == "U5G-Max")
