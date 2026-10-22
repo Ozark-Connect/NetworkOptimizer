@@ -26,4 +26,14 @@ public static class AlertSourceDisplay
         "wifi" => "Wi-Fi",
         _ => source ?? string.Empty
     };
+
+    /// <summary>
+    /// The device name to show beside an alert's source, or null when there is none or it only
+    /// repeats the source's display name (an agent left at its default name, "Agent").
+    /// </summary>
+    public static string? GetDeviceName(string? source, string? deviceName) =>
+        string.IsNullOrWhiteSpace(deviceName)
+        || string.Equals(deviceName.Trim(), GetName(source), StringComparison.OrdinalIgnoreCase)
+            ? null
+            : deviceName;
 }
