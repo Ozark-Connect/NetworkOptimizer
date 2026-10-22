@@ -885,9 +885,9 @@
                                     {
                                         <span class="alert-source">
                                             @AlertSourceDisplay.GetName(alert.Source)
-                                            @if (!string.IsNullOrEmpty(alert.DeviceName))
+                                            @if (AlertSourceDisplay.GetDeviceName(alert.Source, alert.DeviceName) is { } deviceName)
                                             {
-                                                <text> &middot; @alert.DeviceName</text>
+                                                <text> &middot; @deviceName</text>
                                             }
                                             @if (!string.IsNullOrEmpty(alert.DeviceIp))
                                             {
@@ -952,9 +952,9 @@
                                     {
                                         <span class="alert-source">
                                             @AlertSourceDisplay.GetName(alert.Source)
-                                            @if (!string.IsNullOrEmpty(alert.DeviceName))
+                                            @if (AlertSourceDisplay.GetDeviceName(alert.Source, alert.DeviceName) is { } deviceName)
                                             {
-                                                <text> &middot; @alert.DeviceName</text>
+                                                <text> &middot; @deviceName</text>
                                             }
                                             @if (!string.IsNullOrEmpty(alert.DeviceIp))
                                             {
@@ -1063,7 +1063,7 @@
                                         </td>
                                         <td>@alert.Title</td>
                                         <td>@AlertSourceDisplay.GetName(alert.Source)</td>
-                                        <td class="hide-mobile">@FormatDeviceColumn(alert.DeviceName, alert.DeviceIp)</td>
+                                        <td class="hide-mobile">@FormatDeviceColumn(AlertSourceDisplay.GetDeviceName(alert.Source, alert.DeviceName), alert.DeviceIp)</td>
                                         <td>
                                             <span class="status-badge @GetStatusBadgeClass(alert.Status)">
                                                 @alert.Status

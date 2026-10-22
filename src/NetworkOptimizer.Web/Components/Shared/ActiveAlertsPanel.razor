@@ -43,9 +43,9 @@
                         <p class="alert-message">@alert.Message</p>
                         <span class="alert-source">
                             @AlertSourceDisplay.GetName(alert.Source)
-                            @if (!string.IsNullOrEmpty(alert.DeviceName))
+                            @if (AlertSourceDisplay.GetDeviceName(alert.Source, alert.DeviceName) is { } deviceName)
                             {
-                                <text> &middot; @alert.DeviceName</text>
+                                <text> &middot; @deviceName</text>
                             }
                             @if (!string.IsNullOrEmpty(alert.DeviceIp))
                             {

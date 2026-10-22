@@ -28,4 +28,22 @@ public class AlertSourceDisplayTests
     {
         AlertSourceDisplay.GetName(null).Should().BeEmpty();
     }
+
+    [Theory]
+    [InlineData("agent", "Agent")]
+    [InlineData("agent", " agent ")]
+    [InlineData("device", "")]
+    [InlineData("device", null)]
+    public void DeviceName_RepeatingSourceOrEmpty_IsDropped(string source, string? deviceName)
+    {
+        AlertSourceDisplay.GetDeviceName(source, deviceName).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("agent", "Agent 2")]
+    [InlineData("device", "Office Switch")]
+    public void DeviceName_Distinct_IsKept(string source, string deviceName)
+    {
+        AlertSourceDisplay.GetDeviceName(source, deviceName).Should().Be(deviceName);
+    }
 }
