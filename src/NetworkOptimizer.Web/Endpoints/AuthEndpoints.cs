@@ -220,6 +220,11 @@ public static class AuthEndpoints
             var current = form["currentPassword"].ToString();
             var next = form["newPassword"].ToString();
 
+            // Checked before "same": two empty fields are equal, and calling that a reused password
+            // sends someone hunting for a mistake they did not make.
+            if (string.IsNullOrEmpty(current) || string.IsNullOrEmpty(next))
+                return Results.Redirect("/account/security?pw=missing");
+
             // Told apart from a plain failure so the page can say why rather than sending someone to
             // re-check a current password that was right.
             if (string.Equals(current, next, StringComparison.Ordinal))
