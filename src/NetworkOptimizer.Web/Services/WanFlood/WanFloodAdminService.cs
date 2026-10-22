@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Storage.Interfaces;
@@ -41,7 +42,7 @@ public interface IWanFloodAdmin
 
 public sealed class WanFloodAdminService(WanFloodService service, IThreatSettingsAccessor settings,
     IWanFloodIncidentRepository incidents, SiteContextService site, NetworkOptimizerDbContext db,
-    Monitoring.MonitoringPathView paths) : IWanFloodAdmin
+    Monitoring.MonitoringPathView paths, UniFiConnectionService connection) : IWanFloodAdmin
 {
     private string Slug => site.Slug;
     private string? SiteKey => Slug == SiteManagementService.DefaultSiteSlug ? null : Slug;
@@ -51,11 +52,29 @@ public sealed class WanFloodAdminService(WanFloodService service, IThreatSetting
         var current = await WanFloodSettings.LoadAsync(k => settings.GetSettingAsync(k, ct), SiteKey);
         var (agent, capable, status) = service.Describe(Slug);
         var (labels, order, active) = await WanNamesAsync(ct);
+        var state = capable ? WanFloodAgentState.Capable : service.AgentState(Slug);
         return new WanFloodOverview(current, agent, capable, status)
         {
             WanLabels = labels, WanOrder = order, ActiveWans = active,
-            AgentState = capable ? WanFloodAgentState.Capable : service.AgentState(Slug),
+            AgentState = state,
+            GatewayFirmware = state == WanFloodAgentState.Unsupported ? await GatewayFirmwareAsync(ct) : null,
         };
+    }
+
+    // Tells "needs UniFi OS 6.0" apart from any other reason the gateway cannot run it.
+    private async Task<string?> GatewayFirmwareAsync(CancellationToken ct)
+    {
+        try
+        {
+            var devices = await connection.GetDiscoveredDevicesAsync(ct);
+            var gateway = devices.FirstOrDefault(d => d.Type.IsGateway());
+            return NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(gateway?.Firmware);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Without it the card shows the generic message.
+            return null;
+        }
     }
 
     // The agent reports WANs by interface. The WAN profiles map an interface to its WAN key, and the gateway's WAN
