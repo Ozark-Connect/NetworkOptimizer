@@ -46,6 +46,10 @@
                 </div>
             </div>
         }
+        else if (_agentState == WanFloodAgentState.Unsupported && _needsUniFiOs6)
+        {
+            <div class="alert alert-info">WAN Flood Protection needs UniFi OS 6.0 or later. This gateway runs UniFi OS @_gatewayFirmware.</div>
+        }
         else if (_agentState == WanFloodAgentState.Unsupported)
         {
             <div class="alert alert-info">This gateway can't run WAN Flood Protection.</div>
@@ -169,6 +173,8 @@
     private Form? _form;
     private WanFloodSettings? _saved;
     private WanFloodAgentState _agentState;
+    private bool _needsUniFiOs6;
+    private string? _gatewayFirmware;
     private bool _busy;
     private string? _message;
     private string _messageClass = "info";
@@ -182,6 +188,8 @@
             var overview = await WanFlood.GetOverviewAsync();
             var s = overview.Settings;
             _agentState = overview.AgentState;
+            _needsUniFiOs6 = overview.NeedsUniFiOs6;
+            _gatewayFirmware = overview.GatewayFirmware;
             _saved = s;
             _form = new Form
             {
