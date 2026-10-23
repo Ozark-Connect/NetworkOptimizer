@@ -26,7 +26,7 @@ namespace NetworkOptimizer.UniFi;
 /// For standalone controllers, the path is:
 ///   /api/s/{site}/...
 /// </summary>
-public class UniFiApiClient : IDisposable
+public partial class UniFiApiClient : IDisposable
 {
     private readonly ILogger<UniFiApiClient> _logger;
     private readonly string _controllerUrl;
@@ -334,7 +334,7 @@ public class UniFiApiClient : IDisposable
         // the URL - so a console sitting behind a name-routing reverse proxy (the usual shape for
         // UniFi OS Server) would be asked for by an address that proxy has no vhost for, and answer
         // 404 no matter how good the credentials are.
-        var handler = CreateHandler(_cookieContainer, _ignoreSSLErrors, _agentProxyPort);
+        var handler = new WriteObservingHandler(this, CreateHandler(_cookieContainer, _ignoreSSLErrors, _agentProxyPort));
 
         _httpClient = new HttpClient(handler)
         {
