@@ -663,6 +663,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public DateTime? LastConnectedAt => _lastConnectedAt;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
 
+    /// <summary>The console is reached through the site's On-Site Agent tunnel.</summary>
+    public bool IsViaAgent => _clientViaAgent;
+
     /// <summary>
     /// Gets the current connection config (for UI display)
     /// </summary>

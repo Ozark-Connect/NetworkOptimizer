@@ -1,0 +1,548 @@
+using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Auditing;
+using NetworkOptimizer.Web.Services.Firmware;
+
+namespace NetworkOptimizer.Web.Services.ChangeControl;
+
+/// <summary>Apply-time facts about the caller, checked by the coordinator (the gate checks the role).</summary>
+public sealed record PlanActor(string Name, bool IsSiteAdmin);
+
+/// <summary>
+/// One site's plan lifecycle (spec "Approvals", "Lockout pre-flight", "Changes and incidents"):
+/// create with its impact, acknowledgements, submit and approve, approval invalidation when the
+/// touched objects change, the auto-pinned snapshot before every apply, the apply itself, the
+/// verify snapshot, the commit-confirmed watch with automatic revert, and the before/after report.
+/// </summary>
+public sealed class PlanCoordinator
+{
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
+    private static readonly TimeSpan ReportDelay = TimeSpan.FromMinutes(65);
+    private static readonly TimeSpan ReportWindow = TimeSpan.FromMinutes(60);
+    private const int MissesToRevert = 2;
+
+    private readonly ChangeControlSiteEngine _engine;
+    private readonly ICredentialProtectionService _crypto;
+    private readonly IChangeEvaluator? _evaluator;
+    private readonly IAlertEventBus? _bus;
+    private readonly IAuditLogger? _audit;
+    private readonly Func<string, DateTime, DateTime, CancellationToken, Task<RolloutResourceStats?>>? _stats;
+    private readonly ILogger _logger;
+    private readonly ConcurrentDictionary<int, int> _misses = new();
+    private readonly SemaphoreSlim _applyLock = new(1, 1);
+
+    /// <summary>The site is reached through an On-Site Agent (longer window, agent-side revert).</summary>
+    public Func<bool> IsAgentSite { get; set; } = () => false;
+
+    /// <summary>Console host for the inform-path checks.</summary>
+    public Func<string?> ConsoleHost { get; set; } = () => null;
+
+    /// <summary>Hands the revert to the On-Site Agent before an apply (step 15); null on direct sites.</summary>
+    public IAgentRevertArmer? AgentRevert { get; set; }
+
+    public PlanCoordinator(ChangeControlSiteEngine engine, ICredentialProtectionService crypto, ILogger logger,
+        IChangeEvaluator? evaluator = null, IAlertEventBus? bus = null, IAuditLogger? audit = null,
+        Func<string, DateTime, DateTime, CancellationToken, Task<RolloutResourceStats?>>? stats = null)
+    {
+        _engine = engine;
+        _crypto = crypto;
+        _logger = logger;
+        _evaluator = evaluator;
+        _bus = bus;
+        _audit = audit;
+        _stats = stats;
+    }
+
+    private string Slug => _engine.SiteSlug;
+
+    /// <summary>Serializes and encrypts a plan document for storage.</summary>
+    public string Seal(PlanDocument doc) => _crypto.EncryptForSite(JsonSerializer.Serialize(doc, Json), Slug);
+
+    /// <summary>Decrypts a stored plan document.</summary>
+    public PlanDocument Open(ConfigPlan plan) =>
+        string.IsNullOrEmpty(plan.OperationsEncrypted)
+            ? new PlanDocument()
+            : JsonSerializer.Deserialize<PlanDocument>(_crypto.Decrypt(plan.OperationsEncrypted), Json) ?? new PlanDocument();
+
+    /// <summary>The plan options for this site (agent flag, console host).</summary>
+    public PlanOptions Options(PlanOptions? baseOptions = null) => new()
+    {
+        SameSite = baseOptions?.SameSite ?? true,
+        Collections = baseOptions?.Collections,
+        DeleteMissing = baseOptions?.DeleteMissing ?? true,
+        OnlyObjects = baseOptions?.OnlyObjects,
+        DeviceMap = baseOptions?.DeviceMap ?? new Dictionary<string, string>(),
+        TargetHasGateway = baseOptions?.TargetHasGateway ?? true,
+        AgentSite = IsAgentSite(),
+        ConsoleHost = ConsoleHost(),
+    };
+
+    /// <summary>Builds a plan against live, runs its impact, and stores it as a Draft.</summary>
+    public async Task<ConfigPlan> CreateAsync(ConfigPlanKind kind, string name, string source, int? sourceSnapshotId, string? sourceSite,
+        ConfigState desired, PlanOptions options, string createdBy, CancellationToken ct, Action<PlanDocument>? decorate = null)
+    {
+        var live = await _engine.ReadLiveAsync(ct);
+        var doc = PlanBuilder.Build(desired, live, Options(options));
+        decorate?.Invoke(doc);
+        await RunImpactAsync(doc, live, ct);
+
+        var plan = new ConfigPlan
+        {
+            Name = name,
+            Kind = kind,
+            Status = ConfigPlanStatus.Draft,
+            SourceDescription = source,
+            SourceSnapshotId = sourceSnapshotId,
+            SourceSiteSlug = sourceSite,
+            OperationsEncrypted = Seal(doc),
+            HighestTier = doc.HighestTier,
+            ObjectCount = doc.Operations.Count(o => o.Collection != "device"),
+            DeviceCount = doc.Operations.Where(o => o.Collection == "device").Select(o => o.ObjectId).Distinct().Count(),
+            ApprovedLiveHash = PlanReadiness.TouchedHash(doc, live),
+            CreatedBy = createdBy,
+            CreatedAt = DateTime.UtcNow,
+            AcknowledgementsJson = JsonSerializer.Serialize(new PlanAcknowledgements()),
+        };
+        return await _engine.Repositories.UseAsync((r, c) => r.CreatePlanAsync(plan, c), ct);
+    }
+
+    private async Task RunImpactAsync(PlanDocument doc, ConfigState live, CancellationToken ct)
+    {
+        if (_evaluator == null || !ImpactAnalyzer.Triggers(doc.Collections)) return;
+        var planned = PlanBuilder.PlannedState(live, doc);
+        var impact = await _evaluator.RunImpactAsync(Slug, live, planned, ct);
+        if (impact == null) return;
+        doc.ImpactRan = true;
+        doc.Regressions = impact.Regressions;
+        doc.Fixes = impact.Fixes;
+    }
+
+    /// <summary>Loads a plan and its document.</summary>
+    public async Task<(ConfigPlan Plan, PlanDocument Doc, PlanAcknowledgements Acks)?> LoadAsync(int planId, CancellationToken ct)
+    {
+        var plan = await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct);
+        if (plan == null) return null;
+        var acks = string.IsNullOrEmpty(plan.AcknowledgementsJson) ? new PlanAcknowledgements()
+            : JsonSerializer.Deserialize<PlanAcknowledgements>(plan.AcknowledgementsJson) ?? new PlanAcknowledgements();
+        return (plan, Open(plan), acks);
+    }
+
+    /// <summary>Stores acknowledgements (Save Draft keeps them).</summary>
+    public async Task SaveAcknowledgementsAsync(int planId, PlanAcknowledgements acks, CancellationToken ct)
+    {
+        var plan = await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct) ?? throw new InvalidOperationException("Plan not found.");
+        if (ConfigPlanStatuses.Terminal.Contains(plan.Status)) throw new InvalidOperationException("The plan is finished.");
+        plan.AcknowledgementsJson = JsonSerializer.Serialize(acks);
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+    }
+
+    /// <summary>Sets when the plan applies: after approval, or at a time.</summary>
+    public async Task ScheduleAsync(int planId, DateTime? scheduledForUtc, bool applyOnApproval, CancellationToken ct)
+    {
+        var plan = await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct) ?? throw new InvalidOperationException("Plan not found.");
+        plan.ScheduledFor = scheduledForUtc;
+        plan.ApplyOnApproval = applyOnApproval;
+        if (plan.Status == ConfigPlanStatus.Approved && scheduledForUtc != null) plan.Status = ConfigPlanStatus.Scheduled;
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+    }
+
+    /// <summary>Submits a plan for approval.</summary>
+    public async Task SubmitAsync(int planId, string by, CancellationToken ct)
+    {
+        var plan = await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct) ?? throw new InvalidOperationException("Plan not found.");
+        if (plan.Status != ConfigPlanStatus.Draft) throw new InvalidOperationException("Only a draft can be submitted.");
+        plan.Status = ConfigPlanStatus.PendingApproval;
+        plan.SubmittedBy = by;
+        plan.SubmittedAt = DateTime.UtcNow;
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+        await Publish(ChangeAlerts.PlanAwaitingApproval, AlertSeverity.Info, $"Plan awaiting approval: {plan.Name}",
+            $"Submitted by {by}.", plan.Id, ct);
+    }
+
+    /// <summary>Approves a plan and records the live state it was approved against.</summary>
+    public async Task ApproveAsync(int planId, string by, CancellationToken ct)
+    {
+        var loaded = await LoadAsync(planId, ct) ?? throw new InvalidOperationException("Plan not found.");
+        var plan = loaded.Plan;
+        if (plan.Status != ConfigPlanStatus.PendingApproval) throw new InvalidOperationException("The plan is not waiting for approval.");
+        var live = await _engine.ReadLiveAsync(ct);
+        plan.ApprovedLiveHash = PlanReadiness.TouchedHash(loaded.Doc, live);
+        plan.ApprovedBy = by;
+        plan.ApprovedAt = DateTime.UtcNow;
+        plan.Status = plan.ScheduledFor != null ? ConfigPlanStatus.Scheduled : ConfigPlanStatus.Approved;
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+        if (plan.ApplyOnApproval && plan.ScheduledFor == null)
+            await ApplyAsync(planId, new PlanActor(by, IsSiteAdmin: true), requireApproval: false, automatic: false, ct);
+    }
+
+    /// <summary>Discards a plan that has not applied.</summary>
+    public async Task CancelAsync(int planId, CancellationToken ct)
+    {
+        var plan = await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct) ?? throw new InvalidOperationException("Plan not found.");
+        if (plan.Status is ConfigPlanStatus.Applying or ConfigPlanStatus.Watching || ConfigPlanStatuses.Terminal.Contains(plan.Status))
+            throw new InvalidOperationException("The plan has already applied.");
+        plan.Status = ConfigPlanStatus.Cancelled;
+        plan.CompletedAt = DateTime.UtcNow;
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+    }
+
+    /// <summary>
+    /// Applies a plan. With approvals required, it must be Approved and its touched objects unchanged
+    /// since approval, or it returns to Pending approval. Every apply is preceded by a pinned snapshot.
+    /// </summary>
+    /// <returns>Null on success, else why it did not apply.</returns>
+    public async Task<string?> ApplyAsync(int planId, PlanActor actor, bool requireApproval, bool automatic, CancellationToken ct)
+    {
+        await _applyLock.WaitAsync(ct);
+        try
+        {
+            var loaded = await LoadAsync(planId, ct);
+            if (loaded == null) return "Plan not found.";
+            var (plan, doc, acks) = loaded.Value;
+            if (plan.Status is ConfigPlanStatus.Applying or ConfigPlanStatus.Watching || ConfigPlanStatuses.Terminal.Contains(plan.Status))
+                return "The plan has already applied.";
+            if (requireApproval && plan.Status is not (ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled))
+                return "The plan needs a Site Admin's approval first.";
+
+            var remaining = PlanReadiness.Remaining(doc, acks, actor.IsSiteAdmin);
+            if (remaining.Count > 0) return "Still open: " + string.Join(", ", remaining) + ".";
+
+            var live = await _engine.ReadLiveAsync(ct);
+            if (PlanReadiness.TouchedHash(doc, live) != plan.ApprovedLiveHash)
+            {
+                plan.Status = requireApproval ? ConfigPlanStatus.PendingApproval : ConfigPlanStatus.Draft;
+                plan.Message = "Objects this plan touches changed after it was built or approved. Review it again.";
+                await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+                return plan.Message;
+            }
+
+            if (PlanReadiness.HasCertainLockout(doc))
+                _audit?.Log(AuditEventBuilder.FromSystem(AuditCategories.Action, AuditActions.ChangeControlLockoutOverridden,
+                    targetType: "config_plan", targetId: plan.Id.ToString(), targetName: plan.Name, siteSlug: Slug,
+                    details: new { by = actor.Name, devices = PlanReadiness.ConfirmationText(doc) }));
+
+            var pre = await _engine.TakeSnapshotAsync(ConfigSnapshotTrigger.BeforeApply, plan.Name, $"Before apply: {plan.Name}", ct);
+            plan.PreApplySnapshotId = pre?.Id;
+            plan.Status = ConfigPlanStatus.Applying;
+            plan.AppliedBy = actor.Name;
+            plan.StartedAt = DateTime.UtcNow;
+            await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+
+            // Devices online now are the ones the commit-confirmed watch expects to stay online.
+            var online = await OnlineDevicesAsync(ct);
+            doc.Context["watch_online"] = string.Join(",", online);
+            var settings = await _engine.Repositories.UseAsync((r, c) => r.GetSettingsAsync(c), ct);
+            var window = TimeSpan.FromMinutes(IsAgentSite() ? settings.AgentCommitWindowMinutes : settings.CommitWindowMinutes);
+            var watch = doc.WatchDevices || (doc.WatchInternet && settings.WatchInternet);
+            if (watch && AgentRevert != null && pre != null)
+                plan.AgentRevertArmed = await AgentRevert.ArmAsync(plan, doc, pre.Id, window, ct);
+
+            bool ok;
+            PlanResult result;
+            using (UniFiWriteSource.Use($"change-control:plan:{plan.Id}"))
+                (ok, result) = await new PlanExecutor(_engine.Api, _logger).ApplyAsync(doc, hasGateway: true, null, ct);
+
+            // Verify: a fresh snapshot, compared with what the plan meant to write.
+            var post = await _engine.TakeSnapshotAsync(ConfigSnapshotTrigger.AfterApply, plan.Name, null, ct);
+            plan.PostApplySnapshotId = post?.Id;
+            if (post != null && await _engine.LoadSnapshotStateAsync(post.Id, ct) is { } after)
+                result.VerifyDifferences = VerifyAgainst(doc, live, after);
+
+            plan.ResultJson = JsonSerializer.Serialize(result);
+            plan.OperationsEncrypted = Seal(doc);
+            if (!ok)
+            {
+                plan.Status = ConfigPlanStatus.Failed;
+                plan.CompletedAt = DateTime.UtcNow;
+                plan.Message = result.Operations.LastOrDefault(o => o.Outcome == "Error")?.Message ?? "A write failed.";
+                await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Plan failed: {plan.Name}",
+                    $"{plan.Message} Writes before it stay applied; Roll Back to the pinned snapshot puts them back.", plan.Id, ct);
+                if (automatic) Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Failure, new { plan.Message });
+                return plan.Message;
+            }
+
+            plan.CompletedAt = DateTime.UtcNow;
+            if (watch)
+            {
+                plan.Status = ConfigPlanStatus.Watching;
+                plan.WatchUntil = DateTime.UtcNow + window;
+            }
+            else
+            {
+                plan.Status = ConfigPlanStatus.Applied;
+            }
+            await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+            if (automatic) Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Success, new { scheduled = true });
+            await Publish(ChangeAlerts.PlanApplied, AlertSeverity.Info, $"Plan applied: {plan.Name}",
+                $"{doc.Operations.Count} writes by {actor.Name}." + (watch ? $" Watching for {window.TotalMinutes:0} minutes." : "")
+                + (result.VerifyDifferences.Count > 0 ? $" {result.VerifyDifferences.Count} differences remain after verify." : ""), plan.Id, ct);
+            _engine.PollSoon();
+            return null;
+        }
+        finally
+        {
+            _applyLock.Release();
+        }
+    }
+
+    /// <summary>Differences left between the plan's intent and the console after it applied (class F).</summary>
+    internal static List<string> VerifyAgainst(PlanDocument doc, ConfigState before, ConfigState after)
+    {
+        var intended = PlanBuilder.PlannedState(before, doc);
+        var diffs = new List<string>();
+        foreach (var op in doc.Operations.Where(o => o.Action is PlanAction.Update or PlanAction.Create))
+        {
+            var def = ConfigCollections.Get(op.Collection);
+            if (def == null) continue;
+            var want = intended.Get(op.Collection).FirstOrDefault(o => ConfigState.IdOf(o) == op.ObjectId || ConfigState.IdOf(o) == PlanBuilder.RefPrefix + op.Key);
+            var got = after.Get(op.Collection).FirstOrDefault(o => op.ObjectId != null && ConfigState.IdOf(o) == op.ObjectId)
+                      ?? after.Get(op.Collection).FirstOrDefault(o => ConfigState.DisplayName(def, o) == op.ObjectName);
+            if (want == null) continue;
+            if (got == null) { diffs.Add($"{def.Noun} {op.ObjectName}: not on the console"); continue; }
+            foreach (var field in op.WriteFields)
+            {
+                if (ConfigCollections.IsSecretField(def, field)) continue;
+                var w = want[field];
+                if (w is JsonValue wv && wv.TryGetValue<string>(out var ws) && ws.StartsWith(PlanBuilder.RefPrefix, StringComparison.Ordinal)) continue;
+                if (PlanExecutor.NormalizedFields.GetValueOrDefault(op.Collection, []).Contains(field)) continue;
+                var single = ConfigDiffEngine.CompareObjects(def, new JsonObject { [field] = w?.DeepClone() }, new JsonObject { [field] = got[field]?.DeepClone() });
+                if (single != null) diffs.Add($"{def.Noun} {op.ObjectName}: {ChangeDescriber.LabelFor(field)} did not land");
+            }
+        }
+        return diffs;
+    }
+
+    /// <summary>Plans due to apply, commit-confirmed watches, and reports. Called from the registry tick.</summary>
+    public async Task TickAsync(CancellationToken ct)
+    {
+        var plans = await _engine.Repositories.UseAsync((r, c) => r.GetPlansAsync(
+            [ConfigPlanStatus.Approved, ConfigPlanStatus.Scheduled, ConfigPlanStatus.Watching, ConfigPlanStatus.Applied], 50, c), ct);
+        var now = DateTime.UtcNow;
+        foreach (var plan in plans)
+        {
+            try
+            {
+                if (plan.Status is ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled && plan.ScheduledFor is { } at && at <= now)
+                {
+                    var why = await ApplyAsync(plan.Id, new PlanActor("Network Optimizer (scheduled)", IsSiteAdmin: true),
+                        requireApproval: false, automatic: true, ct);
+                    if (why != null) _logger.LogWarning("Scheduled plan {Plan} did not apply: {Why}", plan.Id, why);
+                }
+                else if (plan.Status == ConfigPlanStatus.Watching)
+                {
+                    await WatchAsync(plan, ct);
+                }
+                else if (plan.Status == ConfigPlanStatus.Applied && plan.ReportJson == null && plan.CompletedAt is { } done
+                         && now - done > ReportDelay && plan.Kind != ConfigPlanKind.Revert)
+                {
+                    await BuildReportAsync(plan, ct);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Change Control plan tick failed for plan {Plan}", plan.Id);
+            }
+        }
+    }
+
+    private async Task<HashSet<string>> OnlineDevicesAsync(CancellationToken ct)
+    {
+        var r = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
+        if (!r.IsSuccess) return [];
+        return (ConfigSnapshotReader.ExtractList(r.Body) ?? [])
+            .Where(d => d["state"]?.ToString() == "1")
+            .Select(d => d["mac"]?.ToString()?.ToLowerInvariant() ?? "")
+            .Where(m => m.Length > 0).ToHashSet();
+    }
+
+    /// <summary>
+    /// Commit-confirmed: every device online before the apply stays online, and when the plan
+    /// touched the WAN path, the internet stays reachable. Two misses in a row revert the plan.
+    /// </summary>
+    private async Task WatchAsync(ConfigPlan plan, CancellationToken ct)
+    {
+        var doc = Open(plan);
+        if (plan.WatchUntil is { } until && DateTime.UtcNow >= until)
+        {
+            plan.Status = ConfigPlanStatus.Applied;
+            plan.Message = null;
+            _misses.TryRemove(plan.Id, out _);
+            await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+            if (plan.AgentRevertArmed && AgentRevert != null) await AgentRevert.ConfirmAsync(plan, ct);
+            return;
+        }
+
+        if (!_engine.Api.IsConnected)
+        {
+            // The server cannot see the site. An armed agent decides locally; otherwise this is a miss.
+            if (plan.AgentRevertArmed) return;
+        }
+
+        var expected = doc.Context.GetValueOrDefault("watch_online", "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+        var online = await OnlineDevicesAsync(ct);
+        var offline = online.Count == 0 && !_engine.Api.IsConnected ? expected.ToList() : expected.Where(m => !online.Contains(m)).ToList();
+        string? reason = null;
+        if (doc.WatchDevices && offline.Count > 0)
+            reason = $"{offline.Count} device{(offline.Count == 1 ? "" : "s")} went offline";
+        else if (doc.WatchInternet && !await InternetReachableAsync(ct))
+            reason = "Internet reachability was lost";
+
+        if (reason == null)
+        {
+            _misses.TryRemove(plan.Id, out _);
+            return;
+        }
+        var misses = _misses.AddOrUpdate(plan.Id, 1, (_, n) => n + 1);
+        if (misses < MissesToRevert) return;
+        _misses.TryRemove(plan.Id, out _);
+        await RevertAsync(plan.Id, reason, offline, automatic: true, ct);
+    }
+
+    /// <summary>
+    /// Internet reachability from the console's own health: the "www" subsystem (the gateway's own
+    /// internet test) or, without it, the "wan" subsystem.
+    /// </summary>
+    private async Task<bool> InternetReachableAsync(CancellationToken ct)
+    {
+        var r = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/health", null, ct);
+        if (!r.IsSuccess) return false;
+        var subsystems = ConfigSnapshotReader.ExtractList(r.Body) ?? [];
+        var www = subsystems.FirstOrDefault(s => s["subsystem"]?.ToString() == "www")
+                  ?? subsystems.FirstOrDefault(s => s["subsystem"]?.ToString() == "wan");
+        return www == null || www["status"]?.ToString() is "ok" or null;
+    }
+
+    /// <summary>
+    /// Puts back the pre-apply snapshot for the objects a plan touched, as a Revert plan applied at once.
+    /// Where the revert cannot reach a device, the alert names it and the recovery step.
+    /// </summary>
+    public async Task<string?> RevertAsync(int planId, string reason, IReadOnlyList<string> offlineMacs, bool automatic, CancellationToken ct)
+    {
+        var loaded = await LoadAsync(planId, ct);
+        if (loaded == null) return "Plan not found.";
+        var (plan, doc, _) = loaded.Value;
+        if (plan.PreApplySnapshotId is not { } snapId || await _engine.LoadSnapshotStateAsync(snapId, ct) is not { } before)
+            return "The snapshot taken before the apply is not available.";
+
+        var touched = doc.Operations.Where(o => o.ObjectId != null).Select(o => (o.Collection, o.ObjectId!)).ToHashSet();
+        var revert = await CreateAsync(ConfigPlanKind.Revert, $"Revert: {plan.Name}", $"Snapshot before {plan.Name}", snapId, null,
+            before, new PlanOptions { OnlyObjects = touched, Collections = doc.Collections.ToHashSet() },
+            automatic ? "Network Optimizer" : "Roll Back", ct);
+        revert.RevertOfPlanId = plan.Id;
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(revert, c), ct);
+
+        var revertDoc = Open(revert);
+        // A revert puts back what was there; nothing in it needs acknowledging.
+        var acks = new PlanAcknowledgements
+        {
+            Items = revertDoc.Operations.Select(o => o.Key).ToHashSet(),
+            Regressions = revertDoc.Regressions.Select(r => r.Key).ToHashSet(),
+            TypedConfirmation = PlanReadiness.ConfirmationText(revertDoc),
+        };
+        await SaveAcknowledgementsAsync(revert.Id, acks, ct);
+        var why = await ApplyAsync(revert.Id, new PlanActor("Network Optimizer", IsSiteAdmin: true), requireApproval: false, automatic: true, ct);
+
+        plan = (await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct))!;
+        plan.Status = ConfigPlanStatus.Reverted;
+        plan.Message = reason;
+        plan.CompletedAt = DateTime.UtcNow;
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+
+        var names = offlineMacs.Count == 0 ? "" : $" Offline: {string.Join(", ", offlineMacs)}.";
+        var recovery = offlineMacs.Count > 0 ? " If a device stays offline, SSH to it and run set-inform with the UniFi Console's inform URL." : "";
+        await Publish(ChangeAlerts.PlanReverted, AlertSeverity.Critical, $"Plan reverted: {plan.Name}",
+            $"{reason}.{names} Network Optimizer put back the snapshot taken before the apply"
+            + (why == null ? "." : $", but the revert did not finish: {why}") + recovery, plan.Id, ct);
+        if (automatic) Audit(AuditActions.ChangeControlPlanReverted, plan, AuditOutcomes.Success, new { reason, offline = offlineMacs });
+        return why;
+    }
+
+    /// <summary>The before/after report, through Firmware Rollout's builder (spec: reuse it).</summary>
+    private async Task BuildReportAsync(ConfigPlan plan, CancellationToken ct)
+    {
+        var doc = Open(plan);
+        var started = plan.StartedAt ?? plan.CompletedAt!.Value;
+        var done = plan.CompletedAt!.Value;
+        var macs = new List<(string Mac, string Name, string Model, string Type)>();
+        if (plan.PostApplySnapshotId is { } postId && await _engine.LoadSnapshotStateAsync(postId, ct) is { } state)
+        {
+            var touchedDevices = doc.Operations.Where(o => o.Collection == "device").Select(o => o.ObjectId).ToHashSet();
+            foreach (var d in state.Get("device"))
+            {
+                var type = d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() ?? "";
+                var isGateway = type is "ugw" or "udm" or "uxg";
+                if (!touchedDevices.Contains(ConfigState.IdOf(d)) && !isGateway) continue;
+                macs.Add((d["mac"]?.ToString() ?? "", ConfigState.DisplayName(ConfigCollections.Get("device"), d), d["model"]?.ToString() ?? "", type));
+            }
+        }
+
+        var steps = new List<FirmwareRolloutStep>();
+        foreach (var (mac, name, model, type) in macs)
+        {
+            RolloutResourceStats? pre = null, post = null;
+            if (_stats != null)
+            {
+                pre = await _stats(mac, started - ReportWindow, started, ct);
+                post = await _stats(mac, done, done + ReportWindow, ct);
+            }
+            steps.Add(new FirmwareRolloutStep
+            {
+                DeviceMac = mac, DeviceName = name, Model = model, DeviceType = type,
+                State = FirmwareRolloutStepState.LitmusPassed, BackAt = done,
+                PreStatsJson = pre == null ? null : JsonSerializer.Serialize(pre),
+                PostStatsJson = post == null ? null : JsonSerializer.Serialize(post),
+            });
+        }
+
+        var incidents = await _engine.Repositories.UseAsync((r, c) => r.GetIncidentsStartedAsync(started, done + ChangeControlSiteEngine.IncidentWindow, c), ct);
+        var rolloutPlan = new FirmwareRolloutPlan { StartedAt = started, CompletedAt = done, CreatedBy = plan.AppliedBy ?? "" };
+        var rolloutDoc = new RolloutPlanDocument();
+        rolloutDoc.Notes.Add($"Change Control plan: {plan.Name}");
+        foreach (var i in incidents)
+            rolloutDoc.Notes.Add($"Incident after: {i.Title} ({i.FirstTriggeredAt:u})");
+        var report = RolloutReportBuilder.Build(rolloutPlan, rolloutDoc, steps, DateTime.UtcNow);
+        foreach (var row in report.Rows) row.Outcome = "Applied";
+        plan.ReportJson = JsonSerializer.Serialize(report);
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+    }
+
+    private void Audit(string action, ConfigPlan plan, string outcome, object? details) =>
+        _audit?.Log(AuditEventBuilder.FromSystem(AuditCategories.Action, action, outcome,
+            targetType: "config_plan", targetId: plan.Id.ToString(), targetName: plan.Name, siteSlug: Slug, details: details));
+
+    private async Task Publish(string type, AlertSeverity severity, string title, string message, int planId, CancellationToken ct)
+    {
+        if (_bus == null) return;
+        try
+        {
+            await _bus.PublishAsync(new AlertEvent
+            {
+                EventType = type, Source = ChangeAlerts.Source, Severity = severity, Title = title, Message = message,
+                SourceUrl = ChangeAlerts.PlanUrl(planId), SiteSlug = Slug,
+                Context = new Dictionary<string, string> { ["plan_id"] = planId.ToString() },
+            }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not publish {Type}", type);
+        }
+    }
+}
+
+/// <summary>Arms and confirms the On-Site Agent's local revert for a plan (spec "Agent sites").</summary>
+public interface IAgentRevertArmer
+{
+    /// <summary>Hands the agent the revert calls and a deadline. False when the agent cannot hold one (older agent).</summary>
+    Task<bool> ArmAsync(ConfigPlan plan, PlanDocument doc, int preApplySnapshotId, TimeSpan window, CancellationToken ct);
+
+    /// <summary>Tells the agent the window passed with every check healthy.</summary>
+    Task ConfirmAsync(ConfigPlan plan, CancellationToken ct);
+}
