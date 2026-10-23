@@ -68,6 +68,15 @@ public sealed class ChangeEvaluator : IChangeEvaluator
         }
     }
 
+    /// <inheritdoc />
+    public async Task<ImpactResult?> RunImpactAsync(string siteSlug, ConfigState before, ConfigState after, CancellationToken ct)
+    {
+        using var scope = _scopes.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+        using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
+        return await RunImpactAsync(scope.ServiceProvider, before, after, ct);
+    }
+
     private async Task<ImpactResult?> RunImpactAsync(IServiceProvider sp, ConfigState before, ConfigState after, CancellationToken ct)
     {
         try

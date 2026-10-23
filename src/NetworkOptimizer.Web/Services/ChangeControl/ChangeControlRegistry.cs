@@ -22,6 +22,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<ChangeControlRegistry> _logger;
     private readonly ConcurrentDictionary<string, ChangeControlSiteEngine> _engines = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, PlanCoordinator> _coordinators = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _running = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
 
@@ -36,6 +37,13 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
 
     /// <summary>The engine for a site, created on first use (not started until reconcile).</summary>
     public ChangeControlSiteEngine GetFor(string slug) => _engines.GetOrAdd(slug, Build);
+
+    /// <summary>The plan coordinator for a site.</summary>
+    public PlanCoordinator PlansFor(string slug)
+    {
+        GetFor(slug);
+        return _coordinators[slug];
+    }
 
     /// <summary>Records one of NO's console writes against its site's journal.</summary>
     public void Journal(string slug, UniFiWriteRecord record) => GetFor(slug).Journal(record);
@@ -52,8 +60,20 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControl[{slug}]"),
             _sp.GetService<IAuditLogger>(),
             isRolloutActive: async ct => await rollout.UseAsync(async (r, c) => await r.GetActivePlanAsync(c) is { Status: FirmwareRolloutStatus.Running }, ct),
-            isAgentSite: () => connection.IsAwaitingAgent);
+            isAgentSite: () => connection.IsViaAgent || connection.IsAwaitingAgent);
         engine.Evaluator = _sp.GetService<IChangeEvaluator>();
+
+        var litmus = ActivatorUtilities.CreateInstance<LitmusService>(_sp, slug);
+        var coordinator = new PlanCoordinator(engine, _sp.GetRequiredService<ICredentialProtectionService>(),
+            _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlPlans[{slug}]"),
+            engine.Evaluator, _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(), _sp.GetService<IAuditLogger>(),
+            async (mac, from, to, ct) => await litmus.CaptureStatsAsync(mac, from, to, ct))
+        {
+            IsAgentSite = () => connection.IsViaAgent,
+            ConsoleHost = () => Uri.TryCreate(connection.CurrentConfig?.ControllerUrl, UriKind.Absolute, out var u) ? u.Host : null,
+        };
+        _coordinators[slug] = coordinator;
+        engine.OnTick = coordinator.TickAsync;
         return engine;
     }
 
@@ -65,6 +85,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     {
         await StopAsync(slug, ct);
         _engines.TryRemove(slug, out _);
+        _coordinators.TryRemove(slug, out _);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

@@ -24,6 +24,9 @@ public interface IChangeEvaluator
 
     /// <summary>The daily digest.</summary>
     Task DigestAsync(ChangeControlSiteEngine engine, int incidentsAfter, CancellationToken ct);
+
+    /// <summary>Security Audit on two configs for a site (a plan's impact: live against planned).</summary>
+    Task<ImpactResult?> RunImpactAsync(string siteSlug, ConfigState before, ConfigState after, CancellationToken ct);
 }
 
 /// <summary>
@@ -56,6 +59,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
     /// <summary>Evaluates recorded changes (impact diff and alerts). Set by the registry once built.</summary>
     public IChangeEvaluator? Evaluator { get; set; }
+
+    /// <summary>Runs every loop tick after detection (the plan coordinator: due plans, watches, reports).</summary>
+    public Func<CancellationToken, Task>? OnTick { get; set; }
 
     /// <summary>Raised after a snapshot or change is recorded, so open pages can refresh.</summary>
     public event Action? Changed;
@@ -103,6 +109,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 await FlushJournalAsync(stoppingToken);
                 if (DateTime.UtcNow >= _nextPoll || _snapshotRequested)
                     await PollAsync(stoppingToken);
+                if (OnTick != null && _api.IsConnected)
+                    await OnTick(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
