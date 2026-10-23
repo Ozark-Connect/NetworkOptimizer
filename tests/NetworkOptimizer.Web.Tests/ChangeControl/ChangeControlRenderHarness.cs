@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -37,16 +38,22 @@ public class ChangeControlRenderHarness
 
         foreach (var tab in new[] { "overview", "changes", "snapshots", "edit", "migrate", "settings" })
         {
-            var html = await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = tab });
+            var html = await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = tab },
+                tab == "migrate" ? $"change-control/migrate?task=replace&old={SwOld}&new={SwNew}" : null);
             await File.WriteAllTextAsync(Path.Combine(dir, $"{tab}.html"), Shell(html));
         }
         var detail = await RenderAsync<CcChangeDetail>(new Dictionary<string, object?> { ["Detail"] = Detail() });
         await File.WriteAllTextAsync(Path.Combine(dir, "detail.html"), Shell($"<div class=\"change-control\"><div class=\"card\">{detail}</div></div>"));
+        var migrateAp = await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = "migrate" }, "change-control/migrate?task=replace&old=" + ApOld + "&new=" + ApNew);
+        await File.WriteAllTextAsync(Path.Combine(dir, "migrate-ap.html"), Shell(migrateAp));
+        foreach (var task in new[] { "restore", "adopt" })
+            await File.WriteAllTextAsync(Path.Combine(dir, $"migrate-{task}.html"),
+                Shell(await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = "migrate" }, $"change-control/migrate?task={task}")));
         var plan = await RenderAsync<CcReviewPlan>(new Dictionary<string, object?> { ["PlanId"] = 7 });
         await File.WriteAllTextAsync(Path.Combine(dir, "plan.html"), Shell(plan));
     }
 
-    private static async Task<string> RenderAsync<T>(Dictionary<string, object?> parameters) where T : IComponent
+    private static async Task<string> RenderAsync<T>(Dictionary<string, object?> parameters, string? path = null) where T : IComponent
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -63,7 +70,7 @@ public class ChangeControlRenderHarness
         var site =new SiteContextService(new HttpContextAccessor(), new SiteDatabasePaths(Path.Combine(Path.GetTempPath(), "cc.db")));
         site.OverrideSite("main");
         services.AddSingleton(site);
-        services.AddSingleton<NavigationManager>(new FakeNav());
+        services.AddSingleton<NavigationManager>(new FakeNav(path ?? "change-control"));
         services.AddSingleton<IJSRuntime>(Mock.Of<IJSRuntime>());
         services.AddSingleton((SiteSwitchService)RuntimeHelpers.GetUninitializedObject(typeof(SiteSwitchService)));
         services.AddScoped<CcNavigator>();
@@ -93,7 +100,7 @@ public class ChangeControlRenderHarness
 
     private sealed class FakeNav : NavigationManager
     {
-        public FakeNav() => Initialize("http://localhost/", "http://localhost/change-control");
+        public FakeNav(string path) => Initialize("http://localhost/", "http://localhost/" + path);
         protected override void NavigateToCore(string uri, bool forceLoad) { }
     }
 
@@ -218,9 +225,124 @@ public class ChangeControlRenderHarness
         CanRollBack = true,
     };
 
+    // ---------- Replace Device fixtures (mockups 9 and 11) ----------
+
+    private const string SwOld = "aa:bb:cc:00:01:01";
+    private const string SwNew = "aa:bb:cc:00:01:02";
+    private const string ApOld = "aa:bb:cc:00:02:01";
+    private const string ApNew = "aa:bb:cc:00:02:02";
+
+    private static JsonObject Port(int idx, string media, bool poe = false, double watts = 0, bool up = false, bool uplink = false) => new()
+    {
+        ["port_idx"] = idx, ["media"] = media, ["port_poe"] = poe, ["poe_enable"] = watts > 0, ["poe_power"] = watts.ToString("0.00"), ["up"] = up, ["is_uplink"] = uplink,
+    };
+
+    private static JsonObject Dev(string mac, string name, string model, string type, string version, JsonObject meta, JsonObject? extra = null)
+    {
+        var d = new JsonObject { ["_id"] = mac, ["mac"] = mac, ["name"] = name, ["model"] = model, ["type"] = type, ["version"] = version, [ConfigCollections.DeviceMetaField] = meta };
+        foreach (var (k, v) in extra ?? []) d[k] = v?.DeepClone();
+        return d;
+    }
+
+    private static ConfigState MigrateContext()
+    {
+        var s = new ConfigState();
+        s.Collections["networkconf"] = [new JsonObject { ["_id"] = "n-iot", ["name"] = "IoT" }, new JsonObject { ["_id"] = "n-cam", ["name"] = "Cameras" },
+            new JsonObject { ["_id"] = "n-off", ["name"] = "Office" }, new JsonObject { ["_id"] = "n-mgmt", ["name"] = "Management" }];
+        s.Collections["portconf"] = [new JsonObject { ["_id"] = "p-trunk", ["name"] = "Trunk-Core" }, new JsonObject { ["_id"] = "p-ap", ["name"] = "AP Trunk" }];
+        s.Collections["wlanconf"] = [new JsonObject { ["_id"] = "w1", ["name"] = "Home", ["wlan_bands"] = new JsonArray("2g", "5g", "6g") }];
+        s.Collections["device"] = [new JsonObject { ["mac"] = "aa:bb:cc:00:09:01", ["name"] = "Back Yard AP" }, new JsonObject { ["mac"] = "aa:bb:cc:00:09:02", ["name"] = "Front Yard AP", ["mesh_uplink_1"] = ApOld },
+            new JsonObject { ["mac"] = "aa:bb:cc:00:09:03", ["name"] = "UNVR" }, new JsonObject { ["mac"] = "aa:bb:cc:00:09:04", ["name"] = "NAS" }];
+        return s;
+    }
+
+    private static JsonObject OldSwitch()
+    {
+        var up = new HashSet<int> { 1, 2, 5, 6, 7, 8, 9, 10, 13, 14, 18, 20, 22, 23, 24 };
+        var watts = new Dictionary<int, double> { [1] = 21, [2] = 12, [5] = 5, [6] = 5 };
+        var ports = Enumerable.Range(1, 24).Select(i => Port(i, "GE", true, watts.GetValueOrDefault(i), up.Contains(i))).Append(Port(25, "SFP", up: true, uplink: true)).Append(Port(26, "SFP"));
+        JsonObject O(int i, string? net = null, string? prof = null, bool iso = false) => new() { ["port_idx"] = i, ["native_networkconf_id"] = net, ["portconf_id"] = prof, ["isolation"] = iso };
+        var overrides = new JsonArray(O(25, prof: "p-trunk"), O(1, prof: "p-ap"), O(2, prof: "p-ap"), O(5, "n-cam"), O(6, "n-cam"), O(22, "n-cam", iso: true), O(23, "n-off"), O(24, "n-off"));
+        foreach (var i in Enumerable.Range(7, 6)) overrides.Add(O(i, "n-iot"));
+        foreach (var i in Enumerable.Range(13, 9)) overrides.Add(O(i, "n-off"));
+        var meta = new JsonObject
+        {
+            ["shortname"] = "USW-24-PoE", ["type"] = "usw", ["total_used_power"] = 47, ["total_max_power"] = 250, ["state"] = 0,
+            ["switch_caps"] = new JsonObject { ["etherlight_caps"] = 0, ["max_aggregate_sessions"] = 8 },
+            ["ports"] = new JsonArray(ports.Select(p => (JsonNode?)p).ToArray()),
+            ["lldp"] = new JsonArray(
+                new JsonObject { ["local_port_idx"] = 1, ["chassis_id"] = "aa:bb:cc:00:09:01" },
+                new JsonObject { ["local_port_idx"] = 2, ["chassis_id"] = "aa:bb:cc:00:09:02" },
+                new JsonObject { ["local_port_idx"] = 22, ["chassis_id"] = "aa:bb:cc:00:09:03" },
+                new JsonObject { ["local_port_idx"] = 23, ["chassis_id"] = "aa:bb:cc:00:09:04" }),
+            ["uplink"] = new JsonObject { ["uplink_device_name"] = "Core Switch", ["uplink_remote_port"] = 9 },
+        };
+        return Dev(SwOld, "Garage Switch", "US24P250", "usw", "7.1.26", meta, new JsonObject
+        {
+            ["port_overrides"] = overrides, ["stp_priority"] = "12288", ["jumboframe_enabled"] = true, ["mgmt_network_id"] = "n-mgmt",
+            ["config_network"] = new JsonObject { ["type"] = "static", ["ip"] = "192.0.2.12" },
+            ["link_aggregation_groups"] = new JsonArray(new JsonObject { ["lag_idx"] = 1, ["aggregate_members"] = new JsonArray(23, 24), ["type"] = "lag" }),
+        });
+    }
+
+    private static JsonObject NewSwitch()
+    {
+        var ports = Enumerable.Range(1, 12).Select(i => Port(i, "GE", true)).Concat(Enumerable.Range(13, 4).Select(i => Port(i, "2.5GE", true)))
+            .Concat([Port(17, "SFP+", up: true, uplink: true), Port(18, "SFP+")]);
+        var meta = new JsonObject
+        {
+            ["shortname"] = "USW-Pro-Max-16-PoE", ["type"] = "usw", ["total_max_power"] = 180, ["state"] = 1,
+            ["switch_caps"] = new JsonObject { ["etherlight_caps"] = 655, ["max_aggregate_sessions"] = 8 },
+            ["ports"] = new JsonArray(ports.Select(p => (JsonNode?)p).ToArray()),
+        };
+        return Dev(SwNew, "USW-Pro-Max-16-PoE", "USPM16P", "usw", "7.1.30", meta);
+    }
+
+    private static JsonObject OldAp() => Dev(ApOld, "Back Yard AP", "UAPA6A9", "uap", "7.0.66", new JsonObject
+    {
+        ["shortname"] = "U7-Outdoor", ["type"] = "uap", ["state"] = 1, ["supported_afc_regions"] = new JsonArray("US"),
+        ["radios"] = new JsonArray(new JsonObject { ["radio"] = "ng" }, new JsonObject { ["radio"] = "na" }, new JsonObject { ["radio"] = "6e" }),
+    }, new JsonObject
+    {
+        ["outdoor_mode_override"] = "on", ["led_override"] = "on", ["mesh_uplink_1"] = "",
+        ["radio_table"] = new JsonArray(
+            new JsonObject { ["radio"] = "ng", ["name"] = "wifi0", ["channel"] = 6, ["ht"] = 20, ["tx_power_mode"] = "medium" },
+            new JsonObject { ["radio"] = "na", ["name"] = "wifi1", ["channel"] = 100, ["ht"] = 160, ["tx_power_mode"] = "custom", ["tx_power"] = 26 },
+            new JsonObject { ["radio"] = "6e", ["name"] = "wifi2", ["channel"] = 37, ["ht"] = 320, ["tx_power_mode"] = "auto", ["ap_pwr_type"] = "SP" }),
+    });
+
+    private static JsonObject NewAp() => Dev(ApNew, "U7 Pro (bench)", "UAPA6A4", "uap", "7.0.66", new JsonObject
+    {
+        ["shortname"] = "U7-Pro", ["type"] = "uap", ["state"] = 1, ["supported_afc_regions"] = new JsonArray(),
+        ["radios"] = new JsonArray(
+            new JsonObject { ["radio"] = "ng", ["name"] = "wifi0", ["min_txpower"] = 6, ["max_txpower"] = 22 },
+            new JsonObject { ["radio"] = "na", ["name"] = "wifi1", ["has_dfs"] = true, ["has_ht160"] = true, ["min_txpower"] = 6, ["max_txpower"] = 23 },
+            new JsonObject { ["radio"] = "6e", ["name"] = "wifi2", ["has_ht160"] = true, ["has_eht320"] = true, ["min_txpower"] = 6, ["max_txpower"] = 23, ["ap_pwr_type"] = "LPI" }),
+    });
+
     private static Mock<IChangeControlService> Site()
     {
         var m = new Mock<IChangeControlService>();
+        m.Setup(s => s.GetReplaceDevicesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new ReplaceDevicesView
+        {
+            SnapshotAt = Now.AddHours(-30),
+            Old = [new() { Mac = SwOld, Name = "Garage Switch", Model = "USW-24-PoE", Type = "usw" }, new() { Mac = ApOld, Name = "Back Yard AP", Model = "U7-Outdoor", Type = "uap", Online = true }],
+            New = [new() { Mac = SwNew, Name = "USW-Pro-Max-16-PoE", Model = "USW-Pro-Max-16-PoE", Type = "usw", Online = true }, new() { Mac = ApNew, Name = "U7 Pro (bench)", Model = "U7-Pro", Type = "uap", Online = true }],
+        });
+        m.Setup(s => s.GetReplacementAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string o, string n, IReadOnlyDictionary<string, string>? c, IReadOnlyCollection<string>? a, CancellationToken _) =>
+                o == SwOld ? DeviceReplacement.Propose(OldSwitch(), NewSwitch(), MigrateContext(), c, a?.ToHashSet())
+                : DeviceReplacement.Propose(OldAp(), NewAp(), MigrateContext(), c, a?.ToHashSet()));
+        m.Setup(s => s.GetRestoreSnapshotsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new() { Id = 41, TakenAt = Now.AddHours(-30), Label = "Oct 22, 6:00 AM, Daily", NetworkAppVersion = "11.0.21" },
+            new() { Id = 37, TakenAt = Now.AddDays(-6), Label = "Oct 17, 4:00 AM, Baseline", NetworkAppVersion = "10.6.106" },
+        ]);
+        m.Setup(s => s.GetPendingAdoptionsAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new() { Mac = "aa:bb:cc:00:03:01", Model = "U7-Pro", Pending = true, InSnapshot = true, Ip = "192.0.2.40" },
+            new() { Mac = "aa:bb:cc:00:03:02", Model = "USW-Lite-8-PoE", Pending = true, InSnapshot = true, Ip = "192.0.2.41" },
+        ]);
         m.Setup(s => s.GetSettingsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new ChangeControlSettings { ApprovalsEnabled = true });
         m.Setup(s => s.IsSiteAdminAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
         m.Setup(s => s.GetStorageAsync(It.IsAny<CancellationToken>())).ReturnsAsync((38L << 20, 3_200_000L));

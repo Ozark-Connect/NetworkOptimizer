@@ -1,7 +1,597 @@
-@* Replaced in steps 13 and 14 (Restore, Replace Device, Adopt Pending Devices, Set Up Zones). *@
-<div class="cc-action-cards">
-    <div class="cc-action-card"><h3>Restore a Snapshot</h3><p>Onto this site, another site, or a blank UniFi Console.</p></div>
-    <div class="cc-action-card"><h3>Replace Device</h3><p>Move a device's config to new hardware, same model or not.</p></div>
-    <div class="cc-action-card"><h3>Adopt Pending Devices</h3><p>Pending devices whose MAC is in a snapshot.</p></div>
-    <div class="cc-action-card"><h3>Set Up Zones</h3><p>Group networks into firewall zones by trust or purpose.</p></div>
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject IChangeControlService Site
+@inject IChangeControlFleetService Fleet
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<CcMigrate> Logger
+
+<div class="cc-phone-only form-group">
+    <label class="form-label">Task</label>
+    <select class="form-control" value="@_task" @onchange="e => SelectTaskAsync(e.Value?.ToString() ?? Replace)">
+        <option value="@Restore">Restore a Snapshot</option>
+        <option value="@Replace">Replace Device</option>
+        <option value="@Adopt">Adopt Pending Devices@(PendingInSnapshot > 0 ? $" ({PendingInSnapshot})" : "")</option>
+    </select>
 </div>
+
+<div class="cc-action-cards hide-mobile">
+    <button class="cc-action-card @(_task == Restore ? "active" : "")" @onclick="() => SelectTaskAsync(Restore)">
+        <h3>Restore a Snapshot</h3>
+        <p>Onto this site, another site, or a blank UniFi Console. Devices get their config as they adopt.</p>
+    </button>
+    <button class="cc-action-card @(_task == Replace ? "active" : "")" @onclick="() => SelectTaskAsync(Replace)">
+        <h3>Replace Device</h3>
+        <p>Move a device's config to new hardware, same model or not. Ports, radios, and PoE adapt.</p>
+    </button>
+    <button class="cc-action-card @(_task == Adopt ? "active" : "")" @onclick="() => SelectTaskAsync(Adopt)">
+        <h3>Adopt Pending Devices @if (PendingInSnapshot > 0) { <span class="status-badge status-info">@PendingInSnapshot</span> }</h3>
+        <p>Pending devices whose MAC is in a snapshot. One confirmation adopts them all.</p>
+    </button>
+</div>
+
+@if (_task == Replace)
+{
+    <SiteOperatorOnly>
+        <NotAuthorized><div class="card"><div class="card-body">Replace Device needs the Site Operator role on this site.</div></div></NotAuthorized>
+        <ChildContent>
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Replace Device <span class="card-title-suffix">@_siteName</span></h3>
+                </div>
+                <div class="cc-steps">
+                    @for (var i = 0; i < Steps.Length; i++)
+                    {
+                        var n = i + 1;
+                        var state = n < _step ? "done" : n == _step ? "current" : "";
+                        <span class="@state">
+                            <span class="cc-step-num @state">@(n < _step ? "✓" : n.ToString())</span>
+                            <span class="hide-mobile">@StepLabel(i)</span>
+                            <span class="cc-phone-inline">@PhoneStepLabel(i)</span>
+                        </span>
+                    }
+                </div>
+
+                @if (_step == 1)
+                {
+                    <div class="card-body">
+                        @if (_devices == null)
+                        {
+                            <div class="loading-container"><div class="spinner"></div></div>
+                        }
+                        else
+                        {
+                            <div class="form-row cc-migrate-form">
+                                <div class="form-group">
+                                    <label class="form-label">Old device</label>
+                                    <select class="form-control" @bind="_oldMac">
+                                        <option value="">Choose the device being replaced</option>
+                                        @foreach (var d in _devices.Old)
+                                        {
+                                            <option value="@d.Mac">@d.Name (@d.Model)</option>
+                                        }
+                                    </select>
+                                    <small class="form-help">From the snapshot of @CcFormat.Time(_devices.SnapshotAt ?? DateTime.UtcNow). Offline devices are listed too.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">New device</label>
+                                    <select class="form-control" @bind="_newMac">
+                                        <option value="">Choose the adopted replacement</option>
+                                        @foreach (var d in _devices.New.Where(d => d.Mac != _oldMac))
+                                        {
+                                            <option value="@d.Mac">@d.Name (@d.Model)@(d.InSnapshot ? "" : ", new")</option>
+                                        }
+                                    </select>
+                                    <small class="form-help">Adopt the new device first (on the bench is fine). NO reads its real ports and radios.</small>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <div class="cc-card-footer">
+                        <span class="cc-remaining muted-text">@(_devices?.New.Count == 0 ? "No adopted device to move the config to yet." : "")</span>
+                        <button class="btn btn-primary" disabled="@(string.IsNullOrEmpty(_oldMac) || string.IsNullOrEmpty(_newMac) || _busy)" @onclick="ChooseAsync">Next</button>
+                    </div>
+                }
+                else if (_proposal is { } p)
+                {
+                    <div class="cc-device-pair">
+                        <div class="cc-device-box">
+                            <div class="muted-text">Old</div>
+                            <b>@p.OldName</b>
+                            <div class="cc-item-detail">@p.OldModel@(p.OldSummary.Length > 0 ? $", {p.OldSummary}" : ""). @(OldDevice?.Online == true ? "Online." : "Offline.") Config from the latest snapshot.</div>
+                        </div>
+                        <div class="cc-device-arrow hide-mobile">→</div>
+                        <div class="cc-device-box">
+                            <div class="muted-text">New</div>
+                            <b>@p.NewModel</b>
+                            <div class="cc-item-detail">@(NewDevice?.Name is { Length: > 0 } nn && nn != p.NewModel ? $"{nn}, " : "")@p.NewSummary. Firmware @(p.NewVersion ?? "unknown").</div>
+                        </div>
+                    </div>
+
+                    @if (_step == 2)
+                    {
+                        <div class="card-body">
+                            @if (FirmwareDiffers)
+                            {
+                                <div class="alert alert-warning">
+                                    The new device runs @p.NewVersion, older than the @p.OldVersion the old one ran. Bring it to the same or a newer release in
+                                    <a href="@SiteContextService.WithSiteParam("/firmware-rollout", SiteCtx.Slug)">Firmware Rollout</a> before mapping, so every setting has somewhere to land.
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="muted-text">Firmware matches: @(p.NewVersion ?? "unknown").</p>
+                            }
+                        </div>
+                        <div class="cc-card-footer">
+                            <span class="cc-remaining"></span>
+                            <button class="btn btn-contrast" @onclick="() => _step = 1">Back</button>
+                            <button class="btn btn-primary" @onclick="() => _step = 3">@(FirmwareDiffers ? "Continue Anyway" : "Next")</button>
+                        </div>
+                    }
+                }
+            </div>
+
+            @if (_step == 3 && _proposal is { } m)
+            {
+                @if (m.Kind == "ap")
+                {
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Radio Mapping <span class="card-title-suffix">matched by band</span></h3>
+                            @if (m.ToAcknowledge > 0) { <span class="status-badge status-warning cc-phone-inline">@m.ToAcknowledge to acknowledge</span> }
+                        </div>
+                        <div class="table-responsive hide-mobile">
+                            <table class="data-table">
+                                <thead><tr><th>Band</th><th>Old</th><th>New</th><th>Fit</th></tr></thead>
+                                <tbody>
+                                    @foreach (var r in m.Radios)
+                                    {
+                                        <tr>
+                                            <td>@r.Band</td>
+                                            <td>@r.Old</td>
+                                            <td>@r.New</td>
+                                            <td>
+                                                <span class="status-badge @BadgeClass(r.Level)">@r.Note</span>
+                                                @if (r.AckKey is { } key)
+                                                {
+                                                    <label class="checkbox-label cc-inline-ack"><input type="checkbox" checked="@r.Acknowledged" @onchange="() => ToggleAckAsync(key)" /><span>OK</span></label>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="cc-phone-only">
+                            @foreach (var r in m.Radios.OrderBy(r => r.Level switch { "error" => 0, "warn" => 1, _ => 2 }))
+                            {
+                                <div class="cc-map-card">
+                                    <div class="cc-change-card-head"><b>@r.Band</b><span class="status-badge @BadgeClass(r.Level)">@(r.Level == "ok" ? "Copied" : r.Level == "muted" ? r.Note : "Changed")</span></div>
+                                    <div class="cc-item-detail">@(r.Old == r.New ? r.New : $"{r.Old} to {r.New}")@(r.Level is "warn" or "error" ? $". {r.Note}" : "")</div>
+                                    @if (r.AckKey is { } key)
+                                    {
+                                        <label class="checkbox-label"><input type="checkbox" checked="@r.Acknowledged" @onchange="() => ToggleAckAsync(key)" /><span>Acknowledge</span></label>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Port Mapping <span class="card-title-suffix">@CcFormat.Plural(m.Ports.Sum(r => r.OldPorts.Count), "port with config", "ports with config")@(m.SameLayout ? ", same layout" : ", suggested by role")</span></h3>
+                            @if (m.Unresolved > 0) { <span class="status-badge status-error cc-phone-inline">@m.Unresolved to resolve</span> }
+                            <button class="btn btn-contrast btn-sm hide-mobile" disabled="@(_choices.Count == 0 && _acks.Count == 0)" @onclick="ResetAsync">Reset Suggestions</button>
+                        </div>
+                        <div class="table-responsive hide-mobile">
+                            <table class="data-table cc-port-table">
+                                <thead><tr><th>Old port</th><th>Config</th><th>Connected</th><th>New port</th><th>Fit</th></tr></thead>
+                                <tbody>
+                                    @foreach (var r in m.Ports)
+                                    {
+                                        <tr class="@(r.FitLevel == "error" ? "cc-row-error" : "")">
+                                            <td>@r.OldLabel</td>
+                                            <td>@r.Config</td>
+                                            <td>@r.Connected</td>
+                                            <td>@PortSelect(r)</td>
+                                            <td>
+                                                <span class="status-badge @BadgeClass(r.FitLevel)">@r.Fit</span>
+                                                @if (r.NeedsAck && r.FitLevel != "error")
+                                                {
+                                                    <label class="checkbox-label cc-inline-ack"><input type="checkbox" checked="@r.Acknowledged" @onchange="() => ToggleAckAsync(r.Key)" /><span>OK</span></label>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="cc-phone-only">
+                            @foreach (var r in PhoneRows(m))
+                            {
+                                <div class="cc-map-card @(r.FitLevel == "error" ? "cc-row-error" : "")">
+                                    <div class="cc-change-card-head">
+                                        <b>@r.OldLabel, @r.Config.Split(',')[0]</b>
+                                        <span class="status-badge @BadgeClass(r.FitLevel)">@r.Fit</span>
+                                    </div>
+                                    <div class="cc-item-detail">@r.Connected</div>
+                                    @PortSelect(r)
+                                    @if (r.NeedsAck && r.FitLevel != "error")
+                                    {
+                                        <label class="checkbox-label"><input type="checkbox" checked="@r.Acknowledged" @onchange="() => ToggleAckAsync(r.Key)" /><span>Acknowledge</span></label>
+                                    }
+                                </div>
+                            }
+                            @if (!_showAllPorts && HiddenPhoneRows(m) > 0)
+                            {
+                                <button class="cc-link-btn cc-more" @onclick="() => _showAllPorts = true">+ @HiddenPhoneRows(m) more mapped rows@(m.UnconfiguredPorts > 0 ? $", {m.UnconfiguredPorts} ports with no override" : "")</button>
+                            }
+                        </div>
+                        @if (m.UnconfiguredPorts > 0)
+                        {
+                            <div class="cc-card-note hide-mobile">@CcFormat.Plural(m.UnconfiguredPorts, "port", "ports") with no override: nothing to map</div>
+                        }
+                    </div>
+                }
+
+                <div class="cc-two-col">
+                    <div class="card">
+                        <div class="card-header"><h3 class="card-title">@(m.Kind switch { "ap" => "AP Settings", "gateway" => "Gateway Settings", _ => "Switch Settings" })</h3></div>
+                        @if (m.Settings.Count == 0)
+                        {
+                            <div class="empty-state empty-state-small"><p>No device-level settings to move.</p></div>
+                        }
+                        @foreach (var s in m.Settings)
+                        {
+                            <div class="cc-setting-row"><span>@s.Label</span><span class="status-badge @BadgeClass(s.Level)">@s.Status</span></div>
+                        }
+                        @foreach (var w in m.Warnings)
+                        {
+                            <div class="cc-setting-row"><span class="warning-text">@w</span></div>
+                        }
+                    </div>
+                    @if (m.Kind != "ap")
+                    {
+                        <div class="card hide-mobile">
+                            <div class="card-header">
+                                <h3 class="card-title">Re-cabling Sheet</h3>
+                                <button class="btn btn-contrast btn-sm" @onclick="DownloadPdfAsync">Download PDF</button>
+                            </div>
+                            @foreach (var r in m.Recabling)
+                            {
+                                <div class="cc-setting-row cc-recable-row">
+                                    <span>@r.OldPort → @r.NewPort</span>
+                                    <span class="@(r.Unresolved ? "danger-text" : "")">@r.Connected</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="card">
+                    <div class="cc-card-footer">
+                        <span class="cc-remaining @(m.Ready ? "muted-text" : m.Unresolved > 0 || m.Ports.Any(r => r.FitLevel == "error") ? "danger-text" : "warning-text")">@FooterText(m)</span>
+                        <button class="btn btn-contrast hide-mobile" @onclick="() => _step = 2">Back</button>
+                        <button class="btn btn-primary" disabled="@(!m.Ready || _busy)" @onclick="BuildReplaceAsync">Review Plan</button>
+                        @if (m.Kind != "ap")
+                        {
+                            <button class="btn btn-contrast cc-phone-inline" @onclick="DownloadPdfAsync">Download Re-cabling Sheet</button>
+                        }
+                    </div>
+                </div>
+            }
+        </ChildContent>
+    </SiteOperatorOnly>
+}
+else if (_task == Restore)
+{
+    <SiteAdminOnly>
+        <NotAuthorized><div class="card"><div class="card-body">Restoring a snapshot needs the Site Admin role on this site.</div></div></NotAuthorized>
+        <ChildContent>
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Restore a Snapshot <span class="card-title-suffix">onto @_siteName</span></h3></div>
+                <div class="card-body">
+                    <div class="form-row cc-migrate-form">
+                        <div class="form-group">
+                            <label class="form-label">From site</label>
+                            <select class="form-control" value="@_sourceSlug" @onchange="e => SourceChangedAsync(e.Value?.ToString() ?? SiteCtx.Slug)">
+                                @foreach (var s in _sites)
+                                {
+                                    <option value="@s.Slug">@s.Name@(s.Slug == SiteCtx.Slug ? " (this site)" : "")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Snapshot</label>
+                            <select class="form-control" @bind="_sourceSnapshot">
+                                <option value="">Choose a snapshot</option>
+                                @foreach (var s in _sourceSnapshots)
+                                {
+                                    <option value="@s.Id">@s.Label@(s.NetworkAppVersion != null ? $", Network {s.NetworkAppVersion}" : "")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_deleteMissing" />
+                        <span>Remove objects this site has that the snapshot does not</span>
+                    </label>
+                    <small class="form-help">Off keeps everything already here and only adds and updates. Devices not adopted yet get their config once they are: adopt them, then Write Device Config.</small>
+                </div>
+                <div class="cc-card-footer">
+                    <span class="cc-remaining"></span>
+                    <button class="btn btn-contrast" disabled="@(SnapshotChoice == null || _busy)" @onclick="() => BuildRestoreAsync(true)">Write Device Config</button>
+                    <button class="btn btn-primary" disabled="@(SnapshotChoice == null || _busy)" @onclick="() => BuildRestoreAsync(false)">Review Plan</button>
+                </div>
+            </div>
+        </ChildContent>
+    </SiteAdminOnly>
+}
+else
+{
+    <SiteOperatorOnly>
+        <NotAuthorized><div class="card"><div class="card-body">Adopting devices needs the Site Operator role on this site.</div></div></NotAuthorized>
+        <ChildContent>
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Adopt Pending Devices <span class="card-title-suffix">@_siteName</span></h3>
+                    <button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="LoadPendingAsync">Refresh</button>
+                </div>
+                @if (_pending == null)
+                {
+                    <div class="loading-container"><div class="spinner"></div></div>
+                }
+                else if (_pending.Count == 0)
+                {
+                    <div class="empty-state empty-state-small"><p>No devices are waiting for adoption.</p></div>
+                }
+                else
+                {
+                    @foreach (var d in _pending)
+                    {
+                        <label class="cc-pending-row checkbox-label">
+                            <input type="checkbox" checked="@_adopt.Contains(d.Mac)" @onchange="() => ToggleAdopt(d.Mac)" />
+                            <span>
+                                <b>@d.Model</b> <code>@d.Mac</code>@(d.Ip != null ? $", {d.Ip}" : "")
+                                @if (d.InSnapshot) { <span class="status-badge status-connected">In snapshot</span> }
+                                else { <span class="status-badge badge-muted">Not in a snapshot</span> }
+                            </span>
+                        </label>
+                    }
+                    <div class="cc-card-footer">
+                        <span class="cc-remaining muted-text">Devices in a snapshot are selected. Others adopt with defaults.</span>
+                        <button class="btn btn-primary" disabled="@(_adopt.Count == 0 || _busy)" @onclick="AdoptAsync">Adopt @CcFormat.Plural(_adopt.Count, "Device", "Devices")</button>
+                    </div>
+                }
+            </div>
+        </ChildContent>
+    </SiteOperatorOnly>
+}
+
+@if (_message != null)
+{
+    <div class="alert alert-success">@_message</div>
+}
+@if (_error != null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@code {
+    private const string Restore = "restore";
+    private const string Replace = "replace";
+    private const string Adopt = "adopt";
+
+    private string _task = Replace;
+    private int _step = 1;
+    private string _siteName = "";
+    private List<FleetSiteView> _sites = [];
+    private ReplaceDevicesView? _devices;
+    private string _oldMac = "";
+    private string _newMac = "";
+    private ReplacementProposal? _proposal;
+    private readonly Dictionary<string, string> _choices = [];
+    private readonly HashSet<string> _acks = [];
+    private bool _showAllPorts;
+    private string _sourceSlug = "";
+    private List<RestoreSnapshotView> _sourceSnapshots = [];
+    private string _sourceSnapshot = "";
+    private bool _deleteMissing;
+    private List<MigrateDeviceView>? _pending;
+    private readonly HashSet<string> _adopt = [];
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    private static readonly string[] Steps = ["Choose devices", "Align firmware", "Map ports", "Review Plan"];
+
+    private string StepLabel(int i) => i == 2 && _proposal?.Kind == "ap" ? "Map radios" : Steps[i];
+    private string PhoneStepLabel(int i) => i switch { 0 => "Devices", 1 => "Firmware", 2 => _proposal?.Kind == "ap" ? "Radios" : "Ports", _ => "Review" };
+
+    private int? SnapshotChoice => int.TryParse(_sourceSnapshot, out var id) ? id : null;
+    private int PendingInSnapshot => _pending?.Count(p => p.InSnapshot) ?? 0;
+    private MigrateDeviceView? OldDevice => _devices?.Old.FirstOrDefault(d => d.Mac == _oldMac);
+    private MigrateDeviceView? NewDevice => _devices?.New.FirstOrDefault(d => d.Mac == _newMac);
+    // Only an older build on the new device needs aligning; a newer one already takes every setting.
+    private bool FirmwareDiffers => _proposal is { OldVersion: { } o, NewVersion: { } n } && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(o, n);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sites = await Fleet.GetSitesAsync();
+        _siteName = _sites.FirstOrDefault(s => s.Slug == SiteCtx.Slug)?.Name ?? SiteCtx.Slug;
+        _sourceSlug = SiteCtx.Slug;
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        if (query.TryGetValue("task", out var task) && task.ToString() is Restore or Replace or Adopt) _task = task.ToString();
+        if (query.TryGetValue("old", out var old)) _oldMac = old.ToString().ToLowerInvariant();
+        if (query.TryGetValue("new", out var @new)) _newMac = @new.ToString().ToLowerInvariant();
+        await RunAsync(LoadPendingAsync);
+        await SelectTaskAsync(_task);
+        if (_task == Replace && _oldMac.Length > 0 && _newMac.Length > 0) await ChooseAsync();
+    }
+
+    private async Task SelectTaskAsync(string task)
+    {
+        _task = task;
+        _error = null;
+        _message = null;
+        await RunAsync(async () =>
+        {
+            if (task == Replace && _devices == null) _devices = await Site.GetReplaceDevicesAsync();
+            if (task == Restore && _sourceSnapshots.Count == 0) await SourceChangedAsync(_sourceSlug);
+            if (task == Adopt) await LoadPendingAsync();
+        });
+    }
+
+    private async Task LoadPendingAsync()
+    {
+        _pending = await Site.GetPendingAdoptionsAsync(_task == Restore || _sourceSlug != SiteCtx.Slug ? _sourceSlug : null, SnapshotChoice);
+        _adopt.Clear();
+        foreach (var d in _pending.Where(d => d.InSnapshot)) _adopt.Add(d.Mac);
+    }
+
+    private async Task ChooseAsync() => await RunAsync(async () =>
+    {
+        _choices.Clear();
+        _acks.Clear();
+        _showAllPorts = false;
+        _proposal = await Site.GetReplacementAsync(_oldMac, _newMac, _choices, _acks);
+        _step = FirmwareDiffers ? 2 : 3;
+    });
+
+    private async Task RefreshProposalAsync() => await RunAsync(async () =>
+        _proposal = await Site.GetReplacementAsync(_oldMac, _newMac, _choices, _acks));
+
+    private async Task ChoosePortAsync(ReplacementPortRow row, string? value)
+    {
+        if (string.IsNullOrEmpty(value)) _choices.Remove(row.Key);
+        else _choices[row.Key] = value;
+        await RefreshProposalAsync();
+    }
+
+    private async Task ToggleAckAsync(string key)
+    {
+        if (!_acks.Remove(key)) _acks.Add(key);
+        await RefreshProposalAsync();
+    }
+
+    private async Task ResetAsync()
+    {
+        _choices.Clear();
+        _acks.Clear();
+        await RefreshProposalAsync();
+    }
+
+    private RenderFragment PortSelect(ReplacementPortRow r) => __builder =>
+    {
+        var current = r.Target == null ? "" : r.Target.Count == 0 ? DeviceReplacement.Drop : string.Join(",", r.Target);
+        <select class="form-control cc-port-select @(r.Target == null ? "cc-select-error" : "")" value="@current" @onchange="e => ChoosePortAsync(r, e.Value?.ToString())">
+            @if (r.Target == null)
+            {
+                <option value="">Choose a port</option>
+            }
+            @if (r.Target is { Count: > 0 } && r.Options.All(o => o.Value != current))
+            {
+                <option value="@current">@r.TargetLabel</option>
+            }
+            @foreach (var (value, label) in r.Options)
+            {
+                <option value="@value">@label</option>
+            }
+        </select>
+    };
+
+    private IEnumerable<ReplacementPortRow> PhoneRows(ReplacementProposal p)
+    {
+        var ordered = p.Ports.OrderBy(r => r.FitLevel switch { "error" => 0, "warn" => 1, _ => 2 }).ToList();
+        if (_showAllPorts) return ordered;
+        var flagged = ordered.Where(r => r.FitLevel is "error" or "warn").ToList();
+        return flagged.Concat(ordered.Where(r => r.FitLevel is not ("error" or "warn")).Take(Math.Max(0, 4 - flagged.Count)));
+    }
+
+    private int HiddenPhoneRows(ReplacementProposal p) => p.Ports.Count - PhoneRows(p).Count();
+
+    private static string FooterText(ReplacementProposal p)
+    {
+        if (p.Ready) return "Ready for Review Plan";
+        var parts = new List<string>();
+        if (p.Unresolved > 0) parts.Add(p.Unresolved == 1 ? "1 row needs a target or an explicit drop" : $"{p.Unresolved} rows need a target or an explicit drop");
+        var errors = p.Ports.Count(r => r.Target != null && r.FitLevel == "error");
+        if (errors > 0) parts.Add(CcFormat.Plural(errors, "row has a problem", "rows have a problem"));
+        if (p.ToAcknowledge > 0) parts.Add($"{p.ToAcknowledge} to acknowledge");
+        return string.Join(", ", parts);
+    }
+
+    private static string BadgeClass(string level) => level switch
+    {
+        "ok" => "status-connected",
+        "warn" => "status-warning",
+        "error" => "status-error",
+        _ => "badge-muted",
+    };
+
+    private async Task BuildReplaceAsync() => await RunAsync(async () =>
+    {
+        var planId = await Site.BuildReplacePlanAsync(_oldMac, _newMac, _choices, _acks);
+        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+    });
+
+    private async Task DownloadPdfAsync() => await RunAsync(async () =>
+    {
+        var pdf = await Site.GetRecablingPdfAsync(_oldMac, _newMac, _choices, _acks);
+        await JS.InvokeVoidAsync("downloadFile", $"recabling-{_proposal?.OldName.Replace(' ', '-').ToLowerInvariant()}.pdf", "application/pdf", Convert.ToBase64String(pdf));
+    });
+
+    private async Task SourceChangedAsync(string slug)
+    {
+        _sourceSlug = slug;
+        _sourceSnapshot = "";
+        _sourceSnapshots = await Site.GetRestoreSnapshotsAsync(slug);
+    }
+
+    private async Task BuildRestoreAsync(bool devicesOnly) => await RunAsync(async () =>
+    {
+        if (SnapshotChoice is not int id) return;
+        var planId = await Site.BuildRestoreAsync(_sourceSlug, id, _deleteMissing, devicesOnly);
+        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+    });
+
+    private void ToggleAdopt(string mac)
+    {
+        if (!_adopt.Remove(mac)) _adopt.Add(mac);
+    }
+
+    private async Task AdoptAsync() => await RunAsync(async () =>
+    {
+        var count = _adopt.Count;
+        var refused = await Site.AdoptAsync(_adopt.ToList());
+        if (refused != null)
+        {
+            _error = refused;
+            return;
+        }
+        _message = $"Adopting {CcFormat.Plural(count, "device", "devices")}. They show up on the site in a minute or two; then Restore a Snapshot - Write Device Config gives them their config.";
+        await LoadPendingAsync();
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Migrate action failed");
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
