@@ -14,11 +14,69 @@ namespace NetworkOptimizer.Monitoring;
 ///   <item><description>WCDMA: single line with WCDMA fields (3G fallback)</description></item>
 /// </list>
 ///
-/// Used by the GL-iNet/Quectel modem provider via
-/// <c>gl_modem -B {path} AT AT+QENG=\"servingcell\"</c>.
+/// Used by the GL-iNet/Quectel modem provider (through <c>gl_modem</c> or the MHI device node)
+/// and by the generic Quectel SSH provider (straight to the module's AT port).
 /// </summary>
 public static class QuectelAtParser
 {
+    /// <summary>
+    /// Read the module's identity out of an <c>ATI</c> response. The Quectel AT manual documents
+    /// three lines before the final OK: manufacturer, model, and <c>Revision: build</c>.
+    /// Echo, result codes, and boot notices (RDY, "+"-prefixed URCs) are skipped, as in
+    /// <see cref="ParseRevisionResponse"/>. Returns null when no identity line is present.
+    /// </summary>
+    public static QuectelIdentity? ParseIdentity(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        string? vendor = null, model = null, revision = null;
+
+        foreach (var line in output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+                line.Equals("ERROR", StringComparison.OrdinalIgnoreCase) ||
+                line.Equals("RDY", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("AT", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith('+'))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("Revision:", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = line["Revision:".Length..].Trim();
+                revision ??= value.Length > 0 ? value : null;
+            }
+            else if (vendor == null)
+            {
+                vendor = line;
+            }
+            else
+            {
+                model ??= line;
+            }
+        }
+
+        return vendor == null && model == null && revision == null
+            ? null
+            : new QuectelIdentity(vendor, model, revision);
+    }
+
+    /// <summary>
+    /// Whether an <c>ATI</c> response comes from a Quectel module and completed with OK.
+    /// Port discovery accepts a device node only on this answer.
+    /// </summary>
+    public static bool IsQuectelIdentityResponse(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return false;
+
+        var lines = output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return lines.Any(l => l.Equals("OK", StringComparison.OrdinalIgnoreCase)) &&
+               ParseIdentity(output)?.Vendor?.Equals("Quectel", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
     /// <summary>
     /// Parse the AT+QENG="servingcell" response into <see cref="CellularModemStats"/>.
     /// </summary>
@@ -452,3 +510,9 @@ public static class QuectelAtParser
         return null;
     }
 }
+
+/// <summary>Module identity from <c>ATI</c>. Any part may be null when the module omits it.</summary>
+/// <param name="Vendor">Manufacturer line, e.g. "Quectel".</param>
+/// <param name="Model">Model line, e.g. "RM551E-GL".</param>
+/// <param name="Revision">Build from the <c>Revision:</c> line.</param>
+public sealed record QuectelIdentity(string? Vendor, string? Model, string? Revision);

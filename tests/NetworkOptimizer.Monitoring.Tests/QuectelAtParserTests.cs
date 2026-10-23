@@ -367,4 +367,57 @@ ERROR
     }
 
     #endregion
+
+    #region Module identity (ATI)
+
+    // Shape from the Quectel AT manual; module and build strings are the RM551E-GL ones in #1269.
+    // Replace with the reporter's raw ATI output once it is posted.
+    private const string Rm551eAtiOutput = "ATI\r\nQuectel\r\nRM551E-GL\r\nRevision: RM551EGLAAR01A01M4G\r\n\r\nOK\r\n";
+
+    [Fact]
+    public void ParseIdentity_ReadsVendorModelAndRevision()
+    {
+        var identity = QuectelAtParser.ParseIdentity(Rm551eAtiOutput);
+
+        identity.Should().Be(new QuectelIdentity("Quectel", "RM551E-GL", "RM551EGLAAR01A01M4G"));
+        QuectelAtParser.IsQuectelIdentityResponse(Rm551eAtiOutput).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParseIdentity_IgnoresBootNoticesFromAJustRebootedModem()
+    {
+        var output = "\r\nRDY\r\n+CPIN: READY\r\n+QUSIM: 1\r\nQuectel\r\nRM551E-GL\r\nRevision: RM551EGLAAR01A01M4G\r\n\r\nOK\r\n";
+
+        QuectelAtParser.ParseIdentity(output)
+            .Should().Be(new QuectelIdentity("Quectel", "RM551E-GL", "RM551EGLAAR01A01M4G"));
+    }
+
+    [Fact]
+    public void ParseIdentity_NoRevisionLine_LeavesRevisionNull()
+    {
+        var identity = QuectelAtParser.ParseIdentity("Quectel\nRM551E-GL\n\nOK\n");
+
+        identity.Should().Be(new QuectelIdentity("Quectel", "RM551E-GL", null));
+    }
+
+    [Fact]
+    public void ParseIdentity_NothingUsable_ReturnsNull()
+    {
+        QuectelAtParser.ParseIdentity(null).Should().BeNull();
+        QuectelAtParser.ParseIdentity("").Should().BeNull();
+        QuectelAtParser.ParseIdentity("ATI\r\nERROR\r\n").Should().BeNull();
+    }
+
+    [Fact]
+    public void IsQuectelIdentityResponse_RequiresQuectelAndAFinalOk()
+    {
+        // A truncated read (timeout before OK) and another vendor's module are both rejected,
+        // so port discovery does not settle on a port that only half answered.
+        QuectelAtParser.IsQuectelIdentityResponse("Quectel\r\nRM551E-GL\r\n").Should().BeFalse();
+        QuectelAtParser.IsQuectelIdentityResponse("Sierra Wireless\r\nEM9291\r\n\r\nOK\r\n").Should().BeFalse();
+        QuectelAtParser.IsQuectelIdentityResponse("ERROR\r\n").Should().BeFalse();
+        QuectelAtParser.IsQuectelIdentityResponse(null).Should().BeFalse();
+    }
+
+    #endregion
 }

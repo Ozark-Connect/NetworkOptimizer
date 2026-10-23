@@ -785,20 +785,34 @@
 
     /// <summary>
     /// The brand the owner bought, which is not the module maker inside it. Taken from the
-    /// provider rather than the model string, which carries no brand on any of them.
+    /// provider rather than the model string, which carries no brand on any of them. The generic
+    /// Quectel provider cannot know the router's brand, so it shows the module as the device.
     /// </summary>
     private string? DeviceBrand() => CurrentProvider switch
     {
         "qmicli" => "UniFi",
         "quectel-at" => "GL.iNet",
+        "quectel-ssh" => string.IsNullOrWhiteSpace(modemStats?.ModuleVendor) ? "Quectel" : modemStats.ModuleVendor,
         "netgear-nighthawk-hotspot" => "Netgear",
         "inseego-fx" => "Inseego",
         "zyxel-cpe" => "Zyxel",
         _ => null,
     };
 
-    private string? DeviceTooltip() =>
-        string.IsNullOrWhiteSpace(modemStats?.HostVersion) ? null : $"Device firmware {modemStats.HostVersion}";
+    /// <summary>
+    /// Where the generic Quectel provider shows the module as the device, the router it sits in is
+    /// named here instead, so "Device firmware" would point at the wrong thing.
+    /// </summary>
+    private string? DeviceTooltip()
+    {
+        var host = modemStats?.HostModel;
+        var version = modemStats?.HostVersion;
+        if (!string.IsNullOrWhiteSpace(host))
+            return string.IsNullOrWhiteSpace(version) ? $"Router {host}" : $"Router {host}, firmware {version}";
+        if (string.IsNullOrWhiteSpace(version))
+            return null;
+        return CurrentProvider == "quectel-ssh" ? $"Router firmware {version}" : $"Device firmware {version}";
+    }
 
     private string? ModuleName()
     {

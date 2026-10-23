@@ -38,6 +38,7 @@ public class RegistryConstructionTests
         { typeof(QmicliModemProvider), new[] { typeof(UniFiSshService) } },
         { typeof(NetgearNighthawkHotspotProvider), Array.Empty<Type>() },
         { typeof(QuectelAtModemProvider), Array.Empty<Type>() },
+        { typeof(QuectelSshModemProvider), Array.Empty<Type>() },
         { typeof(InseegoFxProvider), Array.Empty<Type>() },
         { typeof(ZyxelCpeProvider), Array.Empty<Type>() },
         { typeof(CableModemMonitorService), new[] { typeof(string) } },

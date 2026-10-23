@@ -65,6 +65,7 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
                 ActivatorUtilities.CreateInstance<QmicliModemProvider>(_serviceProvider, siteSsh),
                 ActivatorUtilities.CreateInstance<NetgearNighthawkHotspotProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<QuectelAtModemProvider>(_serviceProvider),
+                ActivatorUtilities.CreateInstance<QuectelSshModemProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<InseegoFxProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<ZyxelCpeProvider>(_serviceProvider),
             };

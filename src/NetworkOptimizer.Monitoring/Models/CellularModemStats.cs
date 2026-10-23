@@ -58,6 +58,13 @@ public class CellularModemStats
     public string? HostVersion { get; set; }
 
     /// <summary>
+    /// Model of the router carrying the module, when the provider cannot name its brand and the
+    /// router reports one (the generic Quectel provider reads it from the board). Live only: it is
+    /// not written to InfluxDB. Usually null.
+    /// </summary>
+    public string? HostModel { get; set; }
+
+    /// <summary>
     /// Maker of the radio module itself (Quectel, Sierra Wireless), which is not the brand
     /// the owner bought - that is UniFi or GL.iNet, and comes from the provider.
     /// </summary>
