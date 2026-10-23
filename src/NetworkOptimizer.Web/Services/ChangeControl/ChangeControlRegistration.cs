@@ -14,6 +14,7 @@ public static class ChangeControlRegistration
         services.AddSingleton<IChangeEvaluator, ChangeEvaluator>();
         services.AddSiteScopedRegistry<ChangeControlRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<ChangeControlRegistry>());
+        services.AddSingleton<ConfigTemplateStore>();
         return services;
     }
 }

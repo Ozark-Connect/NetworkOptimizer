@@ -38,6 +38,12 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     /// <summary>The engine for a site, created on first use (not started until reconcile).</summary>
     public ChangeControlSiteEngine GetFor(string slug) => _engines.GetOrAdd(slug, Build);
 
+    /// <summary>The console connection of a site.</summary>
+    public UniFiConnectionService Connection(string slug) => _sp.GetRequiredService<SiteConnectionRegistry>().GetFor(slug);
+
+    /// <summary>Bytes on disk for a site's snapshot blobs.</summary>
+    public long BlobBytes(string slug) => _sp.GetRequiredService<IConfigBlobStore>().GetStorageBytes(slug).BlobBytes;
+
     /// <summary>The plan coordinator for a site.</summary>
     public PlanCoordinator PlansFor(string slug)
     {
