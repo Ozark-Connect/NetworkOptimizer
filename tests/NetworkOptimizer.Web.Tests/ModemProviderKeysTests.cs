@@ -16,6 +16,7 @@ public class ModemProviderKeysTests
     [InlineData("qmicli", true, false)]
     [InlineData("quectel-at", false, true)]
     [InlineData("quectel-ssh", false, true)]
+    [InlineData("mikrotik-routeros", false, true)]
     [InlineData("netgear-nighthawk-hotspot", false, false)]
     [InlineData("inseego-fx", false, false)]
     [InlineData("zyxel-cpe", false, false)]
