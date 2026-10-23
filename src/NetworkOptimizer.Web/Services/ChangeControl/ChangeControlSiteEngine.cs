@@ -49,6 +49,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     private readonly Func<CancellationToken, Task<bool>>? _isRolloutActive;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
+    private readonly SemaphoreSlim _pollLock = new(1, 1);
     private readonly ConcurrentQueue<UniFiWriteRecord> _journalQueue = new();
     private readonly Func<bool>? _isAgentSite;
 
@@ -108,7 +109,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             {
                 await FlushJournalAsync(stoppingToken);
                 if (DateTime.UtcNow >= _nextPoll || _snapshotRequested)
-                    await PollAsync(stoppingToken);
+                    await PollLockedAsync(stoppingToken);
                 if (OnTick != null && _api.IsConnected)
                     await OnTick(stoppingToken);
             }
@@ -170,6 +171,16 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             }
         }
         return (null, null);
+    }
+
+    /// <summary>Runs a detection pass now, for callers that need the result (Firmware Rollout's post-upgrade check).</summary>
+    public Task PollNowAsync(CancellationToken ct) => PollLockedAsync(ct);
+
+    private async Task PollLockedAsync(CancellationToken ct)
+    {
+        await _pollLock.WaitAsync(ct);
+        try { await PollAsync(ct); }
+        finally { _pollLock.Release(); }
     }
 
     /// <summary>One detection pass.</summary>

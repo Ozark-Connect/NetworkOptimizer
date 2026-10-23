@@ -12,6 +12,7 @@
 @inject SiteConnectionRegistry ConnectionRegistry
 @inject ILogger<FirmwareRollout> Logger
 @inject UiHintService UiHints
+@inject NetworkOptimizer.Web.Components.Shared.ChangeControl.CcNavigator CcNav
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Helpers
@@ -115,6 +116,15 @@ else if (_active != null && !_wizardOpen)
             @foreach (var note in _active.Plan.Notes)
             {
                 <p class="firmware-rollout-plan-note">@note</p>
+            }
+            @if (_active.Plan.FirmwareReverted && _active.Plan.ConfigSnapshotId is int pinnedSnapshot)
+            {
+                <SiteOperatorOnly>
+                    <div class="alert alert-info firmware-rollout-note">
+                        Firmware was rolled back. If the config changed during the rollout, compare it with the snapshot taken before it started and roll back there.
+                        <button class="btn btn-sm btn-secondary" @onclick="() => CcNav.CompareAsync(SiteContext.Slug, pinnedSnapshot, null)">Compare Config Snapshot</button>
+                    </div>
+                </SiteOperatorOnly>
             }
 
             @if (ActivePlanHasMap)
