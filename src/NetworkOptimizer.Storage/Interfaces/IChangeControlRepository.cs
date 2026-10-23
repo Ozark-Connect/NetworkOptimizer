@@ -107,6 +107,9 @@ public interface IChangeControlRepository
     /// <summary>Plans in the given statuses (all when null), newest first.</summary>
     Task<List<ConfigPlan>> GetPlansAsync(IReadOnlyCollection<ConfigPlanStatus>? statuses = null, int limit = 100, CancellationToken cancellationToken = default);
 
+    /// <summary>Alert incidents that started in a range (Changes and incidents: before / after).</summary>
+    Task<List<NetworkOptimizer.Alerts.Models.AlertIncident>> GetIncidentsStartedAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
     /// <summary>Console backups, newest first.</summary>
     Task<List<ConsoleBackupRecord>> GetConsoleBackupsAsync(CancellationToken cancellationToken = default);
 

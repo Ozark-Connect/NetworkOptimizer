@@ -307,6 +307,11 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
             return query.OrderByDescending(p => p.CreatedAt).Take(limit).ToListAsync(cancellationToken);
         }, nameof(GetPlansAsync));
 
+    public Task<List<NetworkOptimizer.Alerts.Models.AlertIncident>> GetIncidentsStartedAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.AlertIncidents.AsNoTracking()
+            .Where(i => i.FirstTriggeredAt >= fromUtc && i.FirstTriggeredAt <= toUtc)
+            .OrderBy(i => i.FirstTriggeredAt).Take(500).ToListAsync(cancellationToken), nameof(GetIncidentsStartedAsync));
+
     public Task<List<ConsoleBackupRecord>> GetConsoleBackupsAsync(CancellationToken cancellationToken = default) =>
         ExecuteAsync(() => _context.ConsoleBackups.AsNoTracking().OrderByDescending(b => b.TakenAt).ToListAsync(cancellationToken),
             nameof(GetConsoleBackupsAsync));

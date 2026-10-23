@@ -11,6 +11,7 @@ public static class ChangeControlRegistration
     {
         services.AddScoped<IChangeControlRepository, ChangeControlRepository>();
         services.AddSingleton<IConfigBlobStore, ConfigBlobStore>();
+        services.AddSingleton<IChangeEvaluator, ChangeEvaluator>();
         services.AddSiteScopedRegistry<ChangeControlRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<ChangeControlRegistry>());
         return services;
