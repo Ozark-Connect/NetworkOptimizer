@@ -271,88 +271,12 @@ public class XfinityGatewayProviderTests
     }
 
     [Theory]
-    [InlineData(0, false, "http://192.0.2.10")]
-    [InlineData(80, false, "http://192.0.2.10")]
-    [InlineData(8080, false, "http://192.0.2.10:8080")]
-    [InlineData(443, true, "https://192.0.2.10")]
-    [InlineData(0, true, "https://192.0.2.10")]
-    [InlineData(80, true, "https://192.0.2.10")]
-    [InlineData(8443, true, "https://192.0.2.10:8443")]
-    public void BuildBaseUrl_MapsSchemeAndPortToOrigin(int port, bool useHttps, string expected)
+    [InlineData(0, "http://192.0.2.10")]
+    [InlineData(80, "http://192.0.2.10")]
+    [InlineData(8080, "http://192.0.2.10:8080")]
+    [InlineData(443, "https://192.0.2.10")]
+    public void BuildBaseUrl_Port443MeansHttps(int port, string expected)
     {
-        XfinityGatewayProvider.BuildBaseUrl(Context(port: port), useHttps).Should().Be(expected);
-    }
-
-    [Theory]
-    [InlineData(0, false)]
-    [InlineData(80, false)]
-    [InlineData(8080, false)]
-    [InlineData(443, true)]
-    public void StartsWithHttps_OnlyForPort443BeforeAnythingIsLearned(int port, bool expected)
-    {
-        CreateProvider().StartsWithHttps(Context(port: port)).Should().Be(expected);
-    }
-
-    [Theory]
-    [InlineData(0, false, true)]
-    [InlineData(80, false, true)]
-    [InlineData(80, true, false)]
-    [InlineData(443, true, false)]
-    [InlineData(8080, false, false)]
-    public void CanFallBackToHttps_OnlyFromHttpOnTheDefaultPort(int port, bool useHttps, bool expected)
-    {
-        XfinityGatewayProvider.CanFallBackToHttps(Context(port: port), useHttps).Should().Be(expected);
-    }
-
-    [Fact]
-    public void StartsWithHttps_AfterHttpsServedThisModem()
-    {
-        var provider = CreateProvider();
-        var context = Context();
-
-        provider.RememberScheme(context, useHttps: true);
-
-        provider.StartsWithHttps(context).Should().BeTrue();
-    }
-
-    [Fact]
-    public void StartsWithHttps_StaysOnHttpWhenHttpServedThisModem()
-    {
-        var provider = CreateProvider();
-        var context = Context();
-
-        provider.RememberScheme(context, useHttps: false);
-
-        provider.StartsWithHttps(context).Should().BeFalse();
-    }
-
-    [Fact]
-    public void StartsWithHttps_ProbesAgainAfterTheSchemeIsForgotten()
-    {
-        var provider = CreateProvider();
-        var context = Context();
-        provider.RememberScheme(context, useHttps: true);
-
-        provider.ForgetScheme(context);
-
-        provider.StartsWithHttps(context).Should().BeFalse();
-    }
-
-    [Fact]
-    public void StartsWithHttps_ProbesAgainWhenThePortSettingChanges()
-    {
-        var provider = CreateProvider();
-        provider.RememberScheme(Context(port: 0), useHttps: true);
-
-        provider.StartsWithHttps(Context(port: 80)).Should().BeFalse();
-    }
-
-    [Fact]
-    public void StartsWithHttps_DoesNotShareTheSchemeAcrossSitesWithTheSameConfigId()
-    {
-        var provider = CreateProvider();
-        provider.RememberScheme(Context(siteSlug: "site-a", id: 1), useHttps: true);
-
-        provider.StartsWithHttps(Context(siteSlug: "site-b", id: 1)).Should().BeFalse();
+        XfinityGatewayProvider.BuildBaseUrl(Context(port: port)).Should().Be(expected);
     }
 }
