@@ -2,7 +2,32 @@
 @using NetworkOptimizer.Storage.Models
 
 @* Objects grouped by collection with an expandable field diff (old red, new green), as on Compare. *@
-<div class="table-responsive">
+<div class="cc-phone-only">
+    @foreach (var group in Objects.GroupBy(o => ConfigCollections.Get(o.Object.Collection)?.Group ?? o.Object.CollectionName))
+    {
+        <div class="cc-mobile-group">@group.Key</div>
+        @foreach (var item in group)
+        {
+            var o = item.Object;
+            var key = $"{o.Collection}:{o.ObjectId}";
+            var open = _open.Contains(key);
+            <div class="cc-plan-card @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(key)">
+                <div><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, PastTense)</span> @Label(o)</div>
+                @if (!string.IsNullOrEmpty(item.WhenWho)) { <div class="cc-item-detail">@item.WhenWho</div> }
+                @if (open)
+                {
+                    <div class="cc-inset" style="margin:0.4rem 0 0">
+                        @foreach (var f in o.Fields)
+                        {
+                            <div class="cc-mobile-field">@f.Label: <span class="danger-text">@(f.Secret ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? "Changed (hidden)" : f.New)</span></div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+<div class="table-responsive hide-mobile">
     <table class="data-table">
         <thead>
             <tr>

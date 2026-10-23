@@ -23512,7 +23512,7 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-field-table .old { color: var(--danger-color); }
 .change-control .cc-field-table .new { color: var(--success-color); }
-.change-control .cc-field-table .label { color: var(--text-secondary); width: 30%; }
+.change-control .cc-field-table .label { color: var(--text-secondary); width: 30%; white-space: nowrap; }
 
 .change-control .cc-inset {
     background: var(--bg-inset);
@@ -24074,4 +24074,303 @@ body:has(.top-bar-hidden) .btn-fit {
     .change-control .cc-attention-card { order: 2; }
     .change-control .cc-plans-card { order: 3; }
     .change-control .cc-upgrade-card { order: 4; }
+}
+
+.change-control td .cc-dot {
+    margin-right: 0.35rem;
+}
+
+.change-control .data-table th {
+    white-space: nowrap;
+}
+
+.change-control .cc-tags .status-badge {
+    white-space: nowrap;
+}
+
+@media (min-width: 769px) {
+    .change-control .cc-search {
+        min-width: 320px;
+    }
+}
+
+.change-control .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+}
+
+.change-control .cc-editor-gutter span {
+    display: block;
+}
+
+.change-control .cc-site-list-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-site-list-row:last-child {
+    border-bottom: none;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-tile-sites,
+    .change-control .cc-tile-drift {
+        display: none;
+    }
+
+    .change-control .cc-tile-security { order: 1; }
+    .change-control .cc-tile-changes { order: 2; }
+    .change-control .cc-tile-unattributed { order: 3; }
+    .change-control .cc-tile-plans { order: 4; }
+
+    .change-control .cc-item {
+        display: block;
+    }
+
+    .change-control .cc-item .cc-badge-col {
+        display: flex;
+        gap: 0.4rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .change-control .cc-item-actions {
+        margin-top: 0.75rem;
+    }
+
+    .change-control .cc-item-actions .btn {
+        flex: 1 1 0;
+        min-height: 44px;
+    }
+}
+
+.change-control .cc-plan-row-head .status-badge {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.change-control .cc-change-card {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-change-card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-toolbar .form-control {
+        width: 100%;
+    }
+
+    .change-control .cc-toolbar .cc-toolbar-label {
+        flex: 1 1 100%;
+        margin-bottom: -0.4rem;
+    }
+
+    .change-control .cc-toolbar .time-range-selector {
+        width: 100%;
+    }
+
+    .change-control .cc-toolbar .time-range-selector .time-btn {
+        flex: 1;
+        min-height: 36px;
+    }
+
+    .change-control .cc-tl-row,
+    .change-control .cc-lanes .cc-tl-row {
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        grid-template-areas: "chev label counts" "track track track";
+        gap: 0.35rem 0.5rem;
+        padding: 0.5rem 0;
+        min-height: 0;
+    }
+
+    .change-control .cc-tl-row.cc-tl-axis {
+        grid-template-areas: "track track track";
+        padding: 0;
+    }
+
+    .change-control .cc-tl-axis > span {
+        display: none;
+    }
+
+    .change-control .cc-tl-axis-labels {
+        grid-area: track;
+    }
+
+    .change-control .cc-tl-chev { grid-area: chev; }
+    .change-control .cc-tl-label { grid-area: label; }
+    .change-control .cc-tl-row > .cc-track { grid-area: track; }
+
+    .change-control .cc-tl-counts,
+    .change-control .cc-lane-latest {
+        display: block;
+        grid-area: counts;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .change-control .cc-tl-counts div,
+    .change-control .cc-lane-latest div {
+        display: inline;
+    }
+
+    .change-control .cc-tl-counts div + div::before {
+        content: ", ";
+    }
+
+    .change-control .cc-lane-latest div + div::before {
+        content: " ";
+    }
+
+    .change-control .cc-tl-sub {
+        display: none;
+    }
+
+    .change-control .cc-lanes {
+        padding: 0.25rem 0.5rem;
+    }
+
+    .change-control .cc-lane-row .cc-tl-chev {
+        display: none;
+    }
+
+    .change-control .cc-lane-row {
+        grid-template-areas: "label label counts" "track track track";
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-tl-counts {
+        display: flex;
+        justify-content: flex-end;
+    }
+}
+
+.change-control .cc-plan-card {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.change-control .cc-mobile-group {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    padding: 0.6rem 16px 0.3rem;
+}
+
+.change-control .cc-mobile-field {
+    padding: 0.35rem 0.25rem;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-tile-site {
+        display: none;
+    }
+
+    .change-control .cc-sticky-footer .cc-card-footer .btn {
+        flex: 1 1 40%;
+        min-height: 44px;
+    }
+
+    .change-control .cc-sticky-footer .cc-card-footer .btn-primary {
+        order: -1;
+        flex-basis: 100%;
+    }
+
+    .change-control .cc-sticky-footer .cc-remaining {
+        order: -2;
+        flex-basis: 100%;
+    }
+}
+
+.change-control .cc-phone-only,
+.change-control .cc-phone-inline {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-phone-only {
+        display: block;
+    }
+
+    .change-control .cc-phone-inline {
+        display: inline-flex;
+    }
+}
+
+.change-control .cc-snap-card {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-snap-card input {
+    width: 20px;
+    height: 20px;
+    margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-card-footer .btn {
+        flex: 1 1 40%;
+        min-height: 44px;
+    }
+}
+
+.change-control .cc-item-detail .cc-dot,
+.change-control .cc-change-card-head .cc-dot,
+.change-control .cc-site-list-row .cc-dot {
+    margin-right: 0.35rem;
+}
+
+.change-control .cc-edit-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-edit-actions {
+        display: none;
+    }
+
+    .change-control .cc-card-footer .cc-phone-inline.btn {
+        justify-content: center;
+        align-items: center;
+    }
+
+    .change-control .cc-card-footer .btn-primary {
+        flex-basis: 100%;
+    }
+
+    .change-control .cc-card-footer .cc-remaining,
+    .change-control .cc-card-footer .muted-text {
+        flex-basis: 100%;
+    }
 }

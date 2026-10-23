@@ -5,72 +5,9 @@
 @using Microsoft.AspNetCore.Authorization
 @using NetworkOptimizer.Web.Services.Authorization
 @using NetworkOptimizer.Web.Components.Shared.ChangeControl
-@inject NavigationManager Nav
 
-<PageTitle>Change Control - Network Optimizer</PageTitle>
-
-<div class="page-header">
-    <PageBackButton />
-    <h1>Change Control</h1>
-    <p class="page-description">Snapshots are backups of your UniFi Network config, stored outside your UniFi Console. Every change, who made it, and how to roll it back.</p>
-</div>
-
-<div class="change-control">
-    <div class="wifi-view-tabs-wrapper">
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
-        <div class="wifi-view-tabs">
-            @foreach (var (key, label) in Tabs)
-            {
-                <button class="wifi-view-tab @(ActiveTab == key ? "active" : "")" @onclick="() => Go(key)">@label</button>
-            }
-        </div>
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
-    </div>
-
-    @switch (ActiveTab)
-    {
-        case "changes":
-            <CcChanges />
-            break;
-        case "snapshots":
-            <CcSnapshots />
-            break;
-        case "edit":
-            <CcEdit />
-            break;
-        case "migrate":
-            <CcMigrate />
-            break;
-        case "settings":
-            <CcSettings />
-            break;
-        default:
-            <CcOverview />
-            break;
-    }
-</div>
+<CcPage Tab="@Tab" />
 
 @code {
     [Parameter] public string? Tab { get; set; }
-
-    private static readonly (string Key, string Label)[] Tabs =
-    [
-        ("overview", "Overview"), ("changes", "Changes"), ("snapshots", "Snapshots"),
-        ("edit", "Edit"), ("migrate", "Migrate"), ("settings", "Settings"),
-    ];
-
-    private string ActiveTab => Tabs.Any(t => t.Key == Tab) ? Tab! : "overview";
-
-    private void Go(string key)
-    {
-        var url = key == "overview" ? "/change-control" : $"/change-control/{key}";
-        var slug = SiteSlugFromUri();
-        Nav.NavigateTo(string.IsNullOrEmpty(slug) ? url : SiteContextService.WithSiteParam(url, slug));
-    }
-
-    private string SiteSlugFromUri()
-    {
-        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
-        return query.TryGetValue(SiteContextService.SiteQueryParam, out var v) ? v.ToString() : "";
-    }
 }

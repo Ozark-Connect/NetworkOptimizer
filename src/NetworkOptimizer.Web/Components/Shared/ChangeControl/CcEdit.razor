@@ -13,7 +13,7 @@
         <div class="card"><div class="card-body">Editing needs the Site Operator role on this site.</div></div>
     </NotAuthorized>
     <ChildContent>
-        <div class="card">
+        <div class="card hide-mobile">
             <div class="cc-toolbar">
                 <span class="cc-toolbar-label">Site</span>
                 <CcSitePicker Sites="_sites" />
@@ -26,6 +26,7 @@
                     }
                 </select>
                 <span class="cc-toolbar-spacer"></span>
+                <span class="cc-edit-actions">
                 <label class="btn btn-contrast btn-sm" style="margin:0">
                     Upload YAML
                     <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
@@ -36,11 +37,22 @@
                             data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited.">Download with Secrets</button>
                 </SiteAdminOnly>
                 <button class="btn btn-contrast btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>
+                </span>
             </div>
         </div>
 
+        <div class="cc-phone-only form-group">
+            <label class="form-label">Collection</label>
+            <select class="form-control" value="@_group" @onchange="e => OpenGroupAsync(e.Value?.ToString() ?? _group)">
+                @foreach (var group in Groups)
+                {
+                    <option value="@group">@group@(EditedCount(group) > 0 ? $" ({EditedCount(group)} edited)" : "")</option>
+                }
+            </select>
+        </div>
+
         <div class="cc-edit-grid">
-            <div class="card">
+            <div class="card hide-mobile">
                 <div class="card-header"><h3 class="card-title">Collections</h3></div>
                 <div class="cc-collections">
                     @foreach (var group in Groups)
@@ -64,7 +76,14 @@
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">@_group <span class="card-title-suffix">@FileName(_group), @CcFormat.Plural(GroupCount(_group), "object", "objects")</span></h3>
-                        <span class="status-badge badge-muted">Secrets shown as &lt;keep current&gt;</span>
+                        @if (EditedCount(_group) > 0)
+                        {
+                            <span class="status-badge status-info">@EditedCount(_group) edited</span>
+                        }
+                        else
+                        {
+                            <span class="status-badge badge-muted hide-mobile">Secrets shown as &lt;keep current&gt;</span>
+                        }
                     </div>
                     @if (_loading)
                     {
@@ -81,7 +100,10 @@
                 </div>
 
                 <div class="card">
-                    <div class="card-header"><h3 class="card-title">Problems <span class="card-title-suffix">checked as you type</span></h3></div>
+                    <div class="card-header">
+                        <h3 class="card-title">Problems <span class="card-title-suffix">checked as you type</span></h3>
+                        @if (Errors > 0) { <span class="status-badge status-error">@CcFormat.Plural(Errors, "error", "errors")</span> }
+                    </div>
                     @if (_validation.Problems.Count == 0)
                     {
                         <div class="empty-state empty-state-small"><p>@(_edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
@@ -103,6 +125,11 @@
                         </span>
                         <span class="muted-text">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
                         <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy)" @onclick="ReviewPlanAsync">Review Plan</button>
+                        <label class="btn btn-contrast cc-phone-inline" style="margin:0">
+                            Upload YAML
+                            <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
+                        </label>
+                        <button class="btn btn-contrast cc-phone-inline" @onclick="() => DownloadAsync(false)">Download</button>
                     </div>
                 </div>
                 @if (_error != null)
@@ -143,6 +170,8 @@
     private static IEnumerable<ConfigCollectionDef> Defs(string group) => ConfigCollections.All.Where(d => d.Group == group);
     private static string FileName(string group) => Defs(group).FirstOrDefault() is { } d ? YamlConverter.FileName(d) : "";
     private int GroupCount(string group) => Defs(group).Sum(d => _counts.GetValueOrDefault(d.Key));
+    private int EditedCount(string group) =>
+        _validation.EditedByCollection is { } by ? Defs(group).Sum(d => by.GetValueOrDefault(d.Key)) : 0;
 
     protected override async Task OnInitializedAsync()
     {

@@ -160,4 +160,5 @@ public sealed class YamlValidation
     public List<YamlProblem> Problems { get; init; } = [];
     public int EditedObjects { get; init; }
     public int EditedCollections { get; init; }
+    public Dictionary<string, int> EditedByCollection { get; init; } = [];
 }

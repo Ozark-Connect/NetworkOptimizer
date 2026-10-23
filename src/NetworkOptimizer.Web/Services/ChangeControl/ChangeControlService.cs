@@ -343,6 +343,7 @@ public sealed class ChangeControlService : IChangeControlService
         return new YamlValidation
         {
             Problems = problems, EditedObjects = ops.Count, EditedCollections = ops.Select(o => o.Collection).Distinct().Count(),
+            EditedByCollection = ops.GroupBy(o => o.Collection).ToDictionary(g => g.Key, g => g.Count()),
         };
     }
 

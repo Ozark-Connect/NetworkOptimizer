@@ -15,32 +15,32 @@ else
     var driftSites = sites.Count(s => s.DriftObjects > 0);
 
     <div class="cc-tiles">
-        <div class="cc-tile">
+        <div class="cc-tile cc-tile-sites">
             <div class="cc-tile-label">Sites</div>
             <div class="cc-tile-value">@sites.Count</div>
             <div class="cc-tile-sub">@(sites.Count(s => s.AgentOffline) is var off && off > 0 ? CcFormat.Plural(off, "agent offline", "agents offline") : "All reachable")</div>
         </div>
-        <div class="cc-tile">
+        <div class="cc-tile cc-tile-changes">
             <div class="cc-tile-label">Changes, 24h</div>
             <div class="cc-tile-value">@sites.Sum(s => s.Changes24h)</div>
             <div class="cc-tile-sub">@sites.Sum(s => s.Changes7d) in the last 7 days</div>
         </div>
-        <div class="cc-tile">
+        <div class="cc-tile cc-tile-security">
             <div class="cc-tile-label">Security regressions</div>
             <div class="cc-tile-value @(sites.Sum(s => s.Regressions) > 0 ? "danger" : "")">@sites.Sum(s => s.Regressions)</div>
             <div class="cc-tile-sub">On @CcFormat.Plural(regressionSites, "site", "sites")</div>
         </div>
-        <div class="cc-tile">
+        <div class="cc-tile cc-tile-unattributed">
             <div class="cc-tile-label">No admin recorded</div>
             <div class="cc-tile-value @(sites.Sum(s => s.Unattributed) > 0 ? "warning" : "")">@sites.Sum(s => s.Unattributed)</div>
             <div class="cc-tile-sub">Last 7 days</div>
         </div>
-        <div class="cc-tile">
+        <div class="cc-tile cc-tile-drift">
             <div class="cc-tile-label">Drift from Baseline</div>
             <div class="cc-tile-value">@sites.Sum(s => s.DriftObjects ?? 0)</div>
             <div class="cc-tile-sub">Objects on @CcFormat.Plural(driftSites, "site", "sites")</div>
         </div>
-        <div class="cc-tile">
+        <div class="cc-tile cc-tile-plans">
             <div class="cc-tile-label">Plans</div>
             <div class="cc-tile-value">@_view.Plans.Count</div>
             <div class="cc-tile-sub">@_view.Plans.Count(p => p.Status == ConfigPlanStatus.PendingApproval) awaiting approval</div>
@@ -61,12 +61,16 @@ else
                 <div class="cc-item">
                     <div class="cc-badge-col">
                         <span class="status-badge @(item.Kind switch { "Regression" or "Reverted" => "status-error", "Approval" => "status-info", _ => "status-warning" })">@item.Kind</span>
+                        @if (sites.Count > 1)
+                        {
+                            <span class="cc-site-chip cc-phone-inline">@item.SiteName</span>
+                        }
                     </div>
                     <div>
                         <div class="cc-item-title">
                             @if (sites.Count > 1)
                             {
-                                <span class="cc-site-chip">@item.SiteName</span>
+                                <span class="cc-site-chip hide-mobile">@item.SiteName</span>
                             }
                             <span>@item.Title</span>
                         </div>
@@ -100,7 +104,19 @@ else
         <div class="cc-two-col">
             <div class="card cc-sites-card">
                 <div class="card-header"><h3 class="card-title">Sites</h3></div>
-                <div class="table-responsive">
+                <div class="cc-site-list cc-phone-only">
+                    @foreach (var s in sites)
+                    {
+                        <div class="cc-site-list-row history-row-clickable" @onclick="@(() => Navigator.TabAsync(s.Slug, "changes"))">
+                            <div>
+                                <div><span class="cc-dot @(s.Online ? "online" : "offline")"></span> @s.Name</div>
+                                <div class="cc-item-detail">@CcFormat.Plural(s.Changes7d, "change", "changes"), @(s.DriftObjects switch { null => "no Baseline", 0 => "no drift", var d => $"{d} objects drifted" })@(s.AgentOffline ? ", agent offline" : "")</div>
+                            </div>
+                            <span class="status-badge @(s.Regressions > 0 ? "status-error" : "badge-muted")">@(s.Regressions > 0 ? CcFormat.Plural(s.Regressions, "regression", "regressions") : "0")</span>
+                        </div>
+                    }
+                </div>
+                <div class="table-responsive hide-mobile">
                     <table class="data-table">
                         <thead>
                             <tr>
