@@ -52,7 +52,15 @@ public class ChangeControlRenderHarness
         services.AddLogging();
         services.AddSingleton(Fleet().Object);
         services.AddSingleton(Site().Object);
-        var site = new SiteContextService(new HttpContextAccessor(), new SiteDatabasePaths(Path.Combine(Path.GetTempPath(), "cc.db")));
+        var templates = new Mock<IConfigTemplateService>();
+        templates.Setup(t => t.ListAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new TemplateView { Id = 1, Name = "Branch Standard", Description = "VLANs, guest WLAN, and firewall groups for branch sites", SourceSiteSlug = "main",
+                Collections = ["networkconf", "wlanconf", "firewallgroup"], UpdatedAt = DateTime.UtcNow.AddDays(-3) },
+            new TemplateView { Id = 2, Name = "Store DNS", SourceSiteSlug = "main", Collections = ["static_dns"], UpdatedAt = DateTime.UtcNow.AddDays(-12) },
+        ]);
+        services.AddSingleton(templates.Object);
+        var site =new SiteContextService(new HttpContextAccessor(), new SiteDatabasePaths(Path.Combine(Path.GetTempPath(), "cc.db")));
         site.OverrideSite("main");
         services.AddSingleton(site);
         services.AddSingleton<NavigationManager>(new FakeNav());
@@ -61,7 +69,7 @@ public class ChangeControlRenderHarness
         services.AddScoped<CcNavigator>();
         services.AddAuthorizationCore(o =>
         {
-            foreach (var p in new[] { Policies.SiteViewer, Policies.SiteOperator, Policies.SiteAdmin, Policies.RequireViewer })
+            foreach (var p in new[] { Policies.SiteViewer, Policies.SiteOperator, Policies.SiteAdmin, Policies.RequireViewer, Policies.RequireAdmin })
                 o.AddPolicy(p, b => b.RequireAssertion(_ => true));
         });
         services.AddSingleton<AuthenticationStateProvider>(new FakeAuth());

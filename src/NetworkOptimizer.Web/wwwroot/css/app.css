@@ -24411,3 +24411,68 @@ body:has(.top-bar-hidden) .btn-fit {
         margin-left: 0;
     }
 }
+
+/* Change Control - Snapshots: Templates card */
+.change-control .cc-template-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-template-main {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.change-control .cc-template-form {
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-template-form .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-template-form .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.change-control .cc-template-collections {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.4rem 1rem;
+}
+
+.change-control .cc-template-yaml {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-template-form .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .change-control .cc-template-form .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+
+    .change-control .cc-template-row .cc-row-actions .btn {
+        min-height: 44px;
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-template-row .cc-row-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        width: 100%;
+    }
+}

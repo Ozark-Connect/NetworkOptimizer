@@ -238,6 +238,10 @@ else if (_compare != null)
         }
     </div>
 }
+@if (_list != null)
+{
+    <CcTemplates Snapshots="_list.Rows" BaselineTemplateId="_drift?.BaselineTemplateId" OnBaselineChanged="LoadAsync" />
+}
 @if (_error != null)
 {
     <div class="alert alert-danger">@_error</div>
