@@ -407,6 +407,15 @@ public sealed class ChangeControlService : IChangeControlService
         return plan.Id;
     }
 
+    public async Task<int> BuildApplyTemplateAsync(int templateId, CancellationToken cancellationToken = default)
+    {
+        var (view, state) = await _templates.LoadAsync(templateId, cancellationToken) ?? throw new InvalidOperationException("Template not found.");
+        var options = new PlanOptions { SameSite = false, DeleteMissing = false, Collections = state.Collections.Keys.ToHashSet() };
+        var plan = await Plans.CreateAsync(ConfigPlanKind.Template, $"Apply template {view.Name} to {await SiteNameAsync(cancellationToken)}",
+            $"Template {view.Name}", null, null, state, options, Actor, cancellationToken);
+        return plan.Id;
+    }
+
     private async Task<(ConfigState State, string Label, PlanOptions Options, int? SnapshotId)?> BaselineStateAsync(CancellationToken ct)
     {
         var settings = await Repo.UseAsync((r, c) => r.GetSettingsAsync(c), ct);

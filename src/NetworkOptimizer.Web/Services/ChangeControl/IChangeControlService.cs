@@ -102,6 +102,11 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
     Task<int> BuildReturnToBaselineAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Builds a plan that applies a template's objects to this site (creates and updates, no deletes).</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildApplyTemplateAsync(int templateId, CancellationToken cancellationToken = default);
+
     /// <summary>A plan for Review Plan.</summary>
     [RequireRole(Roles.Viewer)]
     Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default);
