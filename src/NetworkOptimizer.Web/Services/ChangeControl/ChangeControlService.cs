@@ -12,9 +12,10 @@ using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 namespace NetworkOptimizer.Web.Services.ChangeControl;
 
 /// <summary>The site service behind every Change Control page for the site in context.</summary>
-public sealed class ChangeControlService : IChangeControlService
+public sealed partial class ChangeControlService : IChangeControlService
 {
     private readonly ChangeControlRegistry _registry;
+    private readonly ISiteAccessFilter _access;
     private readonly SiteContextService _site;
     private readonly Identity.ICallerContext _caller;
     private readonly IEffectiveSiteRoleResolver _roles;
@@ -27,8 +28,10 @@ public sealed class ChangeControlService : IChangeControlService
 
     public ChangeControlService(ChangeControlRegistry registry, SiteContextService site, Identity.ICallerContext caller,
         IEffectiveSiteRoleResolver roles, IDbContextFactory<NetworkOptimizerDbContext> mainDb, MonitoringInfluxClient influx,
-        IspHealthService isp, ConfigTemplateStore templates, NetworkOptimizer.Alerts.Interfaces.IAlertRepository alerts, ILogger<ChangeControlService> logger)
+        IspHealthService isp, ConfigTemplateStore templates, NetworkOptimizer.Alerts.Interfaces.IAlertRepository alerts,
+        ISiteAccessFilter access, ILogger<ChangeControlService> logger)
     {
+        _access = access;
         _alerts = alerts;
         _registry = registry;
         _site = site;
