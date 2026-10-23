@@ -39,11 +39,12 @@
 <div class="card">
     <div class="card-header">
         <h3 class="card-title">Snapshots <span class="card-title-suffix">@_siteName, @_list?.Count kept, @CcFormat.Bytes(_list?.StoredBytes ?? 0)</span></h3>
-        <div class="cc-row-actions">
+        <div class="cc-row-actions hide-mobile">
             <span class="cc-toolbar-label">@_selected.Count selected</span>
             <button class="btn btn-primary btn-sm" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>
             <SiteOperatorOnly><button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
         </div>
+        <span class="status-badge badge-muted cc-phone-inline">@_selected.Count selected</span>
     </div>
     @if (_list == null)
     {
@@ -51,7 +52,40 @@
     }
     else
     {
-        <div class="table-responsive">
+        <div class="cc-phone-only">
+            <label class="cc-snap-card">
+                <input type="checkbox" checked="@_selected.Contains(Now)" @onchange="() => ToggleSelect(Now)" />
+                <div>
+                    <div class="cc-change-card-head"><b>Now</b><span>@IssueBadge(_list.LiveIssueCount, 0)</span></div>
+                    <div class="cc-item-detail">Live config</div>
+                </div>
+            </label>
+            @foreach (var s in Filtered().Take(_shown))
+            {
+                <label class="cc-snap-card">
+                    <input type="checkbox" checked="@_selected.Contains(s.Id)" @onchange="() => ToggleSelect(s.Id)" />
+                    <div>
+                        <div class="cc-change-card-head">
+                            <b>@CcFormat.Time(s.TakenAt)</b>
+                            <span class="cc-tags">
+                                @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
+                                @if (s.Pinned) { <span class="status-badge status-info">Pinned</span> }
+                                @if (!s.IsBaseline && !s.Pinned) { @IssueBadge(s.IssueCount, s.RegressionCount) }
+                            </span>
+                        </div>
+                        <div class="cc-item-detail">
+                            @if (!string.IsNullOrEmpty(s.TriggerDot)) { <span class="cc-dot @s.TriggerDot"></span> }
+                            @s.Trigger@(s.ChangedObjects > 0 ? $", {CcFormat.Plural(s.ChangedObjects, "object", "objects")}" : s.IsBaseline && s.IssueCount != null ? $", {CcFormat.Plural(s.IssueCount.Value, "issue", "issues")}" : "")
+                        </div>
+                    </div>
+                </label>
+            }
+            <div class="cc-card-footer">
+                <button class="btn btn-primary" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>
+                <SiteOperatorOnly><button class="btn btn-contrast" disabled="@_busy" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
+            </div>
+        </div>
+        <div class="table-responsive hide-mobile">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -89,7 +123,7 @@
                                     <span class="cc-dot @s.TriggerDot"></span>
                                 }
                                 @s.Trigger
-                                <span class="show-mobile">
+                                <span class="cc-phone-inline">
                                     @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
                                     @if (s.Pinned) { <span class="status-badge status-info">Pinned</span> }
                                 </span>
@@ -112,12 +146,6 @@
                                         <button class="cc-link-btn" @onclick="() => DownloadYamlAsync(s.Id)">Download YAML</button>
                                         <button class="cc-link-btn" disabled="@_busy" @onclick="() => RollBackAsync(s.Id)">Roll Back</button>
                                     </SiteOperatorOnly>
-                                    <SiteAdminOnly>
-                                        @if (!s.IsBaseline)
-                                        {
-                                            <button class="cc-link-btn" @onclick="() => SetBaselineAsync(s.Id)">Mark as Baseline</button>
-                                        }
-                                    </SiteAdminOnly>
                                 </div>
                             </td>
                         </tr>

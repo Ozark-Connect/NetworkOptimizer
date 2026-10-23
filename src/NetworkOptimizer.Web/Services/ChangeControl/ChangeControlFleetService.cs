@@ -312,7 +312,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             result.Add(new TimelineSiteRow
             {
                 Site = view, Markers = markers, Bands = bands, Sparkline = sparkline,
-                ChangeCount = markers.Count(m => m.Kind == ConfigChangeKind.Config), RegressionCount = markers.Sum(m => m.RegressionCount),
+                ChangeCount = markers.Count, RegressionCount = markers.Sum(m => m.RegressionCount),
             });
         }
         return result;

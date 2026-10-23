@@ -72,7 +72,7 @@
                 <div class="cc-tl-axis-labels">
                     @foreach (var tick in Ticks())
                     {
-                        <span style="left:@F(CcFormat.Pct(tick, _from, _to))%">@CcFormat.Local(tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "MMM d" : "h tt")</span>
+                        <span style="left:@F(CcFormat.Pct(tick, _from, _to))%"><span class="hide-mobile">@CcFormat.Local(tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "MMM d" : "h tt")</span><span class="show-mobile">@CcFormat.Local(tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "%d" : "%h")</span></span>
                     }
                 </div>
                 <span></span>
@@ -82,8 +82,8 @@
                 var expanded = _expandedSites.Contains(row.Site.Slug);
                 var markers = row.Markers.Where(Visible).ToList();
                 <div class="cc-tl-row cc-tl-site" @onclick="() => ToggleSiteAsync(row.Site.Slug)">
-                    <span class="expand-chevron">@(expanded ? "▾" : "▸")</span>
-                    <div>
+                    <span class="expand-chevron cc-tl-chev">@(expanded ? "▾" : "▸")</span>
+                    <div class="cc-tl-label">
                         <div class="cc-tl-name">@row.Site.Name</div>
                         <div class="cc-tl-sub">@row.Site.Detail</div>
                     </div>
@@ -105,9 +105,9 @@
                         {
                             @foreach (var lane in lanes)
                             {
-                                <div class="cc-tl-row">
-                                    <span></span>
-                                    <div>
+                                <div class="cc-tl-row cc-lane-row">
+                                    <span class="cc-tl-chev"></span>
+                                    <div class="cc-tl-label">
                                         <div class="cc-tl-name">@lane.Title</div>
                                         <div class="cc-tl-sub">@lane.Subtitle</div>
                                     </div>
@@ -126,9 +126,9 @@
                                     </div>
                                 </div>
                             }
-                            <div class="cc-tl-row">
-                                <span></span>
-                                <div>
+                            <div class="cc-tl-row cc-lane-row">
+                                <span class="cc-tl-chev"></span>
+                                <div class="cc-tl-label">
                                     <div class="cc-tl-name">Events</div>
                                     <div class="cc-tl-sub">Config, firmware, reboots</div>
                                 </div>
@@ -161,7 +161,33 @@
     }
     else
     {
-        <div class="table-responsive">
+        <div class="cc-change-list cc-phone-only">
+            @foreach (var c in Paged())
+            {
+                var isOpen = _selected?.Id == c.Id && _selected.SiteSlug == c.SiteSlug;
+                <div class="cc-change-card history-row-clickable @(isOpen ? "history-row-expanded" : "")" @onclick="() => SelectAsync(c)">
+                    <div class="cc-change-card-head">
+                        <span class="muted-text">@CcFormat.Time(c.OccurredAt)@(_sites.Count > 1 ? $" - {c.SiteName}" : "")</span>
+                        <span><span class="cc-dot @CcFormat.Marker(c)"></span> @c.Who</span>
+                    </div>
+                    <div>@((MarkupString)Bold(c.Summary))</div>
+                    <div class="cc-tags">
+                        @if (c.RegressionCount > 0) { <span class="status-badge status-error">@CcFormat.Plural(c.RegressionCount, "security regression", "security regressions")</span> }
+                        @foreach (var tag in c.Tags.Where(ServiceTags.ClassD.Contains)) { <span class="status-badge status-info">@tag</span> }
+                        @if (c.IncidentsAfter > 0) { <span class="status-badge status-warning">@CcFormat.Plural(c.IncidentsAfter, "incident after", "incidents after")</span> }
+                    </div>
+                </div>
+                <div class="expand-wrapper @(isOpen ? "expanded" : "")">
+                    <div class="expand-content">
+                        @if (isOpen && c.Kind == ConfigChangeKind.Config)
+                        {
+                            <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="table-responsive hide-mobile">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -281,8 +307,10 @@
         _sites = await Fleet.GetSitesAsync();
         var settings = await Site.GetSettingsAsync();
         if (settings.ShowOwnChanges) _who.Add("no");
-        if (_sites.Count == 1) _expandedSites.Add(_sites[0].Slug);
         await ReloadAsync();
+        // Open with the busiest site expanded into its lanes, as the timeline is read top-down.
+        if (_timeline?.OrderByDescending(r => r.ChangeCount).FirstOrDefault() is { } busiest)
+            await ToggleSiteAsync(busiest.Site.Slug);
 
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
         if (query.TryGetValue("change", out var id) && int.TryParse(id, out var changeId))
@@ -441,12 +469,23 @@
         return enc;
     }
 
+    /// <summary>Axis ticks on local day boundaries (hours for a 24h range), at most eight.</summary>
     private IEnumerable<DateTime> Ticks()
     {
         var span = _to - _from;
-        var count = span > TimeSpan.FromDays(2) ? Math.Min(8, (int)Math.Ceiling(span.TotalDays)) : 6;
-        for (var i = 0; i < count; i++)
-            yield return _from + TimeSpan.FromTicks(span.Ticks * i / Math.Max(1, count - 1));
+        var tz = TimeZoneInfo.Local;
+        if (span <= TimeSpan.FromDays(2))
+        {
+            var start = CcFormat.Local(_from);
+            var first = start.Date.AddHours(Math.Ceiling(start.Hour / 4.0) * 4);
+            for (var t = first; t <= CcFormat.Local(_to); t = t.AddHours(4))
+                yield return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(t, DateTimeKind.Unspecified), tz);
+            yield break;
+        }
+        var days = (int)Math.Ceiling(span.TotalDays);
+        var step = Math.Max(1, (int)Math.Ceiling(days / 8.0));
+        for (var d = CcFormat.Local(_from).Date.AddDays(1); d <= CcFormat.Local(_to); d = d.AddDays(step))
+            yield return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(d, DateTimeKind.Unspecified), tz);
     }
 
     private static string LaneColorA(string key) => key switch { "throughput" => "var(--speed-download-color)", "cpu" => "#a78bfa", "clients" => "#3b82f6", _ => "#2ba89a" };
