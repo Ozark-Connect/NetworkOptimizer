@@ -121,6 +121,12 @@ public sealed class ConfigSnapshotReader
     /// <summary>Applies the collection's keep list and builds the device capability context.</summary>
     internal static JsonObject Shape(ConfigCollectionDef def, JsonObject raw)
     {
+        // NO-owned objects keep their shell only: the members are generated, change constantly, and
+        // the owning feature re-provisions them on restore.
+        if (ConfigCollections.OwnedBy(def, raw) != null)
+            foreach (var field in ConfigCollections.NoOwnedContentFields)
+                raw.Remove(field);
+
         if (def.KeepFields == null) return raw;
 
         var kept = new JsonObject();

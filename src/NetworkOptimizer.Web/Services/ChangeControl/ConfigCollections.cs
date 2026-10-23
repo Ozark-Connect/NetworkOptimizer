@@ -198,7 +198,7 @@ public static class ConfigCollections
         "mesh_sta_vap_enabled", "mesh_uplink_1", "mesh_uplink_2", "snmp_contact", "snmp_location",
         "switch_vlan_enabled", "lcm_brightness", "lcm_night_mode_begins", "lcm_night_mode_ends",
         "atf_enabled", "bandsteering_mode", "wlangroup_id_na", "wlangroup_id_ng", "wlangroup_id_6e",
-        "mbb_overrides", "power_source_ctrl_enabled", "wlan_overrides", "outlet_overrides",
+        "mbb_overrides", "power_source_ctrl_enabled", "wlan_overrides", "outlet_overrides", "afc_enabled",
         DeviceMetaField);
 
     /// <summary>Radio config fields; the rest of a radio_table entry is capability (has_*, min/max_txpower, nss).</summary>
