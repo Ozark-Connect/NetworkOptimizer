@@ -1,0 +1,114 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+
+@if (Detail == null)
+{
+    <div class="loading-container"><div class="spinner"></div></div>
+}
+else
+{
+    <div class="cc-detail-grid">
+        <div class="cc-panel">
+            <div class="cc-panel-title">What changed</div>
+            <table class="cc-field-table">
+                @foreach (var o in Detail.Objects)
+                {
+                    @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated)
+                    {
+                        <tr><td colspan="2"><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, true)</span> @o.CollectionName: @o.Name</td></tr>
+                    }
+                    @foreach (var f in o.Fields.Take(12))
+                    {
+                        <tr>
+                            <td class="label">@f.Label</td>
+                            <td style="text-align:right">@(f.Secret ? "changed" : $"{f.Old} to {f.New}")</td>
+                        </tr>
+                    }
+                }
+                @if (!string.IsNullOrEmpty(Detail.Source))
+                {
+                    <tr><td class="label">Source</td><td style="text-align:right">@Detail.Source</td></tr>
+                }
+                @foreach (var line in Detail.Impact)
+                {
+                    <tr>
+                        <td class="label">@line.Kind</td>
+                        <td style="text-align:right" class="@(line.Kind == "Regression" ? "danger-text" : "success-text")">@line.Title</td>
+                    </tr>
+                }
+            </table>
+        </div>
+        <div class="cc-panel">
+            <div class="cc-panel-title">Before / after (1 hour each side)</div>
+            @if (Detail.BeforeAfter.Count == 0)
+            {
+                <div class="cc-item-detail">Not enough monitoring data yet.</div>
+            }
+            <table class="cc-field-table">
+                @foreach (var m in Detail.BeforeAfter)
+                {
+                    <tr>
+                        <td class="label">@m.Label</td>
+                        <td style="text-align:right">@m.Before to <span class="@(m.Worse ? "danger-text" : "")">@m.After</span></td>
+                    </tr>
+                }
+            </table>
+        </div>
+        <div class="cc-panel">
+            <div class="cc-panel-title">Incidents after</div>
+            @{
+                var linked = Detail.IncidentsAfter.Where(i => !i.IsWan).ToList();
+                var wan = Detail.IncidentsAfter.Where(i => i.IsWan).ToList();
+            }
+            @if (linked.Count == 0)
+            {
+                <div class="cc-item-detail">No incidents in the 2 hours after.</div>
+            }
+            <table class="cc-field-table">
+                @foreach (var i in linked)
+                {
+                    <tr>
+                        <td class="label">@i.Title</td>
+                        <td style="text-align:right">@MinutesAfter(i.StartedAt) after</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Duration</td>
+                        <td style="text-align:right">@CcFormat.Local(i.StartedAt).ToString("h:mm tt") to @(i.ResolvedAt is { } r ? CcFormat.Local(r).ToString("h:mm tt") : "now")</td>
+                    </tr>
+                }
+                @foreach (var i in wan)
+                {
+                    <tr>
+                        <td class="label">@i.Title</td>
+                        <td style="text-align:right" class="muted-text" data-tooltip="WAN and ISP incidents are listed, not linked to LAN config changes">WAN, @MinutesAfter(i.StartedAt) after</td>
+                    </tr>
+                }
+            </table>
+            <div class="action-buttons">
+                @if (Detail.CanRollBack)
+                {
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary" disabled="@Busy" @onclick="OnRollBack">Roll Back</button>
+                    </SiteOperatorOnly>
+                }
+                @if (Detail.Row.PreviousSnapshotId != null && Detail.Row.SnapshotId != null)
+                {
+                    <button class="btn btn-contrast" @onclick="OnViewDiff">View Diff</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public ChangeDetailView? Detail { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnRollBack { get; set; }
+    [Parameter] public EventCallback OnViewDiff { get; set; }
+
+    private string MinutesAfter(DateTime t)
+    {
+        var span = t - (Detail?.Row.OccurredAt ?? t);
+        return span.TotalMinutes < 90 ? $"{Math.Max(0, (int)span.TotalMinutes)} min" : $"{span.TotalHours:0.#} h";
+    }
+}

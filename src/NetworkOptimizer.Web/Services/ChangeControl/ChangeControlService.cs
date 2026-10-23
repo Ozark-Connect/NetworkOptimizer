@@ -22,12 +22,14 @@ public sealed class ChangeControlService : IChangeControlService
     private readonly MonitoringInfluxClient _influx;
     private readonly IspHealthService _isp;
     private readonly ConfigTemplateStore _templates;
+    private readonly NetworkOptimizer.Alerts.Interfaces.IAlertRepository _alerts;
     private readonly ILogger<ChangeControlService> _logger;
 
     public ChangeControlService(ChangeControlRegistry registry, SiteContextService site, Identity.ICallerContext caller,
         IEffectiveSiteRoleResolver roles, IDbContextFactory<NetworkOptimizerDbContext> mainDb, MonitoringInfluxClient influx,
-        IspHealthService isp, ConfigTemplateStore templates, ILogger<ChangeControlService> logger)
+        IspHealthService isp, ConfigTemplateStore templates, NetworkOptimizer.Alerts.Interfaces.IAlertRepository alerts, ILogger<ChangeControlService> logger)
     {
+        _alerts = alerts;
         _registry = registry;
         _site = site;
         _caller = caller;
@@ -333,8 +335,24 @@ public sealed class ChangeControlService : IChangeControlService
         return (desired, problems, touched);
     }
 
-    public async Task<List<YamlProblem>> ValidateYamlAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default) =>
-        (await ParseEditsAsync(snapshotId, filesByCollection, cancellationToken)).Problems;
+    public async Task<YamlValidation> ValidateYamlAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)
+    {
+        var baseState = (await LoadSideAsync(snapshotId, cancellationToken)).State;
+        var (desired, problems, touched) = await ParseEditsAsync(snapshotId, filesByCollection, cancellationToken);
+        var ops = touched.Count == 0 ? [] : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched }).Operations;
+        return new YamlValidation
+        {
+            Problems = problems, EditedObjects = ops.Count, EditedCollections = ops.Select(o => o.Collection).Distinct().Count(),
+        };
+    }
+
+    public Task<(long SnapshotBytes, long ConsoleBackupBytes)> GetStorageAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(_registry.StorageBytes(_site.Slug));
+
+    public async Task<List<(string Name, string EventType, bool Enabled)>> GetAlertRulesAsync(CancellationToken cancellationToken = default) =>
+        (await _alerts.GetRulesAsync(cancellationToken))
+            .Where(r => r.EventTypePattern.StartsWith("change.", StringComparison.Ordinal))
+            .Select(r => (r.Name, r.EventTypePattern, r.IsEnabled)).ToList();
 
     // ---------- Plans ----------
 
@@ -421,7 +439,27 @@ public sealed class ChangeControlService : IChangeControlService
             ConfirmationText = PlanReadiness.ConfirmationText(doc),
             WatchMinutes = connection.IsViaAgent ? settings.AgentCommitWindowMinutes : settings.CommitWindowMinutes,
             DeviceCount = doc.Context.TryGetValue("watch_online", out var w) ? w.Split(',', StringSplitOptions.RemoveEmptyEntries).Length : 0,
+            QuietestHourSuggestion = settings.ScheduleQuietestHour && !ConfigPlanStatuses.Terminal.Contains(plan.Status)
+                ? await QuietestHourAsync(cancellationToken) : null,
         };
+    }
+
+    /// <summary>The next start of the hour with the least WAN traffic over the last 14 days.</summary>
+    private async Task<DateTime?> QuietestHourAsync(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var lanes = await new SiteMetricsReader(_influx, _isp, _logger).LanesAsync(now.AddDays(-14), now, ct);
+        var throughput = lanes.FirstOrDefault(l => l.Key == "throughput");
+        if (throughput == null || throughput.SeriesA.Count < 24) return null;
+        var byHour = throughput.SeriesA.Zip(throughput.SeriesB)
+            .Where(p => p.First.Value != null)
+            .GroupBy(p => Local(p.First.Time).Hour)
+            .Select(g => (Hour: g.Key, Mean: g.Average(p => (p.First.Value ?? 0) + (p.Second.Value ?? 0))))
+            .OrderBy(x => x.Mean).FirstOrDefault();
+        var localNow = Local(now);
+        var next = localNow.Date.AddHours(byHour.Hour);
+        if (next <= localNow) next = next.AddDays(1);
+        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(next, DateTimeKind.Unspecified), TimeZoneInfo.Local);
     }
 
     /// <summary>Removes write bodies before a plan leaves the service: they can hold secrets.</summary>

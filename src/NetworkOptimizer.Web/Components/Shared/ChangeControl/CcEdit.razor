@@ -1,0 +1,289 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using System.Text
+@implements IDisposable
+@inject IChangeControlService Site
+@inject IChangeControlFleetService Fleet
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<CcEdit> Logger
+
+<SiteOperatorOnly>
+    <NotAuthorized>
+        <div class="card"><div class="card-body">Editing needs the Site Operator role on this site.</div></div>
+    </NotAuthorized>
+    <ChildContent>
+        <div class="card">
+            <div class="cc-toolbar">
+                <span class="cc-toolbar-label">Site</span>
+                <CcSitePicker Sites="_sites" />
+                <span class="cc-toolbar-label">Start from</span>
+                <select class="form-control" @bind="StartFrom" @bind:after="StartOverAsync">
+                    <option value="">Live config</option>
+                    @foreach (var s in _snapshots.Take(30))
+                    {
+                        <option value="@s.Id">Snapshot, @CcFormat.Time(s.TakenAt)</option>
+                    }
+                </select>
+                <span class="cc-toolbar-spacer"></span>
+                <label class="btn btn-contrast btn-sm" style="margin:0">
+                    Upload YAML
+                    <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
+                </label>
+                <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(false)">Download YAML</button>
+                <SiteAdminOnly>
+                    <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(true)"
+                            data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited.">Download with Secrets</button>
+                </SiteAdminOnly>
+                <button class="btn btn-contrast btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>
+            </div>
+        </div>
+
+        <div class="cc-edit-grid">
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Collections</h3></div>
+                <div class="cc-collections">
+                    @foreach (var group in Groups)
+                    {
+                        <button class="@(group == _group ? "active" : "")" @onclick="() => OpenGroupAsync(group)">
+                            <span>@group</span>
+                            @if (_edited.ContainsKey(group))
+                            {
+                                <span class="status-badge status-info">edited</span>
+                            }
+                            else
+                            {
+                                <span class="cc-count">@GroupCount(group)</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">@_group <span class="card-title-suffix">@FileName(_group), @CcFormat.Plural(GroupCount(_group), "object", "objects")</span></h3>
+                        <span class="status-badge badge-muted">Secrets shown as &lt;keep current&gt;</span>
+                    </div>
+                    @if (_loading)
+                    {
+                        <div class="loading-container"><div class="spinner"></div></div>
+                    }
+                    else
+                    {
+                        <div class="cc-editor" id="cc-editor">
+                            <div class="cc-editor-gutter">@for (var i = 1; i <= LineCount; i++){<span class="@(_errorLines.Contains(i) ? "err" : "")">@i
+</span>}</div>
+                            <textarea spellcheck="false" value="@_text" @oninput="OnInput" rows="@Math.Max(24, LineCount + 2)" aria-label="@FileName(_group)"></textarea>
+                        </div>
+                    }
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">Problems <span class="card-title-suffix">checked as you type</span></h3></div>
+                    @if (_validation.Problems.Count == 0)
+                    {
+                        <div class="empty-state empty-state-small"><p>@(_edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
+                    }
+                    @foreach (var p in _validation.Problems.OrderBy(p => p.Level == "Error" ? 0 : p.Level == "Warning" ? 1 : 2))
+                    {
+                        <div class="cc-problem">
+                            <span class="status-badge @(p.Level switch { "Error" => "status-error", "Warning" => "status-warning", _ => "badge-muted" })">@p.Level</span>
+                            <code>@p.File:@p.Line</code>
+                            <div>@p.Message</div>
+                        </div>
+                    }
+                </div>
+
+                <div class="card">
+                    <div class="cc-card-footer">
+                        <span class="cc-remaining @(Errors > 0 ? "danger-text" : "muted-text")">
+                            @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before Review Plan" : _edited.Count == 0 ? "No edits yet" : "Ready for Review Plan")
+                        </span>
+                        <span class="muted-text">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
+                        <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy)" @onclick="ReviewPlanAsync">Review Plan</button>
+                    </div>
+                </div>
+                @if (_error != null)
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+            </div>
+        </div>
+    </ChildContent>
+</SiteOperatorOnly>
+
+@code {
+    private static readonly string[] Groups =
+    [
+        "Settings", "Networks", "WLANs", "Firewall Zones", "Firewall Policies", "Firewall Groups", "Port Profiles",
+        "Routes and Traffic Routes", "NAT and Port Forwards", "Local DNS", "RADIUS and VPN", "Devices", "Clients", "Other",
+    ];
+
+    private List<FleetSiteView> _sites = [];
+    private List<SnapshotRowView> _snapshots = [];
+    private string StartFrom { get; set; } = "";
+    private string _group = "WLANs";
+    private string _text = "";
+    private Dictionary<string, int> _counts = [];
+    private readonly Dictionary<string, string> _edited = [];
+    private readonly Dictionary<string, string> _original = [];
+    private YamlValidation _validation = new();
+    private HashSet<int> _errorLines = [];
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private Timer? _debounce;
+
+    private int? SnapshotId => int.TryParse(StartFrom, out var id) ? id : null;
+    private int LineCount => Math.Max(1, _text.Count(c => c == '\n') + 1);
+    private int Errors => _validation.Problems.Count(p => p.Level == "Error");
+
+    private static IEnumerable<ConfigCollectionDef> Defs(string group) => ConfigCollections.All.Where(d => d.Group == group);
+    private static string FileName(string group) => Defs(group).FirstOrDefault() is { } d ? YamlConverter.FileName(d) : "";
+    private int GroupCount(string group) => Defs(group).Sum(d => _counts.GetValueOrDefault(d.Key));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sites = await Fleet.GetSitesAsync();
+        _snapshots = (await Site.GetSnapshotsAsync()).Rows;
+        await OpenGroupAsync(_group);
+    }
+
+    private async Task OpenGroupAsync(string group)
+    {
+        _group = group;
+        if (_edited.TryGetValue(group, out var edited))
+        {
+            _text = edited;
+            UpdateErrorLines();
+            return;
+        }
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            _text = await LoadGroupAsync(group);
+            _original[group] = _text;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            UpdateErrorLines();
+        }
+    }
+
+    private async Task<string> LoadGroupAsync(string group)
+    {
+        var sb = new StringBuilder();
+        foreach (var def in Defs(group))
+        {
+            var (yaml, counts) = await Site.GetEditBaseAsync(SnapshotId, def.Key);
+            _counts = counts;
+            sb.Append(yaml);
+        }
+        return sb.ToString();
+    }
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        _text = e.Value?.ToString() ?? "";
+        if (_original.TryGetValue(_group, out var original) && original == _text) _edited.Remove(_group);
+        else _edited[_group] = _text;
+        _debounce?.Dispose();
+        _debounce = new Timer(_ => InvokeAsync(ValidateAsync), null, 600, Timeout.Infinite);
+    }
+
+    private Dictionary<string, string> Files() =>
+        _edited.ToDictionary(e => Defs(e.Key).First().Key, e => e.Value);
+
+    private async Task ValidateAsync()
+    {
+        try
+        {
+            _validation = _edited.Count == 0 ? new YamlValidation() : await Site.ValidateYamlAsync(SnapshotId, Files());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "YAML validation failed");
+        }
+        UpdateErrorLines();
+        StateHasChanged();
+    }
+
+    private void UpdateErrorLines() =>
+        _errorLines = _validation.Problems.Where(p => p.Level == "Error" && p.File == FileName(_group)).Select(p => p.Line).ToHashSet();
+
+    private async Task StartOverAsync()
+    {
+        _edited.Clear();
+        _original.Clear();
+        _validation = new YamlValidation();
+        await OpenGroupAsync(_group);
+    }
+
+    private Task DiscardAsync() => StartOverAsync();
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream(5 * 1024 * 1024));
+            var text = await reader.ReadToEndAsync();
+            // Split the file at its top-level keys and hand each collection to its group.
+            var segments = new Dictionary<string, StringBuilder>();
+            StringBuilder? current = null;
+            foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (line.Length > 0 && !char.IsWhiteSpace(line[0]) && !line.StartsWith('#') && line.Contains(':'))
+                {
+                    var key = line[..line.IndexOf(':')].Trim();
+                    var def = ConfigCollections.All.FirstOrDefault(d => YamlConverter.YamlName(d) == key || d.Key == key);
+                    if (def == null) { current = null; _error = $"Unknown collection {key} in the file; it was skipped."; continue; }
+                    if (!segments.TryGetValue(def.Group, out current)) segments[def.Group] = current = new StringBuilder();
+                }
+                current?.Append(line).Append('\n');
+            }
+            foreach (var (group, sb) in segments) _edited[group] = sb.ToString();
+            if (segments.Count > 0) await OpenGroupAsync(segments.Keys.First());
+            await ValidateAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DownloadAsync(bool withSecrets)
+    {
+        var yaml = withSecrets ? await Site.DownloadYamlWithSecretsAsync(SnapshotId) : await Site.DownloadYamlAsync(SnapshotId);
+        await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config{(withSecrets ? "-with-secrets" : "")}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
+            "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
+    }
+
+    private async Task ReviewPlanAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var planId = await Site.BuildEditPlanAsync(SnapshotId, Files());
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public void Dispose() => _debounce?.Dispose();
+}
