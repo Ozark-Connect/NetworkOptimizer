@@ -24294,3 +24294,40 @@ body:has(.top-bar-hidden) .btn-fit {
         flex-basis: 100%;
     }
 }
+
+/* Alerts & Schedule - Incidents: changes before an incident */
+.cc-incident-changes {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8125rem;
+}
+
+.cc-incident-change {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    padding: 0.4rem 0;
+}
+
+.cc-incident-change .cc-link-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--primary-hover);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+}
+
+.cc-incident-change .btn {
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .cc-incident-change .btn {
+        min-height: 44px;
+        margin-left: 0;
+    }
+}
