@@ -70,9 +70,17 @@ public interface IChangeControlService
     [RequireRole(Roles.Operator)]
     Task<(string Yaml, Dictionary<string, int> Counts)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default);
 
-    /// <summary>Edit tab: checks an edited file as it is typed.</summary>
+    /// <summary>Edit tab: checks edited files as they are typed, and counts the objects they change.</summary>
     [RequireRole(Roles.Operator)]
-    Task<List<YamlProblem>> ValidateYamlAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default);
+    Task<YamlValidation> ValidateYamlAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default);
+
+    /// <summary>Settings tab: bytes kept for snapshots and for console backups.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<(long SnapshotBytes, long ConsoleBackupBytes)> GetStorageAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Settings tab: the Change Control alert rules and whether each is on.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<(string Name, string EventType, bool Enabled)>> GetAlertRulesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Builds a Roll Back plan to a snapshot.</summary>
     [RequireRole(Roles.Operator)]

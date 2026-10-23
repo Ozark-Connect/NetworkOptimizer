@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="cc-blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="256">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="cc-orange" gradientUnits="userSpaceOnUse" x1="0" y1="200" x2="0" y2="60">
+      <stop offset="0" stop-color="#ea580c"/>
+      <stop offset="1" stop-color="#fb923c"/>
+    </linearGradient>
+  </defs>
+  <!-- history ring -->
+  <path d="M60 128a68 68 0 1 0 22-50" fill="none" stroke="url(#cc-blue)" stroke-width="20" stroke-linecap="round"/>
+  <polyline points="52,46 82,78 50,96" fill="none" stroke="url(#cc-blue)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- clock hands: a point in time to return to -->
+  <g fill="none" stroke="url(#cc-orange)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="128,92 128,132 156,150"/>
+  </g>
+</svg>

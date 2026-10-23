@@ -153,3 +153,11 @@ public sealed class DriftView
     public List<CompareObjectView> Objects { get; init; } = [];
     public List<ImpactLine> Regressions { get; init; } = [];
 }
+
+/// <summary>The Edit tab's live check.</summary>
+public sealed class YamlValidation
+{
+    public List<YamlProblem> Problems { get; init; } = [];
+    public int EditedObjects { get; init; }
+    public int EditedCollections { get; init; }
+}

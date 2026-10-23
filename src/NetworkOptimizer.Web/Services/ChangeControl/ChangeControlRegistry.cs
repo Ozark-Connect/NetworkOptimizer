@@ -44,6 +44,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     /// <summary>Bytes on disk for a site's snapshot blobs.</summary>
     public long BlobBytes(string slug) => _sp.GetRequiredService<IConfigBlobStore>().GetStorageBytes(slug).BlobBytes;
 
+    /// <summary>Bytes on disk for a site's snapshot blobs and console backups.</summary>
+    public (long Blobs, long Files) StorageBytes(string slug) => _sp.GetRequiredService<IConfigBlobStore>().GetStorageBytes(slug);
+
     /// <summary>The plan coordinator for a site.</summary>
     public PlanCoordinator PlansFor(string slug)
     {

@@ -23055,3 +23055,1023 @@ body:has(.top-bar-hidden) .btn-fit {
         display: none;
     }
 }
+
+/* ============================================
+   Change Control (every rule scoped to .change-control)
+   ============================================ */
+
+.change-control {
+    --cc-person: #3b82f6;
+    --cc-unattributed: var(--warning-color);
+    --cc-firmware: #a78bfa;
+    --cc-no: #2ba89a;
+    --cc-incident: rgba(239, 88, 88, 0.22);
+    --cc-badge-col: 110px;
+}
+
+.change-control .cc-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    padding: 12px 16px;
+}
+
+.change-control .cc-toolbar-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-toolbar .form-control {
+    width: auto;
+    min-width: 120px;
+}
+
+.change-control .cc-toolbar-spacer {
+    flex: 1;
+}
+
+.change-control .cc-toolbar-note {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.change-control .cc-search {
+    min-width: 260px;
+}
+
+.change-control .cc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: none;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    min-height: 32px;
+}
+
+.change-control .cc-chip.off {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.change-control .cc-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.change-control .cc-dot.person { background: var(--cc-person); }
+.change-control .cc-dot.unattributed { background: var(--cc-unattributed); }
+.change-control .cc-dot.firmware { background: var(--cc-firmware); }
+.change-control .cc-dot.no { background: var(--cc-no); }
+.change-control .cc-dot.online { background: var(--success-color); }
+.change-control .cc-dot.offline { background: var(--warning-color); }
+
+.change-control .cc-legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.change-control .cc-legend .cc-band-key {
+    width: 14px;
+    height: 10px;
+    background: var(--cc-incident);
+    border-radius: 2px;
+}
+
+/* Stat tiles */
+.change-control .cc-tiles {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.change-control .cc-tile {
+    background: var(--bg-card);
+    border-radius: var(--border-radius-lg);
+    padding: 14px 16px;
+}
+
+.change-control .cc-tile-label {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-tile-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0.2rem 0;
+}
+
+.change-control .cc-tile-value.danger { color: var(--danger-color); }
+.change-control .cc-tile-value.warning { color: var(--warning-color); }
+
+.change-control .cc-tile-sub {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+/* Rows that lead with a type badge: fixed badge column so the text aligns */
+.change-control .cc-item {
+    display: grid;
+    grid-template-columns: var(--cc-badge-col) minmax(0, 1fr) auto;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-item:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-item-title {
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-item-detail {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+
+.change-control .cc-item-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.change-control .cc-site-chip {
+    font-size: 0.75rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.change-control .cc-badge-col .status-badge {
+    white-space: nowrap;
+}
+
+.change-control .cc-two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.change-control .cc-kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.change-control .cc-kv:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-kv > :first-child {
+    color: var(--text-secondary);
+}
+
+.change-control .cc-kv > :last-child {
+    text-align: right;
+}
+
+.change-control .cc-plan-row {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-plan-row:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-plan-row-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    font-weight: 500;
+}
+
+.change-control .cc-progress {
+    height: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 2px;
+    margin-top: 0.6rem;
+    overflow: hidden;
+}
+
+.change-control .cc-progress > div {
+    height: 100%;
+    background: var(--primary-hover);
+}
+
+.change-control .danger-text { color: var(--danger-color); }
+.change-control .warning-text { color: var(--warning-color); }
+.change-control .success-text { color: var(--success-color); }
+.change-control .muted-text { color: var(--text-muted); }
+
+/* Timeline */
+.change-control .cc-timeline {
+    padding: 0 16px 12px;
+}
+
+.change-control .cc-tl-row {
+    display: grid;
+    grid-template-columns: 20px 190px minmax(0, 1fr) 130px;
+    gap: 0 0.75rem;
+    align-items: center;
+    min-height: 52px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-tl-row.cc-tl-axis {
+    min-height: 32px;
+    border-bottom: none;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-tl-axis-labels {
+    position: relative;
+    height: 20px;
+}
+
+.change-control .cc-tl-axis-labels span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.change-control .cc-tl-site {
+    cursor: pointer;
+}
+
+.change-control .cc-tl-site:hover {
+    background: var(--bg-hover-subtle);
+}
+
+.change-control .cc-tl-name {
+    font-weight: 500;
+    line-height: 1.25;
+}
+
+.change-control .cc-tl-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.change-control .cc-tl-counts {
+    text-align: right;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    line-height: 1.3;
+}
+
+.change-control .cc-tl-counts b {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.change-control .cc-track {
+    position: relative;
+    height: 36px;
+}
+
+.change-control .cc-track.cc-lane-track {
+    height: 64px;
+}
+
+.change-control .cc-track svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.change-control .cc-band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: var(--cc-incident);
+    border-radius: 2px;
+}
+
+.change-control .cc-band.gap {
+    background: repeating-linear-gradient(45deg, rgba(160, 160, 168, 0.16) 0 4px, transparent 4px 8px);
+}
+
+.change-control .cc-select-line {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    background: var(--text-primary);
+    opacity: 0.85;
+    transform: translateX(-1px);
+    pointer-events: none;
+}
+
+.change-control .cc-marker-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 1px dashed rgba(160, 160, 168, 0.45);
+    pointer-events: none;
+}
+
+.change-control .cc-marker {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    background: var(--text-muted);
+}
+
+/* 44px touch target around the 12px marker */
+.change-control .cc-marker::before {
+    content: "";
+    position: absolute;
+    inset: -16px;
+}
+
+.change-control .cc-marker.person { background: var(--cc-person); }
+.change-control .cc-marker.unattributed { background: var(--cc-unattributed); }
+.change-control .cc-marker.no { background: var(--cc-no); }
+.change-control .cc-marker.firmware {
+    background: var(--cc-firmware);
+    border-radius: 2px;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.change-control .cc-marker.selected {
+    box-shadow: 0 0 0 3px var(--bg-card), 0 0 0 5px var(--text-primary);
+}
+
+.change-control .cc-lanes {
+    background: var(--bg-hover-subtle);
+    border-radius: var(--border-radius-lg);
+    margin: 0.25rem 0 0.5rem;
+    padding: 0.25rem 0;
+}
+
+.change-control .cc-lanes .cc-tl-row {
+    border-bottom: none;
+    min-height: 74px;
+}
+
+.change-control .cc-lane-latest {
+    text-align: right;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+}
+
+.change-control .cc-lane-latest .a { color: var(--cc-no); }
+.change-control .cc-lane-latest .b { color: var(--warning-color); }
+.change-control .cc-lane-latest .cpu { color: var(--cc-firmware); }
+.change-control .cc-lane-latest .down { color: var(--speed-download-color); }
+.change-control .cc-lane-latest .up { color: var(--speed-upload-color); }
+
+/* Change detail */
+.change-control .cc-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    padding: 0.75rem 16px 1rem;
+}
+
+.change-control .cc-panel {
+    background: var(--bg-card);
+    border-radius: var(--border-radius-lg);
+    padding: 12px 16px;
+}
+
+.change-control .cc-panel-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+}
+
+.change-control .cc-panel .action-buttons {
+    margin-top: 0.75rem;
+}
+
+.change-control .cc-field-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-field-table td {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: top;
+}
+
+.change-control .cc-field-table tr:last-child td {
+    border-bottom: none;
+}
+
+.change-control .cc-field-table .old { color: var(--danger-color); }
+.change-control .cc-field-table .new { color: var(--success-color); }
+.change-control .cc-field-table .label { color: var(--text-secondary); width: 30%; }
+
+.change-control .cc-inset {
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
+    margin: 0 16px 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.change-control .cc-inset-note {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    padding: 0 16px 0.75rem;
+}
+
+.change-control .cc-action-text.created { color: var(--success-color); }
+.change-control .cc-action-text.updated { color: var(--primary-light); }
+.change-control .cc-action-text.deleted { color: var(--danger-color); }
+
+.change-control .cc-group-row td {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    background: var(--bg-primary);
+}
+
+.change-control .cc-compare-sides {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 16px;
+}
+
+.change-control .cc-compare-sides .cc-panel {
+    background: var(--bg-hover-subtle);
+}
+
+.change-control .cc-side-label {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-side-value {
+    font-weight: 600;
+    font-size: 1.05rem;
+}
+
+.change-control .cc-row-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.25rem 0.75rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-link-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    padding: 0.35rem 0.25rem;
+    min-height: 32px;
+    cursor: pointer;
+}
+
+.change-control .cc-link-btn:hover {
+    color: var(--text-primary);
+}
+
+.change-control .cc-tags {
+    display: inline-flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-card-footer {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-card-footer .cc-remaining {
+    margin-right: auto;
+    font-size: 0.875rem;
+}
+
+/* Review Plan */
+.change-control .cc-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.change-control .cc-impact-row {
+    display: grid;
+    grid-template-columns: var(--cc-badge-col) minmax(0, 1fr) auto;
+    gap: 0.5rem 1rem;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    align-items: start;
+}
+
+.change-control .cc-impact-row:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-confirm {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-confirm .form-control {
+    max-width: 240px;
+}
+
+.change-control .cc-write-step {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-write-step:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-step-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.change-control .cc-state-track {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.change-control .cc-state-track .on {
+    color: var(--text-primary);
+}
+
+.change-control .cc-state-track .on .cc-dot {
+    background: var(--primary-hover);
+}
+
+.change-control .cc-sticky-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.change-control .cc-ack-col {
+    white-space: nowrap;
+}
+
+.change-control .cc-ack-col .checkbox-label {
+    min-height: 44px;
+    margin: 0;
+}
+
+/* Edit */
+.change-control .cc-edit-grid {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.change-control .cc-collections button {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    background: none;
+    border: none;
+    border-left: 3px solid transparent;
+    color: var(--text-primary);
+    padding: 0.7rem 16px;
+    min-height: 44px;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.change-control .cc-collections button:hover {
+    background: var(--bg-hover-subtle);
+}
+
+.change-control .cc-collections button.active {
+    background: var(--bg-hover);
+    border-left-color: var(--primary-hover);
+}
+
+.change-control .cc-collections .cc-count {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-editor {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    max-height: 560px;
+    overflow: auto;
+}
+
+.change-control .cc-editor-gutter {
+    text-align: right;
+    padding: 0.75rem 0.6rem 0.75rem 0;
+    color: var(--text-muted);
+    user-select: none;
+    white-space: pre;
+}
+
+.change-control .cc-editor-gutter .err {
+    color: var(--danger-color);
+}
+
+.change-control .cc-editor textarea {
+    width: 100%;
+    min-height: 480px;
+    background: transparent;
+    color: var(--text-primary);
+    border: none;
+    resize: none;
+    outline: none;
+    padding: 0.75rem 0.75rem 0.75rem 0.5rem;
+    font: inherit;
+    line-height: inherit;
+    white-space: pre;
+    overflow: hidden;
+}
+
+.change-control .cc-problem {
+    display: grid;
+    grid-template-columns: 90px 140px minmax(0, 1fr);
+    gap: 0.5rem 1rem;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    align-items: start;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-problem:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-problem code {
+    color: var(--text-muted);
+    background: none;
+    font-size: 0.75rem;
+}
+
+/* Migrate */
+.change-control .cc-action-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.change-control .cc-action-card {
+    background: var(--bg-card);
+    border: 1px solid transparent;
+    border-radius: var(--border-radius-lg);
+    padding: 16px;
+    text-align: left;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.change-control .cc-action-card:hover {
+    background: var(--bg-hover-subtle);
+}
+
+.change-control .cc-action-card.active {
+    border-color: var(--primary-hover);
+}
+
+.change-control .cc-action-card h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.change-control .cc-action-card p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.change-control .cc-steps span {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+}
+
+.change-control .cc-steps span.done,
+.change-control .cc-steps span.current {
+    color: var(--text-primary);
+}
+
+.change-control .cc-steps .cc-step-num.done {
+    background: rgba(36, 188, 112, 0.2);
+    color: var(--success-color);
+}
+
+.change-control .cc-steps .cc-step-num.current {
+    background: var(--primary-color);
+    color: #fff;
+}
+
+.change-control .cc-zones {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    padding: 0 16px 16px;
+}
+
+.change-control .cc-zone {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 12px;
+    min-height: 180px;
+}
+
+.change-control .cc-zone.drop-target {
+    border-color: var(--primary-hover);
+}
+
+.change-control .cc-zone-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+}
+
+.change-control .cc-zone-desc {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin: 0.25rem 0 0.6rem;
+}
+
+.change-control .cc-net {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    padding: 0.55rem 0.7rem;
+    min-height: 44px;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    cursor: grab;
+    text-align: left;
+}
+
+.change-control .cc-net.selected {
+    border-color: var(--primary-hover);
+}
+
+.change-control .cc-net .cc-vlan {
+    color: var(--text-secondary);
+    margin-left: 0.4rem;
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-drop-here {
+    border: 1px dashed var(--primary-hover);
+    border-radius: var(--border-radius);
+    color: var(--primary-light);
+    text-align: center;
+    padding: 0.55rem;
+    min-height: 44px;
+    font-size: 0.875rem;
+    background: none;
+    width: 100%;
+    cursor: pointer;
+}
+
+/* Settings */
+.change-control .cc-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+.change-control .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.change-control .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+@media (max-width: 1024px) {
+    .change-control .cc-tiles {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .change-control .cc-two-col,
+    .change-control .cc-edit-grid,
+    .change-control .cc-settings-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-zones {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control {
+        --cc-badge-col: 92px;
+    }
+
+    .change-control .cc-tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+
+    .change-control .cc-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .change-control .cc-item {
+        grid-template-columns: var(--cc-badge-col) minmax(0, 1fr);
+    }
+
+    .change-control .cc-item-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+
+    .change-control .cc-impact-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-tl-row {
+        grid-template-columns: 16px 104px minmax(0, 1fr);
+    }
+
+    .change-control .cc-tl-counts {
+        display: none;
+    }
+
+    .change-control .cc-detail-grid {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 0.75rem 0.5rem 1rem;
+    }
+
+    .change-control .cc-compare-sides {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-compare-sides .cc-arrow {
+        display: none;
+    }
+
+    .change-control .cc-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .change-control .cc-zones {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-problem {
+        grid-template-columns: 80px minmax(0, 1fr);
+    }
+
+    .change-control .cc-problem code {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
+    }
+
+    .change-control .cc-problem > div:last-child {
+        grid-column: 1 / -1;
+    }
+
+    .change-control .cc-search {
+        min-width: 0;
+        flex: 1 1 100%;
+    }
+
+    .change-control .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .change-control .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+
+    .change-control .cc-toolbar-note {
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-mobile-order {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .change-control .cc-mobile-order > .cc-two-col,
+    .change-control .cc-mobile-order .cc-side-col {
+        display: contents;
+    }
+
+    .change-control .cc-sites-card { order: 1; }
+    .change-control .cc-attention-card { order: 2; }
+    .change-control .cc-plans-card { order: 3; }
+    .change-control .cc-upgrade-card { order: 4; }
+}
