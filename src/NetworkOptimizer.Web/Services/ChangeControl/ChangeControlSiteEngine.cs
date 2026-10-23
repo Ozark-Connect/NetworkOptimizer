@@ -15,6 +15,15 @@ public interface IChangeEvaluator
 {
     /// <summary>Evaluates newly recorded changes against the states before and after them.</summary>
     Task EvaluateAsync(string siteSlug, IReadOnlyList<ConfigChange> changes, ConfigState before, ConfigState after, CancellationToken cancellationToken);
+
+    /// <summary>One summary after a Network app upgrade.</summary>
+    Task NetworkAppUpgradeSummaryAsync(string slug, string? from, string? to, IReadOnlyList<ConfigChange> changes, CancellationToken ct);
+
+    /// <summary>The post-change device check for management-path changes.</summary>
+    Task CheckManagementPathAsync(ChangeControlSiteEngine engine, CancellationToken ct);
+
+    /// <summary>The daily digest.</summary>
+    Task DigestAsync(ChangeControlSiteEngine engine, int incidentsAfter, CancellationToken ct);
 }
 
 /// <summary>
@@ -230,7 +239,13 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             snapshotOk = taken.Ok;
             if (trigger is ConfigSnapshotTrigger.Daily or ConfigSnapshotTrigger.Initial && taken.Ok)
                 state.LastDailySnapshotAt = now;
+            if (appChanged && taken.Ok && Evaluator != null)
+                await Evaluator.NetworkAppUpgradeSummaryAsync(_slug, state.NetworkAppVersion, appVersion, taken.Changes, ct);
         }
+        if (dailyDue && Evaluator != null && hasAny)
+            await Evaluator.DigestAsync(this, await CountIncidentsAfterChangesAsync(now, ct), ct);
+        if (Evaluator != null)
+            await Evaluator.CheckManagementPathAsync(this, ct);
 
         // Advance the cursor only past what was processed; a failed snapshot leaves the events for next time.
         if (auditOk && snapshotOk && events.Count > 0)
@@ -258,6 +273,18 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         if (state.LastRetentionAt == null || now - state.LastRetentionAt > TimeSpan.FromHours(6))
             await RunRetentionAsync(settings, state, now, ct);
     }
+
+    /// <summary>Incidents in the last day that started within two hours after a config change.</summary>
+    private async Task<int> CountIncidentsAfterChangesAsync(DateTime now, CancellationToken ct) =>
+        await _repos.UseAsync(async (r, c) =>
+        {
+            var changes = (await r.GetChangesAsync(now.AddDays(-1).AddHours(-2), now, 1000, c)).Where(x => x.Kind == ConfigChangeKind.Config).ToList();
+            var incidents = await r.GetIncidentsStartedAsync(now.AddDays(-1), now, c);
+            return incidents.Count(i => changes.Any(x => i.FirstTriggeredAt >= x.OccurredAt && i.FirstTriggeredAt - x.OccurredAt <= IncidentWindow));
+        }, ct);
+
+    /// <summary>Changes and incidents are related within this window, either side (spec "Changes and incidents").</summary>
+    public static readonly TimeSpan IncidentWindow = TimeSpan.FromHours(2);
 
     private static bool DailyDue(ChangeControlSettings settings, ChangeDetectionState state, DateTime nowUtc)
     {
@@ -346,7 +373,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         }, ct);
     }
 
-    private async Task<(bool Ok, ConfigSnapshot? Snapshot)> SnapshotAndRecordAsync(
+    private async Task<(bool Ok, ConfigSnapshot? Snapshot, List<ConfigChange> Changes)> SnapshotAndRecordAsync(
         ConfigSnapshotTrigger trigger, string? detail, string? pinReason, IReadOnlyList<AuditLogEvent> events,
         IReadOnlyList<ConfigWriteJournalEntry> journal, bool inUpgradeWindow, CancellationToken ct, bool force = false)
     {
@@ -358,14 +385,14 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             {
                 _logger.LogWarning("Change Control could not read the config for site {Site}: {Errors}", _slug,
                     string.Join("; ", live.ReadErrors.Select(e => $"{e.Key}: {e.Value}")));
-                return (false, null);
+                return (false, null, []);
             }
 
             var (previous, previousId) = await LatestStateAsync(ct);
             var diff = previous == null ? null : ConfigDiffEngine.Compare(previous, live);
             var recordable = diff?.Objects.Where(o => !o.Generated).ToList() ?? [];
             if (!force && trigger == ConfigSnapshotTrigger.Change && recordable.Count == 0 && (diff?.PolicyOrder.Count ?? 0) == 0)
-                return (true, null);
+                return (true, null, []);
 
             var snapshot = new ConfigSnapshot
             {
@@ -384,9 +411,10 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 _audit?.Log(AuditEventBuilder.FromSystem(AuditCategories.Action, AuditActions.ChangeControlSnapshotPinned,
                     targetType: "config_snapshot", targetId: snapshot.Id.ToString(), targetName: pinReason, siteSlug: _slug));
 
+            var changes = new List<ConfigChange>();
             if (previous != null && diff != null && (recordable.Count > 0 || diff.PolicyOrder.Count > 0))
             {
-                var changes = await RecordChangesAsync(snapshot, previousId, previous, live, recordable, diff, events, journal, inUpgradeWindow, ct);
+                changes = await RecordChangesAsync(snapshot, previousId, previous, live, recordable, diff, events, journal, inUpgradeWindow, ct);
                 if (Evaluator != null && changes.Count > 0)
                 {
                     try { await Evaluator.EvaluateAsync(_slug, changes, previous, live, ct); }
@@ -397,7 +425,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 }
             }
             Changed?.Invoke();
-            return (true, snapshot);
+            return (true, snapshot, changes);
         }
         finally
         {

@@ -121,6 +121,9 @@ public class ConfigChange
 
     /// <summary>Alert evaluation for this change has run (so a restart does not alert twice).</summary>
     public bool Evaluated { get; set; }
+
+    /// <summary>The post-change device check for a management-path change has run.</summary>
+    public bool ManagementChecked { get; set; }
 }
 
 /// <summary>One object inside a <see cref="ConfigChange"/>, with its field-level diff.</summary>
