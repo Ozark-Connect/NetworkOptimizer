@@ -828,6 +828,15 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            Name = "Firmware Rollout: Paused for Config Review",
+            IsEnabled = true,
+            EventTypePattern = "rollout.config_held",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Device Stuck Offline",
             IsEnabled = true,
             EventTypePattern = "rollout.device_stuck_offline",

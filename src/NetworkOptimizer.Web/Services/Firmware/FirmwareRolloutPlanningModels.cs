@@ -353,6 +353,15 @@ public class RolloutPlanDocument
     public List<PlanWave> Waves { get; set; } = [];
     public List<PlanMeshRepair> MeshRepairs { get; set; } = [];
 
+    /// <summary>Change Control snapshot pinned before the rollout started, for a config restore after a firmware revert.</summary>
+    public int? ConfigSnapshotId { get; set; }
+
+    /// <summary>Whether the post-upgrade config check has run, so a resume does not re-hold on the same findings.</summary>
+    public bool ConfigChecked { get; set; }
+
+    /// <summary>Whether any step was rolled back, so the page offers the pinned config snapshot.</summary>
+    public bool FirmwareReverted { get; set; }
+
     /// <summary>Whether the UniFi Network application updates first (wave 0 timeline entry).</summary>
     public bool IncludesUniFiNetworkUpdate { get; set; }
     public int UniFiNetworkUpdateSeconds { get; set; }

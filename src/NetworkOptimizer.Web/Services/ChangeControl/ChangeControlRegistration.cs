@@ -15,6 +15,7 @@ public static class ChangeControlRegistration
         services.AddSiteScopedRegistry<ChangeControlRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<ChangeControlRegistry>());
         services.AddSingleton<ConfigTemplateStore>();
+        services.AddSingleton<Firmware.IRolloutConfigGuard, RolloutConfigGuard>();
         services.AddScoped<Components.Shared.ChangeControl.CcNavigator>();
         return services;
     }
