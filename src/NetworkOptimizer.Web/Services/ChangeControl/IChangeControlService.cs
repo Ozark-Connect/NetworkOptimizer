@@ -107,6 +107,46 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
     Task<int> BuildApplyTemplateAsync(int templateId, CancellationToken cancellationToken = default);
 
+    /// <summary>Replace Device pickers: devices in the latest snapshot, and devices live now.</summary>
+    [RequireRole(Roles.Operator)]
+    Task<ReplaceDevicesView> GetReplaceDevicesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The port, radio, and settings mapping from one device to its replacement, with the user's choices applied.</summary>
+    [RequireRole(Roles.Operator)]
+    Task<ReplacementProposal> GetReplacementAsync(string oldMac, string newMac, IReadOnlyDictionary<string, string>? choices, IReadOnlyCollection<string>? acks, CancellationToken cancellationToken = default);
+
+    /// <summary>Builds the Replace Device plan.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildReplacePlanAsync(string oldMac, string newMac, IReadOnlyDictionary<string, string>? choices, IReadOnlyCollection<string>? acks, CancellationToken cancellationToken = default);
+
+    /// <summary>The re-cabling sheet as PDF.</summary>
+    [RequireRole(Roles.Operator)]
+    Task<byte[]> GetRecablingPdfAsync(string oldMac, string newMac, IReadOnlyDictionary<string, string>? choices, IReadOnlyCollection<string>? acks, CancellationToken cancellationToken = default);
+
+    /// <summary>Devices waiting for adoption, marked when their MAC is in this site's latest snapshot or the chosen restore source.</summary>
+    [RequireRole(Roles.Operator)]
+    Task<List<MigrateDeviceView>> GetPendingAdoptionsAsync(string? sourceSiteSlug, int? snapshotId, CancellationToken cancellationToken = default);
+
+    /// <summary>Adopts pending devices. Returns why UniFi refused, or null.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.ChangeControlDevicesAdopted, TargetType = "device")]
+    Task<string?> AdoptAsync(IReadOnlyList<string> macs, CancellationToken cancellationToken = default);
+
+    /// <summary>Forgets a device in UniFi (the old device after a replacement). Returns why UniFi refused, or null.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.ChangeControlDeviceForgotten, TargetType = "device")]
+    Task<string?> ForgetDeviceAsync(string mac, CancellationToken cancellationToken = default);
+
+    /// <summary>Snapshots of a site the caller can see, as restore sources.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<List<RestoreSnapshotView>> GetRestoreSnapshotsAsync(string sourceSiteSlug, CancellationToken cancellationToken = default);
+
+    /// <summary>Builds a plan restoring a snapshot (from this or another visible site) onto this site.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildRestoreAsync(string sourceSiteSlug, int snapshotId, bool deleteMissing, bool devicesOnly, CancellationToken cancellationToken = default);
+
     /// <summary>A plan for Review Plan.</summary>
     [RequireRole(Roles.Viewer)]
     Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default);
