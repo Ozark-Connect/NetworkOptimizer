@@ -367,7 +367,33 @@ else
                 {
                     <div class="cc-item-detail success-text" style="margin-top:0.5rem">Verify: the new snapshot matches the plan.</div>
                 }
+                @if (plan.Status == ConfigPlanStatus.Applied && _view.Doc.ForgetSuggestions.Count > 0 && !_forgotten)
+                {
+                    <SiteOperatorOnly>
+                        <div class="cc-forget">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_forget" />
+                                <span>Forget @(_view.Doc.Context.GetValueOrDefault("old_name") ?? "the old device") in UniFi. Its monitoring history stays in Network Optimizer.</span>
+                            </label>
+                            <button class="btn btn-secondary btn-sm" disabled="@(!_forget || _busy)" @onclick="ForgetAsync">Forget Old Device</button>
+                        </div>
+                    </SiteOperatorOnly>
+                }
             </div>
+        </div>
+    }
+
+    @if (_view.Doc.Recabling.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Re-cabling Sheet</h3></div>
+            @foreach (var r in _view.Doc.Recabling)
+            {
+                <div class="cc-setting-row cc-recable-row">
+                    <span>@r.OldPort → @r.NewPort</span>
+                    <span class="@(r.Unresolved ? "danger-text" : "")">@r.Connected</span>
+                </div>
+            }
         </div>
     }
 
@@ -548,6 +574,18 @@ else
             _busy = false;
         }
     }
+
+    // Checked by default (hardware-replacement.md), but only the button forgets.
+    private bool _forget = true;
+    private bool _forgotten;
+
+    private Task ForgetAsync() => RunAsync(async () =>
+    {
+        foreach (var mac in _view!.Doc.ForgetSuggestions)
+            if (await Site.ForgetDeviceAsync(mac) is { } refused) return refused;
+        _forgotten = true;
+        return null;
+    }, "Old device forgotten in UniFi.");
 
     private Task SaveDraftAsync() => RunAsync(async () =>
     {

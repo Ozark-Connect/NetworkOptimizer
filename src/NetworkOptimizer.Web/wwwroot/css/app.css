@@ -23938,10 +23938,6 @@ body:has(.top-bar-hidden) .btn-fit {
         display: none;
     }
 
-    .change-control .cc-steps {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
     .change-control .cc-zones {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -24395,4 +24391,158 @@ body:has(.top-bar-hidden) .btn-fit {
         gap: 0.5rem;
         width: 100%;
     }
+}
+
+/* Change Control - Migrate */
+.change-control button.cc-action-card {
+    font: inherit;
+    width: 100%;
+}
+
+.change-control .cc-device-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 16px;
+}
+
+.change-control .cc-device-box {
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    padding: 12px 16px;
+    min-width: 0;
+}
+
+.change-control .cc-device-box b {
+    display: block;
+    margin: 0.15rem 0;
+}
+
+.change-control .cc-device-arrow {
+    color: var(--text-muted);
+}
+
+.change-control .cc-migrate-form {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-migrate-form > .form-group {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.change-control .cc-port-table td {
+    vertical-align: middle;
+}
+
+.change-control .cc-port-select {
+    max-width: 240px;
+}
+
+.change-control .cc-select-error {
+    border-color: var(--danger-color);
+}
+
+.change-control .cc-row-error {
+    background: rgba(238, 99, 104, 0.08);
+}
+
+.change-control .cc-inline-ack {
+    display: inline-flex;
+    margin-left: 0.75rem;
+}
+
+.change-control .cc-card-note {
+    padding: 10px 16px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.change-control .cc-setting-row .status-badge {
+    flex-shrink: 0;
+}
+
+.change-control .cc-recable-row > span:first-child {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.change-control .cc-recable-row > span:last-child {
+    text-align: right;
+}
+
+.change-control .cc-map-card {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+    display: grid;
+    gap: 0.5rem;
+}
+
+.change-control .cc-map-card .cc-port-select {
+    max-width: none;
+    min-height: 44px;
+}
+
+.change-control .cc-more {
+    display: block;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+    width: 100%;
+    text-align: left;
+}
+
+.change-control .cc-pending-row {
+    display: flex;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-color);
+    min-height: 44px;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-device-pair {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.5rem;
+    }
+}
+
+.change-control .cc-steps .cc-phone-inline {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-steps .cc-phone-inline {
+        display: inline;
+    }
+
+    .change-control .cc-steps > span {
+        flex-direction: column;
+        gap: 0.25rem;
+        text-align: center;
+    }
+}
+
+
+.change-control .cc-forget {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
 }

@@ -29,7 +29,7 @@ public sealed class ReplacementPortRow
 public sealed record ReplacementSettingRow(string Label, string Status, string Level);
 
 /// <summary>One radio band, old config against the new model.</summary>
-public sealed record ReplacementRadioRow(string Band, string Old, string New, string Note, string Level);
+public sealed record ReplacementRadioRow(string Band, string Old, string New, string Note, string Level, string? AckKey = null, bool Acknowledged = false);
 
 /// <summary>Everything Replace Device shows before Review Plan.</summary>
 public sealed class ReplacementProposal
@@ -53,7 +53,7 @@ public sealed class ReplacementProposal
     public List<string> Warnings { get; init; } = [];
 
     public int Unresolved => Ports.Count(p => p.Target == null);
-    public int ToAcknowledge => Ports.Count(p => p.NeedsAck && !p.Acknowledged);
+    public int ToAcknowledge => Ports.Count(p => p.NeedsAck && !p.Acknowledged) + Radios.Count(r => r.AckKey != null && !r.Acknowledged);
     public bool Ready => Unresolved == 0 && ToAcknowledge == 0 && Ports.All(p => p.FitLevel != "error");
 }
 
@@ -113,7 +113,7 @@ public static class DeviceReplacement
             UnconfiguredPorts = kind == "ap" ? 0 : unconfigured,
         };
 
-        if (kind == "ap") Radios(oldDevice, newMeta, context, proposal);
+        if (kind == "ap") Radios(oldDevice, newMeta, context, proposal, acks);
         else Settings(oldDevice, oldMeta, newMeta, rows, names, proposal);
         if (kind == "gateway") WanRoles(oldDevice, newDevice, proposal);
         Recabling(rows, oldPorts, newPorts, proposal);
@@ -309,8 +309,29 @@ public static class DeviceReplacement
 
         var singles = new List<(int Idx, int Priority, ReplacementPortRow Row)>();
         var runCandidates = new List<(int Idx, string Config, bool Up)>();
+
+        // A LAG moves as one row: its members need consecutive ports of the same kind.
+        foreach (var group in lagOf.GroupBy(kv => kv.Value))
+        {
+            var members = group.Select(kv => kv.Key).OrderBy(i => i).ToList();
+            var lead = members.FirstOrDefault(overrides.ContainsKey);
+            var config = $"LAG {group.Key}" + (lead > 0 && ConfigOf(lead, overrides[lead]) is var c && c != "Custom" ? $", {c}" : "");
+            var neighbor = members.Select(m => lldp.GetValueOrDefault(m)).FirstOrDefault(m => m != null);
+            singles.Add((members[0], 1, new ReplacementPortRow
+            {
+                Key = $"l{group.Key}",
+                OldPorts = members,
+                OldLabel = $"Ports {Range(members)}",
+                Config = config,
+                Connected = neighbor != null ? $"{deviceNames.GetValueOrDefault(neighbor) ?? neighbor} ({members.Count} x {SpeedLabel(byIdx.GetValueOrDefault(members[0])?.SpeedMbps ?? 1000)})"
+                    : $"{members.Count(m => byIdx.GetValueOrDefault(m)?.Up == true)} in use",
+                InUseCount = members.Count(m => byIdx.GetValueOrDefault(m)?.Up == true),
+            }));
+        }
+
         foreach (var (idx, o) in overrides.OrderBy(k => k.Key))
         {
+            if (lagOf.ContainsKey(idx)) continue;
             var p = byIdx.GetValueOrDefault(idx);
             var hasNeighbor = lldp.ContainsKey(idx);
             var isUplink = p?.Uplink == true;
@@ -388,6 +409,9 @@ public static class DeviceReplacement
             }
         }
 
+        // Short on ports: runs of plain ports claim only what is plugged in, so idle config drops before live ports do.
+        var tight = !sameLayout && rows.Where(r => r.Target == null).Sum(r => r.OldPorts.Count) > newPorts.Count(p => !used.Contains(p.Idx));
+
         foreach (var row in rows.Where(r => r.Target == null))
         {
             if (sameLayout)
@@ -420,7 +444,12 @@ public static class DeviceReplacement
                 .ThenBy(p => needPoe || wantUplink ? -p.SpeedMbps : p.SpeedMbps)
                 .ThenBy(p => p.Idx);
 
-            var want = row.OldPorts.Count;
+            var want = tight && row.Key.StartsWith('r') ? row.InUseCount : row.OldPorts.Count;
+            if (want == 0)
+            {
+                row.Target = [];
+                continue;
+            }
             var take = TakeRun(Ranked(candidates).ToList(), want);
             if (take.Count < want && row.InUseCount > 0 && take.Count < row.InUseCount)
                 take = TakeRun(Ranked(candidates).ToList(), row.InUseCount);
@@ -436,6 +465,17 @@ public static class DeviceReplacement
             row.Target = take.Select(p => p.Idx).ToList();
             used.UnionWith(row.Target);
         }
+
+        // Ports left over go back to runs that were cut short, nearest first, so no port sits empty while config drops.
+        if (tight)
+            foreach (var row in rows.Where(r => r.Key.StartsWith('r') && !choices.ContainsKey(r.Key) && r.Target != null && r.Target.Count < r.OldPorts.Count))
+            {
+                var anchor = row.Target!.Count > 0 ? row.Target.Average() : 0;
+                var extra = newPorts.Where(p => !used.Contains(p.Idx) && !p.Sfp)
+                    .OrderBy(p => Math.Abs(p.Idx - anchor)).Take(row.OldPorts.Count - row.Target.Count).Select(p => p.Idx).ToList();
+                row.Target = row.Target.Concat(extra).OrderBy(i => i).ToList();
+                used.UnionWith(extra);
+            }
 
         foreach (var row in rows)
             Describe(row, oldByIdx, newByIdx, newPorts, used, acks);
@@ -525,7 +565,7 @@ public static class DeviceReplacement
             var dropped = row.OldPorts.Count - row.Target.Count;
             row.Fit = row.InUseCount > row.Target.Count
                 ? $"{row.InUseCount - row.Target.Count} in use without a port"
-                : $"Keeps {row.Target.Count} in use, drops {dropped} idle";
+                : row.Target.Count == row.InUseCount ? $"Keeps {row.InUseCount} in use, drops {dropped} idle" : $"Drops {dropped} idle";
             row.FitLevel = row.InUseCount > row.Target.Count ? "error" : "warn";
             row.NeedsAck = true;
             row.Acknowledged = acks.Contains(row.Key);
@@ -575,7 +615,7 @@ public static class DeviceReplacement
         var mgmt = Str(device, "mgmt_network_id") is { } m && names.TryGetValue(m, out var mn) ? mn : null;
         var staticIp = device["config_network"] is JsonObject cn && Str(cn, "type") == "static" ? Str(cn, "ip") : null;
         if (mgmt != null || staticIp != null)
-            s.Add(new(string.Join(", ", new[] { mgmt != null ? $"Management network {mgmt}" : null, staticIp != null ? $"static {staticIp}" : null }.OfType<string>()), "Copied", "ok"));
+            s.Add(new(string.Join(", ", new[] { mgmt != null ? $"Management network: {mgmt}" : null, staticIp != null ? $"static {staticIp}" : null }.OfType<string>()), "Copied", "ok"));
 
         var oldLight = (oldMeta["switch_caps"] as JsonObject) is { } oc ? Int(oc, "etherlight_caps") ?? 0 : 0;
         var newLight = (newMeta["switch_caps"] as JsonObject) is { } nc ? Int(nc, "etherlight_caps") ?? 0 : 0;
@@ -635,7 +675,7 @@ public static class DeviceReplacement
         _ => 40,
     };
 
-    private static void Radios(JsonObject oldDevice, JsonObject newMeta, ConfigState context, ReplacementProposal proposal)
+    private static void Radios(JsonObject oldDevice, JsonObject newMeta, ConfigState context, ReplacementProposal proposal, IReadOnlySet<string> acks)
     {
         var oldRadios = (oldDevice["radio_table"] as JsonArray ?? []).OfType<JsonObject>().ToList();
         var newCaps = (newMeta["radios"] as JsonArray ?? []).OfType<JsonObject>().ToDictionary(r => Str(r, "radio") ?? "", r => r);
@@ -652,16 +692,28 @@ public static class DeviceReplacement
                 continue;
             }
             var adapted = AdaptRadio(old, caps, out var notes);
-            proposal.Radios.Add(new(BandName(band), oldText, RadioText(adapted), notes.Count > 0 ? string.Join("; ", notes) : "Copied", notes.Count > 0 ? "warn" : "ok"));
-            if (Str(caps, "ap_pwr_type") is not "SP" && Str(old, "ap_pwr_type") == "SP" && band == "6e"
-                && newMeta["supported_afc_regions"] is not JsonArray { Count: > 0 })
-                proposal.Warnings.Add("The new model has no AFC region here, so 6 GHz runs Low Power Indoor: lower power and coverage than Standard Power.");
+            var newText = RadioText(adapted);
+            string? ackKey = null;
+            // Standard Power needs AFC; without a region the new AP runs Low Power Indoor (ap_pwr_type, sample captures).
+            if (band == "6e" && Str(old, "ap_pwr_type") == "SP" && newMeta["supported_afc_regions"] is not JsonArray { Count: > 0 })
+            {
+                oldText += ", Standard Power";
+                newText += ", Low Power Indoor";
+                notes.Add("No AFC: lower power, smaller 6 GHz coverage");
+                ackKey = "radio-6e-afc";
+            }
+            proposal.Radios.Add(new(BandName(band), oldText, newText, notes.Count > 0 ? string.Join("; ", notes) : "Copied", notes.Count > 0 ? "warn" : "ok",
+                ackKey, ackKey != null && acks.Contains(ackKey)));
         }
         foreach (var (band, _) in newCaps.Where(n => oldRadios.All(o => Str(o, "radio") != n.Key)))
             proposal.Radios.Add(new(BandName(band), "-", "Site defaults", "New band", "muted"));
 
         if (Str(oldDevice, "mesh_uplink_1") is { Length: > 0 })
             proposal.Settings.Add(new("Mesh uplink", "Copied", "ok"));
+        var oldMac = Str(oldDevice, "mac")?.ToLowerInvariant();
+        foreach (var child in context.Get("device").Where(d => oldMac != null
+            && (Str(d, "mesh_uplink_1")?.ToLowerInvariant() == oldMac || Str(d, "mesh_uplink_2")?.ToLowerInvariant() == oldMac)))
+            proposal.Settings.Add(new($"{ConfigState.DisplayName(ConfigCollections.Get("device"), child)} meshes through this AP", "Uplink MAC rewritten", "ok"));
         if (oldDevice["outdoor_mode_override"] != null || oldDevice["led_override"] != null)
             proposal.Settings.Add(new("LED and outdoor mode", "Copied", "ok"));
     }
