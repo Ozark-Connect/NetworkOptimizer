@@ -16,6 +16,9 @@ public static class ModemProviderKeys
     /// <summary>Any router with a Quectel module, polled straight at the module's AT port.</summary>
     public const string QuectelSsh = "quectel-ssh";
 
+    /// <summary>MikroTik RouterOS devices, polled through the RouterOS console.</summary>
+    public const string MikroTikRouterOs = "mikrotik-routeros";
+
     /// <summary>
     /// Whether the provider polls with the site's shared device SSH credentials. Empty counts as
     /// qmicli: it is the default for rows that predate the Provider column.
@@ -27,7 +30,8 @@ public static class ModemProviderKeys
     public static bool UsesPerModemSsh(string? provider) =>
         provider != null &&
         (provider.Equals(QuectelAt, StringComparison.OrdinalIgnoreCase) ||
-         provider.Equals(QuectelSsh, StringComparison.OrdinalIgnoreCase));
+         provider.Equals(QuectelSsh, StringComparison.OrdinalIgnoreCase) ||
+         provider.Equals(MikroTikRouterOs, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Whether the provider is reached over SSH at all. Everything else is HTTP(S), whose save path
