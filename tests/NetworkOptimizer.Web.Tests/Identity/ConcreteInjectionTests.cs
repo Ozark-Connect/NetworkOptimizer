@@ -152,7 +152,7 @@ public class ConcreteInjectionTests
         foreach (var file in Directory.EnumerateFiles(webRoot, "*.cs", SearchOption.AllDirectories))
         {
             foreach (Match m in Regex.Matches(
-                         File.ReadAllText(file), @"public (?:sealed )?class (\w+)\s*:\s*([^\{]+)"))
+                         File.ReadAllText(file), @"public (?:sealed )?(?:partial )?class (\w+)\s*:\s*([^\{]+)"))
             {
                 foreach (var iface in gated)
                 {

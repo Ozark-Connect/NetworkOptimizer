@@ -531,6 +531,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         if (o.Collection == "wlanconf")
         {
             var rows = ChangeDescriber.Rows(o, beforeNames, afterNames).Where(r => r.Label == "Security protocol").ToList();
+            if (rows.Count > 0) fields.RemoveAll(f => f.Label == "Security");
             foreach (var r in rows)
                 fields.Insert(0, new StoredField { Path = "_security", Label = r.Label, Old = r.Old, New = r.New });
         }
