@@ -2321,26 +2321,26 @@
             <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Gateway</label>
-                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditIperf3)" />
+                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditSpeedTestSettings)" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">UniFi Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditIperf3)" />
+                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditSpeedTestSettings)" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Other Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditIperf3)" />
+                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditSpeedTestSettings)" />
                 </div>
             </div>
             <small class="form-help" style="display: block; margin-bottom: 1rem;">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
 
             <div class="form-group">
                 <label class="form-label">Test Duration (seconds)</label>
-                <input type="number" class="form-control" @bind="iperf3Duration" @bind:event="oninput" min="3" max="60" style="width: 100px;" disabled="@(!_canEditIperf3)" />
+                <input type="number" class="form-control" @bind="iperf3Duration" @bind:event="oninput" min="3" max="60" style="width: 100px;" disabled="@(!_canEditSpeedTestSettings)" />
                 <small class="form-help">Duration of each test direction (3-60 seconds)</small>
             </div>
 
-            @if (_canEditIperf3)
+            @if (_canEditSpeedTestSettings)
             {
                 <div class="action-buttons">
                     <button class="btn btn-success" @onclick="SaveIperf3Settings" disabled="@savingIperf3Settings">
@@ -2402,23 +2402,26 @@
                             </div>
                             <div style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem; margin-top: 0.25rem;">@server.Url</div>
                         </div>
-                        <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
-                            @if (!server.IsDefault)
-                            {
-                                <button class="btn btn-secondary btn-sm" @onclick="() => SetDefaultExtServer(server.Id)">Set Default</button>
-                            }
-                            <button class="btn btn-secondary btn-sm" @onclick="() => StartEditExtServer(server)">Edit</button>
-                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteExtServer(server.Id)" disabled="@(deletingExtServerId == server.Id)">
-                                @if (deletingExtServerId == server.Id)
+                        @if (_canEditSpeedTestSettings)
+                        {
+                            <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+                                @if (!server.IsDefault)
                                 {
-                                    <span class="spinner spinner-sm"></span>
+                                    <button class="btn btn-secondary btn-sm" @onclick="() => SetDefaultExtServer(server.Id)">Set Default</button>
                                 }
-                                else
-                                {
-                                    <span>Delete</span>
-                                }
-                            </button>
-                        </div>
+                                <button class="btn btn-secondary btn-sm" @onclick="() => StartEditExtServer(server)">Edit</button>
+                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteExtServer(server.Id)" disabled="@(deletingExtServerId == server.Id)">
+                                    @if (deletingExtServerId == server.Id)
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                    }
+                                    else
+                                    {
+                                        <span>Delete</span>
+                                    }
+                                </button>
+                            </div>
+                        }
                     </div>
 
                     <div style="border-bottom: 1px solid var(--bg-tertiary);">
@@ -2513,11 +2516,15 @@
                     </div>
                 </div>
             }
-            else
+            else if (_canEditSpeedTestSettings)
             {
                 <div style="margin-top: 1rem;">
                     <button class="btn btn-primary" @onclick="StartAddExtServer">+ Add Server</button>
                 </div>
+            }
+            else
+            {
+                <small class="form-help" style="display: block; margin-top: 1rem;">These servers are shared by every site. An Admin manages them.</small>
             }
 
             @if (!string.IsNullOrEmpty(extServerMessage))
@@ -5347,8 +5354,8 @@
     private int iperf3OtherParallelStreams = 10;
     private int iperf3Duration = 10;
     private bool savingIperf3Settings = false;
-    // The iperf3 defaults are instance-wide, so only a global Admin may save them.
-    private bool _canEditIperf3;
+    // The iperf3 defaults and external servers are instance-wide, so only a global Admin may change them.
+    private bool _canEditSpeedTestSettings;
     private string iperf3Message = "";
     private string iperf3MessageClass = "";
 
@@ -5619,6 +5626,9 @@
         await LoadOntSettings();
         await LoadStarlinkSettings();
         await LoadDiscoveredModems();
+        var authState = AuthState is null ? null : await AuthState;
+        _canEditSpeedTestSettings = authState is not null
+            && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
         await LoadIperf3Settings();
         await LoadExtServers();
         await LoadAdminPasswordSettings();
@@ -5642,10 +5652,6 @@
     {
         try
         {
-            var authState = AuthState is null ? null : await AuthState;
-            _canEditIperf3 = authState is not null
-                && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
-
             var settings = await SystemSettings.GetIperf3SettingsAsync();
             iperf3GatewayParallelStreams = settings.GatewayParallelStreams;
             iperf3UniFiParallelStreams = settings.UniFiParallelStreams;
@@ -5763,12 +5769,12 @@
             if (editingExtServerId.HasValue)
             {
                 server.Id = editingExtServerId.Value;
-                await SystemSettings.UpdateExternalSpeedTestServerAsync(server);
+                await SettingsAdmin.UpdateExternalSpeedTestServerAsync(server);
                 extServerMessage = "Server updated";
             }
             else
             {
-                await SystemSettings.AddExternalSpeedTestServerAsync(server);
+                await SettingsAdmin.AddExternalSpeedTestServerAsync(server);
                 extServerMessage = "Server added";
             }
             extServerMessageClass = "success";
@@ -5798,7 +5804,7 @@
 
         try
         {
-            await SystemSettings.DeleteExternalSpeedTestServerAsync(id);
+            await SettingsAdmin.DeleteExternalSpeedTestServerAsync(id);
             await LoadExtServers();
             SystemSettings.UpdateCachedExternalOrigins(extServers);
             if (extServerExpandedId == id) extServerExpandedId = 0;
@@ -5821,7 +5827,7 @@
     {
         try
         {
-            await SystemSettings.SetDefaultExternalSpeedTestServerAsync(id);
+            await SettingsAdmin.SetDefaultExternalSpeedTestServerAsync(id);
             await LoadExtServers();
         }
         catch (Exception ex)
