@@ -81,4 +81,48 @@ public class AgentTunnelRegistryTests
         registry.IsAgentLive(agent).Should().BeFalse();
         registry.IsReachable(agent).Should().BeTrue();
     }
+
+    [Fact]
+    public void ReconnectsWithin_FirstConnect_IsNotAReconnect()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        registry.Register(1, "branch-office", "Agent");
+
+        registry.ReconnectsWithin(1, AgentTunnelRegistry.UnstableWindow).Should().Be(0);
+        registry.IsUnstable(1).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnstable_BelowThreshold_IsFalse()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        for (var i = 0; i < AgentTunnelRegistry.UnstableReconnects; i++)
+            registry.Register(1, "branch-office", "Agent");
+
+        registry.ReconnectsWithin(1, AgentTunnelRegistry.UnstableWindow).Should().Be(AgentTunnelRegistry.UnstableReconnects - 1);
+        registry.IsUnstable(1).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUnstable_AtThreshold_IsTrue()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        for (var i = 0; i <= AgentTunnelRegistry.UnstableReconnects; i++)
+            registry.Unregister(registry.Register(1, "branch-office", "Agent"));
+
+        registry.IsUnstable(1).Should().BeTrue();
+        registry.DescribeUnstable(1).Should().StartWith($"Reconnected {AgentTunnelRegistry.UnstableReconnects} times in the last 15 minutes.");
+    }
+
+    [Fact]
+    public void IsUnstable_CountsPerAgent()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        for (var i = 0; i <= AgentTunnelRegistry.UnstableReconnects; i++)
+            registry.Register(1, "branch-office", "Agent");
+        registry.Register(2, "branch-office", "Agent 2");
+
+        registry.IsUnstable(1).Should().BeTrue();
+        registry.IsUnstable(2).Should().BeFalse();
+    }
 }

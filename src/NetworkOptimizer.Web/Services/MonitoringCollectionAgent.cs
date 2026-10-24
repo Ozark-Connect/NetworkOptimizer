@@ -136,9 +136,10 @@ public class MonitoringCollectionAgent : BackgroundService
     /// agent. False is a standing condition, not a transient one - the server never hands probing
     /// back for a non-default site - so latency and path measurement cannot run here at all until
     /// an agent is enrolled. SNMP is unaffected: it stands down only when an agent IS present.
+    /// An enrolled agent counts while disconnected, so a tunnel bounce never reads as "no agent".
     /// </summary>
     public bool SiteCanProbe =>
-        ServerProbesThisSite || _tunnelRegistry.GetForSite(_siteSlug).Count > 0 || _siteAgentEnrolled;
+        ServerProbesThisSite || _tunnelRegistry.GetForSite(_siteSlug).Count > 0 || _siteHasEnrolledAgent;
 
     /// <summary>
     /// Lets the Setup page's interactive re-check override the cached self-heal sighting
@@ -245,21 +246,28 @@ public class MonitoringCollectionAgent : BackgroundService
     // targets from its own stack: false LAN packet-loss, and the server's own RTT on shared
     // (anycast) targets. Refreshed on a throttle from the tier loop.
     private volatile bool _siteAgentEnrolled;
+
+    // The same read on every site, for SiteCanProbe only. Kept apart from _siteAgentEnrolled because
+    // the default site's SNMP must still fall back to the server while its agent is disconnected.
+    private volatile bool _siteHasEnrolledAgent;
     private DateTime _agentCoverageCheckedAt = DateTime.MinValue;
     private static readonly TimeSpan AgentCoverageTtl = TimeSpan.FromSeconds(30);
 
     private async Task RefreshAgentCoverageAsync(CancellationToken ct)
     {
-        if (_isDefault) return;
         if (DateTime.UtcNow - _agentCoverageCheckedAt < AgentCoverageTtl) return;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync(ct);
             var site = await db.Sites.AsNoTracking().FirstOrDefaultAsync(s => s.Slug == _siteSlug, ct);
-            var wasEnrolled = _siteAgentEnrolled;
-            _siteAgentEnrolled = site != null && await db.SiteAgents.AsNoTracking()
+            var enrolled = site != null && await db.SiteAgents.AsNoTracking()
                 .AnyAsync(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null, ct);
+            _siteHasEnrolledAgent = enrolled;
             _agentCoverageCheckedAt = DateTime.UtcNow;
+            if (_isDefault) return;
+
+            var wasEnrolled = _siteAgentEnrolled;
+            _siteAgentEnrolled = enrolled;
 
             // The moment an external site first gains an agent, activate the default internet
             // targets that were seeded disabled while it had none - the agent can now probe them
@@ -290,8 +298,7 @@ public class MonitoringCollectionAgent : BackgroundService
         // Resolve agent coverage before seeding so an external (non-default) site seeds its
         // default internet targets disabled until an agent is deployed - otherwise the central
         // server, which can't see the site's network, would probe anycast DNS from its own
-        // stack and log that as the site's ISP latency. No-op on the default site (always seeds
-        // enabled), where this returns immediately.
+        // stack and log that as the site's ISP latency. The default site always seeds enabled.
         await RefreshAgentCoverageAsync(stoppingToken);
 
         // Seed default targets on startup so the latency tier has something to probe even
