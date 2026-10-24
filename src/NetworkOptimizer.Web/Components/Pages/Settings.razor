@@ -38,6 +38,7 @@
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject ISystemSettingsAdmin SettingsAdmin
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject NetworkOptimizer.Threats.ThreatCollectionService ThreatCollection
 @inject NavigationManager NavigationManager
 @inject ISiteManagementService SiteManagement
@@ -2320,38 +2321,45 @@
             <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Gateway</label>
-                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" />
+                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditIperf3)" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">UniFi Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" />
+                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditIperf3)" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Other Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" />
+                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditIperf3)" />
                 </div>
             </div>
             <small class="form-help" style="display: block; margin-bottom: 1rem;">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
 
             <div class="form-group">
                 <label class="form-label">Test Duration (seconds)</label>
-                <input type="number" class="form-control" @bind="iperf3Duration" @bind:event="oninput" min="3" max="60" style="width: 100px;" />
+                <input type="number" class="form-control" @bind="iperf3Duration" @bind:event="oninput" min="3" max="60" style="width: 100px;" disabled="@(!_canEditIperf3)" />
                 <small class="form-help">Duration of each test direction (3-60 seconds)</small>
             </div>
 
-            <div class="action-buttons">
-                <button class="btn btn-success" @onclick="SaveIperf3Settings" disabled="@savingIperf3Settings">
-                    @if (savingIperf3Settings)
-                    {
-                        <span class="spinner"></span>
-                        <span>Saving...</span>
-                    }
-                    else
-                    {
-                        <span>Save Settings</span>
-                    }
-                </button>
-            </div>
+            @if (_canEditIperf3)
+            {
+                <div class="action-buttons">
+                    <button class="btn btn-success" @onclick="SaveIperf3Settings" disabled="@savingIperf3Settings">
+                        @if (savingIperf3Settings)
+                        {
+                            <span class="spinner"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>Save Settings</span>
+                        }
+                    </button>
+                </div>
+            }
+            else
+            {
+                <small class="form-help">These settings apply to every site. An Admin manages them.</small>
+            }
 
             @if (!string.IsNullOrEmpty(iperf3Message))
             {
@@ -5339,6 +5347,8 @@
     private int iperf3OtherParallelStreams = 10;
     private int iperf3Duration = 10;
     private bool savingIperf3Settings = false;
+    // The iperf3 defaults are instance-wide, so only a global Admin may save them.
+    private bool _canEditIperf3;
     private string iperf3Message = "";
     private string iperf3MessageClass = "";
 
@@ -5632,6 +5642,10 @@
     {
         try
         {
+            var authState = AuthState is null ? null : await AuthState;
+            _canEditIperf3 = authState is not null
+                && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
+
             var settings = await SystemSettings.GetIperf3SettingsAsync();
             iperf3GatewayParallelStreams = settings.GatewayParallelStreams;
             iperf3UniFiParallelStreams = settings.UniFiParallelStreams;
@@ -5659,7 +5673,7 @@
             iperf3OtherParallelStreams = Math.Clamp(iperf3OtherParallelStreams, 1, 16);
             iperf3Duration = Math.Clamp(iperf3Duration, 3, 60);
 
-            await SystemSettings.SaveIperf3SettingsAsync(new Iperf3Settings
+            await SettingsAdmin.SaveIperf3SettingsAsync(new Iperf3Settings
             {
                 GatewayParallelStreams = iperf3GatewayParallelStreams,
                 UniFiParallelStreams = iperf3UniFiParallelStreams,
