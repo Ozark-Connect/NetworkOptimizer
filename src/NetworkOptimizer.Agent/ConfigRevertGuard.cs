@@ -7,7 +7,7 @@ namespace NetworkOptimizer.Agent;
 
 /// <summary>
 /// Change Control's agent-side revert. Holds the calls that undo a config apply, with the console
-/// API key, in memory only. While the tunnel is up the server decides; past the deadline with the
+/// credentials (API key, or username and password), in memory only. While the tunnel is up the server decides; past the deadline with the
 /// tunnel down, the agent checks the console, the watched devices, and the internet, reverts if any
 /// check fails, and holds while all pass (the fault is then upstream: the NO server or its ISP).
 /// Reports wait for the server's acknowledgement and resend on every reconnect.
@@ -20,6 +20,11 @@ public sealed class ConfigRevertGuard
     {
         public required ConfigRevertArm Arm { get; set; }
         public bool Held { get; set; }
+
+        // One console session per armed plan: a sign-in per check would trip the console's login limit.
+        public HttpMessageInvoker? Client { get; set; }
+        public string? Csrf { get; set; }
+        public bool SignedIn { get; set; }
     }
 
     private readonly object _lock = new();
@@ -45,14 +50,22 @@ public sealed class ConfigRevertGuard
         _now = now ?? (() => DateTime.UtcNow);
     }
 
-    private static readonly HttpMessageInvoker StrictClient = new(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(8) });
-    private static readonly HttpMessageInvoker LenientClient = new(new SocketsHttpHandler
+    // Its own cookie jar per plan, for the username/password session.
+    private static HttpMessageInvoker DefaultHttp(bool ignoreTls) => new(new SocketsHttpHandler
     {
         ConnectTimeout = TimeSpan.FromSeconds(8),
-        SslOptions = new System.Net.Security.SslClientAuthenticationOptions { RemoteCertificateValidationCallback = delegate { return true; } },
+        CookieContainer = new System.Net.CookieContainer(),
+        SslOptions = ignoreTls
+            ? new System.Net.Security.SslClientAuthenticationOptions { RemoteCertificateValidationCallback = delegate { return true; } }
+            : new System.Net.Security.SslClientAuthenticationOptions(),
     });
 
-    private static HttpMessageInvoker DefaultHttp(bool ignoreTls) => ignoreTls ? LenientClient : StrictClient;
+    /// <summary>
+    /// Device states that mean a device is gone (stat/device state: 0 disconnected, 6 heartbeat
+    /// missed, 9 inform error, 11 isolated). Provisioning, upgrading, and adopting are not offline:
+    /// a gateway provisions for about two minutes after a config write.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> OfflineStates = new HashSet<string> { "0", "6", "9", "11" };
 
     private static async Task<bool> DefaultInternetUpAsync(CancellationToken ct)
     {
@@ -79,7 +92,11 @@ public sealed class ConfigRevertGuard
     /// <summary>Takes or replaces the revert for a plan.</summary>
     public void OnArm(ConfigRevertArm arm)
     {
-        lock (_lock) _armed[arm.PlanId] = new Armed { Arm = arm };
+        lock (_lock)
+        {
+            Drop(arm.PlanId);
+            _armed[arm.PlanId] = new Armed { Arm = arm };
+        }
         Console.WriteLine($"Change Control: revert for plan {arm.PlanId} armed ({arm.Calls.Count} call(s))");
     }
 
@@ -89,8 +106,14 @@ public sealed class ConfigRevertGuard
         lock (_lock)
         {
             if (confirm.ReportReceived) _unacked.Remove(confirm.PlanId);
-            else _armed.Remove(confirm.PlanId);
+            else Drop(confirm.PlanId);
         }
+    }
+
+    /// <summary>Forgets a plan's revert, its credentials, and its session. Call under the lock.</summary>
+    private void Drop(long planId)
+    {
+        if (_armed.Remove(planId, out var armed)) armed.Client?.Dispose();
     }
 
     /// <summary>Resends every report the server has not acknowledged (call after the tunnel opens).</summary>
@@ -132,7 +155,7 @@ public sealed class ConfigRevertGuard
         lock (_lock) due = _armed.Values.Where(a => a.Arm.DeadlineUnixMs <= nowMs).ToList();
         foreach (var armed in due)
         {
-            var failure = await CheckAsync(armed.Arm, ct);
+            var failure = await CheckAsync(armed, ct);
             if (failure == null)
             {
                 if (!armed.Held)
@@ -144,8 +167,8 @@ public sealed class ConfigRevertGuard
             }
 
             Console.WriteLine($"Change Control: reverting plan {armed.Arm.PlanId}: {failure}");
-            var (ok, failed, error) = await RevertAsync(armed.Arm, ct);
-            lock (_lock) _armed.Remove(armed.Arm.PlanId);
+            var (ok, failed, error) = await RevertAsync(armed, ct);
+            lock (_lock) Drop(armed.Arm.PlanId);
             Report(armed.Arm.PlanId, failed == 0 ? ConfigRevert.Reverted : ConfigRevert.RevertFailed,
                 failed == 0 ? $"Reverted by the On-Site Agent: {failure}" : $"The On-Site Agent's revert stopped: {error} ({failure})", ok, failed);
         }
@@ -163,17 +186,17 @@ public sealed class ConfigRevertGuard
     }
 
     /// <summary>Null when every check passes, otherwise what failed.</summary>
-    private async Task<string?> CheckAsync(ConfigRevertArm arm, CancellationToken ct)
+    private async Task<string?> CheckAsync(Armed armed, CancellationToken ct)
     {
-        var health = await SendAsync(arm, HttpMethod.Get, arm.HealthUrl, null, ct);
+        var arm = armed.Arm;
+        var health = await SendAsync(armed, HttpMethod.Get, arm.HealthUrl, null, ct);
         if (health == null || !health.Value.Ok) return "the UniFi Console does not answer";
 
         if (arm.WatchDeviceMacs.Count > 0)
         {
-            var devices = await SendAsync(arm, HttpMethod.Get, arm.DevicesUrl, null, ct);
+            var devices = await SendAsync(armed, HttpMethod.Get, arm.DevicesUrl, null, ct);
             if (devices == null || !devices.Value.Ok) return "the device list does not load";
-            var online = OnlineMacs(devices.Value.Body);
-            var offline = arm.WatchDeviceMacs.Where(m => !online.Contains(m.ToLowerInvariant())).ToList();
+            var offline = OfflineMacs(devices.Value.Body, arm.WatchDeviceMacs);
             if (offline.Count > 0) return $"{offline.Count} watched device(s) offline";
         }
 
@@ -181,24 +204,25 @@ public sealed class ConfigRevertGuard
         return null;
     }
 
-    /// <summary>MACs in state 1 (connected) in a stat/device response.</summary>
-    internal static HashSet<string> OnlineMacs(string body)
+    /// <summary>Watched MACs that are gone: missing from stat/device, or in an offline state.</summary>
+    internal static List<string> OfflineMacs(string body, IEnumerable<string> watched)
     {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var state = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            if (JsonNode.Parse(body)?["data"] is not JsonArray data) return result;
-            foreach (var d in data.OfType<JsonObject>())
-                if (d["state"]?.ToString() == "1" && d["mac"]?.ToString() is { } mac) result.Add(mac.ToLowerInvariant());
+            if (JsonNode.Parse(body)?["data"] is JsonArray data)
+                foreach (var d in data.OfType<JsonObject>())
+                    if (d["mac"]?.ToString() is { } mac) state[mac] = d["state"]?.ToString() ?? "";
         }
         catch (System.Text.Json.JsonException)
         {
         }
-        return result;
+        return watched.Where(m => !state.TryGetValue(m, out var s) || OfflineStates.Contains(s)).ToList();
     }
 
-    private async Task<(int Ok, int Failed, string? Error)> RevertAsync(ConfigRevertArm arm, CancellationToken ct)
+    private async Task<(int Ok, int Failed, string? Error)> RevertAsync(Armed armed, CancellationToken ct)
     {
+        var arm = armed.Arm;
         var created = new Dictionary<string, string>(StringComparer.Ordinal);
         string Resolve(string s)
         {
@@ -212,7 +236,7 @@ public sealed class ConfigRevertGuard
         {
             var url = Resolve(call.Url);
             if (url.Contains(ConfigRevert.RefPrefix, StringComparison.Ordinal)) { failed++; error ??= $"{call.Key}: an earlier create did not land"; continue; }
-            var result = await SendAsync(arm, new HttpMethod(call.Method), url, string.IsNullOrEmpty(call.Body) ? null : Resolve(call.Body), ct);
+            var result = await SendAsync(armed, new HttpMethod(call.Method), url, string.IsNullOrEmpty(call.Body) ? null : Resolve(call.Body), ct);
             var gone = call.Method == "DELETE" && result is { Status: 404 };
             if (result is { Ok: true } || gone)
             {
@@ -244,16 +268,45 @@ public sealed class ConfigRevertGuard
         }
     }
 
-    private async Task<(bool Ok, int Status, string Body)?> SendAsync(ConfigRevertArm arm, HttpMethod method, string url, string? body, CancellationToken ct)
+    private bool UsesPassword(ConfigRevertArm arm) => string.IsNullOrEmpty(arm.ApiKey) && !string.IsNullOrEmpty(arm.LoginUrl);
+
+    /// <summary>
+    /// Signs in with the username and password the way the server's own client does: POST the
+    /// login URL, keep the session cookie, and send the X-Csrf-Token it returns on every call.
+    /// </summary>
+    private async Task<bool> SignInAsync(Armed armed, CancellationToken ct)
+    {
+        var arm = armed.Arm;
+        var body = new JsonObject { ["username"] = arm.Username, ["password"] = arm.Password, ["remember"] = false, ["strict"] = true };
+        var result = await RawSendAsync(armed, HttpMethod.Post, arm.LoginUrl, body.ToJsonString(), ct);
+        armed.SignedIn = result is { Ok: true };
+        return armed.SignedIn;
+    }
+
+    private async Task<(bool Ok, int Status, string Body)?> SendAsync(Armed armed, HttpMethod method, string url, string? body, CancellationToken ct)
+    {
+        if (UsesPassword(armed.Arm) && !armed.SignedIn && !await SignInAsync(armed, ct)) return null;
+        var result = await RawSendAsync(armed, method, url, body, ct);
+        // A session the console dropped gets one fresh sign-in, never a loop of them.
+        if (result is { Status: 401 } && UsesPassword(armed.Arm) && await SignInAsync(armed, ct))
+            result = await RawSendAsync(armed, method, url, body, ct);
+        return result;
+    }
+
+    private async Task<(bool Ok, int Status, string Body)?> RawSendAsync(Armed armed, HttpMethod method, string url, string? body, CancellationToken ct)
     {
         try
         {
+            armed.Client ??= _http(armed.Arm.IgnoreTlsErrors);
             using var request = new HttpRequestMessage(method, url);
-            request.Headers.Add("X-API-KEY", arm.ApiKey);
+            if (!string.IsNullOrEmpty(armed.Arm.ApiKey)) request.Headers.Add("X-API-KEY", armed.Arm.ApiKey);
+            else if (armed.Csrf != null) request.Headers.Add("X-Csrf-Token", armed.Csrf);
             if (body != null) request.Content = new StringContent(body, Encoding.UTF8, "application/json");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(20));
-            using var response = await _http(arm.IgnoreTlsErrors).SendAsync(request, timeout.Token);
+            using var response = await armed.Client.SendAsync(request, timeout.Token);
+            if (response.Headers.TryGetValues("X-Csrf-Token", out var csrf) && csrf.FirstOrDefault() is { Length: > 0 } token)
+                armed.Csrf = token;
             var text = await response.Content.ReadAsStringAsync(timeout.Token);
             return ((int)response.StatusCode is >= 200 and < 300, (int)response.StatusCode, text);
         }

@@ -34,7 +34,7 @@ public sealed class AgentRevertArmer : IAgentRevertArmer
     private AgentTunnelConnection? Agent() =>
         _agents.GetForSite(_slug).Where(c => c.HasCapability(ConfigRevert.Capability) && !c.IsStale).OrderByDescending(c => c.LastMessageAt).FirstOrDefault();
 
-    public bool CanArm() => Agent() != null && _connection.Client?.ApiKeyForAgentRevert is { Length: > 0 };
+    public bool CanArm() => Agent() != null && _connection.Client?.CredentialsForAgentRevert != null;
 
     public async Task<bool> ArmAsync(ConfigPlan plan, PlanDocument doc, int preApplySnapshotId, TimeSpan window, CancellationToken ct)
     {
@@ -70,7 +70,7 @@ public sealed class AgentRevertArmer : IAgentRevertArmer
     {
         var agent = Agent();
         var client = _connection.Client;
-        if (agent == null || client?.ApiKeyForAgentRevert is not { Length: > 0 } key) return false;
+        if (agent == null || client?.CredentialsForAgentRevert is not { } credentials) return false;
 
         var touched = doc.Operations.Where(o => o.ObjectId != null).Select(o => (o.Collection, o.ObjectId!)).ToHashSet();
         var revert = PlanBuilder.Build(before, current, new PlanOptions { OnlyObjects = touched, Collections = doc.Collections.ToHashSet() });
@@ -78,7 +78,10 @@ public sealed class AgentRevertArmer : IAgentRevertArmer
         {
             PlanId = plan.Id,
             DeadlineUnixMs = new DateTimeOffset(deadline).ToUnixTimeMilliseconds(),
-            ApiKey = key,
+            ApiKey = credentials.ApiKey ?? "",
+            LoginUrl = credentials.LoginUrl ?? "",
+            Username = credentials.Username ?? "",
+            Password = credentials.Password ?? "",
             IgnoreTlsErrors = client.IgnoresTlsErrors,
             HealthUrl = client.ResolveUrl(UniFiApiScope.SiteV1, "stat/health"),
             DevicesUrl = client.ResolveUrl(UniFiApiScope.SiteV1, "stat/device"),

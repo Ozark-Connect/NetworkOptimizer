@@ -156,10 +156,14 @@ public partial class UniFiApiClient
     public string ResolveUrl(UniFiApiScope scope, string path) => BuildRawUrl(scope, path);
 
     /// <summary>
-    /// The console API key, handed only to an On-Site Agent for a revert window and never stored there.
-    /// Null on username/password connections, which cannot arm an agent revert.
+    /// The console credentials, handed only to an On-Site Agent for a revert window and never stored
+    /// there: the API key, or the login URL with the username and password. Null when neither is set.
     /// </summary>
-    public string? ApiKeyForAgentRevert => _apiKey;
+    public (string? ApiKey, string? LoginUrl, string? Username, string? Password)? CredentialsForAgentRevert =>
+        !string.IsNullOrEmpty(_apiKey) ? (_apiKey, null, null, null)
+        : !string.IsNullOrEmpty(_username) && !string.IsNullOrEmpty(_password)
+            ? (null, _useStandaloneLogin ? $"{_controllerUrl}/api/login" : $"{_controllerUrl}/api/auth/login", _username, _password)
+            : null;
 
     /// <summary>Whether this client accepts the console's self-signed certificate.</summary>
     public bool IgnoresTlsErrors => _ignoreSSLErrors;
