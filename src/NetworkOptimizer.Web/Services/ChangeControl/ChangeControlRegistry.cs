@@ -81,6 +81,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             IsAgentSite = () => connection.IsViaAgent,
             ConsoleHost = () => Uri.TryCreate(connection.CurrentConfig?.ControllerUrl, UriKind.Absolute, out var u) ? u.Host : null,
         };
+        if (_sp.GetService<AgentTunnelRegistry>() is { } agents)
+            coordinator.AgentRevert = new AgentRevertArmer(slug, engine, connection, agents,
+                _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlAgentRevert[{slug}]"));
         _coordinators[slug] = coordinator;
         engine.OnTick = coordinator.TickAsync;
         return engine;

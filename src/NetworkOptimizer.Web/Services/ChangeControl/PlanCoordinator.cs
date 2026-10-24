@@ -91,6 +91,9 @@ public sealed class PlanCoordinator
         var live = await _engine.ReadLiveAsync(ct);
         var doc = PlanBuilder.Build(desired, live, Options(options));
         decorate?.Invoke(doc);
+        if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
+            doc.Notes.Add("This site's On-Site Agent cannot hold the revert (it needs an agent update and an API-key console connection). "
+                + "If the change cuts the tunnel, the automatic revert cannot reach the site.");
         await RunImpactAsync(doc, live, ct);
 
         var plan = new ConfigPlan
@@ -252,7 +255,8 @@ public sealed class PlanCoordinator
             // Verify: a fresh snapshot, compared with what the plan meant to write.
             var post = await _engine.TakeSnapshotAsync(ConfigSnapshotTrigger.AfterApply, plan.Name, null, ct);
             plan.PostApplySnapshotId = post?.Id;
-            if (post != null && await _engine.LoadSnapshotStateAsync(post.Id, ct) is { } after)
+            var after = post == null ? null : await _engine.LoadSnapshotStateAsync(post.Id, ct);
+            if (after != null)
                 result.VerifyDifferences = VerifyAgainst(doc, live, after);
 
             plan.ResultJson = JsonSerializer.Serialize(result);
@@ -263,6 +267,7 @@ public sealed class PlanCoordinator
                 plan.CompletedAt = DateTime.UtcNow;
                 plan.Message = result.Operations.LastOrDefault(o => o.Outcome == "Error")?.Message ?? "A write failed.";
                 await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+                if (plan.AgentRevertArmed && AgentRevert != null) await AgentRevert.CancelAsync(plan, ct);
                 await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Plan failed: {plan.Name}",
                     $"{plan.Message} Writes before it stay applied; Roll Back to the pinned snapshot puts them back.", plan.Id, ct);
                 if (automatic) Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Failure, new { plan.Message });
@@ -280,6 +285,9 @@ public sealed class PlanCoordinator
                 plan.Status = ConfigPlanStatus.Applied;
             }
             await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+            // Now the created IDs are known, the agent's copy also deletes what the plan created.
+            if (plan.AgentRevertArmed && AgentRevert != null && after != null && plan.WatchUntil is { } deadline)
+                await AgentRevert.RearmAsync(plan, doc, after, deadline, ct);
             if (automatic) Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Success, new { scheduled = true });
             await Publish(ChangeAlerts.PlanApplied, AlertSeverity.Info, $"Plan applied: {plan.Name}",
                 $"{doc.Operations.Count} writes by {actor.Name}." + (watch ? $" Watching for {window.TotalMinutes:0} minutes." : "")
@@ -318,6 +326,39 @@ public sealed class PlanCoordinator
             }
         }
         return diffs;
+    }
+
+    /// <summary>
+    /// A report from the On-Site Agent about a revert it held: it reverted (or tried to) while the
+    /// server could not see the site, or it is holding because every local check passed.
+    /// </summary>
+    public async Task OnAgentReportAsync(int agentId, AgentProtocol.ConfigRevertReport report, CancellationToken ct)
+    {
+        var plan = await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync((int)report.PlanId, c), ct);
+        if (plan != null && plan.Status is ConfigPlanStatus.Watching or ConfigPlanStatus.Applied)
+        {
+            if (report.State is AgentProtocol.ConfigRevert.Reverted or AgentProtocol.ConfigRevert.RevertFailed)
+            {
+                var reverted = report.State == AgentProtocol.ConfigRevert.Reverted;
+                plan.Status = reverted ? ConfigPlanStatus.Reverted : ConfigPlanStatus.Failed;
+                plan.Message = report.Detail;
+                plan.CompletedAt = DateTime.UtcNow;
+                _misses.TryRemove(plan.Id, out _);
+                await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+                Audit(AuditActions.ChangeControlPlanReverted, plan, reverted ? AuditOutcomes.Success : AuditOutcomes.Failure,
+                    new { by = "On-Site Agent", report.Detail, report.CallsOk, report.CallsFailed });
+                await Publish(ChangeAlerts.PlanReverted, reverted ? AlertSeverity.Warning : AlertSeverity.Critical,
+                    reverted ? $"Plan reverted by the On-Site Agent: {plan.Name}" : $"On-Site Agent revert incomplete: {plan.Name}",
+                    report.Detail + (reverted ? "" : " Roll Back to the pinned snapshot from Change Control."), plan.Id, ct);
+                _engine.PollSoon();
+            }
+            else if (report.State == AgentProtocol.ConfigRevert.Held)
+            {
+                plan.Message = report.Detail;
+                await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+            }
+        }
+        AgentRevert?.AcknowledgeReport(agentId, report.PlanId);
     }
 
     /// <summary>Plans due to apply, commit-confirmed watches, and reports. Called from the registry tick.</summary>
@@ -431,6 +472,8 @@ public sealed class PlanCoordinator
         var (plan, doc, _) = loaded.Value;
         if (plan.PreApplySnapshotId is not { } snapId || await _engine.LoadSnapshotStateAsync(snapId, ct) is not { } before)
             return "The snapshot taken before the apply is not available.";
+        // The server reverts now, so the agent must not replay the same revert later.
+        if (plan.AgentRevertArmed && AgentRevert != null) await AgentRevert.CancelAsync(plan, ct);
 
         var touched = doc.Operations.Where(o => o.ObjectId != null).Select(o => (o.Collection, o.ObjectId!)).ToHashSet();
         var revert = await CreateAsync(ConfigPlanKind.Revert, $"Revert: {plan.Name}", $"Snapshot before {plan.Name}", snapId, null,
@@ -540,9 +583,21 @@ public sealed class PlanCoordinator
 /// <summary>Arms and confirms the On-Site Agent's local revert for a plan (spec "Agent sites").</summary>
 public interface IAgentRevertArmer
 {
+    /// <summary>Whether the site has an agent that can hold a revert, on a connection it can replay with.</summary>
+    bool CanArm();
+
     /// <summary>Hands the agent the revert calls and a deadline. False when the agent cannot hold one (older agent).</summary>
     Task<bool> ArmAsync(ConfigPlan plan, PlanDocument doc, int preApplySnapshotId, TimeSpan window, CancellationToken ct);
 
+    /// <summary>Replaces the armed revert once the apply has run, so it also deletes what the plan created.</summary>
+    Task RearmAsync(ConfigPlan plan, PlanDocument doc, ConfigState after, DateTime deadline, CancellationToken ct);
+
     /// <summary>Tells the agent the window passed with every check healthy.</summary>
     Task ConfirmAsync(ConfigPlan plan, CancellationToken ct);
+
+    /// <summary>Tells the agent to drop its revert: the server reverted, or the plan failed before it took effect.</summary>
+    Task CancelAsync(ConfigPlan plan, CancellationToken ct);
+
+    /// <summary>Acknowledges an agent's report so it stops resending.</summary>
+    void AcknowledgeReport(int agentId, long planId);
 }

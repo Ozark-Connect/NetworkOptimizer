@@ -152,6 +152,18 @@ public partial class UniFiApiClient
         return result == null ? (0, []) : (result.Item1, result.Item2);
     }
 
+    /// <summary>The absolute URL this client would call for a scope and path (the agent-side revert replays these).</summary>
+    public string ResolveUrl(UniFiApiScope scope, string path) => BuildRawUrl(scope, path);
+
+    /// <summary>
+    /// The console API key, handed only to an On-Site Agent for a revert window and never stored there.
+    /// Null on username/password connections, which cannot arm an agent revert.
+    /// </summary>
+    public string? ApiKeyForAgentRevert => _apiKey;
+
+    /// <summary>Whether this client accepts the console's self-signed certificate.</summary>
+    public bool IgnoresTlsErrors => _ignoreSSLErrors;
+
     private string BuildRawUrl(UniFiApiScope scope, string path)
     {
         path = path.TrimStart('/');

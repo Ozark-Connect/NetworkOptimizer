@@ -244,7 +244,11 @@ if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
 if (blocklistCapable) capabilityList.Add(GatewayBlocklistEnforcer.Capability);
 if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
 else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
+// Change Control's revert needs only HTTPS to the console, which every agent host reaches.
+capabilityList.Add(ConfigRevert.Capability);
 var capabilities = capabilityList.ToArray();
+var configRevert = new ConfigRevertGuard();
+Task? configRevertTask = null;
 if (config.OnGateway == true)
 {
     Console.WriteLine(conntrackCapable
@@ -358,6 +362,7 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
 // die of the same wedge (async HTTP) and need the same cure - without a
 // buffer the spool callback is a no-op.
 watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
+configRevertTask = configRevert.RunAsync(cts.Token);
 
 // Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
 // Online whenever the tunnel is unavailable (tunnel disabled server-side, an
@@ -397,6 +402,11 @@ while (!cts.IsCancellationRequested)
             tunnel.OnWanFloodConfig = floodGuard.Update;
             floodGuard.LiveSend = tunnel.TrySend;
         }
+        tunnel.OnConfigRevertArm = configRevert.OnArm;
+        tunnel.OnConfigRevertConfirm = configRevert.OnConfirm;
+        tunnel.OnOpened = configRevert.OnConnected;
+        configRevert.LiveSend = tunnel.TrySend;
+        configRevert.TunnelUp = () => tunnel.IsOpen;
         tunnel.OnWanSpeedTestConfig = wanConfig => speedTestServer?.UpdateWanServers(
             wanConfig.Servers.Select(s => new SpeedTestServer.WanServerEntry(s.ServerId, s.Url)).ToList(),
             wanConfig.DefaultServerId);
@@ -449,6 +459,8 @@ while (!cts.IsCancellationRequested)
             if (blocklist != null) blocklist.LiveSend = null;
             if (blocklistHits != null) blocklistHits.LiveSend = null;
             if (floodGuard != null) floodGuard.LiveSend = null;
+            configRevert.LiveSend = null;
+            configRevert.TunnelUp = () => false;
             connectionCts.Cancel();
             // Nothing to salvage: the drain only peeks, so every unacked frame is
             // still in the buffer and replays on the next connection.
@@ -513,7 +525,7 @@ if (blocklistHitsTask != null)
 {
     try { await blocklistHitsTask; } catch (OperationCanceledException) { }
 }
-foreach (var task in new[] { floodGuardTask, floodDetectorTask, kernelLogTask })
+foreach (var task in new[] { floodGuardTask, floodDetectorTask, kernelLogTask, configRevertTask })
 {
     if (task == null) continue;
     try { await task; } catch (OperationCanceledException) { }
