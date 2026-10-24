@@ -1292,7 +1292,12 @@ else
                                             @if (!string.IsNullOrEmpty(dest.Ip))
                                             {
                                                 <div class="drilldown-row-actions">
-                                                    @if (ExceptionsApply && dest.PublicList != null)
+                                                    @if (ExceptionsApply && dest.PublicList != null && _exceptionAt != $"dest:{dest.Ip}"
+                                                         && _drilldownExceptions!.CoveringRow(_drilldownData.Ip, dest.Ip, dest.Protocols, dest.PortRanges) is { } destCovered)
+                                                    {
+                                                        <ExceptionCoveredLink Exception="destCovered" DeviceName="GetClientName" />
+                                                    }
+                                                    else if (ExceptionsApply && dest.PublicList != null)
                                                     {
                                                         <SiteAdminOnly>
                                                             <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"dest:{dest.Ip}", OutboundPrefill(_drilldownIp, dest.Ip, dest.PortRanges, dest.Protocols)))">@(_exceptionAt == $"dest:{dest.Ip}" ? "Hide" : "Allow")</button>
@@ -1358,7 +1363,13 @@ else
                                         <td>@(src.BlockedCount > 0 ? FormatNumber(src.BlockedCount) : "-")</td>
                                         <td>
                                             <div class="drilldown-row-actions">
-                                                @if (ExceptionsApply && _drilldownData.PublicList != null && NetworkUtilities.IsPrivateIpAddress(src.Ip))
+                                                @if (ExceptionsApply && _drilldownData.PublicList != null && NetworkUtilities.IsPrivateIpAddress(src.Ip)
+                                                     && _exceptionAt != $"src:{src.Ip}"
+                                                     && _drilldownExceptions!.CoveringRow(src.Ip, _drilldownData.Ip, src.Protocols, src.PortRanges) is { } srcCovered)
+                                                {
+                                                    <ExceptionCoveredLink Exception="srcCovered" DeviceName="GetClientName" />
+                                                }
+                                                else if (ExceptionsApply && _drilldownData.PublicList != null && NetworkUtilities.IsPrivateIpAddress(src.Ip))
                                                 {
                                                     <SiteAdminOnly>
                                                         <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"src:{src.Ip}", OutboundPrefill(src.Ip, _drilldownData.Ip, src.PortRanges, src.Protocols)))">@(_exceptionAt == $"src:{src.Ip}" ? "Hide" : "Allow")</button>

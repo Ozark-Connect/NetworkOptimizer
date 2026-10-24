@@ -124,6 +124,17 @@ public sealed record ExceptionsOverview(
     /// <summary>The first exception that lets this connection through, or null.</summary>
     public BlockingException? Covering(ExceptionDirection direction, string deviceIp, string addressIp, string? protocol, int? port) =>
         Exceptions.FirstOrDefault(e => e.Matches(direction, deviceIp, addressIp, protocol, port));
+
+    /// <summary>
+    /// The first outbound exception that lets through everything a drill-down row saw: each of its
+    /// protocols, on its port when it used one (several ports need an exception with none).
+    /// </summary>
+    public BlockingException? CoveringRow(string deviceIp, string addressIp, IReadOnlyList<string> protocols, string? portRanges)
+    {
+        int? port = int.TryParse(portRanges, out var p) && p > 0 ? p : null;
+        IReadOnlyList<string?> seen = protocols.Count > 0 ? [.. protocols] : [null];
+        return Exceptions.FirstOrDefault(e => seen.All(protocol => e.Matches(ExceptionDirection.Outbound, deviceIp, addressIp, protocol, port)));
+    }
 }
 
 /// <summary>Cloudflare target state for the Settings card.</summary>
