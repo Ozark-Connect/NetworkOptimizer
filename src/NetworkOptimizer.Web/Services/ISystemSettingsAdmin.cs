@@ -1,3 +1,4 @@
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Gates;
 
@@ -35,6 +36,26 @@ public interface ISystemSettingsAdmin
 
     /// <summary>Saves the iperf3 test preferences as one change.</summary>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "iperf3_settings")]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "iperf3_settings", InstanceScoped = true)]
     Task SaveIperf3SettingsAsync(Iperf3Settings settings);
+
+    /// <summary>Adds an external speed test server. The list is instance-wide.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "external_speedtest_server", InstanceScoped = true)]
+    Task AddExternalSpeedTestServerAsync(ExternalSpeedTestServer server);
+
+    /// <summary>Updates an external speed test server.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "external_speedtest_server", InstanceScoped = true)]
+    Task UpdateExternalSpeedTestServerAsync(ExternalSpeedTestServer server);
+
+    /// <summary>Deletes an external speed test server, promoting another to default if needed.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "external_speedtest_server", InstanceScoped = true)]
+    Task DeleteExternalSpeedTestServerAsync(int id);
+
+    /// <summary>Makes an external speed test server the default.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "external_speedtest_server", InstanceScoped = true)]
+    Task SetDefaultExternalSpeedTestServerAsync(int id);
 }
