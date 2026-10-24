@@ -150,7 +150,21 @@ public static class LockoutChecker
                 });
         }
 
-        // 6. Firewall policies that block traffic into the gateway from any source.
+        // Networks Network Optimizer reaches the site from (the agent host's, or the server's own).
+        var gateways = devicesByMac.Values.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is "ugw" or "udm" or "uxg").Select(Name).ToList();
+        // IPv4 only: InSubnet answers true for what it cannot compare, which would match every network.
+        var noAddresses = options.ManagementAddresses
+            .Where(a => IPAddress.TryParse(a, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip))
+            .ToList();
+        var managementNetworks = planned.Get("networkconf")
+            .Where(n => Str(n["ip_subnet"]) is { } s && s.Contains('/') && noAddresses.Any(a => InSubnet(a, s)))
+            .Select(ConfigState.IdOf).ToHashSet();
+        var managementZones = planned.Get("firewall_zone")
+            .Where(z => (z["network_ids"] as JsonArray ?? []).Any(n => managementNetworks.Contains(Str(n) ?? "")))
+            .Select(ConfigState.IdOf).ToHashSet();
+
+        // 6. Firewall policies that block traffic into the gateway from any source, or from where
+        //    Network Optimizer reaches the site.
         var gatewayZone = planned.Get("firewall_zone").FirstOrDefault(z => Str(z["zone_key"]) == "gateway");
         if (gatewayZone != null)
             foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
@@ -159,28 +173,61 @@ public static class LockoutChecker
                 if (policy == null || Str(policy["enabled"]) == "false") continue;
                 if (Str(policy["action"]) is not ("BLOCK" or "REJECT")) continue;
                 if (Str(policy["destination"]?["zone_id"]) != ConfigState.IdOf(gatewayZone)) continue;
-                if (Str(policy["source"]?["matching_target"]) is not (null or "ANY")) continue;
+                var source = policy["source"] as JsonObject;
+                var target = Str(source?["matching_target"]);
+                var fromAny = target is null or "ANY";
+                var fromNo = target switch
+                {
+                    "NETWORK" => (source?["network_ids"] as JsonArray ?? []).Any(n => managementNetworks.Contains(Str(n) ?? "")),
+                    "IP" => (source?["ips"] as JsonArray ?? []).Select(Str).OfType<string>()
+                        .Any(ip => noAddresses.Any(a => ip == a || (ip.Contains('/') && InSubnet(a, ip)))),
+                    _ => false,
+                };
+                var fromNoZone = fromAny && managementZones.Contains(Str(source?["zone_id"]) ?? "");
+                if (!fromAny && !fromNo) continue;
                 findings.Add(new LockoutFinding
                 {
-                    Kind = "possible",
+                    Kind = fromNo || fromNoZone ? (options.AgentSite ? "certain" : "possible") : "possible",
                     Title = $"Firewall policy {op.ObjectName} blocks traffic to the gateway",
-                    Detail = "It matches any source, so it can block Network Optimizer and the UniFi Console from the gateway.",
-                    Devices = devicesByMac.Values.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is "ugw" or "udm" or "uxg").Select(Name).ToList(),
+                    Detail = fromNo || fromNoZone
+                        ? "It matches where Network Optimizer reaches the site from, so Network Optimizer can lose the gateway and the UniFi Console."
+                        : "It matches any source, so it can block Network Optimizer and the UniFi Console from the gateway.",
+                    Devices = gateways,
                     OperationKeys = [op.Key],
                 });
             }
 
-        // 7. On an agent site, the agent reaches the server over the WAN: a WAN network change is certain.
+        // 7. On an agent site, the agent reaches the server over the WAN and the console over its own
+        //    network: a change to either is certain.
         if (options.AgentSite)
+        {
             foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.WanPath && o.Action != PlanAction.Create))
                 findings.Add(new LockoutFinding
                 {
                     Kind = "certain",
                     Title = $"WAN {op.ObjectName} changes on a site reached through the On-Site Agent",
                     Detail = "The agent reaches Network Optimizer over this WAN. If it breaks, Network Optimizer cannot reach the site to revert.",
-                    Devices = devicesByMac.Values.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is "ugw" or "udm" or "uxg").Select(Name).ToList(),
+                    Devices = gateways,
                     OperationKeys = [op.Key],
                 });
+            foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.Action != PlanAction.Create && managementNetworks.Contains(o.ObjectId ?? "")))
+            {
+                var liveNet = live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
+                var plannedNet = planned.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
+                if (plannedNet != null && liveNet != null && Str(liveNet["ip_subnet"]) == Str(plannedNet["ip_subnet"])
+                    && Str(liveNet["vlan"]) == Str(plannedNet["vlan"]) && Str(liveNet["dhcpd_enabled"]) == Str(plannedNet["dhcpd_enabled"])
+                    && Str(liveNet["enabled"]) == Str(plannedNet["enabled"]))
+                    continue;
+                findings.Add(new LockoutFinding
+                {
+                    Kind = "certain",
+                    Title = $"The On-Site Agent's network {op.ObjectName} changes",
+                    Detail = "The agent host is on this network. A changed subnet, VLAN, or DHCP can cut it off from the UniFi Console and from Network Optimizer.",
+                    Devices = gateways,
+                    OperationKeys = [op.Key],
+                });
+            }
+        }
 
         return findings;
     }

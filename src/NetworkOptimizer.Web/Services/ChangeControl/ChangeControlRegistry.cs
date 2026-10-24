@@ -60,6 +60,21 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     /// <summary>Records one of NO's console writes against its site's journal.</summary>
     public void Journal(string slug, UniFiWriteRecord record) => GetFor(slug).Journal(record);
 
+    /// <summary>This server's own unicast addresses (a direct site reaches the console from here).</summary>
+    private static IReadOnlyList<string> ServerAddresses()
+    {
+        try
+        {
+            return System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address.ToString()).ToList();
+        }
+        catch (System.Net.NetworkInformation.NetworkInformationException)
+        {
+            return [];
+        }
+    }
+
     private ChangeControlSiteEngine Build(string slug)
     {
         var connection = _sp.GetRequiredService<SiteConnectionRegistry>().GetFor(slug);
@@ -84,9 +99,13 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             IsAgentSite = () => connection.IsViaAgent,
             ConsoleHost = () => Uri.TryCreate(connection.CurrentConfig?.ControllerUrl, UriKind.Absolute, out var u) ? u.Host : null,
         };
-        if (_sp.GetService<AgentTunnelRegistry>() is { } agents)
+        var agents = _sp.GetService<AgentTunnelRegistry>();
+        if (agents != null)
             coordinator.AgentRevert = new AgentRevertArmer(slug, engine, connection, agents,
                 _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlAgentRevert[{slug}]"));
+        coordinator.ManagementAddresses = () => connection.IsViaAgent && agents != null
+            ? agents.GetForSite(slug).SelectMany(a => a.LocalIps.Append(a.LanIp ?? "")).Where(a => a.Length > 0).Distinct().ToList()
+            : ServerAddresses();
         _coordinators[slug] = coordinator;
         var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));

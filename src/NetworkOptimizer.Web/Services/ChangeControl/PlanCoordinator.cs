@@ -82,7 +82,11 @@ public sealed class PlanCoordinator
         TargetHasGateway = baseOptions?.TargetHasGateway ?? true,
         AgentSite = IsAgentSite(),
         ConsoleHost = ConsoleHost(),
+        ManagementAddresses = ManagementAddresses(),
     };
+
+    /// <summary>Addresses Network Optimizer reaches the site from, for the lockout pre-flight.</summary>
+    public Func<IReadOnlyList<string>> ManagementAddresses { get; set; } = () => [];
 
     /// <summary>Builds a plan against live, runs its impact, and stores it as a Draft.</summary>
     public async Task<ConfigPlan> CreateAsync(ConfigPlanKind kind, string name, string source, int? sourceSnapshotId, string? sourceSite,
@@ -181,8 +185,14 @@ public sealed class PlanCoordinator
         plan.ApprovedAt = DateTime.UtcNow;
         plan.Status = plan.ScheduledFor != null ? ConfigPlanStatus.Scheduled : ConfigPlanStatus.Approved;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+        await Publish(ChangeAlerts.PlanApproved, AlertSeverity.Info, $"Plan approved: {plan.Name}",
+            $"Approved by {by}." + (plan.ScheduledFor is { } at ? $" Scheduled for {at:u}." : plan.ApplyOnApproval ? " Applying now." : ""), plan.Id, ct);
         if (plan.ApplyOnApproval && plan.ScheduledFor == null)
-            await ApplyAsync(planId, new PlanActor(by, IsSiteAdmin: true), requireApproval: false, automatic: false, ct);
+        {
+            // The gate audited the approval; the apply it starts needs its own row.
+            var why = await ApplyAsync(planId, new PlanActor(by, IsSiteAdmin: true), requireApproval: false, automatic: false, ct);
+            Audit(AuditActions.ChangeControlPlanApplied, plan, why == null ? AuditOutcomes.Success : AuditOutcomes.Failure, new { onApproval = true, by, why });
+        }
     }
 
     /// <summary>Discards a plan that has not applied.</summary>
@@ -387,7 +397,10 @@ public sealed class PlanCoordinator
             {
                 if (plan.Status is ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled && plan.ScheduledFor is { } at && at <= now && _engine.Api.IsConnected)
                 {
-                    var why = await ApplyAsync(plan.Id, new PlanActor("Network Optimizer (scheduled)", IsSiteAdmin: true),
+                    // Readiness was checked when it was booked (with the booker's role) or approved
+                    // (by a Site Admin); the audit names that person.
+                    var booker = plan.ApprovedBy ?? plan.AppliedBy ?? "Network Optimizer";
+                    var why = await ApplyAsync(plan.Id, new PlanActor($"{booker} (scheduled)", IsSiteAdmin: true),
                         requireApproval: false, automatic: true, ct);
                     if (why != null) _logger.LogWarning("Scheduled plan {Plan} did not apply: {Why}", plan.Id, why);
                 }
@@ -513,7 +526,8 @@ public sealed class PlanCoordinator
     /// Puts back the pre-apply snapshot for the objects a plan touched, as a Revert plan applied at once.
     /// Where the revert cannot reach a device, the alert names it and the recovery step.
     /// </summary>
-    public async Task<string?> RevertAsync(int planId, string reason, IReadOnlyList<string> offlineMacs, bool automatic, CancellationToken ct)
+    /// <param name="by">The person reverting; null for the automatic watch, which acts as Site Admin.</param>
+    public async Task<string?> RevertAsync(int planId, string reason, IReadOnlyList<string> offlineMacs, bool automatic, CancellationToken ct, PlanActor? by = null)
     {
         var loaded = await LoadAsync(planId, ct);
         if (loaded == null) return "Plan not found.";
@@ -531,7 +545,11 @@ public sealed class PlanCoordinator
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(revert, c), ct);
 
         var revertDoc = Open(revert);
-        // A revert puts back what was there; nothing in it needs acknowledging.
+        // A person who is not a Site Admin never gets a lockout confirmation typed for them: that
+        // revert stays a draft for a Site Admin in Review Plan.
+        if (by is { IsSiteAdmin: false } && PlanReadiness.HasCertainLockout(revertDoc))
+            return $"The revert would cut a device off from management. A Site Admin applies it from Review Plan ({revert.Name}).";
+        // A revert puts back what was there; nothing else in it needs acknowledging.
         var acks = new PlanAcknowledgements
         {
             Items = revertDoc.Operations.Select(o => o.Key).ToHashSet(),
@@ -539,7 +557,7 @@ public sealed class PlanCoordinator
             TypedConfirmation = PlanReadiness.ConfirmationText(revertDoc),
         };
         await SaveAcknowledgementsAsync(revert.Id, acks, ct);
-        var why = await ApplyAsync(revert.Id, new PlanActor("Network Optimizer", IsSiteAdmin: true), requireApproval: false, automatic: true, ct);
+        var why = await ApplyAsync(revert.Id, by ?? new PlanActor("Network Optimizer", IsSiteAdmin: true), requireApproval: false, automatic: by == null, ct);
 
         plan = (await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct))!;
         // Reverted only when the revert went through; otherwise the change may still be live.

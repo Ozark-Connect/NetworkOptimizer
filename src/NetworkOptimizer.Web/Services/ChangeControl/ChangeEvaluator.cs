@@ -66,6 +66,61 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             await repo.UpdateChangeAsync(change, cancellationToken);
             await PublishChangeAlertsAsync(siteSlug, change, gotImpact ? impact : null, cancellationToken);
         }
+
+        if (impact != null)
+            await CheckDriftRegressionAsync(scope.ServiceProvider, repo, siteSlug, after, cancellationToken);
+    }
+
+    // The regression set last alerted per site, so unchanged drift does not alert again on every change.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _driftAlerted = new();
+
+    /// <summary>
+    /// change.drift_regression: the Security Audit on the Baseline against the config now. A template
+    /// Baseline is laid over the current config, so collections it does not carry are not "drift".
+    /// </summary>
+    private async Task CheckDriftRegressionAsync(IServiceProvider sp, Storage.Interfaces.IChangeControlRepository repo, string slug,
+        ConfigState current, CancellationToken ct)
+    {
+        try
+        {
+            var settings = await repo.GetSettingsAsync(ct);
+            ConfigState? baseline = null;
+            string label;
+            if (settings.BaselineTemplateId is { } templateId
+                && await sp.GetRequiredService<ConfigTemplateStore>().LoadAsync(templateId, ct) is { } template)
+            {
+                baseline = current.Clone();
+                foreach (var (collection, list) in template.State.Collections) baseline.Collections[collection] = list;
+                label = $"template {template.View.Name}";
+            }
+            else if (await repo.GetBaselineSnapshotAsync(ct) is { } snap)
+            {
+                baseline = await sp.GetRequiredService<ChangeControlRegistry>().GetFor(slug).LoadSnapshotStateAsync(snap.Id, ct);
+                label = "the Baseline snapshot";
+            }
+            else return;
+            if (baseline == null) return;
+
+            var drift = await RunImpactAsync(sp, baseline, current, ct);
+            var key = drift == null ? "" : string.Join("|", drift.Regressions.Select(r => r.Key).OrderBy(k => k, StringComparer.Ordinal));
+            if (_driftAlerted.TryGetValue(slug, out var last) && last == key) return;
+            _driftAlerted[slug] = key;
+            if (drift is not { Regressions.Count: > 0 }) return;
+            await Publish(new AlertEvent
+            {
+                EventType = ChangeAlerts.DriftRegression,
+                Source = ChangeAlerts.Source,
+                Severity = AlertSeverity.Warning,
+                Title = $"Drift from Baseline: {drift.Regressions[0].Title}",
+                Message = $"Compared with {label}, the Security Audit now finds: {string.Join("; ", drift.Regressions.Take(5).Select(r => r.Title))}. Return to Baseline from Change Control - Snapshots.",
+                SourceUrl = "/change-control/snapshots",
+                SiteSlug = slug,
+            }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Drift regression check failed for {Site}", slug);
+        }
     }
 
     /// <inheritdoc />
