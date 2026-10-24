@@ -61,6 +61,21 @@ public class UniFiFirewallZone
 }
 
 /// <summary>
+/// A peer of a WireGuard server network (GET v2/api/site/{site}/wireguard/{networkId}/users). Its
+/// traffic arrives in the server network's zone, from its interface address or a subnet it routes.
+/// </summary>
+public class UniFiWireGuardPeer
+{
+    [JsonPropertyName("_id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("network_id")] public string NetworkId { get; set; } = string.Empty;
+    [JsonPropertyName("interface_ip")] public string? InterfaceIp { get; set; }
+    [JsonPropertyName("interface_ipv6")] public string? InterfaceIpv6 { get; set; }
+    /// <summary>The subnets behind the peer it routes (a site-to-site peer's LAN); empty for a single client.</summary>
+    [JsonPropertyName("allowed_ips")] public List<string> AllowedIps { get; set; } = [];
+}
+
+/// <summary>
 /// Well-known zone key constants for type-safe zone identification.
 /// </summary>
 public static class FirewallZoneKeys

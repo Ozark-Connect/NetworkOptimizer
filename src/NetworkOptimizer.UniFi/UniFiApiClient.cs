@@ -1961,6 +1961,24 @@ public class UniFiApiClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// GET v2/api/site/{site}/wireguard/{networkId}/users: the peers of a WireGuard server network,
+    /// with the subnets each routes. Empty on any failure.
+    /// </summary>
+    public async Task<List<UniFiWireGuardPeer>> GetWireGuardPeersAsync(string networkId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var body = await ExecuteV2Async(HttpMethod.Get, $"wireguard/{Uri.EscapeDataString(networkId)}/users", null, cancellationToken);
+            return JsonSerializer.Deserialize<List<UniFiWireGuardPeer>>(body) ?? [];
+        }
+        catch (Exception ex) when (ex is UniFiApiErrorException or InvalidOperationException or HttpRequestException or JsonException)
+        {
+            _logger.LogDebug(ex, "Could not read the peers of WireGuard server {Network}", networkId);
+            return [];
+        }
+    }
+
     #endregion
 
     #region Network Configuration APIs

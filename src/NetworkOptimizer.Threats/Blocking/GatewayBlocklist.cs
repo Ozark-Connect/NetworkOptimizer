@@ -459,10 +459,14 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                 ?? throw new InvalidOperationException("Could not read the firewall zones from the UniFi Console.");
             // An unreadable network list leaves every zone without subnets, which scopes to every zone.
             var networks = exceptions.Any(e => e.Device != null) ? await client.GetNetworkConfigsAsync(ct) : [];
+            // A WireGuard server's site-to-site peers route their own subnets into the server's zone.
+            var peerSubnets = new Dictionary<string, List<string>>();
+            foreach (var server in networks.Where(n => n.VpnType == "wireguard-server"))
+                peerSubnets[server.Id] = (await client.GetWireGuardPeersAsync(server.Id, ct)).SelectMany(p => p.AllowedIps).ToList();
             var others = zones.Where(z => z.Id != external.Id)
                 .Select(z => new ExceptionZone(z.Id, z.ZoneKey == FirewallZoneKeys.Gateway, networks
                     .Where(n => n.FirewallZoneId == z.Id || z.NetworkIds.Contains(n.Id))
-                    .SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet })
+                    .SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet }.Concat(peerSubnets.GetValueOrDefault(n.Id) ?? []))
                     .OfType<string>().Where(s => s.Length > 0).ToList()))
                 .ToList();
             if (_logger.IsEnabled(LogLevel.Debug))
