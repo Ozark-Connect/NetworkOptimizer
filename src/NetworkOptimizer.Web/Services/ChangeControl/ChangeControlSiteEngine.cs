@@ -27,6 +27,9 @@ public interface IChangeEvaluator
 
     /// <summary>Security Audit on two configs for a site (a plan's impact: live against planned).</summary>
     Task<ImpactResult?> RunImpactAsync(string siteSlug, ConfigState before, ConfigState after, CancellationToken ct);
+
+    /// <summary>The Security Audit's network purposes for a config (detected, or the user's overrides).</summary>
+    Task<List<NetworkOptimizer.Audit.Models.NetworkInfo>?> GetNetworksAsync(string siteSlug, ConfigState state, CancellationToken ct);
 }
 
 /// <summary>

@@ -46,7 +46,7 @@ public class ChangeControlRenderHarness
         await File.WriteAllTextAsync(Path.Combine(dir, "detail.html"), Shell($"<div class=\"change-control\"><div class=\"card\">{detail}</div></div>"));
         var migrateAp = await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = "migrate" }, "change-control/migrate?task=replace&old=" + ApOld + "&new=" + ApNew);
         await File.WriteAllTextAsync(Path.Combine(dir, "migrate-ap.html"), Shell(migrateAp));
-        foreach (var task in new[] { "restore", "adopt" })
+        foreach (var task in new[] { "restore", "adopt", "zones" })
             await File.WriteAllTextAsync(Path.Combine(dir, $"migrate-{task}.html"),
                 Shell(await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = "migrate" }, $"change-control/migrate?task={task}")));
         var plan = await RenderAsync<CcReviewPlan>(new Dictionary<string, object?> { ["PlanId"] = 7 });
@@ -320,6 +320,31 @@ public class ChangeControlRenderHarness
             new JsonObject { ["radio"] = "6e", ["name"] = "wifi2", ["has_ht160"] = true, ["has_eht320"] = true, ["min_txpower"] = 6, ["max_txpower"] = 23, ["ap_pwr_type"] = "LPI" }),
     });
 
+    private static readonly List<NetworkOptimizer.Audit.Models.NetworkInfo> ZoneNetworks =
+    [
+        new() { Id = "n1", Name = "Home", VlanId = 1, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Home },
+        new() { Id = "n10", Name = "Work", VlanId = 10, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Corporate },
+        new() { Id = "n15", Name = "Gaming", VlanId = 15, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Gaming },
+        new() { Id = "n20", Name = "Management", VlanId = 20, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Management },
+        new() { Id = "n30", Name = "IoT", VlanId = 30, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.IoT },
+        new() { Id = "n31", Name = "IoT", VlanId = 31, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.IoT },
+        new() { Id = "n35", Name = "Media", VlanId = 35, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Media },
+        new() { Id = "n40", Name = "Cameras", VlanId = 40, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Security },
+        new() { Id = "n50", Name = "Printers", VlanId = 50, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Printer },
+        new() { Id = "n60", Name = "Servers", VlanId = 60, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Server },
+        new() { Id = "n70", Name = "Guest", VlanId = 70, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Guest },
+        new() { Id = "n80", Name = "Lab", VlanId = 80, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Unknown },
+    ];
+
+    private static ConfigState ZoneLive()
+    {
+        var s = new ConfigState();
+        JsonObject Z(string id, string name, string key, params string[] nets) => new() { ["_id"] = id, ["name"] = name, ["zone_key"] = key, ["network_ids"] = new JsonArray(nets.Select(n => (JsonNode?)n).ToArray()) };
+        s.Collections["firewall_zone"] = [Z("zi", "Internal", "internal", ZoneNetworks.Where(n => n.Id != "n70").Select(n => n.Id).ToArray()), Z("ze", "External", "external", "wan"), Z("zh", "Hotspot", "hotspot", "n70")];
+        s.Collections["firewall_policy"] = [];
+        return s;
+    }
+
     private static Mock<IChangeControlService> Site()
     {
         var m = new Mock<IChangeControlService>();
@@ -333,6 +358,19 @@ public class ChangeControlRenderHarness
             .ReturnsAsync((string o, string n, IReadOnlyDictionary<string, string>? c, IReadOnlyCollection<string>? a, CancellationToken _) =>
                 o == SwOld ? DeviceReplacement.Propose(OldSwitch(), NewSwitch(), MigrateContext(), c, a?.ToHashSet())
                 : DeviceReplacement.Propose(OldAp(), NewAp(), MigrateContext(), c, a?.ToHashSet()));
+        m.Setup(s => s.GetZoneSetupAsync(It.IsAny<ZoneChoices>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ZoneChoices c, bool check, CancellationToken _) =>
+            {
+                var live = ZoneLive();
+                var board = ZoneSetup.Build(live, ZoneNetworks, c.Mode, c.Moves, c.AddedZones, c.Exceptions);
+                if (check)
+                {
+                    board.Checks = [new("IoT networks isolated from Internal", "Pass", "ok"), new("Cameras have no internet", "Pass", "ok"),
+                        new("Management isolated", "Pass", "ok"), new("Guest reaches internet only", "Pass", "ok"), new("Printers and Lab stay in their current zone", "Not checked", "warn")];
+                    board.ChecksPass = true;
+                }
+                return board;
+            });
         m.Setup(s => s.GetRestoreSnapshotsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(
         [
             new() { Id = 41, TakenAt = Now.AddHours(-30), Label = "Oct 22, 6:00 AM, Daily", NetworkAppVersion = "11.0.21" },

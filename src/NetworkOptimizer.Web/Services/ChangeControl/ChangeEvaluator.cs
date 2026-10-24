@@ -77,6 +77,35 @@ public sealed class ChangeEvaluator : IChangeEvaluator
         return await RunImpactAsync(scope.ServiceProvider, before, after, ct);
     }
 
+    /// <inheritdoc />
+    public async Task<List<NetworkOptimizer.Audit.Models.NetworkInfo>?> GetNetworksAsync(string siteSlug, ConfigState state, CancellationToken ct)
+    {
+        using var scope = _scopes.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+        using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
+        try
+        {
+            var connection = scope.ServiceProvider.GetRequiredService<UniFiConnectionService>();
+            var liveDevices = connection.Client == null ? null : await connection.Client.GetDevicesRawJsonAsync(ct);
+            if (string.IsNullOrEmpty(liveDevices)) return null;
+            var inputs = ImpactAnalyzer.BuildInputs(state, liveDevices);
+            var result = await scope.ServiceProvider.GetRequiredService<AuditService>().RunConfigComparisonAsync(inputs, inputs, state.NetworkAppVersion);
+            // The web result carries the purpose as its display string; map it back to the enum.
+            var purposes = Enum.GetValues<NetworkOptimizer.Audit.Models.NetworkPurpose>()
+                .GroupBy(p => NetworkOptimizer.Audit.Models.NetworkPurposeExtensions.ToDisplayString(p)).ToDictionary(g => g.Key, g => g.First());
+            return result?.Before.Networks.Select(n => new NetworkOptimizer.Audit.Models.NetworkInfo
+            {
+                Id = n.Id, Name = n.Name, VlanId = n.VlanId, Subnet = n.Subnet,
+                Purpose = purposes.GetValueOrDefault(n.Purpose, NetworkOptimizer.Audit.Models.NetworkPurpose.Unknown),
+            }).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Change Control could not read network purposes");
+            return null;
+        }
+    }
+
     private async Task<ImpactResult?> RunImpactAsync(IServiceProvider sp, ConfigState before, ConfigState after, CancellationToken ct)
     {
         try
