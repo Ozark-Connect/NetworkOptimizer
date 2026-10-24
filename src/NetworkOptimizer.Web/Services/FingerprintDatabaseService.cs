@@ -4,12 +4,12 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Caches and provides access to the UniFi fingerprint database.
-/// The database maps device IDs to names and categories.
+/// The database maps device IDs to names and categories. It is the same catalog on every Console, so
+/// one instance-wide cache serves every site, filled through the Console of whichever site asks first.
 /// </summary>
 public class FingerprintDatabaseService : IFingerprintDatabaseService
 {
     private readonly ILogger<FingerprintDatabaseService> _logger;
-    private readonly UniFiConnectionService _connectionService;
 
     private UniFiFingerprintDatabase? _database;
     private DateTime? _lastFetchTime;
@@ -17,25 +17,25 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
     private readonly SemaphoreSlim _fetchLock = new(1, 1);
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(24);
 
-    public FingerprintDatabaseService(
-        ILogger<FingerprintDatabaseService> logger,
-        SiteConnectionRegistry siteConnections)
+    public FingerprintDatabaseService(ILogger<FingerprintDatabaseService> logger)
     {
         _logger = logger;
-        _connectionService = siteConnections.GetDefault();
     }
 
     /// <summary>
     /// Gets the cached fingerprint database, fetching from the controller if the cache is expired or empty.
     /// </summary>
+    /// <param name="connection">The calling site's Console connection, used when the cache needs a fetch.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The fingerprint database, or null if not connected or fetch failed.</returns>
-    public async Task<UniFiFingerprintDatabase?> GetDatabaseAsync(CancellationToken cancellationToken = default)
+    public async Task<UniFiFingerprintDatabase?> GetDatabaseAsync(UniFiConnectionService connection, CancellationToken cancellationToken = default)
     {
         // Return cached if still valid
         if (_database != null && _lastFetchTime.HasValue &&
             DateTime.UtcNow - _lastFetchTime.Value < CacheDuration)
         {
+            _logger.LogDebug("Fingerprint database served from cache for site {Slug} (fetched {FetchedAt:u})",
+                connection.SiteSlug, _lastFetchTime.Value);
             return _database;
         }
 
@@ -50,7 +50,7 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
                 return _database;
             }
 
-            await FetchDatabaseAsync(cancellationToken);
+            await FetchDatabaseAsync(connection, cancellationToken);
             return _database;
         }
         finally
@@ -62,14 +62,15 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
     /// <summary>
     /// Forces a refresh of the fingerprint database from the controller, bypassing the cache.
     /// </summary>
+    /// <param name="connection">The Console connection to fetch through.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous refresh operation.</returns>
-    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshAsync(UniFiConnectionService connection, CancellationToken cancellationToken = default)
     {
         await _fetchLock.WaitAsync(cancellationToken);
         try
         {
-            await FetchDatabaseAsync(cancellationToken);
+            await FetchDatabaseAsync(connection, cancellationToken);
         }
         finally
         {
@@ -77,25 +78,27 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
         }
     }
 
-    private async Task FetchDatabaseAsync(CancellationToken cancellationToken)
+    private async Task FetchDatabaseAsync(UniFiConnectionService connection, CancellationToken cancellationToken)
     {
-        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        if (!connection.IsConnected || connection.Client == null)
         {
-            _logger.LogWarning("Cannot fetch fingerprint database: not connected to UniFi controller");
+            _logger.LogWarning("Cannot fetch fingerprint database: site {Slug} is not connected to its UniFi Console",
+                connection.SiteSlug);
             _lastFetchFailed = true;
             return;
         }
 
         try
         {
-            _logger.LogInformation("Fetching fingerprint database from UniFi controller...");
+            _logger.LogInformation("Fetching fingerprint database through the UniFi Console of site {Slug}...", connection.SiteSlug);
 
-            _database = await _connectionService.Client.GetCompleteFingerprintDatabaseAsync(cancellationToken);
+            var fetched = await connection.Client.GetCompleteFingerprintDatabaseAsync(cancellationToken);
 
             // Only cache if we got actual data - don't poison cache with empty results
-            // (empty results happen when Console can't reach UI.com)
-            if (_database != null && _database.DevTypeIds.Count > 0)
+            // (empty results happen when Console can't reach UI.com). A copy from another site stays.
+            if (fetched != null && fetched.DevTypeIds.Count > 0)
             {
+                _database = fetched;
                 _lastFetchTime = DateTime.UtcNow;
                 _lastFetchFailed = false;
                 _logger.LogInformation(

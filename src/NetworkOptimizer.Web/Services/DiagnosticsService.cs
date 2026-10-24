@@ -138,7 +138,7 @@ public class DiagnosticsService
                 devices.Count, clients.Count, networks.Count, portProfiles.Count, clientHistory.Count);
 
             // Get fingerprint database for device detection
-            var fingerprintDb = await _fingerprintService.GetDatabaseAsync();
+            var fingerprintDb = await _fingerprintService.GetDatabaseAsync(_connectionService);
 
             // Create device detection service with all available data sources
             var deviceDetection = new DeviceTypeDetectionService(
