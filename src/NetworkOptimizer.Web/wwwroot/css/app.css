@@ -7746,16 +7746,56 @@ a.path-hop.hop-clickable:hover {
 }
 
 .automatic-blocking .form-row,
-.wan-flood .form-row {
+.wan-flood .form-row,
+.blocking-exception-form .form-row {
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
 }
 
 .automatic-blocking .form-row > .form-group,
-.wan-flood .form-row > .form-group {
+.wan-flood .form-row > .form-group,
+.blocking-exception-form .form-row > .form-group {
     flex: 1 1 180px;
     min-width: 0;
+}
+
+/* Blocking exceptions: the form keeps the form-group rhythm, so the panel's flex gap is off */
+.site-config-panel.blocking-exception-form {
+    gap: 0;
+}
+
+.blocking-exception-form > .section-description,
+.blocking-exception-form > .alert {
+    margin: 0 0 1rem;
+}
+
+.blocking-exceptions > .ab-status,
+.blocking-exceptions > .form-error {
+    margin-bottom: 1rem;
+}
+
+.blocking-exceptions-table .exc-arrow {
+    margin: 0 0.35rem;
+    color: var(--text-secondary);
+}
+
+.blocking-exceptions-table .exc-any {
+    color: var(--text-secondary);
+}
+
+.blocking-exceptions-table .exc-detail {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.blocking-exceptions-table .exc-actions,
+.drilldown-row-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
 }
 
 /* Threat Intelligence header row: page tabs on the left, filters and time range on the right.
@@ -7967,13 +8007,15 @@ a.path-hop.hop-clickable:hover {
 
 @media (max-width: 768px) {
     .automatic-blocking .form-row,
-    .wan-flood .form-row {
+    .wan-flood .form-row,
+    .blocking-exception-form .form-row {
         flex-direction: column;
         gap: 0;
     }
 
     .automatic-blocking .form-row > .form-group,
-    .wan-flood .form-row > .form-group {
+    .wan-flood .form-row > .form-group,
+    .blocking-exception-form .form-row > .form-group {
         flex: 0 0 auto;
     }
 }

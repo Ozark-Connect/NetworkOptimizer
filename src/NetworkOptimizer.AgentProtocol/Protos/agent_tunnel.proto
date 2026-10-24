@@ -510,6 +510,13 @@ message GatewayBlocklistSet {
   // Destinations devices on the site may not reach (the public lists, when outbound blocking is on).
   // Matched on every connection state, as UniFi Network's outbound policy does.
   repeated GatewayBlockEntry outbound = 4;
+  // Agents with the "gateway-blocklist-exceptions" capability only: the public list entries, kept apart
+  // from the site's own blocks in entries so exceptions can cover the lists alone. Older agents get both
+  // in entries and no exceptions.
+  repeated GatewayBlockEntry feeds = 5;
+  repeated GatewayBlockException exceptions = 6;
+  // True when feeds is used, so an empty feeds list is not read as an older server's set.
+  bool feeds_split = 7;
 }
 
 message GatewayBlockEntry {
@@ -517,6 +524,21 @@ message GatewayBlockEntry {
   string address = 1;
   // Seconds until the agent drops the entry on its own, so a lost server never leaves a ban forever.
   int32 ttl_seconds = 2;
+}
+
+// Traffic let through the public lists (feeds, and outbound when it is on). Never the site's own blocks.
+message GatewayBlockException {
+  // False: a device reaches a listed address. True: a listed address reaches a device or the gateway.
+  bool inbound = 1;
+  // The device on the site, an IP or CIDR; empty for every device.
+  string device = 2;
+  // The listed address, an IP or CIDR; empty for every listed address.
+  string address = 3;
+  // "tcp" and/or "udp"; empty for every protocol (and then no port).
+  repeated string protocols = 4;
+  // The listed address's port outbound, the device's inbound; 0 for every port.
+  int32 port_from = 5;
+  int32 port_to = 6;
 }
 
 // Devices on the site that tried to reach an outbound-blocked address, summed per minute. The drops

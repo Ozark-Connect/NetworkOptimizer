@@ -337,6 +337,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         var recent = await repository.GetBlocksAsync(now, lastRun.AddMinutes(-BlockingSettings.MaxBanMinutes - 1), ct);
         foreach (var b in recent.Where(b => b.Enforced && b.ReleasedAt == null && b.ExpiresAt > lastRun && b.ExpiresAt <= now))
             _audit?.BlockExpired(site, b.SourceIp);
+        foreach (var e in (await BlockingExceptions.LoadAsync(accessor, site, ct)).Where(e => e.ExpiresAt > lastRun && e.ExpiresAt <= now))
+            _audit?.ExceptionExpired(site, e.Id, BlockingExceptions.Describe(e));
         _lastRun[Key(site)] = now;
 
         if (!_lastPrune.TryGetValue(Key(site), out var pruned) || now - pruned > TimeSpan.FromDays(1))
@@ -402,32 +404,40 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _listMatchers.TryRemove(Key(site), out _);
         }
 
-        PushToGatewayAgent(site, settings, desired, feeds, feedsOut, now);
+        // Exceptions exist only against the public lists, which only Blocking mode enforces.
+        var exceptions = settings.Mode == BlockingMode.Enforce
+            ? BlockingExceptions.Active(await BlockingExceptions.LoadAsync(accessor, site, ct), now)
+            : [];
+        PushToGatewayAgent(site, settings, desired, feeds, feedsOut, exceptions, now);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, consoleFeeds, consoleFeedsOut, now, ct);
+        await ReconcileGatewayExceptionsAsync(site, services, settings, exceptions, now, ct);
         await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
     }
 
     // The gateway target's fast path: the site's gateway agent holds the same blocks and public list
     // entries the console groups do, applied in seconds and without a reprovision.
     private void PushToGatewayAgent(string? site, BlockingSettings settings, List<ThreatBlock> desired,
-        IReadOnlyList<string> feeds, IReadOnlyList<string> feedsOut, DateTime now)
+        IReadOnlyList<string> feeds, IReadOnlyList<string> feedsOut, IReadOnlyList<BlockingException> exceptions, DateTime now)
     {
         if (_agents == null) return;
         var enabled = settings.Mode != BlockingMode.Off && settings.TargetGateway;
         var entries = new List<GatewayAgentEntry>();
+        var feedEntries = new List<GatewayAgentEntry>();
         if (enabled)
         {
             entries.AddRange(desired.Select(b => new GatewayAgentEntry(b.SourceIp, b.ExpiresAt)));
             var own = desired.Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            entries.AddRange(feeds.Where(f => !own.Contains(f)).Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)));
+            feedEntries.AddRange(feeds.Where(f => !own.Contains(f)).Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)));
         }
         // Outbound only for the outbound public lists, and only where the site blocks them outbound.
         var outbound = enabled && settings.FeedsOutbound
             ? feedsOut.Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)).ToList()
             : [];
-        var fingerprint = AgentFingerprint(enabled, desired, feeds, outbound.Count > 0, outbound.Select(o => o.Address));
-        var connected = _agents.Push(site, enabled, entries, outbound, fingerprint);
+        var sentExceptions = enabled ? exceptions : [];
+        var fingerprint = AgentFingerprint(enabled, desired, feeds, outbound.Count > 0, outbound.Select(o => o.Address), sentExceptions);
+        var connected = _agents.Push(site, enabled, entries, outbound, fingerprint, feedEntries, sentExceptions);
+        var held = entries.Count + feedEntries.Count;
         // An agent that was enforcing and dropped off is most often restarting. Its rules stay on the gateway
         // for an hour after it stops, so the console waits out a short disconnect instead of reprovisioning.
         if (!connected && enabled && _agentEnforcingAt.TryGetValue(Key(site), out var lastEnforcing)
@@ -449,11 +459,14 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         if (now - _agentEnforcingAt[Key(site)] > AgentGrace && _agents.Problem(site, fingerprint) is { } problem)
             _status[key] = new BlockTargetStatus(BlockTargetKind.GatewayAgent, now, false, 0, $"{problem}. Updating UniFi Network instead.");
         else
-            _status[key] = new BlockTargetStatus(BlockTargetKind.GatewayAgent, now, true, entries.Count, null);
+            _status[key] = new BlockTargetStatus(BlockTargetKind.GatewayAgent, now, true, held, null);
     }
 
     /// <summary>Whether the site has a connected gateway On-Site Agent that can hold its blocklist (null site = default site).</summary>
     public bool GatewayAgentPresent(string? site) => _agents?.HasGatewayAgent(site) == true;
+
+    /// <summary>Whether the site's gateway On-Site Agents, if any, enforce exceptions (null site = default site).</summary>
+    public bool GatewayAgentEnforcesExceptions(string? site) => _agents?.EnforcesExceptions(site) != false;
 
     /// <summary>Whether the site's gateway On-Site Agent currently holds its blocklist (null site = default site).</summary>
     public bool GatewayAgentEnforcing(string? site) =>
@@ -462,7 +475,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     // Blocks count with their expiry (a re-ban extends one); public list entries without it, since
     // theirs is renewed on every send.
     internal static string AgentFingerprint(bool enabled, IEnumerable<ThreatBlock> blocks, IEnumerable<string> feeds, bool outbound = false,
-        IEnumerable<string>? outboundEntries = null)
+        IEnumerable<string>? outboundEntries = null, IEnumerable<BlockingException>? exceptions = null)
     {
         var text = new System.Text.StringBuilder(enabled ? "on|" : "off|").Append(outbound ? "out|" : "in|");
         foreach (var b in blocks.OrderBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase))
@@ -473,6 +486,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         text.Append('|');
         foreach (var f in (outboundEntries ?? []).Order(StringComparer.OrdinalIgnoreCase))
             text.Append(f.ToLowerInvariant()).Append(',');
+        text.Append('|').Append(BlockingExceptions.Fingerprint(exceptions ?? []));
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
 
@@ -702,6 +716,43 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _logger.LogWarning("Automatic Blocking: public lists not written to the gateway on {Site}: {Error}", site ?? "main", result.Error);
         else if (wanted.Count > 0)
             _logger.LogInformation("Automatic Blocking: {Count} public list entries on the gateway of {Site}", result.Count, site ?? "main");
+    }
+
+    private readonly ConcurrentDictionary<string, (string Fingerprint, DateTime At, bool Ok)> _exceptionsWritten = new();
+    private readonly ConcurrentDictionary<string, BlockTargetStatus> _exceptionsStatus = new();
+
+    /// <summary>
+    /// Forgets the last exception write and runs a cycle, so a console set up again (or cleared) gets the
+    /// site's exception policies now rather than at the next hourly check (null site = default site).
+    /// </summary>
+    public void ResyncExceptions(string? site)
+    {
+        _exceptionsWritten.TryRemove(Key(site), out _);
+        TriggerConsoleSyncFor(site);
+    }
+
+    /// <summary>The last write of a site's exception policies to its console, or null (null site = default site).</summary>
+    public BlockTargetStatus? ExceptionsConsoleStatus(string? site) =>
+        _exceptionsStatus.TryGetValue(Key(site), out var s) ? s : null;
+
+    // The exceptions' Allow policies follow the public lists' Network Lists: written on a change (a save
+    // triggers it at once), re-checked hourly, and held like them while a gateway agent enforces.
+    private async Task ReconcileGatewayExceptionsAsync(string? site, IServiceProvider services, BlockingSettings settings,
+        IReadOnlyList<BlockingException> exceptions, DateTime now, CancellationToken ct)
+    {
+        var wanted = settings.Mode == BlockingMode.Enforce && settings.TargetGateway ? exceptions : [];
+        var fingerprint = BlockingExceptions.Fingerprint(wanted) + (settings.FeedsOutbound ? "|out" : "|in");
+        var known = _exceptionsWritten.TryGetValue(Key(site), out var last);
+        if (known && last.Ok && last.Fingerprint == fingerprint && now - last.At < Resync) return;
+        if (known && !last.Ok && last.Fingerprint == fingerprint && now - last.At < TimeSpan.FromMinutes(30)) return;
+        if (wanted.Count > 0 && ConsoleHeld(site, settings, known ? last.At : null, !known || last.Ok, now)) return;
+        if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
+
+        var result = await writer.SyncExceptionsAsync(site, wanted, settings.FeedsOutbound, ct);
+        _exceptionsWritten[Key(site)] = (fingerprint, now, result.Ok);
+        _exceptionsStatus[Key(site)] = new BlockTargetStatus(BlockTargetKind.Gateway, now, result.Ok, result.Count, result.Error);
+        if (!result.Ok)
+            _logger.LogWarning("Automatic Blocking: exceptions not written to the gateway on {Site}: {Error}", site ?? "main", result.Error);
     }
 
     // Records the site's current addresses; a site that cannot be read keeps the ones it had.

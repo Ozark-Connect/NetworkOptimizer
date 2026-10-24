@@ -231,6 +231,15 @@ public class ThreatBlockingServiceTests
             StalePolicies = 0;
             return Task.FromResult(changed);
         }
+
+        public List<IReadOnlyList<BlockingException>> ExceptionSyncs { get; } = [];
+
+        public Task<BlockTargetResult> SyncExceptionsAsync(string? site, IReadOnlyList<BlockingException> exceptions, bool outbound,
+            CancellationToken ct)
+        {
+            ExceptionSyncs.Add(exceptions);
+            return Task.FromResult(BlockTargetResult.Success(exceptions.Count));
+        }
     }
 
     private sealed class Harness

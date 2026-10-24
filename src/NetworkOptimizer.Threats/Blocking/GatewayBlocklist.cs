@@ -29,7 +29,13 @@ public sealed class GatewayBlocklistState
 
     /// <summary>The optional outbound policies: each internal zone to the outbound public lists in External.</summary>
     public List<GatewayBlockPolicyRef> OutboundPolicies { get; set; } = [];
+
+    /// <summary>The Allow policies of the site's exceptions, by <see cref="ExceptionPolicySpec.Key"/>.</summary>
+    public List<GatewayExceptionPolicyRef> ExceptionPolicies { get; set; } = [];
 }
+
+/// <summary>One exception Allow policy on the console.</summary>
+public sealed record GatewayExceptionPolicyRef(string Id, string Key);
 
 /// <summary>One Block policy: External to <see cref="ZoneId"/> for one IP version (outbound: <see cref="ZoneId"/> to External).</summary>
 public sealed record GatewayBlockPolicyRef(string Id, string ZoneId, string IpVersion);
@@ -157,12 +163,16 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
 
         // New custom policies land after the ones already there, so a user ALLOW from External
         // would run first. Move ours to the front of each zone pair once; later ones land after.
+        // Exceptions sit between the site's own blocks and the public lists, as SyncExceptionsAsync orders them.
         var current = await client.GetFirewallPoliciesAsync(ct);
+        var exceptionIds = state.ExceptionPolicies.Select(p => p.Id).ToHashSet();
         foreach (var pair in refs.GroupBy(r => r.ZoneId))
         {
-            var (before, after) = OrderWithOursFirst(current, external.Id, pair.Key, pair.Select(r => r.Id).ToHashSet());
-            if (before.Count > 0)
-                await client.ReorderFirewallPoliciesAsync(external.Id, pair.Key, before, after, ct);
+            var ids = pair.Select(r => r.Id).ToHashSet();
+            var own = current.Where(p => ids.Contains(p.Id) && (p.Source.IpGroupId == state.GroupV4Id || p.Source.IpGroupId == state.GroupV6Id))
+                .Select(p => p.Id).ToHashSet();
+            if (GatewayExceptionPolicies.Order(current, external.Id, pair.Key, own, exceptionIds, ids) is { } order)
+                await client.ReorderFirewallPoliciesAsync(external.Id, pair.Key, order.Before, order.After, ct);
         }
         _logger.LogInformation("Gateway blocking set up: {Created} policies created, {Adopted} adopted, {Groups} groups created",
             created, adopted, groupsCreated);
@@ -266,11 +276,11 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
 
         // Ahead of any custom ALLOW to External in each zone pair, as with the inbound ones.
         var current = await client.GetFirewallPoliciesAsync(ct);
+        var exceptionIds = state.ExceptionPolicies.Select(p => p.Id).ToHashSet();
         foreach (var pair in refs.GroupBy(r => r.ZoneId))
         {
-            var (before, after) = OrderWithOursFirst(current, pair.Key, external.Id, pair.Select(r => r.Id).ToHashSet());
-            if (before.Count > 0)
-                await client.ReorderFirewallPoliciesAsync(pair.Key, external.Id, before, after, ct);
+            if (GatewayExceptionPolicies.Order(current, pair.Key, external.Id, exceptionIds, pair.Select(r => r.Id).ToHashSet()) is { } order)
+                await client.ReorderFirewallPoliciesAsync(pair.Key, external.Id, order.Before, order.After, ct);
         }
         _logger.LogInformation("Public lists outbound blocking set up: {Count} policies", refs.Count);
         return refs.Count;
@@ -309,6 +319,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var groupIds = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id, state.FeedsOutV4Id, state.FeedsOutV6Id }
             .Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
         var policyIds = state.Policies.Concat(state.OutboundPolicies).Select(p => p.Id)
+            .Concat(state.ExceptionPolicies.Select(p => p.Id))
             .Concat(policies.Where(p => !p.Predefined
                 && (groupIds.Contains(p.Source.IpGroupId ?? "") || groupIds.Contains(p.Destination.IpGroupId ?? ""))).Select(p => p.Id))
             .Distinct();
@@ -413,6 +424,84 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         catch (UniFiApiErrorException ex) when (ex.Code == "api.err.IdInvalid")
         {
             return BlockTargetResult.Failure("Network Optimizer's public block list Network List was removed in UniFi Network. Run Set Up again.");
+        }
+        catch (UniFiPermissionException ex)
+        {
+            return BlockTargetResult.Failure(ex.Message);
+        }
+        catch (Exception ex) when (ex is UniFiApiErrorException or InvalidOperationException or HttpRequestException)
+        {
+            return BlockTargetResult.Failure(ex.Message);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Policies are diffed by key: an unchanged exception keeps its policies, and each create or delete
+    /// is a separate reprovision. Every zone pair touched is then ordered Automatic Blocking's own Block
+    /// policy, the exceptions, the public list Block policies, so an exception never lets through a
+    /// source the site blocked itself.
+    /// </remarks>
+    public async Task<BlockTargetResult> SyncExceptionsAsync(string? site, IReadOnlyList<BlockingException> exceptions,
+        bool outbound, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state == null || (exceptions.Count == 0 && state.ExceptionPolicies.Count == 0))
+            return exceptions.Count == 0 ? BlockTargetResult.Success(0) : BlockTargetResult.Failure("Set up gateway blocking first.");
+        if (exceptions.Count > 0 && (state.FeedsV4Id == null || state.FeedsV6Id == null))
+            return BlockTargetResult.Failure("Run Set Up again to add the public block lists to the gateway.");
+        try
+        {
+            var client = Client(site);
+            var zones = await client.GetFirewallZonesAsync(ct);
+            var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External)
+                ?? throw new InvalidOperationException("Could not read the firewall zones from the UniFi Console.");
+            var others = zones.Where(z => z.Id != external.Id).Select(z => (z.Id, z.ZoneKey == FirewallZoneKeys.Gateway)).ToList();
+            var specs = GatewayExceptionPolicies.Build(exceptions, state, external.Id, others,
+                outbound && state.OutboundPolicies.Count > 0);
+            var policies = await client.GetFirewallPoliciesAsync(ct);
+            var present = policies.Select(p => p.Id).ToHashSet();
+            var wanted = specs.Select(s => s.Key).ToHashSet();
+
+            var previous = state.ExceptionPolicies.Count;
+            var kept = state.ExceptionPolicies.Where(r => wanted.Contains(r.Key) && present.Contains(r.Id)).ToList();
+            foreach (var stale in state.ExceptionPolicies.Except(kept).Where(r => present.Contains(r.Id)))
+                await client.DeleteFirewallPolicyAsync(stale.Id, ct);
+            var refs = new List<GatewayExceptionPolicyRef>(kept);
+            var created = 0;
+            try
+            {
+                foreach (var spec in specs.Where(s => kept.All(k => k.Key != s.Key)))
+                {
+                    var policy = await client.CreateFirewallPolicyAsync(spec.Body, ct);
+                    refs.Add(new GatewayExceptionPolicyRef(policy.Id, spec.Key));
+                    created++;
+                }
+            }
+            finally
+            {
+                // What was created stays tracked even when a later create fails, so the next sync cleans it up.
+                state.ExceptionPolicies = refs;
+                await SaveStateAsync(site, state, ct);
+            }
+
+            if (specs.Count > 0)
+            {
+                var current = await client.GetFirewallPoliciesAsync(ct);
+                var ours = refs.Select(r => r.Id).ToHashSet();
+                var own = current.Where(p => p.Source.IpGroupId is { } g && (g == state.GroupV4Id || g == state.GroupV6Id))
+                    .Select(p => p.Id).ToHashSet();
+                var lists = state.Policies.Concat(state.OutboundPolicies).Select(p => p.Id).Where(id => !own.Contains(id)).ToHashSet();
+                foreach (var pair in specs.Select(s => (s.SourceZoneId, s.DestinationZoneId)).Distinct())
+                {
+                    if (GatewayExceptionPolicies.Order(current, pair.SourceZoneId, pair.DestinationZoneId, own, ours, lists) is { } order)
+                        await client.ReorderFirewallPoliciesAsync(pair.SourceZoneId, pair.DestinationZoneId, order.Before, order.After, ct);
+                }
+            }
+            if (created > 0 || kept.Count != previous)
+                _logger.LogInformation("Gateway exceptions on {Site}: {Count} Allow policies ({Created} created)",
+                    site ?? "main", refs.Count, created);
+            return BlockTargetResult.Success(refs.Count);
         }
         catch (UniFiPermissionException ex)
         {
