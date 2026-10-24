@@ -37,4 +37,30 @@ public class AgentConnectionAlertMonitorTests
     [InlineData("Agent", false, null, "The On-Site Agent")]
     public void AgentSubject_NamesTheKind(string name, bool onGateway, string? lanIp, string expected)
         => AgentConnectionAlertMonitor.AgentSubject(name, onGateway, lanIp).Should().Be(expected);
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ChronicHint_BeforeChronic_AndStable_IsEmpty(int alerts)
+        => AgentConnectionAlertMonitor.ChronicHint(alerts, unstable: false).Should().BeEmpty();
+
+    [Fact]
+    public void ChronicHint_ThirdAlertInADay_CountsAndPointsAtTheProxy()
+    {
+        var hint = AgentConnectionAlertMonitor.ChronicHint(3, unstable: false);
+
+        hint.Should().StartWith(" It has gone offline 3 times in the last 24 hours.");
+        hint.Should().Contain(AgentTunnelRegistry.UnstableCause);
+        hint.Should().Contain(AgentTunnelRegistry.ReverseProxyHelpUrl);
+    }
+
+    [Fact]
+    public void ChronicHint_UnstableTunnel_PointsAtTheProxyWithoutACount()
+    {
+        var hint = AgentConnectionAlertMonitor.ChronicHint(1, unstable: true);
+
+        hint.Should().StartWith(" " + AgentTunnelRegistry.UnstableCause);
+        hint.Should().NotContain("gone offline");
+        hint.Should().Contain(AgentTunnelRegistry.ReverseProxyHelpUrl);
+    }
 }

@@ -33,6 +33,27 @@ public class AgentTunnelRegistry
     // attempt; a tunnel down longer than this is a real outage, not a reconnect.
     private static readonly TimeSpan TunnelReconnectGrace = TimeSpan.FromSeconds(75);
 
+    // Reconnect times per agent, oldest first. A first connect after this server starts is not a
+    // reconnect, so a server restart never makes every agent look unstable.
+    private readonly ConcurrentDictionary<int, Queue<DateTime>> _reconnects = new();
+    private const int MaxReconnectsKept = 32;
+
+    /// <summary>Window <see cref="IsUnstable"/> counts reconnects over.</summary>
+    public static readonly TimeSpan UnstableWindow = TimeSpan.FromMinutes(15);
+
+    /// <summary>Reconnects within <see cref="UnstableWindow"/> that mark a tunnel as unstable.</summary>
+    public const int UnstableReconnects = 3;
+
+    /// <summary>The usual cause of an unstable tunnel, shared by every surface that flags one.</summary>
+    public const string UnstableCause = "A reverse proxy read timeout or keep-alive setting usually causes this.";
+
+    /// <summary>The agent README's proxy settings, which is what fixes an unstable tunnel.</summary>
+    public const string ReverseProxyHelpUrl =
+        "https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/src/NetworkOptimizer.Agent/README.md#reverse-proxy";
+
+    /// <summary>The pinned agent connection help issue.</summary>
+    public const string AgentConnectionHelpUrl = "https://github.com/Ozark-Connect/NetworkOptimizer/issues/1154";
+
     public AgentTunnelRegistry(AgentTunnelOptions tunnelOptions)
     {
         _tunnelEnabled = tunnelOptions.Enabled;
@@ -47,7 +68,17 @@ public class AgentTunnelRegistry
             old.Complete();
             return connection;
         });
-        _lastTunnelActivity[agentId] = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        if (_lastTunnelActivity.ContainsKey(agentId))
+        {
+            var times = _reconnects.GetOrAdd(agentId, _ => new Queue<DateTime>());
+            lock (times)
+            {
+                times.Enqueue(now);
+                while (times.Count > MaxReconnectsKept) times.Dequeue();
+            }
+        }
+        _lastTunnelActivity[agentId] = now;
         try
         {
             AgentConnected?.Invoke(agentId);
@@ -104,6 +135,27 @@ public class AgentTunnelRegistry
                 && DateTime.UtcNow - last < TunnelReconnectGrace;
         return AgentEnrollmentService.IsOnline(agent.LastSeenAt);
     }
+
+    /// <summary>How many times the agent's tunnel reconnected within <paramref name="window"/>.</summary>
+    public int ReconnectsWithin(int agentId, TimeSpan window)
+    {
+        if (!_reconnects.TryGetValue(agentId, out var times))
+            return 0;
+        var since = DateTime.UtcNow - window;
+        lock (times)
+            return times.Count(t => t >= since);
+    }
+
+    /// <summary>
+    /// Whether the agent's tunnel keeps dropping and reconnecting. A reconnect inside the grace
+    /// never shows as offline, so this is the only signal for a proxy that severs the tunnel on a
+    /// timer (a read timeout or keep-alive setting).
+    /// </summary>
+    public bool IsUnstable(int agentId) => ReconnectsWithin(agentId, UnstableWindow) >= UnstableReconnects;
+
+    /// <summary>The reconnect count over <see cref="UnstableWindow"/>, then the usual cause.</summary>
+    public string DescribeUnstable(int agentId) =>
+        $"Reconnected {ReconnectsWithin(agentId, UnstableWindow)} times in the last {(int)UnstableWindow.TotalMinutes} minutes. {UnstableCause}";
 
     /// <summary>
     /// Whether we've heard from the agent recently by any means - open tunnel or a

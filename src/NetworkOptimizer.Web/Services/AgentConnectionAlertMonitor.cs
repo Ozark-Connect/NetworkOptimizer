@@ -12,7 +12,8 @@ namespace NetworkOptimizer.Web.Services;
 /// its brief reconnect grace, or - only when this server offers no tunnel - REST
 /// heartbeat freshness) instead of hooking tunnel teardown, so agent redeploys
 /// and transient tunnel bounces never alert - only an agent continuously offline
-/// for the full threshold does.
+/// for the full threshold does. A tunnel that keeps reconnecting inside the grace raises a separate
+/// unstable alert instead, since it never reads as offline.
 /// </summary>
 public class AgentConnectionAlertMonitor : BackgroundService
 {
@@ -34,6 +35,14 @@ public class AgentConnectionAlertMonitor : BackgroundService
     }
 
     private readonly Dictionary<int, AgentState> _states = new();
+
+    // Offline alert times per agent within ChronicWindow, and the last unstable alert per agent.
+    // Sweep loop only, like _states.
+    private readonly Dictionary<int, List<DateTime>> _offlineAlerts = new();
+    private readonly Dictionary<int, DateTime> _unstableAlertedAt = new();
+    private static readonly TimeSpan ChronicWindow = TimeSpan.FromHours(24);
+    private const int ChronicOfflineAlerts = 3;
+    private static readonly TimeSpan UnstableRealert = TimeSpan.FromHours(24);
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
     private readonly AgentOnGatewayDetector _onGateway;
@@ -106,6 +115,24 @@ public class AgentConnectionAlertMonitor : BackgroundService
             if (!_siteWorkGate.IsSiteOperational(entry.Slug))
                 continue;
 
+            // A tunnel that reconnects inside the grace never reads as offline, so it needs its own alert.
+            if (_tunnelRegistry.IsUnstable(agent.Id)
+                && (!_unstableAlertedAt.TryGetValue(agent.Id, out var lastUnstable) || now - lastUnstable >= UnstableRealert))
+            {
+                _unstableAlertedAt[agent.Id] = now;
+                var others = agents.Count(e => e.Slug == entry.Slug && e.Agent.Id != agent.Id);
+                var subject = others == 0
+                    ? AgentLabel(agent.Name)
+                    : AgentSubject(agent.Name, await IsOnGatewayAsync(agent, entry.Slug, ct), agent.LanIp);
+                var reconnects = _tunnelRegistry.ReconnectsWithin(agent.Id, AgentTunnelRegistry.UnstableWindow);
+                _logger.LogWarning("Agent {Name} (site {Site}) reconnected {Count} times in {Minutes} minutes",
+                    agent.Name, entry.Slug, reconnects, (int)AgentTunnelRegistry.UnstableWindow.TotalMinutes);
+                await PublishAsync("agent.unstable", AlertSeverity.Warning,
+                    "On-Site Agent connection unstable",
+                    $"{subject} keeps dropping its connection. {_tunnelRegistry.DescribeUnstable(agent.Id)} {ProxyHelp}",
+                    agent, entry.Slug, ct);
+            }
+
             if (live[agent.Id])
             {
                 if (_states.Remove(agent.Id, out var prior) && prior.Alerted)
@@ -154,9 +181,12 @@ public class AgentConnectionAlertMonitor : BackgroundService
                     message = $"{state.Subject} has been offline for over {minutes} minutes.{console} Monitoring and speed tests that run on {runsOn} are unavailable until it reconnects.";
                 }
 
+                var priorAlerts = RecordOfflineAlert(agent.Id, now);
+                var hint = ChronicHint(priorAlerts + 1, _tunnelRegistry.IsUnstable(agent.Id));
+
                 await PublishAsync("agent.offline", AlertSeverity.Warning,
                     "On-Site Agent offline",
-                    $"{message} {lastSeen}",
+                    $"{message} {lastSeen}{hint}",
                     agent, entry.Slug, ct);
             }
         }
@@ -164,6 +194,35 @@ public class AgentConnectionAlertMonitor : BackgroundService
         // Forget agents that were deleted or disabled mid-outage.
         foreach (var staleId in _states.Keys.Where(id => !seen.Contains(id)).ToList())
             _states.Remove(staleId);
+        foreach (var staleId in _offlineAlerts.Keys.Where(id => !seen.Contains(id)).ToList())
+            _offlineAlerts.Remove(staleId);
+        foreach (var staleId in _unstableAlertedAt.Keys.Where(id => !seen.Contains(id)).ToList())
+            _unstableAlertedAt.Remove(staleId);
+    }
+
+    private static readonly string ProxyHelp =
+        $"See the Reverse proxy section of the agent README: {AgentTunnelRegistry.ReverseProxyHelpUrl} (more help: {AgentTunnelRegistry.AgentConnectionHelpUrl}).";
+
+    /// <summary>Records an offline alert and returns how many came before it within the chronic window.</summary>
+    private int RecordOfflineAlert(int agentId, DateTime now)
+    {
+        if (!_offlineAlerts.TryGetValue(agentId, out var times))
+            _offlineAlerts[agentId] = times = new List<DateTime>();
+        times.RemoveAll(t => now - t > ChronicWindow);
+        var prior = times.Count;
+        times.Add(now);
+        return prior;
+    }
+
+    /// <summary>
+    /// The proxy hint for an offline alert, with a leading space, or empty. Added once the outage is
+    /// chronic (the Nth alert within a day) or the tunnel flapped on the way down.
+    /// </summary>
+    internal static string ChronicHint(int alertsInWindow, bool unstable)
+    {
+        if (alertsInWindow >= ChronicOfflineAlerts)
+            return $" It has gone offline {alertsInWindow} times in the last {(int)ChronicWindow.TotalHours} hours. {AgentTunnelRegistry.UnstableCause} {ProxyHelp}";
+        return unstable ? $" {AgentTunnelRegistry.UnstableCause} {ProxyHelp}" : "";
     }
 
     /// <summary>
