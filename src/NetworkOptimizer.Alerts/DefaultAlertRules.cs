@@ -320,6 +320,15 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 60 // 1 minute - reconnects are paired with offline events
         },
+        new AlertRule
+        {
+            Name = "On-Site Agent: Connection Unstable",
+            IsEnabled = true,
+            EventTypePattern = "agent.unstable",
+            Source = "agent",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes - the monitor fires at most once a day per agent
+        },
 
         // --- Monitoring (enabled by default - users opted into monitoring by configuring it) ---
         new AlertRule

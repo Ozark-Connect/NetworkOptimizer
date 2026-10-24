@@ -3811,6 +3811,11 @@
                                                                         else if (TunnelRegistry.IsAgentLive(agent))
                                                                         {
                                                                             <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{NetworkOptimizer.Core.Helpers.VersionUtilities.TrimLeadingV(NetworkOptimizer.Core.Helpers.VersionUtilities.StripBuildMetadata(agent.LastVersion))}" : "")</text>
+                                                                            @if (TunnelRegistry.IsUnstable(agent.Id))
+                                                                            {
+                                                                                <a class="status-warning" href="@AgentTunnelRegistry.ReverseProxyHelpUrl" target="_blank" rel="noopener"
+                                                                                   data-tooltip="@($"{TunnelRegistry.DescribeUnstable(agent.Id)} Click for the Reverse proxy section of the agent README.")">Reconnecting often</a>
+                                                                            }
                                                                             @if (AgentVersionOutdated(agent))
                                                                             {
                                                                                 <span class="status-warning" data-tooltip="A newer agent release (v@(AppVersionInfo.AgentVersionForDisplay(AppVersionInfo.LatestAgentVersion))) is available. Update agents whenever a release calls for it.">

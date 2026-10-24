@@ -1836,6 +1836,11 @@
                                     <div class="form-value-line">
                                         <span class="status-indicator @(_siteAgent is not null && TunnelRegistry.IsAgentLive(_siteAgent) ? "status-active" : "status-danger")"></span>
                                         <span>On-Site Agent: @AgentCollectionState</span>
+                                        @if (_siteAgent is not null && TunnelRegistry.IsUnstable(_siteAgent.Id))
+                                        {
+                                            <a class="status-warning" href="@AgentTunnelRegistry.ReverseProxyHelpUrl" target="_blank" rel="noopener"
+                                               data-tooltip="@($"{TunnelRegistry.DescribeUnstable(_siteAgent.Id)} Click for the Reverse proxy section of the agent README.")">Reconnecting often</a>
+                                        }
                                     </div>
                                 }
                             }
