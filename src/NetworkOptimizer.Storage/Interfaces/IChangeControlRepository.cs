@@ -29,6 +29,9 @@ public interface IChangeControlRepository
     /// <summary>The newest snapshot, or null when the site has none.</summary>
     Task<ConfigSnapshot?> GetLatestSnapshotAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>The newest snapshot holding at least one object of a collection, or null.</summary>
+    Task<ConfigSnapshot?> GetLatestSnapshotWithAsync(string collection, CancellationToken cancellationToken = default);
+
     /// <summary>The newest snapshot taken at or before a time.</summary>
     Task<ConfigSnapshot?> GetSnapshotAtOrBeforeAsync(DateTime utc, CancellationToken cancellationToken = default);
 

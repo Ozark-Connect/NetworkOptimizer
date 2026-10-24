@@ -156,6 +156,14 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
     Task<int> BuildZonePlanAsync(ZoneChoices choices, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Builds a plan that translates a legacy-firewall snapshot's rules into zone policies on this
+    /// zone-based site. Rules the translation cannot prove stop at Review Plan.
+    /// </summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildLegacyTranslationAsync(int snapshotId, CancellationToken cancellationToken = default);
+
     /// <summary>The UniFi console backups (.unf) Network Optimizer keeps for this site.</summary>
     [RequireRole(Roles.Admin)]
     Task<List<ConsoleBackupRecord>> GetConsoleBackupsAsync(CancellationToken cancellationToken = default);

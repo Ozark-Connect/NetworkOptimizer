@@ -48,6 +48,10 @@ public sealed class ZoneSetupView
 {
     public string Mode { get; init; } = ZoneSetup.TrustMode;
     public bool LegacyFirewall { get; init; }
+
+    /// <summary>The newest snapshot from before the site moved to zones, when one exists.</summary>
+    public int? LegacySnapshotId { get; set; }
+    public string? LegacySnapshotLabel { get; set; }
     public List<ZoneNetworkView> Networks { get; init; } = [];
     public List<ZoneDraft> Zones { get; init; } = [];
     public List<ZoneException> Exceptions { get; init; } = [];

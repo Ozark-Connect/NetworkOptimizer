@@ -103,6 +103,12 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
             .OrderByDescending(s => s.TakenAt).ThenByDescending(s => s.Id)
             .FirstOrDefaultAsync(cancellationToken), nameof(GetLatestSnapshotAsync));
 
+    public Task<ConfigSnapshot?> GetLatestSnapshotWithAsync(string collection, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.ConfigSnapshots.AsNoTracking()
+            .Where(s => _context.ConfigSnapshotBlobs.Any(b => b.SnapshotId == s.Id && b.Collection == collection && b.ObjectCount > 0))
+            .OrderByDescending(s => s.TakenAt).ThenByDescending(s => s.Id)
+            .FirstOrDefaultAsync(cancellationToken), nameof(GetLatestSnapshotWithAsync));
+
     public Task<ConfigSnapshot?> GetSnapshotAtOrBeforeAsync(DateTime utc, CancellationToken cancellationToken = default) =>
         ExecuteAsync(() => _context.ConfigSnapshots.AsNoTracking()
             .Where(s => s.TakenAt <= utc)
