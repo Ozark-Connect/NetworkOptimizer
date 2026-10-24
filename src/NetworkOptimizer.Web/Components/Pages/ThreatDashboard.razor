@@ -1200,9 +1200,11 @@ else
         @if (_exceptionAt == "header" && _exceptionPrefill != null)
         {
             <BlockingExceptionForm Initial="_exceptionPrefill" List="@_drilldownData.PublicList" DeviceName="GetClientName"
-                                   Intro="@(_exceptionPrefill.Device != null
-                                       ? "Filled in with this device. Set a port to let it reach any listed address on that port, or set a listed address to narrow it."
-                                       : "Filled in with this address. Set a device or a port to narrow it.")"
+                                   Intro="@(_exceptionPrefill.Device == null
+                                       ? "Filled in with this address. Set a device or a port to narrow it."
+                                       : _exceptionPrefill.PortFrom != null
+                                           ? "Filled in with this device and the port it used to reach every listed address. Widen or narrow any field before you add it."
+                                           : "Filled in with this device. Set a port to let it reach any listed address on that port, or set a listed address to narrow it.")"
                                    OnSaved="DrilldownExceptionSaved" OnCancel="() => _exceptionAt = null" />
         }
 
@@ -1293,7 +1295,7 @@ else
                                                     @if (ExceptionsApply && dest.PublicList != null)
                                                     {
                                                         <SiteAdminOnly>
-                                                            <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"dest:{dest.Ip}", OutboundPrefill(_drilldownIp, dest.Ip, dest.PortRanges)))">@(_exceptionAt == $"dest:{dest.Ip}" ? "Hide" : "Allow")</button>
+                                                            <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"dest:{dest.Ip}", OutboundPrefill(_drilldownIp, dest.Ip, dest.PortRanges, dest.Protocols)))">@(_exceptionAt == $"dest:{dest.Ip}" ? "Hide" : "Allow")</button>
                                                         </SiteAdminOnly>
                                                     }
                                                     <button class="btn btn-sm btn-secondary quick-filter-btn hide-mobile" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button>
@@ -1359,7 +1361,7 @@ else
                                                 @if (ExceptionsApply && _drilldownData.PublicList != null && NetworkUtilities.IsPrivateIpAddress(src.Ip))
                                                 {
                                                     <SiteAdminOnly>
-                                                        <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"src:{src.Ip}", OutboundPrefill(src.Ip, _drilldownData.Ip, src.PortRanges)))">@(_exceptionAt == $"src:{src.Ip}" ? "Hide" : "Allow")</button>
+                                                        <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"src:{src.Ip}", OutboundPrefill(src.Ip, _drilldownData.Ip, src.PortRanges, src.Protocols)))">@(_exceptionAt == $"src:{src.Ip}" ? "Hide" : "Allow")</button>
                                                     </SiteAdminOnly>
                                                 }
                                                 <button class="btn btn-sm btn-secondary quick-filter-btn hide-mobile" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button>
@@ -2811,10 +2813,13 @@ else
     private BlockingException? HeaderException(IpDrilldownData data)
     {
         if (!ExceptionsApply) return null;
-        if (data.PublicList != null) return OutboundPrefill(null, data.Ip, null);
-        if (NetworkUtilities.IsPrivateIpAddress(data.Ip) && data.Destinations.Any(d => d.PublicList != null))
-            return new BlockingException { Direction = ExceptionDirection.Outbound, Device = data.Ip };
-        return null;
+        if (data.PublicList != null) return OutboundPrefill(null, data.Ip, null, []);
+        var listed = data.Destinations.Where(d => d.PublicList != null).ToList();
+        if (!NetworkUtilities.IsPrivateIpAddress(data.Ip) || listed.Count == 0) return null;
+        // Every listed address on one port (Syncthing's 22000) fills it in; mixed ports leave it to the user.
+        var ports = listed.Select(d => d.PortRanges).Distinct().ToList();
+        return OutboundPrefill(data.Ip, null, ports.Count == 1 ? ports[0] : null,
+            listed.SelectMany(d => d.Protocols).Distinct().Order().ToList());
     }
 
     private void ToggleException(string at, BlockingException prefill)
@@ -2828,17 +2833,28 @@ else
         _exceptionPrefill = prefill;
     }
 
-    private static BlockingException OutboundPrefill(string? device, string address, string? portRanges)
+    /// <summary>
+    /// An outbound exception from what the events saw: the port when they all used one, and their
+    /// protocols (TCP and UDP when both, or when a port was seen with neither recorded).
+    /// </summary>
+    private static BlockingException OutboundPrefill(string? device, string? address, string? portRanges, IReadOnlyList<string> protocols)
     {
         int? port = int.TryParse(portRanges, out var p) && p > 0 ? p : null;
+        var protocol = protocols switch
+        {
+            ["tcp"] => ExceptionProtocol.Tcp,
+            ["udp"] => ExceptionProtocol.Udp,
+            _ when port != null => ExceptionProtocol.TcpUdp,
+            _ => ExceptionProtocol.Any,
+        };
         return new BlockingException
         {
             Direction = ExceptionDirection.Outbound,
             Device = device,
             Address = address,
-            Protocol = port != null ? ExceptionProtocol.TcpUdp : ExceptionProtocol.Any,
-            PortFrom = port,
-            PortTo = port,
+            Protocol = protocol,
+            PortFrom = protocol == ExceptionProtocol.Any ? null : port,
+            PortTo = protocol == ExceptionProtocol.Any ? null : port,
         };
     }
 

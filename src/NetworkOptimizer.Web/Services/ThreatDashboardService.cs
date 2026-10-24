@@ -904,6 +904,7 @@ public class ThreatDashboardService : IThreatFilterAdminService
             Domain = events.FirstOrDefault(e => !string.IsNullOrEmpty(e.Domain))?.Domain,
             PortRanges = portRangesStr,
             Services = services.Count > 0 ? string.Join(", ", services) : null,
+            Protocols = events.Select(e => e.Protocol.ToLowerInvariant()).Where(p => p is "tcp" or "udp").Distinct().Order().ToList(),
             EventCount = events.Count,
             BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked)
         };
@@ -1206,6 +1207,8 @@ public class IpPeerGroup
     public string? Domain { get; set; }
     public string PortRanges { get; set; } = "-";
     public string? Services { get; set; }
+    /// <summary>"tcp" and/or "udp" as seen in the events, lowercase and sorted; others are left out.</summary>
+    public IReadOnlyList<string> Protocols { get; set; } = [];
     public int EventCount { get; set; }
     public int BlockedCount { get; set; }
 
