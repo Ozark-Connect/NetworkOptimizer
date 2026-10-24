@@ -391,6 +391,8 @@ public class ChangeControlRenderHarness
                         new("Management isolated", "Pass", "ok"), new("Guest reaches internet only", "Pass", "ok"), new("Printers and Lab stay in their current zone", "Not checked", "warn")];
                     board.ChecksPass = true;
                 }
+                board.LegacySnapshotId = 3;
+                board.LegacySnapshotLabel = "Sep 2, 2026 9:14 PM";
                 return board;
             });
         m.Setup(s => s.GetConsoleBackupsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(

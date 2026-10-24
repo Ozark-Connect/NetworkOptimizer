@@ -306,13 +306,18 @@ public sealed partial class ChangeControlService
             SameSite = sameSite, DeleteMissing = deleteMissing && !devicesOnly, TargetHasGateway = hasGateway,
             Collections = devicesOnly ? new HashSet<string> { "device" } : null,
         };
+        // A legacy-firewall snapshot onto a zone-based console: translate the rules, and audit against the legacy config.
+        var translation = !devicesOnly && LegacyFirewallTranslator.Applies(state, live)
+            ? LegacyFirewallTranslator.Translate(state, live, options.DeleteMissing)
+            : null;
         var label = Local(snap.TakenAt).ToString("MMM d, h:mm tt");
         var sourceName = sameSite ? await SiteNameAsync(cancellationToken) : sourceSiteSlug;
         var plan = await Plans.CreateAsync(ConfigPlanKind.Restore, $"{(devicesOnly ? "Device config from" : "Restore")} {sourceName} snapshot ({label}) onto {await SiteNameAsync(cancellationToken)}",
             $"Snapshot, {label}{(sameSite ? "" : $", site {sourceSiteSlug}")}", sameSite ? snapshotId : null, sameSite ? null : sourceSiteSlug,
-            state, options, Actor, cancellationToken,
+            translation?.Desired ?? state, options, Actor, cancellationToken,
             doc =>
             {
+                if (translation != null) AddTranslation(doc, translation);
                 doc.Context["source_taken_at"] = snap.TakenAt.ToString("o");
                 if (snap.NetworkAppVersion is { } from && live.NetworkAppVersion is { } to && from != to)
                     doc.Notes.Add(FirmwareVersionFormat.IsNewer(from, to)
@@ -324,7 +329,35 @@ public sealed partial class ChangeControlService
                 var missing = state.Get("device").Count(d => !live.Get("device").Any(l => string.Equals(l["mac"]?.ToString(), d["mac"]?.ToString(), StringComparison.OrdinalIgnoreCase)));
                 if (missing > 0)
                     doc.Notes.Add($"{missing} {(missing == 1 ? "device in the snapshot is" : "devices in the snapshot are")} not adopted here. Adopt them from Adopt Pending Devices, then Write Device Config builds the plan for their config.");
-            });
+            },
+            impactBefore: translation != null ? state : null);
         return plan.Id;
+    }
+
+    /// <summary>
+    /// Records a legacy-to-zone translation on the plan. An enabled rule it could not prove stops at
+    /// Review Plan as a regression to accept by name (spec "Legacy firewall to ZBF migration").
+    /// </summary>
+    internal static void AddTranslation(PlanDocument doc, LegacyTranslation translation)
+    {
+        var translated = translation.Rules.Count(r => r.Status == LegacyRuleStatus.Translated);
+        var covered = translation.Rules.Count(r => r.Status == LegacyRuleStatus.Covered);
+        doc.Notes.Add($"Legacy firewall rules translated to zone policies: {translated} translated ({translation.Rules.Sum(r => r.Policies)} policies), "
+            + $"{covered} covered by the zone-based firewall's built-in rules, {translation.Unproven.Count()} not translated. "
+            + "The Security Audit compares the result with the legacy config.");
+        foreach (var r in translation.Unproven)
+        {
+            if (!r.Enabled)
+            {
+                doc.Notes.Add($"Legacy rule {r.Name} ({r.Ruleset}, disabled) not translated: {r.Detail}");
+                continue;
+            }
+            doc.Regressions.Add(new ImpactLine
+            {
+                Kind = "Regression", Title = $"Legacy rule not translated: {r.Name}",
+                Detail = $"{r.Ruleset}: {r.Detail} Recreate it as a zone policy after the restore, or accept that it is gone.",
+                Severity = "Recommended", Key = $"legacy:{r.Id}",
+            });
+        }
     }
 }

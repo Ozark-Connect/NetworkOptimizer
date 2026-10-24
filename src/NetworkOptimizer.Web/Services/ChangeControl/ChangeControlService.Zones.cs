@@ -24,6 +24,12 @@ public sealed partial class ChangeControlService
     public async Task<ZoneSetupView> GetZoneSetupAsync(ZoneChoices choices, bool runChecks, CancellationToken cancellationToken = default)
     {
         var (board, live, networks) = await ZoneBoardAsync(choices, cancellationToken);
+        if (!board.LegacyFirewall
+            && await Engine.Repositories.UseAsync((r, c) => r.GetLatestSnapshotWithAsync("firewallrule", c), cancellationToken) is { } legacy)
+        {
+            board.LegacySnapshotId = legacy.Id;
+            board.LegacySnapshotLabel = Local(legacy.TakenAt).ToString("MMM d, yyyy h:mm tt");
+        }
         if (runChecks && !board.LegacyFirewall && Engine.Evaluator != null)
         {
             var impact = await Engine.Evaluator.RunImpactAsync(_site.Slug, live, ZoneSetup.Desired(live, board), cancellationToken);
@@ -49,6 +55,25 @@ public sealed partial class ChangeControlService
                 foreach (var c in checks.Where(c => c.Level != "ok")) doc.Notes.Add($"Security Audit check: {c.Label}: {c.Status}.");
                 doc.Context["zone_checks"] = pass ? "pass" : "fail";
             });
+        return plan.Id;
+    }
+
+    public async Task<int> BuildLegacyTranslationAsync(int snapshotId, CancellationToken cancellationToken = default)
+    {
+        var state = await Engine.LoadSnapshotStateAsync(snapshotId, cancellationToken)
+            ?? throw new InvalidOperationException("That snapshot is not available.");
+        var snap = await Engine.Repositories.UseAsync((r, c) => r.GetSnapshotAsync(snapshotId, c), cancellationToken);
+        var live = await Engine.ReadLiveAsync(cancellationToken);
+        if (!LegacyFirewallTranslator.Applies(state, live))
+            throw new InvalidOperationException("Translation needs a snapshot with legacy rules and a site on the zone-based firewall.");
+
+        // Firewall only, nothing deleted: policies UniFi's own move created stay, and same-named ones are updated.
+        var translation = LegacyFirewallTranslator.Translate(state, live, deleteMissing: false);
+        var label = Local(snap!.TakenAt).ToString("MMM d, h:mm tt");
+        var plan = await Plans.CreateAsync(ConfigPlanKind.Zones, $"Translate legacy firewall rules ({label}) on {await SiteNameAsync(cancellationToken)}",
+            $"Snapshot, {label}", snapshotId, null, translation.Desired,
+            new PlanOptions { Collections = new HashSet<string> { "firewall_zone", "firewall_policy", "firewallgroup" }, DeleteMissing = false },
+            Actor, cancellationToken, doc => AddTranslation(doc, translation), impactBefore: state);
         return plan.Id;
     }
 }

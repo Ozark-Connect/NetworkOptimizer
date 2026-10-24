@@ -14,7 +14,7 @@ else if (_board.LegacyFirewall)
         <div class="card-header"><h3 class="card-title">Set Up Zones <span class="card-title-suffix">@SiteName</span></h3></div>
         <div class="card-body">
             <p>This site still runs UniFi's legacy firewall rules, so it has no zones yet. Move it to the zone-based firewall in UniFi Network first; Set Up Zones then groups its networks.</p>
-            <p class="muted-text">Change Control keeps a snapshot of the legacy rules from before the move.</p>
+            <p class="muted-text">Change Control keeps a snapshot of the legacy rules from before the move. After it, Translate Legacy Rules here checks UniFi's translation against them.</p>
         </div>
     </div>
 }
@@ -142,6 +142,19 @@ else
             </SiteOperatorOnly>
         </div>
     </div>
+    @if (b.LegacySnapshotId is { } legacyId)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Legacy Firewall Rules <span class="card-title-suffix">snapshot @b.LegacySnapshotLabel</span></h3></div>
+            <p class="cc-card-intro">This site ran legacy firewall rules before it moved to zones. Translate them into zone policies and compare the result with the legacy rules in the Security Audit. Rules that cannot be translated exactly are listed in Review Plan.</p>
+            <div class="cc-card-footer">
+                <span class="cc-remaining"></span>
+                <SiteOperatorOnly>
+                    <button class="btn btn-primary" disabled="@_busy" @onclick="() => TranslateAsync(legacyId)">Translate Legacy Rules</button>
+                </SiteOperatorOnly>
+            </div>
+        </div>
+    }
     @if (_error != null)
     {
         <div class="alert alert-danger">@_error</div>
@@ -284,6 +297,25 @@ else
         _added.Clear();
         _exceptions.Clear();
         await RefreshAsync();
+    }
+
+    private async Task TranslateAsync(int snapshotId)
+    {
+        _busy = true;
+        try
+        {
+            var planId = await Site.BuildLegacyTranslationAsync(snapshotId);
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Translating legacy firewall rules failed");
+            _error = ex is InvalidOperationException ? ex.Message : "Could not build the translation plan. See the logs for details.";
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task ReviewPlanAsync()

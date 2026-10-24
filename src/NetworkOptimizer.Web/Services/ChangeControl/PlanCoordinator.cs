@@ -90,7 +90,8 @@ public sealed class PlanCoordinator
 
     /// <summary>Builds a plan against live, runs its impact, and stores it as a Draft.</summary>
     public async Task<ConfigPlan> CreateAsync(ConfigPlanKind kind, string name, string source, int? sourceSnapshotId, string? sourceSite,
-        ConfigState desired, PlanOptions options, string createdBy, CancellationToken ct, Action<PlanDocument>? decorate = null)
+        ConfigState desired, PlanOptions options, string createdBy, CancellationToken ct, Action<PlanDocument>? decorate = null,
+        ConfigState? impactBefore = null)
     {
         var live = await _engine.ReadLiveAsync(ct);
         var doc = PlanBuilder.Build(desired, live, Options(options));
@@ -98,7 +99,7 @@ public sealed class PlanCoordinator
         if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
             doc.Notes.Add("This site's On-Site Agent cannot hold the revert (it needs an agent update). "
                 + "If the change cuts the tunnel, the automatic revert cannot reach the site.");
-        await RunImpactAsync(doc, live, ct);
+        await RunImpactAsync(doc, impactBefore ?? live, live, ct);
 
         var plan = new ConfigPlan
         {
@@ -120,14 +121,18 @@ public sealed class PlanCoordinator
         return await _engine.Repositories.UseAsync((r, c) => r.CreatePlanAsync(plan, c), ct);
     }
 
-    private async Task RunImpactAsync(PlanDocument doc, ConfigState live, CancellationToken ct)
+    /// <summary>
+    /// Audits the planned config against <paramref name="before"/>: live normally, the legacy source
+    /// for a translated firewall. Regressions the plan already carries (unproven rules) are kept.
+    /// </summary>
+    private async Task RunImpactAsync(PlanDocument doc, ConfigState before, ConfigState live, CancellationToken ct)
     {
         if (_evaluator == null || !ImpactAnalyzer.Triggers(doc.Collections)) return;
         var planned = PlanBuilder.PlannedState(live, doc);
-        var impact = await _evaluator.RunImpactAsync(Slug, live, planned, ct);
+        var impact = await _evaluator.RunImpactAsync(Slug, before, planned, ct);
         if (impact == null) return;
         doc.ImpactRan = true;
-        doc.Regressions = impact.Regressions;
+        doc.Regressions = [.. doc.Regressions, .. impact.Regressions];
         doc.Fixes = impact.Fixes;
     }
 
