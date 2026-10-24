@@ -38,6 +38,7 @@
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject ISystemSettingsAdmin SettingsAdmin
+@inject ISiteSettingsAdmin SiteSettingsAdmin
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject NetworkOptimizer.Threats.ThreatCollectionService ThreatCollection
 @inject NavigationManager NavigationManager
@@ -2321,26 +2322,26 @@
             <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Gateway</label>
-                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditSpeedTestSettings)" />
+                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditInstanceSettings)" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">UniFi Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditSpeedTestSettings)" />
+                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditInstanceSettings)" />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Other Devices</label>
-                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditSpeedTestSettings)" />
+                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" @bind:event="oninput" min="1" max="16" style="width: 80px;" disabled="@(!_canEditInstanceSettings)" />
                 </div>
             </div>
             <small class="form-help" style="display: block; margin-bottom: 1rem;">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
 
             <div class="form-group">
                 <label class="form-label">Test Duration (seconds)</label>
-                <input type="number" class="form-control" @bind="iperf3Duration" @bind:event="oninput" min="3" max="60" style="width: 100px;" disabled="@(!_canEditSpeedTestSettings)" />
+                <input type="number" class="form-control" @bind="iperf3Duration" @bind:event="oninput" min="3" max="60" style="width: 100px;" disabled="@(!_canEditInstanceSettings)" />
                 <small class="form-help">Duration of each test direction (3-60 seconds)</small>
             </div>
 
-            @if (_canEditSpeedTestSettings)
+            @if (_canEditInstanceSettings)
             {
                 <div class="action-buttons">
                     <button class="btn btn-success" @onclick="SaveIperf3Settings" disabled="@savingIperf3Settings">
@@ -2402,7 +2403,7 @@
                             </div>
                             <div style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem; margin-top: 0.25rem;">@server.Url</div>
                         </div>
-                        @if (_canEditSpeedTestSettings)
+                        @if (_canEditInstanceSettings)
                         {
                             <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
                                 @if (!server.IsDefault)
@@ -2516,7 +2517,7 @@
                     </div>
                 </div>
             }
-            else if (_canEditSpeedTestSettings)
+            else if (_canEditInstanceSettings)
             {
                 <div style="margin-top: 1rem;">
                     <button class="btn btn-primary" @onclick="StartAddExtServer">+ Add Server</button>
@@ -2553,6 +2554,7 @@
     </AdminOnly>
 
     <!-- 10. Application Settings -->
+    <AdminOnly>
     <div class="card settings-tab-application" id="application-settings">
         <div class="card-header">
             <h2 class="card-title">Application Settings</h2>
@@ -2574,6 +2576,7 @@
             </div>
         </div>
     </div>
+    </AdminOnly>
     }
 
     <!-- 11. Security Audit -->
@@ -3069,7 +3072,7 @@
             {
             <div class="form-group">
                 <label class="form-label">Background Collection Interval</label>
-                <select class="form-control" @bind="threatPollInterval">
+                <select class="form-control" @bind="threatPollInterval" disabled="@(!_canEditInstanceSettings)">
                     <option value="1">Every minute</option>
                     <option value="5">Every 5 minutes</option>
                     <option value="10">Every 10 minutes</option>
@@ -3081,13 +3084,17 @@
 
             <div class="form-group">
                 <label class="form-label">Data Retention</label>
-                <select class="form-control" @bind="threatRetentionDays">
+                <select class="form-control" @bind="threatRetentionDays" disabled="@(!_canEditInstanceSettings)">
                     <option value="30">30 days</option>
                     <option value="60">60 days</option>
                     <option value="90">90 days</option>
                     <option value="180">180 days</option>
                     <option value="365">1 year</option>
                 </select>
+                @if (!_canEditInstanceSettings)
+                {
+                    <small class="form-help">The collection interval and retention apply to every site. An Admin manages them.</small>
+                }
             </div>
             }
 
@@ -3120,6 +3127,7 @@
     @if (SiteContext.IsDefault)
     {
     <!-- MaxMind GeoIP Configuration -->
+    <AdminOnly>
     <div class="card settings-tab-security" id="maxmind">
         <div class="card-header">
             <div class="card-header-left">
@@ -3195,6 +3203,7 @@
             }
         </div>
     </div>
+    </AdminOnly>
     }
 
     @* Where the CTI key is edited comes from ICtiSettingsAdmin: the main site here, since the key is
@@ -3323,6 +3332,7 @@
     </div>
 
     <!-- 13. Map / Satellite -->
+    <AdminOnly>
     <div class="card settings-tab-application" id="map">
         <div class="card-header">
             <h2 class="card-title">Satellite Imagery</h2>
@@ -3380,6 +3390,7 @@
             }
         </div>
     </div>
+    </AdminOnly>
 
     @* Export bundles EVERY site's database, console credentials, SSH keys and the data-protection
        keys - which sign the auth cookie. ManageSettings admits a Site Admin, so the card needs its
@@ -5354,8 +5365,9 @@
     private int iperf3OtherParallelStreams = 10;
     private int iperf3Duration = 10;
     private bool savingIperf3Settings = false;
-    // The iperf3 defaults and external servers are instance-wide, so only a global Admin may change them.
-    private bool _canEditSpeedTestSettings;
+    // Instance-wide settings (iperf3 defaults, external servers, threat retention, MaxMind, Mapbox,
+    // prerelease updates) are changed only by a global Admin.
+    private bool _canEditInstanceSettings;
     private string iperf3Message = "";
     private string iperf3MessageClass = "";
 
@@ -5627,7 +5639,7 @@
         await LoadStarlinkSettings();
         await LoadDiscoveredModems();
         var authState = AuthState is null ? null : await AuthState;
-        _canEditSpeedTestSettings = authState is not null
+        _canEditInstanceSettings = authState is not null
             && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
         await LoadIperf3Settings();
         await LoadExtServers();
@@ -8097,7 +8109,7 @@
     private async Task SavePrereleaseSetting()
     {
         // Instance-wide: written to the main DB so it applies across all sites.
-        await SystemSettings.SetGlobalAsync("updates.include_prereleases", receivePrereleaseUpdates ? "true" : "false");
+        await SettingsAdmin.SetGlobalAsync("updates.include_prereleases", receivePrereleaseUpdates ? "true" : "false");
     }
 
     // Config export state
@@ -8451,13 +8463,6 @@
 
         try
         {
-            await SystemSettings.SetAsync("audit:allowAppleStreamingOnMainNetwork", allowAppleStreamingOnMainNetwork.ToString().ToLower());
-            await SystemSettings.SetAsync("audit:allowAllStreamingOnMainNetwork", allowAllStreamingOnMainNetwork.ToString().ToLower());
-            await SystemSettings.SetAsync("audit:allowNameBrandTVsOnMainNetwork", allowNameBrandTVsOnMainNetwork.ToString().ToLower());
-            await SystemSettings.SetAsync("audit:allowAllTVsOnMainNetwork", allowAllTVsOnMainNetwork.ToString().ToLower());
-            await SystemSettings.SetAsync("audit:allowMediaPlayersOnMainNetwork", allowMediaPlayersOnMainNetwork.ToString().ToLower());
-            await SystemSettings.SetAsync("audit:allowPrintersOnMainNetwork", allowPrintersOnMainNetwork.ToString().ToLower());
-            await SystemSettings.SetAsync("audit:dnatExcludedVlans", dnatExcludedVlans ?? "");
             // Validate DNS endpoint: must be empty, a port number, or a valid absolute URL
             var endpoint = piholeManagementEndpoint?.Trim();
             if (!string.IsNullOrEmpty(endpoint) &&
@@ -8469,14 +8474,25 @@
                 savingAuditSettings = false;
                 return;
             }
-            await SystemSettings.SetAsync("audit:piholeManagementPort", endpoint ?? "");
-            await SystemSettings.SetAsync("audit:trustedDnsRedirectTargets", trustedDnsRedirectTargets ?? "");
-            await SystemSettings.SetAsync("audit:unusedPortInactivityDays", unusedPortInactivityDays.ToString());
-            await SystemSettings.SetAsync("audit:namedPortInactivityDays", namedPortInactivityDays.ToString());
             pdfTopSourcesRows = Math.Clamp(pdfTopSourcesRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
             pdfCategoryRows = Math.Clamp(pdfCategoryRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
-            await SystemSettings.SetAsync(ThreatReportRows.TopSourcesSettingKey, pdfTopSourcesRows.ToString());
-            await SystemSettings.SetAsync(ThreatReportRows.CategoryRowsSettingKey, pdfCategoryRows.ToString());
+
+            await SiteSettingsAdmin.SaveAuditOptionsAsync(new Dictionary<string, string?>
+            {
+                ["audit:allowAppleStreamingOnMainNetwork"] = allowAppleStreamingOnMainNetwork.ToString().ToLower(),
+                ["audit:allowAllStreamingOnMainNetwork"] = allowAllStreamingOnMainNetwork.ToString().ToLower(),
+                ["audit:allowNameBrandTVsOnMainNetwork"] = allowNameBrandTVsOnMainNetwork.ToString().ToLower(),
+                ["audit:allowAllTVsOnMainNetwork"] = allowAllTVsOnMainNetwork.ToString().ToLower(),
+                ["audit:allowMediaPlayersOnMainNetwork"] = allowMediaPlayersOnMainNetwork.ToString().ToLower(),
+                ["audit:allowPrintersOnMainNetwork"] = allowPrintersOnMainNetwork.ToString().ToLower(),
+                ["audit:dnatExcludedVlans"] = dnatExcludedVlans ?? "",
+                ["audit:piholeManagementPort"] = endpoint ?? "",
+                ["audit:trustedDnsRedirectTargets"] = trustedDnsRedirectTargets ?? "",
+                ["audit:unusedPortInactivityDays"] = unusedPortInactivityDays.ToString(),
+                ["audit:namedPortInactivityDays"] = namedPortInactivityDays.ToString(),
+                [ThreatReportRows.TopSourcesSettingKey] = pdfTopSourcesRows.ToString(),
+                [ThreatReportRows.CategoryRowsSettingKey] = pdfCategoryRows.ToString(),
+            });
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";
@@ -9002,9 +9018,7 @@
     // The enable flag is PER SITE, namespaced the same way the collector's SiteScopedKey
     // does: the bare key for the default site (single-site unchanged), "threats.enabled:<slug>"
     // for secondary sites. Interval/retention/MaxMind/CrowdSec are one global value.
-    private string ThreatsEnabledKey => SiteContext.IsDefault
-        ? "threats.enabled"
-        : $"threats.enabled:{SiteContext.Slug}";
+    private string ThreatsEnabledKey => NetworkOptimizer.Web.Services.SiteSettingsAdmin.ThreatCollectionKey(SiteContext);
 
     private async Task LoadThreatSettings()
     {
@@ -9061,14 +9075,14 @@
 
         try
         {
-            await SystemSettings.SetGlobalAsync(ThreatsEnabledKey, threatCollectionEnabled ? "true" : "false");
+            await SiteSettingsAdmin.SetThreatCollectionEnabledAsync(threatCollectionEnabled);
 
-            // Global settings render (and save) only on the main site; a secondary
-            // site's card carries just its own enable toggle.
-            if (SiteContext.IsDefault)
+            // Global settings render (and save) only on the main site, and only for a global
+            // Admin; a secondary site's card carries just its own enable toggle.
+            if (SiteContext.IsDefault && _canEditInstanceSettings)
             {
-                await SystemSettings.SetGlobalAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
-                await SystemSettings.SetGlobalAsync("threats.retention_days", threatRetentionDays.ToString());
+                await SettingsAdmin.SetGlobalAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
+                await SettingsAdmin.SetGlobalAsync("threats.retention_days", threatRetentionDays.ToString());
             }
 
             threatSettingsMessage = "Threat intelligence settings saved.";
@@ -9096,7 +9110,7 @@
             if (!string.IsNullOrEmpty(maxmindAccountId))
             {
                 var encAcct = CredentialService.Encrypt(maxmindAccountId);
-                await SystemSettings.SetGlobalAsync("maxmind.account_id", encAcct);
+                await SettingsAdmin.SetGlobalAsync("maxmind.account_id", encAcct);
                 hasMaxmindAccountId = true;
                 maxmindAccountId = "";
             }
@@ -9104,7 +9118,7 @@
             if (!string.IsNullOrEmpty(maxmindLicenseKey))
             {
                 var encrypted = CredentialService.Encrypt(maxmindLicenseKey);
-                await SystemSettings.SetGlobalAsync("maxmind.license_key", encrypted);
+                await SettingsAdmin.SetGlobalAsync("maxmind.license_key", encrypted);
                 hasMaxmindLicenseKey = true;
                 maxmindLicenseKey = "";
             }
@@ -9159,7 +9173,7 @@
             if (!string.IsNullOrEmpty(maxmindAccountId))
             {
                 var encAcct = CredentialService.Encrypt(maxmindAccountId);
-                await SystemSettings.SetGlobalAsync("maxmind.account_id", encAcct);
+                await SettingsAdmin.SetGlobalAsync("maxmind.account_id", encAcct);
                 hasMaxmindAccountId = true;
                 maxmindAccountId = "";
             }
@@ -9167,7 +9181,7 @@
             if (!string.IsNullOrEmpty(maxmindLicenseKey))
             {
                 var encKey = CredentialService.Encrypt(maxmindLicenseKey);
-                await SystemSettings.SetGlobalAsync("maxmind.license_key", encKey);
+                await SettingsAdmin.SetGlobalAsync("maxmind.license_key", encKey);
                 hasMaxmindLicenseKey = true;
                 maxmindLicenseKey = "";
             }
@@ -9182,7 +9196,7 @@
 
             if (success)
             {
-                await SystemSettings.SetGlobalAsync("maxmind.last_download", DateTime.UtcNow.ToString("O"));
+                await SettingsAdmin.SetGlobalAsync("maxmind.last_download", DateTime.UtcNow.ToString("O"));
                 await LoadThreatSettings(); // Refresh geo status display
             }
         }
@@ -9286,7 +9300,7 @@
         StateHasChanged();
         try
         {
-            await SystemSettings.SetGlobalAsync(SystemSettingKeys.MapboxApiKey, string.IsNullOrWhiteSpace(_mapboxToken) ? null : _mapboxToken.Trim());
+            await SettingsAdmin.SetGlobalAsync(SystemSettingKeys.MapboxApiKey, string.IsNullOrWhiteSpace(_mapboxToken) ? null : _mapboxToken.Trim());
             _mapboxTokenMessage = "Mapbox token saved. Reload any open maps to apply.";
             _mapboxTokenMessageClass = "success";
         }
@@ -9309,7 +9323,7 @@
         StateHasChanged();
         try
         {
-            await SystemSettings.SetGlobalAsync(SystemSettingKeys.MapboxApiKey, null);
+            await SettingsAdmin.SetGlobalAsync(SystemSettingKeys.MapboxApiKey, null);
             _mapboxToken = "";
             _mapboxTokenMessage = "Mapbox token cleared.";
             _mapboxTokenMessageClass = "success";
