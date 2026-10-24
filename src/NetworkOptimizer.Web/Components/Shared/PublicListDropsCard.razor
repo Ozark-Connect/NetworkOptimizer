@@ -53,7 +53,7 @@
                                     <td>
                                         @if (covering != null)
                                         {
-                                            <span class="status-badge status-active" data-tooltip="@BlockingExceptions.Describe(covering)">Allowed Now</span>
+                                            <ExceptionCoveredLink Exception="covering" DeviceName="DeviceName" />
                                         }
                                         else
                                         {
@@ -183,7 +183,7 @@
         };
     }
 
-    // The row keeps its form, now showing the confirmation; Allowed Now appears once it is closed.
+    // The row keeps its form, now showing the confirmation; the row's check icon replaces Allow at once.
     private async Task Saved(BlockingException saved) => _exceptions = await Blocking.GetExceptionsAsync();
 
     private static string DrilldownUrl(string ip) => "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(ip);
