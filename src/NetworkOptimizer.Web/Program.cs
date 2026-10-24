@@ -669,6 +669,7 @@ builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredServic
 // Reads stay ungated (pollers and collectors read settings on every cycle); the UI's writes go
 // through the gated admin interface so each one is authorized and audited.
 builder.Services.AddMutatingService<ISystemSettingsAdmin>(sp => sp.GetRequiredService<SystemSettingsService>());
+builder.Services.AddMutatingService<ISiteSettingsAdmin, SiteSettingsAdmin>();
 
 // Register Sponsorship service (singleton - reads from DB, limited state)
 builder.Services.AddSingleton<ISponsorshipService, SponsorshipService>();
