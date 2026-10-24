@@ -15,6 +15,9 @@ public sealed class ImpactLine
     public string Detail { get; set; } = "";
     public string Severity { get; set; } = "";
     public string Key { get; set; } = "";
+
+    /// <summary>The audit issue type (IssueTypes), for checks that match on the rule rather than its title.</summary>
+    public string Type { get; set; } = "";
     public string? Network { get; set; }
     public string? Device { get; set; }
 }
@@ -152,6 +155,7 @@ public static class ImpactAnalyzer
         Detail = issue.Description ?? "",
         Severity = issue.Severity.ToString(),
         Key = IssueKey(issue),
+        Type = issue.Type,
         Network = issue.CurrentNetwork,
         Device = issue.DeviceName,
     };

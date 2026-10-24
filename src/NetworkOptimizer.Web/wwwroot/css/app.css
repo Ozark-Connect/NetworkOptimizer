@@ -24546,3 +24546,63 @@ body:has(.top-bar-hidden) .btn-fit {
     padding-top: 0.75rem;
     border-top: 1px solid var(--border-color);
 }
+
+/* Change Control - Migrate - Set Up Zones */
+.change-control .cc-card-intro {
+    padding: 12px 16px 0;
+    margin: 0 0 12px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-zone-head {
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+
+.change-control .cc-zone-head .cc-zone-desc {
+    font-weight: 400;
+    margin-bottom: 0;
+}
+
+.change-control .cc-zone.current {
+    border-color: var(--primary-hover);
+}
+
+.change-control .cc-zone-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-style: dashed;
+}
+
+.change-control .cc-moving {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.change-control .cc-zone-mode {
+    margin: 0;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-zone-empty {
+        display: none;
+    }
+
+    .change-control .cc-zone {
+        min-height: 0;
+    }
+
+    .change-control .cc-zone-mode-phone .cc-zone-mode {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        margin-bottom: 1rem;
+    }
+
+    .change-control .cc-zone-mode-phone .time-btn {
+        min-height: 44px;
+    }
+}

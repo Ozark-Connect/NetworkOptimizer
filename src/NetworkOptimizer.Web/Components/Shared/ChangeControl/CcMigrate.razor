@@ -12,21 +12,26 @@
         <option value="@Restore">Restore a Snapshot</option>
         <option value="@Replace">Replace Device</option>
         <option value="@Adopt">Adopt Pending Devices@(PendingInSnapshot > 0 ? $" ({PendingInSnapshot})" : "")</option>
+        <option value="@Zones">Set Up Zones</option>
     </select>
 </div>
 
 <div class="cc-action-cards hide-mobile">
     <button class="cc-action-card @(_task == Restore ? "active" : "")" @onclick="() => SelectTaskAsync(Restore)">
         <h3>Restore a Snapshot</h3>
-        <p>Onto this site, another site, or a blank UniFi Console. Devices get their config as they adopt.</p>
+        <p>Onto this site, another site, or a blank UniFi Console.</p>
     </button>
     <button class="cc-action-card @(_task == Replace ? "active" : "")" @onclick="() => SelectTaskAsync(Replace)">
         <h3>Replace Device</h3>
-        <p>Move a device's config to new hardware, same model or not. Ports, radios, and PoE adapt.</p>
+        <p>Move a device's config to new hardware, same model or not.</p>
     </button>
     <button class="cc-action-card @(_task == Adopt ? "active" : "")" @onclick="() => SelectTaskAsync(Adopt)">
         <h3>Adopt Pending Devices @if (PendingInSnapshot > 0) { <span class="status-badge status-info">@PendingInSnapshot</span> }</h3>
-        <p>Pending devices whose MAC is in a snapshot. One confirmation adopts them all.</p>
+        <p>Pending devices whose MAC is in a snapshot.</p>
+    </button>
+    <button class="cc-action-card @(_task == Zones ? "active" : "")" @onclick="() => SelectTaskAsync(Zones)">
+        <h3>Set Up Zones</h3>
+        <p>Group networks into firewall zones by trust or purpose, from the Security Audit's network purposes.</p>
     </button>
 </div>
 
@@ -286,6 +291,13 @@
         </ChildContent>
     </SiteOperatorOnly>
 }
+else if (_task == Zones)
+{
+    <SiteOperatorOnly>
+        <NotAuthorized><div class="card"><div class="card-body">Setting up zones needs the Site Operator role on this site.</div></div></NotAuthorized>
+        <ChildContent><CcZones SiteName="@_siteName" /></ChildContent>
+    </SiteOperatorOnly>
+}
 else if (_task == Restore)
 {
     <SiteAdminOnly>
@@ -384,6 +396,7 @@ else
     private const string Restore = "restore";
     private const string Replace = "replace";
     private const string Adopt = "adopt";
+    private const string Zones = "zones";
 
     private string _task = Replace;
     private int _step = 1;
@@ -424,7 +437,7 @@ else
         _siteName = _sites.FirstOrDefault(s => s.Slug == SiteCtx.Slug)?.Name ?? SiteCtx.Slug;
         _sourceSlug = SiteCtx.Slug;
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
-        if (query.TryGetValue("task", out var task) && task.ToString() is Restore or Replace or Adopt) _task = task.ToString();
+        if (query.TryGetValue("task", out var task) && task.ToString() is Restore or Replace or Adopt or Zones) _task = task.ToString();
         if (query.TryGetValue("old", out var old)) _oldMac = old.ToString().ToLowerInvariant();
         if (query.TryGetValue("new", out var @new)) _newMac = @new.ToString().ToLowerInvariant();
         await RunAsync(LoadPendingAsync);

@@ -1712,6 +1712,7 @@ public partial class AuditService : IAuditScanService
 
             issues.Add(new AuditIssue
             {
+                Type = issue.Type,
                 Severity = issue.Severity,
                 Category = category,
                 // The suffix also keeps an IPv6-only finding's dismissal key apart from its IPv4 twin
@@ -2370,6 +2371,8 @@ public class AuditStatistics
 
 public class AuditIssue
 {
+    /// <summary>The engine's issue type (IssueTypes); empty on synthetic issues.</summary>
+    public string Type { get; set; } = "";
     public AuditModels.AuditSeverity Severity { get; set; }
     public string Category { get; set; } = "";
     public string Title { get; set; } = "";

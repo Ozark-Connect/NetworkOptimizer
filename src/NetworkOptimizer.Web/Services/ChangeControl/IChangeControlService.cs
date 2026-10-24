@@ -147,6 +147,15 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
     Task<int> BuildRestoreAsync(string sourceSiteSlug, int snapshotId, bool deleteMissing, bool devicesOnly, CancellationToken cancellationToken = default);
 
+    /// <summary>The Set Up Zones board for the choices so far, optionally with the Security Audit check.</summary>
+    [RequireRole(Roles.Operator)]
+    Task<ZoneSetupView> GetZoneSetupAsync(ZoneChoices choices, bool runChecks, CancellationToken cancellationToken = default);
+
+    /// <summary>Builds the zone setup plan.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildZonePlanAsync(ZoneChoices choices, CancellationToken cancellationToken = default);
+
     /// <summary>A plan for Review Plan.</summary>
     [RequireRole(Roles.Viewer)]
     Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default);
