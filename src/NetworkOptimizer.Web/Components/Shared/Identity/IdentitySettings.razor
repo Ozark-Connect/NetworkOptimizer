@@ -5,7 +5,7 @@
 
 @using Microsoft.AspNetCore.Components.Routing
 @inject NavigationManager Navigation
-@inject NetworkOptimizer.Web.Services.SystemSettingsService SettingsService
+@inject NetworkOptimizer.Web.Services.Identity.IUserDismissals Dismissals
 @implements IDisposable
 
 @* Instance-wide view only. The scoped view belongs to a site admin who came here to do a specific
@@ -62,7 +62,7 @@ else
     private async Task DismissIntroAsync()
     {
         _introDismissed = true;
-        await SettingsService.SetGlobalAsync("banner.identity_intro_dismissed", "true");
+        await Dismissals.DismissAsync("banner.identity_intro_dismissed");
     }
 
     /// <summary>The Users card offers the providers when linking an identity, so it follows the list.</summary>
@@ -102,10 +102,9 @@ else
     {
         Navigation.LocationChanged += HandleLocationChanged;
 
-        // Global, not GetAsync: the site-scoped pair reads the CURRENT site's database, so a
-        // dismissal on the main site would leave the card still showing on every other one.
+        // Per user, stored globally: a dismissal on the main site must hide the card on every other one.
         if (SiteSlug is null)
-            _introDismissed = await SettingsService.GetGlobalAsync("banner.identity_intro_dismissed") != null;
+            _introDismissed = await Dismissals.IsDismissedAsync("banner.identity_intro_dismissed");
     }
 
     /// <summary>
