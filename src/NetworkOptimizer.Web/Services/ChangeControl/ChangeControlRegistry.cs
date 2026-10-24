@@ -41,6 +41,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     /// <summary>The console connection of a site.</summary>
     public UniFiConnectionService Connection(string slug) => _sp.GetRequiredService<SiteConnectionRegistry>().GetFor(slug);
 
+    /// <summary>The encrypted snapshot and file store.</summary>
+    public IConfigBlobStore Blobs => _sp.GetRequiredService<IConfigBlobStore>();
+
     /// <summary>Bytes on disk for a site's snapshot blobs.</summary>
     public long BlobBytes(string slug) => _sp.GetRequiredService<IConfigBlobStore>().GetStorageBytes(slug).BlobBytes;
 
@@ -85,7 +88,13 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             coordinator.AgentRevert = new AgentRevertArmer(slug, engine, connection, agents,
                 _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlAgentRevert[{slug}]"));
         _coordinators[slug] = coordinator;
-        engine.OnTick = coordinator.TickAsync;
+        var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
+            _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));
+        engine.OnTick = async ct =>
+        {
+            await coordinator.TickAsync(ct);
+            await console.TickAsync(ct);
+        };
         return engine;
     }
 

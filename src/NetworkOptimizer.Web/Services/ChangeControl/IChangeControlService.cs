@@ -156,6 +156,15 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
     Task<int> BuildZonePlanAsync(ZoneChoices choices, CancellationToken cancellationToken = default);
 
+    /// <summary>The UniFi console backups (.unf) Network Optimizer keeps for this site.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<List<ConsoleBackupRecord>> GetConsoleBackupsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>One kept console backup's file, decrypted, for download. Null when it is gone.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlConsoleBackupDownloaded, TargetType = "console_backup")]
+    Task<(string FileName, byte[] Content)?> DownloadConsoleBackupAsync(int backupId, CancellationToken cancellationToken = default);
+
     /// <summary>A plan for Review Plan.</summary>
     [RequireRole(Roles.Viewer)]
     Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default);

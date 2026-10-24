@@ -371,6 +371,11 @@ public class ChangeControlRenderHarness
                 }
                 return board;
             });
+        m.Setup(s => s.GetConsoleBackupsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new ConsoleBackupRecord { Id = 1, FileName = "autobackup_a.unf", TakenAt = Now.AddHours(-11), SizeBytes = 463_000, NetworkAppVersion = "11.0.21" },
+            new ConsoleBackupRecord { Id = 2, FileName = "autobackup_b.unf", TakenAt = Now.AddDays(-2), SizeBytes = 455_000, NetworkAppVersion = "11.0.21", FirmwareRollout = true },
+        ]);
         m.Setup(s => s.GetRestoreSnapshotsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(
         [
             new() { Id = 41, TakenAt = Now.AddHours(-30), Label = "Oct 22, 6:00 AM, Daily", NetworkAppVersion = "11.0.21" },
