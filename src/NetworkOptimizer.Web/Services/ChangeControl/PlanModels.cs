@@ -143,6 +143,9 @@ public sealed class PlanDocument
     /// <summary>Extra Review Plan sections for Replace Device and zone setup.</summary>
     public Dictionary<string, string> Context { get; set; } = [];
 
+    /// <summary>Devices running older firmware than the config came from (Replace Device, Restore).</summary>
+    public List<FirmwareAlignRow> FirmwareAlign { get; set; } = [];
+
     public int HighestTier => Math.Max(
         Operations.Count == 0 ? PlanTiers.Direct : Operations.Max(o => o.Tier),
         Math.Max(Regressions.Count > 0 ? PlanTiers.SecurityRegression : PlanTiers.Direct,
@@ -150,6 +153,15 @@ public sealed class PlanDocument
 }
 
 /// <summary>One re-cabling sheet row.</summary>
+/// <summary>A device to bring up to the firmware its config came from, through Firmware Rollout.</summary>
+public sealed class FirmwareAlignRow
+{
+    public string Mac { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Current { get; set; } = "";
+    public string Target { get; set; } = "";
+}
+
 public sealed class RecablingRow
 {
     public string OldPort { get; set; } = "";

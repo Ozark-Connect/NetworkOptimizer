@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using QuestPDF.Fluent;
@@ -144,11 +145,26 @@ public sealed partial class ChangeControlService
                 foreach (var w in proposal.Warnings) doc.Notes.Add(w);
                 foreach (var r in proposal.Ports.Where(p => p.Target is { Count: 0 }))
                     doc.Notes.Add($"{r.OldLabel} ({r.Config}): config dropped.");
-                if (proposal.NewVersion != null && proposal.OldVersion != null && proposal.NewVersion != proposal.OldVersion)
-                    doc.Notes.Add($"Firmware differs: old {proposal.OldVersion}, new {proposal.NewVersion}. Align it in Firmware Rollout first if a setting depends on it.");
+                if (proposal is { OldVersion: { } o, NewVersion: { } n } && FirmwareVersionFormat.IsNewer(o, n))
+                    doc.FirmwareAlign.Add(new FirmwareAlignRow { Mac = proposal.NewMac, Name = proposal.NewModel, Current = n, Target = o });
             });
         return plan.Id;
     }
+
+    /// <summary>Adopted devices running older firmware than the snapshot recorded for them.</summary>
+    internal static List<FirmwareAlignRow> FirmwareBehind(ConfigState snapshot, ConfigState live) =>
+        snapshot.Get("device")
+            .Select(s => (Snap: s, Live: live.Get("device").FirstOrDefault(l => string.Equals(l["mac"]?.ToString(), s["mac"]?.ToString(), StringComparison.OrdinalIgnoreCase))))
+            .Where(p => p.Live != null && p.Snap["version"]?.ToString() is { Length: > 0 } want && p.Live["version"]?.ToString() is { Length: > 0 } have
+                && FirmwareVersionFormat.IsNewer(want, have))
+            .Select(p => new FirmwareAlignRow
+            {
+                Mac = p.Live!["mac"]!.ToString().ToLowerInvariant(),
+                Name = p.Live["name"]?.ToString() is { Length: > 0 } nm ? nm : p.Live["model"]?.ToString() ?? "",
+                Current = p.Live["version"]!.ToString(),
+                Target = p.Snap["version"]!.ToString(),
+            })
+            .ToList();
 
     private static void RewriteMac(JsonNode? node, string oldMac, string newMac)
     {
@@ -299,7 +315,10 @@ public sealed partial class ChangeControlService
             {
                 doc.Context["source_taken_at"] = snap.TakenAt.ToString("o");
                 if (snap.NetworkAppVersion is { } from && live.NetworkAppVersion is { } to && from != to)
-                    doc.Notes.Add($"The snapshot is from Network {from}; this console runs {to}. Fields the newer version added keep their defaults.");
+                    doc.Notes.Add(FirmwareVersionFormat.IsNewer(from, to)
+                        ? $"The snapshot is from Network {from}; this console runs the older {to}. Settings {from} added may be refused: update the Network app in Firmware Rollout first."
+                        : $"The snapshot is from Network {from}; this console runs {to}. Fields the newer version added keep their defaults.");
+                doc.FirmwareAlign = FirmwareBehind(state, live);
                 if (!hasGateway)
                     doc.Notes.Add("No gateway is adopted here yet: gateway-bound items (routes, port forwards, traffic routes, QoS, NAT) wait until it is.");
                 var missing = state.Get("device").Count(d => !live.Get("device").Any(l => string.Equals(l["mac"]?.ToString(), d["mac"]?.ToString(), StringComparison.OrdinalIgnoreCase)));

@@ -276,6 +276,16 @@ else
                 @foreach (var n in doc.Notes) { <div>@n</div> }
             </div>
         }
+        @if (doc.FirmwareAlign.Count > 0)
+        {
+            <div class="alert alert-warning" style="margin-top:0.75rem">
+                <div>Older firmware than the config came from. Align it first, so every setting has somewhere to land:</div>
+                @foreach (var f in doc.FirmwareAlign)
+                {
+                    <div>@f.Name: @f.Current, wants @f.Target. <a href="@SiteContextService.WithSiteParam($"/firmware-rollout?align={Uri.EscapeDataString(f.Mac)}&build={Uri.EscapeDataString(f.Target)}", SiteCtx.Slug)">Align in Firmware Rollout</a></div>
+                }
+            </div>
+        }
     </div>
 
     <div class="cc-settings-grid">

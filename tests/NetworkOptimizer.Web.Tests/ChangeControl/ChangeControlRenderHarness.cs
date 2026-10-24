@@ -499,6 +499,7 @@ public class ChangeControlRenderHarness
             ],
         };
         doc.Context["source_detail"] = "Pinned before Firmware Rollout";
+        doc.FirmwareAlign = [new() { Mac = SwNew, Name = "USW Pro Max 24 PoE", Current = "7.1.66", Target = "7.2.123" }];
         var acks = new PlanAcknowledgements { Items = ["fp:delete", "net:iot"] };
         return new PlanView
         {

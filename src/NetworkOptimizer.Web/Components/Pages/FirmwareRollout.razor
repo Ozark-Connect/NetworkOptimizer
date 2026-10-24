@@ -979,6 +979,41 @@ else
         _connection.OnConnectionChanged += OnConnectionChanged;
         await ReloadAsync();
         _loading = false;
+        await OpenAlignAsync();
+    }
+
+    /// <summary>Device to align, from Change Control's Replace Device or Restore (<c>?align=mac&amp;build=version</c>).</summary>
+    [SupplyParameterFromQuery(Name = "align")] public string? AlignMac { get; set; }
+
+    /// <summary>The build the aligned device should run.</summary>
+    [SupplyParameterFromQuery(Name = "build")] public string? AlignBuild { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Inject] private IAuthorizationService Authz { get; set; } = default!;
+
+    private bool _knownOpen;
+    private string? _knownNote;
+
+    /// <summary>Opens Deploy Known Firmware on the device and build a Change Control link named.</summary>
+    private async Task OpenAlignAsync()
+    {
+        if (string.IsNullOrEmpty(AlignMac) || AuthState == null) return;
+        var user = (await AuthState).User;
+        if (!(await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteAdmin)).Succeeded) return;
+
+        _knownOpen = true;
+        await LoadKnownFirmwareAsync();
+        var rows = (_known ?? []).Where(o => string.Equals(o.Device.Mac, AlignMac, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (rows.Count == 0)
+        {
+            _knownNote = "No known builds for that device yet. Add its build by URL, or check the device is adopted on this site.";
+            return;
+        }
+        _knownDevice = rows[0].Device.Mac;
+        var match = rows.FirstOrDefault(o => AlignBuild != null
+            && !FirmwareVersionFormat.IsNewer(o.Build.Version, AlignBuild) && !FirmwareVersionFormat.IsNewer(AlignBuild, o.Build.Version));
+        if (match != null) _knownBuild = match.Build.Key;
+        else _knownNote = $"Build {AlignBuild} is not known yet. Add it by URL, or pick the closest build below.";
     }
 
     private async void OnConnectionChanged()
@@ -1288,9 +1323,13 @@ else
     /// </summary>
     private RenderFragment KnownFirmwareSection => @<SiteAdminOnly>
         <div class="card-body firmware-rollout-add-url firmware-rollout-known">
-            <details class="setup-guide firmware-rollout-guide" data-tour="firmware-known" @ontoggle="LoadKnownFirmwareAsync">
+            <details class="setup-guide firmware-rollout-guide" data-tour="firmware-known" open="@_knownOpen" @ontoggle="LoadKnownFirmwareAsync">
                 <summary>Deploy Known Firmware</summary>
                 <div class="setup-guide-content">
+                    @if (_knownNote != null)
+                    {
+                        <div class="alert alert-info">@_knownNote</div>
+                    }
                     @if (_knownLoading)
                     {
                         <div class="loading-container"><span class="spinner spinner-sm"></span> <span>Reading known builds...</span></div>
@@ -1448,7 +1487,8 @@ else
     private void ResetKnownFirmware()
     {
         _known = null;
-        _knownDevice = _knownModel = _knownBuild = null;
+        _knownDevice = _knownModel = _knownBuild = _knownNote = null;
+        _knownOpen = false;
     }
 
     private string? _addUrl;
