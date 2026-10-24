@@ -11,6 +11,7 @@
 @using NetworkOptimizer.Core.Helpers
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor UniFiClientAccessor
@@ -2550,8 +2551,8 @@ else
         await CheckMaxMindStatus();
         await LoadClientNamesAsync();
         await LoadNoiseFiltersAsync();
-        var filtersSetting = await SettingsAccessor.GetSettingAsync("threats.filters_active");
-        if (filtersSetting != null) _filtersActive = filtersSetting != "false";
+        _filtersActive = await ThreatFilterPreference.LoadAsync(UserPreferences, SiteContext.Slug,
+            () => SettingsAccessor.GetSettingAsync(ThreatFilterPreference.LegacyKey));
 
         // Disable filters for drilldown AFTER loading the persisted setting,
         // so we can save/restore the user's preference when exiting drilldown.
@@ -3896,7 +3897,14 @@ else
     private async Task ToggleFiltersActive()
     {
         _filtersActive = !_filtersActive;
-        _ = SettingsAccessor.SaveSettingAsync("threats.filters_active", _filtersActive ? "true" : "false");
+        try
+        {
+            await ThreatFilterPreference.SaveAsync(UserPreferences, SiteContext.Slug, _filtersActive);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save the noise filter toggle");
+        }
         await LoadDataAsync();
     }
 
