@@ -5603,6 +5603,11 @@
             _lastTabParam = _activeTab;
         }
 
+        // First, before any await below yields a render, so an Admin never sees the fields disabled.
+        var authState = AuthState is null ? null : await AuthState;
+        _canEditInstanceSettings = authState is not null
+            && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
+
         // Pre-release update notifications default ON (global/instance-wide); only an explicit "false" opts out.
         var prereleaseSetting = await SystemSettings.GetGlobalAsync("updates.include_prereleases");
         receivePrereleaseUpdates = prereleaseSetting is null || (bool.TryParse(prereleaseSetting, out var prPre) && prPre);
@@ -5638,9 +5643,6 @@
         await LoadOntSettings();
         await LoadStarlinkSettings();
         await LoadDiscoveredModems();
-        var authState = AuthState is null ? null : await AuthState;
-        _canEditInstanceSettings = authState is not null
-            && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
         await LoadIperf3Settings();
         await LoadExtServers();
         await LoadAdminPasswordSettings();
