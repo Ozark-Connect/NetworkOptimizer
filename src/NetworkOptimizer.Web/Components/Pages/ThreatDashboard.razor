@@ -2672,7 +2672,7 @@ else
 
         try
         {
-            var apiClient = UniFiClientAccessor.Client;
+            var apiClient = UniFiClientAccessor.GetClient(SiteContext.Slug);
             if (apiClient == null) return;
 
             var clients = await apiClient.GetAllKnownClientsAsync();
