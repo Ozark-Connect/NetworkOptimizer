@@ -214,11 +214,11 @@ public sealed class PublicBlockListCache(IHttpClientFactory httpClientFactory, I
         return result.ToList();
     }
 
-    // One URL of a token-bound list. The token goes in HTTP Basic, never the URL, so it stays out of logs.
+    // One URL of a token-bound list. URLs are never logged, so a {token} in the path stays out of logs too.
     private async Task<List<string>> FetchUrlAsync(PublicBlockList list, string url, string token, CancellationToken ct)
     {
         var http = httpClientFactory.CreateClient("PublicBlockLists");
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url.Replace("{token}", Uri.EscapeDataString(token)));
         if (list.TokenHeader != null)
             request.Headers.Add(list.TokenHeader, token);
         else
