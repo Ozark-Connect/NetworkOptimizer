@@ -9509,46 +9509,19 @@
     /// </summary>
     private async Task<HashSet<string>> GatherBucketsOwnedByOtherSitesAsync()
     {
-        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Every site, read unfiltered: _sites holds only the sites this caller can see.
+        await using var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true);
+        var main = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
+        var allSlugs = await mainDb.Sites.AsNoTracking().Select(s => s.Slug).ToListAsync();
 
-        var mainPrimaryBase = "network_monitoring";
-        var mainLongtermBase = "network_monitoring_longterm";
-
-        await using (var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true))
-        {
-            var main = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
-            if (!string.IsNullOrWhiteSpace(main?.InfluxDbBucket))
+        return await InfluxBucketOwnership.GatherTakenAsync(
+            main?.InfluxDbBucket, main?.InfluxDbLongtermBucket, allSlugs, SiteContext.Slug,
+            async slug =>
             {
-                mainPrimaryBase = main!.InfluxDbBucket!.Trim();
-                taken.Add(mainPrimaryBase);
-            }
-            if (!string.IsNullOrWhiteSpace(main?.InfluxDbLongtermBucket))
-            {
-                mainLongtermBase = main!.InfluxDbLongtermBucket!.Trim();
-                taken.Add(mainLongtermBase);
-            }
-        }
-
-        foreach (var site in _sites)
-        {
-            if (site.Slug == SiteContext.Slug) continue;                       // this site
-            if (site.Slug == SiteManagementService.DefaultSiteSlug) continue;  // main handled above
-
-            string? customPrimary = null, customLongterm = null;
-            try
-            {
-                await using var sdb = SiteDb.CreateForSite(site.Slug, isDefault: false);
+                await using var sdb = SiteDb.CreateForSite(slug, isDefault: false);
                 var s = await sdb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
-                customPrimary = s?.InfluxDbBucket?.Trim();
-                customLongterm = s?.InfluxDbLongtermBucket?.Trim();
-            }
-            catch { /* an unprovisioned site DB contributes only its derived names */ }
-
-            taken.Add(!string.IsNullOrWhiteSpace(customPrimary) ? customPrimary! : $"{site.Slug}-{mainPrimaryBase}");
-            taken.Add(!string.IsNullOrWhiteSpace(customLongterm) ? customLongterm! : $"{site.Slug}-{mainLongtermBase}");
-        }
-
-        return taken;
+                return (s?.InfluxDbBucket, s?.InfluxDbLongtermBucket);
+            });
     }
 
     private async Task SaveInfluxSettings()
