@@ -8,7 +8,9 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Threats.Models
 @using NetworkOptimizer.Threats.Interfaces
+@using NetworkOptimizer.Threats.Blocking
 @using NetworkOptimizer.Core.Helpers
+@inject IThreatBlockingAdmin Blocking
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
 @inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
@@ -739,6 +741,7 @@ else
     @if (_activeTab == "blocking")
     {
         <BlockedSourcesCard ShowWhenOff="true" />
+        <PublicListDropsCard DeviceName="GetClientName" />
         <WanFloodCard />
     }
 
@@ -1182,7 +1185,28 @@ else
                 </span>
             }
             <IpBlockControl Ip="@_drilldownData.Ip" />
+            @if (ExceptionsApply && ExceptionsFor(_drilldownData.Ip) is > 0 and var exceptionCount)
+            {
+                <a href="/settings?tab=security#blocking-exceptions" class="status-badge status-active"
+                   data-tooltip="Exceptions to the public block lists that name this address">@(exceptionCount == 1 ? "1 Exception" : $"{exceptionCount} Exceptions")</a>
+            }
+            @if (HeaderException(_drilldownData) is { } headerPrefill)
+            {
+                <SiteAdminOnly>
+                    <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException("header", headerPrefill))">@(_exceptionAt == "header" ? "Hide" : "Add Exception")</button>
+                </SiteAdminOnly>
+            }
         </div>
+        @if (_exceptionAt == "header" && _exceptionPrefill != null)
+        {
+            <BlockingExceptionForm Initial="_exceptionPrefill" List="@_drilldownData.PublicList" DeviceName="GetClientName"
+                                   Intro="@(_exceptionPrefill.Device == null
+                                       ? "Filled in with this address. Set a device or a port to narrow it."
+                                       : _exceptionPrefill.PortFrom != null
+                                           ? "Filled in with this device and the port it used to reach every listed address. Widen or narrow any field before you add it."
+                                           : "Filled in with this device. Set a port to let it reach any listed address on that port, or set a listed address to narrow it.")"
+                                   OnSaved="DrilldownExceptionSaved" OnCancel="() => _exceptionAt = null" />
+        }
 
         @* CTI details row (behaviors) when we have data *@
         @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
@@ -1244,7 +1268,7 @@ else
                                     <th class="hide-mobile">Services</th>
                                     <th>Events</th>
                                     <th>Blocked</th>
-                                    <th class="hide-mobile" style="width:50px;"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1264,13 +1288,40 @@ else
                                         <td class="hide-mobile">@FormatServices(dest.Services)</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
                                         <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile">
+                                        <td>
                                             @if (!string.IsNullOrEmpty(dest.Ip))
                                             {
-                                                <button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button>
+                                                <div class="drilldown-row-actions">
+                                                    @if (ExceptionsApply && dest.PublicList != null && _exceptionAt != $"dest:{dest.Ip}"
+                                                         && _drilldownExceptions!.CoveringRow(_drilldownData.Ip, dest.Ip, dest.Protocols, dest.PortRanges) is { } destCovered)
+                                                    {
+                                                        <ExceptionCoveredLink Exception="destCovered" DeviceName="GetClientName" />
+                                                    }
+                                                    else if (ExceptionsApply && dest.PublicList != null)
+                                                    {
+                                                        <SiteAdminOnly>
+                                                            <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"dest:{dest.Ip}", OutboundPrefill(_drilldownIp, dest.Ip, dest.PortRanges, dest.Protocols)))">@(_exceptionAt == $"dest:{dest.Ip}" ? "Hide" : "Allow")</button>
+                                                        </SiteAdminOnly>
+                                                    }
+                                                    <button class="btn btn-sm btn-secondary quick-filter-btn hide-mobile" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button>
+                                                </div>
                                             }
                                         </td>
                                     </tr>
+                                    @if (_exceptionAt == $"dest:{dest.Ip}" && _exceptionPrefill != null)
+                                    {
+                                        <tr class="history-details-row site-config-row">
+                                            <td colspan="7">
+                                                <div class="expand-wrapper expanded">
+                                                    <div class="expand-content">
+                                                        <BlockingExceptionForm Initial="_exceptionPrefill" List="@dest.PublicList" DeviceName="GetClientName"
+                                                                               Intro="Filled in from this device's connections to the address. Widen or narrow any field before you add it."
+                                                                               OnSaved="DrilldownExceptionSaved" OnCancel="() => _exceptionAt = null" />
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -1297,7 +1348,7 @@ else
                                     <th class="hide-mobile">Services</th>
                                     <th>Events</th>
                                     <th>Blocked</th>
-                                    <th class="hide-mobile" style="width:50px;"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1310,8 +1361,38 @@ else
                                         <td class="hide-mobile">@FormatServices(src.Services)</td>
                                         <td>@FormatNumber(src.EventCount)</td>
                                         <td>@(src.BlockedCount > 0 ? FormatNumber(src.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
+                                        <td>
+                                            <div class="drilldown-row-actions">
+                                                @if (ExceptionsApply && _drilldownData.PublicList != null && NetworkUtilities.IsPrivateIpAddress(src.Ip)
+                                                     && _exceptionAt != $"src:{src.Ip}"
+                                                     && _drilldownExceptions!.CoveringRow(src.Ip, _drilldownData.Ip, src.Protocols, src.PortRanges) is { } srcCovered)
+                                                {
+                                                    <ExceptionCoveredLink Exception="srcCovered" DeviceName="GetClientName" />
+                                                }
+                                                else if (ExceptionsApply && _drilldownData.PublicList != null && NetworkUtilities.IsPrivateIpAddress(src.Ip))
+                                                {
+                                                    <SiteAdminOnly>
+                                                        <button class="btn btn-sm btn-contrast" @onclick="@(() => ToggleException($"src:{src.Ip}", OutboundPrefill(src.Ip, _drilldownData.Ip, src.PortRanges, src.Protocols)))">@(_exceptionAt == $"src:{src.Ip}" ? "Hide" : "Allow")</button>
+                                                    </SiteAdminOnly>
+                                                }
+                                                <button class="btn btn-sm btn-secondary quick-filter-btn hide-mobile" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button>
+                                            </div>
+                                        </td>
                                     </tr>
+                                    @if (_exceptionAt == $"src:{src.Ip}" && _exceptionPrefill != null)
+                                    {
+                                        <tr class="history-details-row site-config-row">
+                                            <td colspan="7">
+                                                <div class="expand-wrapper expanded">
+                                                    <div class="expand-content">
+                                                        <BlockingExceptionForm Initial="_exceptionPrefill" List="@_drilldownData.PublicList" DeviceName="GetClientName"
+                                                                               Intro="Filled in from this device's connections to the address. Widen or narrow any field before you add it."
+                                                                               OnSaved="DrilldownExceptionSaved" OnCancel="() => _exceptionAt = null" />
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -2711,6 +2792,85 @@ else
         return _clientNames.TryGetValue(ip, out var name) ? name : null;
     }
 
+    // Exceptions to the public lists, from the drill-down: the header for the address itself, or a row.
+    private ExceptionsOverview? _drilldownExceptions;
+    private string? _exceptionAt;
+    private BlockingException? _exceptionPrefill;
+
+    private async Task LoadDrilldownExceptionsAsync()
+    {
+        try
+        {
+            _drilldownExceptions = await Blocking.GetExceptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not read the blocking exceptions for the drill-down");
+            _drilldownExceptions = null;
+        }
+    }
+
+    // Exceptions cover the public lists, which only Blocking mode enforces.
+    private bool ExceptionsApply => _drilldownExceptions is { Mode: BlockingMode.Enforce };
+
+    /// <summary>The site's exceptions that name this address as the device or the listed address.</summary>
+    private int ExceptionsFor(string ip) => _drilldownExceptions?.Exceptions.Count(e => e.Names(ip)) ?? 0;
+
+    /// <summary>
+    /// What the header's Add Exception starts from: a listed address as the address, or a device on the
+    /// site that reached listed addresses as the device, every listed address open to narrow by port.
+    /// Null when neither applies.
+    /// </summary>
+    private BlockingException? HeaderException(IpDrilldownData data)
+    {
+        if (!ExceptionsApply) return null;
+        if (data.PublicList != null) return OutboundPrefill(null, data.Ip, null, []);
+        var listed = data.Destinations.Where(d => d.PublicList != null).ToList();
+        if (!NetworkUtilities.IsPrivateIpAddress(data.Ip) || listed.Count == 0) return null;
+        // Every listed address on one port (Syncthing's 22000) fills it in; mixed ports leave it to the user.
+        var ports = listed.Select(d => d.PortRanges).Distinct().ToList();
+        return OutboundPrefill(data.Ip, null, ports.Count == 1 ? ports[0] : null,
+            listed.SelectMany(d => d.Protocols).Distinct().Order().ToList());
+    }
+
+    private void ToggleException(string at, BlockingException prefill)
+    {
+        if (_exceptionAt == at)
+        {
+            _exceptionAt = null;
+            return;
+        }
+        _exceptionAt = at;
+        _exceptionPrefill = prefill;
+    }
+
+    /// <summary>
+    /// An outbound exception from what the events saw: the port when they all used one, and their
+    /// protocols (TCP and UDP when both, or when a port was seen with neither recorded).
+    /// </summary>
+    private static BlockingException OutboundPrefill(string? device, string? address, string? portRanges, IReadOnlyList<string> protocols)
+    {
+        int? port = int.TryParse(portRanges, out var p) && p > 0 ? p : null;
+        var protocol = protocols switch
+        {
+            ["tcp"] => ExceptionProtocol.Tcp,
+            ["udp"] => ExceptionProtocol.Udp,
+            _ when port != null => ExceptionProtocol.TcpUdp,
+            _ => ExceptionProtocol.Any,
+        };
+        return new BlockingException
+        {
+            Direction = ExceptionDirection.Outbound,
+            Device = device,
+            Address = address,
+            Protocol = protocol,
+            PortFrom = protocol == ExceptionProtocol.Any ? null : port,
+            PortTo = protocol == ExceptionProtocol.Any ? null : port,
+        };
+    }
+
+    private async Task DrilldownExceptionSaved(BlockingException saved) => await LoadDrilldownExceptionsAsync();
+
     private async Task LoadDataAsync()
     {
         _loading = true;
@@ -2776,6 +2936,7 @@ else
                 if (_drilldownIp != null)
                 {
                     _drilldownData = await DashboardService.GetIpDrilldownAsync(_drilldownIp, from, to);
+                    await LoadDrilldownExceptionsAsync();
 
                     // Seed CTI cache from DB if not already present (handles fresh nav / refresh)
                     if (!_manualCtiCache.ContainsKey(_drilldownIp) && !NetworkUtilities.IsPrivateIpAddress(_drilldownIp))
@@ -2979,6 +3140,7 @@ else
         }
         _hasInAppHistory = true;
         _drilldownIp = ip;
+        _exceptionAt = null;
         _drilldownCtiLookedUp = false;
         _drilldownPort = null;
         _drilldownProtocol = null;
@@ -3042,6 +3204,7 @@ else
             var to = DateTime.UtcNow;
             var from = to.AddDays(-90);
             _drilldownData = await DashboardService.GetIpDrilldownAsync(ip, from, to);
+            await LoadDrilldownExceptionsAsync();
         }
         catch (Exception ex)
         {

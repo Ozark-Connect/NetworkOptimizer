@@ -63,4 +63,14 @@ public sealed class ThreatSystemAudit : IThreatSystemAudit
             targetName: siteSlug ?? "default",
             siteSlug: siteSlug,
             details: new { change = "blocklist_policies_new_connections_only", policies }));
+
+    /// <inheritdoc />
+    public void ExceptionExpired(string? siteSlug, string exceptionId, string description) =>
+        _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
+            AuditCategories.Settings,
+            AuditActions.SettingsChanged,
+            targetType: "blocking_exception",
+            targetName: description,
+            siteSlug: siteSlug,
+            details: new { change = "expired", id = exceptionId }));
 }

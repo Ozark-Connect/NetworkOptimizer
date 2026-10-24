@@ -1782,6 +1782,29 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// PUT v2/api/site/{site}/firewall-policies/{id} with the stored policy, every field
+    /// <paramref name="policy"/> sets replaced by its value (source and destination whole) and its
+    /// connection states removed when it sets none. Read back first, as for the connection states,
+    /// so the fields it does not set (index, report_flow, icmp names, ...) go back unchanged.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "firewall-policies PUT takes the full stored object")]
+    public async Task UpdateFirewallPolicyAsync(string policyId, UniFiGroupBlockPolicyWrite policy,
+        CancellationToken cancellationToken = default)
+    {
+        var list = System.Text.Json.Nodes.JsonNode.Parse(
+            await ExecuteV2Async(HttpMethod.Get, "firewall-policies", null, cancellationToken)) as System.Text.Json.Nodes.JsonArray;
+        var stored = list?.OfType<System.Text.Json.Nodes.JsonObject>()
+                         .FirstOrDefault(p => (string?)p["_id"] == policyId)
+                     ?? throw new InvalidOperationException($"Firewall policy {policyId} is not on the UniFi Console.");
+        var changes = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(policy))!.AsObject();
+        foreach (var (name, value) in changes)
+            stored[name] = value?.DeepClone();
+        if (!changes.ContainsKey("connection_states"))
+            stored.Remove("connection_states");
+        await ExecuteV2Async(HttpMethod.Put, $"firewall-policies/{policyId}", stored.ToJsonString(), cancellationToken);
+    }
+
+    /// <summary>
     /// PUT v2/api/site/{site}/firewall-policies/batch-reorder: sets the order of the custom policies
     /// in one zone pair, those that run before UniFi's predefined ones and those after.
     /// </summary>
@@ -1934,6 +1957,24 @@ public class UniFiApiClient : IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to fetch firewall zones");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// GET v2/api/site/{site}/wireguard/{networkId}/users: the peers of a WireGuard server network,
+    /// with the subnets each routes. Empty on any failure.
+    /// </summary>
+    public async Task<List<UniFiWireGuardPeer>> GetWireGuardPeersAsync(string networkId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var body = await ExecuteV2Async(HttpMethod.Get, $"wireguard/{Uri.EscapeDataString(networkId)}/users", null, cancellationToken);
+            return JsonSerializer.Deserialize<List<UniFiWireGuardPeer>>(body) ?? [];
+        }
+        catch (Exception ex) when (ex is UniFiApiErrorException or InvalidOperationException or HttpRequestException or JsonException)
+        {
+            _logger.LogDebug(ex, "Could not read the peers of WireGuard server {Network}", networkId);
             return [];
         }
     }

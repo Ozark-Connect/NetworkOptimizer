@@ -19,9 +19,14 @@ public sealed class GatewayBlocklistEnforcer
     /// <summary>The capability string, shared by agent and server.</summary>
     public const string Capability = "gateway-blocklist";
 
+    /// <summary>The agent takes the public lists in their own set, with exceptions to them.</summary>
+    public const string ExceptionsCapability = "gateway-blocklist-exceptions";
+
     private const string Chain = "NETOPT_BLOCK";
     private const string BlockV4 = "netopt_block_v4";
     private const string BlockV6 = "netopt_block_v6";
+    private const string FeedV4 = "netopt_feed_v4";
+    private const string FeedV6 = "netopt_feed_v6";
     private const string GuardV4 = "netopt_guard_v4";
     private const string GuardV6 = "netopt_guard_v6";
     private const string OutV4 = "netopt_out_v4";
@@ -153,7 +158,9 @@ public sealed class GatewayBlocklistEnforcer
         var now = DateTime.UtcNow;
         var (v4, v6, refused) = Split(set.Entries, now);
         var (out4, out6, refusedOut) = Split(set.Outbound ?? [], now);
-        refused += refusedOut;
+        var (feed4, feed6, refusedFeeds) = Split(set.Feeds ?? [], now);
+        refused += refusedOut + refusedFeeds;
+        var exceptions = set.FeedsSplit ? (set.Exceptions ?? []).Select(e => e.ToWire()).OfType<GatewayBlockException>().ToList() : null;
         var errors = new List<string>();
         try
         {
@@ -161,11 +168,22 @@ public sealed class GatewayBlocklistEnforcer
             FillSet(BlockV6, "inet6", v6, withTimeout: true);
             FillSet(OutV4, "inet", out4, withTimeout: true);
             FillSet(OutV6, "inet6", out6, withTimeout: true);
+            if (set.FeedsSplit)
+            {
+                FillSet(FeedV4, "inet", feed4, withTimeout: true);
+                FillSet(FeedV6, "inet6", feed6, withTimeout: true);
+            }
             var (guard4, guard6) = GuardAddresses();
             FillSet(GuardV4, "inet", guard4.Select(a => (a, 0)).ToList(), withTimeout: false);
             FillSet(GuardV6, "inet6", guard6.Select(a => (a, 0)).ToList(), withTimeout: false);
-            EnsureChain("iptables", GuardV4, BlockV4, OutV4);
-            EnsureChain("ip6tables", GuardV6, BlockV6, OutV6);
+            EnsureChain("iptables", GuardV4, BlockV4, OutV4, set.FeedsSplit ? FeedV4 : null, exceptions, v6: false);
+            EnsureChain("ip6tables", GuardV6, BlockV6, OutV6, set.FeedsSplit ? FeedV6 : null, exceptions, v6: true);
+            // A server that stopped splitting leaves the chain without the feed sets; drop them.
+            if (!set.FeedsSplit)
+            {
+                Run("ipset", ["destroy", FeedV4], null);
+                Run("ipset", ["destroy", FeedV6], null);
+            }
         }
         catch (CommandException ex)
         {
@@ -177,12 +195,14 @@ public sealed class GatewayBlocklistEnforcer
         _applied = set;
         SaveCache(set);
         if (changed || errors.Count > 0)
-            Console.WriteLine($"Gateway blocklist: {v4.Count} IPv4 and {v6.Count} IPv6 entr(ies) applied"
+            Console.WriteLine($"Gateway blocklist: {v4.Count + feed4.Count} IPv4 and {v6.Count + feed6.Count} IPv6 entr(ies) applied"
                 + (out4.Count + out6.Count > 0 ? $", {out4.Count + out6.Count} blocked outbound" : "")
+                + (exceptions is { Count: > 0 } ? $", {exceptions.Count} exception(s)" : "")
                 + (refused > 0 ? $", {refused} refused (not public)" : "")
                 + (inserted > 0 ? $", {inserted} jump(s) inserted" : "")
                 + (errors.Count > 0 ? $"; failed: {string.Join("; ", errors)}" : ""));
-        Report(set.Fingerprint, errors.Count == 0, hooked, v4.Count, v6.Count, errors.Count > 0 ? string.Join("; ", errors) : null);
+        Report(set.Fingerprint, errors.Count == 0, hooked, v4.Count + feed4.Count, v6.Count + feed6.Count,
+            errors.Count > 0 ? string.Join("; ", errors) : null);
     }
 
     // The sets and chain outlive a provision; a reboot or someone else's flush does not. Rebuild
@@ -191,6 +211,7 @@ public sealed class GatewayBlocklistEnforcer
     {
         var names = Run("ipset", ["list", "-n"], null).Stdout.Split('\n', StringSplitOptions.TrimEntries);
         if (!names.Contains(BlockV4) || !names.Contains(BlockV6)
+            || (applied.FeedsSplit && (!names.Contains(FeedV4) || !names.Contains(FeedV6)))
             || Run("iptables", ["-S", Chain], null).Exit != 0 || Run("ip6tables", ["-S", Chain], null).Exit != 0)
         {
             Console.WriteLine("Gateway blocklist: sets or chain missing, re-applying");
@@ -290,9 +311,10 @@ public sealed class GatewayBlocklistEnforcer
     }
 
     // Rewritten only when it differs, so a steady set never touches the rules.
-    private static void EnsureChain(string tool, string guardSet, string blockSet, string outSet)
+    private static void EnsureChain(string tool, string guardSet, string blockSet, string outSet, string? feedSet,
+        IReadOnlyList<GatewayBlockException>? exceptions, bool v6)
     {
-        var wanted = GatewayBlocklistRules.Chain(Chain, guardSet, blockSet, outSet, OutLogPrefix, OutLogPerMinute);
+        var wanted = GatewayBlocklistRules.Chain(Chain, guardSet, blockSet, outSet, OutLogPrefix, OutLogPerMinute, feedSet, exceptions, v6);
         var current = Run(tool, ["-S", Chain], null);
         if (current.Exit == 0)
         {
@@ -330,7 +352,7 @@ public sealed class GatewayBlocklistEnforcer
     }
 
     private static readonly string TeardownScript =
-        GatewayBlocklistRules.Teardown(Chain, [BlockV4, BlockV6, GuardV4, GuardV6, OutV4, OutV6]);
+        GatewayBlocklistRules.Teardown(Chain, [BlockV4, BlockV6, GuardV4, GuardV6, OutV4, OutV6, FeedV4, FeedV6]);
 
     private static void Teardown() => Run("/bin/sh", ["-c", TeardownScript], null);
 
@@ -433,14 +455,55 @@ public sealed class GatewayBlocklistEnforcer
     private sealed class CommandException(string message) : Exception(message);
 
     /// <summary>The applied set as kept on disk: expiries are absolute so a restart honors them.</summary>
-    internal sealed record CachedSet(bool Enabled, string Fingerprint, List<CachedEntry> Entries, List<CachedEntry>? Outbound = null)
+    internal sealed record CachedSet(bool Enabled, string Fingerprint, List<CachedEntry> Entries, List<CachedEntry>? Outbound = null,
+        List<CachedEntry>? Feeds = null, List<CachedException>? Exceptions = null, bool FeedsSplit = false)
     {
         public static CachedSet From(GatewayBlocklistSet set, DateTime now) => new(
             set.Enabled,
             set.Fingerprint,
             set.Entries.Select(e => new CachedEntry(e.Address, now.AddSeconds(e.TtlSeconds))).ToList(),
-            set.Outbound.Select(e => new CachedEntry(e.Address, now.AddSeconds(e.TtlSeconds))).ToList());
+            set.Outbound.Select(e => new CachedEntry(e.Address, now.AddSeconds(e.TtlSeconds))).ToList(),
+            set.Feeds.Select(e => new CachedEntry(e.Address, now.AddSeconds(e.TtlSeconds))).ToList(),
+            set.Exceptions.Select(CachedException.From).ToList(),
+            set.FeedsSplit);
     }
 
     internal sealed record CachedEntry(string Address, DateTime ExpiresAt);
+
+    /// <summary>An exception as kept on disk. Addresses are re-checked on apply, as entries are.</summary>
+    internal sealed record CachedException(bool Inbound, string Device, string Address, List<string> Protocols, int PortFrom, int PortTo)
+    {
+        public static CachedException From(GatewayBlockException e) =>
+            new(e.Inbound, e.Device, e.Address, [.. e.Protocols], e.PortFrom, e.PortTo);
+
+        /// <summary>
+        /// The wire form for the rule builder, with malformed fields cleared so a bad push never becomes
+        /// an iptables argument. Null when nothing is left to narrow it: that would open a whole list.
+        /// </summary>
+        public GatewayBlockException? ToWire()
+        {
+            var e = new GatewayBlockException
+            {
+                Inbound = Inbound,
+                Device = Clean(Device),
+                Address = NetworkOptimizer.Core.Helpers.BlocklistEntry.Canonical(Address)?.Text ?? "",
+                PortFrom = Math.Clamp(PortFrom, 0, 65535),
+                PortTo = Math.Clamp(PortTo, 0, 65535),
+            };
+            e.Protocols.AddRange(Protocols.Where(p => p is "tcp" or "udp"));
+            if (e.Protocols.Count == 0) e.PortFrom = e.PortTo = 0;
+            if (e.PortTo < e.PortFrom) e.PortTo = e.PortFrom;
+            return e.Device.Length == 0 && e.Address.Length == 0 && e.PortFrom == 0 ? null : e;
+        }
+
+        // Any IP or CIDR (a LAN device, or a global IPv6 one); anything else is dropped.
+        private static string Clean(string value)
+        {
+            var parts = value.Split('/');
+            if (parts.Length > 2 || !IPAddress.TryParse(parts[0], out var ip)) return "";
+            var max = ip.AddressFamily == AddressFamily.InterNetworkV6 ? 128 : 32;
+            if (parts.Length == 2 && (!int.TryParse(parts[1], out var bits) || bits < 0 || bits > max)) return "";
+            return parts.Length == 2 ? $"{ip}/{parts[1]}" : ip.ToString();
+        }
+    }
 }
