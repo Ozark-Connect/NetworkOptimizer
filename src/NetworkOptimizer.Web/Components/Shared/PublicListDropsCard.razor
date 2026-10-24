@@ -26,12 +26,12 @@
             else
             {
                 <div class="table-responsive">
-                    <table class="data-table">
+                    <table class="data-table public-list-drops-table">
                         <thead>
                             <tr>
                                 <th>Device</th>
                                 <th>Address</th>
-                                <th>Port</th>
+                                <th class="hide-mobile">Port</th>
                                 <th class="hide-mobile">List</th>
                                 <th class="hide-mobile">Drops</th>
                                 <th class="hide-mobile">Last Seen</th>
@@ -45,8 +45,8 @@
                                 var covering = Covering(d);
                                 <tr>
                                     <td><a href="@DrilldownUrl(d.DeviceIp)"><code>@d.DeviceIp</code></a>@if (DeviceName?.Invoke(d.DeviceIp) is { } name) {<span class="ip-client-name">@name</span>}</td>
-                                    <td><a href="@DrilldownUrl(d.Address)"><code>@d.Address</code></a></td>
-                                    <td><code>@PortText(d)</code></td>
+                                    <td><a href="@DrilldownUrl(d.Address)"><code>@d.Address</code></a><span class="drop-port">@PortText(d)</span></td>
+                                    <td class="hide-mobile"><code>@PortText(d)</code></td>
                                     <td class="hide-mobile">@d.List</td>
                                     <td class="hide-mobile">@d.Drops.ToString("N0")</td>
                                     <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(d.LastSeen)</td>
