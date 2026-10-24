@@ -40,6 +40,7 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.LiveWanScope LiveWan
 @inject NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry IspHealthRegistry
 @inject ISystemSettingsService SystemSettings
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @inject DashboardLayoutService DashboardLayout
 @inject ICableModemService CmMonitorService
 @inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
@@ -3232,7 +3233,7 @@
         var starlinkConfigs = await StarlinkMonitor.GetConfigsAsync();
         _starlinkHasDevices = starlinkConfigs.Count > 0;
 
-        _mapOrder2dFirst = await SystemSettings.GetGlobalAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
+        _mapOrder2dFirst = await UserPreferences.GetAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
         var dashLayout = await DashboardLayout.GetLayoutAsync();
         _liveViewOnDashboard = dashLayout.Cards.Any(c => c.Id == DashboardCards.LiveView && c.Visible);
 
@@ -5158,8 +5159,9 @@
     private async Task SwapMapOrderAsync()
     {
         _mapOrder2dFirst = !_mapOrder2dFirst;
-        await SystemSettings.SetGlobalAsync(SystemSettingKeys.MonitoringLiveMapOrder,
-            _mapOrder2dFirst ? "2d-first" : null);
+        // Stored explicitly both ways: a cleared value would fall back to the install-wide order.
+        await UserPreferences.SetAsync(SystemSettingKeys.MonitoringLiveMapOrder,
+            _mapOrder2dFirst ? "2d-first" : "3d-first");
         await JS.InvokeVoidAsync("eval", "window.location.replace('/monitoring?tab=live');");
     }
 
