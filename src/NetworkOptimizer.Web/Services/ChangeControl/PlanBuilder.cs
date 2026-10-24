@@ -566,7 +566,9 @@ public static class PlanBuilder
     /// </summary>
     private static void Order(PlanDocument doc)
     {
-        int Rank(PlanOperation o) => o.ManagementPath ? 3 : o.Action == PlanAction.Delete ? 2 : 1;
+        // Deletes go after everything, management-path updates included: those updates are what move
+        // ports and devices off a profile or network the plan deletes (CheckReferrers relies on it).
+        int Rank(PlanOperation o) => o.Action == PlanAction.Delete ? 3 : o.ManagementPath ? 2 : 1;
         doc.Operations = doc.Operations
             .OrderBy(Rank)
             .ThenBy(o => o.Action == PlanAction.Delete ? -o.Order : o.Order)
@@ -578,7 +580,7 @@ public static class PlanBuilder
         string? stepGroup = null;
         foreach (var op in doc.Operations)
         {
-            var group = Rank(op) == 3 ? "last" : Rank(op) == 2 ? "delete" : GroupFor(op);
+            var group = Rank(op) == 3 ? "delete" : Rank(op) == 2 ? "last" : GroupFor(op);
             if (stepGroup != null && group != stepGroup)
             {
                 doc.WriteOrder.Add(Step(step, stepGroup));
@@ -607,7 +609,7 @@ public static class PlanBuilder
         var gateway = ops.Any(o => o.NeedsGateway) ? "One gateway provision" : null;
         var detail = group switch
         {
-            "last" => "Last: it can cut a device's management path",
+            "last" => "Management path: changes that can cut a device off",
             "delete" => "Deletes, after their referrers change",
             "firewall" => gateway ?? "Firewall",
             "devices" => "Devices re-provision",

@@ -113,7 +113,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 await FlushJournalAsync(stoppingToken);
                 if (DateTime.UtcNow >= _nextPoll || _snapshotRequested)
                     await PollLockedAsync(stoppingToken);
-                if (OnTick != null && _api.IsConnected)
+                // Runs while the console is unreachable too: a watched plan must notice that.
+                if (OnTick != null)
                     await OnTick(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

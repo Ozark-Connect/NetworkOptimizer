@@ -232,7 +232,10 @@ public sealed class PlanCoordinator
                     details: new { by = actor.Name, devices = PlanReadiness.ConfirmationText(doc) }));
 
             var pre = await _engine.TakeSnapshotAsync(ConfigSnapshotTrigger.BeforeApply, plan.Name, $"Before apply: {plan.Name}", ct);
-            plan.PreApplySnapshotId = pre?.Id;
+            // No pinned snapshot means no way back, so nothing is written.
+            if (pre == null)
+                return "The snapshot before the apply could not be taken (the UniFi Console did not return the config). Nothing was written.";
+            plan.PreApplySnapshotId = pre.Id;
             plan.Status = ConfigPlanStatus.Applying;
             plan.AppliedBy = actor.Name;
             plan.StartedAt = DateTime.UtcNow;
@@ -250,7 +253,7 @@ public sealed class PlanCoordinator
             bool ok;
             PlanResult result;
             using (UniFiWriteSource.Use($"change-control:plan:{plan.Id}"))
-                (ok, result) = await new PlanExecutor(_engine.Api, _logger).ApplyAsync(doc, hasGateway: true, null, ct);
+                (ok, result) = await new PlanExecutor(_engine.Api, _logger).ApplyAsync(doc, HasGateway(live), null, ct);
 
             // Verify: a fresh snapshot, compared with what the plan meant to write.
             var post = await _engine.TakeSnapshotAsync(ConfigSnapshotTrigger.AfterApply, plan.Name, null, ct);
@@ -275,6 +278,9 @@ public sealed class PlanCoordinator
             }
 
             plan.CompletedAt = DateTime.UtcNow;
+            var waiting = result.Operations.Count(o => o.Outcome == "Waiting");
+            if (waiting > 0)
+                plan.Message = $"{waiting} write{(waiting == 1 ? "" : "s")} need the gateway adopted first. Run the restore again once it is.";
             if (watch)
             {
                 plan.Status = ConfigPlanStatus.Watching;
@@ -300,6 +306,14 @@ public sealed class PlanCoordinator
             _applyLock.Release();
         }
     }
+
+    /// <summary>
+    /// Whether a gateway is adopted: without one, gateway-bound writes (routes, NAT, port forwards,
+    /// traffic routes, QoS) are refused, so they wait instead of failing the plan (grounding: blank console).
+    /// </summary>
+    internal static bool HasGateway(ConfigState live) =>
+        live.Get("device").Any(d => d["type"]?.ToString() is "ugw" or "udm" or "uxg"
+                                    && d["adopted"]?.GetValueKind() != System.Text.Json.JsonValueKind.False);
 
     /// <summary>Differences left between the plan's intent and the console after it applied (class F).</summary>
     internal static List<string> VerifyAgainst(PlanDocument doc, ConfigState before, ConfigState after)
@@ -371,7 +385,7 @@ public sealed class PlanCoordinator
         {
             try
             {
-                if (plan.Status is ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled && plan.ScheduledFor is { } at && at <= now)
+                if (plan.Status is ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled && plan.ScheduledFor is { } at && at <= now && _engine.Api.IsConnected)
                 {
                     var why = await ApplyAsync(plan.Id, new PlanActor("Network Optimizer (scheduled)", IsSiteAdmin: true),
                         requireApproval: false, automatic: true, ct);
@@ -382,7 +396,7 @@ public sealed class PlanCoordinator
                     await WatchAsync(plan, ct);
                 }
                 else if (plan.Status == ConfigPlanStatus.Applied && plan.ReportJson == null && plan.CompletedAt is { } done
-                         && now - done > ReportDelay && plan.Kind != ConfigPlanKind.Revert)
+                         && now - done > ReportDelay && plan.Kind != ConfigPlanKind.Revert && _engine.Api.IsConnected)
                 {
                     await BuildReportAsync(plan, ct);
                 }
@@ -411,6 +425,21 @@ public sealed class PlanCoordinator
     private async Task WatchAsync(ConfigPlan plan, CancellationToken ct)
     {
         var doc = Open(plan);
+        var expected = doc.Context.GetValueOrDefault("watch_online", "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+        if (!_engine.Api.IsConnected)
+        {
+            // An armed agent decides locally. Otherwise the server cannot revert what it cannot reach:
+            // it says so once, with the devices and the recovery step, and keeps watching.
+            if (plan.AgentRevertArmed) return;
+            if (_misses.AddOrUpdate(plan.Id, 1, (_, n) => n + 1) == MissesToRevert)
+                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Critical, $"UniFi Console unreachable after: {plan.Name}",
+                    $"Network Optimizer lost the UniFi Console after applying this plan, so it cannot revert it. Watched: {string.Join(", ", expected)}. "
+                    + "If the change cut the path, restore the snapshot taken before the apply from the UniFi Console's own backup, or SSH to an affected device and run set-inform with the console's inform URL.",
+                    plan.Id, ct);
+            return;
+        }
+
         if (plan.WatchUntil is { } until && DateTime.UtcNow >= until)
         {
             plan.Status = ConfigPlanStatus.Applied;
@@ -421,20 +450,11 @@ public sealed class PlanCoordinator
             return;
         }
 
-        if (!_engine.Api.IsConnected)
-        {
-            // The server cannot see the site. An armed agent decides locally; otherwise this is a miss.
-            if (plan.AgentRevertArmed) return;
-        }
-
-        var expected = doc.Context.GetValueOrDefault("watch_online", "").Split(',', StringSplitOptions.RemoveEmptyEntries);
-        var online = await OnlineDevicesAsync(ct);
-        var offline = online.Count == 0 && !_engine.Api.IsConnected ? expected.ToList() : expected.Where(m => !online.Contains(m)).ToList();
+        var offline = doc.WatchDevices ? await GoneDevicesAsync(expected, ct) : [];
         string? reason = null;
-        if (doc.WatchDevices && offline.Count > 0)
-            reason = $"{offline.Count} device{(offline.Count == 1 ? "" : "s")} went offline";
-        else if (doc.WatchInternet && !await InternetReachableAsync(ct))
-            reason = "Internet reachability was lost";
+        if (offline is null) reason = "The device list did not load";
+        else if (offline.Count > 0) reason = $"{offline.Count} device{(offline.Count == 1 ? "" : "s")} went offline";
+        else if (doc.WatchInternet && !await InternetReachableAsync(ct)) reason = "Internet reachability was lost";
 
         if (reason == null)
         {
@@ -444,7 +464,35 @@ public sealed class PlanCoordinator
         var misses = _misses.AddOrUpdate(plan.Id, 1, (_, n) => n + 1);
         if (misses < MissesToRevert) return;
         _misses.TryRemove(plan.Id, out _);
-        await RevertAsync(plan.Id, reason, offline, automatic: true, ct);
+
+        // Never revert a revert: its "before" is the state after the original change.
+        if (plan.Kind == ConfigPlanKind.Revert)
+        {
+            plan.Status = ConfigPlanStatus.Applied;
+            plan.Message = $"{reason} after the revert.";
+            await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+            await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Critical, $"Problem after revert: {plan.Name}",
+                $"{reason} after the revert applied. Offline: {string.Join(", ", offline ?? [])}. "
+                + "Check the device's uplink; if it stays offline, SSH to it and run set-inform with the UniFi Console's inform URL.", plan.Id, ct);
+            return;
+        }
+        await RevertAsync(plan.Id, reason, offline ?? [], automatic: true, ct);
+    }
+
+    /// <summary>
+    /// Watched devices now gone (missing, or state 0 disconnected, 6 heartbeat missed, 9 inform
+    /// error, 11 isolated). Provisioning and upgrading are not gone: a gateway provisions for about
+    /// two minutes after a config write. Null when the device list does not load.
+    /// </summary>
+    private async Task<List<string>?> GoneDevicesAsync(IReadOnlyCollection<string> expected, CancellationToken ct)
+    {
+        var r = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
+        if (!r.IsSuccess) return null;
+        var state = (ConfigSnapshotReader.ExtractList(r.Body) ?? [])
+            .Where(d => d["mac"] != null)
+            .GroupBy(d => d["mac"]!.ToString().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First()["state"]?.ToString() ?? "");
+        return expected.Where(m => !state.TryGetValue(m, out var s) || s is "0" or "6" or "9" or "11").ToList();
     }
 
     /// <summary>
@@ -494,8 +542,9 @@ public sealed class PlanCoordinator
         var why = await ApplyAsync(revert.Id, new PlanActor("Network Optimizer", IsSiteAdmin: true), requireApproval: false, automatic: true, ct);
 
         plan = (await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct))!;
-        plan.Status = ConfigPlanStatus.Reverted;
-        plan.Message = reason;
+        // Reverted only when the revert went through; otherwise the change may still be live.
+        plan.Status = why == null ? ConfigPlanStatus.Reverted : ConfigPlanStatus.Failed;
+        plan.Message = why == null ? reason : $"{reason}. The revert did not apply: {why}";
         plan.CompletedAt = DateTime.UtcNow;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
 
@@ -504,7 +553,7 @@ public sealed class PlanCoordinator
         await Publish(ChangeAlerts.PlanReverted, AlertSeverity.Critical, $"Plan reverted: {plan.Name}",
             $"{reason}.{names} Network Optimizer put back the snapshot taken before the apply"
             + (why == null ? "." : $", but the revert did not finish: {why}") + recovery, plan.Id, ct);
-        if (automatic) Audit(AuditActions.ChangeControlPlanReverted, plan, AuditOutcomes.Success, new { reason, offline = offlineMacs });
+        if (automatic) Audit(AuditActions.ChangeControlPlanReverted, plan, why == null ? AuditOutcomes.Success : AuditOutcomes.Failure, new { reason, offline = offlineMacs, why });
         return why;
     }
 
