@@ -34,8 +34,8 @@ public sealed class GatewayBlocklistState
     public List<GatewayExceptionPolicyRef> ExceptionPolicies { get; set; } = [];
 }
 
-/// <summary>One exception Allow policy on the console.</summary>
-public sealed record GatewayExceptionPolicyRef(string Id, string Key);
+/// <summary>One exception Allow policy on the console, with the content hash it was last written with.</summary>
+public sealed record GatewayExceptionPolicyRef(string Id, string Key, string? Hash = null);
 
 /// <summary>One Block policy: External to <see cref="ZoneId"/> for one IP version (outbound: <see cref="ZoneId"/> to External).</summary>
 public sealed record GatewayBlockPolicyRef(string Id, string ZoneId, string IpVersion);
@@ -437,10 +437,11 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
 
     /// <inheritdoc />
     /// <remarks>
-    /// Policies are diffed by key: an unchanged exception keeps its policies, and each create or delete
-    /// is a separate reprovision. Every zone pair touched is then ordered Automatic Blocking's own Block
-    /// policy, the exceptions, the public list Block policies, so an exception never lets through a
-    /// source the site blocked itself.
+    /// Each exception's policies are scoped to the zones whose networks hold its device, and matched to
+    /// the console by key: unchanged ones are left alone, changed ones updated in place, and only keys
+    /// that come or go are created or deleted, since every write can reprovision the gateway. Every zone
+    /// pair touched is then ordered Automatic Blocking's own Block policy, the exceptions, the public
+    /// list Block policies, so an exception never lets through a source the site blocked itself.
     /// </remarks>
     public async Task<BlockTargetResult> SyncExceptionsAsync(string? site, IReadOnlyList<BlockingException> exceptions,
         bool outbound, CancellationToken ct)
@@ -456,31 +457,57 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             var zones = await client.GetFirewallZonesAsync(ct);
             var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External)
                 ?? throw new InvalidOperationException("Could not read the firewall zones from the UniFi Console.");
-            var others = zones.Where(z => z.Id != external.Id).Select(z => (z.Id, z.ZoneKey == FirewallZoneKeys.Gateway)).ToList();
+            // An unreadable network list leaves every zone without subnets, which scopes to every zone.
+            var networks = exceptions.Any(e => e.Device != null) ? await client.GetNetworkConfigsAsync(ct) : [];
+            var others = zones.Where(z => z.Id != external.Id)
+                .Select(z => new ExceptionZone(z.Id, z.ZoneKey == FirewallZoneKeys.Gateway, networks
+                    .Where(n => n.FirewallZoneId == z.Id || z.NetworkIds.Contains(n.Id))
+                    .SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet })
+                    .OfType<string>().Where(s => s.Length > 0).ToList()))
+                .ToList();
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                var names = zones.ToDictionary(z => z.Id, z => z.Name);
+                foreach (var e in exceptions.Where(e => e.Device != null))
+                {
+                    var held = GatewayExceptionPolicies.ZonesOf(e.Device, others);
+                    _logger.LogDebug("Gateway exceptions on {Site}: exception {Id} device {Device} is in {Zones}",
+                        site ?? "main", e.Id, e.Device,
+                        ReferenceEquals(held, others) ? "no zone's networks, so every zone" : string.Join(", ", held.Select(z => names[z.Id])));
+                }
+            }
             var specs = GatewayExceptionPolicies.Build(exceptions, state, external.Id, others,
                 outbound && state.OutboundPolicies.Count > 0);
-            var policies = await client.GetFirewallPoliciesAsync(ct);
-            var present = policies.Select(p => p.Id).ToHashSet();
-            var wanted = specs.Select(s => s.Key).ToHashSet();
+            var present = (await client.GetFirewallPoliciesAsync(ct)).Select(p => p.Id).ToHashSet();
+            var plan = GatewayExceptionPolicies.Plan(state.ExceptionPolicies, present, specs);
 
-            var previous = state.ExceptionPolicies.Count;
-            var kept = state.ExceptionPolicies.Where(r => wanted.Contains(r.Key) && present.Contains(r.Id)).ToList();
-            foreach (var stale in state.ExceptionPolicies.Except(kept).Where(r => present.Contains(r.Id)))
-                await client.DeleteFirewallPolicyAsync(stale.Id, ct);
-            var refs = new List<GatewayExceptionPolicyRef>(kept);
-            var created = 0;
+            // Every policy still on the console stays tracked until its own write succeeds, so a failure
+            // part way leaves nothing behind that the next sync cannot find.
+            var refs = state.ExceptionPolicies.Where(r => present.Contains(r.Id)).ToList();
+            var (updated, created, deleted) = (0, 0, 0);
             try
             {
-                foreach (var spec in specs.Where(s => kept.All(k => k.Key != s.Key)))
+                foreach (var stale in plan.Delete)
+                {
+                    await client.DeleteFirewallPolicyAsync(stale.Id, ct);
+                    refs.Remove(stale);
+                    deleted++;
+                }
+                foreach (var (existing, spec) in plan.Update)
+                {
+                    await client.UpdateFirewallPolicyAsync(existing.Id, spec.Body, ct);
+                    refs[refs.IndexOf(existing)] = existing with { Hash = spec.Hash };
+                    updated++;
+                }
+                foreach (var spec in plan.Create)
                 {
                     var policy = await client.CreateFirewallPolicyAsync(spec.Body, ct);
-                    refs.Add(new GatewayExceptionPolicyRef(policy.Id, spec.Key));
+                    refs.Add(new GatewayExceptionPolicyRef(policy.Id, spec.Key, spec.Hash));
                     created++;
                 }
             }
             finally
             {
-                // What was created stays tracked even when a later create fails, so the next sync cleans it up.
                 state.ExceptionPolicies = refs;
                 await SaveStateAsync(site, state, ct);
             }
@@ -498,9 +525,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                         await client.ReorderFirewallPoliciesAsync(pair.SourceZoneId, pair.DestinationZoneId, order.Before, order.After, ct);
                 }
             }
-            if (created > 0 || kept.Count != previous)
-                _logger.LogInformation("Gateway exceptions on {Site}: {Count} Allow policies ({Created} created)",
-                    site ?? "main", refs.Count, created);
+            if (updated + created + deleted > 0)
+                _logger.LogInformation("Gateway exceptions on {Site}: {Count} Allow policies ({Updated} updated, {Created} created, {Deleted} deleted)",
+                    site ?? "main", refs.Count, updated, created, deleted);
             return BlockTargetResult.Success(refs.Count);
         }
         catch (UniFiPermissionException ex)
