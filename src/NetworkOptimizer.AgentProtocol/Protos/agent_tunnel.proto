@@ -85,6 +85,11 @@ message ConfigRevertArm {
   string devices_url = 7;
   repeated string watch_device_macs = 8;
   bool watch_internet = 9;
+  // A username/password console connection instead of api_key: the agent signs in once per
+  // window (login_url, then the X-Csrf-Token header) and keeps the session in memory only.
+  string login_url = 10;
+  string username = 11;
+  string password = 12;
 }
 
 message ConfigRevertCall {

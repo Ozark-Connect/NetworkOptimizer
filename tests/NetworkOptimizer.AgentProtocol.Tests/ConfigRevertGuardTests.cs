@@ -17,12 +17,23 @@ public class ConfigRevertGuardTests
         public bool ConsoleUp { get; set; } = true;
         public string DeviceState { get; set; } = "1";
         public List<(string Method, string Url, string? Body, string? Key)> Writes { get; } = [];
+        public int Logins { get; private set; }
+        public bool RequireCsrf { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             if (!ConsoleUp) throw new HttpRequestException("unreachable");
             var url = request.RequestUri!.ToString();
-            var key = request.Headers.TryGetValues("X-API-KEY", out var v) ? v.First() : null;
+            if (url == Login)
+            {
+                Logins++;
+                var ok = Json("{}");
+                ok.Headers.Add("X-Csrf-Token", "csrf-1");
+                return ok;
+            }
+            var csrf = request.Headers.TryGetValues("X-Csrf-Token", out var c) ? c.First() : null;
+            if (RequireCsrf && csrf != "csrf-1") return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            var key = request.Headers.TryGetValues("X-API-KEY", out var v) ? v.First() : csrf;
             if (url == Health) return Json("{\"data\":[{\"subsystem\":\"www\",\"status\":\"ok\"}]}");
             if (url == Devices) return Json($"{{\"data\":[{{\"mac\":\"aa:bb:cc:00:00:01\",\"state\":{DeviceState}}}]}}");
             var body = request.Content == null ? null : await request.Content.ReadAsStringAsync(ct);
@@ -31,6 +42,43 @@ public class ConfigRevertGuardTests
         }
 
         private static HttpResponseMessage Json(string s) => new(HttpStatusCode.OK) { Content = new StringContent(s) };
+    }
+
+    private const string Login = "https://192.0.2.1/api/auth/login";
+
+    [Fact]
+    public async Task PasswordConnection_SignsInOnce_AndSendsTheCsrfToken()
+    {
+        var (guard, console, sent, now) = Make();
+        console.RequireCsrf = true;
+        var arm = Arm(now[0].AddMinutes(-1));
+        arm.ApiKey = "";
+        arm.LoginUrl = Login;
+        arm.Username = "admin";
+        arm.Password = "secret";
+        guard.OnArm(arm);
+
+        await guard.TickAsync(CancellationToken.None);
+        await guard.TickAsync(CancellationToken.None);
+        console.DeviceState = "0";
+        await guard.TickAsync(CancellationToken.None);
+
+        console.Logins.Should().Be(1, "the session is reused across checks");
+        console.Writes.Should().HaveCount(2).And.OnlyContain(w => w.Key == "csrf-1");
+        sent.Should().Contain(m => m.ConfigRevertReport.State == ConfigRevert.Reverted);
+    }
+
+    [Fact]
+    public async Task ProvisioningDevice_IsNotOffline()
+    {
+        var (guard, console, sent, now) = Make();
+        console.DeviceState = "5";
+        guard.OnArm(Arm(now[0].AddMinutes(-1)));
+
+        await guard.TickAsync(CancellationToken.None);
+
+        console.Writes.Should().BeEmpty();
+        sent.Should().ContainSingle().Which.ConfigRevertReport.State.Should().Be(ConfigRevert.Held);
     }
 
     private static ConfigRevertArm Arm(DateTime deadline) => new()

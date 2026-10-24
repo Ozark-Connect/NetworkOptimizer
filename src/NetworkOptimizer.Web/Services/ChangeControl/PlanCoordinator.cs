@@ -92,7 +92,7 @@ public sealed class PlanCoordinator
         var doc = PlanBuilder.Build(desired, live, Options(options));
         decorate?.Invoke(doc);
         if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
-            doc.Notes.Add("This site's On-Site Agent cannot hold the revert (it needs an agent update and an API-key console connection). "
+            doc.Notes.Add("This site's On-Site Agent cannot hold the revert (it needs an agent update). "
                 + "If the change cuts the tunnel, the automatic revert cannot reach the site.");
         await RunImpactAsync(doc, live, ct);
 
