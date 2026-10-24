@@ -120,7 +120,7 @@
                             {
                                 <div class="alert alert-warning">
                                     The new device runs @p.NewVersion, older than the @p.OldVersion the old one ran. Bring it to the same or a newer release in
-                                    <a href="@SiteContextService.WithSiteParam("/firmware-rollout", SiteCtx.Slug)">Firmware Rollout</a> before mapping, so every setting has somewhere to land.
+                                    <a href="@SiteContextService.WithSiteParam($"/firmware-rollout?align={Uri.EscapeDataString(p.NewMac)}&build={Uri.EscapeDataString(p.OldVersion ?? "")}", SiteCtx.Slug)">Firmware Rollout</a> before mapping, so every setting has somewhere to land.
                                 </div>
                             }
                             else
