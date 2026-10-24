@@ -27,15 +27,17 @@ public interface IFingerprintDatabaseService
     /// <summary>
     /// Get the cached fingerprint database, fetching if needed.
     /// </summary>
+    /// <param name="connection">The calling site's Console connection, used when the cache needs a fetch.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The fingerprint database, or null if unavailable.</returns>
-    Task<UniFiFingerprintDatabase?> GetDatabaseAsync(CancellationToken cancellationToken = default);
+    Task<UniFiFingerprintDatabase?> GetDatabaseAsync(UniFiConnectionService connection, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Force refresh the fingerprint database.
     /// </summary>
+    /// <param name="connection">The Console connection to fetch through.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task RefreshAsync(CancellationToken cancellationToken = default);
+    Task RefreshAsync(UniFiConnectionService connection, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Look up a device name by its device ID (used for dev_id_override).

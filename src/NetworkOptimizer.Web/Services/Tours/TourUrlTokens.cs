@@ -183,7 +183,7 @@ public sealed class TourUrlTokenResolver
             var tests = await LanTestCountsAsync(siteSlug);
             var detection = new DeviceTypeDetectionService(
                 _loggerFactory.CreateLogger<DeviceTypeDetectionService>(),
-                await _fingerprints.GetDatabaseAsync(),
+                await _fingerprints.GetDatabaseAsync(connection),
                 _oui,
                 _loggerFactory);
 
