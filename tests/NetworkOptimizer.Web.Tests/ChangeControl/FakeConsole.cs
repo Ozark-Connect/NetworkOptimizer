@@ -25,7 +25,10 @@ internal sealed class FakeConsole : IUniFiConfigApi
 
     public FakeConsole(ConfigState state) => State = state;
 
-    public bool IsConnected => true;
+    /// <summary>False simulates a console the server cannot reach.</summary>
+    public bool Connected { get; set; } = true;
+
+    public bool IsConnected => Connected;
 
     public Task<(int Status, byte[] Bytes)> GetBytesAsync(UniFiApiScope scope, string path, CancellationToken cancellationToken = default) =>
         Task.FromResult((404, Array.Empty<byte>()));
@@ -33,11 +36,13 @@ internal sealed class FakeConsole : IUniFiConfigApi
     public Task<UniFiRawResponse> SendAsync(UniFiApiScope scope, HttpMethod method, string path, string? json = null, CancellationToken cancellationToken = default)
     {
         Requests.Add((method, path, json));
+        if (!Connected) return Task.FromResult(new UniFiRawResponse(0, "unreachable"));
         if (Refuse.TryGetValue(path, out var status))
             return Task.FromResult(new UniFiRawResponse(status, """{"meta":{"rc":"error","msg":"api.err.Refused"}}"""));
 
         if (method == HttpMethod.Get)
         {
+            if (path == "stat/health") return Ok(scope, [new JsonObject { ["subsystem"] = "www", ["status"] = "ok" }], list: true);
             if (path == "stat/sysinfo") return Ok(scope, [new JsonObject { ["version"] = "10.6.106" }], list: true);
             var def = ConfigCollections.All.FirstOrDefault(d => d.ReadPath == path && d.Scope == scope);
             if (def == null || !State.Collections.ContainsKey(def.Key)) return Task.FromResult(new UniFiRawResponse(404, "{}"));
