@@ -282,10 +282,13 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
 - **Migrate**
   - **Restore a Snapshot** onto this site, another site, or a blank UniFi Console
+    - Legacy firewall rules restored onto a zone-based console become zone policies, checked by the Security Audit
   - **Replace Device** - move a switch, AP, or gateway's config to new hardware, same model or not
     - Port mapping by role (uplink, LAG, PoE, SFP), radio clamping by band, and a re-cabling sheet PDF
+    - Older firmware on the new device links to Firmware Rollout to align it first
   - **Adopt Pending Devices** whose MAC is in a snapshot
   - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
+    - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
 - **Settings** - retention, change detection, commit-confirmed window, approvals
 
