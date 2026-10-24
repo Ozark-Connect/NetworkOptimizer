@@ -1329,7 +1329,7 @@ public class AuditService : IAuditScanService
             }
 
             // Get fingerprint database for device name lookups
-            var fingerprintDb = await _fingerprintService.GetDatabaseAsync();
+            var fingerprintDb = await _fingerprintService.GetDatabaseAsync(_connectionService);
 
             // Fetch settings for DNS security analysis (DoH configuration)
             System.Text.Json.JsonElement? settingsData = null;
