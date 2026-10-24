@@ -7,7 +7,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 **Jump to:** [Dashboard](#dashboard) · [Multi-Site](#multi-site) · [Monitoring](#monitoring) ·
 [Network Tools](#network-tools) · [Client Performance](#client-performance) ·
 [Config Optimizer](#config-optimizer) · [Performance Tweaks](#performance-tweaks) ·
-[Firmware Rollout](#firmware-rollout) · [Wi-Fi Optimizer](#wi-fi-optimizer) ·
+[Change Control](#change-control) · [Firmware Rollout](#firmware-rollout) · [Wi-Fi Optimizer](#wi-fi-optimizer) ·
 [Security Audit](#security-audit) · [UPnP Inspector](#upnp-inspector) ·
 [Threat Intelligence](#threat-intelligence) · [Web Application Firewall](#web-application-firewall) · [Adaptive SQM](#adaptive-sqm) ·
 [WAN Steering](#wan-steering) · [WAN Speed Test](#wan-speed-test) ·
@@ -261,6 +261,34 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Mutes standard alerts while a deploy step restarts UniFi Network
 - **Install UDM Boot**; firmware upgrade impact notes; GPON stick compatibility guide
 
+## Change Control
+
+- UniFi Network keeps whole-console backups (.unf) that restore all at once; Change Control adds per-change history, diffs, and object-level roll back
+- **Overview** - what needs attention across every site: regressions, changes no admin made, drift, plans in progress
+- **Changes** - multi-site timeline of every config change, firmware step, and Network app upgrade, with who made it
+  - Who: the admin from UniFi's audit log, Network Optimizer's own writes, or "No admin recorded"
+  - Stat lanes (WAN latency and loss, throughput, gateway CPU, clients) on the same time axis (InfluxDB)
+  - Each change shows the fields that moved, the Security Audit before and after, and incidents that followed
+  - **Roll Back** one change
+- **Snapshots** - the full UniFi Network config, stored encrypted outside the console
+  - Taken on every change, daily, before every apply, Firmware Rollout, and Network app upgrade
+  - **Compare** any two snapshots or one against live; **Download YAML**; **Pin**; **Roll Back** to a snapshot
+  - Baseline and **Drift from Baseline**, with **Return to Baseline** and **Accept as Baseline**
+  - **Templates** - save collections from one site, apply them to others, or use one as the Baseline
+  - **UniFi Console Backups** - keeps copies of UniFi's own .unf autobackups for download (Site Admin)
+- **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files
+- **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
+  - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
+  - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
+- **Migrate**
+  - **Restore a Snapshot** onto this site, another site, or a blank UniFi Console
+  - **Replace Device** - move a switch, AP, or gateway's config to new hardware, same model or not
+    - Port mapping by role (uplink, LAG, PoE, SFP), radio clamping by band, and a re-cabling sheet PDF
+  - **Adopt Pending Devices** whose MAC is in a snapshot
+  - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
+- Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
+- **Settings** - retention, change detection, commit-confirmed window, approvals
+
 ## Firmware Rollout
 
 - Upgrade a whole site in waves, timed to the quietest window in your own traffic history
@@ -271,6 +299,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Update the UniFi Network application and UniFi OS as part of the rollout
 - Covers UniFi cellular modems; downgrades only when you pick an older build or roll back, and never for UniFi OS or UniFi Network
 - Console backup before the rollout; turns off UniFi auto-update schedules that would collide
+- Pins a [Change Control](#change-control) snapshot first; pauses for review when the Network app update leaves a security regression or a change no admin made
+- After a firmware roll back, **Compare Config Snapshot** against the snapshot taken before the rollout
 - **Start now**, **Schedule once**, or **Autopilot** on every new firmware, with a heads-up
 - Pace (Conservative, Balanced, Fast), approval at every wave, minimum release age
 - Live map and step table; pause, resume, abort, postpone, deploy now, re-plan
@@ -370,6 +400,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
   - Networks that should be isolated or have no internet; management devices without fixed IPs
+  - **Fix with zones** on isolation findings opens Set Up Zones in [Change Control](#change-control)
 - **Port Security** - MAC restriction, port lock, unused ports, port isolation, excessive tagged VLANs, subnet mismatches
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
@@ -546,6 +577,7 @@ Requires Gateway SSH.
 - **History** - every alert by source and severity
 - **Rules** - event pattern, threshold, severity, cooldown, escalation, digest-only, target devices
 - **Incidents** - related alerts grouped automatically
+  - Config changes in the 2 hours before each incident, with **Roll Back** ([Change Control](#change-control))
 - Alerts cover:
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
   - A device reaching, or trying to reach, an address on a public block list
