@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text.Json.Nodes;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
@@ -67,7 +66,7 @@ public class ChangeControlRenderHarness
             new TemplateView { Id = 2, Name = "Store DNS", SourceSiteSlug = "main", Collections = ["static_dns"], UpdatedAt = DateTime.UtcNow.AddDays(-12) },
         ]);
         services.AddSingleton(templates.Object);
-        var site =new SiteContextService(new HttpContextAccessor(), new SiteDatabasePaths(Path.Combine(Path.GetTempPath(), "cc.db")));
+        var site = new SiteContextService(new HttpContextAccessor(), new SiteDatabasePaths(Path.Combine(Path.GetTempPath(), "cc.db")));
         site.OverrideSite("main");
         services.AddSingleton(site);
         services.AddSingleton<NavigationManager>(new FakeNav(path ?? "change-control"));
@@ -87,8 +86,7 @@ public class ChangeControlRenderHarness
             RenderFragment child = b =>
             {
                 b.OpenComponent<T>(0);
-                var seq = 1;
-                foreach (var (k, v) in parameters) b.AddAttribute(seq++, k, v);
+                b.AddMultipleAttributes(1, parameters!);
                 b.CloseComponent();
             };
             var root = await renderer.RenderComponentAsync<CascadingAuthenticationState>(
@@ -234,7 +232,13 @@ public class ChangeControlRenderHarness
 
     private static JsonObject Port(int idx, string media, bool poe = false, double watts = 0, bool up = false, bool uplink = false) => new()
     {
-        ["port_idx"] = idx, ["media"] = media, ["port_poe"] = poe, ["poe_enable"] = watts > 0, ["poe_power"] = watts.ToString("0.00"), ["up"] = up, ["is_uplink"] = uplink,
+        ["port_idx"] = idx,
+        ["media"] = media,
+        ["port_poe"] = poe,
+        ["poe_enable"] = watts > 0,
+        ["poe_power"] = watts.ToString("0.00"),
+        ["up"] = up,
+        ["is_uplink"] = uplink,
     };
 
     private static JsonObject Dev(string mac, string name, string model, string type, string version, JsonObject meta, JsonObject? extra = null)
@@ -267,7 +271,11 @@ public class ChangeControlRenderHarness
         foreach (var i in Enumerable.Range(13, 9)) overrides.Add(O(i, "n-off"));
         var meta = new JsonObject
         {
-            ["shortname"] = "USW-24-PoE", ["type"] = "usw", ["total_used_power"] = 47, ["total_max_power"] = 250, ["state"] = 0,
+            ["shortname"] = "USW-24-PoE",
+            ["type"] = "usw",
+            ["total_used_power"] = 47,
+            ["total_max_power"] = 250,
+            ["state"] = 0,
             ["switch_caps"] = new JsonObject { ["etherlight_caps"] = 0, ["max_aggregate_sessions"] = 8 },
             ["ports"] = new JsonArray(ports.Select(p => (JsonNode?)p).ToArray()),
             ["lldp"] = new JsonArray(
@@ -279,7 +287,10 @@ public class ChangeControlRenderHarness
         };
         return Dev(SwOld, "Garage Switch", "US24P250", "usw", "7.1.26", meta, new JsonObject
         {
-            ["port_overrides"] = overrides, ["stp_priority"] = "12288", ["jumboframe_enabled"] = true, ["mgmt_network_id"] = "n-mgmt",
+            ["port_overrides"] = overrides,
+            ["stp_priority"] = "12288",
+            ["jumboframe_enabled"] = true,
+            ["mgmt_network_id"] = "n-mgmt",
             ["config_network"] = new JsonObject { ["type"] = "static", ["ip"] = "192.0.2.12" },
             ["link_aggregation_groups"] = new JsonArray(new JsonObject { ["lag_idx"] = 1, ["aggregate_members"] = new JsonArray(23, 24), ["type"] = "lag" }),
         });
@@ -291,7 +302,10 @@ public class ChangeControlRenderHarness
             .Concat([Port(17, "SFP+", up: true, uplink: true), Port(18, "SFP+")]);
         var meta = new JsonObject
         {
-            ["shortname"] = "USW-Pro-Max-16-PoE", ["type"] = "usw", ["total_max_power"] = 180, ["state"] = 1,
+            ["shortname"] = "USW-Pro-Max-16-PoE",
+            ["type"] = "usw",
+            ["total_max_power"] = 180,
+            ["state"] = 1,
             ["switch_caps"] = new JsonObject { ["etherlight_caps"] = 655, ["max_aggregate_sessions"] = 8 },
             ["ports"] = new JsonArray(ports.Select(p => (JsonNode?)p).ToArray()),
         };
@@ -300,11 +314,16 @@ public class ChangeControlRenderHarness
 
     private static JsonObject OldAp() => Dev(ApOld, "Back Yard AP", "UAPA6A9", "uap", "7.0.66", new JsonObject
     {
-        ["shortname"] = "U7-Outdoor", ["type"] = "uap", ["state"] = 1, ["supported_afc_regions"] = new JsonArray("US"),
+        ["shortname"] = "U7-Outdoor",
+        ["type"] = "uap",
+        ["state"] = 1,
+        ["supported_afc_regions"] = new JsonArray("US"),
         ["radios"] = new JsonArray(new JsonObject { ["radio"] = "ng" }, new JsonObject { ["radio"] = "na" }, new JsonObject { ["radio"] = "6e" }),
     }, new JsonObject
     {
-        ["outdoor_mode_override"] = "on", ["led_override"] = "on", ["mesh_uplink_1"] = "",
+        ["outdoor_mode_override"] = "on",
+        ["led_override"] = "on",
+        ["mesh_uplink_1"] = "",
         ["radio_table"] = new JsonArray(
             new JsonObject { ["radio"] = "ng", ["name"] = "wifi0", ["channel"] = 6, ["ht"] = 20, ["tx_power_mode"] = "medium" },
             new JsonObject { ["radio"] = "na", ["name"] = "wifi1", ["channel"] = 100, ["ht"] = 160, ["tx_power_mode"] = "custom", ["tx_power"] = 26 },
@@ -313,7 +332,10 @@ public class ChangeControlRenderHarness
 
     private static JsonObject NewAp() => Dev(ApNew, "U7 Pro (bench)", "UAPA6A4", "uap", "7.0.66", new JsonObject
     {
-        ["shortname"] = "U7-Pro", ["type"] = "uap", ["state"] = 1, ["supported_afc_regions"] = new JsonArray(),
+        ["shortname"] = "U7-Pro",
+        ["type"] = "uap",
+        ["state"] = 1,
+        ["supported_afc_regions"] = new JsonArray(),
         ["radios"] = new JsonArray(
             new JsonObject { ["radio"] = "ng", ["name"] = "wifi0", ["min_txpower"] = 6, ["max_txpower"] = 22 },
             new JsonObject { ["radio"] = "na", ["name"] = "wifi1", ["has_dfs"] = true, ["has_ht160"] = true, ["min_txpower"] = 6, ["max_txpower"] = 23 },
@@ -410,7 +432,11 @@ public class ChangeControlRenderHarness
         };
         m.Setup(s => s.GetSnapshotsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new SnapshotListView
         {
-            Rows = rows, Count = 412, StoredBytes = 38L << 20, LiveIssueCount = 2, Settings = new ChangeControlSettings(),
+            Rows = rows,
+            Count = 412,
+            StoredBytes = 38L << 20,
+            LiveIssueCount = 2,
+            Settings = new ChangeControlSettings(),
         });
         m.Setup(s => s.GetDriftAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new DriftView());
         m.Setup(s => s.GetEditBaseAsync(It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(
@@ -477,8 +503,16 @@ public class ChangeControlRenderHarness
         return new PlanView
         {
             Plan = new ConfigPlan { Id = 7, Name = "Roll Back HQ to Oct 15, 9:00 AM", Status = ConfigPlanStatus.Draft, SourceDescription = "Snapshot, Oct 15, 9:00 AM", ObjectCount = 9, DeviceCount = 1 },
-            Doc = doc, Acks = acks, SiteName = "HQ", SiteDetail = "direct", ApprovalsOn = true, ApprovalRequired = true, CallerIsSiteAdmin = false,
-            Remaining = PlanReadiness.Remaining(doc, acks, false), ConfirmationText = "Garage Switch", WatchMinutes = 5,
+            Doc = doc,
+            Acks = acks,
+            SiteName = "HQ",
+            SiteDetail = "direct",
+            ApprovalsOn = true,
+            ApprovalRequired = true,
+            CallerIsSiteAdmin = false,
+            Remaining = PlanReadiness.Remaining(doc, acks, false),
+            ConfirmationText = "Garage Switch",
+            WatchMinutes = 5,
             QuietestHourSuggestion = Now.AddDays(2),
         };
     }
