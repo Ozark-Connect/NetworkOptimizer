@@ -1,0 +1,262 @@
+@using NetworkOptimizer.Threats.Blocking
+@inject IThreatBlockingAdmin Blocking
+@inject AuthenticationStateProvider AuthState
+
+@* Add or edit one exception to the public block lists, filled in from wherever it was opened. *@
+
+<div class="site-config-panel blocking-exception-form">
+    @if (_saved != null)
+    {
+        <div class="alert alert-success">@(_editing ? "Exception saved" : "Exception added"): @BlockingExceptions.Describe(_saved, DeviceName) The gateway applies it within a minute.</div>
+        <div class="action-buttons">
+            <button class="btn btn-contrast" @onclick="Cancel">Close</button>
+        </div>
+    }
+    else
+    {
+        @if (Intro != null)
+        {
+            <p class="section-description">@Intro</p>
+        }
+        @if (CommandServerList is { } list && _direction == ExceptionDirection.Outbound)
+        {
+            <div class="alert alert-warning">@list.Name lists command servers and criminal networks. A device reaching one is often infected: check the device before you allow it.</div>
+        }
+        @if (_ownBlock != null && _direction == ExceptionDirection.Inbound)
+        {
+            <div class="alert alert-warning">
+                <div class="banner-content">
+                    <div class="banner-text">
+                        <span>Automatic Blocking blocked @_ownBlock.SourceIp itself (@_ownBlock.Reason). Exceptions cover the public lists only, so it stays blocked until you release it.</span>
+                    </div>
+                    <div class="banner-actions">
+                        <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="Release">Release</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="form-group">
+            <label class="form-label">Direction</label>
+            <div class="radio-group">
+                <label class="radio-label">
+                    <input type="radio" name="@($"exc-dir-{_uid}")" checked="@(_direction == ExceptionDirection.Outbound)" @onchange="() => _direction = ExceptionDirection.Outbound" />
+                    <span>Outbound: a device on your network reaches a listed address</span>
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="@($"exc-dir-{_uid}")" checked="@(_direction == ExceptionDirection.Inbound)" @onchange="() => _direction = ExceptionDirection.Inbound" />
+                    <span>Inbound: a listed address reaches your network</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label" for="@($"exc-dev-{_uid}")">Device</label>
+                <input id="@($"exc-dev-{_uid}")" class="form-control" placeholder="Any device" @bind="_device" @bind:event="oninput" />
+                <small class="form-help">@(DeviceHint is { } hint ? $"{hint}. " : "")An IP or CIDR on your networks. Leave empty for every device@(_direction == ExceptionDirection.Inbound ? " and the gateway" : "").</small>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="@($"exc-addr-{_uid}")">Listed address</label>
+                <input id="@($"exc-addr-{_uid}")" class="form-control" placeholder="Any listed address" @bind="_address" @bind:event="oninput" />
+                <small class="form-help">@(List != null ? $"On {List}. " : "")An IP or CIDR. Leave empty for every address on the public block lists.</small>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label" for="@($"exc-proto-{_uid}")">Protocol</label>
+                <select id="@($"exc-proto-{_uid}")" class="form-control" @bind="_protocol">
+                    <option value="@ExceptionProtocol.Tcp">TCP</option>
+                    <option value="@ExceptionProtocol.Udp">UDP</option>
+                    <option value="@ExceptionProtocol.TcpUdp">TCP and UDP</option>
+                    <option value="@ExceptionProtocol.Any">Any</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="@($"exc-port-{_uid}")">Port</label>
+                <input id="@($"exc-port-{_uid}")" class="form-control" placeholder="Any port" disabled="@(_protocol == ExceptionProtocol.Any)" @bind="_port" @bind:event="oninput" />
+                <small class="form-help">@(_direction == ExceptionDirection.Outbound ? "The listed address's port" : "The port on your network, after a port forward's translation"). A range looks like 3478-3481.</small>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label" for="@($"exc-exp-{_uid}")">Expires</label>
+                <select id="@($"exc-exp-{_uid}")" class="form-control" @bind="_expiresDays">
+                    <option value="0">Never</option>
+                    <option value="1">In 1 day</option>
+                    <option value="7">In 7 days</option>
+                    <option value="30">In 30 days</option>
+                    @if (_keepExpiry != null)
+                    {
+                        <option value="-1">@($"On {_keepExpiry.Value.ToLocalTime():MMM d HH:mm}")</option>
+                    }
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="@($"exc-note-{_uid}")">Note (optional)</label>
+                <input id="@($"exc-note-{_uid}")" class="form-control" maxlength="200" placeholder="Why this is allowed" @bind="_note" />
+            </div>
+        </div>
+
+        @if (Summary is { } summary)
+        {
+            <p class="section-description"><strong>What gets through:</strong> @summary Everything else stays blocked.</p>
+        }
+        @if (_error != null)
+        {
+            <p class="form-error">@_error</p>
+        }
+        <div class="action-buttons">
+            <button class="btn btn-primary" disabled="@_busy" @onclick="Save">@(_editing ? "Save Exception" : "Add Exception")</button>
+            <button class="btn btn-contrast" @onclick="Cancel">Cancel</button>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The exception to edit (its id set) or the values to start from (no id needed).</summary>
+    [Parameter] public BlockingException? Initial { get; set; }
+
+    /// <summary>True when <see cref="Initial"/> is an exception already saved.</summary>
+    [Parameter] public bool Edit { get; set; }
+
+    /// <summary>The public list the address is on, when known.</summary>
+    [Parameter] public string? List { get; set; }
+
+    /// <summary>The line above the form: where it was filled in from.</summary>
+    [Parameter] public string? Intro { get; set; }
+
+    /// <summary>A device's name from its IP, for the hints and the summary.</summary>
+    [Parameter] public Func<string, string?>? DeviceName { get; set; }
+
+    [Parameter] public EventCallback<BlockingException> OnSaved { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private readonly string _uid = Guid.NewGuid().ToString("N")[..6];
+    private ExceptionDirection _direction;
+    private string _device = "";
+    private string _address = "";
+    private ExceptionProtocol _protocol;
+    private string _port = "";
+    private int _expiresDays;
+    private DateTime? _keepExpiry;
+    private string _note = "";
+    private bool _editing;
+    private bool _busy;
+    private string? _error;
+    private BlockingException? _saved;
+    private NetworkOptimizer.Threats.Models.ThreatBlock? _ownBlock;
+    private BlockingException? _loadedFrom;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ReferenceEquals(_loadedFrom, Initial) && _loadedFrom != null) return;
+        _loadedFrom = Initial;
+        var e = Initial ?? new BlockingException();
+        _editing = Edit;
+        _direction = e.Direction;
+        _device = e.Device ?? "";
+        _address = e.Address ?? "";
+        _protocol = e.Protocol;
+        _port = e.PortText;
+        _note = e.Note;
+        _keepExpiry = Edit ? e.ExpiresAt : null;
+        _expiresDays = _keepExpiry != null ? -1 : 0;
+        _saved = null;
+        _error = null;
+        _ownBlock = null;
+        if (!string.IsNullOrEmpty(e.Address) && !e.Address.Contains('/'))
+        {
+            try
+            {
+                _ownBlock = await Blocking.FindActiveBlockAsync(e.Address) is { Enforced: true } block ? block : null;
+            }
+            catch (Exception)
+            {
+                // Only a hint: the form works without it.
+                _ownBlock = null;
+            }
+        }
+    }
+
+    private PublicBlockList? CommandServerList => List == null ? null : PublicBlockLists.All.FirstOrDefault(l => l.Outbound && l.Name == List);
+
+    private string? DeviceHint => DeviceName != null && !string.IsNullOrWhiteSpace(_device) ? DeviceName(_device.Trim()) : null;
+
+    // The exception as typed, or null while a field cannot be read.
+    private BlockingException? Current(out string? error)
+    {
+        error = null;
+        try
+        {
+            var port = _protocol == ExceptionProtocol.Any ? null : BlockingExceptions.ParsePort(_port);
+            var now = DateTime.UtcNow;
+            return BlockingExceptions.Validate(new BlockingException
+            {
+                Id = _editing && Initial != null ? Initial.Id : Guid.NewGuid().ToString("N")[..12],
+                Direction = _direction,
+                Device = _device,
+                Address = _address,
+                Protocol = _protocol,
+                PortFrom = port?.From,
+                PortTo = port?.To,
+                Note = _note,
+                ExpiresAt = _expiresDays switch { -1 => _keepExpiry, 0 => null, var days => now.AddDays(days) },
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            error = ex.Message;
+            return null;
+        }
+    }
+
+    private string? Summary => Current(out _) is { } e ? BlockingExceptions.Describe(e, DeviceName) : null;
+
+    private async Task Save()
+    {
+        _error = null;
+        if (Current(out var error) is not { } exception)
+        {
+            _error = error;
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name ?? "a user";
+            _saved = await Blocking.SaveExceptionAsync(exception, user);
+            await OnSaved.InvokeAsync(_saved);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task Cancel() => OnCancel.InvokeAsync();
+
+    private async Task Release()
+    {
+        if (_ownBlock == null) return;
+        _busy = true;
+        try
+        {
+            var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name ?? "a user";
+            await Blocking.ReleaseAsync(_ownBlock.Id, user);
+            _ownBlock = null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

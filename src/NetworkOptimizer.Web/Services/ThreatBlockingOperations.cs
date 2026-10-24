@@ -107,6 +107,25 @@ public sealed record ProtectionStatus(
     public bool Complete => Mode == BlockingMode.Enforce && BlockingTargetReady && SiteAddresses > 0;
 }
 
+/// <summary>
+/// A site's blocking exceptions (active ones, newest first) and what enforces them, when the gateway is
+/// a target: its On-Site Agent when <see cref="AgentPresent"/> (an older agent, <see cref="AgentEnforces"/>
+/// false, ignores them), and UniFi Network's policies when <see cref="ConsoleSetUp"/>.
+/// </summary>
+public sealed record ExceptionsOverview(
+    IReadOnlyList<BlockingException> Exceptions,
+    BlockingMode Mode,
+    bool GatewayTarget,
+    bool ConsoleSetUp,
+    bool AgentPresent,
+    bool AgentEnforces,
+    BlockTargetStatus? ConsoleStatus)
+{
+    /// <summary>The first exception that lets this connection through, or null.</summary>
+    public BlockingException? Covering(ExceptionDirection direction, string deviceIp, string addressIp, string? protocol, int? port) =>
+        Exceptions.FirstOrDefault(e => e.Matches(direction, deviceIp, addressIp, protocol, port));
+}
+
 /// <summary>Cloudflare target state for the Settings card.</summary>
 public sealed record CloudflareBlockingStatus(bool HasToken, string? AccountId, CloudflareList? List, string? Error);
 
@@ -384,6 +403,64 @@ public sealed class ThreatBlockingOperations
             .FirstOrDefault();
     }
 
+    /// <summary>A site's exceptions and where they are enforced, for the Exceptions section and the Allow buttons.</summary>
+    public async Task<ExceptionsOverview> GetExceptionsAsync(string slug, CancellationToken ct)
+    {
+        var site = Site(slug);
+        var settings = await GetSettingsAsync(slug, ct);
+        var list = await BlockingExceptions.LoadAsync(_settings, site, ct);
+        var now = DateTime.UtcNow;
+        return new ExceptionsOverview(
+            list.Where(e => e.IsActive(now)).OrderByDescending(e => e.CreatedAt).ToList(),
+            settings.Mode,
+            settings.TargetGateway,
+            await IsGatewaySetUpAsync(slug, ct),
+            _blocking.GatewayAgentPresent(site),
+            _blocking.GatewayAgentEnforcesExceptions(site),
+            _blocking.ExceptionsConsoleStatus(site));
+    }
+
+    /// <summary>
+    /// Adds an exception, or replaces the one with the same id. Validated first; the next cycle, which
+    /// this triggers, applies it to the gateway agent and writes the console's policies.
+    /// </summary>
+    public async Task<BlockingException> SaveExceptionAsync(string slug, BlockingException exception, string savedBy, CancellationToken ct)
+    {
+        var site = Site(slug);
+        var valid = BlockingExceptions.Validate(exception);
+        var list = await BlockingExceptions.LoadAsync(_settings, site, ct);
+        var now = DateTime.UtcNow;
+        var existing = list.FirstOrDefault(e => e.Id == valid.Id);
+        valid = existing == null
+            ? valid with { CreatedBy = savedBy, CreatedAt = now }
+            : valid with { CreatedBy = existing.CreatedBy, CreatedAt = existing.CreatedAt };
+        list.RemoveAll(e => e.Id == valid.Id || !e.IsActive(now));
+        if (list.Count >= BlockingExceptions.MaxPerSite)
+            throw new ArgumentException($"A site holds at most {BlockingExceptions.MaxPerSite} exceptions. Remove one first.");
+        list.Add(valid);
+        await BlockingExceptions.SaveAsync(_settings, site, list, ct);
+        _blocking.TriggerConsoleSyncFor(site);
+        return valid;
+    }
+
+    /// <summary>The site's devices whose connections to a public list address the gateway dropped, most recent first.</summary>
+    public async Task<List<PublicListDropSummary>> GetPublicListDropsAsync(string slug, DateTime from, DateTime to, CancellationToken ct)
+    {
+        using var scope = ScopeFor(Site(slug));
+        return await scope.ServiceProvider.GetRequiredService<IThreatRepository>().GetPublicListDropsAsync(from, to, 200, ct);
+    }
+
+    /// <summary>Removes an exception; false when it was already gone.</summary>
+    public async Task<bool> RemoveExceptionAsync(string slug, string id, CancellationToken ct)
+    {
+        var site = Site(slug);
+        var list = await BlockingExceptions.LoadAsync(_settings, site, ct);
+        if (list.RemoveAll(e => e.Id == id) == 0) return false;
+        await BlockingExceptions.SaveAsync(_settings, site, list, ct);
+        _blocking.TriggerConsoleSyncFor(site);
+        return true;
+    }
+
     public async Task<bool> ReleaseAsync(string slug, int blockId, string releasedBy, CancellationToken ct)
     {
         using var scope = ScopeFor(Site(slug));
@@ -398,11 +475,15 @@ public sealed class ThreatBlockingOperations
         var result = await _gateway.SetUpAsync(Site(slug), ct);
         if ((await GetSettingsAsync(slug, ct)).FeedsOutbound)
             await _gateway.SetFeedsOutboundAsync(Site(slug), true, ct);
-        _blocking.Trigger();
+        _blocking.ResyncExceptions(Site(slug));
         return result;
     }
 
-    public Task RemoveGatewayAsync(string slug, CancellationToken ct) => _gateway.RemoveAsync(Site(slug), ct);
+    public async Task RemoveGatewayAsync(string slug, CancellationToken ct)
+    {
+        await _gateway.RemoveAsync(Site(slug), ct);
+        _blocking.ResyncExceptions(Site(slug));
+    }
 
     /// <summary>True when Set Up has run for the site (whether or not the objects are still intact).</summary>
     public async Task<bool> IsGatewaySetUpAsync(string slug, CancellationToken ct) =>

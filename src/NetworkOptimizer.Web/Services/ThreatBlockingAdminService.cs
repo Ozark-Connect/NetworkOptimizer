@@ -46,6 +46,23 @@ public interface IThreatBlockingAdmin
     [AuditAction(AuditActions.ThreatSourceBlocked, Category = AuditCategories.Settings, TargetType = "threat_block")]
     Task<ThreatBlock> BlockAsync(string ip, int minutes, string blockedBy, CancellationToken cancellationToken = default);
 
+    /// <summary>The site's exceptions to the public lists. Viewer: Threat Intelligence marks the drops they cover.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<ExceptionsOverview> GetExceptionsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Outbound connections the gateway dropped for the public lists. Viewer: the Blocking tab lists them.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<PublicListDropSummary>> GetPublicListDropsAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+
+    /// <summary>Adds an exception, or replaces the one with its id. Throws <see cref="ArgumentException"/> when it is invalid.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "blocking_exception")]
+    Task<BlockingException> SaveExceptionAsync(BlockingException exception, string savedBy, CancellationToken cancellationToken = default);
+
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "blocking_exception")]
+    Task<bool> RemoveExceptionAsync(string id, CancellationToken cancellationToken = default);
+
     /// <summary>The active block on an address, or null. Viewer: the IP details show it.</summary>
     [RequireRole(Roles.Viewer)]
     Task<ThreatBlock?> FindActiveBlockAsync(string ip, CancellationToken cancellationToken = default);
@@ -131,6 +148,12 @@ public sealed class ThreatBlockingAdminService(ThreatBlockingOperations ops, Sit
     public Task<bool> ReleaseAsync(int blockId, string releasedBy, CancellationToken ct = default) => ops.ReleaseAsync(Slug, blockId, releasedBy, ct);
     public Task<ThreatBlock> BlockAsync(string ip, int minutes, string blockedBy, CancellationToken ct = default) => ops.BlockAsync(Slug, ip, minutes, blockedBy, ct);
     public Task<ThreatBlock?> FindActiveBlockAsync(string ip, CancellationToken ct = default) => ops.FindActiveBlockAsync(Slug, ip, ct);
+    public Task<ExceptionsOverview> GetExceptionsAsync(CancellationToken ct = default) => ops.GetExceptionsAsync(Slug, ct);
+    public Task<List<PublicListDropSummary>> GetPublicListDropsAsync(DateTime from, DateTime to, CancellationToken ct = default) =>
+        ops.GetPublicListDropsAsync(Slug, from, to, ct);
+    public Task<BlockingException> SaveExceptionAsync(BlockingException exception, string savedBy, CancellationToken ct = default) =>
+        ops.SaveExceptionAsync(Slug, exception, savedBy, ct);
+    public Task<bool> RemoveExceptionAsync(string id, CancellationToken ct = default) => ops.RemoveExceptionAsync(Slug, id, ct);
     public Task<GatewaySetUpResult> SetUpGatewayAsync(CancellationToken ct = default) => ops.SetUpGatewayAsync(Slug, ct);
     public Task RemoveGatewayAsync(CancellationToken ct = default) => ops.RemoveGatewayAsync(Slug, ct);
     public Task<string?> CheckGatewayAsync(CancellationToken ct = default) => ops.CheckGatewayAsync(Slug, ct);

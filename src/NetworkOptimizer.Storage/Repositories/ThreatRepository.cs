@@ -861,6 +861,23 @@ public class ThreatRepository : IThreatRepository
             .ToList();
     }
 
+    public async Task<List<PublicListDropSummary>> GetPublicListDropsAsync(DateTime from, DateTime to, int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        const string listContact = NetworkOptimizer.Threats.Blocking.PublicListContact.Category;
+        var rows = await BaseQuery(from, to)
+            .Where(e => e.Category == listContact && e.Action == ThreatAction.Blocked)
+            .GroupBy(e => new { e.SourceIp, e.DestIp, e.Protocol, e.DestPort, e.SignatureName })
+            .Select(g => new { g.Key.SourceIp, g.Key.DestIp, g.Key.Protocol, g.Key.DestPort, g.Key.SignatureName, Count = g.Count(), Last = g.Max(e => e.Timestamp) })
+            .OrderByDescending(r => r.Last)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+        return rows
+            .Select(r => new PublicListDropSummary(r.SourceIp, r.DestIp, r.Protocol, r.DestPort,
+                NetworkOptimizer.Threats.Blocking.PublicListContact.ListName(r.SignatureName), r.Count, r.Last))
+            .ToList();
+    }
+
     #region Attack Sequences
 
     public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
