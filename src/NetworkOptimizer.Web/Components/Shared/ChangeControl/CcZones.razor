@@ -1,0 +1,338 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject IChangeControlService Site
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject ILogger<CcZones> Logger
+
+@if (_board == null)
+{
+    <div class="card">@if (_error != null) { <div class="card-body danger-text">@_error</div> } else { <div class="loading-container"><div class="spinner"></div></div> }</div>
+}
+else if (_board.LegacyFirewall)
+{
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">Set Up Zones <span class="card-title-suffix">@SiteName</span></h3></div>
+        <div class="card-body">
+            <p>This site still runs UniFi's legacy firewall rules, so it has no zones yet. Move it to the zone-based firewall in UniFi Network first; Set Up Zones then groups its networks.</p>
+            <p class="muted-text">Change Control keeps a snapshot of the legacy rules from before the move. After it, Translate Legacy Rules here checks UniFi's translation against them.</p>
+        </div>
+    </div>
+}
+else
+{
+    var b = _board;
+    <div class="cc-phone-only cc-zone-mode-phone">
+        @ModeToggle()
+    </div>
+    @if (_moving is { } moving && b.Networks.FirstOrDefault(n => n.Id == moving) is { } mv)
+    {
+        <div class="alert alert-info cc-moving">
+            <span>Moving <b>@mv.Name (VLAN @mv.Vlan)</b>: choose a zone</span>
+            <button class="cc-link-btn" @onclick="() => _moving = null">Cancel</button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Set Up Zones <span class="card-title-suffix">@SiteName, @CcFormat.Plural(b.Networks.Count, "network", "networks")</span></h3>
+            <span class="hide-mobile">@ModeToggle()</span>
+        </div>
+        <p class="cc-card-intro hide-mobile">Drag a network to another zone, or select it and then select the zone. Purposes come from the Security Audit and your overrides.</p>
+        <div class="cc-zones">
+            @foreach (var z in b.Zones)
+            {
+                var isCurrent = _moving != null && z.NetworkIds.Contains(_moving);
+                <div class="cc-zone @(_dragOver == z.Key ? "drop-target" : "") @(isCurrent ? "current" : "") @(z.NetworkIds.Count == 0 && z.Key != ZoneSetup.UnassignedKey && !_showAll ? "cc-zone-empty" : "")"
+                     @ondragover:preventDefault @ondragover="() => _dragOver = z.Key" @ondragleave="() => _dragOver = null" @ondrop="() => DropAsync(z.Key)">
+                    <div class="cc-zone-head">
+                        <div>
+                            <b>@z.Name</b>
+                            <div class="cc-zone-desc">@z.Description</div>
+                        </div>
+                        @if (_moving != null && !isCurrent)
+                        {
+                            <button class="btn btn-primary btn-sm" @onclick="() => MoveAsync(_moving, z.Key)">Move here</button>
+                        }
+                        else if (isCurrent)
+                        {
+                            <span class="status-badge badge-muted">Current</span>
+                        }
+                        else if (z.Key == ZoneSetup.UnassignedKey)
+                        {
+                            @if (z.NetworkIds.Count > 0) { <span class="status-badge status-warning">@z.NetworkIds.Count</span> }
+                        }
+                        else
+                        {
+                            <span class="status-badge @(z.IsNew ? "status-info" : "badge-muted")">@(z.IsNew ? "New" : z.BuiltIn ? "Built-in" : "Existing")</span>
+                        }
+                    </div>
+                    @foreach (var id in z.NetworkIds)
+                    {
+                        var n = b.Networks.FirstOrDefault(x => x.Id == id);
+                        if (n == null) continue;
+                        <button class="cc-net @(_moving == id ? "selected" : "")" draggable="true"
+                                @ondragstart="() => _dragging = id" @onclick="() => _moving = _moving == id ? null : id">
+                            <span><b>@n.Name</b><span class="cc-vlan">VLAN @n.Vlan</span></span>
+                            <span class="status-badge badge-muted">@n.Purpose</span>
+                        </button>
+                    }
+                    @if (_dragging != null && _dragOver == z.Key && !z.NetworkIds.Contains(_dragging))
+                    {
+                        <div class="cc-drop-here">Drop here</div>
+                    }
+                </div>
+            }
+            <div class="cc-zone cc-zone-add hide-mobile">
+                @if (_adding)
+                {
+                    <div class="input-with-button">
+                        <input class="form-control" placeholder="Zone name" @bind="_newZone" @bind:event="oninput" />
+                        <button class="btn btn-primary" disabled="@string.IsNullOrWhiteSpace(_newZone)" @onclick="AddZoneAsync">Add</button>
+                    </div>
+                }
+                else
+                {
+                    <button class="cc-link-btn" @onclick="() => _adding = true">+ Add Zone</button>
+                }
+            </div>
+        </div>
+        @if (!_showAll && HiddenOnPhone(b) is { Length: > 0 } hidden)
+        {
+            <div class="cc-phone-only"><button class="cc-link-btn cc-more" @onclick="() => _showAll = true">+ @hidden</button></div>
+        }
+    </div>
+
+    <div class="cc-two-col cc-zone-bottom @(_showAll ? "" : "hide-mobile")">
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Exceptions <span class="card-title-suffix">proposed as named policies</span></h3></div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead><tr><th></th><th>Policy</th><th>From, to</th><th class="hide-mobile">Why</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in b.Exceptions)
+                        {
+                            <tr class="@(e.Applicable ? "" : "muted-text")">
+                                <td><label class="checkbox-label"><input type="checkbox" checked="@e.Enabled" disabled="@(!e.Applicable)" @onchange="() => ToggleExceptionAsync(e)" /><span></span></label></td>
+                                <td>@e.Name</td>
+                                <td>@e.FromTo</td>
+                                <td class="hide-mobile">@e.Why</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card hide-mobile">@ChecksCard()</div>
+    </div>
+    <div class="card cc-phone-only">
+        <div class="cc-setting-row" style="border-top:0">
+            <span>Security Audit check</span>
+            @ChecksBadge()
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="cc-card-footer">
+            <span class="cc-remaining @(b.Unassigned > 0 ? "warning-text" : "muted-text")">
+                @(b.Unassigned > 0 ? $"{CcFormat.Plural(b.Unassigned, "network", "networks")} unassigned: they keep their current zone" : "Every network has a zone")
+            </span>
+            <button class="btn btn-contrast hide-mobile" disabled="@_busy" @onclick="ResetAsync">Reset to Suggestion</button>
+            <SiteOperatorOnly>
+                <button class="btn btn-primary" disabled="@_busy" @onclick="ReviewPlanAsync">Review Plan</button>
+            </SiteOperatorOnly>
+        </div>
+    </div>
+    @if (b.LegacySnapshotId is { } legacyId)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Legacy Firewall Rules <span class="card-title-suffix">snapshot @b.LegacySnapshotLabel</span></h3></div>
+            <p class="cc-card-intro">This site ran legacy firewall rules before it moved to zones. Translate them into zone policies and compare the result with the legacy rules in the Security Audit. Rules that cannot be translated exactly are listed in Review Plan.</p>
+            <div class="cc-card-footer">
+                <span class="cc-remaining"></span>
+                <SiteOperatorOnly>
+                    <button class="btn btn-primary" disabled="@_busy" @onclick="() => TranslateAsync(legacyId)">Translate Legacy Rules</button>
+                </SiteOperatorOnly>
+            </div>
+        </div>
+    }
+    @if (_error != null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+}
+
+@code {
+    [Parameter] public string SiteName { get; set; } = "";
+
+    private ZoneSetupView? _board;
+    private string _mode = ZoneSetup.TrustMode;
+    private readonly Dictionary<string, string> _moves = [];
+    private readonly List<string> _added = [];
+    private readonly Dictionary<string, bool> _exceptions = [];
+    private string? _moving;
+    private string? _dragging;
+    private string? _dragOver;
+    private bool _adding;
+    private string _newZone = "";
+    private bool _showAll;
+    private bool _checking;
+    private int _version;
+    private bool _busy;
+    private string? _error;
+
+    private ZoneChoices Choices() => new() { Mode = _mode, Moves = new(_moves), AddedZones = [.. _added], Exceptions = new(_exceptions) };
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        var version = ++_version;
+        try
+        {
+            _error = null;
+            _board = await Site.GetZoneSetupAsync(Choices(), runChecks: false);
+            _checking = true;
+            StateHasChanged();
+            // The audit run takes a few seconds; the board answers first.
+            var checkedBoard = await Site.GetZoneSetupAsync(Choices(), runChecks: true);
+            if (version == _version)
+            {
+                _board.Checks = checkedBoard.Checks;
+                _board.ChecksPass = checkedBoard.ChecksPass;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Zone setup failed to load");
+            _error = ex.Message;
+        }
+        finally
+        {
+            if (version == _version) _checking = false;
+        }
+    }
+
+    private RenderFragment ModeToggle() => __builder =>
+    {
+        <div class="time-range-selector cc-zone-mode">
+            <button class="time-btn @(_mode == ZoneSetup.TrustMode ? "active" : "")" @onclick="() => SetModeAsync(ZoneSetup.TrustMode)">By trust level</button>
+            <button class="time-btn @(_mode == ZoneSetup.PurposeMode ? "active" : "")" @onclick="() => SetModeAsync(ZoneSetup.PurposeMode)">By purpose</button>
+        </div>
+    };
+
+    private RenderFragment ChecksBadge() => __builder =>
+    {
+        if (_checking) { <span class="muted-text">Checking...</span> }
+        else if (_board?.ChecksPass is bool pass) { <span class="status-badge @(pass ? "status-connected" : "status-error")">@(pass ? "Passes" : "Fails")</span> }
+    };
+
+    private RenderFragment ChecksCard() => __builder =>
+    {
+        <div class="card-header"><h3 class="card-title">Security Audit Check</h3>@ChecksBadge()</div>
+        @if (_board!.Checks.Count == 0 && !_checking)
+        {
+            <div class="empty-state empty-state-small"><p>Nothing to check yet.</p></div>
+        }
+        @foreach (var c in _board.Checks)
+        {
+            <div class="cc-setting-row">
+                <span>@c.Label</span>
+                <span class="status-badge @(c.Level switch { "ok" => "status-connected", "error" => "status-error", _ => "status-warning" })">@c.Status</span>
+            </div>
+        }
+    };
+
+    private string HiddenOnPhone(ZoneSetupView b)
+    {
+        var empty = b.Zones.Where(z => z.Key != ZoneSetup.UnassignedKey && z.NetworkIds.Count == 0).Select(z => z.Name).ToList();
+        var exceptions = b.Exceptions.Count(e => e.Applicable);
+        var parts = new List<string>();
+        if (empty.Count > 0) parts.Add(string.Join(", ", empty));
+        if (exceptions > 0) parts.Add(CcFormat.Plural(exceptions, "exception", "exceptions"));
+        return string.Join(", and ", parts);
+    }
+
+    private async Task SetModeAsync(string mode)
+    {
+        if (_mode == mode) return;
+        _mode = mode;
+        _moves.Clear();
+        _added.Clear();
+        _moving = null;
+        await RefreshAsync();
+    }
+
+    private async Task DropAsync(string zoneKey)
+    {
+        _dragOver = null;
+        if (_dragging is { } id) await MoveAsync(id, zoneKey);
+        _dragging = null;
+    }
+
+    private async Task MoveAsync(string networkId, string zoneKey)
+    {
+        _moves[networkId] = zoneKey;
+        _moving = null;
+        await RefreshAsync();
+    }
+
+    private async Task ToggleExceptionAsync(ZoneException e)
+    {
+        _exceptions[e.Key] = !e.Enabled;
+        await RefreshAsync();
+    }
+
+    private async Task AddZoneAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newZone)) return;
+        _added.Add(_newZone.Trim());
+        _newZone = "";
+        _adding = false;
+        await RefreshAsync();
+    }
+
+    private async Task ResetAsync()
+    {
+        _moves.Clear();
+        _added.Clear();
+        _exceptions.Clear();
+        await RefreshAsync();
+    }
+
+    private async Task TranslateAsync(int snapshotId)
+    {
+        _busy = true;
+        try
+        {
+            var planId = await Site.BuildLegacyTranslationAsync(snapshotId);
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Translating legacy firewall rules failed");
+            _error = ex is InvalidOperationException ? ex.Message : "Could not build the translation plan. See the logs for details.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReviewPlanAsync()
+    {
+        _busy = true;
+        try
+        {
+            var planId = await Site.BuildZonePlanAsync(Choices());
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

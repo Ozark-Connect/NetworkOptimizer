@@ -1,0 +1,46 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject IChangeControlService Site
+@inject SiteContextService SiteCtx
+@inject CcNavigator Navigator
+@inject ILogger<CcIncidentChanges> Logger
+
+@* Config changes in the window before an incident, for Alerts & Schedule - Incidents. Wording stays neutral: "before", never "caused". *@
+@if (_changes is { Count: > 0 })
+{
+    <div class="cc-incident-changes">
+        <div class="detail-label">Changes in the 2 hours before</div>
+        @foreach (var c in _changes)
+        {
+            <div class="cc-incident-change">
+                <span class="muted-text">@CcFormat.Time(c.OccurredAt)</span>
+                <button class="cc-link-btn" @onclick="() => Navigator.ChangeAsync(SiteCtx.Slug, c.Id)">@c.Summary</button>
+                <span class="muted-text">@c.Who</span>
+                <SiteOperatorOnly>
+                    <button class="btn btn-sm btn-secondary" @onclick="() => Navigator.RollBackChangeAsync(SiteCtx.Slug, c.Id)">Roll Back</button>
+                </SiteOperatorOnly>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public DateTime StartedAtUtc { get; set; }
+
+    private List<ChangeRowView>? _changes;
+    private DateTime _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_changes != null && _loadedFor == StartedAtUtc) return;
+        _loadedFor = StartedAtUtc;
+        try
+        {
+            _changes = await Site.GetChangesBeforeAsync(StartedAtUtc);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load changes before incident");
+            _changes = [];
+        }
+    }
+}

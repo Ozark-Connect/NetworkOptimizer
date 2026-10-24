@@ -837,6 +837,15 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            Name = "Firmware Rollout: Paused for Config Review",
+            IsEnabled = true,
+            EventTypePattern = "rollout.config_held",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Device Stuck Offline",
             IsEnabled = true,
             EventTypePattern = "rollout.device_stuck_offline",
@@ -958,6 +967,126 @@ public static class DefaultAlertRules
             EventTypePattern = "rollout.visibility_restored",
             Source = "rollout",
             MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+
+        // --- Change Control. Severity on the event carries the class or the audit rule's severity. ---
+        new AlertRule
+        {
+            Name = "Change Control: Security Regression",
+            IsEnabled = true,
+            EventTypePattern = "change.security_regression",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Management Path Change, Devices Offline",
+            IsEnabled = true,
+            EventTypePattern = "change.management_path",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Critical,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: No Admin Recorded, With Impact",
+            IsEnabled = true,
+            EventTypePattern = "change.unattributed",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            // Fires only on a site with a Baseline, so it is on by default without noise elsewhere.
+            Name = "Change Control: Drift With a Security Regression",
+            IsEnabled = true,
+            EventTypePattern = "change.drift_regression",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 86400
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Every Change",
+            IsEnabled = false,
+            EventTypePattern = "change.any",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Daily Digest",
+            IsEnabled = false,
+            EventTypePattern = "change.digest",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Network App Upgrade Summary",
+            IsEnabled = true,
+            EventTypePattern = "change.network_app_upgrade",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Plan Awaiting Approval",
+            IsEnabled = true,
+            EventTypePattern = "change.plan_awaiting_approval",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Plan Approved",
+            IsEnabled = true,
+            EventTypePattern = "change.plan_approved",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Plan Applied",
+            IsEnabled = true,
+            EventTypePattern = "change.plan_applied",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Plan Reverted",
+            IsEnabled = true,
+            EventTypePattern = "change.plan_reverted",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Plan Failed",
+            IsEnabled = true,
+            EventTypePattern = "change.plan_failed",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Console Settings Changed",
+            IsEnabled = true,
+            EventTypePattern = "change.console_settings",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 0
         }
     ];

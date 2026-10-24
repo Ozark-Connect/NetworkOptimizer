@@ -1,0 +1,70 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using System.Globalization
+
+@* One timeline track: up to two series on a shared axis, incident and gap bands, change markers,
+   and the selected change's line. Positions are percentages of the range, so tracks line up. *@
+<div class="cc-track @(Lane ? "cc-lane-track" : "")">
+    @foreach (var band in Bands)
+    {
+        var left = CcFormat.Pct(band.Start, From, To);
+        var width = Math.Max(0.4, CcFormat.Pct(band.End, From, To) - left);
+        <div class="cc-band @band.Kind" style="left:@F(left)%;width:@F(width)%" data-tooltip="@band.Label"></div>
+    }
+    @if (Lane)
+    {
+        @foreach (var m in Markers)
+        {
+            <div class="cc-marker-line" style="left:@F(CcFormat.Pct(m.OccurredAt, From, To))%"></div>
+        }
+    }
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        @if (!Lane)
+        {
+            <line x1="0" y1="96" x2="100" y2="96" stroke="#374151" stroke-width="1" vector-effect="non-scaling-stroke" />
+        }
+        @foreach (var line in CcFormat.Polylines(SeriesA, From, To, _max))
+        {
+            <polyline points="@line" fill="none" style="stroke:@ColorA" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+        }
+        @foreach (var line in CcFormat.Polylines(SeriesB, From, To, _max))
+        {
+            <polyline points="@line" fill="none" style="stroke:@ColorB" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+        }
+    </svg>
+    @if (SelectedId is { } sel && Markers.FirstOrDefault(m => m.Id == sel) is { } selected)
+    {
+        <div class="cc-select-line" style="left:@F(CcFormat.Pct(selected.OccurredAt, From, To))%"></div>
+    }
+    @if (ShowMarkers)
+    {
+        @foreach (var m in Markers)
+        {
+            <button type="button" class="cc-marker @CcFormat.Marker(m) @(m.Id == SelectedId ? "selected" : "")"
+                    style="left:@F(CcFormat.Pct(m.OccurredAt, From, To))%"
+                    data-tooltip="@($"{CcFormat.Time(m.OccurredAt)}: {m.Summary} ({m.Who})")"
+                    aria-label="@m.Summary"
+                    @onclick="() => OnMarker.InvokeAsync(m)" @onclick:stopPropagation></button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public DateTime From { get; set; }
+    [Parameter] public DateTime To { get; set; }
+    [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesA { get; set; } = [];
+    [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesB { get; set; } = [];
+    [Parameter] public string ColorA { get; set; } = "#2ba89a";
+    [Parameter] public string ColorB { get; set; } = "#f59e0b";
+    [Parameter] public IReadOnlyList<ChangeRowView> Markers { get; set; } = [];
+    [Parameter] public IReadOnlyList<TimelineBand> Bands { get; set; } = [];
+    [Parameter] public int? SelectedId { get; set; }
+    [Parameter] public bool Lane { get; set; }
+    [Parameter] public bool ShowMarkers { get; set; } = true;
+    [Parameter] public EventCallback<ChangeRowView> OnMarker { get; set; }
+
+    private double _max = 1;
+
+    protected override void OnParametersSet() => _max = CcFormat.Max(SeriesA, SeriesB);
+
+    private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+}

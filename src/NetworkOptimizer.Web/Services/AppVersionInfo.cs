@@ -35,7 +35,7 @@ public static class AppVersionInfo
     /// Internet capture) reaches the sites that want it without nagging the rest.
     /// Never lower than <see cref="RequiredAgentVersion"/>.
     /// </summary>
-    public const string LatestAgentVersion = "2.10.0-preview8";
+    public const string LatestAgentVersion = "2.11.0-preview1";
 
     /// <summary>
     /// The newest netopt-waf release (NetworkOptimizer-Proxy, waf/VERSION). Bumped MANUALLY when a

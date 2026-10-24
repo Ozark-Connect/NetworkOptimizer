@@ -378,6 +378,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// The client proved the console stopped answering mid-session. Marks it down so pages render
     /// the banner instead of paying a timeout per call; the background reconnect clears it.
     /// </summary>
+    /// <summary>Hands every config write to Change Control's write journal for this site.</summary>
+    private void HandleWriteSent(NetworkOptimizer.UniFi.UniFiWriteRecord record) =>
+        _serviceProvider.GetService<ChangeControl.ChangeControlRegistry>()?.Journal(SiteSlug, record);
+
     private void HandleConsoleWentSilent(UniFiApiClient client)
     {
         // Only the live client may report this. A disposed one's request can fault seconds after a
@@ -659,6 +663,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public DateTime? LastConnectedAt => _lastConnectedAt;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
 
+    /// <summary>The console is reached through the site's On-Site Agent tunnel.</summary>
+    public bool IsViaAgent => _clientViaAgent;
+
     /// <summary>
     /// Gets the current connection config (for UI display)
     /// </summary>
@@ -815,6 +822,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
             _client.ConsoleWentSilent += HandleConsoleWentSilent;
+            _client.WriteSent += HandleWriteSent;
 
             // Attempt to authenticate. A Save is never held, but its 429 still holds the reconnects after it.
             var success = await _client.LoginAsync();
@@ -986,6 +994,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
             _client.ConsoleWentSilent += HandleConsoleWentSilent;
+            _client.WriteSent += HandleWriteSent;
             _client.CarryLoginLimit(_loginLimitedUntil, _loginLimitBackoff);
 
             var success = await _client.LoginAsync(cts.Token);

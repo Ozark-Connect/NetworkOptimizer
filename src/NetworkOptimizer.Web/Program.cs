@@ -1,3 +1,4 @@
+using NetworkOptimizer.Web.Services.ChangeControl;
 using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -823,6 +824,11 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirm
         sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>().GetFor(slug),
         ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient>(sp, slug));
 });
+// Change Control: config snapshots, change detection, plans. One engine per site.
+builder.Services.AddChangeControl();
+builder.Services.AddMutatingService<IChangeControlService, ChangeControlService>();
+builder.Services.AddMutatingService<IConfigTemplateService, ConfigTemplateService>();
+builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.

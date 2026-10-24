@@ -216,6 +216,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// the tree's root (a Cloud Gateway) and no vantage at all.
     /// </param>
     private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? _sharedCatalog;
+    private readonly IRolloutConfigGuard? _configGuard;
 
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
@@ -237,8 +238,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         IRolloutRebootWitness? rebootWitness = null,
         IRolloutObserverLocator? observerLocator = null,
         Auditing.IAuditLogger? audit = null,
-        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null)
+        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null,
+        IRolloutConfigGuard? configGuard = null)
     {
+        _configGuard = configGuard;
         _audit = audit;
         _sharedCatalog = sharedCatalog;
         _tunnelRouting = tunnelRouting;
@@ -688,6 +691,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // not be "escalated" to the catalog URL - which carries the NEW build and would undo this.
         _escalatedAt[step.Id] = Now;
         await PersistStepAsync(step, cancellationToken);
+        if (!document.FirmwareReverted)
+        {
+            document.FirmwareReverted = true;
+            await PersistDocumentAsync(plan, document, cancellationToken);
+        }
 
         await PublishAsync(
             RolloutAlerts.RollbackExecuted,
@@ -760,6 +768,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (await AbortIfNothingLeftAsync(plan, document, steps, cancellationToken))
             return false;
 
+        if (_configGuard != null)
+            document.ConfigSnapshotId = await _configGuard.PinBeforeRolloutAsync(_siteSlug, plan.Id, cancellationToken);
         if (document.IncludesUniFiNetworkUpdate || document.IncludesUniFiOsUpdate)
             await RunPreFlightBackupAsync(plan, document, cancellationToken);
         if (document.IncludesUniFiOsUpdate && await IsStandaloneConsoleAsync(cancellationToken))
@@ -1126,6 +1136,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             _suppression.RefreshConsoleCycle(_siteSlug, Now);
 
         var networkAppSettled = await AdvanceNetworkAppUpdateAsync(plan, document, consoleDark, cancellationToken);
+        if (networkAppSettled && await HoldForConfigReviewAsync(plan, document, cancellationToken))
+            return;
 
         if (networkAppSettled && plan.Status == FirmwareRolloutStatus.Running)
             await OpenNextWaveAsync(plan, document, settings, steps, byMac, cancellationToken);
@@ -1150,6 +1162,35 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             return;
 
         await CompleteAsync(plan, document, steps, cancellationToken);
+    }
+
+    /// <summary>
+    /// Change Control's post-upgrade check, once per rollout after the Network app step settles on a
+    /// new build: a security regression or a change no admin made pauses the rollout for review.
+    /// </summary>
+    private async Task<bool> HoldForConfigReviewAsync(FirmwareRolloutPlan plan, RolloutPlanDocument document, CancellationToken cancellationToken)
+    {
+        if (_configGuard == null || document.ConfigChecked || document.NetworkAppUpdate is not { Settled: true, Outcome: "updated" })
+            return false;
+        var reason = await _configGuard.CheckAfterNetworkAppAsync(_siteSlug, plan.StartedAt ?? Now, cancellationToken);
+        document.ConfigChecked = true;
+        if (reason == null)
+        {
+            await PersistDocumentAsync(plan, document, cancellationToken);
+            return false;
+        }
+
+        plan.Status = FirmwareRolloutStatus.Paused;
+        document.Notes.Add($"Paused after the UniFi Network update: {reason}");
+        plan.PlanJson = JsonSerializer.Serialize(document);
+        await PersistPlanAsync(plan, cancellationToken);
+        _audit?.Log(Auditing.AuditEventBuilder.FromSystem(NetworkOptimizer.Storage.Models.Identity.AuditCategories.Action,
+            NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutPaused, targetType: "firmware_rollout",
+            targetId: plan.Id.ToString(), siteSlug: _siteSlug, details: new Dictionary<string, object?> { ["reason"] = reason }));
+        await PublishAsync(RolloutAlerts.ConfigHeld, AlertSeverity.Warning, $"Firmware Rollout Paused for Config Review{_siteSuffix}",
+            $"Paused after the UniFi Network update: {reason}", null, null, cancellationToken);
+        _logger.LogWarning("Firmware rollout {Id} on site {Site} paused by the post-upgrade config check: {Reason}", plan.Id, _siteSlug, reason);
+        return true;
     }
 
     /// <summary>
