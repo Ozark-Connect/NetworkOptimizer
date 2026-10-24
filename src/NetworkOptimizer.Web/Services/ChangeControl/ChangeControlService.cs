@@ -539,9 +539,13 @@ public sealed partial class ChangeControlService : IChangeControlService
         var needsApproval = ApprovalRequired(settings, loaded.Plan, loaded.Doc, isAdmin);
         if (loaded.Plan.ScheduledFor is { } at && at > DateTime.UtcNow && !needsApproval)
         {
-            // A schedule set on an approval-free plan books it rather than applying now.
+            // A schedule set on an approval-free plan books it rather than applying now. Readiness is
+            // checked here with the booker's role: the scheduled tick applies without a person present.
+            var remaining = PlanReadiness.Remaining(loaded.Doc, loaded.Acks, isAdmin);
+            if (remaining.Count > 0) return "Still open: " + string.Join(", ", remaining) + ".";
             var plan = loaded.Plan;
             plan.Status = ConfigPlanStatus.Scheduled;
+            plan.AppliedBy = Actor;
             await Repo.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), cancellationToken);
             return null;
         }
@@ -550,8 +554,17 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     public Task CancelPlanAsync(int planId, CancellationToken cancellationToken = default) => Plans.CancelAsync(planId, cancellationToken);
 
-    public Task<string?> RevertPlanAsync(int planId, CancellationToken cancellationToken = default) =>
-        Plans.RevertAsync(planId, $"Reverted by {Actor}", [], automatic: false, cancellationToken);
+    public async Task<string?> RevertPlanAsync(int planId, CancellationToken cancellationToken = default)
+    {
+        var loaded = await Plans.LoadAsync(planId, cancellationToken) ?? throw new InvalidOperationException("Plan not found.");
+        var isAdmin = await CallerIsSiteAdminAsync();
+        var settings = await Repo.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
+        // An Operator reverts without approval only inside the emergency window (spec: 24 hours).
+        var recent = loaded.Plan.CompletedAt is { } done && DateTime.UtcNow - done <= TimeSpan.FromHours(24);
+        if (!isAdmin && settings.ApprovalsEnabled && !(settings.EmergencyRollbackWithoutApproval && recent))
+            return "Approvals are on for this site. A Site Admin reverts this plan, or roll back to the snapshot taken before it from Snapshots and submit that plan.";
+        return await Plans.RevertAsync(planId, $"Reverted by {Actor}", [], automatic: false, cancellationToken, new PlanActor(Actor, isAdmin));
+    }
 
     public async Task<byte[]?> GetPlanReportPdfAsync(int planId, CancellationToken cancellationToken = default)
     {

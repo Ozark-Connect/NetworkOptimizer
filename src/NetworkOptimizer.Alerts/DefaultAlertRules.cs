@@ -1037,6 +1037,15 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            Name = "Change Control: Plan Approved",
+            IsEnabled = true,
+            EventTypePattern = "change.plan_approved",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Change Control: Plan Applied",
             IsEnabled = true,
             EventTypePattern = "change.plan_applied",

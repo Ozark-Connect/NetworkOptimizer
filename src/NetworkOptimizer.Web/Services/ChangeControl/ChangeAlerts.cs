@@ -12,6 +12,7 @@ public static class ChangeAlerts
     public const string Digest = "change.digest";
     public const string NetworkAppUpgrade = "change.network_app_upgrade";
     public const string PlanAwaitingApproval = "change.plan_awaiting_approval";
+    public const string PlanApproved = "change.plan_approved";
     public const string PlanApplied = "change.plan_applied";
     public const string PlanReverted = "change.plan_reverted";
     public const string PlanFailed = "change.plan_failed";

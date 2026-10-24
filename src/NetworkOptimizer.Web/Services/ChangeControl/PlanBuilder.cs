@@ -28,6 +28,12 @@ public sealed class PlanOptions
     /// <summary>Console host from the site's connection URL, for the inform-path checks.</summary>
     public string? ConsoleHost { get; init; }
 
+    /// <summary>
+    /// Addresses Network Optimizer reaches the site from: the agent host on an agent site, the
+    /// server itself otherwise. The lockout pre-flight checks policies and networks against them.
+    /// </summary>
+    public IReadOnlyList<string> ManagementAddresses { get; init; } = [];
+
     /// <summary>The target has no gateway adopted yet: gateway-bound collections wait.</summary>
     public bool TargetHasGateway { get; init; } = true;
 }
