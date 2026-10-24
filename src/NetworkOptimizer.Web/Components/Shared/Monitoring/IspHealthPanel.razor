@@ -12,7 +12,7 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NetworkOptimizer.Web.Services.PullToRefreshState PtrState
-@inject NetworkOptimizer.Web.Services.ISystemSettingsService SettingsService
+@inject NetworkOptimizer.Web.Services.Identity.IUserDismissals Dismissals
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject ILogger<IspHealthPanel> Logger
@@ -1584,8 +1584,7 @@ else
     {
         try
         {
-            var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.IspPlanSpeedHintDismissed);
-            _planHintDismissed = string.Equals(dismissed, "true", StringComparison.OrdinalIgnoreCase);
+            _planHintDismissed = await Dismissals.IsDismissedAsync(SystemSettingKeys.IspPlanSpeedHintDismissed);
         }
         catch
         {
@@ -1637,13 +1636,13 @@ else
         }
     }
 
-    /// <summary>Hides the hint everywhere it appears and remembers that across sites and sessions.</summary>
+    /// <summary>Hides the hint everywhere it appears and remembers that, for this user, across sites and sessions.</summary>
     private async Task DismissPlanHintAsync()
     {
         _planHintDismissed = true;
         try
         {
-            await SettingsService.SetGlobalAsync(SystemSettingKeys.IspPlanSpeedHintDismissed, "true");
+            await Dismissals.DismissAsync(SystemSettingKeys.IspPlanSpeedHintDismissed);
         }
         catch
         {

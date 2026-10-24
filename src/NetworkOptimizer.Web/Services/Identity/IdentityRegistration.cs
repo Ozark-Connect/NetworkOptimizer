@@ -115,6 +115,7 @@ public static class IdentityRegistration
         services.AddSingleton<SamlRequestStore>();
         // Ambient caller context (user vs system) for authorization + audit attribution.
         services.AddScoped<ICallerContext, CallerContext>();
+        services.AddScoped<IUserDismissals, UserDismissals>();
         // Hands enrollment recovery codes from the endpoint to the page across the redirect.
         services.AddSingleton<MfaEnrollmentCodes>();
         services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, CallerContextCircuitHandler>();
