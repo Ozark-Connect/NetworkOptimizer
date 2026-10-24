@@ -1,6 +1,6 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
-@inject ISystemSettingsService SettingsService
+@inject NetworkOptimizer.Web.Services.Identity.IUserDismissals Dismissals
 @inject IJSRuntime JS
 
 @if (_visible)
@@ -39,8 +39,7 @@
                     "window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true");
                 if (isStandalone) return;
 
-                var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.PwaBannerDismissed);
-                if (string.IsNullOrEmpty(dismissed) || !dismissed.Equals("true", StringComparison.OrdinalIgnoreCase))
+                if (!await Dismissals.IsDismissedAsync(SystemSettingKeys.PwaBannerDismissed))
                 {
                     _visible = true;
                     await InvokeAsync(StateHasChanged);
@@ -58,7 +57,7 @@
         _visible = false;
         try
         {
-            await SettingsService.SetGlobalAsync(SystemSettingKeys.PwaBannerDismissed, "true");
+            await Dismissals.DismissAsync(SystemSettingKeys.PwaBannerDismissed);
         }
         catch
         {

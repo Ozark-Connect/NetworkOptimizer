@@ -6,7 +6,7 @@
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
-@inject ISystemSettingsService SettingsService
+@inject NetworkOptimizer.Web.Services.Identity.IUserDismissals Dismissals
 @inject IWiFiRadioKeepService RadioKeep
 @inject IChannelPlanApplyService ChannelApply
 @implements IDisposable
@@ -960,8 +960,7 @@
         StartAgeTicker();
         try
         {
-            var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.ChannelDisclaimerDismissed);
-            _channelDisclaimerDismissed = !string.IsNullOrEmpty(dismissed) && dismissed.Equals("true", StringComparison.OrdinalIgnoreCase);
+            _channelDisclaimerDismissed = await Dismissals.IsDismissedAsync(SystemSettingKeys.ChannelDisclaimerDismissed);
         }
         catch { /* Non-critical */ }
 
@@ -1681,7 +1680,7 @@
         _channelDisclaimerDismissed = true;
         try
         {
-            await SettingsService.SetGlobalAsync(SystemSettingKeys.ChannelDisclaimerDismissed, "true");
+            await Dismissals.DismissAsync(SystemSettingKeys.ChannelDisclaimerDismissed);
         }
         catch { /* Still hide it */ }
     }
