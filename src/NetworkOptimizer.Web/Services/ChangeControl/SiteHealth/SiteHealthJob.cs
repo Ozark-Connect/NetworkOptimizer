@@ -170,7 +170,7 @@ public sealed class SiteHealthJob
         IReadOnlyList<(DateTime Hour, string DeviceMac, int Clients)> wireless,
         IReadOnlyList<(DateTime Hour, string DeviceMac, int Clients)> wired,
         IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> fabric,
-        IReadOnlyList<(DateTime Hour, string DeviceMac, double Errors, double Packets)> ports,
+        IReadOnlyList<(DateTime Hour, string DeviceMac, string IfName, double Errors, double Packets)> ports,
         IReadOnlyList<(DateTime Time, double Value)> cpu,
         List<AlertHistoryEntry> alerts, Topology topology, HashSet<string> gatewayMacs, string primaryKey, double? baseline)
     {
@@ -235,7 +235,7 @@ public sealed class SiteHealthJob
 
         // LAN
         var fabricLoss = fabric.Where(p => In(p.Time) && p.LossPercent != null).Select(p => p.LossPercent!.Value).ToList();
-        var hourPorts = ports.Where(p => In(p.Hour) && !gatewayMacs.Contains(Mac(p.DeviceMac))).ToList();
+        var hourPorts = ports.Where(p => In(p.Hour) && !gatewayMacs.Contains(Mac(p.DeviceMac)) && topology.IsWiredPort(p.DeviceMac, p.IfName)).ToList();
         var (link, linkText) = topology.LinkErrors(hourPorts, clientsByDevice);
 
         return new HealthHourInputs
@@ -391,6 +391,7 @@ public sealed class SiteHealthJob
         private readonly Dictionary<string, string> _parent = [];
         private readonly Dictionary<string, List<string>> _children = [];
         private readonly Dictionary<string, string> _names = [];
+        private readonly Dictionary<string, DeviceType> _types = [];
         private readonly List<string> _all;
 
         public Topology(IEnumerable<DiscoveredDevice> devices)
@@ -400,6 +401,7 @@ public sealed class SiteHealthJob
                 var mac = Mac(d.Mac);
                 if (mac.Length == 0) continue;
                 _names[mac] = d.Name;
+                _types[mac] = d.Type;
                 if (Mac(d.UplinkMac) is { Length: > 0 } up && up != mac)
                 {
                     _parent[mac] = up;
@@ -411,6 +413,15 @@ public sealed class SiteHealthJob
         }
 
         public string Name(string mac) => _names.TryGetValue(Mac(mac), out var n) && n.Length > 0 ? n : mac;
+
+        /// <summary>
+        /// A cable, not a radio: every port of a switch, only the Ethernet interfaces of anything else (an
+        /// AP's wireless interfaces count radio errors, which Wi-Fi satisfaction already covers). VLAN
+        /// subinterfaces repeat their parent's counters and are skipped.
+        /// </summary>
+        public bool IsWiredPort(string mac, string ifName) =>
+            !ifName.Contains('.')
+            && (_types.GetValueOrDefault(Mac(mac)) == DeviceType.Switch || ifName.StartsWith("eth", StringComparison.OrdinalIgnoreCase));
 
         private IEnumerable<string> SelfAndAncestors(string mac)
         {
@@ -460,7 +471,7 @@ public sealed class SiteHealthJob
         /// Port errors per device: input errors over unicast packets received across its ports, ramped
         /// from 0.01% to 1% and weighted by the clients behind the device (equally when unknown).
         /// </summary>
-        public (double Impairment, string? Text) LinkErrors(List<(DateTime Hour, string DeviceMac, double Errors, double Packets)> ports, Dictionary<string, int> clients)
+        public (double Impairment, string? Text) LinkErrors(List<(DateTime Hour, string DeviceMac, string IfName, double Errors, double Packets)> ports, Dictionary<string, int> clients)
         {
             var total = clients.Values.Sum();
             var deviceCount = Math.Max(1, _all.Count);

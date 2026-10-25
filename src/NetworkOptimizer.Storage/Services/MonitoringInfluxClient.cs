@@ -3438,14 +3438,14 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
-    /// Per device per hour: the rise in input errors and in unicast packets received, summed across its
-    /// ports. Each port is its own series, so max minus min per window is the counter's rise (a reset
-    /// reads as no rise). Two pushdown aggregates.
+    /// Per interface per hour: the rise in input errors and in unicast packets received. Each port is
+    /// its own series, so max minus min per window is the counter's rise (a reset reads as no rise).
+    /// Two pushdown aggregates.
     /// </summary>
-    public async Task<IReadOnlyList<(DateTime Hour, string DeviceMac, double Errors, double Packets)>> QueryPortErrorRisesAsync(
+    public async Task<IReadOnlyList<(DateTime Hour, string DeviceMac, string IfName, double Errors, double Packets)>> QueryPortErrorRisesAsync(
         DateTime from, DateTime to, CancellationToken ct = default)
     {
-        if (!IsConfigured) return Array.Empty<(DateTime, string, double, double)>();
+        if (!IsConfigured) return Array.Empty<(DateTime, string, string, double, double)>();
         async Task<Dictionary<(DateTime, string, string, string), double>> Agg(string fn)
         {
             var flux = $@"
@@ -3468,8 +3468,8 @@ from(bucket: ""{_bucket}"")
         await Task.WhenAll(max, min);
         return max.Result
             .Select(kv => (kv.Key, Rise: Math.Max(0, kv.Value - min.Result.GetValueOrDefault(kv.Key, kv.Value))))
-            .GroupBy(x => (x.Key.Item1, x.Key.Item2))
-            .Select(g => (g.Key.Item1, g.Key.Item2,
+            .GroupBy(x => (x.Key.Item1, x.Key.Item2, x.Key.Item3))
+            .Select(g => (g.Key.Item1, g.Key.Item2, g.Key.Item3.Split('|')[0],
                 g.Where(x => x.Key.Item4 == "errors_in").Sum(x => x.Rise),
                 g.Where(x => x.Key.Item4 == "ucast_pkts_in").Sum(x => x.Rise)))
             .ToList();
