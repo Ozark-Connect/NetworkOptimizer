@@ -256,12 +256,11 @@ public sealed class SiteMetricsReader
     private static string? Format(string key, double? v) => v == null ? null : key switch
     {
         "loss" => v.Value.ToString("0.0"),
-        "throughput" => v.Value.ToString("0"),
-        "latency" or "cpu" => TwoSignificant(v.Value),
+        "latency" or "cpu" or "throughput" => TwoSignificant(v.Value),
         _ => v.Value.ToString("0"),
     };
 
-    /// <summary>Two significant digits: 24, 9.3, 0.85. Whole numbers from 10 up.</summary>
+    /// <summary>At least two significant digits: 940, 24, 9.3, 0.85. Whole numbers from 10 up.</summary>
     internal static string TwoSignificant(double v) =>
         Math.Abs(v) >= 10 ? v.ToString("0") : Math.Abs(v) >= 1 ? v.ToString("0.0") : v.ToString("0.00");
 
