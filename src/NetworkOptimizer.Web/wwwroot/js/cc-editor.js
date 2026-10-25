@@ -3,7 +3,8 @@
 import {
     EditorView, EditorState, Compartment, basicSetup, keymap, indentWithTab, indentUnit, yaml,
     autocompletion, startCompletion, setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
-} from '../lib/codemirror/codemirror.bundle.js?v=1';
+    Decoration, WidgetType, ViewPlugin, MatchDecorator,
+} from '../lib/codemirror/codemirror.bundle.js?v=2';
 
 const highlight = HighlightStyle.define([
     { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--info-color)' },
@@ -30,16 +31,85 @@ const theme = EditorView.theme({
     '.cm-diagnostic-error': { borderLeftColor: 'var(--danger-color)' },
     '.cm-diagnostic-warning': { borderLeftColor: 'var(--warning-color)' },
     '.cm-diagnostic-info': { borderLeftColor: 'var(--info-color)' },
+    '.cc-secret': {
+        display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0 0.4rem', borderRadius: '4px',
+        backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', letterSpacing: '0.1em',
+    },
+    '.cc-secret button': {
+        font: 'inherit', fontSize: '0.75rem', letterSpacing: 'normal', padding: '0 0.35rem', cursor: 'pointer',
+        border: '1px solid var(--bg-hover)', borderRadius: '3px', background: 'transparent', color: 'var(--info-color)',
+    },
 }, { dark: true });
+
+// ---------- Masked secrets ----------
+
+// A masked secret, <secret:path>, names the value's place in the config the edit started from. The
+// value stays on the server: Show (Site Admin, audited) swaps the token for it; anyone who can edit
+// can delete the token and type or generate a new value without seeing the old one.
+class SecretWidget extends WidgetType {
+    constructor(token, state) {
+        super();
+        this.token = token;
+        this.state = state;
+    }
+
+    eq(other) { return other.token === this.token && other.state.canReveal === this.state.canReveal; }
+
+    toDOM(view) {
+        const chip = document.createElement('span');
+        chip.className = 'cc-secret';
+        chip.setAttribute('aria-label', this.state.canReveal ? 'Masked secret' : 'Masked secret: delete it to enter a new value');
+        chip.append('••••••••');
+        if (this.state.canReveal) {
+            const show = document.createElement('button');
+            show.type = 'button';
+            show.textContent = 'Show';
+            show.addEventListener('mousedown', e => e.preventDefault());
+            show.addEventListener('click', async e => {
+                e.preventDefault();
+                show.disabled = true;
+                try {
+                    const value = await this.state.dotnet.invokeMethodAsync('RevealSecret', this.token);
+                    if (value == null) { show.textContent = 'Unavailable'; return; }
+                    const at = view.posAtDOM(chip);
+                    const doc = view.state.doc.toString();
+                    // The chip's own range when it is still there; the token may have moved if the doc changed meanwhile.
+                    const from = doc.startsWith(this.token, at) ? at : doc.indexOf(this.token);
+                    if (from >= 0) view.dispatch({ changes: { from, to: from + this.token.length, insert: value } });
+                } catch (err) {
+                    console.warn('cc-editor: reveal failed', err);
+                    show.textContent = 'Not allowed';
+                }
+            });
+            chip.append(show);
+        }
+        return chip;
+    }
+
+    ignoreEvent(e) { return e.type === 'mousedown' || e.type === 'click'; }
+}
+
+function secretMasks(state) {
+    const matcher = new MatchDecorator({
+        regexp: /<secret:[^>\s]+>/g,
+        decoration: m => Decoration.replace({ widget: new SecretWidget(m[0], state) }),
+    });
+    const plugin = ViewPlugin.fromClass(class {
+        constructor(view) { this.decorations = matcher.createDeco(view); }
+        update(u) { this.decorations = matcher.updateDeco(u, this.decorations); }
+    }, { decorations: v => v.decorations });
+    // Atomic: the cursor steps over a token and Backspace removes it whole, never half a path.
+    return [plugin, EditorView.atomicRanges.of(view => view.plugin(plugin)?.decorations ?? Decoration.none)];
+}
 
 /**
  * Creates the editor in host. dotnet receives OnEditorChanged(key, text) after typing pauses; key
  * names what the text belongs to, so a change still in flight when setText swaps the document
  * lands on the right file.
  */
-export function create(host, dotnet, text, label, key) {
+export function create(host, dotnet, text, label, key, canReveal) {
     dispose(host);
-    const state = { dotnet, key, schema: null, silent: false, timer: 0, editable: new Compartment() };
+    const state = { dotnet, key, canReveal: !!canReveal, schema: null, silent: false, timer: 0, editable: new Compartment() };
     const view = new EditorView({
         parent: host,
         state: EditorState.create({
@@ -52,6 +122,7 @@ export function create(host, dotnet, text, label, key) {
                 keymap.of([indentWithTab]),
                 syntaxHighlighting(highlight),
                 theme,
+                secretMasks(state),
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
@@ -59,6 +130,12 @@ export function create(host, dotnet, text, label, key) {
                 EditorView.contentAttributes.of({ 'aria-label': label ?? 'YAML', spellcheck: 'false' }),
                 EditorView.updateListener.of(u => {
                     if (!u.docChanged || state.silent) return;
+                    // Deleting a masked secret leaves "key: "; open the menu there too (phones have no Ctrl+Space).
+                    const head = u.state.selection.main.head;
+                    const lineStart = u.state.doc.lineAt(head).from;
+                    if (u.transactions.some(t => t.isUserEvent('delete')) && /:\s$/.test(u.state.sliceDoc(lineStart, head))) {
+                        setTimeout(() => startCompletion(u.view), 0);
+                    }
                     clearTimeout(state.timer);
                     const key = state.key;
                     state.timer = setTimeout(() => {
@@ -161,6 +238,7 @@ function complete(state, ctx) {
     if (v) {
         const field = fieldAt(schema, doc, line.number, v[1].length + (v[2] ? 2 : 0), v[3]);
         const typed = v[4] ?? '';
+        if (field?.secret) return generatorResult(state, ctx.pos - typed.length);
         return valueResult(schema, field, ctx.pos - typed.length, new Set());
     }
 
@@ -206,6 +284,30 @@ function fieldAt(schema, doc, lineNo, indent, key) {
 // Candidates are plain values (enums) or { label, value } pairs (references): the label is what
 // the user knows the object by, the value is the YAML the converter writes for it, which can be
 // a name, {vlan: 30}, {mac: ...}, or {id: ...} when names collide.
+// A secret field offers new values from the server's generators (CSPRNG; EFF long wordlist).
+function generatorResult(state, from) {
+    const generate = kind => (view, completion, start) => {
+        state.dotnet.invokeMethodAsync('GenerateSecret', kind)
+            .then(value => {
+                // Replace the whole value, a masked token included, but not a trailing comment.
+                const line = view.state.doc.lineAt(start);
+                const rest = line.text.slice(start - line.from);
+                const comment = rest.search(/\s#/);
+                const end = comment >= 0 ? start + comment : line.to;
+                view.dispatch({ changes: { from: start, to: end, insert: quoteIfNeeded(value) } });
+            })
+            .catch(e => console.warn('cc-editor: generate failed', e));
+    };
+    return {
+        from,
+        filter: false,
+        options: [
+            { label: 'Generate passphrase', detail: '6 words, ~77 bits', type: 'keyword', apply: generate('Passphrase') },
+            { label: 'Generate random', detail: '24 letters and digits, ~140 bits', type: 'keyword', apply: generate('Random') },
+        ],
+    };
+}
+
 function valueResult(schema, field, from, exclude) {
     if (!field) return null;
     const candidates = field.ref ? schema.refs?.[field.ref] ?? [] : field.values ?? [];

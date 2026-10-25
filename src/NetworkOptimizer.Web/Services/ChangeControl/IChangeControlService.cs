@@ -73,6 +73,19 @@ public interface IChangeControlService
     [RequireRole(Roles.Operator)]
     Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Edit tab: the value behind a masked secret (<see cref="YamlConverter.SecretToken"/>) in the
+    /// state the edit started from, as a YAML scalar; null when the token leads nowhere. Admin only,
+    /// and every reveal is audited with the secret's path.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlSecretRevealed, TargetType = "config_secret")]
+    Task<string?> RevealSecretAsync(int? snapshotId, string token, CancellationToken cancellationToken = default);
+
+    /// <summary>Edit tab: a new value from the passphrase engine or the random generator.</summary>
+    [RequireRole(Roles.Operator)]
+    Task<string> GenerateSecretAsync(Secrets.SecretKind kind, CancellationToken cancellationToken = default);
+
     /// <summary>Edit tab: checks edited files as they are typed, and counts the objects they change.</summary>
     [RequireRole(Roles.Operator)]
     Task<YamlValidation> ValidateYamlAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default);

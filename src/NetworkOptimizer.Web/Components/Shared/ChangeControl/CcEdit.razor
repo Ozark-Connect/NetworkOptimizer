@@ -84,7 +84,7 @@
                         }
                         else
                         {
-                            <span class="status-badge badge-muted hide-mobile">Secrets shown as &lt;keep current&gt;</span>
+                            <span class="status-badge badge-muted hide-mobile">Secrets masked</span>
                         }
                     </div>
                     @if (_loading)
@@ -166,6 +166,7 @@
     private IJSObjectReference? _editor;
     private DotNetObjectReference<CcEdit>? _self;
     private bool _creating;
+    private bool _canReveal;
     // Set when _text or _group changes on this side; the next render hands both to the editor.
     private bool _pushText;
 
@@ -246,7 +247,8 @@
             {
                 _self = DotNetObjectReference.Create(this);
                 var module = await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/cc-editor.js"));
-                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), _group);
+                _canReveal = await Site.IsSiteAdminAsync();
+                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), _group, _canReveal);
                 _editor = module;
                 _pushText = true;
             }
@@ -277,6 +279,27 @@
         _debounce = new Timer(_ => InvokeAsync(ValidateAsync), null, 400, Timeout.Infinite);
         StateHasChanged();
     }
+
+    /// <summary>A masked secret's value as YAML, for the Show button. Null when not allowed or not found.</summary>
+    [JSInvokable]
+    public async Task<string?> RevealSecret(string token)
+    {
+        if (!_canReveal) return null;
+        try
+        {
+            return await Site.RevealSecretAsync(SnapshotId, token);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Revealing a masked secret failed");
+            return null;
+        }
+    }
+
+    /// <summary>A new secret from the passphrase engine ("Passphrase") or the random generator ("Random").</summary>
+    [JSInvokable]
+    public Task<string> GenerateSecret(string kind) =>
+        Site.GenerateSecretAsync(Enum.Parse<NetworkOptimizer.Web.Services.Secrets.SecretKind>(kind));
 
     private async Task PushProblemsAsync()
     {

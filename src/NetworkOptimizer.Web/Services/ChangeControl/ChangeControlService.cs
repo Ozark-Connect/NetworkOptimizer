@@ -16,6 +16,7 @@ public sealed partial class ChangeControlService : IChangeControlService
 {
     private readonly ChangeControlRegistry _registry;
     private readonly ISiteAccessFilter _access;
+    private readonly Gates.IAuditContext _audit;
     private readonly SiteContextService _site;
     private readonly Identity.ICallerContext _caller;
     private readonly IEffectiveSiteRoleResolver _roles;
@@ -29,9 +30,10 @@ public sealed partial class ChangeControlService : IChangeControlService
     public ChangeControlService(ChangeControlRegistry registry, SiteContextService site, Identity.ICallerContext caller,
         IEffectiveSiteRoleResolver roles, IDbContextFactory<NetworkOptimizerDbContext> mainDb, MonitoringInfluxClient influx,
         IspHealthService isp, ConfigTemplateStore templates, NetworkOptimizer.Alerts.Interfaces.IAlertRepository alerts,
-        ISiteAccessFilter access, ILogger<ChangeControlService> logger)
+        ISiteAccessFilter access, Gates.IAuditContext audit, ILogger<ChangeControlService> logger)
     {
         _access = access;
+        _audit = audit;
         _alerts = alerts;
         _registry = registry;
         _site = site;
@@ -314,8 +316,21 @@ public sealed partial class ChangeControlService : IChangeControlService
         var state = (await LoadSideAsync(snapshotId, cancellationToken)).State;
         var counts = state.Collections.ToDictionary(k => k.Key, k => k.Key == "user" ? k.Value.Count(ConfigDiffEngine.HasClientConfig) : k.Value.Count);
         var schema = ConfigCollections.Get(collection) is { } def ? YamlConverter.EditSchema(state, [def]).ToJsonString() : "{}";
-        return (YamlConverter.Export(state, [collection], includeSecrets: false), counts, schema);
+        return (YamlConverter.Export(state, [collection], SecretMode.Mask), counts, schema);
     }
+
+    public async Task<string?> RevealSecretAsync(int? snapshotId, string token, CancellationToken cancellationToken = default)
+    {
+        if (YamlConverter.SecretTokenPath(token) is not { } path) return null;
+        var state = (await LoadSideAsync(snapshotId, cancellationToken)).State;
+        if (YamlConverter.FindSecret(state, path) is not { } found) return null;
+        // The audit names which secret was shown, never its value.
+        _audit.SetTarget(path, $"{found.Def.Noun} {ConfigState.DisplayName(found.Def, found.Object)}: {ChangeDescriber.LabelFor(found.Field)}");
+        return YamlConverter.ScalarText(found.Value);
+    }
+
+    public Task<string> GenerateSecretAsync(Secrets.SecretKind kind, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Secrets.SecretGenerator.Generate(kind));
 
     private async Task<(ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Collections)> ParseEditsAsync(
         int? snapshotId, IReadOnlyDictionary<string, string> files, CancellationToken ct)

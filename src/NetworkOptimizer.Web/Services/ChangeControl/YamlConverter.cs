@@ -19,6 +19,23 @@ public sealed class YamlParseResult
     public bool HasErrors => Problems.Any(p => p.Level == "Error");
 }
 
+/// <summary>How an export writes secret fields.</summary>
+public enum SecretMode
+{
+    /// <summary><c>&lt;keep current&gt;</c>: a downloaded file, applied later against whatever the Console has.</summary>
+    Redact,
+
+    /// <summary>
+    /// <c>&lt;secret:id/field&gt;</c>: the Edit tab. The token names the value's place in the state the
+    /// edit started from, so it resolves exactly (an entry moved in a list keeps its own password)
+    /// and a Site Admin can reveal it.
+    /// </summary>
+    Mask,
+
+    /// <summary>The values themselves: Download with Secrets.</summary>
+    Clear,
+}
+
 /// <summary>
 /// Config as YAML (spec "Format", "Object identity and references"). Keys are UniFi's own field names;
 /// a reference field is written with the ID suffix stripped and holds a name
@@ -59,7 +76,11 @@ public static partial class YamlConverter
     // ---------- Export ----------
 
     /// <summary>Writes the given collections (all when null) as one YAML document.</summary>
-    public static string Export(ConfigState state, IEnumerable<string>? collections, bool includeSecrets)
+    public static string Export(ConfigState state, IEnumerable<string>? collections, bool includeSecrets) =>
+        Export(state, collections, includeSecrets ? SecretMode.Clear : SecretMode.Redact);
+
+    /// <summary>Writes the given collections (all when null), with secrets as <paramref name="secrets"/> says.</summary>
+    public static string Export(ConfigState state, IEnumerable<string>? collections, SecretMode secrets)
     {
         var index = new ReferenceIndex(state);
         var sb = new StringBuilder();
@@ -74,16 +95,59 @@ public static partial class YamlConverter
             sb.Append('\n');
             var ambiguous = objects.GroupBy(o => Identity(def, o)).Where(g => g.Count() > 1).SelectMany(g => g).ToHashSet();
             foreach (var o in objects)
-                WriteObject(sb, def, o, index, includeSecrets, indent: 2, listItem: true, withId: ambiguous.Contains(o), top: true);
+                WriteObject(sb, def, o, index, secrets, indent: 2, listItem: true, withId: ambiguous.Contains(o), top: true, path: ConfigState.IdOf(o));
         }
         return sb.ToString();
     }
 
+    /// <summary>The masked form of the secret at <paramref name="path"/> (object ID, then keys and list indexes).</summary>
+    public static string SecretToken(string path) => SecretTokenPrefix + path + ">";
+
+    private const string SecretTokenPrefix = "<secret:";
+
+    /// <summary>The path inside a <see cref="SecretToken"/>, or null when the text is not one.</summary>
+    public static string? SecretTokenPath(string? text) =>
+        text != null && text.StartsWith(SecretTokenPrefix, StringComparison.Ordinal) && text.EndsWith('>') && text.Length > SecretTokenPrefix.Length + 1
+            ? text[SecretTokenPrefix.Length..^1]
+            : null;
+
+    /// <summary>
+    /// The value a secret token points at in <paramref name="state"/>, with its collection and field,
+    /// or null when the path leads nowhere or ends on a field that is not a secret.
+    /// </summary>
+    public static (JsonNode Value, ConfigCollectionDef Def, JsonObject Object, string Field)? FindSecret(ConfigState state, string path)
+    {
+        var parts = path.Split('/');
+        if (parts.Length < 2 || !state.ObjectsById().TryGetValue(parts[0], out var entry)) return null;
+        var def = ConfigCollections.Get(entry.Collection);
+        if (def == null) return null;
+        JsonNode? node = entry.Object;
+        string? field = null;
+        foreach (var part in parts.Skip(1))
+        {
+            if (node is JsonObject o) { node = o[part]; field = part; }
+            else if (node is JsonArray a && int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out var i) && i < a.Count) node = a[i];
+            else return null;
+        }
+        // Only a secret field can be reached this way, so a token never reads out an ordinary value.
+        return node != null && field != null && ConfigCollections.IsSecretField(def, field) && parts[^1] == field
+            ? (node, def, entry.Object, field)
+            : null;
+    }
+
+    /// <summary>A value as one YAML scalar (quoted when it needs to be), for inserting into an edited file.</summary>
+    public static string ScalarText(JsonNode? value) => value switch
+    {
+        null => "null",
+        JsonValue v => Scalar(v),
+        _ => Flow(value),
+    };
+
     private static string Identity(ConfigCollectionDef def, JsonObject o) =>
         def.EnforcedKey?.Invoke(o, new ConfigIdentityContext(new Dictionary<string, string>())) ?? ConfigState.DisplayName(def, o);
 
-    private static void WriteObject(StringBuilder sb, ConfigCollectionDef def, JsonObject o, ReferenceIndex index, bool includeSecrets,
-        int indent, bool listItem, bool withId, bool top)
+    private static void WriteObject(StringBuilder sb, ConfigCollectionDef def, JsonObject o, ReferenceIndex index, SecretMode secrets,
+        int indent, bool listItem, bool withId, bool top, string path)
     {
         var first = true;
         void Prefix()
@@ -104,15 +168,16 @@ public static partial class YamlConverter
             if (ConfigDiffEngine.IsChurnField(key)) continue;
             var outKey = key;
             JsonNode? outValue = value;
-            if (ConfigCollections.IsSecretField(def, key) && !includeSecrets)
-                outValue = PlanBuilder.KeepSecret;
+            var childPath = $"{path}/{key}";
+            if (ConfigCollections.IsSecretField(def, key) && secrets != SecretMode.Clear)
+                outValue = secrets == SecretMode.Mask && value != null ? JsonValue.Create(SecretToken(childPath)) : PlanBuilder.KeepSecret;
             else if (StrippedName(key) is { } stripped && !o.ContainsKey(stripped) && index.RenderReference(value) is { } rendered)
             {
                 outKey = stripped;
                 outValue = rendered;
             }
             Prefix();
-            WriteValue(sb, def, outKey, outValue, index, includeSecrets, indent);
+            WriteValue(sb, def, outKey, outValue, index, secrets, indent, childPath);
         }
         if (first) { Prefix(); sb.Append("{}\n"); }
     }
@@ -125,7 +190,7 @@ public static partial class YamlConverter
         foreach (var p in o) if (p.Key != nameField) yield return p;
     }
 
-    private static void WriteValue(StringBuilder sb, ConfigCollectionDef def, string key, JsonNode? value, ReferenceIndex index, bool includeSecrets, int indent)
+    private static void WriteValue(StringBuilder sb, ConfigCollectionDef def, string key, JsonNode? value, ReferenceIndex index, SecretMode secrets, int indent, string path)
     {
         sb.Append(KeyText(key)).Append(':');
         switch (value)
@@ -144,21 +209,23 @@ public static partial class YamlConverter
                 break;
             case JsonArray arr:
                 sb.Append('\n');
-                foreach (var e in arr)
+                for (var i = 0; i < arr.Count; i++)
                 {
-                    if (e is JsonObject eo) WriteObject(sb, def, eo, index, includeSecrets, indent + 4, listItem: true, withId: false, top: false);
+                    var e = arr[i];
+                    if (e is JsonObject eo) WriteObject(sb, def, eo, index, secrets, indent + 4, listItem: true, withId: false, top: false, path: $"{path}/{i}");
                     else sb.Append(' ', indent + 2).Append("- ").Append(e == null ? "null" : Flow(e)).Append('\n');
                 }
                 break;
             case JsonObject obj when obj.Count == 0:
                 sb.Append(" {}\n");
                 break;
-            case JsonObject obj when obj.Count <= 2 && obj.All(p => p.Value is JsonValue):
+            // Flow style skips the per-key secret check in WriteObject, so a secret inside keeps block style.
+            case JsonObject obj when obj.Count <= 2 && obj.All(p => p.Value is JsonValue && !ConfigCollections.IsSecretField(def, p.Key)):
                 sb.Append(' ').Append(Flow(obj)).Append('\n');
                 break;
             case JsonObject obj:
                 sb.Append('\n');
-                WriteObject(sb, def, obj, index, includeSecrets, indent + 2, listItem: false, withId: false, top: false);
+                WriteObject(sb, def, obj, index, secrets, indent + 2, listItem: false, withId: false, top: false, path: path);
                 break;
         }
     }
@@ -182,7 +249,7 @@ public static partial class YamlConverter
 
     private static string Scalar(string s)
     {
-        if (s == PlanBuilder.KeepSecret) return s;
+        if (s == PlanBuilder.KeepSecret || SecretTokenPath(s) is { } p && !p.Contains('"') && !p.Contains(' ')) return s;
         var plain = s.Length > 0 && Regex.IsMatch(s, @"^[A-Za-z0-9_./@][A-Za-z0-9 _./@:+()-]*$") && !s.EndsWith(' ') && !s.Contains(": ")
                     && !Regex.IsMatch(s, @"^(true|false|null|yes|no|on|off|~|[-+]?[0-9][0-9_]*(\.[0-9]*)?([eE][-+]?[0-9]+)?|0x[0-9a-fA-F]+)$", RegexOptions.IgnoreCase);
         return plain ? s : Quote(s);
@@ -259,6 +326,7 @@ public static partial class YamlConverter
         foreach (var (def, map, obj) in raw)
         {
             var resolved = ResolveObject(def, obj, map, index, fieldMap, result, fileName);
+            ResolveSecretTokens(def, resolved, baseState, Line(map), result, fileName);
             result.Collections[def.Key].Add(resolved);
         }
         foreach (var (_, _, obj) in raw.Where(r => ConfigState.IdOf(r.Obj).StartsWith("new-", StringComparison.Ordinal)))
@@ -272,6 +340,42 @@ public static partial class YamlConverter
     }
 
     private static int Line(YamlNode node) => (int)node.Start.Line;
+
+    /// <summary>
+    /// Replaces each <c>&lt;secret:...&gt;</c> with the value it names in the state the edit started from.
+    /// A token is accepted only as a secret field's value, so it cannot copy a secret into a field
+    /// that is shown in clear text.
+    /// </summary>
+    private static void ResolveSecretTokens(ConfigCollectionDef def, JsonNode? node, ConfigState baseState, int line,
+        YamlParseResult result, string fileName)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (var (key, value) in o.ToList())
+                {
+                    if (value is JsonValue v && v.TryGetValue<string>(out var s) && SecretTokenPath(s) is { } path)
+                    {
+                        if (!ConfigCollections.IsSecretField(def, key))
+                            result.Problems.Add(new YamlProblem("Error", fileName, line, $"{key}: a masked secret can only be the value of a secret field."));
+                        else if (FindSecret(baseState, path) is { } found)
+                            o[key] = found.Value.DeepClone();
+                        else
+                            result.Problems.Add(new YamlProblem("Error", fileName, line, $"{key}: the masked secret is not in the config this edit started from. Enter a value."));
+                    }
+                    else ResolveSecretTokens(def, value, baseState, line, result, fileName);
+                }
+                break;
+            case JsonArray a:
+                foreach (var e in a)
+                {
+                    if (e is JsonValue v && v.TryGetValue<string>(out var s) && SecretTokenPath(s) != null)
+                        result.Problems.Add(new YamlProblem("Error", fileName, line, "A masked secret can only be the value of a secret field."));
+                    else ResolveSecretTokens(def, e, baseState, line, result, fileName);
+                }
+                break;
+        }
+    }
 
     /// <summary>The collection a reference field points into, when the name says; null searches every collection.</summary>
     internal static string? TargetCollection(string field) => field switch

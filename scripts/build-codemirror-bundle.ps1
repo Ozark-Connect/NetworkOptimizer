@@ -15,7 +15,7 @@ $packages = @(
 )
 
 $entry = @'
-export { EditorView, keymap, hoverTooltip } from '@codemirror/view';
+export { EditorView, keymap, hoverTooltip, Decoration, WidgetType, ViewPlugin, MatchDecorator } from '@codemirror/view';
 export { EditorState, Compartment, StateEffect } from '@codemirror/state';
 export { basicSetup } from 'codemirror';
 export { indentWithTab } from '@codemirror/commands';

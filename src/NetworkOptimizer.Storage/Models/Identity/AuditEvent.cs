@@ -230,6 +230,7 @@ public static class AuditActions
     public const string ChangeControlSnapshotUnpinned = "change_control.snapshot.unpinned";
     public const string ChangeControlYamlDownloaded = "change_control.yaml.downloaded";
     public const string ChangeControlSecretsExported = "change_control.secrets.exported";
+    public const string ChangeControlSecretRevealed = "change_control.secret.revealed";
     public const string ChangeControlPlanSaved = "change_control.plan.saved";
     public const string ChangeControlPlanSubmitted = "change_control.plan.submitted";
     public const string ChangeControlPlanApproved = "change_control.plan.approved";

@@ -148,6 +148,7 @@ public static partial class YamlConverter
                 {
                     field["detail"] = "secret";
                 }
+                if (f.Secret) field["secret"] = true;
                 fields.Add(field);
             }
             return new JsonObject { ["fields"] = fields };

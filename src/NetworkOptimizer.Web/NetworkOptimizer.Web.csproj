@@ -30,6 +30,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\PerfTweaks\*.sh" />
     <EmbeddedResource Include="Resources\PerfTweaks\*.ko" />
+    <EmbeddedResource Include="Resources\Secrets\eff_large_wordlist.txt" />
     <!-- Single source of truth for the WAN Steering daemon contract version. The Go binary
          embeds the same file (src/wansteer/binary-version) so the app and the deployed binary
          can never disagree. See WanSteerDeploymentService. -->
