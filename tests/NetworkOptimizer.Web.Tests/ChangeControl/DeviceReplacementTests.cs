@@ -92,6 +92,22 @@ public class DeviceReplacementTests
     }
 
     [Fact]
+    public void LagMembersSentAsStrings_AreRemapped()
+    {
+        var oldPorts = Enumerable.Range(1, 8).Select(i => PortMeta(i, "GE", up: i is 7 or 8)).ToList();
+        var newPorts = Enumerable.Range(1, 16).Select(i => PortMeta(i, "GE")).ToList();
+        var lags = new JsonArray(new JsonObject { ["lag_idx"] = 1, ["aggregate_members"] = new JsonArray("7", "8"), ["type"] = "lag" });
+        var old = Switch(OldMac, "USL8", oldPorts, new JsonArray(Override(7, "net-iot"), Override(8, "net-iot")), lags: lags);
+        var @new = Switch(NewMac, "USL16", newPorts);
+
+        var p = DeviceReplacement.Propose(old, @new, Context());
+        var map = DeviceReplacement.PortMap(p);
+
+        map[7].Should().Be(map[8] - 1, "LAG members land on consecutive ports");
+        p.Settings.Should().Contain(s => s.Label.StartsWith("LAG 1") && s.Status.StartsWith("Remapped"));
+    }
+
+    [Fact]
     public void ShortSwitch_RunKeepsInUsePortsAndNeedsAcknowledgement()
     {
         var oldPorts = Enumerable.Range(1, 10).Select(i => PortMeta(i, "GE", up: i is 2 or 4)).ToList();

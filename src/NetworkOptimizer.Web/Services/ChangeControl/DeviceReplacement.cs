@@ -146,7 +146,7 @@ public static class DeviceReplacement
                 copy["port_idx"] = to;
                 // The LAG lead port lists its members (sample-device-w-lag.txt).
                 if (copy["aggregate_members"] is JsonArray members)
-                    copy["aggregate_members"] = new JsonArray(members.Select(m => m?.GetValue<int>()).OfType<int>()
+                    copy["aggregate_members"] = new JsonArray(members.Select(IntOf).OfType<int>()
                         .Where(portMap.ContainsKey).Select(m => (JsonNode?)portMap[m]).ToArray());
                 moved.Add(copy);
             }
@@ -161,7 +161,7 @@ public static class DeviceReplacement
                 var copy = (JsonObject)lag.DeepClone();
                 if (copy["aggregate_members"] is JsonArray members)
                 {
-                    var mapped = members.Select(m => m?.GetValue<int>()).OfType<int>().Where(portMap.ContainsKey).Select(m => portMap[m]).ToList();
+                    var mapped = members.Select(IntOf).OfType<int>().Where(portMap.ContainsKey).Select(m => portMap[m]).ToList();
                     if (mapped.Count < 2) continue;
                     copy["aggregate_members"] = new JsonArray(mapped.Select(m => (JsonNode?)m).ToArray());
                 }
@@ -278,7 +278,7 @@ public static class DeviceReplacement
         foreach (var lag in (device["link_aggregation_groups"] as JsonArray ?? []).OfType<JsonObject>())
         {
             lagNo++;
-            foreach (var m in (lag["aggregate_members"] as JsonArray ?? []).Select(x => x?.GetValue<int>()).OfType<int>())
+            foreach (var m in (lag["aggregate_members"] as JsonArray ?? []).Select(IntOf).OfType<int>())
                 lagOf[m] = lagNo;
         }
 
@@ -583,7 +583,7 @@ public static class DeviceReplacement
         foreach (var lag in (device["link_aggregation_groups"] as JsonArray ?? []).OfType<JsonObject>())
         {
             lagNo++;
-            var members = (lag["aggregate_members"] as JsonArray ?? []).Select(m => m?.GetValue<int>()).OfType<int>().ToList();
+            var members = (lag["aggregate_members"] as JsonArray ?? []).Select(IntOf).OfType<int>().ToList();
             var mapped = members.Where(map.ContainsKey).Select(m => map[m]).OrderBy(m => m).ToList();
             s.Add(mapped.Count == members.Count
                 ? new($"LAG {lagNo}, {members.Count} members", $"Remapped to {Range(mapped)}", "ok")
@@ -801,7 +801,10 @@ public static class DeviceReplacement
 
     private static string? Str(JsonObject o, string key) => o[key] is JsonValue v ? v.ToString() : null;
 
-    private static int? Int(JsonObject o, string key) => o[key] is JsonValue v
+    private static int? Int(JsonObject o, string key) => IntOf(o[key]);
+
+    // UniFi sends some integers as strings (see FlexibleIntConverter), so accept both.
+    private static int? IntOf(JsonNode? n) => n is JsonValue v
         ? v.TryGetValue<int>(out var i) ? i : int.TryParse(v.ToString(), out var s) ? s : null
         : null;
 
