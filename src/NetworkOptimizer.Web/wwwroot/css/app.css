@@ -23959,6 +23959,11 @@ body:has(.top-bar-hidden) .btn-fit {
     border-top: 1px solid var(--border-color);
 }
 
+/* Holds its height as approvals swap the footer's buttons and text. */
+.change-control .cc-plan-footer {
+    min-height: 70px;
+}
+
 .change-control .cc-card-footer .cc-remaining {
     margin-right: auto;
     font-size: 0.875rem;
