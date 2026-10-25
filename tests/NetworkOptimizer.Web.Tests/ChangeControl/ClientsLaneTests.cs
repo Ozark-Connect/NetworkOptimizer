@@ -33,6 +33,13 @@ public class ClientsLaneTests
         lane.Stack.Select(l => l.Latest).Should().Equal(2, 7);
     }
 
+    [Theory]
+    [InlineData(24.4, "24")]
+    [InlineData(9.34, "9.3")]
+    [InlineData(0.854, "0.85")]
+    public void TwoSignificant_KeepsTwoDigits(double v, string expected) =>
+        SiteMetricsReader.TwoSignificant(v).Should().Be(expected);
+
     [Fact]
     public void ClientsLane_DropsABandWithNoClients()
     {

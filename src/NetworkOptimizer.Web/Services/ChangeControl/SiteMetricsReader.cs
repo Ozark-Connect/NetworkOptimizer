@@ -230,8 +230,13 @@ public sealed class SiteMetricsReader
     {
         "loss" => v.Value.ToString("0.0"),
         "throughput" => v.Value.ToString("0"),
+        "latency" => TwoSignificant(v.Value),
         _ => v.Value.ToString("0"),
     };
+
+    /// <summary>Two significant digits: 24, 9.3, 0.85. Whole numbers from 10 up.</summary>
+    internal static string TwoSignificant(double v) =>
+        Math.Abs(v) >= 10 ? v.ToString("0") : Math.Abs(v) >= 1 ? v.ToString("0.0") : v.ToString("0.00");
 
     /// <summary>A change's before/after: one hour each side, the mean of each metric (Firmware Rollout's report numbers).</summary>
     public async Task<List<MetricDelta>> BeforeAfterAsync(DateTime at, CancellationToken ct)
