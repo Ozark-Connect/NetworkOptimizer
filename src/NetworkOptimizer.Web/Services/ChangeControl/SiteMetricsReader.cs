@@ -43,6 +43,51 @@ public sealed class SiteMetricsReader
     private static TimeSpan Window(TimeSpan range, int floorSeconds) =>
         TimeSpan.FromSeconds(Math.Max(floorSeconds, Math.Ceiling(range.TotalSeconds / TargetPoints)));
 
+    private TimeSpan LaneWindow(DateTime from, DateTime to) => Window(to - from, Math.Max(10, _isp.Options.LoadWindowSeconds));
+
+    /// <summary>
+    /// Mean RTT and loss across the loss-pool targets: each target's window mean, averaged within its
+    /// target type, then across types (the WAN live chart's weighting). The combine runs here, not in
+    /// Flux, so the query stays a pushdown shape.
+    /// </summary>
+    private async Task<List<(DateTime Time, double? Rtt, double? Loss)>> LatencyAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
+    {
+        var rows = await _influx.QueryIspTransitLatencyByTargetAsync(from, to, await _isp.GetLossPoolTargetIdsAsync(ct), window, ct);
+        static double? Combine(IEnumerable<IGrouping<string, double>> byType)
+        {
+            var means = byType.Select(t => t.Average()).ToList();
+            return means.Count == 0 ? null : means.Average();
+        }
+        return rows.GroupBy(r => r.Time).OrderBy(g => g.Key).Select(g => (
+            g.Key,
+            Combine(g.Where(r => r.RttAvgMs != null).GroupBy(r => r.TargetType, r => r.RttAvgMs!.Value)),
+            Combine(g.Where(r => r.LossPercent != null).GroupBy(r => r.TargetType, r => r.LossPercent!.Value)))).ToList();
+    }
+
+    /// <summary>The site row's sparkline on the fleet timeline: WAN latency only, one query.</summary>
+    public async Task<List<(DateTime Time, double? Value)>> LatencySparklineAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        if (to - from > MaxRange) from = to - MaxRange;
+        try
+        {
+            return (await LatencyAsync(from, to, LaneWindow(from, to), ct)).Select(p => (p.Time, p.Rtt)).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Timeline sparkline could not be read");
+            return [];
+        }
+    }
+
+    /// <summary>WAN download and upload in Mbps on the primary WAN's counter interface, or empty.</summary>
+    public async Task<List<(DateTime Time, double? Down, double? Up)>> WanThroughputAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        var (gatewayMac, counterIfs) = await _isp.GetWanCounterInterfacesAsync(ct);
+        if (gatewayMac == null || counterIfs.Count == 0) return [];
+        var rates = await _influx.QueryGatewayWanRatesAsync(gatewayMac, [counterIfs[0]], from, to, LaneWindow(from, to), ct: ct);
+        return rates.Select(r => (r.Time, r.DownloadBps / 1e6, r.UploadBps / 1e6)).ToList();
+    }
+
     /// <summary>The lanes for a range: WAN latency and loss (idle vs loaded), WAN throughput, gateway CPU, Wi-Fi clients.</summary>
     public async Task<List<TimelineLane>> LanesAsync(DateTime from, DateTime to, CancellationToken ct)
     {
@@ -51,11 +96,18 @@ public sealed class SiteMetricsReader
         try
         {
             var (gatewayMac, counterIfs) = await _isp.GetWanCounterInterfacesAsync(ct);
-            var window = Window(to - from, Math.Max(10, _isp.Options.LoadWindowSeconds));
-            var latency = await _influx.QueryMeanIspTransitLatencyAsync(from, to, await _isp.GetLossPoolTargetIdsAsync(ct), window, null, ct);
-            IReadOnlyList<MonitoringInfluxClient.WanRatePoint> rates = [];
-            if (gatewayMac != null && counterIfs.Count > 0)
-                rates = await _influx.QueryGatewayWanRatesAsync(gatewayMac, [counterIfs[0]], from, to, window, ct: ct);
+            var window = LaneWindow(from, to);
+            var latencyTask = LatencyAsync(from, to, window, ct);
+            var ratesTask = gatewayMac != null && counterIfs.Count > 0
+                ? _influx.QueryGatewayWanRatesAsync(gatewayMac, [counterIfs[0]], from, to, window, ct: ct)
+                : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>([]);
+            var cpuTask = gatewayMac != null
+                ? _influx.QueryDeviceCpuAsync(gatewayMac, from, to, window, ct)
+                : Task.FromResult<IReadOnlyList<(DateTime Time, double Value)>>([]);
+            var clientsTask = _influx.QueryWifiClientCountsAsync(from, to, window, ct);
+            await Task.WhenAll(latencyTask, ratesTask, cpuTask, clientsTask);
+            var latency = latencyTask.Result;
+            var rates = ratesTask.Result;
 
             var load = await ClassifyAsync(rates, ct);
             bool Loaded(DateTime t) => load.TryGetValue(Floor(t, window), out var w) && (w.IsLoadedDown || w.IsLoadedUp);
@@ -64,14 +116,14 @@ public sealed class SiteMetricsReader
             lanes.Add(new TimelineLane
             {
                 Key = "latency", Title = "WAN Latency", Subtitle = "Idle vs loaded, ms", SeriesAName = "idle", SeriesBName = "loaded",
-                SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.RttAvgMs : null)).ToList(),
-                SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.RttAvgMs : null)).ToList(),
+                SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.Rtt : null)).ToList(),
+                SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.Rtt : null)).ToList(),
             });
             lanes.Add(new TimelineLane
             {
                 Key = "loss", Title = "WAN Loss", Subtitle = "Idle vs loaded, %", SeriesAName = "idle", SeriesBName = "loaded",
-                SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.LossPercent : null)).ToList(),
-                SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.LossPercent : null)).ToList(),
+                SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.Loss : null)).ToList(),
+                SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.Loss : null)).ToList(),
             });
             lanes.Add(new TimelineLane
             {
@@ -81,20 +133,16 @@ public sealed class SiteMetricsReader
             });
             if (gatewayMac != null)
             {
-                var health = await _influx.QueryDeviceHealthAsync(gatewayMac, from, to, window, ct);
                 lanes.Add(new TimelineLane
                 {
                     Key = "cpu", Title = "Gateway CPU", Subtitle = "%", SeriesAName = "CPU",
-                    SeriesA = health.Select(h => (h.Time, h.CpuPercent)).ToList(),
+                    SeriesA = cpuTask.Result.Select(h => (h.Time, (double?)h.Value)).ToList(),
                 });
             }
-            var clients = await _influx.QueryWifiClientSamplesAsync(null, from, to, window, ct);
             lanes.Add(new TimelineLane
             {
                 Key = "clients", Title = "Clients", Subtitle = "Wi-Fi", SeriesAName = "Wi-Fi",
-                SeriesA = clients.GroupBy(c => Floor(c.Time, window))
-                    .OrderBy(g => g.Key)
-                    .Select(g => (g.Key, (double?)g.Select(c => c.ClientMac).Distinct().Count())).ToList(),
+                SeriesA = clientsTask.Result.Select(c => (c.Time, (double?)c.Clients)).ToList(),
             });
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -136,8 +184,10 @@ public sealed class SiteMetricsReader
         if (DateTime.UtcNow < at + TimeSpan.FromMinutes(5)) return result;
         try
         {
-            var before = await LanesAsync(at - hour, at, ct);
-            var after = await LanesAsync(at, Min(at + hour, DateTime.UtcNow), ct);
+            var beforeTask = LanesAsync(at - hour, at, ct);
+            var afterTask = LanesAsync(at, Min(at + hour, DateTime.UtcNow), ct);
+            var before = await beforeTask;
+            var after = await afterTask;
             void Add(string label, string key, bool b, string unit, string fmt, bool higherIsWorse = true)
             {
                 var x = Mean(before, key, b);

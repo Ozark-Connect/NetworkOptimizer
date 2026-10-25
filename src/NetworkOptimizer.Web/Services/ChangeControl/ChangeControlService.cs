@@ -504,13 +504,12 @@ public sealed partial class ChangeControlService : IChangeControlService
     private async Task<DateTime?> QuietestHourAsync(CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var lanes = await new SiteMetricsReader(_influx, _isp, _logger).LanesAsync(now.AddDays(-14), now, ct);
-        var throughput = lanes.FirstOrDefault(l => l.Key == "throughput");
-        if (throughput == null || throughput.SeriesA.Count < 24) return null;
-        var byHour = throughput.SeriesA.Zip(throughput.SeriesB)
-            .Where(p => p.First.Value != null)
-            .GroupBy(p => Local(p.First.Time).Hour)
-            .Select(g => (Hour: g.Key, Mean: g.Average(p => (p.First.Value ?? 0) + (p.Second.Value ?? 0))))
+        var throughput = await new SiteMetricsReader(_influx, _isp, _logger).WanThroughputAsync(now.AddDays(-14), now, ct);
+        if (throughput.Count < 24) return null;
+        var byHour = throughput
+            .Where(p => p.Down != null)
+            .GroupBy(p => Local(p.Time).Hour)
+            .Select(g => (Hour: g.Key, Mean: g.Average(p => (p.Down ?? 0) + (p.Up ?? 0))))
             .OrderBy(x => x.Mean).FirstOrDefault();
         var localNow = Local(now);
         var next = localNow.Date.AddHours(byHour.Hour);
