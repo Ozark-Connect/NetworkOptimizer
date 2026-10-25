@@ -461,6 +461,10 @@ else
                     <button class="btn btn-danger" disabled="@(_busy || !ConnectionService.IsConnected)" @onclick="RevertAsync">Revert</button>
                 </SiteOperatorOnly>
             }
+            @if (!editable && plan.Status != ConfigPlanStatus.Applying)
+            {
+                <a class="btn btn-primary" href="/change-control/changes">Back to Changes</a>
+            }
         </div>
     </div>
 }
