@@ -249,10 +249,20 @@ public class AuditService : IAuditScanService
     public DateTime? LastAuditTime => LastAuditTimeCached;
 
     /// <summary>
-    /// Get a unique key for an issue (for tracking dismissals)
+    /// Get a unique key for an issue (for tracking dismissals).
+    /// Findings with no port and no client (firewall rules, DNS, network-level) carry their identity
+    /// only in the message, so a hash of it is appended; without it one dismissal hides every
+    /// finding that shares the title.
     /// </summary>
-    public static string GetIssueKey(AuditIssue issue) =>
-        $"{issue.Title}|{issue.DeviceName}|{issue.Port}";
+    public static string GetIssueKey(AuditIssue issue)
+    {
+        var key = $"{issue.Title}|{issue.DeviceName}|{issue.Port}";
+        if (!string.IsNullOrEmpty(issue.Port) || !string.IsNullOrEmpty(issue.ClientMac))
+            return key;
+
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(issue.Description ?? ""));
+        return $"{key}|{Convert.ToHexString(hash, 0, 8)}";
+    }
 
     /// <summary>
     /// Dismiss an issue (excludes it from counts, persisted to database)
