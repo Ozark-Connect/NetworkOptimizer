@@ -624,7 +624,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "channelplan", DisplayName = "Channel plans", Noun = "Channel plan", Group = "Other",
+                Key = "channelplan", DisplayName = "Channel plans", Noun = "Channel plan", Group = "Devices",
                 FieldGroups = ConfigFieldOrder.ChannelPlanFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/channelplan", Order = 99, Churn = true, ReadOnlyFields = CommonReadOnly,
             },
