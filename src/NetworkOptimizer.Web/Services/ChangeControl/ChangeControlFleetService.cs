@@ -410,12 +410,18 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             var latest = series.Points.Count > 0 ? (int)Math.Round(value(series.Points[^1]) * 100) : 0;
             if (points.Any(x => x.Item3 > x.Item2)) stack.Add(new StackLayer(name, color, points, latest));
         }
+        // The right column: health now, then what the latest bucket lost, by area in words.
+        var last = series.Points.LastOrDefault();
+        var losses = last == null ? [] : HealthAreas
+            .Select(a => (a.Name, Points: a.Value(last) * 100)).Where(a => a.Points >= 0.05).OrderByDescending(a => a.Points)
+            .Select(a => $"{a.Name} {a.Points.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}").ToList();
         return new TimelineLane
         {
-            Key = "health", Title = "Site Health", Subtitle = "Points lost, by area", SeriesAName = "health",
+            Key = "health", Title = "Site Health", Subtitle = "Points lost, by area", SeriesAName = "now",
             SeriesA = series.Points.Select(p => (p.Start, (double?)(100 - (p.Health ?? 100)))).ToList(),
             Stack = stack,
             LatestA = series.Latest is { } h ? h.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) : null,
+            LatestB = last == null ? null : losses.Count > 0 ? "lost: " + string.Join(", ", losses) : "nothing lost",
         };
     }
 

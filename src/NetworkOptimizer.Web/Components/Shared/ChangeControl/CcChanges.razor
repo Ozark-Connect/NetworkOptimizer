@@ -138,7 +138,7 @@
                                                 {
                                                     <div><span class="@LaneClassB(lane.Key)">@lane.LatestB</span> @lane.SeriesBName</div>
                                                 }
-                                                @if (lane.Stack.Count > 0)
+                                                @if (lane.Stack.Count > 0 && lane.Key != "health")
                                                 {
                                                     <div class="cc-lane-stack">
                                                         @foreach (var layer in lane.Stack)
@@ -567,6 +567,6 @@
     private static string LaneColorB(string key) => key switch { "throughput" => "var(--speed-upload-color)", _ => "#f59e0b" };
     private static string LaneClassA(string key) => key switch { "throughput" => "down", "cpu" => "cpu", "latency" => "rtt", "loss" => "loss", "health" => "health", _ => "a" };
     private static string HealthLevel(double? h) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(h);
-    private static string LaneClassB(string key) => key switch { "throughput" => "up", _ => "b" };
+    private static string LaneClassB(string key) => key switch { "throughput" => "up", "health" => "muted-text", _ => "b" };
     private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 }
