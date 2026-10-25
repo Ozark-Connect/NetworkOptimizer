@@ -12,7 +12,7 @@ public sealed partial class ChangeControlService
     {
         var record = (await Repo.UseAsync((r, c) => r.GetConsoleBackupsAsync(c), cancellationToken)).FirstOrDefault(b => b.Id == backupId);
         if (record == null) return null;
-        var bytes = await _registry.Blobs.GetFileAsync(_site.Slug, "console-backups/" + record.FileName, cancellationToken);
+        var bytes = await _registry.Blobs.GetFileAsync(_site.Slug, ConsoleWatch.BackupPrefix + record.FileName, cancellationToken);
         return bytes == null ? null : (record.FileName, bytes);
     }
 }

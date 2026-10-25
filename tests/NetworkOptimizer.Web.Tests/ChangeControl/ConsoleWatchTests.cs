@@ -26,6 +26,14 @@ public class ConsoleWatchTests
     }
 
     [Fact]
+    public void BackupStoreName_IsAPlainFileName()
+    {
+        // The file store refuses anything with a folder in it.
+        var name = ConsoleWatch.BackupPrefix + "autobackup_10.6.106_20261020_0700_1760943600000.unf";
+        Path.GetFileName(name).Should().Be(name);
+    }
+
+    [Fact]
     public void Thin_KeepsNewestAndEveryRolloutBackup()
     {
         var t = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);

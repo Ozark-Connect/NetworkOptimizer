@@ -18,7 +18,8 @@ namespace NetworkOptimizer.Web.Services.ChangeControl;
 public sealed class ConsoleWatch
 {
     private static readonly TimeSpan Interval = TimeSpan.FromHours(1);
-    private const string BackupFolder = "console-backups/";
+    /// <summary>Name prefix for a copied backup in the file store, which takes plain file names only (no folders).</summary>
+    internal const string BackupPrefix = "console-backup_";
     private const string SettingsFile = "console-settings.json";
 
     private readonly ChangeControlSiteEngine _engine;
@@ -96,7 +97,7 @@ public sealed class ConsoleWatch
         {
             var (status, bytes) = await _engine.Api.GetBytesAsync(UniFiApiScope.NetworkApp, $"dl/autobackup/{Uri.EscapeDataString(e.FileName)}", ct);
             if (status is < 200 or >= 300 || bytes.Length == 0) continue;
-            var sha = await _blobs.PutFileAsync(Slug, BackupFolder + e.FileName, bytes, ct);
+            var sha = await _blobs.PutFileAsync(Slug, BackupPrefix + e.FileName, bytes, ct);
             var record = new ConsoleBackupRecord
             {
                 FileName = e.FileName, TakenAt = e.TakenAt, FetchedAt = DateTime.UtcNow, SizeBytes = bytes.Length, Sha256 = sha,
@@ -109,7 +110,7 @@ public sealed class ConsoleWatch
 
         var thin = Thin(records, settings.ConsoleBackupsToKeep);
         if (thin.Count == 0) return;
-        foreach (var r in thin) _blobs.DeleteFile(Slug, BackupFolder + r.FileName);
+        foreach (var r in thin) _blobs.DeleteFile(Slug, BackupPrefix + r.FileName);
         await _engine.Repositories.UseAsync((r, c) => r.DeleteConsoleBackupsAsync(thin.Select(x => x.Id).ToList(), c), ct);
     }
 
