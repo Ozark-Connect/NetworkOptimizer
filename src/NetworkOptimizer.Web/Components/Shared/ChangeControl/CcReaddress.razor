@@ -11,7 +11,7 @@
     <div class="card-body">
         <p class="muted-text">Moves each network to a new subnet, and every address in it: reservations, DNS records, port forwards, firewall matches, routes, device static IPs, VPN settings, and Network Optimizer's own settings. Each address keeps its host part.</p>
         <div class="form-group">
-            <label class="form-label">Pattern <span class="tooltip-icon tooltip-icon-sm" data-tooltip="{vlan} is the network's VLAN ID (1 when untagged); {octet3} is its current third octet.">?</span></label>
+            <label class="form-label">Pattern <span class="tooltip-icon tooltip-icon-sm" data-tooltip="{vlan} is the network's VLAN ID (1 when untagged); {octet3} is its current third octet. Shorthand works too: 10.42.x.x or 10.42.*.0 puts the VLAN ID in the third octet, and no /n keeps each network's prefix.">?</span></label>
             <div class="input-with-button">
                 <input class="form-control" placeholder="10.42.{vlan}.0/24" @bind="_pattern" @bind:event="oninput" />
                 <button class="btn btn-contrast" disabled="@(_busy || string.IsNullOrWhiteSpace(_pattern))" @onclick="ApplyPatternAsync">Apply Pattern</button>

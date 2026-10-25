@@ -28,6 +28,20 @@ public class ReaddressingTests
             ("IoT", "192.168.30.0/24", "10.42.30.0/24"));
     }
 
+    [Theory]
+    [InlineData("10.42.{vlan}.0/24")]
+    [InlineData("10.42.{VLAN}.0/24")]
+    [InlineData("10.42.x.x")]
+    [InlineData("10.42.x.0")]
+    [InlineData("10.42.*.0")]
+    [InlineData("10.42.*.*")]
+    [InlineData("10.42.X.0/24")]
+    public void Pattern_AcceptsTokensAndWildcards(string pattern)
+    {
+        var old = Readdressing.ParseSubnet("192.168.30.1/24")!.Value;
+        Readdressing.ApplyPattern(pattern, 30, old).Should().Be("10.42.30.0/24");
+    }
+
     [Fact]
     public void Apply_RewritesEveryAddress_KeepingTheHostPart()
     {

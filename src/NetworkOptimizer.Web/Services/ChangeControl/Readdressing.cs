@@ -96,9 +96,22 @@ public static partial class Readdressing
     /// </summary>
     public static string? ApplyPattern(string pattern, int? vlan, Subnet old)
     {
+        var v = (vlan ?? 1).ToString(CultureInfo.InvariantCulture);
         var text = pattern.Trim()
-            .Replace("{vlan}", (vlan ?? 1).ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase)
+            .Replace("{vlan}", v, StringComparison.OrdinalIgnoreCase)
             .Replace("{octet3}", ((old.Network >> 8) & 255).ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase);
+
+        // Shorthand people type: "x" or "*" is the VLAN in the third octet and 0 in the fourth
+        // (10.42.x.x, 10.42.*.0), and no prefix keeps the network's own.
+        var slash = text.Split('/');
+        var octets = slash[0].Split('.');
+        if (octets.Length == 4)
+        {
+            for (var i = 0; i < 4; i++)
+                if (octets[i].Trim() is "x" or "X" or "*")
+                    octets[i] = i switch { 2 => v, 3 => "0", _ => ((old.Network >> (24 - 8 * i)) & 255).ToString(CultureInfo.InvariantCulture) };
+            text = string.Join('.', octets) + "/" + (slash.Length == 2 ? slash[1] : old.Prefix.ToString(CultureInfo.InvariantCulture));
+        }
         return ParseSubnet(text)?.ToString();
     }
 
