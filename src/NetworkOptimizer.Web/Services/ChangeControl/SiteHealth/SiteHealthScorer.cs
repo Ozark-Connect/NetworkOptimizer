@@ -51,7 +51,10 @@ public sealed record HealthContributor(string Area, double Impairment, string Te
 public static class SiteHealthScorer
 {
     /// <summary>Bump when the scoring changes; stored hours at an older version are recomputed.</summary>
-    public const int Version = 1;
+    public const int Version = 2;
+
+    /// <summary>Loss below this is not felt, so it costs nothing.</summary>
+    internal const double NoticeableLossPct = 0.25;
 
     /// <summary>Satisfaction at or above this is good service (UniFi's own coloring).</summary>
     public const int GoodSatisfaction = 80;
@@ -62,7 +65,10 @@ public static class SiteHealthScorer
 
         // Internet: outage, loss, latency are the ISP's unless something local explains them.
         var outage = Math.Clamp(x.OutageMinutes / 60.0, 0, 1);
-        var loss = x.LossPct is { } l ? Ramp(l, profile.IdleLossAcceptablePct, profile.IdleLossAcceptablePct + 2.5) : 0;
+        // Loss hurts from about a quarter percent (calls and games show it); below that no one notices,
+        // whatever the profile's ideal. Full impairment 2.5 points above where it starts.
+        var lossFloor = Math.Max(profile.IdleLossAcceptablePct, NoticeableLossPct);
+        var loss = x.LossPct is { } l ? Ramp(l, lossFloor, lossFloor + 2.5) : 0;
         double latency = 0;
         if (x.IdleRttMs is { } rtt)
         {

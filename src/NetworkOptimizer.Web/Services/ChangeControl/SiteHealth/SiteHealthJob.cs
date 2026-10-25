@@ -37,6 +37,9 @@ public sealed class SiteHealthJob
     private readonly IAlertEventBus? _bus;
     private readonly ILogger _logger;
     private DateTime _next = DateTime.MinValue;
+    // The device list (names and the uplink tree) comes from the console, which connects after start-up.
+    private static readonly TimeSpan ConsoleWait = TimeSpan.FromMinutes(15);
+    private readonly DateTime _created = DateTime.UtcNow;
 
     public SiteHealthJob(string slug, IChangeControlRepositoryAccessor repos, Func<MonitoringInfluxClient> influx,
         Func<IspHealthService> isp, Func<UniFiConnectionService> connection, IAlertEventBus? bus, ILogger logger)
@@ -55,6 +58,8 @@ public sealed class SiteHealthJob
     {
         var now = DateTime.UtcNow;
         if (now < _next) return;
+        // Scored before the console connects, every device is nameless and weighs the same.
+        if (!_connection().IsConnected && now - _created < ConsoleWait) return;
         _next = now + RunEvery;
         try
         {
@@ -369,7 +374,8 @@ public sealed class SiteHealthJob
         catch (JsonException) { return null; }
     }
 
-    internal static string Mac(string? mac) => (mac ?? "").Trim().ToLowerInvariant().Replace('-', ':');
+    // Influx, the console, and alerts spell MACs differently (colons, none, upper case); match on one form.
+    internal static string Mac(string? mac) => string.IsNullOrWhiteSpace(mac) ? "" : FirmwareHistoryImport.Mac(mac);
 
     private static string BandLabel(string band) => band switch
     {
