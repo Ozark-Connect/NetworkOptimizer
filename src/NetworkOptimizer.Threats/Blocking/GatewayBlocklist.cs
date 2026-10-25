@@ -462,7 +462,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             // A WireGuard server's site-to-site peers route their own subnets into the server's zone.
             var peerSubnets = new Dictionary<string, List<string>>();
             foreach (var server in networks.Where(n => n.VpnType == "wireguard-server"))
-                peerSubnets[server.Id] = (await client.GetWireGuardPeersAsync(server.Id, ct)).SelectMany(p => p.AllowedIps).ToList();
+                peerSubnets[server.Id] = (await client.GetWireGuardPeersAsync(server.Id, ct)).SelectMany(p => p.AllowedIps ?? []).ToList();
             // Teleport's range is in no network and no zone lists it, but the gateway takes tlprt+ traffic
             // into the VPN zone's chains, so only the VPN zone's copy of an exception ever matches it.
             var teleport = exceptions.Any(e => e.Device != null) ? await client.GetTeleportSettingsAsync(ct) : null;
