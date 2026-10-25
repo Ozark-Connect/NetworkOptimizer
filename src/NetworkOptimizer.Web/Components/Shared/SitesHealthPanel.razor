@@ -32,7 +32,12 @@
             <h3 class="shp-title">Sites</h3>
             @if (!_more && avg is { } a)
             {
-                <span class="shp-inline-avg"><b class="health-@SiteHealthSeriesBuilder.Level(a)">@F(a)</b> <span>avg health, 24 hours@(Delta(a, prev))</span></span>
+                <span class="shp-inline-avg"><b class="health-@SiteHealthSeriesBuilder.Level(a)">@F(a)</b>
+                    @if (prev is { } p0 && Math.Abs(a - p0) >= 0.1)
+                    {
+                        <span class="shp-delta @(a < p0 ? "down" : "up")" data-tooltip="@($"{(a < p0 ? "Down" : "Up")} {F(Math.Abs(a - p0))} from the 24 hours before")">@(a < p0 ? "▼" : "▲") @F(Math.Abs(a - p0))</span>
+                    }
+                    <span>avg health, 24 hours</span></span>
             }
             <span class="shp-spacer"></span>
             <a class="shp-switcher" href="/sites">Open site switcher</a>
@@ -51,7 +56,7 @@
                         <span class="health-@SiteHealthSeriesBuilder.Level(avg)">@(avg is { } v ? F(v) : "--")</span>
                         @if (avg is { } a2 && prev is { } p && Math.Abs(a2 - p) >= 0.1)
                         {
-                            <span class="shp-delta @(a2 < p ? "down" : "up")">@(a2 < p ? "down" : "up") @F(Math.Abs(a2 - p))</span>
+                            <span class="shp-delta @(a2 < p ? "down" : "up")" data-tooltip="@($"{(a2 < p ? "Down" : "Up")} {F(Math.Abs(a2 - p))} from the 24 hours before")">@(a2 < p ? "▼" : "▲") @F(Math.Abs(a2 - p))</span>
                         }
                     </div>
                     <div class="shp-avg-sub">@healthy healthy, @degraded degraded, @down down</div>
@@ -206,9 +211,6 @@
 
     private static string SparkLabel(SiteHealthSummary s) =>
         s.Health.Average is { } a ? $"Site Health over 24 hours, average {a:0.#}" : "No Site Health data";
-
-    private static string Delta(double avg, double? prev) =>
-        prev is { } p && Math.Abs(avg - p) >= 0.1 ? $", {(avg < p ? "down" : "up")} {F(Math.Abs(avg - p))}" : "";
 
     private static string F(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 

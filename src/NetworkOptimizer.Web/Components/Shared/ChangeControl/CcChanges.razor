@@ -96,7 +96,7 @@
                                 <b class="cc-health-@HealthLevel(avg)">@avg.ToString("0.#")</b> <span>health</span>
                                 @if (row.Health.PreviousAverage is { } prev && Math.Abs(avg - prev) >= 0.1)
                                 {
-                                    <span class="cc-health-delta @(avg < prev ? "down" : "up")">@(avg < prev ? "down" : "up") @Math.Abs(avg - prev).ToString("0.#")</span>
+                                    <span class="cc-health-delta @(avg < prev ? "down" : "up")" data-tooltip="@($"{(avg < prev ? "Down" : "Up")} {Math.Abs(avg - prev):0.#} from the {RangeLabel()} before")">@(avg < prev ? "▼" : "▲") @Math.Abs(avg - prev).ToString("0.#")</span>
                                 }
                             }
                             else
@@ -324,6 +324,16 @@
     private readonly HashSet<string> _who = [];
     private bool _showOwn;
     private string _range = "7d";
+
+    /// <summary>The range as a period ("7 days"), for "up 2 from the 7 days before".</summary>
+    private string RangeLabel() => _range switch
+    {
+        "24h" => "24 hours",
+        "7d" => "7 days",
+        "30d" => "30 days",
+        "90d" => "90 days",
+        _ => "same length of time",
+    };
     private DateTime _customFrom = DateTime.Today.AddDays(-14);
     private DateTime _customTo = DateTime.Today;
     private DateTime _from;
