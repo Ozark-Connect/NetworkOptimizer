@@ -276,12 +276,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         {
             var engine = _registry.GetFor(site.Slug);
             var (changes, incidents, settings) = await engine.Repositories.UseAsync(async (r, c) =>
-                (await r.GetChangesAsync(fromUtc, toUtc, 2000, c), await r.GetIncidentsStartedAsync(fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c), await r.GetSettingsAsync(c)), cancellationToken);
+                (await r.GetChangesAsync(fromUtc, toUtc, 2000, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c), await r.GetSettingsAsync(c)), cancellationToken);
             rows.AddRange(changes
                 .Where(x => settings.ShowOwnChanges || x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null)
-                .Select(x => ChangeControlService.Row(x, site.Slug, site.Name, x.Kind != ConfigChangeKind.Config ? 0
-                    : incidents.Count(i => !ChangeControlService.IsWanIncident(i) && i.FirstTriggeredAt >= x.OccurredAt
-                        && i.FirstTriggeredAt - x.OccurredAt <= ChangeControlSiteEngine.IncidentWindow))));
+                .Select(x => ChangeControlService.Row(x, site.Slug, site.Name, ChangeControlService.LinkedAfter(x, incidents))));
         }
         return rows.OrderByDescending(r => r.OccurredAt).ToList();
     }
@@ -295,9 +293,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             var engine = _registry.GetFor(site.Slug);
             var view = await SiteViewAsync(site, withDrift: false, cancellationToken);
             var (gaps, incidents) = await engine.Repositories.UseAsync(async (r, c) =>
-                (await r.GetGapsAsync(fromUtc, toUtc, c), await r.GetIncidentsStartedAsync(fromUtc, toUtc, c)), cancellationToken);
+                (await r.GetGapsAsync(fromUtc, toUtc, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc, c)), cancellationToken);
             var bands = gaps.Select(g => new TimelineBand(g.StartedAt, g.EndedAt ?? DateTime.UtcNow, "gap", g.Reason))
-                .Concat(incidents.Select(i => new TimelineBand(i.FirstTriggeredAt, i.ResolvedAt ?? i.LastTriggeredAt, "incident", i.Title))).ToList();
+                .Concat(incidents.Select(s => s.Incident).Select(i => new TimelineBand(i.FirstTriggeredAt, i.ResolvedAt ?? i.LastTriggeredAt, "incident", i.Title))).ToList();
             var markers = changes.Where(c => c.SiteSlug == site.Slug).ToList();
             List<(DateTime, double?)> sparkline = [];
             try

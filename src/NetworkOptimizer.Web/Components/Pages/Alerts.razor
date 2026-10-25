@@ -1341,10 +1341,7 @@
                                     <span class="detail-value">@FormatTime(incident.LastTriggeredAt)</span>
                                 </div>
                             </div>
-                            @if (!NetworkOptimizer.Web.Services.ChangeControl.ChangeControlService.IsWanIncident(incident))
-                            {
-                                <NetworkOptimizer.Web.Components.Shared.ChangeControl.CcIncidentChanges StartedAtUtc="incident.FirstTriggeredAt" />
-                            }
+                            <NetworkOptimizer.Web.Components.Shared.ChangeControl.CcIncidentChanges IncidentId="incident.Id" />
                             <div class="incident-actions">
                                 @if (incident.Status == AlertStatus.Active)
                                 {

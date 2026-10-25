@@ -617,12 +617,12 @@ public sealed class PlanCoordinator
             });
         }
 
-        var incidents = await _engine.Repositories.UseAsync((r, c) => r.GetIncidentsStartedAsync(started, done + ChangeControlSiteEngine.IncidentWindow, c), ct);
+        var incidents = await _engine.Repositories.UseAsync((r, c) => ChangeIncidents.StartedAsync(r, started, done + ChangeControlSiteEngine.IncidentWindow, c), ct);
         var rolloutPlan = new FirmwareRolloutPlan { StartedAt = started, CompletedAt = done, CreatedBy = plan.AppliedBy ?? "" };
         var rolloutDoc = new RolloutPlanDocument();
         rolloutDoc.Notes.Add($"Change Control plan: {plan.Name}");
-        foreach (var i in incidents)
-            rolloutDoc.Notes.Add($"Incident after: {i.Title} ({i.FirstTriggeredAt:u})");
+        foreach (var s in incidents)
+            rolloutDoc.Notes.Add($"Incident after{(s.IsWan ? " (WAN)" : "")}: {s.Incident.Title} ({s.Incident.FirstTriggeredAt:u})");
         var report = RolloutReportBuilder.Build(rolloutPlan, rolloutDoc, steps, DateTime.UtcNow);
         foreach (var row in report.Rows) row.Outcome = "Applied";
         plan.ReportJson = JsonSerializer.Serialize(report);

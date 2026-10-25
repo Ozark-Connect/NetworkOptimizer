@@ -24,18 +24,18 @@
 }
 
 @code {
-    [Parameter, EditorRequired] public DateTime StartedAtUtc { get; set; }
+    [Parameter, EditorRequired] public int IncidentId { get; set; }
 
     private List<ChangeRowView>? _changes;
-    private DateTime _loadedFor;
+    private int _loadedFor;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_changes != null && _loadedFor == StartedAtUtc) return;
-        _loadedFor = StartedAtUtc;
+        if (_changes != null && _loadedFor == IncidentId) return;
+        _loadedFor = IncidentId;
         try
         {
-            _changes = await Site.GetChangesBeforeAsync(StartedAtUtc);
+            _changes = await Site.GetChangesBeforeAsync(IncidentId);
         }
         catch (Exception ex)
         {

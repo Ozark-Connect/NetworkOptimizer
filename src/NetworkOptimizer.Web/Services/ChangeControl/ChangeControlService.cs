@@ -97,32 +97,31 @@ public sealed partial class ChangeControlService : IChangeControlService
         {
             var changes = (await r.GetChangesAsync(fromUtc, toUtc, 2000, c))
                 .Where(x => own || x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
-            var incidents = await r.GetIncidentsStartedAsync(fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c);
-            return changes.Select(x => Row(x, _site.Slug, name, x.Kind == ConfigChangeKind.Config
-                ? incidents.Count(i => !IsWanIncident(i) && i.FirstTriggeredAt >= x.OccurredAt && i.FirstTriggeredAt - x.OccurredAt <= ChangeControlSiteEngine.IncidentWindow)
-                : 0)).ToList();
+            var incidents = await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c);
+            return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents))).ToList();
         }, cancellationToken);
     }
 
-    /// <summary>WAN/ISP incidents are listed but never linked to LAN config changes (spec).</summary>
-    internal static bool IsWanIncident(NetworkOptimizer.Alerts.Models.AlertIncident i) =>
-        i.CorrelationKey.StartsWith("wan", StringComparison.OrdinalIgnoreCase) || i.CorrelationKey.StartsWith("isp", StringComparison.OrdinalIgnoreCase)
-        || i.Title.Contains("WAN", StringComparison.Ordinal) || i.Title.Contains("ISP", StringComparison.Ordinal);
+    /// <summary>Linked incidents that started within the window after a config change. WAN/ISP ones are listed, never counted (spec).</summary>
+    internal static int LinkedAfter(ConfigChange x, List<ScopedIncident> incidents) => x.Kind != ConfigChangeKind.Config ? 0
+        : incidents.Count(i => i.Relevance == IncidentRelevance.Linked && i.Incident.FirstTriggeredAt >= x.OccurredAt
+            && i.Incident.FirstTriggeredAt - x.OccurredAt <= ChangeControlSiteEngine.IncidentWindow);
 
-    internal static IncidentView Incident(NetworkOptimizer.Alerts.Models.AlertIncident i) => new()
+    internal static IncidentView Incident(ScopedIncident s) => new()
     {
-        Id = i.Id, Title = i.Title, StartedAt = i.FirstTriggeredAt, ResolvedAt = i.ResolvedAt, Severity = i.Severity.ToString(), IsWan = IsWanIncident(i),
+        Id = s.Incident.Id, Title = s.Incident.Title, StartedAt = s.Incident.FirstTriggeredAt, ResolvedAt = s.Incident.ResolvedAt,
+        Severity = s.Incident.Severity.ToString(), IsWan = s.IsWan,
     };
 
     public async Task<ChangeDetailView?> GetChangeDetailAsync(int changeId, CancellationToken cancellationToken = default)
     {
         var name = await SiteNameAsync(cancellationToken);
-        var loaded = await Repo.UseAsync<(ConfigChange change, List<ConfigChangeObject> objects, List<NetworkOptimizer.Alerts.Models.AlertIncident> incidents)?>(async (r, c) =>
+        var loaded = await Repo.UseAsync<(ConfigChange change, List<ConfigChangeObject> objects, List<ScopedIncident> incidents)?>(async (r, c) =>
         {
             var change = await r.GetChangeAsync(changeId, c);
             if (change == null) return null;
             var objects = await r.GetChangeObjectsAsync([change.Id], c);
-            var incidents = await r.GetIncidentsStartedAsync(change.OccurredAt, change.OccurredAt + ChangeControlSiteEngine.IncidentWindow, c);
+            var incidents = await ChangeIncidents.StartedAsync(r, change.OccurredAt, change.OccurredAt + ChangeControlSiteEngine.IncidentWindow, c);
             return (change, objects, incidents);
         }, cancellationToken);
         if (loaded is not { } l) return null;
@@ -134,7 +133,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             : null;
         return new ChangeDetailView
         {
-            Row = Row(l.change, _site.Slug, name, l.incidents.Count(i => !IsWanIncident(i))),
+            Row = Row(l.change, _site.Slug, name, LinkedAfter(l.change, l.incidents)),
             Objects = l.objects.Select(ObjectView).ToList(),
             Impact = impact,
             IncidentsAfter = l.incidents.Select(Incident).ToList(),
@@ -160,10 +159,17 @@ public sealed partial class ChangeControlService : IChangeControlService
         };
     }
 
-    public async Task<List<ChangeRowView>> GetChangesBeforeAsync(DateTime incidentStartUtc, CancellationToken cancellationToken = default)
+    public async Task<List<ChangeRowView>> GetChangesBeforeAsync(int incidentId, CancellationToken cancellationToken = default)
     {
         var name = await SiteNameAsync(cancellationToken);
-        var changes = await Repo.UseAsync((r, c) => r.GetChangesAsync(incidentStartUtc - ChangeControlSiteEngine.IncidentWindow, incidentStartUtc, 100, c), cancellationToken);
+        var changes = await Repo.UseAsync(async (r, c) =>
+        {
+            if (await r.GetIncidentAsync(incidentId, ChangeIncidents.EventTypes, c) is not { } found
+                || ChangeIncidents.Classify(found.Alerts) != IncidentRelevance.Linked)
+                return new List<ConfigChange>();
+            var start = found.Incident.FirstTriggeredAt;
+            return await r.GetChangesAsync(start - ChangeControlSiteEngine.IncidentWindow, start, 100, c);
+        }, cancellationToken);
         return changes.Where(c => c.Kind == ConfigChangeKind.Config).Select(c => Row(c, _site.Slug, name, 1)).ToList();
     }
 

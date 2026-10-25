@@ -21,9 +21,12 @@ public interface IChangeControlService
     [RequireRole(Roles.Viewer)]
     Task<ChangeDetailView?> GetChangeDetailAsync(int changeId, CancellationToken cancellationToken = default);
 
-    /// <summary>Changes in the two hours before an incident, for Alerts &amp; Schedule - Incidents.</summary>
+    /// <summary>
+    /// Changes in the two hours before an incident, for Alerts &amp; Schedule - Incidents. Empty for an
+    /// incident a config change cannot cause (<see cref="ChangeIncidents"/>).
+    /// </summary>
     [RequireRole(Roles.Viewer)]
-    Task<List<ChangeRowView>> GetChangesBeforeAsync(DateTime incidentStartUtc, CancellationToken cancellationToken = default);
+    Task<List<ChangeRowView>> GetChangesBeforeAsync(int incidentId, CancellationToken cancellationToken = default);
 
     /// <summary>The Snapshots tab.</summary>
     [RequireRole(Roles.Viewer)]

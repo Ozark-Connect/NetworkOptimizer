@@ -313,10 +313,37 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
             return query.OrderByDescending(p => p.CreatedAt).Take(limit).ToListAsync(cancellationToken);
         }, nameof(GetPlansAsync));
 
-    public Task<List<NetworkOptimizer.Alerts.Models.AlertIncident>> GetIncidentsStartedAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
-        ExecuteAsync(() => _context.AlertIncidents.AsNoTracking()
-            .Where(i => i.FirstTriggeredAt >= fromUtc && i.FirstTriggeredAt <= toUtc)
-            .OrderBy(i => i.FirstTriggeredAt).Take(500).ToListAsync(cancellationToken), nameof(GetIncidentsStartedAsync));
+    public Task<List<(NetworkOptimizer.Alerts.Models.AlertIncident Incident, List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry> Alerts)>> GetIncidentsStartedAsync(
+        DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(async () =>
+        {
+            var types = eventTypes.ToArray();
+            var incidents = await _context.AlertIncidents.AsNoTracking()
+                .Where(i => i.FirstTriggeredAt >= fromUtc && i.FirstTriggeredAt <= toUtc
+                    && _context.AlertHistory.Any(a => a.IncidentId == i.Id && types.Contains(a.EventType)))
+                .OrderBy(i => i.FirstTriggeredAt).Take(500).ToListAsync(cancellationToken);
+            return await WithAlertsAsync(incidents, types, cancellationToken);
+        }, nameof(GetIncidentsStartedAsync));
+
+    public Task<(NetworkOptimizer.Alerts.Models.AlertIncident Incident, List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry> Alerts)?> GetIncidentAsync(
+        int incidentId, IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(async () =>
+        {
+            var incident = await _context.AlertIncidents.AsNoTracking().FirstOrDefaultAsync(i => i.Id == incidentId, cancellationToken);
+            if (incident == null) return ((NetworkOptimizer.Alerts.Models.AlertIncident, List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry>)?)null;
+            return (await WithAlertsAsync([incident], eventTypes.ToArray(), cancellationToken))[0];
+        }, nameof(GetIncidentAsync));
+
+    private async Task<List<(NetworkOptimizer.Alerts.Models.AlertIncident, List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry>)>> WithAlertsAsync(
+        List<NetworkOptimizer.Alerts.Models.AlertIncident> incidents, string[] types, CancellationToken cancellationToken)
+    {
+        var ids = incidents.Select(i => i.Id).ToArray();
+        var alerts = (await _context.AlertHistory.AsNoTracking()
+                .Where(a => a.IncidentId != null && ids.Contains(a.IncidentId.Value) && types.Contains(a.EventType))
+                .ToListAsync(cancellationToken))
+            .ToLookup(a => a.IncidentId!.Value);
+        return incidents.Select(i => (i, alerts[i.Id].ToList())).ToList();
+    }
 
     public Task<List<ConsoleBackupRecord>> GetConsoleBackupsAsync(CancellationToken cancellationToken = default) =>
         ExecuteAsync(() => _context.ConsoleBackups.AsNoTracking().OrderByDescending(b => b.TakenAt).ToListAsync(cancellationToken),

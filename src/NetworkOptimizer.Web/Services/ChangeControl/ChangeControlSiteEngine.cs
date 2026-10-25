@@ -297,12 +297,13 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             await RunRetentionAsync(settings, state, now, ct);
     }
 
-    /// <summary>Incidents in the last day that started within two hours after a config change.</summary>
+    /// <summary>Linked incidents in the last day that started within two hours after a config change.</summary>
     private async Task<int> CountIncidentsAfterChangesAsync(DateTime now, CancellationToken ct) =>
         await _repos.UseAsync(async (r, c) =>
         {
             var changes = (await r.GetChangesAsync(now.AddDays(-1).AddHours(-2), now, 1000, c)).Where(x => x.Kind == ConfigChangeKind.Config).ToList();
-            var incidents = await r.GetIncidentsStartedAsync(now.AddDays(-1), now, c);
+            var incidents = (await ChangeIncidents.StartedAsync(r, now.AddDays(-1), now, c))
+                .Where(s => s.Relevance == IncidentRelevance.Linked).Select(s => s.Incident);
             return incidents.Count(i => changes.Any(x => i.FirstTriggeredAt >= x.OccurredAt && i.FirstTriggeredAt - x.OccurredAt <= IncidentWindow));
         }, ct);
 
