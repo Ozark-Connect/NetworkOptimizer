@@ -20,7 +20,7 @@
                 <option value="@s.Slug">@s.Name</option>
             }
         </select>
-        <span class="cc-toolbar-label">Who</span>
+        <span class="cc-toolbar-label">Source</span>
         @foreach (var (key, label) in WhoFilters)
         {
             <button class="cc-chip @(WhoShown(key) ? "" : "off")" @onclick="() => ToggleWho(key)">

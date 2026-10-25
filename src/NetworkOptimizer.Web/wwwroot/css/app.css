@@ -24077,7 +24077,7 @@ body:has(.top-bar-hidden) .btn-fit {
 
 @media (min-width: 769px) {
     .change-control .cc-search {
-        min-width: 320px;
+        min-width: 360px;
     }
 }
 
