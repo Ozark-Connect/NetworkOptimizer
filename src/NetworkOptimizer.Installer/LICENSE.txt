@@ -24,7 +24,8 @@ Additional Use Grant: You may make production use of the Licensed Work for
                       For commercial licensing inquiries, please contact
                       tj@ozarkconnect.net.
 
-Change Date:          2028-01-01
+Change Date:          Three years from the date the Licensed Work is
+                      published.
 
 Change License:       Apache License 2.0
 
