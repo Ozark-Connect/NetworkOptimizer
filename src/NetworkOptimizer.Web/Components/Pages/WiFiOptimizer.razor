@@ -30,7 +30,7 @@
 <div class="page-header">
     <PageBackButton />
     <h1>Wi-Fi Optimizer</h1>
-    <p class="page-description">Site health scoring, signal analysis, and optimization recommendations</p>
+    <p class="page-description">Wi-Fi health scoring, signal analysis, and optimization recommendations</p>
 </div>
 
 <RestrictedSiteNotice />
@@ -96,7 +96,7 @@
                         @GetScoreLabel(_summary?.HealthScore)
                     }
                 </div>
-                <div class="stat-label">Site Health</div>
+                <div class="stat-label">Wi-Fi Health</div>
             </div>
         </div>
 
@@ -355,7 +355,7 @@
         <!-- Health Score Card -->
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Site Health Score</h2>
+                <h2 class="card-title">Wi-Fi Health Score</h2>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
                     @if (_refreshing)
                     {

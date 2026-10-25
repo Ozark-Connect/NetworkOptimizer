@@ -331,7 +331,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 ### Overview
 
-- **Site Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
+- **Wi-Fi Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
