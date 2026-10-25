@@ -54,7 +54,7 @@ public sealed partial class ChangeControlService
         {
             Mac = d["mac"]?.ToString().ToLowerInvariant() ?? "",
             Name = ConfigState.DisplayName(ConfigCollections.Get("device"), d),
-            Model = MetaStr(d, "shortname") ?? d["model"]?.ToString() ?? "",
+            Model = UniFiProductDatabase.GetBestProductName(d["model"]?.ToString(), MetaStr(d, "shortname")),
             Type = d["type"]?.ToString() ?? MetaStr(d, "type") ?? "",
             Version = d["version"]?.ToString(),
             Online = state == "1",
@@ -160,7 +160,8 @@ public sealed partial class ChangeControlService
             .Select(p => new FirmwareAlignRow
             {
                 Mac = p.Live!["mac"]!.ToString().ToLowerInvariant(),
-                Name = p.Live["name"]?.ToString() is { Length: > 0 } nm ? nm : p.Live["model"]?.ToString() ?? "",
+                Name = p.Live["name"]?.ToString() is { Length: > 0 } nm ? nm
+                    : UniFiProductDatabase.GetBestProductName(p.Live["model"]?.ToString(), MetaStr(p.Live, "shortname")),
                 Current = p.Live["version"]!.ToString(),
                 Target = p.Snap["version"]!.ToString(),
             })

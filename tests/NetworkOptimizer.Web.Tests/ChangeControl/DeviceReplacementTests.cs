@@ -82,6 +82,7 @@ public class DeviceReplacementTests
         var map = DeviceReplacement.PortMap(p);
 
         p.SameLayout.Should().BeFalse();
+        p.OldModel.Should().Be("US-24-250W", "models show as the product SKU, not the device code");
         map[25].Should().Be(17, "the uplink goes to the new uplink SFP+ port");
         map[1].Should().BeInRange(13, 16, "a powered port prefers the faster PoE ports");
         p.Ports.Single(r => r.OldPorts.Contains(1)).Connected.Should().Be("Back Yard AP (21 W)");

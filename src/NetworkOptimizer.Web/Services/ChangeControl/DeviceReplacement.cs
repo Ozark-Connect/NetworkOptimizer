@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
 
@@ -102,8 +103,8 @@ public static class DeviceReplacement
             OldMac = Str(oldDevice, "mac")?.ToLowerInvariant() ?? "",
             NewMac = Str(newDevice, "mac")?.ToLowerInvariant() ?? "",
             OldName = ConfigState.DisplayName(ConfigCollections.Get("device"), oldDevice),
-            OldModel = Str(oldMeta, "shortname") ?? Str(oldDevice, "model") ?? "",
-            NewModel = Str(newMeta, "shortname") ?? Str(newDevice, "model") ?? "",
+            OldModel = UniFiProductDatabase.GetBestProductName(Str(oldDevice, "model"), Str(oldMeta, "shortname")),
+            NewModel = UniFiProductDatabase.GetBestProductName(Str(newDevice, "model"), Str(newMeta, "shortname")),
             OldVersion = Str(oldDevice, "version") ?? Str(oldMeta, "version"),
             NewVersion = Str(newDevice, "version") ?? Str(newMeta, "version"),
             SameLayout = sameLayout,
