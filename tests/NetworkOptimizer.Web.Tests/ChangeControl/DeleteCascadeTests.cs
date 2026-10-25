@@ -83,6 +83,26 @@ public class DeleteCascadeTests
         DeleteCascade.Removed(ConfigCollections.Get("wlanconf")!, baseState, WithParsed(baseState, result))
             .Select(o => o["name"]!.ToString()).Should().Equal("UTR-Testing");
         DeleteCascade.Removed(ConfigCollections.Get("apgroups")!, baseState, WithParsed(baseState, result)).Should().BeEmpty();
+        // The AP group sits in the same file: the kept WLAN must still point at its real ID, not a temporary one.
+        result.Collections["wlanconf"].Single()["ap_group_ids"]!.AsArray().Select(e => e!.ToString()).Should().Equal("g1");
+    }
+
+    [Fact]
+    public void Parse_NewObjectReferencedInTheSameFile_KeepsATemporaryIdOnlyForTheNewOne()
+    {
+        var baseState = new ConfigState();
+        baseState.Collections["apgroups"] = [Obj("""{"_id":"g1","name":"All APs","device_macs":[]}""")];
+        baseState.Collections["wlanconf"] = [Obj("""{"_id":"w1","name":"Home","ap_group_ids":["g1"]}""")];
+        var yaml = YamlConverter.Export(baseState, ["apgroups", "wlanconf"], SecretMode.Mask);
+        var apYaml = YamlConverter.YamlName(ConfigCollections.Get("apgroups")!);
+        yaml = yaml.Replace($"{apYaml}:\n", $"{apYaml}:\n- name: Upstairs\n  device_macs: []\n", StringComparison.Ordinal);
+
+        var result = YamlConverter.Parse(yaml, baseState, "wlans.yaml");
+
+        result.Collections["apgroups"].Should().HaveCount(2);
+        result.Collections["apgroups"].Single(o => o["name"]!.ToString() == "All APs")["_id"]!.ToString().Should().Be("g1");
+        result.Collections["apgroups"].Single(o => o["name"]!.ToString() == "Upstairs").ContainsKey("_id").Should().BeFalse();
+        result.Collections["wlanconf"].Single()["ap_group_ids"]!.AsArray().Select(e => e!.ToString()).Should().Equal("g1");
     }
 
     private static ConfigState WithParsed(ConfigState baseState, YamlParseResult result)

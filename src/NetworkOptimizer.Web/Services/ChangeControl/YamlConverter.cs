@@ -357,11 +357,26 @@ public static partial class YamlConverter
         var desired = baseState.Clone();
         foreach (var key in result.Collections.Keys)
             desired.Collections[key] = raw.Where(r => r.Def.Key == key).Select(r => r.Obj).ToList();
-        // Objects in the file without an ID get a temporary one so they can be referenced.
-        var tempId = 0;
         foreach (var (_, _, obj) in raw)
             if (!obj.ContainsKey("_id") && obj["id"] is JsonValue idv && idv.TryGetValue<string>(out var given)) { obj["_id"] = given; obj.Remove("id"); }
-            else if (!obj.ContainsKey("_id")) obj["_id"] = $"new-{++tempId}";
+        // The file carries no IDs: an object that matches one in the state it was made from (enforced key,
+        // then name, as Review Plan matches) takes that object's ID, so references to it in this file
+        // resolve to the real object. Without this, an untouched WLAN's AP group became a temporary ID.
+        var baseCtx = new ConfigIdentityContext(baseState.NamesById());
+        var fileCtx = new ConfigIdentityContext(desired.NamesById());
+        foreach (var key in result.Collections.Keys)
+        {
+            var def = ConfigCollections.Get(key)!;
+            var unnamed = raw.Where(r => r.Def.Key == key && !r.Obj.ContainsKey("_id")).Select(r => r.Obj).ToList();
+            var taken = raw.Where(r => r.Def.Key == key && r.Obj.ContainsKey("_id")).Select(r => ConfigState.IdOf(r.Obj)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var match = ObjectMatcher.Match(def, unnamed, baseState.Get(key).Where(o => !taken.Contains(ConfigState.IdOf(o))).ToList(), fileCtx, baseCtx);
+            foreach (var pair in match.Pairs.Where(p => p.Left != null && p.Right != null))
+                pair.Left!["_id"] = ConfigState.IdOf(pair.Right!);
+        }
+        // Only new objects are left: a temporary ID, so the file can refer to what it creates.
+        var tempId = 0;
+        foreach (var (_, _, obj) in raw)
+            if (!obj.ContainsKey("_id")) obj["_id"] = $"{TempIdPrefix}{++tempId}";
 
         var index = new ReferenceIndex(desired);
         var fieldMap = ReferenceFields(baseState);
@@ -371,15 +386,18 @@ public static partial class YamlConverter
             ResolveSecretTokens(def, resolved, baseState, Line(map), result, fileName);
             result.Collections[def.Key].Add(resolved);
         }
-        foreach (var (_, _, obj) in raw.Where(r => ConfigState.IdOf(r.Obj).StartsWith("new-", StringComparison.Ordinal)))
+        foreach (var (_, _, obj) in raw.Where(r => ConfigState.IdOf(r.Obj).StartsWith(TempIdPrefix, StringComparison.Ordinal)))
             obj.Remove("_id");
         foreach (var list in result.Collections.Values)
-            foreach (var obj in list.Where(o => (o["_id"]?.ToString() ?? "").StartsWith("new-", StringComparison.Ordinal)))
+            foreach (var obj in list.Where(o => (o["_id"]?.ToString() ?? "").StartsWith(TempIdPrefix, StringComparison.Ordinal)))
                 obj.Remove("_id");
 
         Lint(result, baseState, raw, fileName);
         return result;
     }
+
+    /// <summary>Prefix of a temporary ID for an object an edit creates. No UniFi value starts with it, so a plan can refuse one.</summary>
+    public const string TempIdPrefix = "@new:";
 
     private static int Line(YamlNode node) => (int)node.Start.Line;
 
