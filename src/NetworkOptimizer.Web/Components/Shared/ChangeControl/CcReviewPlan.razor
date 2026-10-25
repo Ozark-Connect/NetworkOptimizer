@@ -82,7 +82,7 @@ else
         <div class="card-header"><h3 class="card-title">Impact <span class="card-title-suffix">Security Audit and lockout checks on the planned config</span></h3></div>
         @if (doc.Lockouts.Count == 0 && doc.Regressions.Count == 0 && doc.Fixes.Count == 0)
         {
-            <div class="card-body muted-text">@(doc.ImpactRan || !doc.Collections.Any() ? "No security regressions or lockout risks." : "No lockout risks. The Security Audit did not run for these collections.")</div>
+            <div class="empty-state empty-state-small"><p>@(doc.ImpactRan || !doc.Collections.Any() ? "No security regressions or lockout risks." : "No lockout risks. The Security Audit did not run for these collections.")</p></div>
         }
         @foreach (var lockout in doc.Lockouts)
         {
