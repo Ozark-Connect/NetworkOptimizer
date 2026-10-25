@@ -57,6 +57,18 @@ public class YamlEditSchemaTests
     }
 
     [Fact]
+    public void Lint_WarnsWhenALanNetworkFieldNamesAWan()
+    {
+        var state = Site();
+        var yaml = YamlConverter.Export(state, ["wlanconf"], SecretMode.Mask, ids: true)
+            .Replace("network: Default", "network: Internet 1", StringComparison.Ordinal);
+
+        var result = YamlConverter.Parse(yaml, state, "wlans.yaml");
+
+        result.Problems.Should().ContainSingle(p => p.Level == "Warning" && p.Message.Contains("Internet 1 is not a LAN network (wan)"));
+    }
+
+    [Fact]
     public void Enums_AreBooleansAndChoiceFields_NotAddressesOrFreeText()
     {
         var schema = Schema();

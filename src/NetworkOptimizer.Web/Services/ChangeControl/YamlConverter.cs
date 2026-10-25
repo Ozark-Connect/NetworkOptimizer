@@ -529,6 +529,11 @@ public static partial class YamlConverter
                 output[original] = value is JsonArray list
                     ? new JsonArray(list.Select(e => (JsonNode?)index.ResolveReference(e, key, TargetCollection(original), line, result, fileName)).ToArray())
                     : index.ResolveReference(value, key, TargetCollection(original), line, result, fileName);
+                if (LanNetworkFields.Contains(original))
+                    foreach (var id in output[original] is JsonArray ids ? ids.Select(i => i?.ToString()) : [output[original]?.ToString()])
+                        if (id != null && index.Network(id) is { } network && network["purpose"] != null && !IsLanNetwork(network))
+                            result.Problems.Add(new YamlProblem("Warning", fileName, line,
+                                $"{key}: {network["name"]} is not a LAN network ({network["purpose"]}). Only corporate, guest, and VLAN-only networks work here; the UniFi Console rejects it."));
             }
             return output;
         }
@@ -671,6 +676,10 @@ public static partial class YamlConverter
                     var node => Flow(node),
                 }, CandidateDetail(collection, e.Value.Object)))
                 .OrderBy(c => c.Item1, StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The network with this ID, or null when the ID is not a network.</summary>
+        public JsonObject? Network(string id) =>
+            _byId.TryGetValue(id, out var e) && e.Collection == "networkconf" ? e.Object : null;
 
         // What tells two candidates apart at a glance: a network's VLAN and subnet.
         private static string? CandidateDetail(string collection, JsonObject o)
