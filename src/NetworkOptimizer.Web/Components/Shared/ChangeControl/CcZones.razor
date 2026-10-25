@@ -138,7 +138,7 @@ else
             </span>
             <button class="btn btn-contrast hide-mobile" disabled="@_busy" @onclick="ResetAsync">Reset to Suggestion</button>
             <SiteOperatorOnly>
-                <button class="btn btn-primary" disabled="@_busy" @onclick="ReviewPlanAsync">Review Plan</button>
+                <button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">Review Plan</button>
             </SiteOperatorOnly>
         </div>
     </div>
@@ -150,7 +150,7 @@ else
             <div class="cc-card-footer">
                 <span class="cc-remaining"></span>
                 <SiteOperatorOnly>
-                    <button class="btn btn-primary" disabled="@_busy" @onclick="() => TranslateAsync(legacyId)">Translate Legacy Rules</button>
+                    <button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => TranslateAsync(legacyId)">Translate Legacy Rules</button>
                 </SiteOperatorOnly>
             </div>
         </div>
@@ -163,6 +163,9 @@ else
 
 @code {
     [Parameter] public string SiteName { get; set; } = "";
+
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
 
     private ZoneSetupView? _board;
     private string _mode = ZoneSetup.TrustMode;

@@ -1,4 +1,6 @@
+@implements IDisposable
 @inject NavigationManager Nav
+@inject UniFiConnectionService ConnectionService
 
 <PageTitle>Change Control - Network Optimizer</PageTitle>
 
@@ -20,6 +22,12 @@
         <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
     </div>
 
+    @if (SiteTabs.Contains(ActiveTab))
+    {
+        <ConsoleConnectionBanner />
+    }
+
+    <CascadingValue Name="ConsoleConnected" Value="ConnectionService.IsConnected">
     @switch (ActiveTab)
     {
         case "changes":
@@ -41,6 +49,7 @@
             <CcOverview />
             break;
     }
+    </CascadingValue>
 </div>
 
 @code {
@@ -52,7 +61,18 @@
         ("edit", "Edit"), ("migrate", "Migrate"), ("settings", "Settings"),
     ];
 
+    // Tabs that act on one site's Console. Overview and Changes span the fleet and show each
+    // site's reachability themselves; Settings is stored config only.
+    private static readonly HashSet<string> SiteTabs = ["snapshots", "edit", "migrate"];
+
     private string ActiveTab => Tabs.Any(t => t.Key == Tab) ? Tab! : "overview";
+
+    protected override void OnInitialized() => ConnectionService.OnConnectionChanged += OnConnectionChanged;
+
+    // Fires from a background thread (console reconnect).
+    private void OnConnectionChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => ConnectionService.OnConnectionChanged -= OnConnectionChanged;
 
     private void Go(string key)
     {

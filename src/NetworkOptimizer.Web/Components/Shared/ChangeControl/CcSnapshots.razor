@@ -30,7 +30,7 @@
             <CcObjectTable Objects="drift.Objects" PastTense="true" />
             <div class="cc-card-footer">
                 <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="AcceptBaselineAsync">Accept as Baseline</button></SiteAdminOnly>
-                <SiteOperatorOnly><button class="btn btn-primary" disabled="@_busy" @onclick="ReturnToBaselineAsync">Return to Baseline</button></SiteOperatorOnly>
+                <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReturnToBaselineAsync">Return to Baseline</button></SiteOperatorOnly>
             </div>
         }
     </div>
@@ -42,7 +42,7 @@
         <div class="cc-row-actions hide-mobile">
             <span class="cc-toolbar-label">@_selected.Count selected</span>
             <button class="btn btn-primary btn-sm" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>
-            <SiteOperatorOnly><button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
+            <SiteOperatorOnly><button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected)" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
         </div>
         <span class="status-badge badge-muted cc-phone-inline">@_selected.Count selected</span>
     </div>
@@ -82,7 +82,7 @@
             }
             <div class="cc-card-footer">
                 <button class="btn btn-primary" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>
-                <SiteOperatorOnly><button class="btn btn-contrast" disabled="@_busy" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
+                <SiteOperatorOnly><button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
             </div>
         </div>
         <div class="table-responsive hide-mobile">
@@ -144,7 +144,7 @@
                                             <button class="cc-link-btn" @onclick="() => TogglePinAsync(s)">@(s.Pinned ? "Unpin" : "Pin")</button>
                                         }
                                         <button class="cc-link-btn" @onclick="() => DownloadYamlAsync(s.Id)">Download YAML</button>
-                                        <button class="cc-link-btn" disabled="@_busy" @onclick="() => RollBackAsync(s.Id)">Roll Back</button>
+                                        <button class="cc-link-btn" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(s.Id)">Roll Back</button>
                                     </SiteOperatorOnly>
                                 </div>
                             </td>
@@ -232,7 +232,7 @@ else if (_compare != null)
                 }
                 @if (_compare.FromSnapshotId is { } fromId && _compare.ToSnapshotId == null)
                 {
-                    <SiteOperatorOnly><button class="btn btn-primary" disabled="@_busy" @onclick="() => RollBackAsync(fromId)">Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
+                    <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
                 }
             </div>
         }
@@ -249,6 +249,9 @@ else if (_compare != null)
 }
 
 @code {
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
     private const int Now = 0;
     private List<FleetSiteView> _sites = [];
     private string _siteName = "";

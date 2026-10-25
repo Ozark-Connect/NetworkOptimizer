@@ -7,6 +7,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<CcReviewPlan> Logger
+@inject UniFiConnectionService ConnectionService
 
 <PageTitle>Review Plan - Network Optimizer</PageTitle>
 
@@ -15,6 +16,8 @@
     <h1>Review Plan @if (_view != null) { <span class="page-header-suffix">@_view.Plan.Name</span> }</h1>
     <p class="page-description">Nothing is written until you apply. Every item below is what Network Optimizer will change on the UniFi Console.</p>
 </div>
+
+<ConsoleConnectionBanner />
 
 <div class="change-control">
 @if (_view == null)
@@ -385,7 +388,7 @@ else
                                 <input type="checkbox" @bind="_forget" />
                                 <span>Forget @(_view.Doc.Context.GetValueOrDefault("old_name") ?? "the old device") in UniFi. Its monitoring history stays in Network Optimizer.</span>
                             </label>
-                            <button class="btn btn-secondary btn-sm" disabled="@(!_forget || _busy)" @onclick="ForgetAsync">Forget Old Device</button>
+                            <button class="btn btn-secondary btn-sm" disabled="@(!_forget || _busy || !ConnectionService.IsConnected)" @onclick="ForgetAsync">Forget Old Device</button>
                         </div>
                     </SiteOperatorOnly>
                 }
@@ -447,14 +450,14 @@ else
                     }
                     else if (!_view.ApprovalRequired || plan.Status is ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled)
                     {
-                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0)" @onclick="ApplyAsync">@(_schedule ? "Schedule" : "Apply")</button>
+                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0 || !ConnectionService.IsConnected)" @onclick="ApplyAsync">@(_schedule ? "Schedule" : "Apply")</button>
                     }
                 </SiteOperatorOnly>
             }
             @if (plan.Status is ConfigPlanStatus.Watching or ConfigPlanStatus.Applied && plan.Kind != ConfigPlanKind.Revert)
             {
                 <SiteOperatorOnly>
-                    <button class="btn btn-danger" disabled="@_busy" @onclick="RevertAsync">Revert</button>
+                    <button class="btn btn-danger" disabled="@(_busy || !ConnectionService.IsConnected)" @onclick="RevertAsync">Revert</button>
                 </SiteOperatorOnly>
             }
         </div>
@@ -488,6 +491,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
         await LoadAsync();
         // A plan that is applying or watching changes on its own; keep the page current.
         _refresh = new Timer(_ => InvokeAsync(async () =>
@@ -656,5 +660,12 @@ else
         await JS.InvokeVoidAsync("downloadFile", $"plan-{PlanId}.yaml", "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
     }
 
-    public void Dispose() => _refresh?.Dispose();
+    // Fires from a background thread (console reconnect).
+    private void OnConnectionChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        _refresh?.Dispose();
+    }
 }

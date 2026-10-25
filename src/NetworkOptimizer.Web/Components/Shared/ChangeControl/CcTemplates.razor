@@ -79,7 +79,7 @@
                 </div>
                 <div class="cc-row-actions">
                     <SiteAdminOnly>
-                        <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="() => ApplyAsync(t.Id)">Apply to This Site</button>
+                        <button class="btn btn-sm btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => ApplyAsync(t.Id)">Apply to This Site</button>
                         @if (isBaseline)
                         {
                             <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(null)">Clear Baseline</button>
@@ -138,6 +138,9 @@
     [Parameter] public List<SnapshotRowView> Snapshots { get; set; } = [];
     [Parameter] public int? BaselineTemplateId { get; set; }
     [Parameter] public EventCallback OnBaselineChanged { get; set; }
+
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
 
     private static readonly List<ConfigCollectionDef> Templatable =
         ConfigCollections.All.Where(d => d.Write != null && d.Key is not "device" and not "user").ToList();

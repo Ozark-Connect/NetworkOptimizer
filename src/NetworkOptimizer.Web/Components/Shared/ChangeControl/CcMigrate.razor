@@ -280,7 +280,7 @@
                     <div class="cc-card-footer">
                         <span class="cc-remaining @(m.Ready ? "muted-text" : m.Unresolved > 0 || m.Ports.Any(r => r.FitLevel == "error") ? "danger-text" : "warning-text")">@FooterText(m)</span>
                         <button class="btn btn-contrast hide-mobile" @onclick="() => _step = 2">Back</button>
-                        <button class="btn btn-primary" disabled="@(!m.Ready || _busy)" @onclick="BuildReplaceAsync">Review Plan</button>
+                        <button class="btn btn-primary" disabled="@(!m.Ready || _busy || !ConsoleConnected)" @onclick="BuildReplaceAsync">Review Plan</button>
                         @if (m.Kind != "ap")
                         {
                             <button class="btn btn-contrast cc-phone-inline" @onclick="DownloadPdfAsync">Download Re-cabling Sheet</button>
@@ -335,8 +335,8 @@ else if (_task == Restore)
                 </div>
                 <div class="cc-card-footer">
                     <span class="cc-remaining"></span>
-                    <button class="btn btn-contrast" disabled="@(SnapshotChoice == null || _busy)" @onclick="() => BuildRestoreAsync(true)">Write Device Config</button>
-                    <button class="btn btn-primary" disabled="@(SnapshotChoice == null || _busy)" @onclick="() => BuildRestoreAsync(false)">Review Plan</button>
+                    <button class="btn btn-contrast" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(true)">Write Device Config</button>
+                    <button class="btn btn-primary" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(false)">Review Plan</button>
                 </div>
             </div>
         </ChildContent>
@@ -375,7 +375,7 @@ else
                     }
                     <div class="cc-card-footer">
                         <span class="cc-remaining muted-text">Devices in a snapshot are selected. Others adopt with defaults.</span>
-                        <button class="btn btn-primary" disabled="@(_adopt.Count == 0 || _busy)" @onclick="AdoptAsync">Adopt @CcFormat.Plural(_adopt.Count, "Device", "Devices")</button>
+                        <button class="btn btn-primary" disabled="@(_adopt.Count == 0 || _busy || !ConsoleConnected)" @onclick="AdoptAsync">Adopt @CcFormat.Plural(_adopt.Count, "Device", "Devices")</button>
                     </div>
                 }
             </div>
@@ -393,6 +393,9 @@ else
 }
 
 @code {
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
     private const string Restore = "restore";
     private const string Replace = "replace";
     private const string Adopt = "adopt";

@@ -124,7 +124,7 @@
                             @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before Review Plan" : _edited.Count == 0 ? "No edits yet" : "Ready for Review Plan")
                         </span>
                         <span class="muted-text">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
-                        <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy)" @onclick="ReviewPlanAsync">Review Plan</button>
+                        <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">Review Plan</button>
                         <label class="btn btn-contrast cc-phone-inline" style="margin:0">
                             Upload YAML
                             <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
@@ -142,6 +142,9 @@
 </SiteOperatorOnly>
 
 @code {
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
     private static readonly string[] Groups =
     [
         "Settings", "Networks", "WLANs", "Firewall Zones", "Firewall Policies", "Firewall Groups", "Port Profiles",
