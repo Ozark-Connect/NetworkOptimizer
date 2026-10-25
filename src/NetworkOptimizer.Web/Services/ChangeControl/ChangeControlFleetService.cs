@@ -300,8 +300,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             List<(DateTime, double?)> sparkline = [];
             try
             {
-                var lanes = await Reader(site.Slug).LanesAsync(fromUtc, toUtc, cancellationToken);
-                sparkline = lanes.FirstOrDefault(l => l.Key == "latency")?.SeriesB.Select(p => (p.Time, p.Value ?? lanes.First(l => l.Key == "latency").SeriesA.FirstOrDefault(a => a.Time == p.Time).Value)).ToList() ?? [];
+                sparkline = await Reader(site.Slug).LatencySparklineAsync(fromUtc, toUtc, cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -329,7 +328,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     {
         if (!await _access.IsAuthorizedAsync(siteSlug)) return null;
         // Read through the site's own service in a scope pinned to that site; access was checked above.
-        using var scope = _scopes.CreateScope();
+        await using var scope = _scopes.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
         return await scope.ServiceProvider.GetRequiredService<IChangeControlService>().GetChangeDetailAsync(changeId, cancellationToken);

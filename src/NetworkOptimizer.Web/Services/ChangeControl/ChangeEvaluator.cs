@@ -32,7 +32,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     /// <inheritdoc />
     public async Task EvaluateAsync(string siteSlug, IReadOnlyList<ConfigChange> changes, ConfigState before, ConfigState after, CancellationToken cancellationToken)
     {
-        using var scope = _scopes.CreateScope();
+        await using var scope = _scopes.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
         var repo = scope.ServiceProvider.GetRequiredService<Storage.Interfaces.IChangeControlRepository>();
@@ -126,7 +126,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     /// <inheritdoc />
     public async Task<ImpactResult?> RunImpactAsync(string siteSlug, ConfigState before, ConfigState after, CancellationToken ct)
     {
-        using var scope = _scopes.CreateScope();
+        await using var scope = _scopes.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
         return await RunImpactAsync(scope.ServiceProvider, before, after, ct);
@@ -135,7 +135,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     /// <inheritdoc />
     public async Task<List<NetworkOptimizer.Audit.Models.NetworkInfo>?> GetNetworksAsync(string siteSlug, ConfigState state, CancellationToken ct)
     {
-        using var scope = _scopes.CreateScope();
+        await using var scope = _scopes.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
         try

@@ -33,7 +33,7 @@ public sealed class ChangeControlRepositoryAccessor : IChangeControlRepositoryAc
     /// <inheritdoc />
     public async Task<T> UseAsync<T>(Func<IChangeControlRepository, CancellationToken, Task<T>> work, CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, SystemActor);
         return await work(scope.ServiceProvider.GetRequiredService<IChangeControlRepository>(), cancellationToken);
