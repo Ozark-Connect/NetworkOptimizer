@@ -23,7 +23,7 @@
         <span class="cc-toolbar-label">Who</span>
         @foreach (var (key, label) in WhoFilters)
         {
-            <button class="cc-chip @(_who.Contains(key) ? "" : "off")" @onclick="() => ToggleWho(key)">
+            <button class="cc-chip @(WhoShown(key) ? "" : "off")" @onclick="() => ToggleWho(key)">
                 <span class="cc-dot @key"></span>@label
             </button>
         }
@@ -286,7 +286,10 @@
 
     private List<FleetSiteView> _sites = [];
     private string SiteFilter { get; set; } = "";
-    private readonly HashSet<string> _who = ["person", "unattributed", "firmware"];
+    // The app's pill pattern: nothing focused shows all, the first click focuses one, more clicks add.
+    // Network Optimizer's own changes are a separate on/off and never count as a focus.
+    private readonly HashSet<string> _who = [];
+    private bool _showOwn;
     private string _range = "7d";
     private DateTime _customFrom = DateTime.Today.AddDays(-14);
     private DateTime _customTo = DateTime.Today;
@@ -306,7 +309,7 @@
     {
         _sites = await Fleet.GetSitesAsync();
         var settings = await Site.GetSettingsAsync();
-        if (settings.ShowOwnChanges) _who.Add("no");
+        _showOwn = settings.ShowOwnChanges;
         await ReloadAsync();
         // Open with the site in context expanded into its lanes; the busiest site when it is not listed.
         if ((_timeline?.FirstOrDefault(r => string.Equals(r.Site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
@@ -333,7 +336,9 @@
         }
     }
 
-    private bool Visible(ChangeRowView c) => _who.Contains(CcFormat.Marker(c));
+    private bool WhoShown(string key) => key == "no" ? _showOwn : _who.Count == 0 || _who.Contains(key);
+
+    private bool Visible(ChangeRowView c) => WhoShown(CcFormat.Marker(c));
 
     private IEnumerable<ChangeRowView> Paged() => _changes!.Where(Visible).Skip(_page * PageSize).Take(PageSize);
 
@@ -341,7 +346,16 @@
 
     private void ToggleWho(string key)
     {
-        if (!_who.Remove(key)) _who.Add(key);
+        if (key == "no")
+        {
+            _showOwn = !_showOwn;
+        }
+        else
+        {
+            if (!_who.Remove(key)) _who.Add(key);
+            // Every pill focused is the same as none: back to showing all.
+            if (_who.Count == WhoFilters.Count(f => f.Key != "no")) _who.Clear();
+        }
         _page = 0;
     }
 
