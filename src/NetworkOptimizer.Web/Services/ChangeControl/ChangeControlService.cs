@@ -112,7 +112,9 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     internal static IncidentView Incident(ScopedIncident s) => new()
     {
-        Id = s.Incident.Id, Title = s.Incident.Title, StartedAt = s.Incident.FirstTriggeredAt, ResolvedAt = s.Incident.ResolvedAt,
+        // The condition's end, not when someone resolved the alert; null while it is still going on.
+        Id = s.Incident.Id, Title = s.Incident.Title, StartedAt = s.Incident.FirstTriggeredAt,
+        ResolvedAt = s.End < DateTime.UtcNow.AddMinutes(-1) ? s.End : null,
         Severity = s.Incident.Severity.ToString(), IsWan = s.IsWan,
     };
 

@@ -96,6 +96,24 @@ public sealed class ChangeIncidentsTests : IDisposable
         ChangeIncidents.Classify(Alert("wan.speed_degradation", $$"""{"wan_name":"{{wanName}}"}""")).Should().Be(expected);
 
     [Fact]
+    public void End_OneShotAlert_EndsShortlyAfterItFired_NotWhenSomeoneResolvedIt()
+    {
+        var t = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var incident = new AlertIncident { FirstTriggeredAt = t, LastTriggeredAt = t, ResolvedAt = t.AddDays(2) };
+        ChangeIncidents.End(incident, [Alert("device.gateway_high_cpu")], t.AddDays(3)).Should().Be(t + ChangeIncidents.OneShotSpan);
+    }
+
+    [Fact]
+    public void End_RecoveringAlert_RunsToItsResolution_OrNow()
+    {
+        var t = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        ChangeIncidents.End(new AlertIncident { FirstTriggeredAt = t, LastTriggeredAt = t, ResolvedAt = t.AddHours(5) }, [Alert("device.offline")], t.AddDays(1))
+            .Should().Be(t.AddHours(5));
+        ChangeIncidents.End(new AlertIncident { FirstTriggeredAt = t, LastTriggeredAt = t }, [Alert("device.offline")], t.AddHours(2))
+            .Should().Be(t.AddHours(2));
+    }
+
+    [Fact]
     public void Incident_TakesItsStrongestAlert() =>
         ChangeIncidents.Classify([Alert("device.recovered"), Alert("monitoring.wan_outage"), Alert("device.offline")])
             .Should().Be(IncidentRelevance.Linked);

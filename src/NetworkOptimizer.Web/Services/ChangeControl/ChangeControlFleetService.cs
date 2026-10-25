@@ -353,7 +353,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             var health = SiteHealth.SiteHealthSeriesBuilder.Build(hours, SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc,
                 hours.Where(h => h.HourStart < fromUtc && h.HourStart >= fromUtc - span).ToList());
             var bands = gaps.Where(g => g.EndedAt is not { } end || end - g.StartedAt >= ShortGap).Select(g => new TimelineBand(g.StartedAt, g.EndedAt ?? DateTime.UtcNow, "gap", g.Reason))
-                .Concat(incidents.Select(s => s.Incident).Select(i => new TimelineBand(i.FirstTriggeredAt, i.ResolvedAt ?? i.LastTriggeredAt, "incident", i.Title))).ToList();
+                .Concat(incidents.Select(s => new TimelineBand(s.Incident.FirstTriggeredAt, s.End, "incident", s.Incident.Title))).ToList();
             var markers = changes.Where(c => c.SiteSlug == site.Slug).ToList();
             // The site row draws Site Health from the stored hours, so a timeline load reads no Influx.
             result.Add(new TimelineSiteRow

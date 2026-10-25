@@ -20,8 +20,8 @@ public enum IncidentRelevance
     Linked,
 }
 
-/// <summary>An alert incident and how it relates to config changes.</summary>
-public sealed record ScopedIncident(AlertIncident Incident, IncidentRelevance Relevance)
+/// <summary>An alert incident, how it relates to config changes, and when its condition ended.</summary>
+public sealed record ScopedIncident(AlertIncident Incident, IncidentRelevance Relevance, DateTime End)
 {
     public bool IsWan => Relevance == IncidentRelevance.Wan;
 }
@@ -74,9 +74,34 @@ public static class ChangeIncidents
     /// <summary>Incidents that started in a range, unrelated ones left out.</summary>
     public static async Task<List<ScopedIncident>> StartedAsync(IChangeControlRepository repo, DateTime fromUtc, DateTime toUtc, CancellationToken ct) =>
         (await repo.GetIncidentsStartedAsync(fromUtc, toUtc, EventTypes, ct))
-            .Select(x => new ScopedIncident(x.Incident, Classify(x.Alerts)))
+            .Select(x => new ScopedIncident(x.Incident, Classify(x.Alerts), End(x.Incident, x.Alerts, DateTime.UtcNow)))
             .Where(x => x.Relevance != IncidentRelevance.Unrelated)
             .ToList();
+
+    // Alerts a recovery resolves on its own: the incident's resolution is when the condition ended.
+    private static readonly HashSet<string> RecoveringTypes =
+    [
+        "device.offline", "monitoring.target_offline", "monitoring.target_sustained_loss",
+        "monitoring.wan_outage", "monitoring.wan_outage_partial", "monitoring.health_check_failed",
+    ];
+
+    /// <summary>How long a one-shot alert's condition is drawn past its last firing.</summary>
+    internal static readonly TimeSpan OneShotSpan = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// When the incident's condition ended. Only a recovery resolves the alerts that have one, so their
+    /// resolution (or now, while open) is the end. Every other alert fires once and is resolved by a
+    /// person, whenever they get to it: those end shortly after their last firing.
+    /// </summary>
+    internal static DateTime End(AlertIncident incident, IReadOnlyCollection<AlertHistoryEntry> alerts, DateTime nowUtc)
+    {
+        var oneShotEnd = incident.LastTriggeredAt + OneShotSpan;
+        if (!alerts.Any(a => RecoveringTypes.Contains(a.EventType)))
+            return incident.ResolvedAt is { } r && r < oneShotEnd ? r : Min(oneShotEnd, nowUtc);
+        return incident.ResolvedAt ?? nowUtc;
+    }
+
+    private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
 
     /// <summary>
     /// Fabric targets are the site's own UniFi devices; a Custom target counts when it is on the LAN.
