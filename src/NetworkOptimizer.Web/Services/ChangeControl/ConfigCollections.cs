@@ -330,7 +330,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "usergroup", DisplayName = "User groups", Noun = "User group", Group = "Other",
+                Key = "usergroup", DisplayName = "User groups", Noun = "User group", Group = "QoS and Traffic Rules",
                 FieldGroups = ConfigFieldOrder.UserGroupFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/usergroup", Order = 2, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/usergroup", UpdatePath = "rest/usergroup/{id}", DeletePath = "rest/usergroup/{id}", Proven = true },
@@ -386,7 +386,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "apgroups", DisplayName = "AP groups", Noun = "AP group", Group = "Other",
+                Key = "apgroups", DisplayName = "AP groups", Noun = "AP group", Group = "WLANs",
                 FieldGroups = ConfigFieldOrder.ApGroupFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "apgroups", Order = 4, ReadOnlyFields = CommonReadOnly,
                 SetArrays = Set("device_macs"),
@@ -399,7 +399,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "wlangroup", DisplayName = "WLAN groups", Noun = "WLAN group", Group = "Other",
+                Key = "wlangroup", DisplayName = "WLAN groups", Noun = "WLAN group", Group = "WLANs",
                 FieldGroups = ConfigFieldOrder.WlanGroupFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlangroup", Order = 4, ReadOnlyFields = CommonReadOnly,
             },
@@ -476,7 +476,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "qos_rule", DisplayName = "QoS rules", Noun = "QoS rule", Group = "Other",
+                Key = "qos_rule", DisplayName = "QoS rules", Noun = "QoS rule", Group = "QoS and Traffic Rules",
                 FieldGroups = ConfigFieldOrder.QosRuleFields, NestedFieldOrder = ConfigFieldOrder.FirewallPolicyNested,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "qos-rules", Order = 8,
                 ReadOnlyFields = Set("index", "cloud_template", "origin_id", "origin_type"),
@@ -518,7 +518,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "oon_config", DisplayName = "Object-oriented configs", Noun = "Object config", Group = "Other",
+                Key = "oon_config", DisplayName = "Object-oriented configs", Noun = "Object config", Group = "QoS and Traffic Rules",
                 FieldGroups = ConfigFieldOrder.ObjectConfigFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "object-oriented-network-configs", Order = 8,
                 Write = new CollectionWrite
@@ -561,7 +561,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "wan_defaults", DisplayName = "WAN defaults", Noun = "WAN defaults", Group = "Other",
+                Key = "wan_defaults", DisplayName = "WAN defaults", Noun = "WAN defaults", Group = "Networks",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "wan/defaults", Shape = CollectionShape.Single, Order = 8,
             },
             new()
@@ -572,7 +572,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "dhcpoption", DisplayName = "DHCP options", Noun = "DHCP option", Group = "Other",
+                Key = "dhcpoption", DisplayName = "DHCP options", Noun = "DHCP option", Group = "Networks",
                 FieldGroups = ConfigFieldOrder.DhcpOptionFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/dhcpoption", Order = 2, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/dhcpoption", UpdatePath = "rest/dhcpoption/{id}", DeletePath = "rest/dhcpoption/{id}" },
@@ -599,19 +599,19 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "trafficrule", DisplayName = "Traffic rules", Noun = "Traffic rule", Group = "Other",
+                Key = "trafficrule", DisplayName = "Traffic rules", Noun = "Traffic rule", Group = "QoS and Traffic Rules",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "trafficrules", NameField = "description", Order = 8,
             },
             new()
             {
-                Key = "content_filtering", DisplayName = "Content filtering", Noun = "Content filter", Group = "Other",
+                Key = "content_filtering", DisplayName = "Content filtering", Noun = "Content filter", Group = "Firewall Policies",
                 FieldGroups = ConfigFieldOrder.ContentFilteringFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "content-filtering", Order = 8,
                 TagsForField = (_, _) => [ServiceTags.DnsPolicy],
             },
             new()
             {
-                Key = "acl_rule", DisplayName = "ACL rules", Noun = "ACL rule", Group = "Other",
+                Key = "acl_rule", DisplayName = "ACL rules", Noun = "ACL rule", Group = "Firewall Policies",
                 FieldGroups = ConfigFieldOrder.AclRuleFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "acl-rules", Order = 8,
             },
