@@ -23856,6 +23856,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .change-control .cc-field-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
     font-size: 0.8125rem;
 }
 
@@ -23863,6 +23864,7 @@ body:has(.top-bar-hidden) .btn-fit {
     padding: 0.4rem 0.5rem;
     border-bottom: 1px solid var(--border-color);
     vertical-align: top;
+    overflow-wrap: anywhere;
 }
 
 .change-control .cc-field-table tr:last-child td {
@@ -23871,7 +23873,7 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-field-table .old { color: var(--danger-color); }
 .change-control .cc-field-table .new { color: var(--success-color); }
-.change-control .cc-field-table .label { color: var(--text-secondary); width: 30%; white-space: nowrap; }
+.change-control .cc-field-table .label { color: var(--text-secondary); width: 50%; }
 
 .change-control .cc-inset {
     background: var(--bg-inset);

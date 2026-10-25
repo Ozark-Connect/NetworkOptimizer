@@ -72,19 +72,19 @@ else
                 @foreach (var i in linked)
                 {
                     <tr>
-                        <td class="label">@i.Title</td>
-                        <td style="text-align:right">@MinutesAfter(i.StartedAt) after</td>
-                    </tr>
-                    <tr>
-                        <td class="label">Duration</td>
-                        <td style="text-align:right">@CcFormat.Local(i.StartedAt).ToString("h:mm tt") to @(i.ResolvedAt is { } r ? CcFormat.Local(r).ToString("h:mm tt") : "now")</td>
+                        <td colspan="2">
+                            <div>@i.Title</div>
+                            <div class="muted-text">@MinutesAfter(i.StartedAt) after, @CcFormat.Local(i.StartedAt).ToString("h:mm tt") to @(i.ResolvedAt is { } r ? CcFormat.Local(r).ToString("h:mm tt") : "now")</div>
+                        </td>
                     </tr>
                 }
                 @foreach (var i in wan)
                 {
                     <tr>
-                        <td class="label">@i.Title</td>
-                        <td style="text-align:right" class="muted-text" data-tooltip="WAN and ISP incidents are listed, not linked to LAN config changes">WAN, @MinutesAfter(i.StartedAt) after</td>
+                        <td colspan="2">
+                            <div>@i.Title</div>
+                            <div class="muted-text" data-tooltip="WAN and ISP incidents are listed, not linked to LAN config changes">WAN, @MinutesAfter(i.StartedAt) after</div>
+                        </td>
                     </tr>
                 }
             </table>
