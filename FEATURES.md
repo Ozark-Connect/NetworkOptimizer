@@ -61,11 +61,12 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - SNMP polling buffered across outages
 - Per-client WAN usage at the gateway for Bandwidth Hogs
 - UniFi Cable Internet DOCSIS capture (agent on the gateway)
-- [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound (agent on the gateway)
+- [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound, with Exceptions (agent on the gateway)
 - LAN speed test server (OpenSpeedTest and iperf3) and site-local WAN speed tests
 - LAN speed test hosted on the UniFi gateway itself (agent on the gateway, `--lan-speed-test`)
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
 - Falls back to HTTPS heartbeats when the tunnel cannot connect; refuses plain HTTP
+- **Reconnecting often** - flags an agent whose tunnel keeps dropping, linked to the agent README's reverse proxy notes
 - `proxyAllowedCidrs` pins which addresses the tunnel may reach; every dial is logged on the agent host
 - Several agents per site, for example one on the gateway and one on a LAN host
 - Runs on Docker, systemd, Proxmox LXC, or the UniFi gateway itself
@@ -394,6 +395,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - **Top Sources**, **Top Targeted Ports**, **Attack Patterns** (scan, brute force, exploit campaign, DDoS)
   - **Protection Setup** - checklist from watching to blocking, with **Turn On Recommended**
 - **Blocking** - every blocked source with its reason and end time, plus those shared from your other sites by site; **Release**; each links to its IP details
+  - **Public Block List Drops** - outbound connections the gateway dropped, by device, address, and port, with **Allow**
 - **Exposure** - port forwards cross-referenced with threats; **Geo-Block Recommendation**
 - **Geographic** - country breakdown (MaxMind GeoIP)
 - **Attack Sequences** - source IPs moving through two or more kill chain stages
@@ -401,6 +403,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Search** - by IP, CIDR, country, or ASN
 - IP, port, and protocol drill-downs; **Block** and **Release** any public address from its details
   - Names the public block list an address is on, in its header and in **Destinations Accessed**
+  - **Add Exception** for a listed address, or for a LAN device that reached listed addresses
 - CrowdSec CTI reputation, known behaviors, and MITRE ATT&CK techniques per IP
   - Lookups cached for 30 days and held to a daily quota
 - **Data Retention** setting, 90 days by default; the first collection backfills 30 days
@@ -424,6 +427,10 @@ Set up in **Settings - Security & Alerts**, per site.
   - Up to 100,000 entries per site, least useful lists cut first
   - Optional outbound block keeps an infected device from reaching its botnet command server (attacker lists stay inbound only)
   - A device reaching a listed address raises an alert, Detection Only included
+- **Exceptions** - let traffic through the public lists, Outbound or Inbound, by device, address, protocol, and port
+  - Optional expiry and note; sources Automatic Blocking blocks itself stay blocked
+  - Add one from **Public Block List Drops**, an address's details, or a device's drill-down
+  - Applied by the [On-Site Agent](#on-site-agent) on the gateway and as Allow policies in UniFi Network
 - **What Triggers a Block** thresholds and **Maximum blocked sources**
 
 ### WAN Flood Protection
@@ -545,7 +552,7 @@ Requires Gateway SSH.
   - WAN port below its usual link speed or at half duplex, and its recovery
   - ONT management unresponsive while its SFP still reads light; ONT rebooted
   - WAN, LAN, and client speed test regressions
-  - UniFi Console and On-Site Agent connection loss
+  - UniFi Console and On-Site Agent connection loss; an On-Site Agent tunnel that keeps reconnecting
   - Monitoring target offline, sustained loss, full and partial WAN outages
   - SFP levels; Wi-Fi radio stopped transmitting or resetting ([AP Telemetry](#ap-telemetry))
   - Device offline, rebooted, high temperature, gateway CPU and memory; Custom Health Check results
@@ -619,6 +626,8 @@ Requires Gateway SSH.
 
 - Built-in admin account; named users in **Settings - Identity**
 - Roles: Admin, Operator, Viewer, globally or per site
+  - Settings that apply to every site need the global Admin role
+- A password an administrator sets for someone else must be changed at their next sign-in
 - Single sign-on: OpenID Connect, SAML, and UniFi Identity, with claim mapping and just-in-time users
 - Require MFA or a passkey per role; SSO-only sign-in
 - Authenticator app (TOTP), recovery codes, and passkeys per user; sign out everywhere
