@@ -38,7 +38,8 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 ## Multi-Site
 
 - Manage many UniFi sites from one server, each with its own database and InfluxDB buckets
-- **Sites** page - per-site cards with console status, license, agents online, and quick switch
+- **Sites** page - per-site cards with console status, license, agents online, Site Health, and quick switch
+- Dashboard **Sites** card - every site's Site Health and top issue, worst first; **Less** / **More** views; click a row to switch to that site
 - Site switcher in the top bar on every page
 - **Add a site** wizard - create the site, connect its console, then set up an [On-Site Agent](#on-site-agent) or skip it
 - Onboard a site over an existing site-to-site VPN with no agent
@@ -265,10 +266,17 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 - UniFi Network keeps whole-console backups (.unf) that restore all at once; Change Control adds per-change history, diffs, and object-level roll back
 - **Overview** - what needs attention across every site: regressions, changes no admin made, drift, plans in progress
+  - Sites ranked worst first by Site Health
+- **Site Health** - one hourly score per site: the share of user-time the network served well
+  - Internet (outages, loss, latency, bufferbloat on the primary WAN), device availability, Wi-Fi satisfaction, and LAN errors and loss
+  - Separates ISP impairment from local causes (gateway reboot, gateway offline, gateway CPU)
+  - Names the top issue in words, with the points it cost and a trend arrow
+  - Backfills 90 days from history at first start
 - **Changes** - multi-site timeline of every config change, firmware step, and Network app upgrade, with who made it
-  - Who: the admin from UniFi's audit log, Network Optimizer's own writes, or "No admin recorded"
-  - Stat lanes (WAN latency and loss, throughput, gateway CPU, clients) on the same time axis (InfluxDB)
-  - Each change shows the fields that moved, the Security Audit before and after, and incidents that followed
+  - Source: the admin from UniFi's audit log, Network Optimizer's own writes, or "No admin recorded"
+  - Site Health lane, and stat lanes on the same time axis (InfluxDB): primary WAN latency and loss, WAN throughput, gateway CPU, Wi-Fi clients by band, and Wi-Fi PHY rate per band
+  - Each change shows the fields that moved, Site Health and the Security Audit before and after, and incidents that followed
+  - Alert when Site Health falls after a change
   - **Roll Back** one change
 - **Snapshots** - the full UniFi Network config, stored encrypted outside the console
   - Taken on every change, daily, before every apply, Firmware Rollout, and Network app upgrade
@@ -277,6 +285,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **Templates** - save collections from one site, apply them to others, or use one as the Baseline
   - **UniFi Console Backups** - keeps copies of UniFi's own .unf autobackups for download (Site Admin)
 - **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files
+  - Remove an object with one click; references to it in lists are removed in the same plan
+  - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
   - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
   - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
