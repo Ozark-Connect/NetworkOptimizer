@@ -17,7 +17,12 @@ public sealed class TimelineLane
     public string? LatestB { get; init; }
     /// <summary>Stacked areas drawn instead of series A's line; series A holds their total.</summary>
     public List<StackLayer> Stack { get; init; } = [];
+    /// <summary>Extra named lines on the lane's axis, one per band for the PHY lane.</summary>
+    public List<LaneLine> Lines { get; init; } = [];
 }
+
+/// <summary>One named line on a lane, with its latest value formatted.</summary>
+public sealed record LaneLine(string Name, string Color, List<(DateTime Time, double? Value)> Series, string? Latest);
 
 /// <summary>One stacked area: its lower and upper edge at each time, and its latest value.</summary>
 public sealed record StackLayer(string Name, string Color, List<(DateTime Time, double Lower, double Upper)> Points, int Latest);
@@ -110,7 +115,8 @@ public sealed class SiteMetricsReader
                 ? _influx.QueryDeviceCpuAsync(gatewayMac, from, to, window, ct)
                 : Task.FromResult<IReadOnlyList<(DateTime Time, double Value)>>([]);
             var clientsTask = _influx.QueryWifiClientCountsAsync(from, to, window, ct);
-            await Task.WhenAll(latencyTask, ratesTask, cpuTask, clientsTask);
+            var phyTask = _influx.QueryWifiPhyByBandAsync(from, to, window, ct);
+            await Task.WhenAll(latencyTask, ratesTask, cpuTask, clientsTask, phyTask);
             var latency = latencyTask.Result;
             var rates = ratesTask.Result;
 
@@ -145,6 +151,7 @@ public sealed class SiteMetricsReader
                 });
             }
             lanes.Add(ClientsLane(clientsTask.Result));
+            lanes.Add(PhyLane(phyTask.Result));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -154,7 +161,7 @@ public sealed class SiteMetricsReader
         return lanes.Select(l => new TimelineLane
         {
             Key = l.Key, Title = l.Title, Subtitle = l.Subtitle, SeriesAName = l.SeriesAName, SeriesBName = l.SeriesBName,
-            SeriesA = l.SeriesA, SeriesB = l.SeriesB, Stack = l.Stack,
+            SeriesA = l.SeriesA, SeriesB = l.SeriesB, Stack = l.Stack, Lines = l.Lines,
             LatestA = Format(l.Key, l.SeriesA.LastOrDefault(p => p.Value != null).Value),
             LatestB = Format(l.Key, l.SeriesB.LastOrDefault(p => p.Value != null).Value),
         }).ToList();
@@ -189,6 +196,16 @@ public sealed class SiteMetricsReader
             Stack = stack,
         };
     }
+
+    /// <summary>Mean TX PHY rate per band in Mbps, one line per band that has clients.</summary>
+    internal static TimelineLane PhyLane(IReadOnlyList<(DateTime Time, string Band, double Kbps)> rates) => new()
+    {
+        Key = "phy", Title = "Wi-Fi PHY", Subtitle = "TX rate by band, Mbps",
+        Lines = Bands.Select(b => (b, Series: rates.Where(r => r.Band == b.Band).Select(r => (r.Time, (double?)(r.Kbps / 1000))).ToList()))
+            .Where(x => x.Series.Count > 0)
+            .Select(x => new LaneLine(x.b.Name, x.b.Color, x.Series, x.Series[^1].Item2?.ToString("0")))
+            .ToList(),
+    };
 
     private async Task<Dictionary<DateTime, LoadWindow>> ClassifyAsync(IReadOnlyList<MonitoringInfluxClient.WanRatePoint> rates, CancellationToken ct)
     {

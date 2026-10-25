@@ -3307,6 +3307,38 @@ from(bucket: ""{_longtermBucket}"")
         return result;
     }
 
+    /// <summary>
+    /// Mean Wi-Fi TX PHY rate (AP to client) per window and band, weighted by sample: per-series
+    /// sum and count push down, and the bands are combined here.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Time, string Band, double Kbps)>> QueryWifiPhyByBandAsync(
+        DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, string, double)>();
+        string Flux(string fn) => $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r._field == ""tx_rate_kbps"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: {fn}, createEmpty: false)
+";
+        async Task<Dictionary<(DateTime, string), double>> Read(string fn)
+        {
+            var totals = new Dictionary<(DateTime, string), double>();
+            await foreach (var record in QueryFluxAsync(Flux(fn), ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("band") as string ?? "");
+                totals[key] = totals.GetValueOrDefault(key) + (AsDoubleOrNull(record.GetValue()) ?? 0);
+            }
+            return totals;
+        }
+        var sums = Read("sum");
+        var counts = Read("count");
+        await Task.WhenAll(sums, counts);
+        return counts.Result.Where(kv => kv.Value > 0 && sums.Result.ContainsKey(kv.Key))
+            .Select(kv => (kv.Key.Item1, kv.Key.Item2, sums.Result[kv.Key] / kv.Value))
+            .OrderBy(p => p.Item1).ToList();
+    }
+
     // Not a pushdown shape (distinct needs the raw values), so callers keep it to two days or less.
     private async Task<List<(DateTime, string, int)>> RawWifiClientCountsAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
     {

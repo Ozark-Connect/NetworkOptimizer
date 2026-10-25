@@ -114,7 +114,7 @@
                                                 <div class="cc-tl-sub">@lane.Subtitle</div>
                                             </div>
                                             <CcTrack From="_from" To="_to" Lane="true" ShowMarkers="false" Markers="markers" Bands="row.Bands"
-                                                     SeriesA="lane.SeriesA" SeriesB="lane.SeriesB" Stack="lane.Stack"
+                                                     SeriesA="lane.SeriesA" SeriesB="lane.SeriesB" Stack="lane.Stack" Lines="lane.Lines"
                                                      ColorA="@LaneColorA(lane.Key)" ColorB="@LaneColorB(lane.Key)" SelectedId="_selected?.Id" />
                                             <div class="cc-lane-latest">
                                                 @if (lane.LatestA != null)
@@ -133,6 +133,10 @@
                                                             <span style="color:@layer.Color" data-tooltip="@layer.Name">@layer.Latest</span>
                                                         }
                                                     </div>
+                                                }
+                                                @foreach (var named in lane.Lines.Where(l => l.Latest != null))
+                                                {
+                                                    <div><span style="color:@named.Color">@named.Latest</span> @named.Name</div>
                                                 }
                                             </div>
                                         </div>

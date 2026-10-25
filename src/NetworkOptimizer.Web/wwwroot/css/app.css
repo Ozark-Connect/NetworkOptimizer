@@ -23104,7 +23104,7 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-left: auto;
 }
 
-.change-control .cc-search {
+.change-control .cc-toolbar .cc-search {
     min-width: 260px;
 }
 
@@ -24027,7 +24027,7 @@ body:has(.top-bar-hidden) .btn-fit {
         grid-column: 1 / -1;
     }
 
-    .change-control .cc-search {
+    .change-control .cc-toolbar .cc-search {
         min-width: 0;
         flex: 1 1 100%;
     }
@@ -24076,7 +24076,7 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 @media (min-width: 769px) {
-    .change-control .cc-search {
+    .change-control .cc-toolbar .cc-search {
         min-width: 360px;
     }
 }

@@ -35,6 +35,13 @@
                 <polyline points="@line" fill="none" style="stroke:@ColorA" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
             }
         }
+        @foreach (var named in Lines)
+        {
+            @foreach (var line in CcFormat.Polylines(named.Series, From, To, _max))
+            {
+                <polyline points="@line" fill="none" style="stroke:@named.Color" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+            }
+        }
         @foreach (var line in CcFormat.Polylines(SeriesB, From, To, _max))
         {
             <polyline points="@line" fill="none" style="stroke:@ColorB" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
@@ -63,6 +70,7 @@
     [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesA { get; set; } = [];
     [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesB { get; set; } = [];
     [Parameter] public IReadOnlyList<StackLayer> Stack { get; set; } = [];
+    [Parameter] public IReadOnlyList<LaneLine> Lines { get; set; } = [];
     [Parameter] public string ColorA { get; set; } = "#2ba89a";
     [Parameter] public string ColorB { get; set; } = "#f59e0b";
     [Parameter] public IReadOnlyList<ChangeRowView> Markers { get; set; } = [];
@@ -74,7 +82,7 @@
 
     private double _max = 1;
 
-    protected override void OnParametersSet() => _max = CcFormat.Max(SeriesA, SeriesB);
+    protected override void OnParametersSet() => _max = CcFormat.Max(SeriesA, SeriesB.Concat(Lines.SelectMany(l => l.Series)));
 
     private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
