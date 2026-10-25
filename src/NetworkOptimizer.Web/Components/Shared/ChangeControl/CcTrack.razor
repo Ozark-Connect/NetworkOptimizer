@@ -8,7 +8,7 @@
     {
         var left = CcFormat.Pct(band.Start, From, To);
         var width = Math.Max(0.4, CcFormat.Pct(band.End, From, To) - left);
-        <div class="cc-band @band.Kind" style="left:@F(left)%;width:@F(width)%" data-tooltip="@band.Label"></div>
+        <div class="cc-band @band.Kind" style="left:@F(left)%;width:@F(width)%" data-tooltip="@BandTip(band)"></div>
     }
     @if (Lane)
     {
@@ -67,4 +67,12 @@
     protected override void OnParametersSet() => _max = CcFormat.Max(SeriesA, SeriesB);
 
     private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+
+    /// <summary>"Device Offline: [AP] Back Yard, Oct 19, 11:25 AM to 11:40 AM".</summary>
+    private static string BandTip(TimelineBand band)
+    {
+        var end = CcFormat.Local(band.End).Date == CcFormat.Local(band.Start).Date
+            ? CcFormat.Local(band.End).ToString("h:mm tt") : CcFormat.Time(band.End);
+        return $"{band.Label}, {CcFormat.Time(band.Start)} to {end}";
+    }
 }

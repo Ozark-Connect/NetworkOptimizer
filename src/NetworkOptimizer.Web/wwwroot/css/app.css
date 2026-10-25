@@ -23385,6 +23385,8 @@ body:has(.top-bar-hidden) .btn-fit {
     width: 100%;
     height: 100%;
     overflow: visible;
+    /* Drawn over the bands: without this it takes their hover and their tooltips never open. */
+    pointer-events: none;
 }
 
 .change-control .cc-band {
