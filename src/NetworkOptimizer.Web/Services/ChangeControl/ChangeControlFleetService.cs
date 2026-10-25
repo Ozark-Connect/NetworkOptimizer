@@ -139,8 +139,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var engine = _registry.GetFor(site.Slug);
         var connection = _registry.Connection(site.Slug);
         var now = DateTime.UtcNow;
-        var (latest, changes, state) = await engine.Repositories.UseAsync(async (r, c) =>
-            (await r.GetLatestSnapshotAsync(c), await r.GetChangesAsync(now.AddDays(-7), now, 2000, c), await r.GetDetectionStateAsync(c)), ct);
+        var (latest, changes, state, last) = await engine.Repositories.UseAsync(async (r, c) =>
+            (await r.GetLatestSnapshotAsync(c), await r.GetChangesAsync(now.AddDays(-7), now, 2000, c), await r.GetDetectionStateAsync(c),
+             await r.GetLastConfigChangeAsync(c)), ct);
         var config = changes.Where(x => x.Kind == ConfigChangeKind.Config && x.ActorKind != ConfigChangeActorKind.NetworkOptimizer).ToList();
         int? drift = null;
         if (withDrift)
@@ -157,7 +158,12 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         return new FleetSiteView
         {
             Slug = site.Slug, Name = site.Name,
-            Detail = latest == null ? "No snapshot yet" : $"{latest.ObjectCount} objects",
+            // The connection state first: an empty row then reads as unseen, not unchanged.
+            Detail = connection.IsAwaitingAgent ? "Agent offline"
+                : !connection.IsConnected ? "Console unreachable"
+                : latest == null ? "No snapshot yet"
+                : last == null ? "No changes recorded"
+                : $"Last change {LastChangeText(last.OccurredAt, now)}",
             Online = connection.IsConnected,
             AgentOffline = connection.IsAwaitingAgent,
             LastSnapshotAt = latest?.TakenAt,
@@ -266,6 +272,14 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     }
 
     private static DateTime Local(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
+
+    /// <summary>"at 2:14 PM" today, "Oct 21" this year, "Oct 21, 2025" before that.</summary>
+    internal static string LastChangeText(DateTime atUtc, DateTime nowUtc)
+    {
+        var at = Local(atUtc);
+        var now = Local(nowUtc);
+        return at.Date == now.Date ? $"at {at:h:mm tt}" : at.Year == now.Year ? at.ToString("MMM d") : at.ToString("MMM d, yyyy");
+    }
 
     private static string Span(TimeSpan t) => t.TotalMinutes < 90 ? $"{(int)t.TotalMinutes} minutes" : t.TotalHours < 48 ? $"{(int)t.TotalHours} hours" : $"{(int)t.TotalDays} days";
 

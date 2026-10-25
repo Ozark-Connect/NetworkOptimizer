@@ -198,6 +198,12 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
     public Task<ConfigChange?> GetChangeAsync(int id, CancellationToken cancellationToken = default) =>
         ExecuteAsync(() => _context.ConfigChanges.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, cancellationToken), nameof(GetChangeAsync));
 
+    public Task<ConfigChange?> GetLastConfigChangeAsync(CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.ConfigChanges.AsNoTracking()
+            .Where(c => c.Kind == ConfigChangeKind.Config && (c.ActorKind != ConfigChangeActorKind.NetworkOptimizer || c.PlanId != null))
+            .OrderByDescending(c => c.OccurredAt).ThenByDescending(c => c.Id)
+            .FirstOrDefaultAsync(cancellationToken), nameof(GetLastConfigChangeAsync));
+
     public Task<List<ConfigChange>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, int limit = 1000, CancellationToken cancellationToken = default) =>
         ExecuteAsync(() => _context.ConfigChanges.AsNoTracking()
             .Where(c => c.OccurredAt >= fromUtc && c.OccurredAt <= toUtc)
