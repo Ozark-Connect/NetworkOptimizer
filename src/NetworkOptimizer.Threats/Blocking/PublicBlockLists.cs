@@ -188,8 +188,10 @@ public static class PublicBlockLists
     {
         foreach (var line in Lines(body))
         {
-            if (!line.StartsWith('"')) continue;
-            var cols = line.Split(',').Select(c => c.Trim().Trim('"')).ToArray();
+            var row = line.Trim();
+            if (row.Length < 2 || row[0] != '"' || row[^1] != '"') continue;
+            // Every field is quoted and joined by ", ". Alias and tags hold commas of their own, so never split on a bare comma.
+            var cols = row[1..^1].Split("\", \"");
             // first_seen, ioc_id, ioc_value, ioc_type, threat_type, fk_malware, alias, printable, last_seen, confidence, is_compromised, ...
             if (cols.Length < 11 || cols[3] != "ip:port") continue;
             if (!int.TryParse(cols[9], out var confidence) || confidence < 75) continue;
