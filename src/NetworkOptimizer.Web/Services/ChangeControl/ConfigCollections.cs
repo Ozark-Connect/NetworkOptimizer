@@ -285,6 +285,8 @@ public static class ConfigCollections
                 Key = "networkconf", DisplayName = "Networks", Noun = "Network", Group = "Networks",
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/networkconf", Order = 2,
                 ReadOnlyFields = CommonReadOnly,
+                // Not x_-prefixed, but carry keys: the WireGuard config file holds the PrivateKey line.
+                ExtraSecretFields = Set("wireguard_client_preshared_key", "wireguard_client_configuration_file", "openvpn_configuration"),
                 SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses"),
                 EnforcedKey = (o, _) => NetworkKey(o), KeyIsUnique = true,
                 Write = new CollectionWrite
@@ -368,6 +370,8 @@ public static class ConfigCollections
             {
                 Key = "wlanconf", DisplayName = "WLANs", Noun = "WLAN", Group = "WLANs",
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlanconf", Order = 5, ReadOnlyFields = CommonReadOnly,
+                // Whole arrays: their entries hold passwords and have no key to match a kept secret by.
+                ExtraSecretFields = Set("private_preshared_keys", "sae_psk"),
                 SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration"),
                 EnforcedKey = (o, ctx) => $"{Str(o, "name")}@{ctx.NameOf(Str(o, "networkconf_id"))}",
                 Write = new CollectionWrite { CreatePath = "rest/wlanconf", UpdatePath = "rest/wlanconf/{id}", DeletePath = "rest/wlanconf/{id}", Proven = true },
