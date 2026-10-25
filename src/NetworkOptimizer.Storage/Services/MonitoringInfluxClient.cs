@@ -3342,6 +3342,139 @@ from(bucket: ""{_bucket}"")
             .OrderBy(p => p.Item1).ToList();
     }
 
+    // ---- Site Health reads (hourly, pushdown shapes; window stamped at its start) ----
+
+    /// <summary>
+    /// Per-target RTT and loss means per window, stamped at the window's start. Filters by target id when
+    /// given, else by target type (e.g. "fabric"). No group before the aggregate, so it pushes down.
+    /// </summary>
+    public async Task<IReadOnlyList<TargetLatencyMean>> QueryTargetLatencyMeansAsync(
+        DateTime from, DateTime to, IReadOnlyList<string>? targetIds, string? targetType, TimeSpan window,
+        LatencyWanScope? wanScope = null, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
+        var selector = targetIds is { Count: > 0 }
+            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
+            : targetType != null ? $@"
+  |> filter(fn: (r) => r.target_type == ""{SanitizeFluxString(targetType)}"")" : null;
+        if (selector == null) return Array.Empty<TargetLatencyMean>();
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency""){selector}{BuildWanScopeFilter(wanScope)}
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false, timeSrc: ""_start"")
+";
+        var rows = new Dictionary<(DateTime, string), (string Type, double? Rtt, double? Loss)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("target_id") is not string id) continue;
+            var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), id);
+            var row = rows.TryGetValue(key, out var r) ? r : (record.GetValueByKey("target_type") as string ?? "", null, null);
+            var value = AsDoubleOrNull(record.GetValue());
+            rows[key] = record.GetField() == "rtt_avg_ms" ? row with { Rtt = value } : row with { Loss = value };
+        }
+        return rows.Select(kv => new TargetLatencyMean(kv.Key.Item1, kv.Key.Item2, kv.Value.Type, kv.Value.Rtt, kv.Value.Loss))
+            .OrderBy(p => p.Time).ToList();
+    }
+
+    /// <summary>One AP radio's satisfaction sample counts in one hour.</summary>
+    public sealed record SatisfactionCounts(DateTime Hour, string DeviceMac, string Band, int Total, int Below80, int Below60);
+
+    /// <summary>
+    /// Wi-Fi satisfaction sample counts per hour and AP radio: all samples, under 80, and under 60.
+    /// Three counts, each a pushdown (31 ms for 7 days on the test site).
+    /// </summary>
+    public async Task<IReadOnlyList<SatisfactionCounts>> QuerySatisfactionCountsAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<SatisfactionCounts>();
+        async Task<Dictionary<(DateTime, string, string), int>> Count(string cond)
+        {
+            var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r._field == ""satisfaction""){cond}
+  |> aggregateWindow(every: 1h, fn: count, createEmpty: false, timeSrc: ""_start"")
+";
+            var counts = new Dictionary<(DateTime, string, string), int>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("device_mac") as string ?? "", record.GetValueByKey("band") as string ?? "");
+                counts[key] = counts.GetValueOrDefault(key) + (int)(AsDoubleOrNull(record.GetValue()) ?? 0);
+            }
+            return counts;
+        }
+        var total = Count("");
+        var below80 = Count("\n  |> filter(fn: (r) => r._value < 80)");
+        var below60 = Count("\n  |> filter(fn: (r) => r._value < 60)");
+        await Task.WhenAll(total, below80, below60);
+        return total.Result.Select(kv => new SatisfactionCounts(kv.Key.Item1, kv.Key.Item2, kv.Key.Item3, kv.Value,
+                below80.Result.GetValueOrDefault(kv.Key), below60.Result.GetValueOrDefault(kv.Key)))
+            .OrderBy(c => c.Hour).ToList();
+    }
+
+    /// <summary>
+    /// Distinct clients per hour per device from wifi_client (per AP) or wired_client (per switch).
+    /// Raw distinct, not a pushdown: callers read at most a day at a time.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Hour, string DeviceMac, int Clients)>> QueryDistinctClientsByDeviceAsync(
+        string measurement, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || measurement is not ("wifi_client" or "wired_client")) return Array.Empty<(DateTime, string, int)>();
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""client_mac"")
+  |> group(columns: [""device_mac""])
+  |> window(every: 1h)
+  |> distinct()
+  |> count()
+";
+        var results = new List<(DateTime, string, int)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+            if (record.GetStart() is { } start && record.GetValueByKey("device_mac") is string mac)
+                results.Add((start.ToDateTimeUtc(), mac, (int)(AsDoubleOrNull(record.GetValue()) ?? 0)));
+        return results;
+    }
+
+    /// <summary>
+    /// Per device per hour: the rise in input errors and in unicast packets received, summed across its
+    /// ports. Each port is its own series, so max minus min per window is the counter's rise (a reset
+    /// reads as no rise). Two pushdown aggregates.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Hour, string DeviceMac, double Errors, double Packets)>> QueryPortErrorRisesAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, string, double, double)>();
+        async Task<Dictionary<(DateTime, string, string, string), double>> Agg(string fn)
+        {
+            var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and (r._field == ""errors_in"" or r._field == ""ucast_pkts_in""))
+  |> aggregateWindow(every: 1h, fn: {fn}, createEmpty: false, timeSrc: ""_start"")
+";
+            var values = new Dictionary<(DateTime, string, string, string), double>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("device_mac") as string ?? "",
+                    (record.GetValueByKey("if_name") as string ?? "") + "|" + (record.GetValueByKey("port_id") as string ?? ""), record.GetField() ?? "");
+                if (AsDoubleOrNull(record.GetValue()) is { } v) values[key] = v;
+            }
+            return values;
+        }
+        var max = Agg("max");
+        var min = Agg("min");
+        await Task.WhenAll(max, min);
+        return max.Result
+            .Select(kv => (kv.Key, Rise: Math.Max(0, kv.Value - min.Result.GetValueOrDefault(kv.Key, kv.Value))))
+            .GroupBy(x => (x.Key.Item1, x.Key.Item2))
+            .Select(g => (g.Key.Item1, g.Key.Item2,
+                g.Where(x => x.Key.Item4 == "errors_in").Sum(x => x.Rise),
+                g.Where(x => x.Key.Item4 == "ucast_pkts_in").Sum(x => x.Rise)))
+            .ToList();
+    }
+
     // Not a pushdown shape (distinct needs the raw values), so callers keep it to two days or less.
     private async Task<List<(DateTime, string, int)>> RawWifiClientCountsAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
     {

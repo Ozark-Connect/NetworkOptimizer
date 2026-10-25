@@ -17,6 +17,7 @@ public static class ChangeAlerts
     public const string PlanReverted = "change.plan_reverted";
     public const string PlanFailed = "change.plan_failed";
     public const string ConsoleSettings = "change.console_settings";
+    public const string HealthRegression = "change.health_regression";
 
     /// <summary>Link to a change's row on the Changes tab.</summary>
     public static string ChangeUrl(int changeId) => $"/change-control/changes?change={changeId}";

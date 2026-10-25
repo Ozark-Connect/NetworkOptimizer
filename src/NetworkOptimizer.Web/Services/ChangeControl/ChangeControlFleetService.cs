@@ -22,6 +22,9 @@ public sealed class FleetSiteView
     public int Unattributed { get; init; }
     public int? DriftObjects { get; init; }
     public string? NetworkAppVersion { get; init; }
+    /// <summary>Average Site Health over the last 24 hours; null with no data.</summary>
+    public double? Health24h { get; init; }
+    public string? HealthIssue { get; init; }
 }
 
 /// <summary>A Needs Attention item.</summary>
@@ -64,6 +67,8 @@ public sealed class TimelineSiteRow
     public List<TimelineBand> Bands { get; init; } = [];
     public int ChangeCount { get; init; }
     public int RegressionCount { get; init; }
+    /// <summary>Site Health over the range and the period before it, from the stored hours.</summary>
+    public SiteHealth.SiteHealthSeries Health { get; init; } = new();
 }
 
 /// <summary>
@@ -97,6 +102,10 @@ public interface IChangeControlFleetService
     /// <summary>A change's detail on any site the caller can see.</summary>
     [RequireRole(Roles.Viewer)]
     Task<ChangeDetailView?> GetChangeDetailAsync(string siteSlug, int changeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Each visible site's last 24 hours of Site Health and what needs attention, worst first (Dashboard, Sites page).</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<List<SiteHealth.SiteHealthSummary>> GetSiteHealthAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>The fleet service.</summary>
@@ -139,9 +148,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var engine = _registry.GetFor(site.Slug);
         var connection = _registry.Connection(site.Slug);
         var now = DateTime.UtcNow;
-        var (latest, changes, state, last) = await engine.Repositories.UseAsync(async (r, c) =>
+        var (latest, changes, state, last, hours) = await engine.Repositories.UseAsync(async (r, c) =>
             (await r.GetLatestSnapshotAsync(c), await r.GetChangesAsync(now.AddDays(-7), now, 2000, c), await r.GetDetectionStateAsync(c),
-             await r.GetLastConfigChangeAsync(c)), ct);
+             await r.GetLastConfigChangeAsync(c), await r.GetHealthHoursAsync(now.AddHours(-24), now, c)), ct);
+        var health = SiteHealth.SiteHealthSeriesBuilder.Build(hours, now.AddHours(-24), now);
         var config = changes.Where(x => x.Kind == ConfigChangeKind.Config && x.ActorKind != ConfigChangeActorKind.NetworkOptimizer).ToList();
         var counted = changes.Where(x => x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
         int? drift = null;
@@ -176,6 +186,8 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             Unattributed = config.Count(c => c.ActorKind is ConfigChangeActorKind.NoAdminRecorded or ConfigChangeActorKind.LikelyUniFi),
             DriftObjects = drift,
             NetworkAppVersion = state.NetworkAppVersion,
+            Health24h = health.Average,
+            HealthIssue = health.TopIssue,
         };
     }
 
@@ -334,28 +346,25 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         {
             var engine = _registry.GetFor(site.Slug);
             var view = await SiteViewAsync(site, withDrift: false, cancellationToken);
-            var (gaps, incidents) = await engine.Repositories.UseAsync(async (r, c) =>
-                (await r.GetGapsAsync(fromUtc, toUtc, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc, c)), cancellationToken);
+            var span = toUtc - fromUtc;
+            var (gaps, incidents, hours) = await engine.Repositories.UseAsync(async (r, c) =>
+                (await r.GetGapsAsync(fromUtc, toUtc, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc, c),
+                 await r.GetHealthHoursAsync(SiteHealth.SiteHealthJob.FloorHour(fromUtc - span), toUtc, c)), cancellationToken);
+            var health = SiteHealth.SiteHealthSeriesBuilder.Build(hours, SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc,
+                hours.Where(h => h.HourStart < fromUtc && h.HourStart >= fromUtc - span).ToList());
             var bands = gaps.Where(g => g.EndedAt is not { } end || end - g.StartedAt >= ShortGap).Select(g => new TimelineBand(g.StartedAt, g.EndedAt ?? DateTime.UtcNow, "gap", g.Reason))
                 .Concat(incidents.Select(s => s.Incident).Select(i => new TimelineBand(i.FirstTriggeredAt, i.ResolvedAt ?? i.LastTriggeredAt, "incident", i.Title))).ToList();
             var markers = changes.Where(c => c.SiteSlug == site.Slug).ToList();
-            List<(DateTime, double?)> sparkline = [];
-            try
-            {
-                sparkline = await Reader(site.Slug).LatencySparklineAsync(fromUtc, toUtc, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogDebug(ex, "Sparkline failed for {Site}", site.Slug);
-            }
+            // The site row draws Site Health from the stored hours, so a timeline load reads no Influx.
             result.Add(new TimelineSiteRow
             {
                 Site = view,
                 Markers = markers,
                 Bands = bands,
-                Sparkline = sparkline,
+                Sparkline = health.Points.Select(p => (p.Start, p.Health)).ToList(),
                 ChangeCount = markers.Count,
                 RegressionCount = markers.Sum(m => m.RegressionCount),
+                Health = health,
             });
         }
         return result;
@@ -367,7 +376,82 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     public async Task<List<TimelineLane>> GetLanesAsync(string siteSlug, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default)
     {
         if (!await _access.IsAuthorizedAsync(siteSlug)) return [];
-        return await Reader(siteSlug).LanesAsync(fromUtc, toUtc, cancellationToken);
+        var hours = await _registry.GetFor(siteSlug).Repositories.UseAsync((r, c) =>
+            r.GetHealthHoursAsync(SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc, c), cancellationToken);
+        var lanes = await Reader(siteSlug).LanesAsync(fromUtc, toUtc, cancellationToken);
+        lanes.Insert(0, HealthLane(SiteHealth.SiteHealthSeriesBuilder.Build(hours, SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc)));
+        return lanes;
+    }
+
+    // Area colors for the stacked lane: ISP and local Internet share a hue family, Wi-Fi takes the 5 GHz blue.
+    private static readonly (string Name, string Color, Func<SiteHealth.HealthPoint, double> Value)[] HealthAreas =
+    [
+        ("Internet (ISP)", "#f59e0b", p => p.Isp),
+        ("Internet (local)", "#ef5858", p => p.Local),
+        ("Wi-Fi", "var(--band-5-color)", p => p.Wifi),
+        ("Availability", "#a78bfa", p => p.Availability),
+        ("LAN", "#2ba89a", p => p.Lan),
+    ];
+
+    /// <summary>Health points lost per bucket, stacked by area; the latest health beside it.</summary>
+    internal static TimelineLane HealthLane(SiteHealth.SiteHealthSeries series)
+    {
+        var lower = series.Points.ToDictionary(p => p.Start, _ => 0.0);
+        var stack = new List<StackLayer>();
+        foreach (var (name, color, value) in HealthAreas)
+        {
+            var points = new List<(DateTime, double, double)>();
+            foreach (var p in series.Points)
+            {
+                var lo = lower[p.Start];
+                lower[p.Start] = lo + value(p) * 100;
+                points.Add((p.Start, lo, lower[p.Start]));
+            }
+            var latest = series.Points.Count > 0 ? (int)Math.Round(value(series.Points[^1]) * 100) : 0;
+            if (points.Any(x => x.Item3 > x.Item2)) stack.Add(new StackLayer(name, color, points, latest));
+        }
+        return new TimelineLane
+        {
+            Key = "health", Title = "Site Health", Subtitle = "Points lost, by area", SeriesAName = "health",
+            SeriesA = series.Points.Select(p => (p.Start, (double?)(100 - (p.Health ?? 100)))).ToList(),
+            Stack = stack,
+            LatestA = series.Latest is { } h ? h.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) : null,
+        };
+    }
+
+    public async Task<List<SiteHealth.SiteHealthSummary>> GetSiteHealthAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var result = new List<SiteHealth.SiteHealthSummary>();
+        foreach (var site in await SitesAsync(null, cancellationToken))
+        {
+            var engine = _registry.GetFor(site.Slug);
+            var connection = _registry.Connection(site.Slug);
+            var (hours, changes, incidents, plans, gaps) = await engine.Repositories.UseAsync(async (r, c) =>
+                (await r.GetHealthHoursAsync(now.AddHours(-48), now, c), await r.GetChangesAsync(now.AddDays(-1), now, 500, c),
+                 await ChangeIncidents.StartedAsync(r, now.AddDays(-1), now, c), await r.GetPlansAsync(null, 50, c),
+                 await r.GetGapsAsync(now.AddDays(-7), now, c)), cancellationToken);
+            var counted = changes.Where(x => x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
+            result.Add(new SiteHealth.SiteHealthSummary
+            {
+                Slug = site.Slug,
+                Name = site.Name,
+                Online = connection.IsConnected,
+                AgentOffline = connection.IsAwaitingAgent,
+                Connection = connection.IsAwaitingAgent ? "Agent offline"
+                    : !connection.IsConnected ? "Console unreachable"
+                    : connection.IsViaAgent ? "Agent online" : "Console connected",
+                UnreachableSince = connection.IsConnected ? null : gaps.Where(g => g.EndedAt == null).Select(g => (DateTime?)g.StartedAt).FirstOrDefault(),
+                Health = SiteHealth.SiteHealthSeriesBuilder.Build(hours, SiteHealth.SiteHealthJob.FloorHour(now.AddHours(-24)), now,
+                    hours.Where(h => h.HourStart < SiteHealth.SiteHealthJob.FloorHour(now.AddHours(-24))).ToList()),
+                Incidents24h = incidents.Count,
+                Changes24h = counted.Count,
+                Regressions24h = changes.Where(x => x.Kind == ConfigChangeKind.Config).Sum(x => x.RegressionCount),
+                PendingApprovals = plans.Count(p => p.Status == ConfigPlanStatus.PendingApproval),
+            });
+        }
+        // Worst first: no data from an unreachable site, then lowest health.
+        return result.OrderBy(s => s.Online ? 1 : 0).ThenBy(s => s.Health.Latest ?? s.Health.Average ?? 101).ThenBy(s => s.Name).ToList();
     }
 
     public async Task<ChangeDetailView?> GetChangeDetailAsync(string siteSlug, int changeId, CancellationToken cancellationToken = default)

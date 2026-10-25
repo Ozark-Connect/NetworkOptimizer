@@ -10,7 +10,8 @@
 }
 else
 {
-    var sites = _view.Sites;
+    // Worst first: the site that needs looking at leads the list.
+    var sites = _view.Sites.OrderBy(s => s.Health24h ?? 101).ThenBy(s => s.Name).ToList();
     var regressionSites = sites.Count(s => s.Regressions > 0);
     var driftSites = sites.Count(s => s.DriftObjects > 0);
 
@@ -110,9 +111,9 @@ else
                         <div class="cc-site-list-row history-row-clickable" @onclick="@(() => Navigator.TabAsync(s.Slug, "changes"))">
                             <div>
                                 <div><span class="cc-dot @(s.Online ? "online" : "offline")"></span> @s.Name</div>
-                                <div class="cc-item-detail">@CcFormat.Plural(s.Changes7d, "change", "changes"), @(s.DriftObjects switch { null => "no Baseline", 0 => "no drift", var d => $"{d} objects drifted" })@(s.AgentOffline ? ", agent offline" : "")</div>
+                                <div class="cc-item-detail">@CcFormat.Plural(s.Changes7d, "change", "changes"), @(s.Regressions > 0 ? CcFormat.Plural(s.Regressions, "regression", "regressions") + ", " : "")@(s.DriftObjects switch { null => "no Baseline", 0 => "no drift", var d => $"{d} objects drifted" })@(s.AgentOffline ? ", agent offline" : "")</div>
                             </div>
-                            <span class="status-badge @(s.Regressions > 0 ? "status-error" : "badge-muted")">@(s.Regressions > 0 ? CcFormat.Plural(s.Regressions, "regression", "regressions") : "0")</span>
+                            <span class="cc-site-health health-@Level(s.Health24h)">@(s.Health24h is { } h ? h.ToString("0.#") : "--")</span>
                         </div>
                     }
                 </div>
@@ -121,6 +122,7 @@ else
                         <thead>
                             <tr>
                                 <th>Site</th>
+                                <th data-tooltip="Average Site Health over the last 24 hours">Health, 24h</th>
                                 <th>Last snapshot</th>
                                 <th>Changes, 7d</th>
                                 <th>Regressions</th>
@@ -133,6 +135,7 @@ else
                             {
                                 <tr class="history-row-clickable" @onclick="@(() => Navigator.TabAsync(s.Slug, "changes"))">
                                     <td><span class="cc-dot @(s.Online ? "online" : "offline")" data-tooltip="@(s.Online ? "Connected" : s.AgentOffline ? "Agent offline" : "UniFi Console unreachable")"></span> @s.Name</td>
+                                    <td><span class="health-@Level(s.Health24h)" data-tooltip="@(s.HealthIssue ?? "No issues")">@(s.Health24h is { } h ? h.ToString("0.#") : "--")</span></td>
                                     <td>@(s.LastSnapshotAt is { } t ? CcFormat.Time(t) : "None yet")</td>
                                     <td>@s.Changes7d</td>
                                     <td><span class="status-badge @(s.Regressions > 0 ? "status-error" : "badge-muted")">@s.Regressions</span></td>
@@ -213,6 +216,8 @@ else
 
 @code {
     private OverviewView? _view;
+
+    private static string Level(double? health) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(health);
 
     protected override async Task OnInitializedAsync()
     {

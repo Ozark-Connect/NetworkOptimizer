@@ -4,6 +4,13 @@
 @* One timeline track: up to two series (or stacked areas) on a shared axis, incident and gap bands, change markers,
    and the selected change's line. Positions are percentages of the range, so tracks line up. *@
 <div class="cc-track @(Lane ? "cc-lane-track" : "")">
+    @* Hover zones first, so an incident band drawn after them keeps its own tooltip. *@
+    @foreach (var p in Health ?? [])
+    {
+        var left = CcFormat.Pct(p.Start, From, To);
+        <div class="cc-health-zone" style="left:@F(left)%;width:@F(Math.Max(0.2, CcFormat.Pct(p.End, From, To) - left))%"
+             data-tooltip="@($"{CcFormat.Time(p.Start)}: {p.Tip ?? (p.Health is { } h ? $"Health {h:0.#}" : "No data")}")"></div>
+    }
     @foreach (var band in Bands)
     {
         var left = CcFormat.Pct(band.Start, From, To);
@@ -28,7 +35,11 @@
             <polyline points="@CcFormat.Polylines(layer.Points.Select(p => (p.Time, (double?)p.Upper)).ToList(), From, To, _max).FirstOrDefault()" fill="none"
                       style="stroke:@layer.Color" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
         }
-        @if (Stack.Count == 0)
+        @foreach (var (points, level) in HealthSegments())
+        {
+            <polyline points="@points" fill="none" class="cc-health-line @level" stroke-width="1.75" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+        }
+        @if (Stack.Count == 0 && Health == null)
         {
             @foreach (var line in CcFormat.Polylines(SeriesA, From, To, _max))
             {
@@ -71,6 +82,27 @@
     [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesB { get; set; } = [];
     [Parameter] public IReadOnlyList<StackLayer> Stack { get; set; } = [];
     [Parameter] public IReadOnlyList<LaneLine> Lines { get; set; } = [];
+    /// <summary>Site Health buckets: drawn on a fixed 60 to 100 axis, colored by level, with hover per bucket.</summary>
+    [Parameter] public IReadOnlyList<NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.HealthPoint>? Health { get; set; }
+
+    // 60 to 100: below 60 is already red and flat-lines at the floor, and the band that matters stays readable.
+    private const double HealthFloor = 60;
+
+    private static double HealthY(double h) => 96 - Math.Clamp((h - HealthFloor) / (100 - HealthFloor), 0, 1) * 88;
+
+    /// <summary>Runs of consecutive known buckets, each segment colored by the lower of its two ends.</summary>
+    private IEnumerable<(string Points, string Level)> HealthSegments()
+    {
+        if (Health is not { Count: > 0 } points) yield break;
+        for (var i = 1; i < points.Count; i++)
+        {
+            if (points[i - 1].Health is not { } a || points[i].Health is not { } b || points[i].Start != points[i - 1].End) continue;
+            var x1 = CcFormat.Pct(points[i - 1].Start + (points[i - 1].End - points[i - 1].Start) / 2, From, To);
+            var x2 = CcFormat.Pct(points[i].Start + (points[i].End - points[i].Start) / 2, From, To);
+            yield return ($"{F(x1)},{F(HealthY(a))} {F(x2)},{F(HealthY(b))}",
+                NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(Math.Min(a, b)));
+        }
+    }
     [Parameter] public string ColorA { get; set; } = "#2ba89a";
     [Parameter] public string ColorB { get; set; } = "#f59e0b";
     [Parameter] public IReadOnlyList<ChangeRowView> Markers { get; set; } = [];

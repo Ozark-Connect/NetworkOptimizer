@@ -87,11 +87,24 @@
                         <div class="cc-tl-name">@row.Site.Name</div>
                         <div class="cc-tl-sub">@row.Site.Detail</div>
                     </div>
-                    <CcTrack From="_from" To="_to" SeriesA="row.Sparkline" ColorA="@LaneColorA("latency")" Markers="markers" Bands="row.Bands"
+                    <CcTrack From="_from" To="_to" Health="row.Health.Points" Markers="markers" Bands="row.Bands"
                              SelectedId="_selected?.Id" OnMarker="SelectAsync" />
                     <div class="cc-tl-counts">
-                        <div><b>@row.ChangeCount</b> changes</div>
-                        <div>@(row.RegressionCount == 0 ? (row.ChangeCount == 0 ? "No changes" : "No issues") : CcFormat.Plural(row.RegressionCount, "regression", "regressions"))</div>
+                        <div data-tooltip="@(row.Health.TopIssue ?? "Site Health: the share of user-time with good service")">
+                            @if (row.Health.Average is { } avg)
+                            {
+                                <b class="cc-health-@HealthLevel(avg)">@avg.ToString("0.#")</b> <span>health</span>
+                                @if (row.Health.PreviousAverage is { } prev && Math.Abs(avg - prev) >= 0.1)
+                                {
+                                    <span class="cc-health-delta @(avg < prev ? "down" : "up")">@(avg < prev ? "down" : "up") @Math.Abs(avg - prev).ToString("0.#")</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="muted-text">No health data</span>
+                            }
+                        </div>
+                        <div><b>@row.ChangeCount</b> changes@(row.RegressionCount > 0 ? ", " : "")@if (row.RegressionCount > 0) { <span class="danger-text">@CcFormat.Plural(row.RegressionCount, "regression", "regressions")</span> }</div>
                     </div>
                 </div>
                 <div class="expand-wrapper @(expanded ? "expanded" : "")">
@@ -193,6 +206,7 @@
                         @if (c.RegressionCount > 0) { <span class="status-badge status-error">@CcFormat.Plural(c.RegressionCount, "security regression", "security regressions")</span> }
                         @foreach (var tag in c.Tags.Where(ServiceTags.ClassD.Contains)) { <span class="status-badge status-info">@tag</span> }
                         @if (c.IncidentsAfter > 0) { <span class="status-badge status-warning">@CcFormat.Plural(c.IncidentsAfter, "incident after", "incidents after")</span> }
+                        @if (c.HealthDrop is >= 5 and var drop) { <span class="status-badge status-error">Health -@drop.ToString("0") after</span> }
                     </div>
                 </div>
                 <div class="expand-wrapper @(isOpen ? "expanded" : "")">
@@ -257,6 +271,10 @@
                                 @if (c.IncidentsAfter > 0)
                                 {
                                     <span class="status-badge status-warning">@CcFormat.Plural(c.IncidentsAfter, "incident", "incidents")</span>
+                                }
+                                @if (c.HealthDrop is >= 5 and var drop)
+                                {
+                                    <span class="status-badge status-error" data-tooltip="Site Health in the 3 hours after vs. the 3 hours before, ISP problems left out">Health -@drop.ToString("0")</span>
                                 }
                             </td>
                             <td class="expand-chevron">@(isOpen ? "▲" : "▼")</td>
@@ -537,7 +555,8 @@
         "latency" => "#d946ef", "loss" => "#ef4444", _ => "#2ba89a",
     };
     private static string LaneColorB(string key) => key switch { "throughput" => "var(--speed-upload-color)", _ => "#f59e0b" };
-    private static string LaneClassA(string key) => key switch { "throughput" => "down", "cpu" => "cpu", "latency" => "rtt", "loss" => "loss", _ => "a" };
+    private static string LaneClassA(string key) => key switch { "throughput" => "down", "cpu" => "cpu", "latency" => "rtt", "loss" => "loss", "health" => "health", _ => "a" };
+    private static string HealthLevel(double? h) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(h);
     private static string LaneClassB(string key) => key switch { "throughput" => "up", _ => "b" };
     private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 }

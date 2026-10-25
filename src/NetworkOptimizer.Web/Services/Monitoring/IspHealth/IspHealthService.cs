@@ -1982,6 +1982,36 @@ public class IspHealthService
     /// per-type approximation, and the two can never drift.
     /// </summary>
     /// <summary>
+    /// The WAN this instance scores ("wan", "wan2": MonitoringTarget.WanInterface's namespace), resolved as
+    /// the compute does: configured primary first, the name-ordered guess only offline.
+    /// </summary>
+    public async Task<string> GetScoredWanKeyAsync(CancellationToken ct = default)
+    {
+        if (_scopedWanKey != null) return _scopedWanKey;
+        await using var db = await CreateSiteDbAsync(ct);
+        var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+        return ReconcileScoredKey(await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(contexts), contexts);
+    }
+
+    /// <summary>
+    /// The scored WAN's access-technology profile, chosen as the compute chooses it; the neutral Other
+    /// profile when the technology was never set, so callers always have thresholds.
+    /// </summary>
+    public async Task<AccessProfile> GetAccessProfileAsync(CancellationToken ct = default)
+    {
+        var key = await GetScoredWanKeyAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
+        var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+        var scored = contexts.FirstOrDefault(c => string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""),
+            GatewayWanHelper.WanInterfaceKeyFromKey(key), StringComparison.OrdinalIgnoreCase));
+        var technology = scored?.AccessTechnology is { } t && t != AccessTechnology.Unknown
+            ? t
+            : _scopedWanKey == null ? settings?.AccessTechnology ?? AccessTechnology.Unknown : AccessTechnology.Unknown;
+        return IspHealthProfiles.GetProfile(technology) ?? IspHealthProfiles.GetProfile(AccessTechnology.Other)!;
+    }
+
+    /// <summary>
     /// The Influx wan-tag scope this instance's latency reads use (the configured primary for the
     /// primary instance), resolved exactly as the compute does, so other readers of the same series
     /// see only this WAN's points. Null when no WAN context exists (nothing is tagged to filter apart).

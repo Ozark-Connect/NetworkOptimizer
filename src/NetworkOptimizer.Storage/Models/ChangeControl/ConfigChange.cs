@@ -122,6 +122,15 @@ public class ConfigChange
     /// <summary>Alert evaluation for this change has run (so a restart does not alert twice).</summary>
     public bool Evaluated { get; set; }
 
+    /// <summary>Mean site health (local part, ISP impairment removed) over the 3 hours before. Null until scored.</summary>
+    public double? HealthBefore { get; set; }
+
+    /// <summary>
+    /// Mean site health (local part) over the 3 hours after. Set once those hours are stored, so the
+    /// regression check has run; -1 when there was no health data after the change.
+    /// </summary>
+    public double? HealthAfter { get; set; }
+
     /// <summary>The post-change device check for a management-path change has run.</summary>
     public bool ManagementChecked { get; set; }
 }

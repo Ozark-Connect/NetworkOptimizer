@@ -287,6 +287,52 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
             .Where(g => g.StartedAt <= toUtc && (g.EndedAt == null || g.EndedAt >= fromUtc))
             .OrderBy(g => g.StartedAt).ToListAsync(cancellationToken), nameof(GetGapsAsync));
 
+    public Task<List<SiteHealthHour>> GetHealthHoursAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.SiteHealthHours.AsNoTracking()
+            .Where(h => h.HourStart >= fromUtc && h.HourStart < toUtc)
+            .OrderBy(h => h.HourStart).ToListAsync(cancellationToken), nameof(GetHealthHoursAsync));
+
+    public Task SaveHealthHoursAsync(IReadOnlyList<SiteHealthHour> hours, DateTime pruneBeforeUtc, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(async () =>
+        {
+            var starts = hours.Select(h => h.HourStart).ToList();
+            var existing = await _context.SiteHealthHours.Where(h => starts.Contains(h.HourStart)).ToListAsync(cancellationToken);
+            foreach (var hour in hours)
+            {
+                var row = existing.FirstOrDefault(e => e.HourStart == hour.HourStart);
+                if (row == null)
+                {
+                    hour.Id = 0;
+                    _context.SiteHealthHours.Add(hour);
+                }
+                else
+                {
+                    hour.Id = row.Id;
+                    _context.Entry(row).CurrentValues.SetValues(hour);
+                }
+            }
+            await _context.SaveChangesAsync(cancellationToken);
+            await _context.SiteHealthHours.Where(h => h.HourStart < pruneBeforeUtc).ExecuteDeleteAsync(cancellationToken);
+        }, nameof(SaveHealthHoursAsync));
+
+    public Task<List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry>> GetAlertsActiveAsync(
+        DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() =>
+        {
+            var types = eventTypes.ToList();
+            // An unresolved alert older than a day is stale (the resolver missed it), not an outage still running.
+            var floor = fromUtc.AddDays(-1);
+            return _context.AlertHistory.AsNoTracking()
+                .Where(a => types.Contains(a.EventType) && a.TriggeredAt < toUtc && a.TriggeredAt >= floor
+                    && (a.ResolvedAt == null || a.ResolvedAt >= fromUtc))
+                .OrderBy(a => a.TriggeredAt).Take(5000).ToListAsync(cancellationToken);
+        }, nameof(GetAlertsActiveAsync));
+
+    public Task<List<ConfigChange>> GetChangesAwaitingHealthAsync(DateTime sinceUtc, DateTime occurredBeforeUtc, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.ConfigChanges.AsNoTracking()
+            .Where(c => c.HealthAfter == null && c.OccurredAt >= sinceUtc && c.OccurredAt < occurredBeforeUtc)
+            .OrderBy(c => c.OccurredAt).Take(200).ToListAsync(cancellationToken), nameof(GetChangesAwaitingHealthAsync));
+
     public Task<ConfigPlan> CreatePlanAsync(ConfigPlan plan, CancellationToken cancellationToken = default) =>
         ExecuteAsync(async () =>
         {

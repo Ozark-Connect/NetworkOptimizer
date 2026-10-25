@@ -112,10 +112,16 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         _coordinators[slug] = coordinator;
         var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));
+        var health = new SiteHealth.SiteHealthJob(slug, engine.Repositories,
+            () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
+            () => _sp.GetRequiredService<Monitoring.IspHealth.IspHealthRegistry>().GetFor(slug, null),
+            () => connection, _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
+            _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"SiteHealth[{slug}]"));
         engine.OnTick = async ct =>
         {
             await coordinator.TickAsync(ct);
             await console.TickAsync(ct);
+            await health.TickAsync(ct);
         };
         return engine;
     }

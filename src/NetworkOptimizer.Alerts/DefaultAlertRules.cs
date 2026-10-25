@@ -1127,6 +1127,15 @@ public static class DefaultAlertRules
             Source = "change_control",
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            Name = "Change Control: Site Health Fell After a Change",
+            IsEnabled = true,
+            EventTypePattern = "change.health_regression",
+            Source = "change_control",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
         }
     ];
 }

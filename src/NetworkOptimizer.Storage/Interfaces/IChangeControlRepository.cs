@@ -101,6 +101,19 @@ public interface IChangeControlRepository
     /// <summary>Gaps overlapping a range.</summary>
     Task<List<ChangeDetectionGap>> GetGapsAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>Site Health hours starting in [from, to), oldest first.</summary>
+    Task<List<SiteHealthHour>> GetHealthHoursAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Inserts or replaces Site Health hours by hour start, and drops hours older than <paramref name="pruneBeforeUtc"/>.</summary>
+    Task SaveHealthHoursAsync(IReadOnlyList<SiteHealthHour> hours, DateTime pruneBeforeUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Alerts of the given types that were active at any point in [from, to), oldest first.</summary>
+    Task<List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry>> GetAlertsActiveAsync(
+        DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default);
+
+    /// <summary>Changes since a time whose health after has not been scored yet, oldest first.</summary>
+    Task<List<ConfigChange>> GetChangesAwaitingHealthAsync(DateTime sinceUtc, DateTime occurredBeforeUtc, CancellationToken cancellationToken = default);
+
     /// <summary>Inserts a plan; returns it with its Id.</summary>
     Task<ConfigPlan> CreatePlanAsync(ConfigPlan plan, CancellationToken cancellationToken = default);
 

@@ -20597,6 +20597,19 @@ body.kiosk-mode .status-indicators {
     margin-right: auto;
 }
 
+.site-card-health {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.site-card-health > span:first-child {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
 .site-card-footer {
     display: flex;
     margin-top: 0.75rem;
@@ -20629,6 +20642,310 @@ body.kiosk-mode .status-indicators {
 .sites-overview-card {
     padding: 1rem 1.25rem;
     margin-bottom: 1.5rem;
+}
+
+/* Dashboard Sites panel (Site Health, worst first) */
+.sites-health-panel {
+    padding: 0;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+}
+
+.shp-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shp-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.shp-inline-avg {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.shp-inline-avg b {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-right: 0.25rem;
+}
+
+.shp-spacer {
+    flex: 1;
+}
+
+.shp-switcher {
+    font-size: 0.8125rem;
+}
+
+.shp-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shp-avg {
+    min-width: 200px;
+    padding-right: 1rem;
+    border-right: 1px solid var(--border-color);
+}
+
+.shp-avg-label,
+.shp-avg-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.shp-avg-value {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.15;
+}
+
+.shp-delta {
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.shp-delta.down { color: var(--danger-color); }
+.shp-delta.up { color: var(--success-color); }
+
+.shp-chips,
+.shp-count-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.shp-count-chips {
+    padding: 0.75rem 1.25rem 0;
+}
+
+.shp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.shp-chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.shp-chip.muted .shp-chip-dot { display: none; }
+.shp-chip.danger { background: rgba(238, 99, 104, 0.14); color: #f38d91; }
+.shp-chip.warning { background: rgba(231, 150, 19, 0.14); color: #f0b14d; }
+.shp-chip.info { background: rgba(71, 151, 255, 0.14); color: #8ab9ff; }
+
+.shp-head-row,
+.shp-row {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1.4fr) 160px 56px minmax(0, 2fr) 72px 72px;
+    column-gap: 0.85rem;
+    align-items: center;
+    padding: 0.55rem 1.25rem;
+}
+
+.shp-head-row {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shp-row {
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--bg-tertiary);
+    text-decoration: none;
+}
+
+.shp-row:hover {
+    background: var(--bg-hover-subtle);
+    color: var(--text-primary);
+}
+
+.shp-head-row .num,
+.shp-row .num {
+    text-align: right;
+}
+
+.shp-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.shp-site {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.shp-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.shp-spark {
+    width: 100%;
+    height: 28px;
+}
+
+.shp-spark-line.healthy { stroke: var(--success-color); }
+.shp-spark-line.degraded { stroke: var(--warning-color); }
+.shp-spark-line.down { stroke: var(--danger-color); }
+.shp-spark-line.unknown { stroke: var(--text-muted); }
+
+.shp-now {
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.shp-issue {
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.shp-issue.muted {
+    color: var(--text-muted);
+}
+
+.shp-count {
+    color: var(--text-secondary);
+}
+
+.shp-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 0.6rem;
+    padding: 0.75rem 1.25rem 1rem;
+}
+
+.shp-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.65rem 0.8rem;
+    border-radius: var(--border-radius-lg);
+    background: var(--bg-tertiary);
+    border: 1px solid transparent;
+    color: var(--text-primary);
+    text-decoration: none;
+    min-height: 44px;
+}
+
+.shp-tile:hover {
+    color: var(--text-primary);
+    border-color: var(--border-color);
+}
+
+.shp-tile.degraded { border-color: rgba(231, 150, 19, 0.5); }
+.shp-tile.down { border-color: rgba(238, 99, 104, 0.5); }
+
+.shp-tile-name {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.shp-tile-health {
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.shp-tile-issue {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.shp-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.65rem 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .shp-header {
+        padding: 0.75rem 1rem;
+    }
+
+    .shp-switcher {
+        order: 5;
+        flex: 1 1 100%;
+    }
+
+    .shp-summary {
+        flex-direction: column;
+        padding: 0.75rem 1rem;
+    }
+
+    .shp-avg {
+        border-right: none;
+        padding-right: 0;
+    }
+
+    .shp-row {
+        grid-template-columns: 12px minmax(0, 1fr) 64px 44px;
+        grid-template-areas: "dot name spark now" ". issue issue issue";
+        row-gap: 0.2rem;
+        padding: 0.65rem 1rem;
+    }
+
+    .shp-row > .status-dot { grid-area: dot; }
+    .shp-row > .shp-name { grid-area: name; }
+    .shp-row > .shp-spark { grid-area: spark; }
+    .shp-row > .shp-now { grid-area: now; }
+    .shp-row > .shp-issue { grid-area: issue; white-space: normal; }
+    .shp-row > .shp-count { display: none; }
+
+    .shp-tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 0.75rem 1rem 1rem;
+    }
+
+    .shp-count-chips {
+        padding: 0.75rem 1rem 0;
+    }
+
+    .shp-footer {
+        padding: 0.65rem 1rem;
+    }
 }
 
 .site-card-console {
@@ -23480,6 +23797,32 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-lane-latest .a { color: var(--cc-no); }
 .change-control .cc-lane-latest .rtt { color: #d946ef; }
+.change-control .cc-lane-latest .health { color: var(--success-color); }
+
+/* Site Health levels (Change Control, Dashboard Sites panel, Sites page): 95+ healthy, 85+ degraded */
+.health-healthy, .cc-health-healthy { color: var(--success-color); }
+.health-degraded, .cc-health-degraded { color: var(--warning-color); }
+.health-down, .cc-health-down { color: var(--danger-color); }
+.health-unknown, .cc-health-unknown { color: var(--text-muted); }
+
+.change-control .cc-health-line.healthy { stroke: var(--success-color); }
+.change-control .cc-health-line.degraded { stroke: var(--warning-color); }
+.change-control .cc-health-line.down { stroke: var(--danger-color); }
+.change-control .cc-health-line.unknown { stroke: var(--text-muted); }
+
+.change-control .cc-health-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+}
+
+.change-control .cc-health-delta {
+    margin-left: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.change-control .cc-health-delta.down { color: var(--danger-color); }
+.change-control .cc-health-delta.up { color: var(--success-color); }
 .change-control .cc-lane-latest .loss { color: #ef4444; }
 .change-control .cc-lane-latest .b { color: var(--warning-color); }
 .change-control .cc-lane-latest .cpu { color: var(--cc-firmware); }

@@ -137,6 +137,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ChangeControlSettings> ChangeControlSettings { get; set; }
     public DbSet<ChangeDetectionState> ChangeDetectionStates { get; set; }
     public DbSet<ConsoleBackupRecord> ConsoleBackups { get; set; }
+    public DbSet<SiteHealthHour> SiteHealthHours { get; set; }
 
     /// <summary>Instance-wide config templates. Meaningful only in the MAIN database.</summary>
     public DbSet<ConfigTemplate> ConfigTemplates { get; set; }
@@ -855,6 +856,12 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("ChangeDetectionGaps");
             entity.HasIndex(e => e.StartedAt);
+        });
+
+        modelBuilder.Entity<SiteHealthHour>(entity =>
+        {
+            entity.ToTable("SiteHealthHours");
+            entity.HasIndex(e => e.HourStart).IsUnique();
         });
 
         modelBuilder.Entity<ConfigPlan>(entity =>

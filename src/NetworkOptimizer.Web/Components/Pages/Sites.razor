@@ -18,6 +18,8 @@
 @using NetworkOptimizer.Storage.Models.Identity
 @inject NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver SiteRoles
 @inject SiteRegistryChangeNotifier ChangeNotifier
+@inject NetworkOptimizer.Web.Services.ChangeControl.IChangeControlFleetService Fleet
+@inject ILogger<Sites> Logger
 
 <PageTitle>Sites - Network Optimizer</PageTitle>
 
@@ -94,6 +96,13 @@ else
                         <span class="status-badge @LicenseBadgeClass(licenseStatus)" data-tooltip="@LicenseBadgeTooltip(licenseStatus)">@LicenseBadgeLabel(licenseStatus)</span>
                     }
                 </div>
+                @if (_health.TryGetValue(site.Slug, out var health) && (health.Health.Latest ?? health.Health.Average) is { } siteHealth)
+                {
+                    <div class="site-card-health" data-tooltip="@(health.Health.TopIssue ?? "No issues in the last 24 hours")">
+                        <span class="health-@NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(siteHealth)">@siteHealth.ToString("0.#")</span>
+                        <span>Site Health@(health.Health.Average is { } avg ? $", {avg:0.#} over 24 hours" : "")</span>
+                    </div>
+                }
                 <div class="site-card-footer">
                     @if (!site.IsDefault)
                     {
@@ -124,6 +133,20 @@ else
     private List<Site> _sites = new();
     private List<SiteAgent> _agents = new();
     private readonly Dictionary<int, string?> _consoleHosts = new();
+    // Site Health by slug, from the stored hours (no Influx); absent for a site without Change Control running.
+    private Dictionary<string, NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSummary> _health = new();
+
+    private async Task LoadHealthAsync()
+    {
+        try
+        {
+            _health = (await Fleet.GetSiteHealthAsync()).ToDictionary(s => s.Slug, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Site Health could not load for the Sites page");
+        }
+    }
 
     private System.Threading.Timer? _pollTimer;
 
@@ -149,6 +172,7 @@ else
                 (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled), s => s.Slug);
             _agents = await AgentEnrollment.GetAllAgentsAsync();
             await LoadConsoleHostsAsync();
+            await LoadHealthAsync();
 
             // Keep the console dots and agent counts current while the page is
             // open - they'd otherwise freeze at whatever page load saw and drift

@@ -1272,6 +1272,12 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("FixCount")
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("HealthAfter")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("HealthBefore")
+                        .HasColumnType("REAL");
+
                     b.Property<string>("ImpactJson")
                         .HasColumnType("TEXT");
 
@@ -3743,6 +3749,73 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasIndex("SiteId");
 
                     b.ToTable("SiteAgents", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SiteHealthHour", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("AccessRttMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("Availability")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("Clients")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DetailsJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("Health")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("HourStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("Internet")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("InternetIsp")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("Lan")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("LoadedDeltaMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("LoadedShare")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("LossPct")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("Wifi")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("WirelessShare")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("Worst")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HourStart")
+                        .IsUnique();
+
+                    b.ToTable("SiteHealthHours", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.SiteLicenseAssignment", b =>

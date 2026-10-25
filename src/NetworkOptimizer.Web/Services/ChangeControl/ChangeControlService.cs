@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
@@ -87,6 +88,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         Tags = string.IsNullOrEmpty(c.ServiceTagsJson) ? [] : JsonSerializer.Deserialize<List<string>>(c.ServiceTagsJson) ?? [],
         IncidentsAfter = incidentsAfter, ManagementPath = c.ManagementPath, SnapshotId = c.SnapshotId,
         PreviousSnapshotId = c.PreviousSnapshotId, PlanId = c.PlanId,
+        HealthDrop = c.HealthBefore is >= 0 and var before && c.HealthAfter is >= 0 and var after ? Math.Round(before - after, 1) : null,
     };
 
     public async Task<List<ChangeRowView>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, bool? includeOwn = null, CancellationToken cancellationToken = default)
@@ -117,17 +119,19 @@ public sealed partial class ChangeControlService : IChangeControlService
     public async Task<ChangeDetailView?> GetChangeDetailAsync(int changeId, CancellationToken cancellationToken = default)
     {
         var name = await SiteNameAsync(cancellationToken);
-        var loaded = await Repo.UseAsync<(ConfigChange change, List<ConfigChangeObject> objects, List<ScopedIncident> incidents)?>(async (r, c) =>
+        var loaded = await Repo.UseAsync<(ConfigChange change, List<ConfigChangeObject> objects, List<ScopedIncident> incidents, List<SiteHealthHour> health)?>(async (r, c) =>
         {
             var change = await r.GetChangeAsync(changeId, c);
             if (change == null) return null;
             var objects = await r.GetChangeObjectsAsync([change.Id], c);
             var incidents = await ChangeIncidents.StartedAsync(r, change.OccurredAt, change.OccurredAt + ChangeControlSiteEngine.IncidentWindow, c);
-            return (change, objects, incidents);
+            var health = await r.GetHealthHoursAsync(change.OccurredAt.AddHours(-4), change.OccurredAt.AddHours(5), c);
+            return (change, objects, incidents, health);
         }, cancellationToken);
         if (loaded is not { } l) return null;
 
-        var metrics = await new SiteMetricsReader(_influx, _isp, _logger).BeforeAfterAsync(l.change.OccurredAt, cancellationToken);
+        var metrics = HealthDeltas(l.health, l.change.OccurredAt)
+            .Concat(await new SiteMetricsReader(_influx, _isp, _logger).BeforeAfterAsync(l.change.OccurredAt, cancellationToken)).ToList();
         var impact = string.IsNullOrEmpty(l.change.ImpactJson) ? [] : JsonSerializer.Deserialize<List<ImpactLine>>(l.change.ImpactJson) ?? [];
         var source = l.change.ActorKind == ConfigChangeActorKind.Person
             ? string.Join(", ", new[] { l.change.ActorName, l.change.ActorIp, l.change.ActorPlatform }.Where(s => !string.IsNullOrEmpty(s)))
@@ -143,6 +147,38 @@ public sealed partial class ChangeControlService : IChangeControlService
             CanRollBack = l.change.Kind == ConfigChangeKind.Config && l.change.PreviousSnapshotId != null,
             Facts = Facts(l.change),
         };
+    }
+
+    /// <summary>
+    /// Site Health and each area's points lost, 3 hours before vs. the 3 full hours after, ISP impairment
+    /// removed: a change cannot cause upstream loss. Areas that moved less than a point are left out.
+    /// </summary>
+    internal static List<MetricDelta> HealthDeltas(IReadOnlyList<SiteHealthHour> hours, DateTime at)
+    {
+        var floor = SiteHealth.SiteHealthJob.FloorHour(at);
+        var before = hours.Where(h => h.HourStart >= floor.AddHours(-3) && h.HourStart < floor).ToList();
+        var after = hours.Where(h => h.HourStart >= floor.AddHours(1) && h.HourStart < floor.AddHours(4)).ToList();
+        if (before.Count == 0 || after.Count == 0) return [];
+        static double? Mean(IEnumerable<double?> values)
+        {
+            var known = values.OfType<double>().ToList();
+            return known.Count > 0 ? known.Average() : null;
+        }
+        var rows = new List<MetricDelta>();
+        if (Mean(before.Select(SiteHealth.SiteHealthScorer.LocalHealth)) is { } hb && Mean(after.Select(SiteHealth.SiteHealthScorer.LocalHealth)) is { } ha)
+            rows.Add(new MetricDelta("Site Health (3 h)", hb.ToString("0.#", CultureInfo.InvariantCulture), ha.ToString("0.#", CultureInfo.InvariantCulture), ha < hb - 3));
+        foreach (var (label, value) in new (string, Func<SiteHealthHour, double>)[]
+                 {
+                     ("Internet, local", SiteHealth.SiteHealthSeriesBuilder.Local), ("Wi-Fi", SiteHealth.SiteHealthSeriesBuilder.WifiWeighted),
+                     ("Availability", h => h.Availability ?? 0), ("LAN", h => h.Lan ?? 0),
+                 })
+        {
+            var b = before.Average(value) * 100;
+            var a = after.Average(value) * 100;
+            if (Math.Abs(a - b) < 1) continue;
+            rows.Add(new MetricDelta($"{label}, points lost", b.ToString("0.#", CultureInfo.InvariantCulture), a.ToString("0.#", CultureInfo.InvariantCulture), a > b));
+        }
+        return rows;
     }
 
     // Recorded this long after it happened means it came from history, not from a live device read.
