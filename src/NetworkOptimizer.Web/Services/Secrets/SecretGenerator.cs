@@ -20,11 +20,14 @@ public enum SecretKind
 /// </summary>
 public static class SecretGenerator
 {
-    /// <summary>Default passphrase length: 6 words is ~77.5 bits, enough for offline WPA2 guessing.</summary>
-    public const int DefaultWords = 6;
+    /// <summary>
+    /// Default passphrase length: 5 words is ~64.6 bits, out of reach of offline WPA2 guessing (PBKDF2,
+    /// 4,096 rounds). Sized for WPA2 even on WPA3: transition mode still exposes a WPA2 handshake.
+    /// </summary>
+    public const int DefaultWords = 5;
 
-    /// <summary>Default random length: 24 characters from <see cref="RandomAlphabet"/> is ~140 bits.</summary>
-    public const int DefaultLength = 24;
+    /// <summary>Default random length: 16 characters from <see cref="RandomAlphabet"/> is ~93 bits.</summary>
+    public const int DefaultLength = 16;
 
     /// <summary>WPA2/WPA3-Personal passphrases are 8 to 63 ASCII characters.</summary>
     public const int WpaMaxLength = 63;

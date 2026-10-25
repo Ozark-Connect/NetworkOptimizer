@@ -24,7 +24,7 @@ public class SecretGeneratorTests
             // Four list words contain a hyphen (t-shirt, yo-yo), so check by rebuilding from the list.
             CanSplit(p, words, SecretGenerator.DefaultWords).Should().BeTrue(p);
         }
-        SecretGenerator.PassphraseBits(SecretGenerator.DefaultWords).Should().BeApproximately(77.5, 0.1);
+        SecretGenerator.PassphraseBits(SecretGenerator.DefaultWords).Should().BeApproximately(64.6, 0.1);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class SecretGeneratorTests
             r.Should().Match(s => s.All(c => SecretGenerator.RandomAlphabet.Contains(c)));
         }
         SecretGenerator.RandomAlphabet.Should().NotContainAny("0", "O", "1", "l", "I");
-        SecretGenerator.RandomBits(SecretGenerator.DefaultLength).Should().BeGreaterThan(139);
+        SecretGenerator.RandomBits(SecretGenerator.DefaultLength).Should().BeApproximately(93.3, 0.1);
     }
 
     [Fact]

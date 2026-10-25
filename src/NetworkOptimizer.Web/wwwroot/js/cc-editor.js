@@ -497,8 +497,8 @@ function generatorResult(state, from) {
         from,
         filter: false,
         options: [
-            { label: 'Generate passphrase', detail: '6 words, ~77 bits', type: 'keyword', apply: generate('Passphrase') },
-            { label: 'Generate random', detail: '24 letters and digits, ~140 bits', type: 'keyword', apply: generate('Random') },
+            { label: 'Generate passphrase', detail: '5 words, ~65 bits', type: 'keyword', apply: generate('Passphrase') },
+            { label: 'Generate random', detail: '16 letters and digits, ~93 bits', type: 'keyword', apply: generate('Random') },
         ],
     };
 }
