@@ -1,0 +1,199 @@
+@using NetworkOptimizer.Threats.Blocking
+@inject IThreatBlockingAdmin Blocking
+
+@* Settings - Security & Alerts - Automatic Blocking: the site's exceptions to the public block lists.
+   Saves on its own, apart from the card's Save. *@
+
+<div class="ab-section blocking-exceptions" id="blocking-exceptions" data-autosave>
+    <div class="ab-section-header">
+        <h3 class="ab-section-title">Exceptions</h3>
+        @if (!_adding)
+        {
+            <button class="btn btn-sm btn-contrast" @onclick="StartAdd">Add Exception</button>
+        }
+    </div>
+    <p class="section-description">
+        Traffic the gateway lets through although a public block list has the address: a game server, a VPN endpoint, or a device's cloud service.
+        Everything an exception does not match stays blocked, and so does any source Automatic Blocking blocks itself.
+    </p>
+    @if (_overview != null)
+    {
+        <small class="form-help ab-status @StatusClass">@if (StatusClass == "is-ok")
+        {
+            <svg class="ab-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        }@StatusText</small>
+        @if (_overview is { ConsoleSetUp: true, ConsoleStatus: { Ok: false } failed })
+        {
+            <small class="form-error">UniFi Network's Allow policies were not written: @failed.Error</small>
+        }
+    }
+
+    @if (_adding)
+    {
+        <BlockingExceptionForm Initial="_blank" OnSaved="Saved" OnCancel="() => _adding = false" />
+    }
+    @if (_savedText != null)
+    {
+        <div class="alert alert-success">@_savedText</div>
+    }
+
+    @if (_overview is { Exceptions.Count: > 0 } overview)
+    {
+        @if (overview.Exceptions.Count >= SearchFrom)
+        {
+            <div class="form-group">
+                <input type="search" class="form-control" placeholder="Search address, port, or note" aria-label="Search exceptions" @bind="_search" @bind:event="oninput" />
+            </div>
+        }
+        <div class="table-responsive">
+            <table class="data-table blocking-exceptions-table">
+                <thead>
+                    <tr>
+                        <th>Direction</th>
+                        <th>Allows</th>
+                        <th class="hide-mobile">Protocol / Port</th>
+                        <th class="hide-mobile">Note</th>
+                        <th>Expires</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var e in Visible)
+                    {
+                        <tr>
+                            <td><span class="status-badge @(e.Direction == ExceptionDirection.Outbound ? "status-info" : "status-neutral")">@e.Direction</span></td>
+                            <td>
+                                @if (e.Direction == ExceptionDirection.Outbound)
+                                {
+                                    @EndpointCell(e.Device, "Any device")<span class="exc-arrow">to</span>@EndpointCell(e.Address, "Any listed address")
+                                }
+                                else
+                                {
+                                    @EndpointCell(e.Address, "Any listed address")<span class="exc-arrow">to</span>@EndpointCell(e.Device, "Any device")
+                                }
+                            </td>
+                            <td class="hide-mobile"><code>@(BlockingExceptions.ProtocolText(e) is { Length: > 0 } p ? p : "Any")</code></td>
+                            <td class="hide-mobile">@e.Note<span class="exc-detail">Added by @e.CreatedBy, @TimeFormatHelper.FormatRelativeTime(e.CreatedAt)</span></td>
+                            <td>@(e.ExpiresAt is { } at ? $"in {TimeFormatHelper.FormatDurationCompact(at - DateTime.UtcNow)}" : "Never")</td>
+                            <td>
+                                <div class="exc-actions">
+                                    <button class="btn btn-sm btn-contrast" @onclick="() => ToggleEdit(e)">@(_editing == e.Id ? "Hide" : "Edit")</button>
+                                    <button class="btn btn-sm btn-contrast" disabled="@(_removing == e.Id)" @onclick="() => Remove(e)">Remove</button>
+                                </div>
+                            </td>
+                        </tr>
+                        @if (_editing == e.Id)
+                        {
+                            <tr class="history-details-row site-config-row">
+                                <td colspan="6">
+                                    <div class="expand-wrapper expanded">
+                                        <div class="expand-content">
+                                            <BlockingExceptionForm Initial="e" Edit="true" OnSaved="Saved" OnCancel="() => _editing = null" />
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else if (_overview != null && !_adding)
+    {
+        <p class="form-help">No exceptions yet. You can also add one from a row in <strong>Public Block List Drops</strong> on Threat Intelligence - Blocking, or from an address's details.</p>
+    }
+    @if (_message != null)
+    {
+        <div class="alert alert-danger">@_message</div>
+    }
+</div>
+
+@code {
+    private const int SearchFrom = 6;
+    private ExceptionsOverview? _overview;
+    private bool _adding;
+    private string? _editing;
+    private string? _removing;
+    private string _search = "";
+    private string? _message;
+    // A fresh value each time Add opens, so the form starts empty.
+    private BlockingException _blank = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load() => _overview = await Blocking.GetExceptionsAsync();
+
+    private IEnumerable<BlockingException> Visible => string.IsNullOrWhiteSpace(_search)
+        ? _overview!.Exceptions
+        : _overview!.Exceptions.Where(e => $"{e.Device} {e.Address} {e.PortText} {e.Note}".Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private string StatusClass => _overview switch
+    {
+        { Mode: not BlockingMode.Enforce } or { GatewayTarget: false } => "",
+        { AgentPresent: true, AgentEnforces: false } => "is-warning",
+        { AgentPresent: true } or { ConsoleSetUp: true } => "is-ok",
+        _ => "",
+    };
+
+    private string StatusText => _overview switch
+    {
+        { Mode: not BlockingMode.Enforce } => "Exceptions apply in Blocking mode, as the public lists do.",
+        { GatewayTarget: false } => "Exceptions apply on the gateway: turn it on in Where Blocks Are Enforced.",
+        { AgentPresent: true, AgentEnforces: false } => "Your gateway's On-Site Agent needs an update to apply exceptions. Until it is updated, it still drops this traffic.",
+        { AgentPresent: true, ConsoleSetUp: true } => $"Applied by your gateway's On-Site Agent within a minute, and as Allow policies named {GatewayExceptionPolicies.PolicyName} in UniFi Network.",
+        { AgentPresent: true } => "Applied by your gateway's On-Site Agent within a minute.",
+        { ConsoleSetUp: true } => $"Applied as Allow policies named {GatewayExceptionPolicies.PolicyName} in UniFi Network, ahead of the public list Block policies.",
+        _ => "Exceptions apply once the gateway is set up in Where Blocks Are Enforced.",
+    };
+
+    private void StartAdd()
+    {
+        _blank = new BlockingException();
+        _editing = null;
+        _savedText = null;
+        _adding = true;
+    }
+
+    private void ToggleEdit(BlockingException e)
+    {
+        _adding = false;
+        _savedText = null;
+        _editing = _editing == e.Id ? null : e.Id;
+    }
+
+    private static RenderFragment EndpointCell(string? ip, string any) => ip == null
+        ? @<span class="exc-any">@any</span>
+        : @<code>@ip</code>;
+
+    // The panel closes on a save; the confirmation shows above the list instead.
+    private async Task Saved(BlockingException saved)
+    {
+        _savedText = $"{(_editing == saved.Id ? "Exception saved" : "Exception added")}: {BlockingExceptions.Describe(saved)} The gateway applies it within a minute.";
+        _adding = false;
+        _editing = null;
+        await Load();
+    }
+
+    private string? _savedText;
+
+    private async Task Remove(BlockingException e)
+    {
+        _removing = e.Id;
+        _message = null;
+        try
+        {
+            await Blocking.RemoveExceptionAsync(e.Id);
+            if (_editing == e.Id) _editing = null;
+            await Load();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _message = $"Could not remove the exception: {ex.Message}";
+        }
+        finally
+        {
+            _removing = null;
+        }
+    }
+}

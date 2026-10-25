@@ -102,6 +102,9 @@ public interface IThreatRepository
     /// <summary>Devices that reached or tried to reach a public block list address, connected ones first, then most recent.</summary>
     Task<List<PublicListContactSummary>> GetPublicListContactsAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
 
+    /// <summary>Blocked public block list contacts by device, address, protocol, and port, most recent first.</summary>
+    Task<List<PublicListDropSummary>> GetPublicListDropsAsync(DateTime from, DateTime to, int limit = 200, CancellationToken cancellationToken = default);
+
     Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
 
     // --- CrowdSec Cache ---

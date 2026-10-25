@@ -26,4 +26,7 @@ public interface IThreatSystemAudit
 
     /// <summary>A site's gateway blocklist policies were changed to match new connections only.</summary>
     void GatewayPoliciesNarrowed(string? siteSlug, int policies);
+
+    /// <summary>A blocking exception reached its expiry and stopped applying.</summary>
+    void ExceptionExpired(string? siteSlug, string exceptionId, string description);
 }

@@ -794,7 +794,7 @@ public class ThreatCollectionService : BackgroundService
             Severity = blocked ? AlertSeverity.Warning : AlertSeverity.Critical,
             Title = blocked ? $"Public Block List: {device.Text} tried to reach a listed address" : $"Public Block List: {device.Text} reached a listed address",
             Message = blocked
-                ? $"{device.Text} tried to connect to {contact.DestIp}:{contact.DestPort} ({transport}), an address on {listName}. The connection was blocked."
+                ? $"{device.Text} tried to connect to {contact.DestIp}:{contact.DestPort} ({transport}), an address on {listName}. The connection was blocked. An exception can be added from its details in Threat Intelligence."
                 : $"{device.Text} connected to {contact.DestIp}:{contact.DestPort} ({transport}), an address on {listName}.",
             DeviceIp = contact.SourceIp,
             SourceUrl = IpDrilldownUrl(contact.DestIp),
