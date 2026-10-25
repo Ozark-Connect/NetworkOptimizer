@@ -1,7 +1,9 @@
 @using NetworkOptimizer.Web.Services.ChangeControl
 @using NetworkOptimizer.Storage.Models
 @using System.Text
+@implements IDisposable
 @inject IChangeControlService Site
+@inject ChangeControlRegistry Registry
 @inject IChangeControlFleetService Fleet
 @inject SiteContextService SiteCtx
 @inject SiteSwitchService SiteSwitch
@@ -283,6 +285,13 @@ else if (_compare != null)
         _sites = await Fleet.GetSitesAsync();
         _siteName = _sites.FirstOrDefault(s => s.Slug == SiteCtx.Slug)?.Name ?? SiteCtx.Slug;
         await LoadAsync();
+        // New snapshots join the list in place; an open Compare and the selection stay as they are.
+        _live = new CcLiveRefresh(Registry, slug => string.Equals(slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase),
+            InvokeAsync, async () =>
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }, Logger);
 
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
         if (query.TryGetValue("from", out var from) && query.TryGetValue("to", out var to))
@@ -297,6 +306,10 @@ else if (_compare != null)
             _selected.AddRange([Now, baseline.Id]);
         }
     }
+
+    private CcLiveRefresh? _live;
+
+    public void Dispose() => _live?.Dispose();
 
     private async Task LoadAsync()
     {

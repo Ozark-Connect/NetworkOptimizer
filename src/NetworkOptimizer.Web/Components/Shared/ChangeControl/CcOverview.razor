@@ -1,6 +1,8 @@
 @using NetworkOptimizer.Web.Services.ChangeControl
 @using NetworkOptimizer.Storage.Models
+@implements IDisposable
 @inject IChangeControlFleetService Fleet
+@inject ChangeControlRegistry Registry
 @inject CcNavigator Navigator
 @inject ILogger<CcOverview> Logger
 
@@ -219,6 +221,8 @@ else
 
     private static string Level(double? health) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(health);
 
+    private CcLiveRefresh? _live;
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -230,5 +234,12 @@ else
             Logger.LogWarning(ex, "Change Control overview failed");
             _view = new OverviewView();
         }
+        _live = new CcLiveRefresh(Registry, _ => true, InvokeAsync, async () =>
+        {
+            _view = await Fleet.GetOverviewAsync();
+            StateHasChanged();
+        }, Logger);
     }
+
+    public void Dispose() => _live?.Dispose();
 }

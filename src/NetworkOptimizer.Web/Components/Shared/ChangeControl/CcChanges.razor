@@ -361,7 +361,9 @@
         var settings = await Site.GetSettingsAsync();
         _showOwn = settings.ShowOwnChanges;
         await ReloadAsync();
-        Registry.Changed += OnSiteChanged;
+        _live = new CcLiveRefresh(Registry,
+            slug => _range != "custom" && (string.IsNullOrEmpty(SiteFilter) || string.Equals(SiteFilter, slug, StringComparison.OrdinalIgnoreCase)),
+            InvokeAsync, RefreshAsync, Logger);
         // Open with the site in context expanded into its lanes; the busiest site when it is not listed.
         if ((_timeline?.FirstOrDefault(r => string.Equals(r.Site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
              ?? _timeline?.OrderByDescending(r => r.ChangeCount).FirstOrDefault()) is { } open)
@@ -457,28 +459,12 @@
         }
     }
 
-    private int _refreshQueued;
-    private bool _disposed;
-
-    // A site recorded a change: refresh in place, a moment later so a burst of snapshots refreshes once.
-    private void OnSiteChanged(string slug)
-    {
-        if (_disposed || _range == "custom" || !(string.IsNullOrEmpty(SiteFilter) || string.Equals(SiteFilter, slug, StringComparison.OrdinalIgnoreCase))) return;
-        if (Interlocked.Exchange(ref _refreshQueued, 1) == 1) return;
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(2));
-            Interlocked.Exchange(ref _refreshQueued, 0);
-            if (_disposed) return;
-            try { await InvokeAsync(RefreshAsync); }
-            catch (Exception ex) { Logger.LogDebug(ex, "Change Control live refresh failed"); }
-        });
-    }
+    private CcLiveRefresh? _live;
 
     /// <summary>Reloads the current range without clearing the page: the open row, page, and expanded sites stay.</summary>
     private async Task RefreshAsync()
     {
-        if (_disposed || _changes == null) return;
+        if (_changes == null) return;
         (_from, _to) = Range();
         if (_to - _from > SiteMetricsReader.MaxRange) _from = _to - SiteMetricsReader.MaxRange;
         var filter = string.IsNullOrEmpty(SiteFilter) ? null : new[] { SiteFilter };
@@ -494,11 +480,7 @@
         StateHasChanged();
     }
 
-    public void Dispose()
-    {
-        _disposed = true;
-        Registry.Changed -= OnSiteChanged;
-    }
+    public void Dispose() => _live?.Dispose();
 
     /// <summary>A single-site filter opens that site into its lanes, as the busiest site is on first load.</summary>
     private async Task SiteFilterChangedAsync()
