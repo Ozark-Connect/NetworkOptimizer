@@ -49,7 +49,13 @@ public static partial class ChangeDescriber
     };
 
     /// <summary>Label for a field path ("port_overrides[port_idx=4].name" becomes "Port 4 name").</summary>
-    public static string LabelFor(string path)
+    public static string LabelFor(string path) => LabelFor(path, null, null);
+
+    /// <summary>
+    /// Label for a field path, naming a switch port by the name given to it in <paramref name="after"/>,
+    /// else <paramref name="before"/> ("Port 2 (Desk) Lock Port to UniFi Device").
+    /// </summary>
+    public static string LabelFor(string path, JsonObject? after, JsonObject? before = null)
     {
         var m = KeyedPath().Match(path);
         if (m.Success)
@@ -57,7 +63,7 @@ public static partial class ChangeDescriber
             var (array, key, value, rest) = (m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value, m.Groups[4].Value.TrimStart('.'));
             var element = array switch
             {
-                "port_overrides" => $"Port {value}",
+                "port_overrides" => (PortName(after, value) ?? PortName(before, value)) is { } portName ? $"Port {value} ({portName})" : $"Port {value}",
                 "radio_table" => Bands.TryGetValue(value, out var band) ? band : value,
                 "ethernet_overrides" => value,
                 _ => $"{Humanize(array)} {value}",
@@ -72,6 +78,14 @@ public static partial class ChangeDescriber
         if (head != leaf && Labels.TryGetValue(head, out var headLabel)) return $"{headLabel} {Humanize(leaf).ToLowerInvariant()}";
         return Humanize(leaf);
     }
+
+    // A port's given name; UniFi's default "Port N" adds nothing to the label.
+    private static string? PortName(JsonObject? device, string portIdx) =>
+        device?["port_overrides"] is JsonArray ports
+        && ports.OfType<JsonObject>().FirstOrDefault(p => p["port_idx"]?.ToString() == portIdx)?["name"]?.ToString() is { Length: > 0 } name
+        && !string.Equals(name, $"Port {portIdx}", StringComparison.OrdinalIgnoreCase)
+            ? name
+            : null;
 
     [GeneratedRegex(@"^([a-z_]+)\[([a-z_]+)=([^\]]+)\](.*)$")]
     private static partial Regex KeyedPath();
@@ -133,7 +147,7 @@ public static partial class ChangeDescriber
         var securityDone = false;
         foreach (var f in diff.Fields)
         {
-            var label = LabelFor(f.Path);
+            var label = LabelFor(f.Path, diff.After, diff.Before);
             if (f.Secret)
             {
                 rows.Add(new FieldRow(label, "", "changed", true));

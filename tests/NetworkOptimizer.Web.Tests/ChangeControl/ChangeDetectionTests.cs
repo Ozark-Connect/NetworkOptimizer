@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using FluentAssertions;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -86,6 +87,14 @@ public class ChangeDetectionTests
         ChangeDescriber.LabelFor("port_overrides[port_idx=2].port_security_mac_address").Should().Be("Port 2 MAC Address Filter");
         ChangeDescriber.LabelFor("port_overrides[port_idx=2].port_security_enabled").Should().Be("Port 2 Port Security");
         ChangeDescriber.LabelFor("port_overrides[port_idx=2].name").Should().Be("Port 2 name");
+    }
+
+    [Fact]
+    public void Labels_NameAPortByItsGivenName()
+    {
+        var after = (JsonObject)JsonNode.Parse("""{"port_overrides":[{"port_idx":2,"name":"Desk"},{"port_idx":3,"name":"Port 3"}]}""")!;
+        ChangeDescriber.LabelFor("port_overrides[port_idx=2].trusted_port_mac", after).Should().Be("Port 2 (Desk) Lock Port to UniFi Device");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=3].trusted_port_mac", after).Should().Be("Port 3 Lock Port to UniFi Device");
     }
 
     [Fact]

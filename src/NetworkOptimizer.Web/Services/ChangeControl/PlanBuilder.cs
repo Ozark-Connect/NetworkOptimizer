@@ -274,7 +274,7 @@ public static class PlanBuilder
         update.Fields = diff.Fields.Select(f => new StoredField
         {
             Path = f.Path,
-            Label = ChangeDescriber.LabelFor(f.Path),
+            Label = ChangeDescriber.LabelFor(f.Path, remapped, live),
             Old = f.Secret ? null : ChangeDescriber.Value(f.Old, liveCtx),
             New = f.Secret ? null : ChangeDescriber.Value(f.New, liveCtx),
             Secret = f.Secret,

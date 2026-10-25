@@ -563,7 +563,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         var fields = o.Fields.Select(f => new StoredField
         {
             Path = f.Path,
-            Label = ChangeDescriber.LabelFor(f.Path),
+            Label = ChangeDescriber.LabelFor(f.Path, o.After, o.Before),
             Old = f.Secret ? null : ChangeDescriber.Value(f.Old, beforeNames),
             New = f.Secret ? null : ChangeDescriber.Value(f.New, afterNames),
             Secret = f.Secret,
