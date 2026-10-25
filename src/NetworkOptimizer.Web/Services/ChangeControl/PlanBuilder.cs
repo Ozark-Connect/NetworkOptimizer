@@ -216,6 +216,7 @@ public static class PlanBuilder
         }
 
         var remapped = (JsonObject)Remap(desired, desiredById, idMap, creates, options, doc, $"{def.Noun} {name}")!;
+        RestoreKeptSecrets(def, live, remapped, doc, name);
 
         // Create.
         if (live == null)
@@ -318,6 +319,62 @@ public static class PlanBuilder
         foreach (var t in diff.Tags) copy.Tags.Add(t);
         return copy;
     }
+
+    /// <summary>
+    /// Puts the live value back wherever a nested secret (a PPSK entry's password) is the redaction
+    /// placeholder; top-level secrets are left to <see cref="DropKeptSecrets"/> and CreateBody.
+    /// List entries pair with live entries by their non-secret fields, in order among equals. A
+    /// placeholder with nothing to keep is a plan error, so it is never written as a value.
+    /// </summary>
+    private static void RestoreKeptSecrets(ConfigCollectionDef def, JsonObject? live, JsonObject desired, PlanDocument doc, string name)
+    {
+        foreach (var (key, value) in desired.ToList())
+            if (!ConfigCollections.IsSecretField(def, key)) RestoreNested(def, live?[key], value);
+        if (desired.Any(p => !ConfigCollections.IsSecretField(def, p.Key) && HasKept(def, p.Value)))
+            doc.Errors.Add($"{def.Noun} {name}: a list entry keeps its secret as {KeepSecret} but matches no existing entry. Enter the value in the file.");
+    }
+
+    private static void RestoreNested(ConfigCollectionDef def, JsonNode? live, JsonNode? desired)
+    {
+        switch (desired)
+        {
+            case JsonObject d:
+                foreach (var (k, v) in d.ToList())
+                {
+                    if (!ConfigCollections.IsSecretField(def, k)) RestoreNested(def, (live as JsonObject)?[k], v);
+                    else if (IsKept(v) && (live as JsonObject)?[k] is { } kept && !IsKept(kept)) d[k] = kept.DeepClone();
+                }
+                break;
+            case JsonArray d:
+                var pool = (live as JsonArray)?.OfType<JsonObject>().ToList() ?? [];
+                foreach (var entry in d.OfType<JsonObject>())
+                {
+                    var shape = CanonicalJson.Serialize(WithoutSecrets(def, entry));
+                    var match = pool.FirstOrDefault(p => CanonicalJson.Serialize(WithoutSecrets(def, p)) == shape);
+                    if (match == null) continue;
+                    pool.Remove(match);
+                    RestoreNested(def, match, entry);
+                }
+                break;
+        }
+    }
+
+    private static bool IsKept(JsonNode? n) => n is JsonValue v && v.TryGetValue<string>(out var s) && s == KeepSecret;
+
+    private static bool HasKept(ConfigCollectionDef def, JsonNode? n) => n switch
+    {
+        JsonObject o => o.Any(p => ConfigCollections.IsSecretField(def, p.Key) ? IsKept(p.Value) : HasKept(def, p.Value)),
+        JsonArray a => a.Any(e => HasKept(def, e)),
+        _ => false,
+    };
+
+    private static JsonNode? WithoutSecrets(ConfigCollectionDef def, JsonNode? n) => n switch
+    {
+        JsonObject o => new JsonObject(o.Where(p => !ConfigCollections.IsSecretField(def, p.Key))
+            .Select(p => KeyValuePair.Create(p.Key, WithoutSecrets(def, p.Value)))),
+        JsonArray a => new JsonArray(a.Select(e => WithoutSecrets(def, e)).ToArray()),
+        _ => n?.DeepClone(),
+    };
 
     private static JsonNode? ValueAt(JsonObject? o, string path)
     {

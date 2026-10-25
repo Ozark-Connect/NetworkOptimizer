@@ -62,6 +62,46 @@ public class PlanEngineTests
         op.Body!["x_passphrase"]!.GetValue<string>().Should().Be("secret", "the full-object PUT carries the live value");
     }
 
+    private const string PpskLive = """{"_id":"w1","name":"Home","hide_ssid":false,"private_preshared_keys":[{"networkconf_id":"n1","password":"pw-lan"},{"networkconf_id":"n2","password":"pw-iot"}]}""";
+
+    [Fact]
+    public void RedactedPpskPasswords_AreKeptPerEntry()
+    {
+        var desired = State(("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":false,"private_preshared_keys":[{"networkconf_id":"n1","password":"<keep current>"},{"networkconf_id":"n2","password":"<keep current>"}]}"""));
+        Plan(desired, State(("wlanconf", PpskLive))).Operations.Should().BeEmpty("kept passwords restore to exactly the live entries");
+    }
+
+    [Fact]
+    public void RedactedPpskPasswords_FollowTheirEntry_WhenEntriesMove()
+    {
+        var desired = State(("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":true,"private_preshared_keys":[{"networkconf_id":"n2","password":"<keep current>"},{"networkconf_id":"n3","password":"pw-new"},{"networkconf_id":"n1","password":"<keep current>"}]}"""));
+        var plan = Plan(desired, State(("wlanconf", PpskLive)));
+        plan.Errors.Should().BeEmpty();
+        var body = plan.Operations.Single().Body!.ToJsonString();
+        body.Should().NotContain("keep current");
+        var keys = plan.Operations.Single().Body!["private_preshared_keys"]!.AsArray();
+        keys.Select(k => (k!["networkconf_id"]!.ToString(), k["password"]!.ToString()))
+            .Should().Equal(("n2", "pw-iot"), ("n3", "pw-new"), ("n1", "pw-lan"));
+    }
+
+    [Fact]
+    public void RedactedPpskPassword_WithNoMatchingEntry_IsAnError_NotAWrite()
+    {
+        var desired = State(("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":false,"private_preshared_keys":[{"networkconf_id":"n3","password":"<keep current>"},{"networkconf_id":"n2","password":"<keep current>"}]}"""));
+        var plan = Plan(desired, State(("wlanconf", PpskLive)));
+        plan.Errors.Should().ContainSingle().Which.Should().Contain("matches no existing entry");
+    }
+
+    [Fact]
+    public void PpskPasswordChange_ShowsAsASecretChange_WithNoValues()
+    {
+        var desired = State(("wlanconf", PpskLive.Replace("pw-iot", "pw-rotated")));
+        var field = Plan(desired, State(("wlanconf", PpskLive))).Operations.Single().Fields.Single();
+        field.Secret.Should().BeTrue();
+        field.Old.Should().BeNull();
+        field.New.Should().BeNull();
+    }
+
     [Fact]
     public void NoOwnedAndGeneratedObjects_AreNeverWritten()
     {

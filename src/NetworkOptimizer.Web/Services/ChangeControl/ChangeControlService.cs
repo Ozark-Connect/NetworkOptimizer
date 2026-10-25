@@ -343,7 +343,12 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         var baseState = (await LoadSideAsync(snapshotId, cancellationToken)).State;
         var (desired, problems, touched) = await ParseEditsAsync(snapshotId, filesByCollection, cancellationToken);
-        var ops = touched.Count == 0 ? [] : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched }).Operations;
+        var plan = touched.Count == 0 ? null : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched });
+        var ops = plan?.Operations ?? [];
+        // Plan errors (a kept secret with nothing to keep, a dangling reference) block Review Plan too.
+        foreach (var error in plan?.Errors ?? [])
+            problems.Add(new YamlProblem("Error", filesByCollection.Keys.Select(k => ConfigCollections.Get(k)).OfType<ConfigCollectionDef>()
+                .Select(YamlConverter.FileName).FirstOrDefault() ?? "", 1, error));
         return new YamlValidation
         {
             Problems = problems, EditedObjects = ops.Count, EditedCollections = ops.Select(o => o.Collection).Distinct().Count(),

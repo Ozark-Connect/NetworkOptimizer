@@ -233,14 +233,33 @@ public static class ConfigDiffEngine
             {
                 var bs = AsSet(b as JsonArray);
                 var asSet = AsSet(a as JsonArray);
-                if (!bs.SetEquals(asSet)) fields.Add(new FieldChange(childPath, b?.DeepClone(), a?.DeepClone()));
+                if (!bs.SetEquals(asSet)) fields.Add(Shown(def, childPath, b, a));
                 continue;
             }
 
             if (!CanonicalJson.DeepEquals(b, a) && !(IsEmpty(b) && IsEmpty(a)))
-                fields.Add(new FieldChange(childPath, b?.DeepClone(), a?.DeepClone()));
+                fields.Add(Shown(def, childPath, b, a));
         }
     }
+
+    // A value holding nested secrets (PPSK entries) is compared whole but shown with those secrets
+    // hidden; when only a secret differs, the change is a secret change with no values at all.
+    private static FieldChange Shown(ConfigCollectionDef def, string path, JsonNode? before, JsonNode? after)
+    {
+        var b = HideSecrets(def, before);
+        var a = HideSecrets(def, after);
+        return CanonicalJson.DeepEquals(b, a) ? new FieldChange(path, null, null, Secret: true) : new FieldChange(path, b, a);
+    }
+
+    private const string Hidden = "(hidden)";
+
+    private static JsonNode? HideSecrets(ConfigCollectionDef def, JsonNode? n) => n switch
+    {
+        JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key,
+            ConfigCollections.IsSecretField(def, p.Key) && p.Value != null ? (JsonNode?)JsonValue.Create(Hidden) : HideSecrets(def, p.Value)))),
+        JsonArray a => new JsonArray(a.Select(e => HideSecrets(def, e)).ToArray()),
+        _ => n?.DeepClone(),
+    };
 
     private static void CompareKeyedArray(ConfigCollectionDef def, string path, JsonArray? before, JsonArray? after,
         string keyField, List<FieldChange> fields, bool noOwned)

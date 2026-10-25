@@ -370,8 +370,8 @@ public static class ConfigCollections
             {
                 Key = "wlanconf", DisplayName = "WLANs", Noun = "WLAN", Group = "WLANs",
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlanconf", Order = 5, ReadOnlyFields = CommonReadOnly,
-                // Whole arrays: their entries hold passwords and have no key to match a kept secret by.
-                ExtraSecretFields = Set("private_preshared_keys", "sae_psk"),
+                // Inside private_preshared_keys and sae_psk entries. PlanBuilder.RestoreKeptSecrets keeps them per entry.
+                ExtraSecretFields = Set("password", "psk"),
                 SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration"),
                 EnforcedKey = (o, ctx) => $"{Str(o, "name")}@{ctx.NameOf(Str(o, "networkconf_id"))}",
                 Write = new CollectionWrite { CreatePath = "rest/wlanconf", UpdatePath = "rest/wlanconf/{id}", DeletePath = "rest/wlanconf/{id}", Proven = true },

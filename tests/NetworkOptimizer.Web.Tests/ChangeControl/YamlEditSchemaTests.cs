@@ -65,8 +65,9 @@ public class YamlEditSchemaTests
         var json = schema.ToJsonString();
         json.Should().NotContain("hunter2");
         json.Should().NotContain("pw1");
-        Field(schema, "private_preshared_keys")["detail"]!.ToString().Should().Be("secret");
-        Field(schema, "private_preshared_keys").ContainsKey("shape").Should().BeFalse();
+        var ppsk = Field(schema, "private_preshared_keys")["shape"]!["fields"]!.AsArray().OfType<JsonObject>().ToList();
+        ppsk.Single(f => f["name"]!.ToString() == "password")["detail"]!.ToString().Should().Be("secret");
+        ppsk.Single(f => f["name"]!.ToString() == "network")["ref"]!.ToString().Should().Be("networkconf");
     }
 
     [Fact]
@@ -84,7 +85,8 @@ public class YamlEditSchemaTests
         state.Collections["networkconf"].Add(JsonNode.Parse("""{"_id":"n4","name":"WG","purpose":"vpn-client","wireguard_client_preshared_key":"psk-secret","wireguard_client_configuration_file":"[Interface]\nPrivateKey = wg-secret","openvpn_configuration":"<key>ovpn-secret</key>"}""")!.AsObject());
         var yaml = YamlConverter.Export(state, ["wlanconf", "networkconf"], includeSecrets: false);
         yaml.Should().NotContainAny("pw1", "psk-secret", "wg-secret", "ovpn-secret");
-        yaml.Should().Contain("private_preshared_keys: <keep current>");
+        yaml.Should().Contain("password: <keep current>", "PPSK entries show their network with only the password hidden");
+        yaml.Should().Contain("network: {vlan: 30}");
         yaml.Should().Contain("wireguard_client_configuration_file: <keep current>");
     }
 }
