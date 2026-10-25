@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -83,11 +82,22 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     internal static ChangeRowView Row(ConfigChange c, string slug, string siteName, int incidentsAfter) => new()
     {
-        Id = c.Id, SiteSlug = slug, SiteName = siteName, OccurredAt = c.OccurredAt, Kind = c.Kind, Summary = c.Summary,
-        ActorKind = c.ActorKind, Who = Who(c), RegressionCount = c.RegressionCount, FixCount = c.FixCount,
+        Id = c.Id,
+        SiteSlug = slug,
+        SiteName = siteName,
+        OccurredAt = c.OccurredAt,
+        Kind = c.Kind,
+        Summary = c.Summary,
+        ActorKind = c.ActorKind,
+        Who = Who(c),
+        RegressionCount = c.RegressionCount,
+        FixCount = c.FixCount,
         Tags = string.IsNullOrEmpty(c.ServiceTagsJson) ? [] : JsonSerializer.Deserialize<List<string>>(c.ServiceTagsJson) ?? [],
-        IncidentsAfter = incidentsAfter, ManagementPath = c.ManagementPath, SnapshotId = c.SnapshotId,
-        PreviousSnapshotId = c.PreviousSnapshotId, PlanId = c.PlanId,
+        IncidentsAfter = incidentsAfter,
+        ManagementPath = c.ManagementPath,
+        SnapshotId = c.SnapshotId,
+        PreviousSnapshotId = c.PreviousSnapshotId,
+        PlanId = c.PlanId,
         HealthDrop = c.HealthBefore is >= 0 and var before && c.HealthAfter is >= 0 and var after ? Math.Round(before - after, 1) : null,
     };
 
@@ -113,9 +123,12 @@ public sealed partial class ChangeControlService : IChangeControlService
     internal static IncidentView Incident(ScopedIncident s) => new()
     {
         // The condition's end, not when someone resolved the alert; null while it is still going on.
-        Id = s.Incident.Id, Title = s.Incident.Title, StartedAt = s.Incident.FirstTriggeredAt,
+        Id = s.Incident.Id,
+        Title = s.Incident.Title,
+        StartedAt = s.Incident.FirstTriggeredAt,
         ResolvedAt = s.End < DateTime.UtcNow.AddMinutes(-1) ? s.End : null,
-        Severity = s.Incident.Severity.ToString(), IsWan = s.IsWan,
+        Severity = s.Incident.Severity.ToString(),
+        IsWan = s.IsWan,
     };
 
     public async Task<ChangeDetailView?> GetChangeDetailAsync(int changeId, CancellationToken cancellationToken = default)
@@ -208,10 +221,19 @@ public sealed partial class ChangeControlService : IChangeControlService
     internal static ChangeObjectView ObjectView(ConfigChangeObject o)
     {
         var fields = JsonSerializer.Deserialize<List<StoredField>>(o.FieldsJson) ?? [];
+        // Labels are saved at detection; relabel from the path so rows recorded earlier get today's names.
+        // A label carrying a port's given name, or a synthetic row (_security), is kept as saved.
+        foreach (var f in fields.Where(f => !f.Path.StartsWith('_') && !f.Label.Contains('(')))
+            f.Label = ChangeDescriber.LabelFor(f.Path);
         return new ChangeObjectView
         {
-            Collection = o.Collection, CollectionName = ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection,
-            ObjectId = o.ObjectId, Name = o.ObjectName, Action = o.Action, Fields = fields, OwnedBy = o.OwnedBy,
+            Collection = o.Collection,
+            CollectionName = ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection,
+            ObjectId = o.ObjectId,
+            Name = o.ObjectName,
+            Action = o.Action,
+            Fields = fields,
+            OwnedBy = o.OwnedBy,
             ChangeText = o.Action switch
             {
                 ConfigChangeAction.Created => "Created",
@@ -266,8 +288,15 @@ public sealed partial class ChangeControlService : IChangeControlService
                 if (s.Pinned && s.PinReason == "Before Network app upgrade") (text, dot) = ("Before Network app upgrade", "firmware");
                 return new SnapshotRowView
                 {
-                    Id = s.Id, TakenAt = s.TakenAt, Trigger = text, TriggerDot = dot, ChangedObjects = s.ChangedObjectCount,
-                    IssueCount = s.AuditIssueCount, RegressionCount = s.AuditRegressionCount, Pinned = s.Pinned, IsBaseline = s.IsBaseline,
+                    Id = s.Id,
+                    TakenAt = s.TakenAt,
+                    Trigger = text,
+                    TriggerDot = dot,
+                    ChangedObjects = s.ChangedObjectCount,
+                    IssueCount = s.AuditIssueCount,
+                    RegressionCount = s.AuditRegressionCount,
+                    Pinned = s.Pinned,
+                    IsBaseline = s.IsBaseline,
                     PinReason = s.PinReason,
                 };
             }).ToList();
@@ -331,8 +360,14 @@ public sealed partial class ChangeControlService : IChangeControlService
 
             return new CompareView
             {
-                FromLabel = from.Label, FromDetail = from.Detail, ToLabel = to.Label, ToDetail = to.Detail,
-                FromSnapshotId = fromSnapshotId, ToSnapshotId = toSnapshotId, Impact = impact, Objects = objects,
+                FromLabel = from.Label,
+                FromDetail = from.Detail,
+                ToLabel = to.Label,
+                ToDetail = to.Detail,
+                FromSnapshotId = fromSnapshotId,
+                ToSnapshotId = toSnapshotId,
+                Impact = impact,
+                Objects = objects,
             };
         }
         catch (InvalidOperationException ex)
@@ -461,7 +496,9 @@ public sealed partial class ChangeControlService : IChangeControlService
         }
         return new YamlValidation
         {
-            Problems = problems, EditedObjects = ops.Count, EditedCollections = ops.Select(o => o.Collection).Distinct().Count(),
+            Problems = problems,
+            EditedObjects = ops.Count,
+            EditedCollections = ops.Select(o => o.Collection).Distinct().Count(),
             EditedByCollection = ops.GroupBy(o => o.Collection).ToDictionary(g => g.Key, g => g.Count()),
         };
     }
@@ -557,7 +594,9 @@ public sealed partial class ChangeControlService : IChangeControlService
         var connection = _registry.Connection(_site.Slug);
         return new PlanView
         {
-            Plan = plan, Doc = doc, Acks = acks,
+            Plan = plan,
+            Doc = doc,
+            Acks = acks,
             Result = string.IsNullOrEmpty(plan.ResultJson) ? null : JsonSerializer.Deserialize<PlanResult>(plan.ResultJson),
             SiteName = await SiteNameAsync(cancellationToken),
             SiteDetail = connection.IsViaAgent ? "On-Site Agent" : "direct",
@@ -623,7 +662,13 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     internal static PlanSummaryView Summary(ConfigPlan p, string slug, string siteName) => new()
     {
-        Id = p.Id, SiteSlug = slug, SiteName = siteName, Name = p.Name, Status = p.Status, WatchUntil = p.WatchUntil, StartedAt = p.CompletedAt,
+        Id = p.Id,
+        SiteSlug = slug,
+        SiteName = siteName,
+        Name = p.Name,
+        Status = p.Status,
+        WatchUntil = p.WatchUntil,
+        StartedAt = p.CompletedAt,
         Detail = p.Status switch
         {
             ConfigPlanStatus.PendingApproval => $"{p.ObjectCount} objects{(p.ScheduledFor is { } s ? $", scheduled {Local(s):MMM d, h:mm tt}" : "")}",
@@ -747,7 +792,10 @@ public sealed partial class ChangeControlService : IChangeControlService
         var settings = await Repo.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
         return new DriftView
         {
-            HasBaseline = true, BaselineLabel = b.Label, BaselineSnapshotId = b.SnapshotId, BaselineTemplateId = settings.BaselineTemplateId,
+            HasBaseline = true,
+            BaselineLabel = b.Label,
+            BaselineSnapshotId = b.SnapshotId,
+            BaselineTemplateId = settings.BaselineTemplateId,
             Objects = objects.Select(o => new CompareObjectView { Object = ObjectView(o) }).ToList(),
         };
     }
