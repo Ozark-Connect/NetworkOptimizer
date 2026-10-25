@@ -70,6 +70,11 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Raised after a snapshot or change is recorded, so open pages can refresh.</summary>
     public event Action? Changed;
 
+    /// <summary>Runs once per start, after the first device read, with device names by MAC (the firmware history import).</summary>
+    public Func<IReadOnlyDictionary<string, string>, CancellationToken, Task>? ImportHistory { get; set; }
+
+    private bool _historyImported;
+
     public ChangeControlSiteEngine(
         string slug, IUniFiConfigApi api, IChangeControlRepositoryAccessor repos, IConfigBlobStore blobs,
         ILogger logger, IAuditLogger? audit = null, Func<CancellationToken, Task<bool>>? isRolloutActive = null,
@@ -228,6 +233,19 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             && !(e.ObjectName ?? "").StartsWith(ConfigCollections.NoOwnedPrefix, StringComparison.Ordinal)).ToList();
         var recentJournal = journal.Any(x => now - x.At < UnexplainedCfgQuiet);
         var unexplainedCfg = cfgChanged && changeEvents.Count == 0 && !recentJournal;
+
+        if (!_historyImported && devices != null && ImportHistory != null)
+        {
+            _historyImported = true;
+            try
+            {
+                await ImportHistory(devices.ToDictionary(d => d.Mac, d => d.Name, StringComparer.OrdinalIgnoreCase), ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Firmware history import failed for site {Site}", _slug);
+            }
+        }
 
         // Firmware rows: one per device that moved version, and one for a Network app version change.
         var rolloutActive = _isRolloutActive != null && await _isRolloutActive(ct);

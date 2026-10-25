@@ -89,6 +89,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             isRolloutActive: async ct => await rollout.UseAsync(async (r, c) => await r.GetActivePlanAsync(c) is { Status: FirmwareRolloutStatus.Running }, ct),
             isAgentSite: () => connection.IsViaAgent || connection.IsAwaitingAgent);
         engine.Evaluator = _sp.GetService<IChangeEvaluator>();
+        var history = new FirmwareHistoryImport(rollout, () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
+            _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControl[{slug}]"));
+        engine.ImportHistory = (names, ct) => history.RunAsync(engine, names, ct);
 
         var litmus = ActivatorUtilities.CreateInstance<LitmusService>(_sp, slug);
         var coordinator = new PlanCoordinator(engine, _sp.GetRequiredService<ICredentialProtectionService>(),
