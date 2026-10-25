@@ -1981,6 +1981,27 @@ public class IspHealthService
     /// Investigate loss highlight can average the very pool the score is graded on instead of a
     /// per-type approximation, and the two can never drift.
     /// </summary>
+    /// <summary>
+    /// The Influx wan-tag scope this instance's latency reads use (the configured primary for the
+    /// primary instance), resolved exactly as the compute does, so other readers of the same series
+    /// see only this WAN's points. Null when no WAN context exists (nothing is tagged to filter apart).
+    /// </summary>
+    public async Task<MonitoringInfluxClient.LatencyWanScope?> GetLatencyWanScopeAsync(CancellationToken ct = default)
+    {
+        await using var db = await CreateSiteDbAsync(ct);
+        var bindingContexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
+        var primaryScope = _scopedWanKey == null;
+        if (primaryScope && bindingContexts.Count == 0) return null;
+        var scoredKey = _scopedWanKey;
+        if (scoredKey == null)
+        {
+            var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+            scoredKey = ReconcileScoredKey(
+                await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(contexts), contexts);
+        }
+        return BuildWanScope(bindingContexts, scoredKey, primaryScope);
+    }
+
     public async Task<List<string>> GetLossPoolTargetIdsAsync(CancellationToken ct = default)
     {
         await using var db = await CreateSiteDbAsync(ct);

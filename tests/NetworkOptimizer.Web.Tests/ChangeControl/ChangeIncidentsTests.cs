@@ -88,6 +88,13 @@ public sealed class ChangeIncidentsTests : IDisposable
     public void LegacyReboots_FallBackToTheMessage(string message, IncidentRelevance expected) =>
         ChangeIncidents.Classify(Alert("device.rebooted", message: message)).Should().Be(expected);
 
+    [Theory]
+    [InlineData("Starlink", IncidentRelevance.Unrelated)]
+    [InlineData("WAN2 starlink backup", IncidentRelevance.Unrelated)]
+    [InlineData("Fiber", IncidentRelevance.Wan)]
+    public void SpeedDegradation_OnStarlinkIsUnrelated(string wanName, IncidentRelevance expected) =>
+        ChangeIncidents.Classify(Alert("wan.speed_degradation", $$"""{"wan_name":"{{wanName}}"}""")).Should().Be(expected);
+
     [Fact]
     public void Incident_TakesItsStrongestAlert() =>
         ChangeIncidents.Classify([Alert("device.recovered"), Alert("monitoring.wan_outage"), Alert("device.offline")])

@@ -62,7 +62,9 @@ public sealed class SiteMetricsReader
     /// </summary>
     private async Task<List<(DateTime Time, double? Rtt, double? Loss)>> LatencyAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
     {
-        var rows = await _influx.QueryIspTransitLatencyByTargetAsync(from, to, await _isp.GetLossPoolTargetIdsAsync(ct), window, ct);
+        // ISP Health's targets and wan-tag scope: the primary WAN only, so another WAN's degradation stays out.
+        var rows = await _influx.QueryIspTransitLatencyByTargetAsync(from, to, await _isp.GetLossPoolTargetIdsAsync(ct), window, ct,
+            await _isp.GetLatencyWanScopeAsync(ct));
         static double? Combine(IEnumerable<IGrouping<string, double>> byType)
         {
             var means = byType.Select(t => t.Average()).ToList();

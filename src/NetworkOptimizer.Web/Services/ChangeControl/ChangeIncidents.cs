@@ -54,6 +54,9 @@ public static class ChangeIncidents
     /// <summary>One alert's relevance.</summary>
     public static IncidentRelevance Classify(AlertHistoryEntry alert)
     {
+        // Starlink's throughput swings with the sky and its own schedule; a speed drop there says nothing about a change.
+        if (alert.EventType == "wan.speed_degradation" && StarlinkWanDetector.IsStarlinkWan(Context(alert, "wan_name")))
+            return IncidentRelevance.Unrelated;
         if (WanTypes.Contains(alert.EventType)) return IncidentRelevance.Wan;
         if (!LinkedTypes.Contains(alert.EventType)) return IncidentRelevance.Unrelated;
         return alert.EventType switch

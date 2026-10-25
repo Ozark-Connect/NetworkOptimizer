@@ -3243,7 +3243,8 @@ from(bucket: ""{_bucket}"")
     /// every raw point into Flux memory. Callers combine targets themselves.
     /// </summary>
     public async Task<IReadOnlyList<TargetLatencyMean>> QueryIspTransitLatencyByTargetAsync(
-        DateTime from, DateTime to, IReadOnlyList<string>? targetIds, TimeSpan window, CancellationToken ct = default)
+        DateTime from, DateTime to, IReadOnlyList<string>? targetIds, TimeSpan window, CancellationToken ct = default,
+        LatencyWanScope? wanScope = null)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
@@ -3254,7 +3255,7 @@ from(bucket: ""{_bucket}"")
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){idFilter}
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){idFilter}{BuildWanScopeFilter(wanScope)}
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
@@ -3286,9 +3287,11 @@ from(bucket: ""{_bucket}"")
 
         var day = TimeSpan.FromDays(1);
         var perDay = new Dictionary<(DateTime Day, string Band), HashSet<string>>();
+        // Rollup rows are stamped at UTC midnight: start at the first day's midnight so the partial
+        // first day is read (its point sits before `from`, where a chart clamps it to the edge).
         var flux = $@"
 from(bucket: ""{_longtermBucket}"")
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> range(start: {ToFluxInstant(DateTime.SpecifyKind(from.ToUniversalTime().Date, DateTimeKind.Utc))}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client_daily"" and r._field == ""samples"")
   |> aggregateWindow(every: 1d, fn: count, createEmpty: false, timeSrc: ""_start"")
 ";
