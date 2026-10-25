@@ -184,24 +184,27 @@ else
 
                 <div class="card cc-upgrade-card">
                     <div class="card-header"><h3 class="card-title">Last Network App Upgrade</h3></div>
-                    <div class="card-body">
-                        @if (_view.Upgrades.Count == 0)
-                        {
-                            <span class="muted-text">No Network app upgrade recorded yet.</span>
-                        }
-                        @foreach (var u in _view.Upgrades)
-                        {
-                            <div class="cc-kv">
-                                <span>@(sites.Count > 1 ? $"{u.SiteName}, " : "")@CcFormat.Day(u.At)</span>
-                                <span>
-                                    @u.From to @u.To, @(u.ObjectsChanged == 0 ? "no config changes" : CcFormat.Plural(u.ObjectsChanged, "object changed", "objects changed"))@if (u.Regressions > 0)
-                                    {
-                                        <text>, </text><span class="danger-text">@CcFormat.Plural(u.Regressions, "regression", "regressions")</span>
-                                    }
-                                </span>
-                            </div>
-                        }
-                    </div>
+                    @if (_view.Upgrades.Count == 0)
+                    {
+                        <div class="empty-state empty-state-small"><p>No Network app upgrade recorded yet.</p></div>
+                    }
+                    else
+                    {
+                        <div class="card-body">
+                            @foreach (var u in _view.Upgrades)
+                            {
+                                <div class="cc-kv">
+                                    <span>@(sites.Count > 1 ? $"{u.SiteName}, " : "")@CcFormat.Day(u.At)</span>
+                                    <span>
+                                        @u.From to @u.To, @(u.ObjectsChanged == 0 ? "no config changes" : CcFormat.Plural(u.ObjectsChanged, "object changed", "objects changed"))@if (u.Regressions > 0)
+                                        {
+                                            <text>, </text><span class="danger-text">@CcFormat.Plural(u.Regressions, "regression", "regressions")</span>
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
             </div>
         </div>

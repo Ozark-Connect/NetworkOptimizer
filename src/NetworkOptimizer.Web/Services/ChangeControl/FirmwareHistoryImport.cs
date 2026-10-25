@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services.Firmware;
@@ -71,7 +72,9 @@ public sealed class FirmwareHistoryImport
 
     internal static string Summary(Upgrade u) => u.To == null
         ? $"{u.Name}: firmware upgrade"
-        : u.From == null || u.From == u.To ? $"{u.Name}: firmware to {u.To}" : $"{u.Name}: firmware {u.From} to {u.To}";
+        : u.From == null || SameVersion(u.From, u.To)
+            ? $"{u.Name}: firmware to {FirmwareVersionFormat.Short(u.To)}"
+            : $"{u.Name}: firmware {FirmwareVersionFormat.Short(u.From)} to {FirmwareVersionFormat.Short(u.To)}";
 
     /// <summary>The same device reaching the same version close in time. Live rows carry the name, not the MAC.</summary>
     internal static bool IsSame(ConfigChange x, Upgrade u) =>
@@ -79,9 +82,8 @@ public sealed class FirmwareHistoryImport
         && x.Summary.StartsWith(u.Name + ":", StringComparison.Ordinal)
         && (u.To == null || x.VersionTo == null || SameVersion(x.VersionTo, u.To));
 
-    /// <summary>Rollout steps carry the build ("7.6.7.17255"); reboot records may not, so compare on the shorter.</summary>
-    internal static bool SameVersion(string a, string b) =>
-        a.StartsWith(b, StringComparison.Ordinal) || b.StartsWith(a, StringComparison.Ordinal);
+    /// <summary>Rollout steps carry the build ("7.6.7.17255"); reboot records may not, so compare on the version.</summary>
+    internal static bool SameVersion(string a, string b) => FirmwareVersionFormat.SameBuild(a, b);
 
     /// <summary>Rollout and reboot history describe the same upgrade twice; the rollout's record wins.</summary>
     internal static List<Upgrade> Merge(List<Upgrade> rollout, List<Upgrade> reboots) =>

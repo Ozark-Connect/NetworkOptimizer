@@ -162,22 +162,26 @@ else
                                 <span class="status-badge @CcFormat.TierBadge(op.Tier)">@(op.Tier == PlanTiers.Acknowledge ? "Ack" : PlanTiers.Label(op.Tier))</span>
                             </div>
                             <div class="cc-item-detail">@op.ChangeText</div>
-                            @if (open && op.Fields.Count > 0)
-                            {
-                                <div class="cc-inset" style="margin:0.5rem 0 0">
-                                    @foreach (var f in op.Fields)
+                            <div class="expand-wrapper @(open ? "expanded" : "")">
+                                <div class="expand-content">
+                                    @if (op.Fields.Count > 0)
                                     {
-                                        <div class="cc-mobile-field">
-                                            <div class="muted-text">@f.Label</div>
-                                            <div><span class="danger-text">@(f.Secret ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</span></div>
+                                        <div class="cc-inset" style="margin:0.5rem 0 0">
+                                            @foreach (var f in op.Fields)
+                                            {
+                                                <div class="cc-mobile-field">
+                                                    <div class="muted-text">@f.Label</div>
+                                                    <div><span class="danger-text">@(f.Secret ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</span></div>
+                                                </div>
+                                            }
                                         </div>
                                     }
+                                    @if (op.Reasons.Count > 0)
+                                    {
+                                        <div class="cc-item-detail">@string.Join(". ", op.Reasons).</div>
+                                    }
                                 </div>
-                            }
-                            @if (open && op.Reasons.Count > 0)
-                            {
-                                <div class="cc-item-detail">@string.Join(". ", op.Reasons).</div>
-                            }
+                            </div>
                             @if (op.Tier == PlanTiers.Acknowledge)
                             {
                                 <label class="checkbox-label" @onclick:stopPropagation>
@@ -237,31 +241,28 @@ else
                                     <td colspan="6">
                                         <div class="expand-wrapper @(open ? "expanded" : "")">
                                             <div class="expand-content">
-                                                @if (open)
+                                                <div class="cc-inset" style="margin-top:0.75rem">
+                                                    <table class="cc-field-table">
+                                                        @if (op.Fields.Count == 0)
+                                                        {
+                                                            <tr><td class="label">@op.Action</td><td colspan="2">@op.ChangeText</td></tr>
+                                                        }
+                                                        @foreach (var f in op.Fields)
+                                                        {
+                                                            <tr>
+                                                                <td class="label">@f.Label</td>
+                                                                <td class="old">@(f.Secret ? "Current value" : f.Old)</td>
+                                                                <td class="new">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</td>
+                                                            </tr>
+                                                        }
+                                                    </table>
+                                                </div>
+                                                @if (op.Reasons.Count > 0 || op.Referrers.Count > 0)
                                                 {
-                                                    <div class="cc-inset" style="margin-top:0.75rem">
-                                                        <table class="cc-field-table">
-                                                            @if (op.Fields.Count == 0)
-                                                            {
-                                                                <tr><td class="label">@op.Action</td><td colspan="2">@op.ChangeText</td></tr>
-                                                            }
-                                                            @foreach (var f in op.Fields)
-                                                            {
-                                                                <tr>
-                                                                    <td class="label">@f.Label</td>
-                                                                    <td class="old">@(f.Secret ? "Current value" : f.Old)</td>
-                                                                    <td class="new">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</td>
-                                                                </tr>
-                                                            }
-                                                        </table>
+                                                    <div class="cc-inset-note">
+                                                        @string.Join(". ", op.Reasons)@(op.Reasons.Count > 0 ? "." : "")
+                                                        @if (op.Referrers.Count > 0) { <span> Still referenced by: @string.Join(", ", op.Referrers).</span> }
                                                     </div>
-                                                    @if (op.Reasons.Count > 0 || op.Referrers.Count > 0)
-                                                    {
-                                                        <div class="cc-inset-note">
-                                                            @string.Join(". ", op.Reasons)@(op.Reasons.Count > 0 ? "." : "")
-                                                            @if (op.Referrers.Count > 0) { <span> Still referenced by: @string.Join(", ", op.Referrers).</span> }
-                                                        </div>
-                                                    }
                                                 }
                                             </div>
                                         </div>

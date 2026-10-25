@@ -94,53 +94,57 @@
                         <div>@(row.RegressionCount == 0 ? (row.ChangeCount == 0 ? "No changes" : "No issues") : CcFormat.Plural(row.RegressionCount, "regression", "regressions"))</div>
                     </div>
                 </div>
-                @if (expanded)
-                {
-                    <div class="cc-lanes">
-                        @if (!_lanes.TryGetValue(row.Site.Slug, out var lanes))
+                <div class="expand-wrapper @(expanded ? "expanded" : "")">
+                    <div class="expand-content">
+                        @if (expanded || _lanes.ContainsKey(row.Site.Slug))
                         {
-                            <div class="loading-container"><div class="spinner spinner-sm"></div></div>
-                        }
-                        else
-                        {
-                            @foreach (var lane in lanes)
-                            {
-                                <div class="cc-tl-row cc-lane-row">
-                                    <span class="cc-tl-chev"></span>
-                                    <div class="cc-tl-label">
-                                        <div class="cc-tl-name">@lane.Title</div>
-                                        <div class="cc-tl-sub">@lane.Subtitle</div>
+                            <div class="cc-lanes">
+                                @if (!_lanes.TryGetValue(row.Site.Slug, out var lanes))
+                                {
+                                    <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+                                }
+                                else
+                                {
+                                    @foreach (var lane in lanes)
+                                    {
+                                        <div class="cc-tl-row cc-lane-row">
+                                            <span class="cc-tl-chev"></span>
+                                            <div class="cc-tl-label">
+                                                <div class="cc-tl-name">@lane.Title</div>
+                                                <div class="cc-tl-sub">@lane.Subtitle</div>
+                                            </div>
+                                            <CcTrack From="_from" To="_to" Lane="true" ShowMarkers="false" Markers="markers" Bands="row.Bands"
+                                                     SeriesA="lane.SeriesA" SeriesB="lane.SeriesB"
+                                                     ColorA="@LaneColorA(lane.Key)" ColorB="@LaneColorB(lane.Key)" SelectedId="_selected?.Id" />
+                                            <div class="cc-lane-latest">
+                                                @if (lane.LatestA != null)
+                                                {
+                                                    <div><span class="@LaneClassA(lane.Key)">@lane.LatestA</span> @lane.SeriesAName</div>
+                                                }
+                                                @if (lane.LatestB != null)
+                                                {
+                                                    <div><span class="@LaneClassB(lane.Key)">@lane.LatestB</span> @lane.SeriesBName</div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                    <div class="cc-tl-row cc-lane-row">
+                                        <span class="cc-tl-chev"></span>
+                                        <div class="cc-tl-label">
+                                            <div class="cc-tl-name">Events</div>
+                                            <div class="cc-tl-sub">Config, firmware, reboots</div>
+                                        </div>
+                                        <CcTrack From="_from" To="_to" Markers="markers" Bands="row.Bands" SelectedId="_selected?.Id" OnMarker="SelectAsync" />
+                                        <div class="cc-lane-latest">
+                                            <div>@CcFormat.Plural(markers.Count, "change", "changes")</div>
+                                            <div>@CcFormat.Plural(row.Bands.Count(b => b.Kind == "incident"), "incident", "incidents")</div>
+                                        </div>
                                     </div>
-                                    <CcTrack From="_from" To="_to" Lane="true" ShowMarkers="false" Markers="markers" Bands="row.Bands"
-                                             SeriesA="lane.SeriesA" SeriesB="lane.SeriesB"
-                                             ColorA="@LaneColorA(lane.Key)" ColorB="@LaneColorB(lane.Key)" SelectedId="_selected?.Id" />
-                                    <div class="cc-lane-latest">
-                                        @if (lane.LatestA != null)
-                                        {
-                                            <div><span class="@LaneClassA(lane.Key)">@lane.LatestA</span> @lane.SeriesAName</div>
-                                        }
-                                        @if (lane.LatestB != null)
-                                        {
-                                            <div><span class="@LaneClassB(lane.Key)">@lane.LatestB</span> @lane.SeriesBName</div>
-                                        }
-                                    </div>
-                                </div>
-                            }
-                            <div class="cc-tl-row cc-lane-row">
-                                <span class="cc-tl-chev"></span>
-                                <div class="cc-tl-label">
-                                    <div class="cc-tl-name">Events</div>
-                                    <div class="cc-tl-sub">Config, firmware, reboots</div>
-                                </div>
-                                <CcTrack From="_from" To="_to" Markers="markers" Bands="row.Bands" SelectedId="_selected?.Id" OnMarker="SelectAsync" />
-                                <div class="cc-lane-latest">
-                                    <div>@CcFormat.Plural(markers.Count, "change", "changes")</div>
-                                    <div>@CcFormat.Plural(row.Bands.Count(b => b.Kind == "incident"), "incident", "incidents")</div>
-                                </div>
+                                }
                             </div>
                         }
                     </div>
-                }
+                </div>
             }
         </div>
     }
@@ -165,6 +169,7 @@
             @foreach (var c in Paged())
             {
                 var isOpen = _selected?.Id == c.Id && _selected.SiteSlug == c.SiteSlug;
+                var shown = _shown?.Id == c.Id && _shown.SiteSlug == c.SiteSlug;
                 <div class="cc-change-card history-row-clickable @(isOpen ? "history-row-expanded" : "")" @onclick="() => SelectAsync(c)">
                     <div class="cc-change-card-head">
                         <span class="muted-text">@CcFormat.Time(c.OccurredAt)@(_sites.Count > 1 ? $" - {c.SiteName}" : "")</span>
@@ -179,7 +184,7 @@
                 </div>
                 <div class="expand-wrapper @(isOpen ? "expanded" : "")">
                     <div class="expand-content">
-                        @if (isOpen && c.Kind == ConfigChangeKind.Config)
+                        @if (shown && c.Kind == ConfigChangeKind.Config)
                         {
                             <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
                         }
@@ -207,6 +212,7 @@
                     @foreach (var c in Paged())
                     {
                         var isOpen = _selected?.Id == c.Id && _selected.SiteSlug == c.SiteSlug;
+                        var shown = _shown?.Id == c.Id && _shown.SiteSlug == c.SiteSlug;
                         <tr id="change-@c.SiteSlug-@c.Id" class="history-row-clickable @(isOpen ? "history-row-expanded" : "")" @onclick="() => SelectAsync(c)">
                             <td class="col-time">@CcFormat.Time(c.OccurredAt)</td>
                             @if (_sites.Count > 1)
@@ -246,11 +252,11 @@
                             <td colspan="@(_sites.Count > 1 ? 7 : 6)">
                                 <div class="expand-wrapper @(isOpen ? "expanded" : "")">
                                     <div class="expand-content">
-                                        @if (isOpen && c.Kind == ConfigChangeKind.Config)
+                                        @if (shown && c.Kind == ConfigChangeKind.Config)
                                         {
                                             <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
                                         }
-                                        else if (isOpen)
+                                        else if (shown)
                                         {
                                             <div class="cc-inset-note" style="padding-top:0.75rem">@c.Summary. @c.Who.</div>
                                         }
@@ -300,6 +306,8 @@
     private readonly HashSet<string> _expandedSites = [];
     private readonly Dictionary<string, List<TimelineLane>> _lanes = [];
     private ChangeRowView? _selected;
+    // Stays set after the row closes, so its detail is still there while the collapse animates.
+    private ChangeRowView? _shown;
     private ChangeDetailView? _detail;
     private bool _busy;
     private string? _error;
@@ -434,6 +442,7 @@
             return;
         }
         _selected = c;
+        _shown = c;
         _detail = null;
         _error = null;
         var index = _changes?.Where(Visible).ToList().IndexOf(c) ?? -1;

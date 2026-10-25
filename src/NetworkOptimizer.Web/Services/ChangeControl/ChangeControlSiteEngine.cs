@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
@@ -250,7 +251,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         // Firmware rows: one per device that moved version, and one for a Network app version change.
         var rolloutActive = _isRolloutActive != null && await _isRolloutActive(ct);
         foreach (var d in firmwareChanged)
-            await RecordFirmwareRowAsync(ConfigChangeKind.DeviceFirmware, $"{d.Name}: firmware {oldVersions[d.Mac]} to {d.Version}",
+            await RecordFirmwareRowAsync(ConfigChangeKind.DeviceFirmware, $"{d.Name}: firmware {FirmwareVersionFormat.Short(oldVersions[d.Mac])} to {FirmwareVersionFormat.Short(d.Version)}",
                 oldVersions[d.Mac], d.Version, rolloutActive, ct);
         if (appChanged)
         {

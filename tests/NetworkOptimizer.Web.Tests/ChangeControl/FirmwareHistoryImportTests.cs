@@ -107,4 +107,8 @@ public sealed class FirmwareHistoryImportTests
         FirmwareHistoryImport.Summary(new(T, Mac, "AP", null, "8.8.11", null)).Should().Be("AP: firmware to 8.8.11");
         FirmwareHistoryImport.Summary(new(T, Mac, "AP", null, null, null)).Should().Be("AP: firmware upgrade");
     }
+
+    [Fact]
+    public void Summary_DropsTheBuild() =>
+        FirmwareHistoryImport.Summary(new(T, Mac, "AP", "6.0.11.36269", "6.0.15.36489", null)).Should().Be("AP: firmware 6.0.11 to 6.0.15");
 }
