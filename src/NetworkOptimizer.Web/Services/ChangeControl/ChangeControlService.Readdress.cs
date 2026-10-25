@@ -113,6 +113,11 @@ public sealed partial class ChangeControlService
     {
         var warnings = new List<string>();
         var map = Readdressing.Map(active);
+        // Network Optimizer's own host (or this site's On-Site Agent): it cannot watch or revert from an address that is gone.
+        var own = Plans.ManagementAddresses().Where(a => Readdressing.ParseIp(a) is { } ip && Readdressing.MapIp(ip, map) != null).Distinct().ToList();
+        if (own.Count > 0)
+            warnings.Add($"Network Optimizer reaches this site from {string.Join(", ", own)}, which {(own.Count == 1 ? "is" : "are")} in a moved subnet. "
+                + "Re-address that host in the same window: until then it is off the network, and no watch or revert can run.");
         var mgmt = ConfigDiffEngine.ManagementNetworkIds(live);
         foreach (var m in active.Where(m => mgmt.Contains(m.NetworkId)))
             warnings.Add($"{m.NetworkName} is a management network: devices and the UniFi Console are reached at new addresses after the move. Review Plan holds it at the Lockout tier.");
