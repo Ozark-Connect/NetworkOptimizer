@@ -33,6 +33,14 @@ public static partial class ChangeDescriber
         ["protocol"] = "Protocol", ["ip_version"] = "IP version", ["channel"] = "channel", ["ht"] = "channel width",
         ["tx_power_mode"] = "TX power", ["tx_power"] = "TX power", ["min_rssi"] = "Min RSSI", ["min_rssi_enabled"] = "Min RSSI",
         ["dhcpd_dns_1"] = "DNS server", ["dhcpd_dns_2"] = "DNS server", ["wan_dns1"] = "DNS server", ["wan_dns2"] = "DNS server",
+        ["port_security_enabled"] = "Port Security", ["port_security_mac_address"] = "MAC Address Filter",
+        ["trusted_port_mac"] = "Lock Port to UniFi Device",
+    };
+
+    // UniFi Network's own setting names: kept as written after a port or radio prefix, not lowercased.
+    private static readonly HashSet<string> UniFiNames = new(StringComparer.Ordinal)
+    {
+        "Port Security", "MAC Address Filter", "Lock Port to UniFi Device",
     };
 
     private static readonly Dictionary<string, string> Bands = new(StringComparer.Ordinal)
@@ -54,7 +62,9 @@ public static partial class ChangeDescriber
                 "ethernet_overrides" => value,
                 _ => $"{Humanize(array)} {value}",
             };
-            return rest.Length == 0 ? element : $"{element} {LabelFor(rest).ToLowerInvariant()}";
+            if (rest.Length == 0) return element;
+            var inner = LabelFor(rest);
+            return $"{element} {(UniFiNames.Contains(inner) ? inner : inner.ToLowerInvariant())}";
         }
         var leaf = path.Split('.')[^1];
         var head = path.Split('.')[0];

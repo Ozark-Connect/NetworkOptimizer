@@ -80,6 +80,15 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Labels_PortSecuritySettings_UseUniFiNames()
+    {
+        ChangeDescriber.LabelFor("port_overrides[port_idx=2].trusted_port_mac").Should().Be("Port 2 Lock Port to UniFi Device");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=2].port_security_mac_address").Should().Be("Port 2 MAC Address Filter");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=2].port_security_enabled").Should().Be("Port 2 Port Security");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=2].name").Should().Be("Port 2 name");
+    }
+
+    [Fact]
     public void Attribute_NoEvent_IsNoAdminRecorded()
     {
         var groups = ChangeAttributor.Attribute([Diff("portconf", "p1", "Cameras")], [], [], Now, false);
