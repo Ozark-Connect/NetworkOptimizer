@@ -1678,6 +1678,15 @@ class LanFlowMap2D {
                 tn.d.phyRxKbps=n.phyRxKbps;
                 tn.d.band=n.band;
                 tn.d.signalDbm=n.signalDbm;
+                // A client first drawn from the live overlay, or before its DHCP lease, has no
+                // address yet; the console's later reading is what makes it openable.
+                if(isClient(n.kind)){
+                    tn.d.ip=n.ip;
+                    tn.d.name=n.name;
+                    tn.d.ssid=n.ssid;
+                    tn.d.network=n.network;
+                    tn.d.isGuest=n.isGuest;
+                }
             }else if(isClient(n.kind)){
                 clientsChanged=true;
             }

@@ -1711,6 +1711,21 @@ export class LanFlowMap {
         }
     }
 
+    // A persisting client keeps the node it was first drawn with, which for one added by the live
+    // overlay or listed before its DHCP lease has no address. Carry the console's identity onto it.
+    _refreshClientIdentity(snap) {
+        for (const node of (snap.nodes ?? [])) {
+            if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient) continue;
+            const held = this._nodeMeshes.get(node.id)?.userData?.node;
+            if (!held || held === node) continue;
+            held.ip = node.ip;
+            held.name = node.name;
+            held.ssid = node.ssid;
+            held.network = node.network;
+            held.isGuest = node.isGuest;
+        }
+    }
+
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
         for (const [linkId, { el, kind, link }] of this._linkLabels) {
@@ -2173,6 +2188,7 @@ export class LanFlowMap {
                     // Seamless roam keeps the client's node id, so add/remove misses
                     // it - re-attach any persisting client whose parent AP changed.
                     this._applyLiveRoam(prev, snap);
+                    this._refreshClientIdentity(snap);
                     // Don't apply snapshot liveRates - they're stale vs the 1s
                     // live poll and would clobber fresh rates momentarily.
                     this._refreshCloudRttLabels();
