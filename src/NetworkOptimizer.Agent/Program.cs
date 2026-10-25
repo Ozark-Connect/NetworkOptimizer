@@ -241,7 +241,7 @@ var floodCapable = config.OnGateway == true && WanFloodGuard.Available();
 var capabilityList = new List<string>();
 if (conntrackCapable) capabilityList.Add("conntrack-accounting");
 if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
-if (blocklistCapable) capabilityList.Add(GatewayBlocklistEnforcer.Capability);
+if (blocklistCapable) capabilityList.AddRange([GatewayBlocklistEnforcer.Capability, GatewayBlocklistEnforcer.ExceptionsCapability]);
 if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
 else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
 var capabilities = capabilityList.ToArray();

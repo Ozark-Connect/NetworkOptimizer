@@ -2102,6 +2102,35 @@ public class FirewallRuleAnalyzerTests
         issues.Should().NotContain(i => i.Type == IssueTypes.DenyShadowsAllow);
     }
 
+    [Fact]
+    public void DetectShadowedRules_AutomaticBlockingsOwnPolicies_AreNotComparedWithEachOther()
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy(ManagedFirewallPolicies.Blocklist, "BLOCK", 1, "IPV4", AnyLanSource, AnyExternalDest),
+            ParseIpVersionPolicy(ManagedFirewallPolicies.Exception, "ALLOW", 2, "IPV4", AnyLanSource, AnyExternalDest),
+            ParseIpVersionPolicy(ManagedFirewallPolicies.PublicListsOutbound, "BLOCK", 3, "IPV4", AnyLanSource, AnyExternalDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectShadowedRules_UserDenyBeforeAnException_IsStillReported()
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("block-all", "BLOCK", 1, "IPV4", AnyLanSource, AnyExternalDest),
+            ParseIpVersionPolicy(ManagedFirewallPolicies.Exception, "ALLOW", 2, "IPV4", AnyLanSource, AnyExternalDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone");
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.DenyShadowsAllow);
+    }
+
     [Theory]
     [InlineData("IPV4", "IPV4")]
     [InlineData("IPV6", "IPV6")]

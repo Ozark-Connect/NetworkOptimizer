@@ -45,6 +45,13 @@ public class GatewayAgentBlockingTests
             return Task.FromResult(BlockTargetResult.Success(entries.Count));
         }
         public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct) => Task.FromResult(0);
+        public List<IReadOnlyList<BlockingException>> ExceptionSyncs { get; } = [];
+        public Task<BlockTargetResult> SyncExceptionsAsync(string? site, IReadOnlyList<BlockingException> exceptions, bool outbound,
+            CancellationToken ct)
+        {
+            ExceptionSyncs.Add(exceptions);
+            return Task.FromResult(BlockTargetResult.Success(exceptions.Count));
+        }
     }
 
     private sealed class FakeAgents : IGatewayAgentBlocklist
@@ -53,18 +60,26 @@ public class GatewayAgentBlockingTests
         public bool Enforcing { get; set; } = true;
         public List<(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries)> Pushes { get; } = [];
         public IReadOnlyList<GatewayAgentEntry> LastOutbound { get; private set; } = [];
+        public IReadOnlyList<GatewayAgentEntry> LastOwn { get; private set; } = [];
+        public IReadOnlyList<BlockingException> LastExceptions { get; private set; } = [];
+        public List<string> Fingerprints { get; } = [];
 
         public bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
-            string fingerprint)
+            string fingerprint, IReadOnlyList<GatewayAgentEntry>? feeds = null, IReadOnlyList<BlockingException>? exceptions = null)
         {
-            Pushes.Add((enabled, entries));
+            // Recorded as an older agent receives it: own blocks and public list entries in one list.
+            Pushes.Add((enabled, [.. entries, .. feeds ?? []]));
+            LastOwn = entries;
             LastOutbound = outbound;
+            LastExceptions = exceptions ?? [];
+            Fingerprints.Add(fingerprint);
             return Connected;
         }
 
         public bool IsEnforcing(string? site, string fingerprint) => Connected && Enforcing;
         public string? Problem(string? site, string fingerprint) => Connected && !Enforcing ? "Rules not in place" : null;
         public bool HasGatewayAgent(string? site) => Connected;
+        public bool EnforcesExceptions(string? site) => true;
     }
 
     private sealed class Harness
@@ -196,6 +211,55 @@ public class GatewayAgentBlockingTests
         h.Agents.LastOutbound.Select(e => e.Address).Should().Equal("203.0.113.0/24");
         h.Service.For(null).Find("203.0.113.5")!.Id.Should().Be(PublicBlockLists.SpamhausDrop);
         h.Service.For(null).Find("198.51.100.9").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Exceptions_GoToTheAgent_WithThePublicListsApartFromOwnBlocks()
+    {
+        var h = new Harness(new Dictionary<string, string>
+        {
+            ["https://www.spamhaus.org/drop/drop_v4.json"] = "{\"cidr\":\"203.0.113.0/24\"}\n",
+            ["https://www.spamhaus.org/drop/drop_v6.json"] = "",
+        });
+        h.Settings.Values[BlockingSettingKeys.Feeds] = PublicBlockLists.SpamhausDrop;
+        h.Block("198.51.100.7");
+        var exception = BlockingExceptions.Validate(new BlockingException
+        {
+            Direction = ExceptionDirection.Outbound, Device = "192.168.1.50", Protocol = ExceptionProtocol.Tcp, PortFrom = 443, PortTo = 443,
+        });
+        var expired = exception with { Id = "gone", ExpiresAt = T0.AddMinutes(-1) };
+        await BlockingExceptions.SaveAsync(h.Settings, null, [exception, expired], CancellationToken.None);
+
+        await h.Cycle(T0);
+
+        h.Agents.LastOwn.Select(e => e.Address).Should().Equal("198.51.100.7");
+        h.Agents.LastExceptions.Should().ContainSingle().Which.Id.Should().Be(exception.Id);
+        h.Console.ExceptionSyncs.Should().BeEmpty("the console waits while the agent holds the set");
+
+        // A save marks the site's console write urgent, as SaveExceptionAsync does.
+        h.Service.TriggerConsoleSyncFor(null);
+        await h.Cycle(T0.AddMinutes(1));
+        h.Console.ExceptionSyncs.Should().ContainSingle().Which.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Exceptions_ChangeTheFingerprint_AndDetectionOnlySendsNone()
+    {
+        var h = new Harness();
+        await h.Cycle(T0);
+        var before = h.Agents.Fingerprints.Last();
+
+        await BlockingExceptions.SaveAsync(h.Settings, null, [BlockingExceptions.Validate(new BlockingException
+        {
+            Direction = ExceptionDirection.Inbound, Protocol = ExceptionProtocol.Udp, PortFrom = 51820, PortTo = 51820,
+        })], CancellationToken.None);
+        await h.Cycle(T0.AddMinutes(1));
+        h.Agents.Fingerprints.Last().Should().NotBe(before);
+        h.Agents.LastExceptions.Should().ContainSingle();
+
+        h.Settings.Values[BlockingSettingKeys.Mode] = "DryRun";
+        await h.Cycle(T0.AddMinutes(2));
+        h.Agents.LastExceptions.Should().BeEmpty("the public lists are not enforced in Detection Only");
     }
 
     [Fact]

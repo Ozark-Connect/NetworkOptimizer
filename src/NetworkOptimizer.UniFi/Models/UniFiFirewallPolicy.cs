@@ -95,6 +95,70 @@ public sealed class UniFiGroupBlockPolicyWrite
         },
     };
 
+    /// <summary>
+    /// An Allow policy from one endpoint to another (each from <see cref="Endpoint"/>). With
+    /// <paramref name="states"/> it matches those connection states only, otherwise every state. Its
+    /// return traffic is not added: the caller places its own, ahead of the policies that would drop it.
+    /// </summary>
+    /// <param name="protocol">"all", "tcp", "udp", or "tcp_udp".</param>
+    public static UniFiGroupBlockPolicyWrite CreateAllow(string name, string description, string ipVersion, string protocol,
+        Dictionary<string, object> source, Dictionary<string, object> destination, IReadOnlyList<string>? states = null) => new()
+    {
+        Name = name,
+        Description = description,
+        Action = "ALLOW",
+        IpVersion = ipVersion,
+        Protocol = protocol,
+        ConnectionStateType = states == null ? "ALL" : "CUSTOM",
+        ConnectionStates = states,
+        Source = source,
+        Destination = destination,
+    };
+
+    /// <summary>
+    /// A policy endpoint in <paramref name="zoneId"/>, as UniFi Network's UI sends it: specific
+    /// <paramref name="ips"/> (IPs or CIDRs), else the Network List <paramref name="groupId"/>, else any
+    /// address; and <paramref name="port"/> ("443" or "3478-3481") or any port.
+    /// </summary>
+    public static Dictionary<string, object> Endpoint(string zoneId, IReadOnlyList<string>? ips, string? groupId, string? port,
+        bool isSource)
+    {
+        var e = new Dictionary<string, object> { ["zone_id"] = zoneId };
+        if (isSource) e["match_mac"] = false;
+        if (ips is { Count: > 0 })
+        {
+            e["matching_target"] = "IP";
+            e["matching_target_type"] = "SPECIFIC";
+            e["ips"] = ips;
+            e["match_opposite_ips"] = false;
+        }
+        else if (!string.IsNullOrEmpty(groupId))
+        {
+            e["matching_target"] = "IP";
+            e["matching_target_type"] = "OBJECT";
+            e["ip_group_id"] = groupId;
+            e["match_opposite_ips"] = false;
+        }
+        else
+        {
+            e["matching_target"] = "ANY";
+        }
+        if (!string.IsNullOrEmpty(port))
+        {
+            e["port_matching_type"] = "SPECIFIC";
+            e["port"] = port;
+            e["match_opposite_ports"] = false;
+        }
+        else
+        {
+            e["port_matching_type"] = "ANY";
+        }
+        return e;
+    }
+
+    /// <summary>The states a return-traffic Allow matches: replies only.</summary>
+    public static readonly IReadOnlyList<string> RepliesOnly = ["ESTABLISHED", "RELATED"];
+
     /// <summary>The connection states a source block matches: new connections only, so replies to
     /// connections the LAN opened still pass UniFi's own Allow Return Traffic.</summary>
     public static readonly IReadOnlyList<string> NewConnectionsOnly = ["NEW"];
