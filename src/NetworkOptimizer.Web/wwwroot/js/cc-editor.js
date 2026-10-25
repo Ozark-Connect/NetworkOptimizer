@@ -508,7 +508,7 @@ function valueResult(schema, field, from, exclude) {
     const candidates = field.ref ? schema.refs?.[field.ref] ?? [] : field.values ?? [];
     const options = candidates
         .map(c => typeof c === 'object' && c !== null
-            ? { label: c.label, detail: c.value !== c.label ? c.value : '', apply: c.value, type: 'variable' }
+            ? { label: c.label, detail: c.detail ?? (c.value !== c.label ? c.value : ''), apply: c.value, type: 'variable' }
             : { label: String(c), apply: quoteIfNeeded(String(c)), type: 'enum' })
         .filter(o => !exclude.has(o.apply) && !exclude.has(o.label));
     return options.length === 0 ? null : { from, options, validFor: /^[^,\]#]*$/ };

@@ -42,10 +42,35 @@ public static partial class YamlConverter
 
         var refs = new JsonObject();
         foreach (var target in targets)
-            refs[target] = new JsonArray(index.Candidates(target)
-                .Select(c => (JsonNode?)new JsonObject { ["label"] = c.Label, ["value"] = c.Value }).ToArray());
+        {
+            var lan = target.EndsWith(LanRefSuffix, StringComparison.Ordinal);
+            var collection = lan ? target[..^LanRefSuffix.Length] : target;
+            refs[target] = new JsonArray(index.Candidates(collection, lan ? IsLanNetwork : null)
+                .Select(c =>
+                {
+                    var item = new JsonObject { ["label"] = c.Label, ["value"] = c.Value };
+                    if (c.Detail != null) item["detail"] = c.Detail;
+                    return (JsonNode?)item;
+                }).ToArray());
+        }
         return new JsonObject { ["collections"] = collections, ["refs"] = refs };
     }
+
+    // Fields that carry a LAN network (a WLAN's network, a port profile's native, voice, and tagged
+    // networks). WANs and VPN networks are not valid there, so the editor does not offer them.
+    private static readonly HashSet<string> LanNetworkFields = new(StringComparer.Ordinal)
+    {
+        "networkconf_id", "native_networkconf_id", "voice_networkconf_id", "tagged_networkconf_ids",
+        "excluded_networkconf_ids", "multicast_router_networkconf_ids", "mgmt_network_id",
+    };
+
+    private const string LanRefSuffix = ":lan";
+
+    private static string RefKey(string field, string target) =>
+        target == "networkconf" && LanNetworkFields.Contains(field) ? target + LanRefSuffix : target;
+
+    private static bool IsLanNetwork(JsonObject o) =>
+        o["purpose"]?.ToString() is "corporate" or "guest" or "vlan-only";
 
     private sealed class ShapeBuilder
     {
@@ -133,9 +158,10 @@ public static partial class YamlConverter
                 var field = new JsonObject { ["name"] = name };
                 if (f.Target != null && ConfigCollections.Get(f.Target) is { } targetDef)
                 {
-                    field["ref"] = f.Target;
+                    var refKey = RefKey(f.Original, f.Target);
+                    field["ref"] = refKey;
                     field["detail"] = f.List ? $"{targetDef.Noun} list" : targetDef.Noun;
-                    targets.Add(f.Target);
+                    targets.Add(refKey);
                 }
                 else if (f.Shape != null)
                 {

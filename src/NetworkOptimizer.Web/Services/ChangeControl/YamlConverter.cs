@@ -663,14 +663,24 @@ public static partial class YamlConverter
         }
 
         /// <summary>Every object in a collection as (display name, the YAML a reference to it is written as).</summary>
-        public IEnumerable<(string Label, string Value)> Candidates(string collection) =>
-            _byId.Where(e => e.Value.Collection == collection)
+        public IEnumerable<(string Label, string Value, string? Detail)> Candidates(string collection, Func<JsonObject, bool>? keep = null) =>
+            _byId.Where(e => e.Value.Collection == collection && (keep == null || keep(e.Value.Object)))
                 .Select(e => (ConfigState.DisplayName(ConfigCollections.Get(collection), e.Value.Object), RenderOne(e.Key) switch
                 {
                     JsonValue v => Scalar(v),
                     var node => Flow(node),
-                }))
+                }, CandidateDetail(collection, e.Value.Object)))
                 .OrderBy(c => c.Item1, StringComparer.OrdinalIgnoreCase);
+
+        // What tells two candidates apart at a glance: a network's VLAN and subnet.
+        private static string? CandidateDetail(string collection, JsonObject o)
+        {
+            if (collection != "networkconf") return null;
+            var parts = new List<string>();
+            if (o["vlan"] is JsonValue vlan && vlan.ToString() is { Length: > 0 } v) parts.Add($"VLAN {v}");
+            if (o["ip_subnet"] is JsonValue subnet && subnet.ToString() is { Length: > 0 } s) parts.Add(s);
+            return parts.Count > 0 ? string.Join(", ", parts) : null;
+        }
 
         private JsonNode RenderOne(string id)
         {

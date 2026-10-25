@@ -11,7 +11,9 @@ public class YamlEditSchemaTests
     private static ConfigState Site() => State(
         ("networkconf", """{"_id":"n1","name":"Default","purpose":"corporate"}"""),
         ("networkconf", """{"_id":"n2","name":"IoT","purpose":"corporate","vlan":30}"""),
-        ("networkconf", """{"_id":"n3","name":"IoT","purpose":"corporate","vlan":31}"""),
+        ("networkconf", """{"_id":"n3","name":"IoT","purpose":"corporate","vlan":31,"ip_subnet":"192.0.2.1/24"}"""),
+        ("networkconf", """{"_id":"n4","name":"Internet 1","purpose":"wan"}"""),
+        ("networkconf", """{"_id":"n5","name":"Remote","purpose":"remote-user-vpn"}"""),
         ("apgroups", """{"_id":"g1","name":"All APs"}"""),
         ("apgroups", """{"_id":"g2","name":"Upstairs"}"""),
         ("wlanconf", """{"_id":"w1","name":"Home","enabled":true,"security":"wpapsk","ip_version":"IPV4","x_passphrase":"hunter2","networkconf_id":"n1","ap_group_ids":["g1"],"wlan_bands":["2g","5g"],"dhcpd_dns_1":"192.0.2.1","private_preshared_keys":[{"password":"pw1","networkconf_id":"n2"}],"overrides":[{"networkconf_id":"n2","mode":"a"}]}"""),
@@ -37,13 +39,21 @@ public class YamlEditSchemaTests
     public void References_OfferEveryTarget_AsTheYamlTheConverterWrites()
     {
         var schema = Schema();
-        Field(schema, "network")["ref"]!.ToString().Should().Be("networkconf");
+        Field(schema, "network")["ref"]!.ToString().Should().Be("networkconf:lan");
         Field(schema, "ap_groups")["ref"]!.ToString().Should().Be("apgroups");
 
-        var networks = schema["refs"]!["networkconf"]!.AsArray().Select(c => (c!["label"]!.ToString(), c["value"]!.ToString())).ToList();
+        var networks = schema["refs"]!["networkconf:lan"]!.AsArray().Select(c => (c!["label"]!.ToString(), c["value"]!.ToString())).ToList();
         networks.Should().BeEquivalentTo([("Default", "Default"), ("IoT", "{vlan: 30}"), ("IoT", "{vlan: 31}")]);
         Strings(new JsonArray(schema["refs"]!["apgroups"]!.AsArray().Select(c => (JsonNode?)c!["label"]!.DeepClone()).ToArray()))
             .Should().Equal("All APs", "Upstairs");
+    }
+
+    [Fact]
+    public void NetworkReferences_OfferLanNetworksOnly_WithVlanAndSubnet()
+    {
+        var refs = Schema()["refs"]!["networkconf:lan"]!.AsArray().OfType<JsonObject>().ToList();
+        refs.Select(c => c["label"]!.ToString()).Should().NotContain(["Internet 1", "Remote"]);
+        refs.Single(c => c["value"]!.ToString() == "{vlan: 31}")["detail"]!.ToString().Should().Be("VLAN 31, 192.0.2.1/24");
     }
 
     [Fact]
@@ -89,7 +99,7 @@ public class YamlEditSchemaTests
         json.Should().NotContain("pw1");
         var ppsk = Field(schema, "private_preshared_keys")["shape"]!["fields"]!.AsArray().OfType<JsonObject>().ToList();
         ppsk.Single(f => f["name"]!.ToString() == "password")["detail"]!.ToString().Should().Be("secret");
-        ppsk.Single(f => f["name"]!.ToString() == "network")["ref"]!.ToString().Should().Be("networkconf");
+        ppsk.Single(f => f["name"]!.ToString() == "network")["ref"]!.ToString().Should().Be("networkconf:lan");
     }
 
     [Fact]
@@ -97,7 +107,7 @@ public class YamlEditSchemaTests
     {
         var shape = Field(Schema(), "overrides")["shape"]!["fields"]!.AsArray().OfType<JsonObject>().ToList();
         shape.Select(f => f["name"]!.ToString()).Should().BeEquivalentTo("network", "mode");
-        shape.Single(f => f["name"]!.ToString() == "network")["ref"]!.ToString().Should().Be("networkconf");
+        shape.Single(f => f["name"]!.ToString() == "network")["ref"]!.ToString().Should().Be("networkconf:lan");
     }
 
     [Fact]
