@@ -66,9 +66,11 @@ public class PublicBlockListsTests
             "2026-10-16 14:05:05", "3", "203.0.113.7:8080", "ip:port", "botnet_cc", "unknown", "None", "Unknown malware", "", "50", "False", "None", "", "1", "anonymous"
             "2026-10-16 14:05:05", "4", "[2001:db8::9]:443", "ip:port", "botnet_cc", "unknown", "None", "Unknown malware", "", "75", "False", "None", "", "1", "anonymous"
             "2026-10-16 14:05:05", "5", "203.0.113.5:8443", "ip:port", "botnet_cc", "win.havoc", "None", "Havoc", "", "100", "False", "None", "havoc", "1", "anonymous"
+            "2026-10-16 14:05:05", "6", "203.0.113.8:8081", "ip:port", "botnet_cc", "win.cobalt_strike", "Agentemis,BEACON,CobaltStrike,cobeacon", "Cobalt Strike", "", "100", "False", "None", "c2,cobaltstrike", "1", "anonymous"
+            "2026-10-16 14:05:05", "7", "203.0.113.9:8081", "ip:port", "botnet_cc", "win.cobalt_strike", "Agentemis,BEACON,CobaltStrike,cobeacon", "Cobalt Strike", "", "100", "True", "None", "cobaltstrike", "1", "anonymous"
             """;
 
-        PublicBlockLists.ParseThreatFoxIpPort(body).Distinct().Should().BeEquivalentTo("203.0.113.5", "2001:db8::9");
+        PublicBlockLists.ParseThreatFoxIpPort(body).Distinct().Should().BeEquivalentTo("203.0.113.5", "2001:db8::9", "203.0.113.8");
     }
 
     [Fact]
