@@ -67,6 +67,19 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_OwnWrite_OccursAtItsNewestWrite_NotTheWindowsOldest()
+    {
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddMinutes(-12), Method = "PUT", Path = "rest/networkconf/n1", Collection = "networkconf", ObjectId = "n1", Source = "change-control" },
+            new() { At = Now.AddMinutes(-8), Method = "PUT", Path = "rest/wlanconf/w1", Collection = "wlanconf", ObjectId = "w1", Source = "change-control" },
+            new() { At = Now.AddSeconds(-5), Method = "PUT", Path = "rest/wlanconf/w1", Collection = "wlanconf", ObjectId = "w1", Source = "change-control" },
+        };
+        ChangeAttributor.Attribute([Diff("wlanconf", "w1", "Home")], [], journal, Now, false)
+            .Single().OccurredAt.Should().Be(Now.AddSeconds(-5));
+    }
+
+    [Fact]
     public void Attribute_NoEvent_IsNoAdminRecorded()
     {
         var groups = ChangeAttributor.Attribute([Diff("portconf", "p1", "Cameras")], [], [], Now, false);

@@ -177,6 +177,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), false, false, CancellationToken.None);
 
         why.Should().Contain("Nothing was written");
-        _console.Requests.Should().NotContain(r => r.Method != HttpMethod.Get);
+        // The AUDIT log search is a POST that reads.
+        _console.Requests.Should().NotContain(r => r.Method != HttpMethod.Get && r.Item2 != "system-log/all");
     }
 }

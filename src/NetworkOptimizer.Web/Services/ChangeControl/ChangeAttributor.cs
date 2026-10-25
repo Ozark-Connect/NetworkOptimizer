@@ -78,7 +78,7 @@ public static class ChangeAttributor
         var result = new List<AttributedChange>();
         var humanEvents = events.Where(e => e.IsChange && !IsOwnEvent(e, journal)).ToList();
         var byActor = new Dictionary<string, AttributedChange>(StringComparer.Ordinal);
-        var noChange = (AttributedChange?)null;
+        var ownObjects = new List<ObjectDiff>();
         var unattributed = new List<ObjectDiff>();
 
         foreach (var obj in objects)
@@ -106,22 +106,25 @@ public static class ChangeAttributor
 
             if (WrittenByNo(obj, journal) || obj.OwnedBy != null)
             {
-                if (noChange == null)
-                {
-                    var first = journal.Count > 0 ? journal.Min(j => j.At) : now;
-                    noChange = new AttributedChange
-                    {
-                        ActorKind = ConfigChangeActorKind.NetworkOptimizer,
-                        ActorName = obj.OwnedBy ?? JournalSource(journal) ?? "Network Optimizer",
-                        OccurredAt = first,
-                    };
-                    result.Add(noChange);
-                }
-                noChange.Objects.Add(obj);
+                ownObjects.Add(obj);
                 continue;
             }
 
             unattributed.Add(obj);
+        }
+
+        if (ownObjects.Count > 0)
+        {
+            // The newest write to these objects made the state this diff sees; the window can hold older ones.
+            var writes = journal.Where(j => ownObjects.Any(o => WrittenByNo(o, [j]))).ToList();
+            var noChange = new AttributedChange
+            {
+                ActorKind = ConfigChangeActorKind.NetworkOptimizer,
+                ActorName = ownObjects.Select(o => o.OwnedBy).FirstOrDefault(n => n != null) ?? JournalSource(writes) ?? JournalSource(journal) ?? "Network Optimizer",
+                OccurredAt = writes.Count > 0 ? writes.Max(j => j.At) : now,
+            };
+            noChange.Objects.AddRange(ownObjects);
+            result.Add(noChange);
         }
 
         var likely = unattributed.Where(o => inUpgradeWindow || IsLikelyUniFiField(o)).ToList();

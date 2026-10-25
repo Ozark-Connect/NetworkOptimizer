@@ -397,6 +397,11 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// </summary>
     public async Task<ConfigSnapshot?> TakeSnapshotAsync(ConfigSnapshotTrigger trigger, string? detail, string? pinReason, CancellationToken ct)
     {
+        // A forced snapshot reads no AUDIT log, so a detection pass records what changed since the last
+        // poll with its admin first. Both passes need NO's writes flushed: the queue empties on the loop's tick.
+        await FlushJournalAsync(ct);
+        if (_api.IsConnected) await PollLockedAsync(ct);
+        await FlushJournalAsync(ct);
         var journal = await _repos.UseAsync((r, c) => r.GetJournalAsync(DateTime.UtcNow.AddMinutes(-15), DateTime.UtcNow, c), ct);
         var result = await SnapshotAndRecordAsync(trigger, detail, pinReason, [], journal, inUpgradeWindow: false, ct, force: true);
         return result.Snapshot;
