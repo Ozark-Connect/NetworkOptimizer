@@ -106,6 +106,14 @@ public interface IGatewayBlocklistWriter
     /// Returns how many it changed; 0 when gateway blocking is not set up.
     /// </summary>
     Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Makes the site's exception Allow policies match <paramref name="exceptions"/>, ahead of the public
+    /// list Block policies; none when the list is empty. <paramref name="outbound"/> when the site blocks
+    /// the lists outbound. Count is the policies held.
+    /// </summary>
+    Task<BlockTargetResult> SyncExceptionsAsync(string? site, IReadOnlyList<BlockingException> exceptions, bool outbound,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>One address or range for a gateway agent, with when it stops being blocked.</summary>
@@ -119,11 +127,13 @@ public interface IGatewayAgentBlocklist
 {
     /// <summary>
     /// Sends the set to the site's capable gateway agents (null site = default) when they do not hold it
-    /// yet: <paramref name="entries"/> are blocked as sources, <paramref name="outbound"/> as destinations.
-    /// Returns false when the site has no connected agent that can enforce it.
+    /// yet: <paramref name="entries"/> (the site's own blocks) and <paramref name="feeds"/> (public list
+    /// entries) are blocked as sources, <paramref name="outbound"/> as destinations, and
+    /// <paramref name="exceptions"/> let traffic through the lists alone. Returns false when the site has no
+    /// connected agent that can enforce it.
     /// </summary>
     bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
-        string fingerprint);
+        string fingerprint, IReadOnlyList<GatewayAgentEntry>? feeds = null, IReadOnlyList<BlockingException>? exceptions = null);
 
     /// <summary>Whether a gateway agent of the site has applied <paramref name="fingerprint"/> with its rules in place.</summary>
     bool IsEnforcing(string? site, string fingerprint);
@@ -133,6 +143,9 @@ public interface IGatewayAgentBlocklist
 
     /// <summary>Whether the site has a connected gateway agent that can enforce its set.</summary>
     bool HasGatewayAgent(string? site);
+
+    /// <summary>Whether every connected gateway agent of the site enforces exceptions; true when it has none.</summary>
+    bool EnforcesExceptions(string? site);
 }
 
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>

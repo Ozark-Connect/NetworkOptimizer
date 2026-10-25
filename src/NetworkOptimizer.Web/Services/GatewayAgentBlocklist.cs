@@ -15,6 +15,9 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     /// <summary>The capability string, shared by agent and server.</summary>
     public const string Capability = "gateway-blocklist";
 
+    /// <summary>The agent takes the public lists in their own set, with exceptions to them.</summary>
+    public const string ExceptionsCapability = "gateway-blocklist-exceptions";
+
     private static readonly TimeSpan ResendEvery = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AckWait = TimeSpan.FromMinutes(2);
 
@@ -27,7 +30,8 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
     // What each agent last reported.
     private readonly ConcurrentDictionary<int, GatewayBlocklistStatus> _status = new();
 
-    private sealed record Desired(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries, IReadOnlyList<GatewayAgentEntry> Outbound, string Fingerprint);
+    private sealed record Desired(bool Enabled, IReadOnlyList<GatewayAgentEntry> Entries, IReadOnlyList<GatewayAgentEntry> Outbound,
+        string Fingerprint, IReadOnlyList<GatewayAgentEntry> Feeds, IReadOnlyList<BlockingException> Exceptions);
 
     // Resolved on first use, never injected: the collection service depends (through the list lookup)
     // on the blocking service, which depends on this one, and a constructor cycle hangs startup.
@@ -46,10 +50,10 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
         _registry.GetForSite(slug).Where(c => c.OnGateway == true && c.HasCapability(Capability) && !c.IsStale).ToList();
 
     public bool Push(string? site, bool enabled, IReadOnlyList<GatewayAgentEntry> entries, IReadOnlyList<GatewayAgentEntry> outbound,
-        string fingerprint)
+        string fingerprint, IReadOnlyList<GatewayAgentEntry>? feeds = null, IReadOnlyList<BlockingException>? exceptions = null)
     {
         var slug = Slug(site);
-        var desired = new Desired(enabled, entries, outbound, fingerprint);
+        var desired = new Desired(enabled, entries, outbound, fingerprint, feeds ?? [], exceptions ?? []);
         _desired[slug] = desired;
         var agents = Capable(slug);
         var now = DateTime.UtcNow;
@@ -74,6 +78,8 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
                     && DateTime.UtcNow - sent.At < AckWait)));
 
     public bool HasGatewayAgent(string? site) => Capable(Slug(site)).Count > 0;
+
+    public bool EnforcesExceptions(string? site) => Capable(Slug(site)).All(c => c.HasCapability(ExceptionsCapability));
 
     public string? Problem(string? site, string fingerprint)
     {
@@ -162,11 +168,36 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
         .Where(e => e.Ttl >= 1)
         .Select(e => new GatewayBlockEntry { Address = e.Address, TtlSeconds = (int)Math.Min(int.MaxValue, Math.Ceiling(e.Ttl)) });
 
+    private static GatewayBlockException ToWire(BlockingException e)
+    {
+        var wire = new GatewayBlockException
+        {
+            Inbound = e.Direction == ExceptionDirection.Inbound,
+            Device = e.Device ?? "",
+            Address = e.Address ?? "",
+            PortFrom = e.PortFrom ?? 0,
+            PortTo = e.PortTo ?? 0,
+        };
+        wire.Protocols.AddRange(e.Protocols);
+        return wire;
+    }
+
     private void Send(AgentTunnelConnection agent, Desired desired, DateTime now)
     {
         var message = new GatewayBlocklistSet { Enabled = desired.Enabled, Fingerprint = desired.Fingerprint };
         message.Entries.AddRange(Wire(desired.Entries, now));
         message.Outbound.AddRange(Wire(desired.Outbound, now));
+        // An agent before exceptions holds the public lists with the site's own blocks, and enforces none.
+        if (agent.HasCapability(ExceptionsCapability))
+        {
+            message.FeedsSplit = true;
+            message.Feeds.AddRange(Wire(desired.Feeds, now));
+            message.Exceptions.AddRange(desired.Exceptions.Select(ToWire));
+        }
+        else
+        {
+            message.Entries.AddRange(Wire(desired.Feeds, now));
+        }
         // gRPC's default receive limit is 4 MB, and agents before this release keep it: a larger set
         // drops the tunnel on every send. The agent keeps enforcing its last set instead.
         if (message.CalculateSize() > MaxSetBytes)

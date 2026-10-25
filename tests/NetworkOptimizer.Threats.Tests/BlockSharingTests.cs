@@ -46,6 +46,8 @@ public class BlockSharingTests
         }
 
         public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct) => Task.FromResult(0);
+        public Task<BlockTargetResult> SyncExceptionsAsync(string? site, IReadOnlyList<BlockingException> exceptions, bool outbound,
+            CancellationToken ct) => Task.FromResult(BlockTargetResult.Success(exceptions.Count));
         public IReadOnlyList<string> LastFor(string? site) => Syncs.Last(s => s.Site == site).Ips;
     }
 

@@ -86,6 +86,11 @@ public class FirewallRuleAnalyzer
                     if (earlierIsAllow == laterIsAllow)
                         continue;
 
+                    // Automatic Blocking orders its own policies on purpose (own blocks, exceptions, public lists).
+                    // A pair with a user's rule is still checked: that one can really shadow or subvert ours.
+                    if (ManagedFirewallPolicies.IsManaged(earlierRule.Name) && ManagedFirewallPolicies.IsManaged(laterRule.Name))
+                        continue;
+
                     // Check if rules could overlap (same source/dest/protocol patterns)
                     if (!FirewallRuleOverlapDetector.RulesOverlap(earlierRule, laterRule, networkConfigs))
                         continue;

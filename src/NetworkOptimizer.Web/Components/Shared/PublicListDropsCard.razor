@@ -1,0 +1,190 @@
+@using NetworkOptimizer.Threats.Blocking
+@using NetworkOptimizer.Threats.Models
+@inject IThreatBlockingAdmin Blocking
+
+@* Threat Intelligence - Blocking: devices whose connections to a public block list address the
+   gateway dropped, each with Allow to open an exception filled in from it. *@
+
+@if (_exceptions is { Mode: BlockingMode.Enforce })
+{
+    <div class="card card-spaced public-list-drops">
+        <div class="card-header">
+            <h3 class="card-title">Public Block List Drops</h3>
+            <div class="time-range-selector">
+                @foreach (var (key, _) in Ranges)
+                {
+                    <button class="time-btn @(_range == key ? "active" : "")" @onclick="() => SetRange(key)">@key</button>
+                }
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">Connections from your devices that the gateway dropped because the address is on one of this site's public block lists. When a drop is traffic you need, <strong>Allow</strong> opens an exception filled in from it.</p>
+            @if (_drops.Count == 0)
+            {
+                <div class="empty-state"><p>No drops in this period.</p></div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="data-table public-list-drops-table">
+                        <thead>
+                            <tr>
+                                <th>Device</th>
+                                <th>Address</th>
+                                <th class="hide-mobile">Port</th>
+                                <th class="hide-mobile">List</th>
+                                <th class="hide-mobile">Drops</th>
+                                <th class="hide-mobile">Last Seen</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var d in PageRows)
+                            {
+                                var key = Key(d);
+                                var covering = Covering(d);
+                                <tr>
+                                    <td><a href="@DrilldownUrl(d.DeviceIp)"><code>@d.DeviceIp</code></a>@if (DeviceName?.Invoke(d.DeviceIp) is { } name) {<span class="ip-client-name">@name</span>}</td>
+                                    <td><a href="@DrilldownUrl(d.Address)"><code>@d.Address</code></a><span class="drop-port">@PortText(d)</span></td>
+                                    <td class="hide-mobile"><code>@PortText(d)</code></td>
+                                    <td class="hide-mobile">@d.List</td>
+                                    <td class="hide-mobile">@d.Drops.ToString("N0")</td>
+                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(d.LastSeen)</td>
+                                    <td>
+                                        @if (covering != null)
+                                        {
+                                            <ExceptionCoveredLink Exception="covering" DeviceName="DeviceName" />
+                                        }
+                                        else
+                                        {
+                                            <SiteAdminOnly>
+                                                <button class="btn btn-sm btn-contrast" @onclick="() => ToggleAllow(d)">@(_open == key ? "Hide" : "Allow")</button>
+                                            </SiteAdminOnly>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (_open == key && _prefill != null)
+                                {
+                                    <tr class="history-details-row site-config-row">
+                                        <td colspan="7">
+                                            <div class="expand-wrapper expanded">
+                                                <div class="expand-content">
+                                                    <BlockingExceptionForm Initial="_prefill" List="@d.List" DeviceName="DeviceName"
+                                                                           Intro="@($"Filled in from these drops, last at {d.LastSeen.ToLocalTime():MMM d HH:mm}. Widen or narrow any field before you add it.")"
+                                                                           OnSaved="Saved" OnCancel="() => _open = null" />
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (Pages > 1)
+                {
+                    <div class="pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => _page--"><span class="pag-arrow">←</span> Prev</button>
+                        <span class="pagination-info">Page @_page of @Pages (@_drops.Count total)</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_page >= Pages)" @onclick="() => _page++">Next <span class="pag-arrow">→</span></button>
+                    </div>
+                }
+            }
+            @if (_exceptions.Exceptions.Count > 0)
+            {
+                <p class="form-help">@(_exceptions.Exceptions.Count == 1 ? "1 exception" : $"{_exceptions.Exceptions.Count} exceptions") on this site, in <a href="/settings?tab=security#blocking-exceptions">Settings - Security &amp; Alerts - Automatic Blocking</a>.</p>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>A device's name from its IP, when the page knows it.</summary>
+    [Parameter] public Func<string, string?>? DeviceName { get; set; }
+
+    private static readonly (string Key, TimeSpan Span)[] Ranges =
+        [("1h", TimeSpan.FromHours(1)), ("24h", TimeSpan.FromHours(24)), ("7d", TimeSpan.FromDays(7))];
+    private const int PageSize = 20;
+
+    private ExceptionsOverview? _exceptions;
+    private List<PublicListDropSummary> _drops = [];
+    private string _range = "24h";
+    private int _page = 1;
+    private string? _open;
+    // Kept while the row is open: a new value each render would reset the form under the user.
+    private BlockingException? _prefill;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            _exceptions = await Blocking.GetExceptionsAsync();
+            var to = DateTime.UtcNow;
+            _drops = await Blocking.GetPublicListDropsAsync(to - Ranges.First(r => r.Key == _range).Span, to);
+        }
+        catch (Exception)
+        {
+            // A Viewer read: if it fails the card stays hidden.
+            _exceptions = null;
+        }
+    }
+
+    private async Task SetRange(string key)
+    {
+        _range = key;
+        _page = 1;
+        _open = null;
+        await Load();
+    }
+
+    private int Pages => Math.Max(1, (_drops.Count + PageSize - 1) / PageSize);
+
+    private IEnumerable<PublicListDropSummary> PageRows => _drops.Skip((Math.Min(_page, Pages) - 1) * PageSize).Take(PageSize);
+
+    private static string Key(PublicListDropSummary d) => $"{d.DeviceIp}|{d.Address}|{d.Protocol}|{d.Port}";
+
+    private static string PortText(PublicListDropSummary d) =>
+        d.Port > 0 ? $"{d.Protocol.ToUpperInvariant()} {d.Port}" : d.Protocol.ToUpperInvariant();
+
+    private BlockingException? Covering(PublicListDropSummary d) =>
+        _exceptions?.Covering(ExceptionDirection.Outbound, d.DeviceIp, d.Address, d.Protocol, d.Port);
+
+    private void ToggleAllow(PublicListDropSummary d)
+    {
+        if (_open == Key(d))
+        {
+            _open = null;
+            return;
+        }
+        _open = Key(d);
+        _prefill = Prefill(d);
+    }
+
+    /// <summary>The narrowest exception for these drops: this device, this address, this protocol and port.</summary>
+    internal static BlockingException Prefill(PublicListDropSummary d)
+    {
+        var protocol = d.Protocol.ToLowerInvariant() switch
+        {
+            "tcp" => ExceptionProtocol.Tcp,
+            "udp" => ExceptionProtocol.Udp,
+            _ => ExceptionProtocol.Any,
+        };
+        var port = protocol != ExceptionProtocol.Any && d.Port > 0 ? d.Port : (int?)null;
+        return new BlockingException
+        {
+            Direction = ExceptionDirection.Outbound,
+            Device = d.DeviceIp,
+            Address = d.Address,
+            Protocol = protocol,
+            PortFrom = port,
+            PortTo = port,
+        };
+    }
+
+    // The row keeps its form, now showing the confirmation; the row's check icon replaces Allow at once.
+    private async Task Saved(BlockingException saved) => _exceptions = await Blocking.GetExceptionsAsync();
+
+    private static string DrilldownUrl(string ip) => "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(ip);
+}
