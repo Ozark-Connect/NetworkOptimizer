@@ -677,6 +677,66 @@ public static class ConfigFieldOrder
         ]),
     ];
 
+    public static readonly FieldGroup[] WireGuardUserFields =
+    [
+        new("Identity",
+        [
+            "name", "ulp_user_id"
+        ]),
+        new("Network",
+        [
+            "network_id", "interface_ip", "interface_ip_v6", "allowed_ips"
+        ]),
+        new("Keys",
+        [
+            "public_key", "pre_shared_key"
+        ]),
+    ];
+
+    public static readonly FieldGroup[] AclRuleFields =
+    [
+        new("Identity",
+        [
+            "name", "enabled", "description", "type", "action"
+        ]),
+        new("Match",
+        [
+            "traffic_source", "traffic_destination", "ip_acl_protocol", "mac_acl_network_id"
+        ]),
+        new("Enforcement",
+        [
+            "specific_enforcers"
+        ]),
+        new("Housekeeping",
+        [
+            "acl_index"
+        ]),
+    ];
+
+    public static readonly FieldGroup[] ContentFilteringFields =
+    [
+        new("Identity",
+        [
+            "name", "enabled"
+        ]),
+        new("Applies to",
+        [
+            "network_ids", "mac_addresses"
+        ]),
+        new("Filtering",
+        [
+            "categories", "safe_search", "allow_list", "block_list"
+        ]),
+        new("Behavior",
+        [
+            "schedule"
+        ]),
+        new("Housekeeping",
+        [
+            "cloud_template"
+        ]),
+    ];
+
     public static readonly string[] FirewallPolicyNested =
     [
         "zone_id", "matching_target", "matching_target_type", "ips", "network_ids", "client_macs", "match_mac",

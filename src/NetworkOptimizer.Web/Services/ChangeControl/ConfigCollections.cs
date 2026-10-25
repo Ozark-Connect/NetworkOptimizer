@@ -531,6 +531,7 @@ public static class ConfigCollections
             new()
             {
                 Key = "wireguard_user", DisplayName = "WireGuard VPN users", Noun = "WireGuard user", Group = "RADIUS and VPN",
+                FieldGroups = ConfigFieldOrder.WireGuardUserFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "wireguard/users", Order = 8,
                 // Network 11 stores and serves these without the x_ prefix (its schema: wireguard_user.pre_shared_key).
                 ExtraSecretFields = Set("pre_shared_key", "private_key"),
@@ -539,6 +540,7 @@ public static class ConfigCollections
             new()
             {
                 Key = "radius_profile_v2", DisplayName = "RADIUS profiles (v2)", Noun = "RADIUS profile", Group = "RADIUS and VPN",
+                FieldGroups = ConfigFieldOrder.RadiusProfileFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "radius/profiles", Order = 8,
             },
             new()
@@ -592,12 +594,14 @@ public static class ConfigCollections
             new()
             {
                 Key = "content_filtering", DisplayName = "Content filtering", Noun = "Content filter", Group = "Other",
+                FieldGroups = ConfigFieldOrder.ContentFilteringFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "content-filtering", Order = 8,
                 TagsForField = (_, _) => [ServiceTags.DnsPolicy],
             },
             new()
             {
                 Key = "acl_rule", DisplayName = "ACL rules", Noun = "ACL rule", Group = "Other",
+                FieldGroups = ConfigFieldOrder.AclRuleFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "acl-rules", Order = 8,
             },
             new()
