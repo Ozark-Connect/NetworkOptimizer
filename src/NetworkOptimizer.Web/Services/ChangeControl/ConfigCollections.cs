@@ -207,7 +207,7 @@ public static class ConfigCollections
             "dhcpdv6_allow_slaac"),
         G("Access", "firewall_zone_id", "internet_access_enabled", "network_isolation_enabled"),
         G("Multicast and discovery", "igmp_snooping", "igmp_proxy_upstream", "igmp_proxy_for", "mdns_enabled", "upnp_lan_enabled"),
-        G("WAN connection", "wan_networkgroup", "wan_type", "wan_ip", "wan_netmask", "wan_gateway", "wan_ip_aliases", "wan_username",
+        G("WAN connection", "wan_networkgroup", "ifname", "wan_type", "wan_ip", "wan_netmask", "wan_gateway", "wan_ip_aliases", "wan_username",
             "x_wan_password", "wan_pppoe_username_enabled", "wan_pppoe_password_enabled", "wan_vlan_enabled", "wan_vlan",
             "wan_dhcp_options", "wan_dhcp_cos"),
         G("WAN DNS", "wan_dns_preference", "wan_dns1", "wan_dns2", "wan_ipv6_dns_preference", "wan_ipv6_dns1", "wan_ipv6_dns2"),
