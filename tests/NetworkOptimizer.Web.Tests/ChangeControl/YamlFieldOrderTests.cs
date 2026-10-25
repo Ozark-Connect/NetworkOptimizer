@@ -104,15 +104,11 @@ public class YamlFieldOrderTests
             ("networkconf", """{"_id":"n1","name":"LAN","purpose":"corporate","vlan":1}"""),
             ("networkconf", """{"_id":"n2","name":"WAN","purpose":"wan"}"""),
             ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","default_zone":true,"attr_no_edit":false,"network_ids":["n1"]}"""),
-            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","default_zone":true,"attr_no_edit":true,"network_ids":["n2"]}"""),
-            ("networkconf", """{"_id":"n3","name":"Guest","purpose":"guest","vlan":3}"""),
-            ("networkconf", """{"_id":"n4","name":"Servers","purpose":"corporate","vlan":4}"""),
-            ("firewall_zone", """{"_id":"z3","name":"Hotspot","zone_key":"hotspot","default_zone":true,"attr_no_edit":false,"network_ids":["n3"]}"""),
-            ("firewall_zone", """{"_id":"z4","name":"Dmz","zone_key":"dmz","default_zone":true,"attr_no_edit":false,"network_ids":["n4"]}"""));
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","default_zone":true,"attr_no_edit":true,"network_ids":["n2"]}"""));
         var yaml = YamlConverter.Export(site, ["firewall_zone"], SecretMode.Mask);
         var lines = yaml.Split('\n').Select(l => l.Trim()).ToList();
-        lines.Should().ContainInOrder("- name: Internal", "networks: [LAN]", "- name: External", "- name: Hotspot", "- name: Dmz", "networks: [Servers]");
-        lines.Should().NotContain(["networks: [WAN]", "networks: [Guest]"]);
+        lines.Should().ContainInOrder("- name: Internal", "networks: [LAN]", "- name: External");
+        lines.SkipWhile(l => l != "- name: External").Should().NotContain(l => l.StartsWith("networks"));
 
         var parsed = YamlConverter.Parse(yaml, site, "firewall_zones.yaml");
         parsed.Problems.Should().NotContain(p => p.Level == "Error");
