@@ -69,6 +69,9 @@ public sealed class CollectionWrite
     public bool Proven { get; init; }
 }
 
+/// <summary>A run of related fields in YAML order, printed under <c># Heading</c>.</summary>
+public sealed record FieldGroup(string Heading, IReadOnlyList<string> Fields);
+
 /// <summary>
 /// One UniFi Network config collection: where it is read, how its objects are identified,
 /// compared, tagged, and written. Grounded in research/config-backup api-findings.md,
@@ -106,6 +109,17 @@ public sealed class ConfigCollectionDef
 
     /// <summary>Secret fields beyond the <c>x_</c> convention.</summary>
     public IReadOnlySet<string> ExtraSecretFields { get; init; } = Empty;
+
+    /// <summary>
+    /// YAML field order for an object, as groups (UniFi field names, before reference stripping).
+    /// The first group prints bare; later groups print a <c># Heading</c> line. Fields not listed
+    /// follow alphabetically under <c># Other</c>, so a new UniFi field is never dropped. Empty keeps
+    /// the name field first and the rest alphabetical.
+    /// </summary>
+    public IReadOnlyList<FieldGroup> FieldGroups { get; init; } = [];
+
+    /// <summary>Key order inside nested objects (source, destination, schedule); the rest follow alphabetically.</summary>
+    public IReadOnlyList<string> NestedFieldOrder { get; init; } = [];
 
     /// <summary>
     /// Top-level fields kept in the snapshot. Null keeps everything (unknown fields are kept).
@@ -172,6 +186,86 @@ public static class ConfigCollections
     public const string NoOwnedPrefix = "Net. Opt. ";
 
     private static HashSet<string> Set(params string[] items) => new(items, StringComparer.Ordinal);
+
+    private static FieldGroup G(string heading, params string[] fields) => new(heading, fields);
+
+    // YAML field order (research/config-backup/yaml-field-order.md): identity first, then the UniFi
+    // Network form's own sections, a toggle directly above the values it gates, IPv4 before IPv6.
+    private static readonly FieldGroup[] NetworkFields =
+    [
+        G("Identity", "name", "purpose", "enabled", "networkgroup"),
+        G("VLAN", "vlan_enabled", "vlan"),
+        G("IPv4", "ip_subnet", "domain_name", "ip_aliases", "gateway_type", "auto_scale_enabled"),
+        G("DHCP", "dhcpd_enabled", "dhcpd_start", "dhcpd_stop", "dhcpd_leasetime", "dhcpd_dns_enabled", "dhcpd_dns_1",
+            "dhcpd_dns_2", "dhcpd_dns_3", "dhcpd_dns_4", "dhcpd_gateway_enabled", "dhcpd_gateway", "dhcpd_ntp_enabled",
+            "dhcpd_wins_enabled", "dhcpd_wins_1", "dhcpd_wins_2", "dhcpd_boot_enabled", "dhcpd_boot_server", "dhcpd_boot_filename",
+            "dhcpd_tftp_server", "dhcpd_wpad_url", "dhcpd_unifi_controller", "dhcpd_time_offset_enabled", "dhcpd_conflict_checking",
+            "dhcpguard_enabled", "dhcp_relay_enabled", "dhcp_relay_servers"),
+        G("IPv6", "ipv6_enabled", "ipv6_setting_preference", "ipv6_interface_type", "ipv6_wan_delegation_type", "ipv6_subnet", "ipv6_aliases", "ipv6_client_address_assignment",
+            "ipv6_pd_auto_prefixid_enabled", "ipv6_pd_start", "ipv6_pd_stop", "ipv6_ra_enabled", "ipv6_ra_priority",
+            "ipv6_ra_preferred_lifetime", "dhcpdv6_enabled", "dhcpdv6_start", "dhcpdv6_stop", "dhcpdv6_leasetime", "dhcpdv6_dns_auto",
+            "dhcpdv6_allow_slaac"),
+        G("Access", "firewall_zone_id", "internet_access_enabled", "network_isolation_enabled"),
+        G("Multicast and discovery", "igmp_snooping", "igmp_proxy_upstream", "igmp_proxy_for", "mdns_enabled", "upnp_lan_enabled"),
+        G("WAN connection", "wan_networkgroup", "wan_type", "wan_ip", "wan_netmask", "wan_gateway", "wan_ip_aliases", "wan_username",
+            "x_wan_password", "wan_pppoe_username_enabled", "wan_pppoe_password_enabled", "wan_vlan_enabled", "wan_vlan",
+            "wan_dhcp_options", "wan_dhcp_cos"),
+        G("WAN DNS", "wan_dns_preference", "wan_dns1", "wan_dns2", "wan_ipv6_dns_preference", "wan_ipv6_dns1", "wan_ipv6_dns2"),
+        G("WAN IPv6", "wan_type_v6", "wan_dhcpv6_pd_size_auto", "wan_dhcpv6_pd_size", "wan_dhcpv6_options", "wan_dhcpv6_cos",
+            "wan_dslite_remote_host_auto", "wan_dslite_remote_host"),
+        G("WAN failover and load balancing", "wan_failover_priority", "wan_load_balance_type", "wan_load_balance_weight", "wan_sla",
+            "report_wan_event"),
+        G("WAN Smart Queues", "wan_smartq_enabled", "wan_smartq_down_rate", "wan_smartq_up_rate"),
+        G("VPN client", "vpn_type", "wireguard_client_mode", "wireguard_client_peer_ip", "wireguard_client_peer_port",
+            "wireguard_client_peer_public_key", "wireguard_public_key", "x_wireguard_private_key", "wireguard_client_preshared_key_enabled",
+            "wireguard_client_preshared_key", "wireguard_client_configuration_filename", "wireguard_client_configuration_file",
+            "wireguard_id", "openvpn_id", "openvpn_username", "x_openvpn_password", "openvpn_configuration_filename",
+            "openvpn_configuration", "openvpn_configuration_status"),
+        G("Advanced", "interface_mtu_enabled", "interface_mtu", "mss_clamp", "mss_clamp_mss", "mss_clamp_ipv6", "mac_override_enabled",
+            "mac_override", "is_nat", "nat_outbound_ip_addresses", "routing_table_id", "single_network_lan", "lte_lan_enabled",
+            "lan_tunnel_wan_device", "wan_provider_capabilities", "wan_group_alias", "wan_5g_index"),
+        G("Housekeeping", "setting_preference"),
+    ];
+
+    private static readonly FieldGroup[] WlanFields =
+    [
+        G("Identity", "name", "enabled", "networkconf_id", "usergroup_id", "is_guest"),
+        G("Security", "security", "wpa_mode", "wpa_enc", "x_passphrase", "passphrase_autogenerated", "private_preshared_keys_enabled",
+            "private_preshared_keys", "wpa3_support", "wpa3_transition", "wpa3_enhanced_192", "wpa3_fast_roaming", "pmf_mode",
+            "sae_groups", "sae_psk", "sae_anti_clogging", "sae_sync", "group_rekey"),
+        G("RADIUS", "radiusprofile_id", "radius_mac_auth_enabled", "radius_macacl_format", "radius_das_enabled"),
+        G("Broadcasting", "wlan_bands", "wlan_band", "ap_group_mode", "ap_group_ids", "mlo_enabled", "hide_ssid",
+            "advertise_device_name_in_beacon", "schedule_with_duration", "schedule"),
+        G("Roaming", "fast_roaming_enabled", "bss_transition", "iapp_enabled", "x_iapp_key"),
+        G("Client isolation and filtering", "l2_isolation", "proxy_arp", "mac_filter_enabled", "mac_filter_policy", "mac_filter_list",
+            "bc_filter_enabled", "bc_filter_list"),
+        G("Multicast and discovery", "mcastenhance_enabled", "mdns_proxy_mode", "mdns_proxy_custom"),
+        G("Rates and power save", "minrate_setting_preference", "minrate_ng_enabled", "minrate_ng_data_rate_kbps",
+            "minrate_ng_advertising_rates", "minrate_na_enabled", "minrate_na_data_rate_kbps", "minrate_na_advertising_rates",
+            "b_supported", "dtim_mode", "dtim_ng", "dtim_na", "dtim_6e", "uapsd_enabled"),
+        G("IoT", "enhanced_iot", "optimize_iot_wifi_connectivity", "no2ghz_oui"),
+        G("Hotspot 2.0", "hotspot2conf_enabled"),
+        G("Housekeeping", "setting_preference"),
+    ];
+
+    // Where from, where to, then what traffic (TJ, 2026-10-24).
+    private static readonly FieldGroup[] FirewallPolicyFields =
+    [
+        G("Identity", "name", "enabled", "action", "description"),
+        G("Match", "source", "destination", "protocol", "match_opposite_protocol", "ip_version", "icmp_typename", "icmp_v6_typename",
+            "connection_state_type", "connection_states", "match_ip_sec", "match_ip_sec_type"),
+        G("Behavior", "schedule", "logging", "create_allow_respond"),
+        G("Housekeeping", "index", "predefined", "origin_type", "origin_id"),
+    ];
+
+    // Inside source / destination: the zone, what is matched, its values, then ports. Then schedule.
+    private static readonly string[] FirewallPolicyNested =
+    [
+        "zone_id", "matching_target", "matching_target_type", "ips", "network_ids", "client_macs", "match_mac", "ip_group_id",
+        "web_domains", "web_matching_type", "regions", "app_ids", "app_category_ids", "match_opposite_ips", "match_opposite_networks",
+        "port_matching_type", "port", "port_group_id", "match_opposite_ports",
+        "mode", "repeat_on_days", "date", "date_start", "date_end", "time_all_day", "time_range_start", "time_range_end",
+    ];
 
     private static readonly HashSet<string> CommonReadOnly = Set("site_id", "attr_hidden_id", "attr_no_delete", "attr_no_edit", "external_id");
 
@@ -287,6 +381,7 @@ public static class ConfigCollections
                 ReadOnlyFields = CommonReadOnly,
                 // Not x_-prefixed, but carry keys: the WireGuard config file holds the PrivateKey line.
                 ExtraSecretFields = Set("wireguard_client_preshared_key", "wireguard_client_configuration_file", "openvpn_configuration"),
+                FieldGroups = NetworkFields,
                 SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses"),
                 EnforcedKey = (o, _) => NetworkKey(o), KeyIsUnique = true,
                 Write = new CollectionWrite
@@ -321,6 +416,7 @@ public static class ConfigCollections
                 Scope = UniFiApiScope.SiteV2, ReadPath = "firewall/zone", Order = 3,
                 ReadOnlyFields = Set("attr_no_edit", "cloud_template", "default_zone", "external_id", "zone_key"),
                 SetArrays = Set("network_ids"),
+                FieldGroups = [G("Identity", "name", "zone_key", "default_zone", "network_ids")],
                 EnforcedKey = (o, _) => Str(o, "zone_key") is { Length: > 0 } k ? "zone_key:" + k : null,
                 Write = new CollectionWrite
                 {
@@ -335,6 +431,7 @@ public static class ConfigCollections
                 Key = "firewallgroup", DisplayName = "Firewall groups", Noun = "Firewall group", Group = "Firewall Groups",
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/firewallgroup", Order = 3, ReadOnlyFields = CommonReadOnly,
                 SetArrays = Set("group_members"),
+                FieldGroups = [G("Identity", "name", "group_type", "group_members")],
                 EnforcedKey = (o, _) => Str(o, "name"), KeyIsUnique = true,
                 Write = new CollectionWrite { CreatePath = "rest/firewallgroup", UpdatePath = "rest/firewallgroup/{id}", DeletePath = "rest/firewallgroup/{id}", Proven = true },
                 AuditSections = ["FIREWALL_GROUP"], AuditCollectionNames = ["firewallgroup"], AuditInput = true,
@@ -372,6 +469,7 @@ public static class ConfigCollections
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlanconf", Order = 5, ReadOnlyFields = CommonReadOnly,
                 // Inside private_preshared_keys and sae_psk entries. PlanBuilder.RestoreKeptSecrets keeps them per entry.
                 ExtraSecretFields = Set("password", "psk"),
+                FieldGroups = WlanFields,
                 SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration"),
                 EnforcedKey = (o, ctx) => $"{Str(o, "name")}@{ctx.NameOf(Str(o, "networkconf_id"))}",
                 Write = new CollectionWrite { CreatePath = "rest/wlanconf", UpdatePath = "rest/wlanconf/{id}", DeletePath = "rest/wlanconf/{id}", Proven = true },
@@ -386,6 +484,7 @@ public static class ConfigCollections
                 Key = "firewall_policy", DisplayName = "Firewall policies", Noun = "Firewall policy", Group = "Firewall Policies",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "firewall-policies", Order = 6,
                 ReadOnlyFields = Set("hits", "last_hit", "index", "origin_id", "origin_type", "cloud_template", "external_id"),
+                FieldGroups = FirewallPolicyFields, NestedFieldOrder = FirewallPolicyNested,
                 EnforcedKey = (o, ctx) =>
                     $"{Str(o, "name")}@{ctx.NameOf(Str(o["source"] as JsonObject ?? [], "zone_id"))}>{ctx.NameOf(Str(o["destination"] as JsonObject ?? [], "zone_id"))}",
                 IsGenerated = IsPredefinedOrDerived,

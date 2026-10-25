@@ -162,10 +162,16 @@ public static partial class YamlConverter
             Prefix();
             sb.Append("id: ").Append(Scalar(ConfigState.IdOf(o))).Append('\n');
         }
-        foreach (var (key, value) in Ordered(def, o))
+        string? pending = null;
+        foreach (var (heading, key, value) in Ordered(def, o, top))
         {
+            // A group's heading survives its skipped fields and prints before its first written one.
+            pending = heading ?? pending;
             if (top && (key is "_id" or "id" or "site_id" || key == ConfigCollections.DeviceMetaField || def.ReadOnlyFields.Contains(key) && key is not "key")) continue;
             if (ConfigDiffEngine.IsChurnField(key)) continue;
+            // Never above the object's first line, which carries the list marker.
+            if (pending != null && !first) sb.Append(' ', indent).Append("# ").Append(pending).Append('\n');
+            pending = null;
             var outKey = key;
             JsonNode? outValue = value;
             var childPath = $"{path}/{key}";
@@ -182,12 +188,40 @@ public static partial class YamlConverter
         if (first) { Prefix(); sb.Append("{}\n"); }
     }
 
-    private static IEnumerable<KeyValuePair<string, JsonNode?>> Ordered(ConfigCollectionDef def, JsonObject o)
+    /// <summary>
+    /// An object's fields in YAML order, each with the heading of the group it starts (null inside a
+    /// group). Top level follows <see cref="ConfigCollectionDef.FieldGroups"/>; nested objects follow
+    /// <see cref="ConfigCollectionDef.NestedFieldOrder"/>; anything unlisted comes last, alphabetically.
+    /// </summary>
+    private static IEnumerable<(string? Heading, string Key, JsonNode? Value)> Ordered(ConfigCollectionDef def, JsonObject o, bool top)
     {
-        // The name field first, then the rest in stored (sorted) order, as the mockup reads.
-        var nameField = def.NameField;
-        if (o.TryGetPropertyValue(nameField, out var n)) yield return new(nameField, n);
-        foreach (var p in o) if (p.Key != nameField) yield return p;
+        var placed = new HashSet<string>(StringComparer.Ordinal);
+        if (top && def.FieldGroups.Count > 0)
+        {
+            foreach (var group in def.FieldGroups)
+            {
+                var heading = group.Heading;
+                foreach (var field in group.Fields)
+                    if (o.TryGetPropertyValue(field, out var v) && placed.Add(field))
+                    {
+                        yield return (heading, field, v);
+                        heading = null;
+                    }
+            }
+            var other = "Other";
+            foreach (var p in o.Where(p => !placed.Contains(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                yield return (other, p.Key, p.Value);
+                other = null;
+            }
+            yield break;
+        }
+
+        IEnumerable<string> lead = top ? [def.NameField] : [def.NameField, .. def.NestedFieldOrder];
+        foreach (var field in lead)
+            if (o.TryGetPropertyValue(field, out var v) && placed.Add(field)) yield return (null, field, v);
+        foreach (var p in o.Where(p => !placed.Contains(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal))
+            yield return (null, p.Key, p.Value);
     }
 
     private static void WriteValue(StringBuilder sb, ConfigCollectionDef def, string key, JsonNode? value, ReferenceIndex index, SecretMode secrets, int indent, string path)
@@ -219,8 +253,9 @@ public static partial class YamlConverter
             case JsonObject obj when obj.Count == 0:
                 sb.Append(" {}\n");
                 break;
-            // Flow style skips the per-key secret check in WriteObject, so a secret inside keeps block style.
-            case JsonObject obj when obj.Count <= 2 && obj.All(p => p.Value is JsonValue && !ConfigCollections.IsSecretField(def, p.Key)):
+            // Flow style skips WriteObject's per-key handling, so an object with a secret or a reference
+            // (zone_id written as zone: Internal) keeps block style.
+            case JsonObject obj when obj.Count <= 2 && obj.All(p => p.Value is JsonValue && !ConfigCollections.IsSecretField(def, p.Key) && StrippedName(p.Key) == null):
                 sb.Append(' ').Append(Flow(obj)).Append('\n');
                 break;
             case JsonObject obj:

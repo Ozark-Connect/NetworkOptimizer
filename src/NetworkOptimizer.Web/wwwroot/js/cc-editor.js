@@ -322,7 +322,7 @@ function valueResult(schema, field, from, exclude) {
 function parentKeyLine(doc, lineNo, itemIndent) {
     for (let n = lineNo - 1; n >= 1; n--) {
         const text = doc.line(n).text;
-        if (!text.trim()) continue;
+        if (!text.trim() || text.trimStart().startsWith('#')) continue;
         const lead = text.length - text.trimStart().length;
         if (lead >= itemIndent) continue;
         const m = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*$/.exec(text);
