@@ -98,6 +98,22 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_WlanApGroupDeletedAfterItsWlan_FollowsTheWlanDelete()
+    {
+        var group = new ObjectDiff
+        {
+            Collection = "apgroups", ObjectId = "g9", Name = "devices_ap_group", Action = ConfigChangeAction.Deleted,
+            Before = (JsonObject)JsonNode.Parse("""{"_id":"g9","name":"devices_ap_group","for_wlanconf":true}""")!,
+        };
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-12), Method = "DELETE", Path = "rest/wlanconf/w9", Collection = "wlanconf", ObjectId = "w9", Source = "change-control" },
+        };
+        ChangeAttributor.Attribute([group], [], journal, Now, false).Single().ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+        ChangeAttributor.Attribute([group], [], [], Now, false).Single().ActorKind.Should().Be(ConfigChangeActorKind.LikelyUniFi);
+    }
+
+    [Fact]
     public void Attribute_NoEvent_IsNoAdminRecorded()
     {
         var groups = ChangeAttributor.Attribute([Diff("portconf", "p1", "Cameras")], [], [], Now, false);

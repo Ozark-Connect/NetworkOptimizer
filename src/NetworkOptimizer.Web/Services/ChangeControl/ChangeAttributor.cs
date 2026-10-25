@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
@@ -113,6 +114,20 @@ public static class ChangeAttributor
             unattributed.Add(obj);
         }
 
+        // A WLAN's own AP group (Specific APs) has no audit event of its own: it follows its WLAN. UniFi
+        // deletes it a few seconds after the WLAN, often into the next pass, where only the journal shows who.
+        var likelyUniFi = new List<ObjectDiff>();
+        foreach (var obj in unattributed.Where(IsWlanApGroup).ToList())
+        {
+            unattributed.Remove(obj);
+            var wlan = objects.FirstOrDefault(o => o.Collection == "wlanconf" && (ListsApGroup(o.Before, obj.ObjectId) || ListsApGroup(o.After, obj.ObjectId)));
+            if (wlan != null && result.FirstOrDefault(g => g.Objects.Contains(wlan)) is { } group) group.Objects.Add(obj);
+            else if (wlan != null && ownObjects.Contains(wlan)) ownObjects.Add(obj);
+            else if (obj.Action == ConfigChangeAction.Deleted && journal.Any(j => j.Collection == "wlanconf" && j.Method == "DELETE")) ownObjects.Add(obj);
+            else if (wlan == null && obj.Action == ConfigChangeAction.Deleted) likelyUniFi.Add(obj);
+            else unattributed.Add(obj);
+        }
+
         if (ownObjects.Count > 0)
         {
             // The newest write to these objects made the state this diff sees; the window can hold older ones.
@@ -127,7 +142,7 @@ public static class ChangeAttributor
             result.Add(noChange);
         }
 
-        var likely = unattributed.Where(o => inUpgradeWindow || IsLikelyUniFiField(o)).ToList();
+        var likely = unattributed.Where(o => inUpgradeWindow || IsLikelyUniFiField(o)).Concat(likelyUniFi).ToList();
         var unknown = unattributed.Except(likely).ToList();
         if (likely.Count > 0)
         {
@@ -143,6 +158,12 @@ public static class ChangeAttributor
         }
         return result.OrderBy(g => g.OccurredAt).ToList();
     }
+
+    private static bool IsWlanApGroup(ObjectDiff o) =>
+        o.Collection == "apgroups" && (o.Before ?? o.After)?["for_wlanconf"] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
+
+    private static bool ListsApGroup(JsonObject? wlan, string id) =>
+        wlan?["ap_group_ids"] is JsonArray ids && ids.Any(i => string.Equals(i?.ToString(), id, StringComparison.OrdinalIgnoreCase));
 
     private static string? JournalSource(IReadOnlyList<ConfigWriteJournalEntry> journal) =>
         journal.Select(j => j.Source).FirstOrDefault(s => !string.IsNullOrEmpty(s)) switch
