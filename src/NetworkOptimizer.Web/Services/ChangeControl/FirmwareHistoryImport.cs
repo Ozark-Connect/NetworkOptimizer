@@ -146,17 +146,37 @@ public sealed class FirmwareHistoryImport
                 }
                 perBoot.Add(b);
             }
+            var versions = perBoot.Select(b => string.IsNullOrWhiteSpace(b.FirmwareVersion) ? null : b.FirmwareVersion).ToList();
             string? previous = null;
-            foreach (var b in perBoot)
+            for (var i = 0; i < perBoot.Count; i++)
             {
-                var version = string.IsNullOrWhiteSpace(b.FirmwareVersion) ? null : b.FirmwareVersion;
-                if (b.Category == nameof(RebootCategory.FirmwareUpgrade))
-                    result.Add(new Upgrade(b.BootedAt, device.Key, namesByMac.TryGetValue(device.Key, out var n) ? n : device.Key,
-                        previous != null && previous != version ? previous : null, version, null));
-                previous = version ?? previous;
+                var version = versions[i];
+                var next = perBoot.Skip(i + 1).FirstOrDefault(b => !string.IsNullOrWhiteSpace(b.FirmwareVersion));
+                if (IsUpgrade(perBoot[i]) && Changed(previous, version, next?.FirmwareVersion, next != null && IsUpgrade(next)))
+                    result.Add(new Upgrade(perBoot[i].BootedAt, device.Key, namesByMac.TryGetValue(device.Key, out var n) ? n : device.Key,
+                        previous, version, null));
+                // Keep the fuller spelling of one version ("5.1.26.33914" over "5.1.26").
+                if (version != null && !(previous != null && SameVersion(previous, version) && previous.Length >= version.Length))
+                    previous = version;
             }
         }
         return result;
+    }
+
+    private static bool IsUpgrade(MonitoringInfluxClient.DeviceRebootPoint b) => b.Category == nameof(RebootCategory.FirmwareUpgrade);
+
+    /// <summary>
+    /// Whether a boot the reboot classifier calls an upgrade moved the firmware. The classifier also
+    /// marks boots that kept their version (a pending-upgrade marker, a re-probe), so a boot on the
+    /// version before it is not an upgrade. A boot with no recorded version is judged by its neighbours:
+    /// the same version on both sides means it changed nothing, and a later upgrade boot that records
+    /// the new version owns the change. Anything else cannot be ruled out.
+    /// </summary>
+    internal static bool Changed(string? previous, string? version, string? nextKnown, bool nextIsUpgrade)
+    {
+        if (previous == null) return true;
+        if (version != null) return !SameVersion(previous, version);
+        return nextKnown == null || (!SameVersion(previous, nextKnown) && !nextIsUpgrade);
     }
 
     /// <summary>Colon-separated lowercase; reboot records store the MAC without colons.</summary>

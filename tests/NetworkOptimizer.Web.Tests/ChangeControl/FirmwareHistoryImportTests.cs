@@ -32,6 +32,38 @@ public sealed class FirmwareHistoryImportTests
     }
 
     [Fact]
+    public void FromBoots_UpgradeBootsThatKeptTheirVersion_AreNotUpgrades()
+    {
+        var boots = new[]
+        {
+            Boot(T, "FirmwareUpgrade", "5.1.26.33914"),
+            Boot(T.AddDays(5), "FirmwareUpgrade", "5.1.26.33914"),
+            Boot(T.AddDays(9), "FirmwareUpgrade", "5.1.26"),
+            Boot(T.AddDays(12), "FirmwareUpgrade", "5.1.28.34022"),
+        };
+
+        FirmwareHistoryImport.FromBoots(boots, new Dictionary<string, string>())
+            .Select(u => (u.From, u.To)).Should().Equal((null, "5.1.26.33914"), ("5.1.26.33914", "5.1.28.34022"));
+    }
+
+    [Fact]
+    public void FromBoots_VersionlessUpgradeBoot_IsJudgedByItsNeighbours()
+    {
+        var boots = new[]
+        {
+            Boot(T, "PowerLoss", "6.0.7"),
+            Boot(T.AddDays(1), "FirmwareUpgrade", null),
+            Boot(T.AddDays(2), "PowerLoss", "6.0.7"),
+            Boot(T.AddDays(3), "FirmwareUpgrade", null),
+            Boot(T.AddDays(4), "FirmwareUpgrade", "6.0.10"),
+            Boot(T.AddDays(5), "FirmwareUpgrade", null),
+        };
+
+        FirmwareHistoryImport.FromBoots(boots, new Dictionary<string, string>())
+            .Select(u => (u.At, u.To)).Should().Equal((T.AddDays(4), "6.0.10"), (T.AddDays(5), (string?)null));
+    }
+
+    [Fact]
     public void FromBoots_DeviceNoLongerOnTheSite_KeepsItsMac()
     {
         var result = FirmwareHistoryImport.FromBoots([Boot(T, "FirmwareUpgrade", "4.3.6")], new Dictionary<string, string>());
