@@ -352,8 +352,9 @@ public static class ConfigCollections
                 Scope = UniFiApiScope.SiteV2, ReadPath = "firewall/zone", Order = 3,
                 ReadOnlyFields = Set("attr_no_edit", "cloud_template", "default_zone", "external_id", "zone_key"),
                 SetArrays = Set("network_ids"),
-                // External, Gateway, and VPN are locked (attr_no_edit); UniFi fills their networks (WANs into External).
-                HiddenInYaml = (o, field) => field == "network_ids" && Bool(o, "attr_no_edit"),
+                // UniFi fills these zones' networks: External, Gateway, VPN are locked (attr_no_edit; WANs into
+                // External), and Hotspot holds the guest-purpose networks. DMZ and Internal stay user-assigned.
+                HiddenInYaml = (o, field) => field == "network_ids" && (Bool(o, "attr_no_edit") || Str(o, "zone_key") == "hotspot"),
                 EnforcedKey = (o, _) => Str(o, "zone_key") is { Length: > 0 } k ? "zone_key:" + k : null,
                 Write = new CollectionWrite
                 {
