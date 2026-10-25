@@ -632,10 +632,13 @@ public sealed class PlanCoordinator
     }
 
     /// <summary>Moves Network Optimizer's own settings for a site's subnets (applied, revert, failure-safe).</summary>
-    public Func<IReadOnlyList<SubnetMove>, CancellationToken, Task<List<SettingRewrite>>>? MoveSettings { get; set; }
+    public Func<IReadOnlyList<SubnetMove>, IReadOnlyList<string>, CancellationToken, Task<List<SettingRewrite>>>? MoveSettings { get; set; }
 
     /// <summary>Plan context key carrying a re-address plan's subnet moves (JSON).</summary>
     public const string ReaddressContext = "readdress";
+
+    /// <summary>Plan context key carrying the WAN and VPN ranges a re-address leaves alone (JSON string list).</summary>
+    public const string ReaddressRemoteContext = "readdress_remote";
 
     /// <summary>
     /// A re-address moves Network Optimizer's own settings with the site once its writes land; a Revert of
@@ -647,12 +650,17 @@ public sealed class PlanCoordinator
         try
         {
             List<SubnetMove>? moves = null;
+            var source = doc;
             if (doc.Context.TryGetValue(ReaddressContext, out var json)) moves = JsonSerializer.Deserialize<List<SubnetMove>>(json);
             else if (plan.Kind == ConfigPlanKind.Revert && plan.RevertOfPlanId is { } original
                      && await LoadAsync(original, ct) is { } o && o.Doc.Context.TryGetValue(ReaddressContext, out var originalJson))
+            {
                 moves = Readdressing.Reverse(JsonSerializer.Deserialize<List<SubnetMove>>(originalJson) ?? []);
+                source = o.Doc;
+            }
             if (moves == null || moves.Count == 0) return;
-            var moved = await MoveSettings(moves, ct);
+            var remote = source.Context.TryGetValue(ReaddressRemoteContext, out var r) ? JsonSerializer.Deserialize<List<string>>(r) ?? [] : [];
+            var moved = await MoveSettings(moves, remote, ct);
             if (moved.Count > 0)
                 Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Success,
                     new { networkOptimizerSettingsMoved = moved.Count, settings = string.Join(", ", moved.Select(m => $"{m.Setting} {m.Name}").Distinct()) });

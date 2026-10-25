@@ -21,6 +21,8 @@ public sealed class ReaddressResult
     public ConfigState Desired { get; init; } = new();
     public List<AddressRewrite> Rewrites { get; } = [];
     public List<AddressMention> Mentions { get; } = [];
+    /// <summary>Addresses inside a moved subnet that belong to a WAN or a VPN's far side, so they stay.</summary>
+    public List<AddressMention> Remote { get; } = [];
     public HashSet<string> Collections { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
@@ -52,6 +54,17 @@ public static partial class Readdressing
             || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var prefix) || prefix is < 8 or > 30) return null;
         var mask = uint.MaxValue << (32 - prefix);
         return new Subnet(ip & mask, prefix);
+    }
+
+    /// <summary>Parses any CIDR (/1 to /32) or a bare address (as a /32), for stored remote ranges.</summary>
+    public static Subnet? ParseRange(string? text)
+    {
+        if (text == null) return null;
+        if (ParseIp(text.Trim()) is { } ip) return new Subnet(ip, 32);
+        var parts = text.Trim().Split('/');
+        if (parts.Length != 2 || ParseIp(parts[0]) is not { } a
+            || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var prefix) || prefix is < 1 or > 32) return null;
+        return new Subnet(a & (uint.MaxValue << (32 - prefix)), prefix);
     }
 
     public static uint? ParseIp(string? text)
@@ -114,7 +127,93 @@ public static partial class Readdressing
                 if (ParseSubnet(cidr) is { } kept)
                     foreach (var (m, s) in parsed.Where(p => Overlaps(p.New, kept)))
                         errors.Add($"{m.NetworkName}: {s} overlaps {n["name"]} ({kept}).");
+        // And what is reached over a WAN or a VPN: a new LAN there would shadow it.
+        foreach (var (range, where) in RemoteRanges(live))
+            foreach (var (m, s) in parsed.Where(p => Overlaps(p.New, range)))
+                errors.Add($"{m.NetworkName}: {s} overlaps {range}, reached over {where}.");
         return errors.Distinct().ToList();
+    }
+
+    /// <summary>Network purposes that are not this site's LANs: their addresses are set by the ISP or the VPN's far side.</summary>
+    private static bool IsLan(JsonObject n) => LanPurposes.Contains(n["purpose"]?.ToString() ?? "");
+
+    /// <summary>
+    /// Ranges that belong to something other than this site's LANs: WAN and VPN client networks (their
+    /// own addresses and peers), and the destinations of static routes, traffic routes, and firewall
+    /// policies that leave over a WAN or a VPN. An address inside one is never rewritten, even when it
+    /// also falls in a moved LAN subnet (a WAN's static /30 inside a LAN range, a VPN far side reusing it).
+    /// </summary>
+    public static List<(Subnet Range, string Where)> RemoteRanges(ConfigState live)
+    {
+        var ranges = new List<(Subnet, string)>();
+        var networks = live.Get("networkconf").ToDictionary(ConfigState.IdOf, n => n, StringComparer.OrdinalIgnoreCase);
+        string? Remote(string? networkId) => networkId != null && networks.TryGetValue(networkId, out var n) && !IsLan(n) ? n["name"]?.ToString() ?? networkId : null;
+        void Add(JsonNode? node, string where)
+        {
+            foreach (var text in Strings(node))
+                foreach (var r in Ranges(text)) ranges.Add((r, where));
+        }
+
+        foreach (var n in networks.Values.Where(n => !IsLan(n))) Add(n, n["name"]?.ToString() ?? "");
+        foreach (var v in live.Get("vpn_connections")) Add(v, Remote(v["network_id"]?.ToString()) ?? "a VPN");
+        foreach (var r in live.Get("routing"))
+            if (Remote(r["static-route_interface"]?.ToString()) is { } via) Add(r["static-route_network"], via);
+        foreach (var t in live.Get("trafficroute"))
+            if (Remote(t["network_id"]?.ToString()) is { } via) { Add(t["ip_addresses"], via); Add(t["ip_ranges"], via); }
+        var remoteZones = RemoteZones(live, networks);
+        foreach (var p in live.Get("firewall_policy"))
+            foreach (var end in new[] { "source", "destination" })
+                if (p[end] is JsonObject e && e["zone_id"]?.ToString() is { } z && remoteZones.TryGetValue(z, out var zoneName))
+                    Add(e["ips"], $"the {zoneName} zone");
+        return ranges;
+    }
+
+    /// <summary>Zones that hold a WAN or VPN network (External, VPN), by ID with their name.</summary>
+    private static Dictionary<string, string> RemoteZones(ConfigState live, Dictionary<string, JsonObject> networks) =>
+        live.Get("firewall_zone")
+            .Where(z => z["zone_key"]?.ToString() is "external" or "vpn"
+                || (z["network_ids"] is JsonArray ids && ids.Any(i => i?.ToString() is { } id && networks.TryGetValue(id, out var n) && !IsLan(n))))
+            .ToDictionary(ConfigState.IdOf, z => z["name"]?.ToString() ?? "", StringComparer.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> Strings(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonValue v when v.TryGetValue<string>(out var s): yield return s; break;
+            case JsonObject o: foreach (var (_, c) in o) foreach (var s in Strings(c)) yield return s; break;
+            case JsonArray a: foreach (var c in a) foreach (var s in Strings(c)) yield return s; break;
+        }
+    }
+
+    /// <summary>The ranges a value names: an address as a /32, a CIDR, an a-b range as the CIDR blocks that cover it.</summary>
+    private static IEnumerable<Subnet> Ranges(string text)
+    {
+        text = text.Trim();
+        if (ParseIp(text) is { } ip) { yield return new Subnet(ip, 32); yield break; }
+        var slash = text.Split('/');
+        if (slash.Length == 2 && ParseIp(slash[0]) is { } a && int.TryParse(slash[1], NumberStyles.None, CultureInfo.InvariantCulture, out var p) && p is >= 1 and <= 32)
+        {
+            yield return new Subnet(a & (p == 0 ? 0 : uint.MaxValue << (32 - p)), p);
+            yield break;
+        }
+        var dash = text.Split('-');
+        if (dash.Length == 2 && ParseIp(dash[0].Trim()) is { } from && ParseIp(dash[1].Trim()) is { } to && from <= to)
+        {
+            // Largest aligned block at each step, so a range is covered exactly.
+            ulong at = from;
+            while (at <= to)
+            {
+                var size = 32;
+                while (size > 1)
+                {
+                    var block = 1UL << (33 - size); // the block one prefix length larger
+                    if (at % block != 0 || at + block - 1 > to) break;
+                    size--;
+                }
+                yield return new Subnet((uint)at, size);
+                at += 1UL << (32 - size);
+            }
+        }
     }
 
     private static IEnumerable<string> StaticSubnets(JsonObject n)
@@ -132,24 +231,48 @@ public static partial class Readdressing
         return (a.Network & mask) == (b.Network & mask);
     }
 
-    /// <summary>Rewrites every address in the moved subnets across the whole config.</summary>
+    /// <summary>
+    /// Rewrites every address in the moved subnets across the whole config, except what belongs to a WAN
+    /// or a VPN's far side (<see cref="RemoteRanges"/>): those are reported in <see cref="ReaddressResult.Remote"/>.
+    /// </summary>
     public static ReaddressResult Apply(ConfigState live, IReadOnlyList<SubnetMove> moves)
     {
         var map = Map(moves);
         var result = new ReaddressResult { Desired = live.Clone() };
         if (map.Count == 0) return result;
 
+        var remote = RemoteRanges(live).Select(r => r.Range).ToList();
+        var networks = live.Get("networkconf").ToDictionary(ConfigState.IdOf, n => n, StringComparer.OrdinalIgnoreCase);
+        bool RemoteNetwork(string? id) => id != null && networks.TryGetValue(id, out var n) && !IsLan(n);
+        var remoteZones = RemoteZones(live, networks);
+
         foreach (var (key, list) in result.Desired.Collections)
         {
             var def = ConfigCollections.Get(key);
             foreach (var obj in list)
             {
-                var name = ConfigState.DisplayName(def, obj);
-                if (Walk(obj, "", map, key, name, result)) result.Collections.Add(key);
+                var ctx = new WalkContext(map, remote, key, ConfigState.DisplayName(def, obj), result);
+                // Whole objects that are not this site's LANs: a WAN, a VPN client, a VPN connection.
+                if ((key == "networkconf" && !IsLan(obj)) || key is "vpn_connections" or "wan_defaults")
+                {
+                    Walk(obj, "", ctx with { ReportOnly = true });
+                    continue;
+                }
+                // Destinations that leave over a WAN or a VPN.
+                var far = new HashSet<string>(StringComparer.Ordinal);
+                if (key == "routing" && RemoteNetwork(obj["static-route_interface"]?.ToString())) far.Add("static-route_network");
+                if (key == "trafficroute" && RemoteNetwork(obj["network_id"]?.ToString())) { far.Add("ip_addresses"); far.Add("ip_ranges"); }
+                if (key == "firewall_policy")
+                    foreach (var end in new[] { "source", "destination" })
+                        if (obj[end] is JsonObject e && e["zone_id"]?.ToString() is { } z && remoteZones.ContainsKey(z)) far.Add(end);
+                if (Walk(obj, "", ctx, far)) result.Collections.Add(key);
             }
         }
         return result;
     }
+
+    private sealed record WalkContext(IReadOnlyList<(Subnet Old, Subnet New)> Map, IReadOnlyList<Subnet> Remote,
+        string Collection, string Name, ReaddressResult Result, bool ReportOnly = false);
 
     /// <summary>Maps one address through the moves; null when no move holds it.</summary>
     public static uint? MapIp(uint ip, IReadOnlyList<(Subnet Old, Subnet New)> map)
@@ -159,7 +282,7 @@ public static partial class Readdressing
         return null;
     }
 
-    private static bool Walk(JsonNode? node, string path, IReadOnlyList<(Subnet Old, Subnet New)> map, string collection, string name, ReaddressResult result)
+    private static bool Walk(JsonNode? node, string path, WalkContext ctx, IReadOnlySet<string>? farKeys = null)
     {
         var changed = false;
         switch (node)
@@ -170,17 +293,12 @@ public static partial class Readdressing
                     // Live state (last_ip and the like) is not config: the diff skips it, so the move does too.
                     if (k is "_id" or "site_id" || k == ConfigCollections.DeviceMetaField || ConfigDiffEngine.IsChurnField(k)) continue;
                     var childPath = path.Length == 0 ? k : $"{path}.{k}";
+                    var child = farKeys?.Contains(k) == true ? ctx with { ReportOnly = true } : ctx;
                     if (v is JsonValue jv && jv.TryGetValue<string>(out var s))
                     {
-                        if (Rewrite(s, map) is { } rewritten)
-                        {
-                            o[k] = rewritten;
-                            result.Rewrites.Add(new AddressRewrite(collection, name, childPath, s, rewritten));
-                            changed = true;
-                        }
-                        else if (Mentions(s, map)) result.Mentions.Add(new AddressMention(collection, name, childPath, s));
+                        if (Visit(s, childPath, child) is { } rewritten) { o[k] = rewritten; changed = true; }
                     }
-                    else changed |= Walk(v, childPath, map, collection, name, result);
+                    else changed |= Walk(v, childPath, child);
                 }
                 break;
             case JsonArray a:
@@ -189,29 +307,43 @@ public static partial class Readdressing
                     var childPath = $"{path}[{i}]";
                     if (a[i] is JsonValue jv && jv.TryGetValue<string>(out var s))
                     {
-                        if (Rewrite(s, map) is { } rewritten)
-                        {
-                            a[i] = rewritten;
-                            result.Rewrites.Add(new AddressRewrite(collection, name, childPath, s, rewritten));
-                            changed = true;
-                        }
-                        else if (Mentions(s, map)) result.Mentions.Add(new AddressMention(collection, name, childPath, s));
+                        if (Visit(s, childPath, ctx) is { } rewritten) { a[i] = rewritten; changed = true; }
                     }
-                    else changed |= Walk(a[i], childPath, map, collection, name, result);
+                    else changed |= Walk(a[i], childPath, ctx);
                 }
                 break;
         }
         return changed;
     }
 
+    /// <summary>One string: rewritten (returned), reported as remote, reported as unreadable, or left.</summary>
+    private static string? Visit(string value, string path, WalkContext ctx)
+    {
+        if (!Mentions(value, ctx.Map)) return null;
+        var mention = new AddressMention(ctx.Collection, ctx.Name, path, value);
+        if (ctx.ReportOnly || InRemote(value, ctx.Remote)) { ctx.Result.Remote.Add(mention); return null; }
+        if (Rewrite(value, ctx.Map) is { } rewritten)
+        {
+            ctx.Result.Rewrites.Add(new AddressRewrite(ctx.Collection, ctx.Name, path, value, rewritten));
+            return rewritten;
+        }
+        ctx.Result.Mentions.Add(mention);
+        return null;
+    }
+
+    /// <summary>True when any address the value names sits in a remote range.</summary>
+    public static bool InRemote(string value, IReadOnlyList<Subnet> remote) =>
+        remote.Count > 0 && IpInText().Matches(value).Any(m => ParseIp(m.Value) is { } ip && remote.Any(r => r.Contains(ip)));
+
     /// <summary>
-    /// The value rewritten when it is exactly an address, a CIDR, or an a-b range inside a moved subnet;
-    /// null otherwise. A CIDR as wide as the old subnet takes the new prefix (a network's own subnet).
+    /// The value rewritten when it is exactly an address, a CIDR, or an a-b range inside a moved subnet,
+    /// and none of it is in <paramref name="remote"/>; null otherwise. A CIDR as wide as the old subnet
+    /// takes the new prefix (a network's own subnet).
     /// </summary>
-    public static string? Rewrite(string value, IReadOnlyList<(Subnet Old, Subnet New)> map)
+    public static string? Rewrite(string value, IReadOnlyList<(Subnet Old, Subnet New)> map, IReadOnlyList<Subnet>? remote = null)
     {
         var text = value.Trim();
-        if (text.Length == 0) return null;
+        if (text.Length == 0 || (remote != null && InRemote(text, remote))) return null;
         if (ParseIp(text) is { } ip) return MapIp(ip, map) is { } m ? Format(m) : null;
 
         var slash = text.Split('/');

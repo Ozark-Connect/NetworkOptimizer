@@ -138,6 +138,18 @@
         </div>
     </div>
 
+    @if (v.Remote.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Left Alone <span class="card-title-suffix">set by a WAN or a VPN's far side</span></h3></div>
+            <div class="cc-card-note">Inside a moved subnet, but these addresses belong to the other side of a WAN or VPN: the ISP or the VPN server sets them, and routes and policies toward them point off this site.</div>
+            @foreach (var m in v.Remote)
+            {
+                <div class="cc-setting-row"><span>@(ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection) @m.ObjectName, @m.Path</span><code>@m.Value</code></div>
+            }
+        </div>
+    }
+
     @if (v.Mentions.Count > 0)
     {
         <div class="card">

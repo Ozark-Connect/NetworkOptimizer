@@ -24,6 +24,8 @@ public sealed class ReaddressView
     public List<string> Warnings { get; init; } = [];
     public List<AddressRewrite> Rewrites { get; init; } = [];
     public List<AddressMention> Mentions { get; init; } = [];
+    /// <summary>Addresses in a moved subnet left alone because a WAN or a VPN's far side owns them.</summary>
+    public List<AddressMention> Remote { get; init; } = [];
     public List<StaticClient> StaticClients { get; init; } = [];
     /// <summary>Where the static clients came from: UniFi's IP Table, or DHCP ranges when it was not readable.</summary>
     public string StaticSource { get; init; } = "";
@@ -58,9 +60,10 @@ public sealed partial class ChangeControlService
             Warnings = await ReaddressWarningsAsync(live, active, result, cancellationToken),
             Rewrites = result.Rewrites,
             Mentions = result.Mentions,
+            Remote = result.Remote,
             StaticClients = statics,
             StaticSource = source,
-            Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, apply: false, cancellationToken),
+            Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, RemoteCidrs(live), apply: false, cancellationToken),
         };
     }
 
@@ -75,13 +78,17 @@ public sealed partial class ChangeControlService
         var result = Readdressing.Apply(live, active);
         var warnings = await ReaddressWarningsAsync(live, active, result, cancellationToken);
         var (statics, _) = await StaticClientsAsync(live, active, cancellationToken);
-        var settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, apply: false, cancellationToken);
+        var remote = RemoteCidrs(live);
+        var settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, remote, apply: false, cancellationToken);
         var summary = string.Join(", ", active.Select(m => $"{m.NetworkName} {m.OldCidr} to {m.NewCidr}"));
         var plan = await Plans.CreateAsync(ConfigPlanKind.Readdress, $"Re-address {await SiteNameAsync(cancellationToken)}", summary, null, null,
             result.Desired, new PlanOptions { Collections = result.Collections, DeleteMissing = false }, Actor, cancellationToken,
             doc =>
             {
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
+                doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
+                foreach (var m in result.Remote)
+                    doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 foreach (var w in warnings) doc.Notes.Add(w);
                 if (statics.Count > 0)
                     doc.Notes.Add($"Set on the device itself, so this plan cannot move them: {string.Join(", ", statics.Select(s => $"{s.Name} ({s.Ip})"))}.");
@@ -93,6 +100,9 @@ public sealed partial class ChangeControlService
             });
         return plan.Id;
     }
+
+    private static List<string> RemoteCidrs(ConfigState live) =>
+        Readdressing.RemoteRanges(live).Select(r => r.Range.ToString()).Distinct().ToList();
 
     private async Task<List<string>> ReaddressWarningsAsync(ConfigState live, List<SubnetMove> active, ReaddressResult result, CancellationToken ct)
     {

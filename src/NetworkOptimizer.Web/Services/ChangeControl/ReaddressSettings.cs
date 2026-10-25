@@ -14,16 +14,17 @@ public sealed record SettingRewrite(string Setting, string Name, string Old, str
 public static class ReaddressSettings
 {
     /// <summary>What a move would change (<paramref name="apply"/> false), or changes it and saves.</summary>
-    public static async Task<List<SettingRewrite>> RunAsync(NetworkOptimizerDbContext db, IReadOnlyList<SubnetMove> moves, bool apply, CancellationToken ct)
+    public static async Task<List<SettingRewrite>> RunAsync(NetworkOptimizerDbContext db, IReadOnlyList<SubnetMove> moves, IReadOnlyList<string> remote, bool apply, CancellationToken ct)
     {
         var map = Readdressing.Map(moves);
+        var far = remote.Select(Readdressing.ParseRange).OfType<Readdressing.Subnet>().ToList();
         var found = new List<SettingRewrite>();
         if (map.Count == 0) return found;
 
-        string? Ip(string? value) => value == null ? null : Readdressing.Rewrite(value, map);
+        string? Ip(string? value) => value == null ? null : Readdressing.Rewrite(value, map, far);
         string? Url(string? value)
         {
-            if (value == null || !Uri.TryCreate(value, UriKind.Absolute, out var uri) || Readdressing.Rewrite(uri.Host, map) is not { } host) return null;
+            if (value == null || !Uri.TryCreate(value, UriKind.Absolute, out var uri) || Readdressing.Rewrite(uri.Host, map, far) is not { } host) return null;
             var at = value.IndexOf(uri.Host, StringComparison.Ordinal);
             return at < 0 ? null : value[..at] + host + value[(at + uri.Host.Length)..];
         }

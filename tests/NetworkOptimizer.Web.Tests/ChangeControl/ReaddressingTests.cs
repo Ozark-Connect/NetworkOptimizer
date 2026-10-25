@@ -75,6 +75,48 @@ public class ReaddressingTests
         Readdressing.Validate(site, clash).Should().Contain(e => e.Contains("Internet 1"));
     }
 
+    // Shapes from a real site: a WAN whose static /30 sits inside a LAN range, a WireGuard client, and
+    // a static route, traffic route, and External-zone policy that reach the VPN's far side.
+    private static ConfigState WithRemote() => State(
+        ("networkconf", """{"_id":"lan","name":"Management","purpose":"corporate","vlan_enabled":true,"vlan":99,"ip_subnet":"192.168.99.1/24"}"""),
+        ("networkconf", """{"_id":"wan5g","name":"5G","purpose":"wan","ip_subnet":"192.168.99.5/30"}"""),
+        ("networkconf", """{"_id":"wg","name":"Far Site","purpose":"vpn-client","vpn_type":"wireguard-client","ip_subnet":"192.168.99.200/32"}"""),
+        ("firewall_zone", """{"_id":"zi","name":"Internal","zone_key":"internal","network_ids":["lan"]}"""),
+        ("firewall_zone", """{"_id":"ze","name":"External","zone_key":"external","network_ids":["wan5g","wg"]}"""),
+        ("routing", """{"_id":"r1","name":"Far gateway","static-route_interface":"wg","static-route_network":"192.168.99.240/28"}"""),
+        ("trafficroute", """{"_id":"t1","description":"Far site","network_id":"wg","ip_addresses":[{"ip_or_subnet":"192.168.99.128/26"}],"ip_ranges":[]}"""),
+        ("firewall_policy", """{"_id":"p1","name":"Block far side","source":{"zone_id":"zi","ips":["192.168.99.10"]},"destination":{"zone_id":"ze","ips":["192.168.99.130"]}}"""),
+        ("user", """{"_id":"u1","name":"Switch","mac":"aa:bb:cc:dd:ee:02","use_fixedip":true,"fixed_ip":"192.168.99.10"}"""),
+        ("user", """{"_id":"u2","name":"Modem","mac":"aa:bb:cc:dd:ee:03","use_fixedip":true,"fixed_ip":"192.168.99.6"}"""));
+
+    [Fact]
+    public void Apply_LeavesWanAndVpnAddressesAlone_EvenInsideAMovedSubnet()
+    {
+        var site = WithRemote();
+        var result = Readdressing.Apply(site, Readdressing.Proposal(site, "10.42.{vlan}.0/24"));
+        var d = result.Desired;
+
+        d.Get("networkconf")[0]["ip_subnet"]!.ToString().Should().Be("10.42.99.1/24");
+        d.Get("networkconf")[1]["ip_subnet"]!.ToString().Should().Be("192.168.99.5/30", "the WAN's address is the ISP's");
+        d.Get("networkconf")[2]["ip_subnet"]!.ToString().Should().Be("192.168.99.200/32", "the VPN server sets the tunnel address");
+        d.Get("routing")[0]["static-route_network"]!.ToString().Should().Be("192.168.99.240/28");
+        d.Get("trafficroute")[0]["ip_addresses"]![0]!["ip_or_subnet"]!.ToString().Should().Be("192.168.99.128/26");
+        d.Get("firewall_policy")[0]["source"]!["ips"]![0]!.ToString().Should().Be("10.42.99.10");
+        d.Get("firewall_policy")[0]["destination"]!["ips"]![0]!.ToString().Should().Be("192.168.99.130");
+        d.Get("user")[0]["fixed_ip"]!.ToString().Should().Be("10.42.99.10");
+        d.Get("user")[1]["fixed_ip"]!.ToString().Should().Be("192.168.99.6", "inside the WAN's /30");
+
+        result.Remote.Should().HaveCountGreaterThanOrEqualTo(6);
+    }
+
+    [Fact]
+    public void Validate_RefusesANewSubnetOverAVpnFarSide()
+    {
+        var site = WithRemote();
+        var moves = Readdressing.Proposal(site, null).Select(m => m with { NewCidr = "192.168.99.0/24" == m.OldCidr ? "192.168.98.0/23" : m.NewCidr }).ToList();
+        Readdressing.Validate(site, moves).Should().Contain(e => e.Contains("reached over"));
+    }
+
     [Fact]
     public void Reverse_PutsEveryAddressBack()
     {

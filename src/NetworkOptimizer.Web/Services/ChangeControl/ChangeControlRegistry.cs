@@ -61,13 +61,13 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     }
 
     /// <summary>Network Optimizer's own settings of a site that a re-address moves; saved when <paramref name="apply"/>.</summary>
-    public async Task<List<SettingRewrite>> ReaddressSettingsAsync(string slug, IReadOnlyList<SubnetMove> moves, bool apply, CancellationToken ct)
+    public async Task<List<SettingRewrite>> ReaddressSettingsAsync(string slug, IReadOnlyList<SubnetMove> moves, IReadOnlyList<string> remote, bool apply, CancellationToken ct)
     {
         await using var scope = _sp.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(slug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
         var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        return await ReaddressSettings.RunAsync(db, moves, apply, ct);
+        return await ReaddressSettings.RunAsync(db, moves, remote, apply, ct);
     }
 
     /// <summary>Records one of NO's console writes against its site's journal.</summary>
@@ -123,7 +123,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         coordinator.ManagementAddresses = () => connection.IsViaAgent && agents != null
             ? agents.GetForSite(slug).SelectMany(a => a.LocalIps.Append(a.LanIp ?? "")).Where(a => a.Length > 0).Distinct().ToList()
             : ServerAddresses();
-        coordinator.MoveSettings = (moves, ct) => ReaddressSettingsAsync(slug, moves, apply: true, ct);
+        coordinator.MoveSettings = (moves, remote, ct) => ReaddressSettingsAsync(slug, moves, remote, apply: true, ct);
         _coordinators[slug] = coordinator;
         var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));
