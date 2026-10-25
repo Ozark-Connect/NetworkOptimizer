@@ -13,10 +13,12 @@ public sealed class SiteHealthSeries
     public double? PreviousAverage { get; init; }
     /// <summary>The most recent hour's health.</summary>
     public double? Latest { get; init; }
-    /// <summary>"Wi-Fi 9: Back Yard 5 GHz, 18% of samples under 80", or null when nothing impaired the range.</summary>
+    /// <summary>"Wi-Fi: Back Yard 5 GHz, 18% of samples under 80 (costs 9 points)", or null when nothing impaired the range.</summary>
     public string? TopIssue { get; init; }
     /// <summary>The area of <see cref="TopIssue"/>, for a short label.</summary>
     public string? TopArea { get; init; }
+    /// <summary>"Wi-Fi: Back Yard 5 GHz": the issue up to its first comma, for tiles.</summary>
+    public string? TopShort { get; init; }
 }
 
 /// <summary>A site on the Dashboard Sites panel and the Sites page.</summary>
@@ -62,20 +64,25 @@ public static class SiteHealthSeriesBuilder
                 Mean(list.Select(h => h.Lan)) ?? 0, worst == null ? null : Tip(worst)));
         }
 
-        var (area, issue) = TopIssue(inRange);
+        var (area, text, cost) = TopIssue(inRange);
         return new SiteHealthSeries
         {
             Points = points,
             Average = Round(Mean(inRange.Select(h => h.Health))),
             PreviousAverage = previous == null ? null : Round(Mean(previous.Select(h => h.Health))),
             Latest = inRange.LastOrDefault(h => h.Health != null)?.Health,
-            TopIssue = issue,
+            TopIssue = text == null ? null : $"{area}: {text} ({Costs(cost)})",
             TopArea = area,
+            TopShort = text == null ? null : $"{area}: {text.Split(',')[0]}",
         };
     }
 
-    /// <summary>The area that cost the most over the range, named with its latest description.</summary>
-    internal static (string? Area, string? Text) TopIssue(IReadOnlyList<SiteHealthHour> hours)
+    /// <summary>"costs 9 points", "costs under 1 point": the health an issue took.</summary>
+    internal static string Costs(double points) =>
+        points < 1 ? "costs under 1 point" : $"costs {points:0} point{(Math.Round(points) == 1 ? "" : "s")}";
+
+    /// <summary>The area that cost the most over the range, its latest description, and the average points it cost.</summary>
+    internal static (string? Area, string? Text, double Points) TopIssue(IReadOnlyList<SiteHealthHour> hours)
     {
         var byArea = new Dictionary<string, (double Sum, string Text, DateTime At)>();
         foreach (var h in hours)
@@ -84,16 +91,16 @@ public static class SiteHealthSeriesBuilder
                 var cur = byArea.GetValueOrDefault(c.Area);
                 byArea[c.Area] = (cur.Sum + c.Impairment, h.HourStart >= cur.At ? c.Text : cur.Text, h.HourStart >= cur.At ? h.HourStart : cur.At);
             }
-        if (byArea.Count == 0 || hours.Count == 0) return (null, null);
+        if (byArea.Count == 0 || hours.Count == 0) return (null, null, 0);
         var top = byArea.OrderByDescending(kv => kv.Value.Sum).First();
         var points = top.Value.Sum / hours.Count * 100;
-        return points < 0.5 ? (null, null) : (top.Key, $"{top.Key} {points:0}: {top.Value.Text}");
+        return points < 0.5 ? (null, null, 0) : (top.Key, top.Value.Text, points);
     }
 
-    /// <summary>"Health 86 at 2 PM. Wi-Fi 9: Back Yard 5 GHz, ..." for one hour.</summary>
+    /// <summary>"Health 86. Wi-Fi: Back Yard 5 GHz, 18% of samples under 80 (costs 9 points)" for one hour.</summary>
     public static string Tip(SiteHealthHour h)
     {
-        var parts = SiteHealthScorer.Contributors(h).Select(c => $"{c.Area} {c.Impairment * 100:0}: {c.Text}");
+        var parts = SiteHealthScorer.Contributors(h).Select(c => $"{c.Area}: {c.Text} ({Costs(c.Impairment * 100)})");
         var head = h.Health is { } v ? $"Health {v:0.#}" : "No data";
         return string.Join(". ", new[] { head }.Concat(parts));
     }

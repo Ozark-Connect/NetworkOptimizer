@@ -137,7 +137,8 @@ public class SiteHealthTests
         var series = SiteHealthSeriesBuilder.Build(hours, T, T.AddDays(30));
         series.Points.Count.Should().BeLessThanOrEqualTo(200);
         series.TopArea.Should().Be("Wi-Fi");
-        series.TopIssue.Should().StartWith("Wi-Fi 5: AP1 5 GHz");
+        series.TopIssue.Should().Be("Wi-Fi: AP1 5 GHz, 20% of samples under 80 (costs 5 points)");
+        series.TopShort.Should().Be("Wi-Fi: AP1 5 GHz");
     }
 
     [Fact]

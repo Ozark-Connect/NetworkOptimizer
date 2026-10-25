@@ -191,7 +191,7 @@
 
     private static string? ShortIssue(SiteHealthSummary s) => !s.Online
         ? (s.AgentOffline ? "Agent offline" : "Console unreachable")
-        : s.Health.TopIssue is { } issue && issue.IndexOf(':') is var i and > 0 ? $"{s.Health.TopArea}: {issue[(i + 1)..].Trim()}" : null;
+        : s.Health.TopShort;
 
     /// <summary>The 24-hour line on a 60 to 100 axis; hours with no data break it.</summary>
     private static string Spark(SiteHealthSummary s)
