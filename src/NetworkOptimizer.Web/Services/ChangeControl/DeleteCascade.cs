@@ -80,8 +80,7 @@ public static class DeleteCascade
         {
             var def = ConfigCollections.Get(key);
             if (def?.Write?.DeletePath == null) continue;
-            var kept = desired.Get(key).Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            deleted.AddRange(baseState.Get(key).Where(o => !kept.Contains(ConfigState.IdOf(o)) && !IsProtected(o)).Select(ConfigState.IdOf));
+            deleted.AddRange(Removed(def, baseState, desired).Where(o => !IsProtected(o)).Select(ConfigState.IdOf));
         }
         if (deleted.Count == 0) return changed;
 
@@ -98,6 +97,21 @@ public static class DeleteCascade
                     }
         }
         return changed;
+    }
+
+    /// <summary>
+    /// The objects an edit deletes from one collection: those in the base that nothing in the desired
+    /// state matches, matched the way Review Plan matches (ID, enforced key, then name). Edited YAML
+    /// carries no IDs, so comparing IDs would call every object deleted. Ambiguous names are not
+    /// counted as deletes; Review Plan reports them.
+    /// </summary>
+    public static List<JsonObject> Removed(ConfigCollectionDef def, ConfigState baseState, ConfigState desired)
+    {
+        var match = ObjectMatcher.Match(def, desired.Get(def.Key), baseState.Get(def.Key),
+            new ConfigIdentityContext(desired.NamesById()), new ConfigIdentityContext(baseState.NamesById()));
+        var ambiguous = match.Conflicts.Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
+        return match.Pairs.Where(p => p.Left == null && p.Right != null && !ambiguous.Contains(ConfigState.DisplayName(def, p.Right)))
+            .Select(p => p.Right!).ToList();
     }
 
     /// <summary>UniFi's built-in objects (the Default WLAN group, the default network) refuse deletion.</summary>

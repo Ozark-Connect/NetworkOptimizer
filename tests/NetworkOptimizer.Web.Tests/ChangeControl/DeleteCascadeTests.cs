@@ -60,6 +60,39 @@ public class DeleteCascadeTests
     }
 
     [Fact]
+    public void Lint_RemovingOneWlan_DeletesOnlyThatWlan()
+    {
+        // Exported YAML carries no IDs: the untouched AP group and WLAN groups must still match by name.
+        var baseState = new ConfigState();
+        baseState.Collections["apgroups"] = [Obj("""{"_id":"g1","name":"All APs","attr_no_delete":true,"device_macs":[]}""")];
+        baseState.Collections["wlangroup"] = [Obj("""{"_id":"wg1","name":"Default"}"""), Obj("""{"_id":"wg2","name":"Off"}""")];
+        baseState.Collections["wlanconf"] =
+        [
+            Obj("""{"_id":"w1","name":"Home","ap_group_ids":["g1"]}"""),
+            Obj("""{"_id":"w2","name":"UTR-Testing","ap_group_ids":["g1"]}"""),
+        ];
+        var yaml = YamlConverter.Export(baseState, ["apgroups", "wlangroup", "wlanconf"], SecretMode.Mask);
+        var lines = yaml.Split('\n').ToList();
+        var start = lines.FindIndex(l => l.StartsWith("- name: UTR-Testing", StringComparison.Ordinal));
+        var end = lines.FindIndex(start + 1, l => l.StartsWith("- ", StringComparison.Ordinal) || (l.Length > 0 && !l.StartsWith(' ')));
+        lines.RemoveRange(start, (end < 0 ? lines.Count : end) - start);
+
+        var result = YamlConverter.Parse(string.Join('\n', lines), baseState, "wlans.yaml");
+
+        result.Problems.Should().NotContain(p => p.Level != "Info", string.Join(" | ", result.Problems.Select(p => p.Message)));
+        DeleteCascade.Removed(ConfigCollections.Get("wlanconf")!, baseState, WithParsed(baseState, result))
+            .Select(o => o["name"]!.ToString()).Should().Equal("UTR-Testing");
+        DeleteCascade.Removed(ConfigCollections.Get("apgroups")!, baseState, WithParsed(baseState, result)).Should().BeEmpty();
+    }
+
+    private static ConfigState WithParsed(ConfigState baseState, YamlParseResult result)
+    {
+        var desired = baseState.Clone();
+        foreach (var (key, list) in result.Collections) desired.Collections[key] = list;
+        return desired;
+    }
+
+    [Fact]
     public void Lint_ReadOnlyCollection_SaysTheDeleteIsNotApplied()
     {
         var baseState = new ConfigState();

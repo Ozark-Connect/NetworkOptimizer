@@ -543,17 +543,19 @@ public static partial class YamlConverter
         // An object removed from the file is deleted. Say what that does: nothing in a collection
         // Network Optimizer does not delete from, nothing to UniFi's built-in objects, list references
         // go with it (DeleteCascade), and single references must be pointed elsewhere first.
+        var desired = baseState.Clone();
+        foreach (var (key, list) in result.Collections) desired.Collections[key] = list;
         foreach (var (key, list) in result.Collections)
         {
             var def = ConfigCollections.Get(key);
-            var kept = list.Select(ConfigState.IdOf).ToHashSet();
-            var removedObjects = baseState.Get(key)
-                .Where(o => !kept.Contains(ConfigState.IdOf(o)) && !(def?.Key == "user" && !ConfigDiffEngine.HasClientConfig(o))).ToList();
+            if (def == null) continue;
+            var removedObjects = DeleteCascade.Removed(def, baseState, desired)
+                .Where(o => !(def.Key == "user" && !ConfigDiffEngine.HasClientConfig(o))).ToList();
             if (removedObjects.Count == 0) continue;
-            if (def?.Write?.DeletePath == null)
+            if (def.Write?.DeletePath == null)
             {
                 result.Problems.Add(new YamlProblem("Warning", fileName, 1,
-                    $"{def?.DisplayName ?? key} are read-only in Network Optimizer: {Names(def, removedObjects)} will not be deleted."));
+                    $"{def.DisplayName} are read-only in Network Optimizer: {Names(def, removedObjects)} will not be deleted."));
                 continue;
             }
             foreach (var removed in removedObjects)
