@@ -183,6 +183,15 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
     Task<int> BuildLegacyTranslationAsync(int snapshotId, CancellationToken cancellationToken = default);
 
+    /// <summary>Re-address Networks dry run: the moves, every rewrite, static clients, and Network Optimizer settings that move.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<ReaddressView> GetReaddressAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
+
+    /// <summary>Builds the Re-address Networks plan.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildReaddressPlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
+
     /// <summary>The UniFi console backups (.unf) Network Optimizer keeps for this site.</summary>
     [RequireRole(Roles.Admin)]
     Task<List<ConsoleBackupRecord>> GetConsoleBackupsAsync(CancellationToken cancellationToken = default);

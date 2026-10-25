@@ -1,0 +1,239 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject IChangeControlService Site
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject ILogger<CcReaddress> Logger
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Re-address Networks <span class="card-title-suffix">@SiteName</span></h3>
+    </div>
+    <div class="card-body">
+        <p class="muted-text">Moves each network to a new subnet, and every address in it: reservations, DNS records, port forwards, firewall matches, routes, device static IPs, VPN settings, and Network Optimizer's own settings. Each address keeps its host part.</p>
+        <div class="form-group">
+            <label class="form-label">Pattern <span class="tooltip-icon tooltip-icon-sm" data-tooltip="{vlan} is the network's VLAN ID (1 when untagged); {octet3} is its current third octet.">?</span></label>
+            <div class="input-with-button">
+                <input class="form-control" placeholder="10.42.{vlan}.0/24" @bind="_pattern" @bind:event="oninput" />
+                <button class="btn btn-contrast" disabled="@(_busy || string.IsNullOrWhiteSpace(_pattern))" @onclick="ApplyPatternAsync">Apply Pattern</button>
+            </div>
+            <small class="form-help">Fills in every network below. Edit any row after.</small>
+        </div>
+    </div>
+    @if (_view == null)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead><tr><th>Network</th><th>VLAN</th><th>Now</th><th>New subnet</th></tr></thead>
+                <tbody>
+                    @foreach (var m in _view.Moves)
+                    {
+                        <tr>
+                            <td>@m.NetworkName</td>
+                            <td>@(m.Vlan?.ToString() ?? "untagged")</td>
+                            <td><code>@m.OldCidr</code></td>
+                            <td>
+                                <input class="form-control cc-subnet-input" value="@NewFor(m)" placeholder="@m.OldCidr"
+                                       @onchange="e => SetSubnet(m.NetworkId, e.Value?.ToString())" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_view.Moves.Count == 0)
+        {
+            <div class="empty-state empty-state-small"><p>No LAN networks with a subnet on this site.</p></div>
+        }
+        <div class="cc-card-footer">
+            <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Preview lists every address that moves before anything is planned.")</span>
+            <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PreviewAsync">Preview</button>
+            <button class="btn btn-primary" disabled="@(_busy || !_previewed || !_view.Ready || !ConsoleConnected)" @onclick="BuildAsync">Review Plan</button>
+        </div>
+    }
+</div>
+
+@if (_previewed && _view is { } v)
+{
+    @if (v.Errors.Count > 0)
+    {
+        <div class="alert alert-danger">
+            @foreach (var e in v.Errors) { <div>@e</div> }
+        </div>
+    }
+    @if (v.Warnings.Count > 0)
+    {
+        <div class="alert alert-warning">
+            @foreach (var w in v.Warnings) { <div>@w</div> }
+        </div>
+    }
+
+    @if (v.Rewrites.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Addresses That Move <span class="card-title-suffix">@CcFormat.Plural(v.Rewrites.Count, "address", "addresses") in @CcFormat.Plural(v.Rewrites.Select(r => (r.Collection, r.ObjectName)).Distinct().Count(), "object", "objects")</span></h3></div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead><tr><th>Object</th><th>Field</th><th>Now</th><th>New</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in v.Rewrites.Take(_showAll ? int.MaxValue : 40))
+                        {
+                            <tr>
+                                <td>@(ConfigCollections.Get(r.Collection)?.Noun ?? r.Collection) @r.ObjectName</td>
+                                <td>@ChangeDescriber.LabelFor(r.Path.Replace("[", ".").Replace("]", ""))</td>
+                                <td><code>@r.Old</code></td>
+                                <td><code>@r.New</code></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (!_showAll && v.Rewrites.Count > 40)
+            {
+                <button class="cc-link-btn cc-more" @onclick="() => _showAll = true">+ @(v.Rewrites.Count - 40) more</button>
+            }
+        </div>
+    }
+
+    <div class="cc-two-col">
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Set on the Device <span class="card-title-suffix">from @v.StaticSource</span></h3></div>
+            @if (v.StaticClients.Count == 0)
+            {
+                <div class="empty-state empty-state-small"><p>No connected client in these networks has an address set on the device.</p></div>
+            }
+            else
+            {
+                <div class="cc-card-note">The plan cannot reach these. Change each one by hand after the move.</div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Client</th><th>Now</th><th>New</th></tr></thead>
+                        <tbody>
+                            @foreach (var s in v.StaticClients)
+                            {
+                                <tr><td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Network.Length > 0 ? $", {s.Network}" : "")</div></td><td><code>@s.Ip</code></td><td><code>@s.NewIp</code></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Network Optimizer Settings</h3></div>
+            @if (v.Settings.Count == 0)
+            {
+                <div class="empty-state empty-state-small"><p>No Network Optimizer setting holds an address that moves.</p></div>
+            }
+            else
+            {
+                <div class="cc-card-note">Moved with the site once the plan applies, and back on a revert.</div>
+                @foreach (var s in v.Settings)
+                {
+                    <div class="cc-setting-row"><span>@s.Setting: @s.Name</span><span><code>@s.Old</code> to <code>@s.New</code></span></div>
+                }
+            }
+        </div>
+    </div>
+
+    @if (v.Mentions.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Not Rewritten <span class="card-title-suffix">holds an old address inside other text</span></h3></div>
+            @foreach (var m in v.Mentions)
+            {
+                <div class="cc-setting-row"><span>@(ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection) @m.ObjectName, @m.Path</span><code>@m.Value</code></div>
+            }
+        </div>
+    }
+}
+
+@if (_error != null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@code {
+    [Parameter] public string SiteName { get; set; } = "";
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
+    private string _pattern = "";
+    private readonly Dictionary<string, string> _subnets = [];
+    private ReaddressView? _view;
+    private bool _previewed;
+    private bool _showAll;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync(preview: false);
+
+    private ReaddressChoices Choices() => new() { Pattern = _pattern, NewSubnets = new Dictionary<string, string>(_subnets) };
+
+    private string NewFor(SubnetMove m) => _subnets.TryGetValue(m.NetworkId, out var s) ? s : m.NewCidr == m.OldCidr ? "" : m.NewCidr;
+
+    private void SetSubnet(string networkId, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) _subnets.Remove(networkId);
+        else _subnets[networkId] = value.Trim();
+        _previewed = false;
+    }
+
+    private async Task ApplyPatternAsync()
+    {
+        _subnets.Clear();
+        await LoadAsync(preview: false);
+    }
+
+    private Task PreviewAsync() => LoadAsync(preview: true);
+
+    private async Task LoadAsync(bool preview)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _view = await Site.GetReaddressAsync(Choices());
+            _previewed = preview;
+            _showAll = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Re-address preview failed");
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string Summary()
+    {
+        if (_view == null) return "";
+        if (_view.Errors.Count > 0) return CcFormat.Plural(_view.Errors.Count, "problem to fix", "problems to fix");
+        var moving = _view.Moves.Count(m => m.OldCidr != m.NewCidr);
+        return moving == 0 ? "No network moves yet." : $"{CcFormat.Plural(moving, "network", "networks")} move, {CcFormat.Plural(_view.Rewrites.Count, "address", "addresses")} rewritten";
+    }
+
+    private async Task BuildAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var planId = await Site.BuildReaddressPlanAsync(Choices());
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Re-address plan failed");
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

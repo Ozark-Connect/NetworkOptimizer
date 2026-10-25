@@ -13,6 +13,7 @@
         <option value="@Replace">Replace Device</option>
         <option value="@Adopt">Adopt Pending Devices@(PendingInSnapshot > 0 ? $" ({PendingInSnapshot})" : "")</option>
         <option value="@Zones">Set Up Zones</option>
+        <option value="@Readdress">Re-address Networks</option>
     </select>
 </div>
 
@@ -32,6 +33,10 @@
     <button class="cc-action-card @(_task == Zones ? "active" : "")" @onclick="() => SelectTaskAsync(Zones)">
         <h3>Set Up Zones</h3>
         <p>Group networks into firewall zones by trust or purpose, from the Security Audit's network purposes.</p>
+    </button>
+    <button class="cc-action-card @(_task == Readdress ? "active" : "")" @onclick="() => SelectTaskAsync(Readdress)">
+        <h3>Re-address Networks</h3>
+        <p>Move networks to new subnets, with every address in them.</p>
     </button>
 </div>
 
@@ -298,6 +303,13 @@ else if (_task == Zones)
         <ChildContent><CcZones SiteName="@_siteName" /></ChildContent>
     </SiteOperatorOnly>
 }
+else if (_task == Readdress)
+{
+    <SiteAdminOnly>
+        <NotAuthorized><div class="card"><div class="card-body">Re-addressing networks needs the Site Admin role on this site.</div></div></NotAuthorized>
+        <ChildContent><CcReaddress SiteName="@_siteName" /></ChildContent>
+    </SiteAdminOnly>
+}
 else if (_task == Restore)
 {
     <SiteAdminOnly>
@@ -400,6 +412,7 @@ else
     private const string Replace = "replace";
     private const string Adopt = "adopt";
     private const string Zones = "zones";
+    private const string Readdress = "readdress";
 
     private string _task = Replace;
     private int _step = 1;
@@ -440,7 +453,7 @@ else
         _siteName = _sites.FirstOrDefault(s => s.Slug == SiteCtx.Slug)?.Name ?? SiteCtx.Slug;
         _sourceSlug = SiteCtx.Slug;
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
-        if (query.TryGetValue("task", out var task) && task.ToString() is Restore or Replace or Adopt or Zones) _task = task.ToString();
+        if (query.TryGetValue("task", out var task) && task.ToString() is Restore or Replace or Adopt or Zones or Readdress) _task = task.ToString();
         if (query.TryGetValue("old", out var old)) _oldMac = old.ToString().ToLowerInvariant();
         if (query.TryGetValue("new", out var @new)) _newMac = @new.ToString().ToLowerInvariant();
         await RunAsync(LoadPendingAsync);

@@ -307,6 +307,7 @@ public sealed class PlanCoordinator
                 plan.Status = ConfigPlanStatus.Applied;
             }
             await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+            await MoveOwnSettingsAsync(plan, doc, ct);
             // Now the created IDs are known, the agent's copy also deletes what the plan created.
             if (plan.AgentRevertArmed && AgentRevert != null && after != null && plan.WatchUntil is { } deadline)
                 await AgentRevert.RearmAsync(plan, doc, after, deadline, ct);
@@ -628,6 +629,38 @@ public sealed class PlanCoordinator
         foreach (var row in report.Rows) row.Outcome = "Applied";
         plan.ReportJson = JsonSerializer.Serialize(report);
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+    }
+
+    /// <summary>Moves Network Optimizer's own settings for a site's subnets (applied, revert, failure-safe).</summary>
+    public Func<IReadOnlyList<SubnetMove>, CancellationToken, Task<List<SettingRewrite>>>? MoveSettings { get; set; }
+
+    /// <summary>Plan context key carrying a re-address plan's subnet moves (JSON).</summary>
+    public const string ReaddressContext = "readdress";
+
+    /// <summary>
+    /// A re-address moves Network Optimizer's own settings with the site once its writes land; a Revert of
+    /// one moves them back. A failure here never fails the plan: the console writes already happened.
+    /// </summary>
+    private async Task MoveOwnSettingsAsync(ConfigPlan plan, PlanDocument doc, CancellationToken ct)
+    {
+        if (MoveSettings == null) return;
+        try
+        {
+            List<SubnetMove>? moves = null;
+            if (doc.Context.TryGetValue(ReaddressContext, out var json)) moves = JsonSerializer.Deserialize<List<SubnetMove>>(json);
+            else if (plan.Kind == ConfigPlanKind.Revert && plan.RevertOfPlanId is { } original
+                     && await LoadAsync(original, ct) is { } o && o.Doc.Context.TryGetValue(ReaddressContext, out var originalJson))
+                moves = Readdressing.Reverse(JsonSerializer.Deserialize<List<SubnetMove>>(originalJson) ?? []);
+            if (moves == null || moves.Count == 0) return;
+            var moved = await MoveSettings(moves, ct);
+            if (moved.Count > 0)
+                Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Success,
+                    new { networkOptimizerSettingsMoved = moved.Count, settings = string.Join(", ", moved.Select(m => $"{m.Setting} {m.Name}").Distinct()) });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Moving Network Optimizer settings for plan {PlanId} failed", plan.Id);
+        }
     }
 
     private void Audit(string action, ConfigPlan plan, string outcome, object? details) =>

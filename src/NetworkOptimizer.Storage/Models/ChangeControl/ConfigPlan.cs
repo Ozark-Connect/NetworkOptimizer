@@ -25,6 +25,8 @@ public enum ConfigPlanKind
     Revert = 8,
     /// <summary>Legacy firewall rules translated to zone-based policies.</summary>
     LegacyToZones = 9,
+    /// <summary>Re-address Networks: move the site's LAN subnets, and every address in them.</summary>
+    Readdress = 10,
 }
 
 /// <summary>Plan lifecycle. Draft, Pending approval, Approved, Applied are the user-facing track.</summary>
