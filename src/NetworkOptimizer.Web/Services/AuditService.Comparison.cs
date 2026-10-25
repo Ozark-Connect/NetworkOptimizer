@@ -103,7 +103,7 @@ public partial class AuditService
         catch (Exception ex) { _logger.LogDebug(ex, "Comparison: UniFi device clients unavailable"); }
         try { upnpMappings = (await client.GetPortForwardRulesAsync()).Where(r => r.IsUpnp == 1).ToList(); }
         catch (Exception ex) { _logger.LogDebug(ex, "Comparison: UPnP mappings unavailable"); }
-        var fingerprints = await _fingerprintService.GetDatabaseAsync();
+        var fingerprints = await _fingerprintService.GetDatabaseAsync(_connectionService);
 
         var allowance = new Audit.Models.DeviceAllowanceSettings
         {
