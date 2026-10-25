@@ -59,6 +59,28 @@ public class YamlEditSchemaTests
     }
 
     [Fact]
+    public void Suggestions_FollowTheYamlOrder_EvenWhenAFieldFirstAppearsOnALaterObject()
+    {
+        // w2 alone has hide_ssid (Broadcasting); it must still come before the IoT group's fields, not last.
+        var state = Site();
+        state.Collections["wlanconf"][1]["hide_ssid"] = true;
+        state.Collections["wlanconf"][0]["enhanced_iot"] = false;
+        var names = YamlConverter.EditSchema(state, [ConfigCollections.Get("wlanconf")!])["collections"]!["wlans"]!["fields"]!
+            .AsArray().Select(f => f!["name"]!.ToString()).ToList();
+        names.IndexOf("hide_ssid").Should().BeLessThan(names.IndexOf("enhanced_iot"));
+        names.IndexOf("security").Should().BeLessThan(names.IndexOf("hide_ssid"));
+    }
+
+    [Fact]
+    public void WireGuardUserKeys_AreSecrets()
+    {
+        var state = State(("wireguard_user", """{"_id":"u1","name":"Laptop","public_key":"pub","pre_shared_key":"psk-value","private_key":"priv-value"}"""));
+        var yaml = YamlConverter.Export(state, ["wireguard_user"], SecretMode.Mask);
+        yaml.Should().NotContainAny("psk-value", "priv-value");
+        yaml.Should().Contain("public_key: pub");
+    }
+
+    [Fact]
     public void Secrets_NeverContributeValues()
     {
         var schema = Schema();

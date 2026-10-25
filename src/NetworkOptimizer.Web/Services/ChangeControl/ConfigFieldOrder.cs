@@ -661,7 +661,7 @@ public static class ConfigFieldOrder
         ]),
         new("Behavior",
         [
-            "schedule", "logging", "create_allow_respond"
+            "schedule", "logging", "report_flow", "create_allow_respond"
         ]),
         new("Housekeeping",
         [

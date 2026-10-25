@@ -51,6 +51,8 @@ public static partial class YamlConverter
 
         private sealed class FieldInfo
         {
+            /// <summary>The UniFi field name before reference stripping (networkconf_id for network).</summary>
+            public string Original = "";
             public string? Target;
             public bool Secret;
             public bool List;
@@ -76,7 +78,7 @@ public static partial class YamlConverter
                 }
                 if (!_fields.TryGetValue(outKey, out var f))
                 {
-                    _fields[outKey] = f = new FieldInfo();
+                    _fields[outKey] = f = new FieldInfo { Original = key };
                     _order.Add(outKey);
                 }
                 f.Target ??= target;
@@ -116,10 +118,13 @@ public static partial class YamlConverter
             if (f.Strings.Count > MaxEnumValues) f.TooMany = true;
         }
 
-        public JsonObject ToJson(ConfigCollectionDef def, HashSet<string> targets)
+        public JsonObject ToJson(ConfigCollectionDef def, HashSet<string> targets, bool top = true)
         {
+            // Fields arrive in first-seen order across objects; suggest them in the YAML's field order.
+            var rank = (top ? def.FieldGroups.SelectMany(g => g.Fields) : [def.NameField, .. def.NestedFieldOrder])
+                .Select((field, i) => (field, i)).GroupBy(p => p.field).ToDictionary(g => g.Key, g => g.First().i, StringComparer.Ordinal);
             var fields = new JsonArray();
-            foreach (var name in _order)
+            foreach (var name in _order.OrderBy(n => rank.GetValueOrDefault(_fields[n].Original, int.MaxValue)))
             {
                 var f = _fields[name];
                 var field = new JsonObject { ["name"] = name };
@@ -131,7 +136,7 @@ public static partial class YamlConverter
                 }
                 else if (f.Shape != null)
                 {
-                    field["shape"] = f.Shape.ToJson(def, targets);
+                    field["shape"] = f.Shape.ToJson(def, targets, top: false);
                     field["detail"] = f.List ? "list" : "object";
                 }
                 else if (f.Bools > 0 && !f.HasNonBool)

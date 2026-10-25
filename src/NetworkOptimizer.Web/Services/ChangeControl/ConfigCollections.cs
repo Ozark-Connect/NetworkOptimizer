@@ -532,6 +532,8 @@ public static class ConfigCollections
             {
                 Key = "wireguard_user", DisplayName = "WireGuard VPN users", Noun = "WireGuard user", Group = "RADIUS and VPN",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "wireguard/users", Order = 8,
+                // Network 11 stores and serves these without the x_ prefix (its schema: wireguard_user.pre_shared_key).
+                ExtraSecretFields = Set("pre_shared_key", "private_key"),
                 AuditSections = ["WIREGUARD_VPN_USER"],
             },
             new()
