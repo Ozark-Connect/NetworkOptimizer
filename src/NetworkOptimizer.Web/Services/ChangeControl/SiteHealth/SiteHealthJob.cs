@@ -27,7 +27,7 @@ public sealed class SiteHealthJob
     private static readonly TimeSpan ChangeWindow = TimeSpan.FromHours(3);
 
     private static readonly string[] AlertTypes =
-        ["device.offline", "device.rebooted", "monitoring.wan_outage", "monitoring.wan_outage_partial"];
+        ["device.offline", "device.rebooted", "monitoring.wan_outage", "monitoring.wan_outage_partial", "device.recovered", "monitoring.wan_recovered"];
 
     private readonly string _slug;
     private readonly IChangeControlRepositoryAccessor _repos;
@@ -136,7 +136,8 @@ public sealed class SiteHealthJob
             : new Dictionary<DateTime, LoadWindow>();
         var loadWindow = TimeSpan.FromSeconds(isp.Options.LoadWindowSeconds);
 
-        var alerts = await _repos.UseAsync((r, c) => r.GetAlertsActiveAsync(from, to, AlertTypes, c), ct);
+        // A day past the batch, so a recovery just after it still ends an outage that began inside it.
+        var alerts = await _repos.UseAsync((r, c) => r.GetAlertsActiveAsync(from, to.AddDays(1), AlertTypes, c), ct);
         List<DiscoveredDevice> devices;
         try { devices = await _connection().GetDiscoveredDevicesAsync(ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -194,7 +195,7 @@ public sealed class SiteHealthJob
         {
             if (!string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(Context(a, "wan") ?? a.DeviceId ?? ""), primaryKey,
                     StringComparison.OrdinalIgnoreCase)) continue;
-            var minutes = Overlap(a, hour, end).TotalMinutes;
+            var minutes = Overlap(a, alerts, hour, end).TotalMinutes;
             if (a.EventType == "monitoring.wan_outage_partial")
                 minutes *= double.TryParse(Context(a, "targets_failing"), out var f) && double.TryParse(Context(a, "targets_total"), out var t) && t > 0 ? f / t : 0.5;
             outageMinutes += minutes;
@@ -203,7 +204,7 @@ public sealed class SiteHealthJob
         string? localCause = null;
         if (alerts.Any(a => a.EventType == "device.rebooted" && gatewayMacs.Contains(Mac(a.DeviceId)) && In(a.TriggeredAt)))
             localCause = "gateway rebooted";
-        else if (alerts.Any(a => a.EventType == "device.offline" && gatewayMacs.Contains(Mac(a.DeviceId)) && Overlap(a, hour, end) > TimeSpan.Zero))
+        else if (alerts.Any(a => a.EventType == "device.offline" && gatewayMacs.Contains(Mac(a.DeviceId)) && Overlap(a, alerts, hour, end) > TimeSpan.Zero))
             localCause = "gateway offline";
         else if (cpu.Where(c => In(c.Time)).Select(c => c.Value).DefaultIfEmpty(0).Average() >= 90)
             localCause = "gateway CPU above 90%";
@@ -226,7 +227,7 @@ public sealed class SiteHealthJob
         {
             var mac = Mac(a.DeviceId);
             if (mac.Length == 0) continue;
-            var fraction = Overlap(a, hour, end).TotalHours;
+            var fraction = Overlap(a, alerts, hour, end).TotalHours;
             if (fraction <= 0) continue;
             offline[mac] = Math.Min(1, offline.GetValueOrDefault(mac) + fraction);
             offlineNames[mac] = a.DeviceName ?? topology.Name(mac);
@@ -354,12 +355,14 @@ public sealed class SiteHealthJob
         return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     }
 
-    private static TimeSpan Overlap(AlertHistoryEntry a, DateTime from, DateTime to)
+    /// <summary>The part of [from, to) the alert's condition lasted: until its recovery, not until someone resolved it.</summary>
+    private static TimeSpan Overlap(AlertHistoryEntry a, IReadOnlyList<AlertHistoryEntry> all, DateTime from, DateTime to)
     {
+        var end = ChangeIncidents.ConditionEnd(a, all);
         var start = a.TriggeredAt > from ? a.TriggeredAt : from;
-        var stop = a.ResolvedAt is { } r && r < to ? r : to;
-        // An alert still open runs to the end of the hour, never past now.
-        if (a.ResolvedAt == null && stop > DateTime.UtcNow) stop = DateTime.UtcNow;
+        var stop = end is { } e && e < to ? e : to;
+        // An alert still going on runs to the end of the hour, never past now.
+        if (end == null && stop > DateTime.UtcNow) stop = DateTime.UtcNow;
         return stop > start ? stop - start : TimeSpan.Zero;
     }
 

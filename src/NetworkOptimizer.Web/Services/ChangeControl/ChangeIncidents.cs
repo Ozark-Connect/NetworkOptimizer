@@ -48,8 +48,43 @@ public static class ChangeIncidents
         "monitoring.wan_outage", "monitoring.wan_outage_partial", "wan.speed_degradation", "wan.link_speed_degraded",
     ];
 
-    /// <summary>Every alert type that can place an incident next to a change, for the repository's filter.</summary>
-    public static readonly IReadOnlyCollection<string> EventTypes = [.. LinkedTypes, .. WanTypes];
+    /// <summary>The event that ends each alert with one. A recovery does not resolve its alert: people do, later.</summary>
+    internal static readonly IReadOnlyDictionary<string, string> RecoveryFor = new Dictionary<string, string>
+    {
+        ["device.offline"] = "device.recovered",
+        ["monitoring.target_offline"] = "monitoring.target_recovered",
+        ["monitoring.wan_outage"] = "monitoring.wan_recovered",
+        ["monitoring.wan_outage_partial"] = "monitoring.wan_recovered",
+        ["monitoring.health_check_failed"] = "monitoring.health_check_recovered",
+    };
+
+    /// <summary>
+    /// Every alert type that can place an incident next to a change, plus the recoveries that end them,
+    /// for the repository's filter. A recovery alone classifies as unrelated, so it places nothing.
+    /// </summary>
+    public static readonly IReadOnlyCollection<string> EventTypes = [.. LinkedTypes, .. WanTypes, .. RecoveryFor.Values.Distinct()];
+
+    /// <summary>
+    /// When an alert's condition ended: its first matching recovery after it fired (same device, WAN, or
+    /// target), else its resolution, else null while it lasts.
+    /// </summary>
+    public static DateTime? ConditionEnd(AlertHistoryEntry alert, IEnumerable<AlertHistoryEntry> others)
+    {
+        if (RecoveryFor.TryGetValue(alert.EventType, out var recovery))
+        {
+            var subject = Subject(alert);
+            var recovered = others
+                .Where(o => o.EventType == recovery && o.TriggeredAt >= alert.TriggeredAt && Subject(o) == subject)
+                .OrderBy(o => o.TriggeredAt).FirstOrDefault();
+            if (recovered != null)
+                return alert.ResolvedAt is { } r && r < recovered.TriggeredAt ? r : recovered.TriggeredAt;
+        }
+        return alert.ResolvedAt;
+    }
+
+    // Device MACs arrive with and without colons; WAN alerts carry the wan key.
+    private static string Subject(AlertHistoryEntry a) =>
+        (a.DeviceId ?? Context(a, "wan") ?? a.DeviceIp ?? "").Replace(":", "").Replace("-", "").ToLowerInvariant();
 
     /// <summary>One alert's relevance.</summary>
     public static IncidentRelevance Classify(AlertHistoryEntry alert)
@@ -89,17 +124,22 @@ public static class ChangeIncidents
     internal static readonly TimeSpan OneShotSpan = TimeSpan.FromMinutes(15);
 
     /// <summary>
-    /// When the incident's condition ended. Only a recovery resolves the alerts that have one, so their
-    /// resolution (or now, while open) is the end. Every other alert fires once and is resolved by a
-    /// person, whenever they get to it: those end shortly after their last firing.
+    /// When the incident's condition ended, never when a person resolved it. Alerts with a recovery end
+    /// at it (or now, while none has come); every other alert fires once and ends shortly after its last
+    /// firing, or earlier if resolved sooner.
     /// </summary>
     internal static DateTime End(AlertIncident incident, IReadOnlyCollection<AlertHistoryEntry> alerts, DateTime nowUtc)
     {
         var oneShotEnd = incident.LastTriggeredAt + OneShotSpan;
-        if (!alerts.Any(a => RecoveringTypes.Contains(a.EventType)))
+        var recovering = alerts.Where(a => RecoveringTypes.Contains(a.EventType)).ToList();
+        if (recovering.Count == 0)
             return incident.ResolvedAt is { } r && r < oneShotEnd ? r : Min(oneShotEnd, nowUtc);
-        return incident.ResolvedAt ?? nowUtc;
+        // An alert with neither a recovery nor a resolution of its own ends with the incident.
+        var ends = recovering.Select(a => ConditionEnd(a, alerts) ?? incident.ResolvedAt).ToList();
+        return ends.Any(e => e == null) ? nowUtc : Max(ends.Max()!.Value, incident.LastTriggeredAt);
     }
+
+    private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
 
     private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
 

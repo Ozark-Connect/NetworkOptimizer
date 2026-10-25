@@ -104,6 +104,19 @@ public sealed class ChangeIncidentsTests : IDisposable
     }
 
     [Fact]
+    public void ConditionEnd_IsTheRecovery_NotTheLaterHandResolution()
+    {
+        var t = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var offline = new AlertHistoryEntry { EventType = "device.offline", DeviceId = "aa:bb:cc:00:00:01", TriggeredAt = t, ResolvedAt = t.AddHours(12) };
+        var other = new AlertHistoryEntry { EventType = "device.recovered", DeviceId = "aa:bb:cc:00:00:02", TriggeredAt = t.AddMinutes(1) };
+        var recovered = new AlertHistoryEntry { EventType = "device.recovered", DeviceId = "AABBCC000001", TriggeredAt = t.AddMinutes(2) };
+        ChangeIncidents.ConditionEnd(offline, [offline, other, recovered]).Should().Be(t.AddMinutes(2));
+        ChangeIncidents.ConditionEnd(offline, [offline, other]).Should().Be(t.AddHours(12));
+        ChangeIncidents.End(new AlertIncident { FirstTriggeredAt = t, LastTriggeredAt = t, ResolvedAt = t.AddHours(12) }, [offline, recovered], t.AddDays(1))
+            .Should().Be(t.AddMinutes(2));
+    }
+
+    [Fact]
     public void End_RecoveringAlert_RunsToItsResolution_OrNow()
     {
         var t = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
