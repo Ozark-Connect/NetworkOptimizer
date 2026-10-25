@@ -36,7 +36,7 @@ public sealed record ExceptionPolicyPlan(
 /// </summary>
 public static class GatewayExceptionPolicies
 {
-    public const string PolicyName = "Net. Opt. Exception";
+    public const string PolicyName = ManagedFirewallPolicies.Exception;
     public const string Description = "Managed by Network Optimizer: an exception to the public block lists. Changes here are overwritten.";
 
     /// <param name="externalZoneId">The External zone.</param>

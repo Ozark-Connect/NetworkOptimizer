@@ -52,13 +52,13 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
 {
     public const string GroupNameV4 = "Net. Opt. Blocklist (IPv4)";
     public const string GroupNameV6 = "Net. Opt. Blocklist (IPv6)";
-    public const string PolicyName = "Net. Opt. Blocklist";
+    public const string PolicyName = ManagedFirewallPolicies.Blocklist;
     public const string Description = "Managed by Network Optimizer: sources it has blocked. Changes here are overwritten.";
     public const string FeedsNameV4 = "Net. Opt. Public Lists (IPv4)";
     public const string FeedsNameV6 = "Net. Opt. Public Lists (IPv6)";
-    public const string FeedsPolicyName = "Net. Opt. Public Lists";
+    public const string FeedsPolicyName = ManagedFirewallPolicies.PublicLists;
     public const string FeedsDescription = "Managed by Network Optimizer: the public block lists chosen in Automatic Blocking. Changes here are overwritten.";
-    public const string FeedsOutboundPolicyName = "Net. Opt. Public Lists (Outbound)";
+    public const string FeedsOutboundPolicyName = ManagedFirewallPolicies.PublicListsOutbound;
     public const string FeedsOutboundDescription = "Managed by Network Optimizer: stops devices reaching the public block lists' addresses. Changes here are overwritten.";
     public const string FeedsOutNameV4 = "Net. Opt. Public Lists Outbound (IPv4)";
     public const string FeedsOutNameV6 = "Net. Opt. Public Lists Outbound (IPv6)";
