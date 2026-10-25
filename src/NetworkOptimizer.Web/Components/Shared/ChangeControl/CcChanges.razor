@@ -13,7 +13,7 @@
 <div class="card">
     <div class="cc-toolbar">
         <span class="cc-toolbar-label">Sites</span>
-        <select class="form-control" @bind="SiteFilter" @bind:after="ReloadAsync">
+        <select class="form-control" @bind="SiteFilter" @bind:after="SiteFilterChangedAsync">
             <option value="">All sites (@_sites.Count)</option>
             @foreach (var s in _sites)
             {
@@ -380,7 +380,7 @@
             var filter = string.IsNullOrEmpty(SiteFilter) ? null : new[] { SiteFilter };
             _changes = await Fleet.GetChangesAsync(_from, _to, filter);
             _timeline = await Fleet.GetTimelineAsync(_from, _to, filter);
-            foreach (var slug in _expandedSites.ToList())
+            foreach (var slug in _expandedSites.Where(s => _timeline.Any(r => r.Site.Slug == s)).ToList())
                 _lanes[slug] = await Fleet.GetLanesAsync(slug, _from, _to);
         }
         catch (Exception ex)
@@ -389,6 +389,13 @@
             _timeline ??= [];
             _changes ??= [];
         }
+    }
+
+    /// <summary>A single-site filter opens that site into its lanes, as the busiest site is on first load.</summary>
+    private async Task SiteFilterChangedAsync()
+    {
+        if (!string.IsNullOrEmpty(SiteFilter)) _expandedSites.Add(SiteFilter);
+        await ReloadAsync();
     }
 
     private async Task ToggleSiteAsync(string slug)
