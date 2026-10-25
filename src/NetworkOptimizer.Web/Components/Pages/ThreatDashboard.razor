@@ -43,12 +43,12 @@
 }
 
 @* CrowdSec rate limit warning *@
-@if (_crowdSecRateLimited)
+@if (_crowdSecRateLimited && !_crowdSecQuotaDismissed)
 {
     <div class="card banner-card banner-card-warning">
         <div class="card-body banner-card-body">
             <span class="threat-desc-text">CrowdSec daily API quota reached - remaining IPs will be enriched tomorrow. You can increase your quota in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> or upgrade your CrowdSec plan.</span>
-            <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecRateLimited = false">Dismiss</button>
+            <button class="btn btn-secondary btn-sm" @onclick="DismissCrowdSecQuotaAsync">Dismiss</button>
         </div>
     </div>
 }
@@ -2265,6 +2265,7 @@ else
     private bool _collectingFirstData;
     private string? _lookingUpIp;
     private bool _crowdSecRateLimited;
+    private bool _crowdSecQuotaDismissed;
     private bool _drilldownCtiLookedUp;
     private System.Threading.Timer? _refreshTimer;
     private System.Threading.Timer? _hydrationRefreshTimer;
@@ -2553,6 +2554,7 @@ else
         await LoadNoiseFiltersAsync();
         _filtersActive = await ThreatFilterPreference.LoadAsync(UserPreferences, SiteContext.Slug,
             () => SettingsAccessor.GetSettingAsync(ThreatFilterPreference.LegacyKey));
+        _crowdSecQuotaDismissed = await CtiQuotaBannerDismissal.IsDismissedAsync(UserPreferences, SiteContext.Slug, DateTime.UtcNow);
 
         // Disable filters for drilldown AFTER loading the persisted setting,
         // so we can save/restore the user's preference when exiting drilldown.
@@ -3890,6 +3892,19 @@ else
     {
         public string Label { get; set; } = string.Empty;
         public int Count { get; set; }
+    }
+
+    private async Task DismissCrowdSecQuotaAsync()
+    {
+        _crowdSecQuotaDismissed = true;
+        try
+        {
+            await CtiQuotaBannerDismissal.DismissAsync(UserPreferences, SiteContext.Slug, DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save the CrowdSec quota banner dismissal");
+        }
     }
 
     // --- Noise Filter Methods ---
