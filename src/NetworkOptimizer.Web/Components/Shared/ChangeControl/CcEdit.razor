@@ -119,7 +119,7 @@
                         <span class="cc-remaining @(Errors > 0 ? "danger-text" : "muted-text")">
                             @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before Review Plan" : _edited.Count == 0 ? "No edits yet" : "Ready for Review Plan")
                         </span>
-                        <span class="muted-text">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
+                        <span class="muted-text cc-edit-count">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
                         <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">Review Plan</button>
                         <label class="btn btn-contrast cc-phone-inline" style="margin:0">
                             Upload YAML

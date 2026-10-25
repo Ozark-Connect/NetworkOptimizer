@@ -23612,6 +23612,10 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.875rem;
 }
 
+.change-control .cc-card-footer .cc-edit-count {
+    font-size: 0.875rem;
+}
+
 /* Review Plan */
 .change-control .cc-strip {
     display: grid;
