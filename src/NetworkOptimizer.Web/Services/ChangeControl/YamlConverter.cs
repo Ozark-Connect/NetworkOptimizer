@@ -540,26 +540,67 @@ public static partial class YamlConverter
             }
         }
 
-        // An object removed from the file is deleted; warn when something still refers to it.
+        // An object removed from the file is deleted. Say what that does: nothing in a collection
+        // Network Optimizer does not delete from, nothing to UniFi's built-in objects, list references
+        // go with it (DeleteCascade), and single references must be pointed elsewhere first.
         foreach (var (key, list) in result.Collections)
         {
             var def = ConfigCollections.Get(key);
             var kept = list.Select(ConfigState.IdOf).ToHashSet();
-            foreach (var removed in baseState.Get(key).Where(o => !kept.Contains(ConfigState.IdOf(o))))
+            var removedObjects = baseState.Get(key)
+                .Where(o => !kept.Contains(ConfigState.IdOf(o)) && !(def?.Key == "user" && !ConfigDiffEngine.HasClientConfig(o))).ToList();
+            if (removedObjects.Count == 0) continue;
+            if (def?.Write?.DeletePath == null)
             {
-                if (def?.Key == "user" && !ConfigDiffEngine.HasClientConfig(removed)) continue;
+                result.Problems.Add(new YamlProblem("Warning", fileName, 1,
+                    $"{def?.DisplayName ?? key} are read-only in Network Optimizer: {Names(def, removedObjects)} will not be deleted."));
+                continue;
+            }
+            foreach (var removed in removedObjects)
+            {
+                var name = $"{def.Noun} {ConfigState.DisplayName(def, removed)}";
+                if (DeleteCascade.IsProtected(removed))
+                {
+                    result.Problems.Add(new YamlProblem("Error", fileName, 1, $"{name} is built into UniFi and cannot be deleted."));
+                    continue;
+                }
                 var id = ConfigState.IdOf(removed);
+                var cascaded = new List<string>();
+                var blocking = new List<string>();
                 foreach (var (refCollection, objects) in result.Collections.Concat(baseState.Collections.Where(c => !result.Collections.ContainsKey(c.Key))))
+                {
+                    var refDef = ConfigCollections.Get(refCollection);
                     foreach (var o in objects)
-                        if (o.ToJsonString().Contains($"\"{id}\"", StringComparison.Ordinal) && ConfigState.IdOf(o) != id)
-                        {
-                            var refDef = ConfigCollections.Get(refCollection);
-                            result.Problems.Add(new YamlProblem("Warning", fileName, 1,
-                                $"{refDef?.Noun} {ConfigState.DisplayName(refDef, o)} references {def?.Noun.ToLowerInvariant()} {ConfigState.DisplayName(def, removed)}, which this file deletes. Review Plan will refuse the delete unless the {refDef?.Noun.ToLowerInvariant()} changes too."));
-                        }
+                    {
+                        if (ConfigState.IdOf(o) == id || refDef?.IsGenerated?.Invoke(o) == true) continue;
+                        var hits = DeleteCascade.Find(o, id);
+                        if (hits.Count == 0) continue;
+                        var who = $"{refDef?.Noun ?? refCollection} {ConfigState.DisplayName(refDef, o)}";
+                        if (refDef?.Write?.UpdatePath != null && DeleteCascade.CanCascade(hits)) cascaded.Add(who);
+                        else blocking.Add($"{who} ({string.Join(", ", hits.Select(h => h.Field).Distinct())})");
+                    }
+                }
+                if (cascaded.Count > 0)
+                    result.Problems.Add(new YamlProblem("Info", fileName, 1,
+                        $"Deleting {name} also removes it from {List(cascaded)}. Review Plan shows those changes."));
+                if (blocking.Count > 0)
+                    result.Problems.Add(new YamlProblem("Warning", fileName, 1,
+                        $"{name} is still used by {List(blocking)}. Point {(blocking.Count == 1 ? "it" : "them")} at another {def.Noun.ToLowerInvariant()} first; Review Plan refuses the delete until then."));
             }
         }
     }
+
+    private static string Names(ConfigCollectionDef? def, IReadOnlyList<JsonObject> objects) =>
+        List(objects.Select(o => ConfigState.DisplayName(def, o)).ToList());
+
+    /// <summary>"A, B, and C", or the first five and how many more.</summary>
+    private static string List(IReadOnlyList<string> items) => items.Count switch
+    {
+        1 => items[0],
+        2 => $"{items[0]} and {items[1]}",
+        <= 5 => $"{string.Join(", ", items.Take(items.Count - 1))}, and {items[^1]}",
+        _ => $"{string.Join(", ", items.Take(5))}, and {items.Count - 5} more",
+    };
 
     /// <summary>Renders and resolves references between objects.</summary>
     private sealed class ReferenceIndex

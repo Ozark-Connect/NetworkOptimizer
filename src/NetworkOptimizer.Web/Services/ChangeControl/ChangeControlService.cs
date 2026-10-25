@@ -436,6 +436,8 @@ public sealed partial class ChangeControlService : IChangeControlService
                 touched.Add(c);
             }
         }
+        // A delete takes list references with it, so the plan carries those updates too.
+        touched.UnionWith(DeleteCascade.Apply(baseState, desired, touched));
         return (desired, problems, touched);
     }
 

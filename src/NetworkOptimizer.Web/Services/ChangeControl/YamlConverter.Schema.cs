@@ -34,7 +34,10 @@ public static partial class YamlConverter
             var shape = new ShapeBuilder();
             foreach (var o in state.Get(def.Key))
                 shape.Add(def, o, top: true);
-            collections[YamlName(def)] = shape.ToJson(def, targets);
+            var json = shape.ToJson(def, targets);
+            // The editor offers its remove button only where a delete can be written.
+            if (def.Write?.DeletePath == null) json["readOnly"] = true;
+            collections[YamlName(def)] = json;
         }
 
         var refs = new JsonObject();

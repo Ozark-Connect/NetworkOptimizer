@@ -35,6 +35,11 @@ const theme = EditorView.theme({
         display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0 0.4rem', borderRadius: '4px',
         backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', letterSpacing: '0.1em',
     },
+    '.cc-remove-item': {
+        font: 'inherit', fontSize: '0.95rem', lineHeight: '1', marginLeft: '0.75rem', padding: '0 0.35rem', cursor: 'pointer',
+        border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
+    },
+    '.cc-remove-item:hover, .cc-remove-item:focus-visible': { color: 'var(--danger-color)', background: 'var(--bg-tertiary)' },
     '.cc-secret button': {
         font: 'inherit', fontSize: '0.75rem', letterSpacing: 'normal', padding: '0 0.35rem', cursor: 'pointer',
         border: '1px solid var(--bg-hover)', borderRadius: '3px', background: 'transparent', color: 'var(--info-color)',
@@ -184,6 +189,83 @@ function literalMasks(state) {
     }, { decorations: v => v.decorations });
 }
 
+// ---------- Removing an object ----------
+
+/**
+ * Each top-level object's block: from its "- " line to the line before the next object or collection
+ * key, with its collection's YAML name and a label from its first field. Pure: the Node harness tests it.
+ */
+export function itemBlocks(doc) {
+    const blocks = [];
+    let collection = null;
+    let open = null;
+    const close = endLine => {
+        if (open && endLine >= open.line) blocks.push({ ...open, to: doc.line(endLine).to });
+        open = null;
+    };
+    for (let n = 1; n <= doc.lines; n++) {
+        const text = doc.line(n).text;
+        const key = /^([A-Za-z0-9_]+):\s*$/.exec(text);
+        if (key) {
+            close(n - 1);
+            collection = key[1];
+            continue;
+        }
+        if (collection && text.startsWith('- ')) {
+            close(n - 1);
+            const m = /^- ([A-Za-z0-9_.-]+):\s*(.*)$/.exec(text);
+            const value = m ? scalarText(m[2]).replace(/^["']|["']$/g, '') : '';
+            open = { from: doc.line(n).from, line: n, lineEnd: doc.line(n).to, collection, label: value || (m ? m[1] : 'this object') };
+        }
+    }
+    close(doc.lines);
+    return blocks;
+}
+
+class RemoveWidget extends WidgetType {
+    constructor(block) {
+        super();
+        this.block = block;
+    }
+
+    eq(other) { return other.block.from === this.block.from && other.block.to === this.block.to && other.block.label === this.block.label; }
+
+    toDOM(view) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'cc-remove-item';
+        button.textContent = '×';
+        button.setAttribute('aria-label', `Remove ${this.block.label}`);
+        button.dataset.tooltip = `Remove ${this.block.label}`;
+        button.addEventListener('mousedown', e => e.preventDefault());
+        button.addEventListener('click', e => {
+            e.preventDefault();
+            const doc = view.state.doc;
+            // Take the line break with the block; at the end of the file, the one before it.
+            const from = this.block.to < doc.length ? this.block.from : Math.max(0, this.block.from - 1);
+            const to = this.block.to < doc.length ? this.block.to + 1 : this.block.to;
+            view.dispatch({ changes: { from, to }, userEvent: 'delete.remove-object' });
+            view.focus();
+        });
+        return button;
+    }
+
+    ignoreEvent(e) { return e.type === 'mousedown' || e.type === 'click'; }
+}
+
+// An × at the end of each object's first line, except in collections Network Optimizer cannot delete from.
+function removeButtons(state) {
+    const build = view => Decoration.set(itemBlocks(view.state.doc)
+        .filter(b => !state.schema?.collections?.[b.collection]?.readOnly)
+        .map(b => Decoration.widget({ widget: new RemoveWidget(b), side: 1 }).range(b.lineEnd)), true);
+    return ViewPlugin.fromClass(class {
+        constructor(view) { this.decorations = build(view); }
+        update(u) {
+            if (u.docChanged || u.transactions.some(t => t.effects.some(e => e.is(refreshMasks)))) this.decorations = build(u.view);
+        }
+    }, { decorations: v => v.decorations });
+}
+
 // Revealed values left unedited go back to their token once the cursor leaves the line, so a reveal
 // is never an edit. An edited one stays as typed (and is masked off its line like any secret value).
 function restoreRevealed(view, state) {
@@ -221,6 +303,7 @@ export function create(host, dotnet, text, label, key, canReveal) {
                 theme,
                 secretMasks(state),
                 literalMasks(state),
+                removeButtons(state),
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
