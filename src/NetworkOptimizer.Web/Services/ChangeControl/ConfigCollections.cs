@@ -555,7 +555,8 @@ public static class ConfigCollections
             {
                 Key = "vpn_connections", DisplayName = "VPN connections", Noun = "VPN connections", Group = "RADIUS and VPN",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "vpn/connections", Shape = CollectionShape.Single, Order = 8,
-                // The live connection list: VPN clients coming and going is not a config change.
+                // Live tunnel state (status, assoc_time, rates, IPs) per networkconf id: a reconnect is not a config
+                // change. The VPN's config is its networkconf object, compared there.
                 ReadOnlyFields = Set("connections"),
             },
             new()
