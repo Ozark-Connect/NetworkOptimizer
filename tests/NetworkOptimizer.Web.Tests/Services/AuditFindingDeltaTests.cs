@@ -101,6 +101,15 @@ public class AuditFindingDeltaTests
     }
 
     [Fact]
+    public void GetIssueKey_DismissalScope_IgnoresLiveCountsInMessage()
+    {
+        var before = new AuditIssue { Title = "UPnP: Ports Exposed", DeviceName = "Gateway", DismissalScope = "", Description = "UPnP has 3 active port mapping(s)" };
+        var after = new AuditIssue { Title = "UPnP: Ports Exposed", DeviceName = "Gateway", DismissalScope = "", Description = "UPnP has 5 active port mapping(s)" };
+
+        AuditService.GetIssueKey(before).Should().Be(AuditService.GetIssueKey(after));
+    }
+
+    [Fact]
     public void GetIssueKey_PortAndClientFindings_IgnoreMessage()
     {
         var port = Issue("Port Lock Available");

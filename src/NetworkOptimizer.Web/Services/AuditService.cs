@@ -251,8 +251,8 @@ public class AuditService : IAuditScanService
     /// <summary>
     /// Get a unique key for an issue (for tracking dismissals).
     /// Findings with no port and no client (firewall rules, DNS, network-level) carry their identity
-    /// only in the message, so a hash of it is appended; without it one dismissal hides every
-    /// finding that shares the title.
+    /// only in the text, so a hash of <see cref="AuditIssue.DismissalScope"/> (or the message) is
+    /// appended; without it one dismissal hides every finding that shares the title.
     /// </summary>
     public static string GetIssueKey(AuditIssue issue)
     {
@@ -260,9 +260,23 @@ public class AuditService : IAuditScanService
         if (!string.IsNullOrEmpty(issue.Port) || !string.IsNullOrEmpty(issue.ClientMac))
             return key;
 
-        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(issue.Description ?? ""));
+        var scope = issue.DismissalScope ?? issue.Description ?? "";
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(scope));
         return $"{key}|{Convert.ToHexString(hash, 0, 8)}";
     }
+
+    /// <summary>
+    /// The stable part of a portless finding's identity, when its message carries live counts.
+    /// Null means the message itself identifies the finding.
+    /// </summary>
+    private static string? GetDismissalScope(AuditModels.AuditIssue issue) => issue.Type switch
+    {
+        // One per gateway (or per management network); the counts and lists change between audits
+        Audit.IssueTypes.UpnpPortsExposed or Audit.IssueTypes.UpnpPrivilegedPort or
+        Audit.IssueTypes.StaticPortForward or Audit.IssueTypes.StaticPrivilegedPort or
+        Audit.IssueTypes.MgmtNoFixedIps or Audit.IssueTypes.DnsDeviceMisconfigured => issue.CurrentNetwork ?? "",
+        _ => null
+    };
 
     /// <summary>
     /// Dismiss an issue (excludes it from counts, persisted to database)
@@ -1728,6 +1742,7 @@ public class AuditService : IAuditScanService
                 Title = GetIssueTitle(issue.Type, issue.Message, issue.Severity, issue.Description, exceptionPattern)
                         + Audit.Models.IpFamilyText.Suffix(Audit.Models.IpFamilyText.IsIpv6Only(issue.Metadata)),
                 Description = issue.Message,
+                DismissalScope = GetDismissalScope(issue),
                 Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type),
                 // Context fields
                 DeviceName = issue.DeviceName,
@@ -2384,6 +2399,10 @@ public class AuditIssue
     public string Category { get; set; } = "";
     public string Title { get; set; } = "";
     public string Description { get; set; } = "";
+    /// <summary>
+    /// Stable identity text for the dismissal key when <see cref="Description"/> carries live counts.
+    /// </summary>
+    public string? DismissalScope { get; set; }
     public string Recommendation { get; set; } = "";
     public string? DeviceName { get; set; }
     public string? DeviceMac { get; set; }
