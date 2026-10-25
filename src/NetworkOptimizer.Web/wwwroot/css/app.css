@@ -5593,6 +5593,12 @@ tr:hover .snmp-row-chevron {
     min-height: 150px;
 }
 
+.loading-container {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-secondary);
+}
+
 /* Empty State */
 .empty-state {
     text-align: center;
