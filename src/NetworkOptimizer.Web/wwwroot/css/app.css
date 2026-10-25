@@ -23583,6 +23583,7 @@ body:has(.top-bar-hidden) .btn-fit {
     background: none;
     border: none;
     color: var(--text-secondary);
+    font-family: inherit;
     font-size: 0.8125rem;
     padding: 0.35rem 0.25rem;
     min-height: 32px;

@@ -184,7 +184,7 @@
                 </div>
                 <div class="expand-wrapper @(isOpen ? "expanded" : "")">
                     <div class="expand-content">
-                        @if (shown && c.Kind == ConfigChangeKind.Config)
+                        @if (shown)
                         {
                             <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
                         }
@@ -252,13 +252,9 @@
                             <td colspan="@(_sites.Count > 1 ? 7 : 6)">
                                 <div class="expand-wrapper @(isOpen ? "expanded" : "")">
                                     <div class="expand-content">
-                                        @if (shown && c.Kind == ConfigChangeKind.Config)
+                                        @if (shown)
                                         {
                                             <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
-                                        }
-                                        else if (shown)
-                                        {
-                                            <div class="cc-inset-note" style="padding-top:0.75rem">@c.Summary. @c.Who.</div>
                                         }
                                     </div>
                                 </div>
@@ -449,8 +445,7 @@
         if (index >= 0) _page = index / PageSize;
         StateHasChanged();
         await JS.InvokeVoidAsync("eval", $"setTimeout(() => document.getElementById('change-{c.SiteSlug}-{c.Id}')?.scrollIntoView({{behavior:'smooth', block:'center'}}), 260)");
-        if (c.Kind == ConfigChangeKind.Config)
-            _detail = await Fleet.GetChangeDetailAsync(c.SiteSlug, c.Id);
+        _detail = await Fleet.GetChangeDetailAsync(c.SiteSlug, c.Id);
     }
 
     private async Task RollBackAsync(ChangeRowView c)

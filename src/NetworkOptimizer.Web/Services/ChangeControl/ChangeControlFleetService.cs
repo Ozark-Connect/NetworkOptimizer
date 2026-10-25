@@ -323,6 +323,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         return rows.OrderByDescending(r => r.OccurredAt).ToList();
     }
 
+    // A closed gap shorter than this is a deploy or restart, and stays off the timeline.
+    private static readonly TimeSpan ShortGap = TimeSpan.FromMinutes(15);
+
     public async Task<List<TimelineSiteRow>> GetTimelineAsync(DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string>? sites, CancellationToken cancellationToken = default)
     {
         var result = new List<TimelineSiteRow>();
@@ -333,7 +336,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             var view = await SiteViewAsync(site, withDrift: false, cancellationToken);
             var (gaps, incidents) = await engine.Repositories.UseAsync(async (r, c) =>
                 (await r.GetGapsAsync(fromUtc, toUtc, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc, c)), cancellationToken);
-            var bands = gaps.Select(g => new TimelineBand(g.StartedAt, g.EndedAt ?? DateTime.UtcNow, "gap", g.Reason))
+            var bands = gaps.Where(g => g.EndedAt is not { } end || end - g.StartedAt >= ShortGap).Select(g => new TimelineBand(g.StartedAt, g.EndedAt ?? DateTime.UtcNow, "gap", g.Reason))
                 .Concat(incidents.Select(s => s.Incident).Select(i => new TimelineBand(i.FirstTriggeredAt, i.ResolvedAt ?? i.LastTriggeredAt, "incident", i.Title))).ToList();
             var markers = changes.Where(c => c.SiteSlug == site.Slug).ToList();
             List<(DateTime, double?)> sparkline = [];

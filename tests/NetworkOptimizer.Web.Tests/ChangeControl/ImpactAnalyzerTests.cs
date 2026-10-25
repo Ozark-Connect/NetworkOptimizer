@@ -50,6 +50,17 @@ public class ImpactAnalyzerTests
     }
 
     [Fact]
+    public void Compare_InformationalIsNotAnIssue()
+    {
+        var before = new AuditResult { Issues = [Issue("Note A", AuditSeverity.Informational)] };
+        var after = new AuditResult { Issues = [Issue("Note B", AuditSeverity.Informational), Issue("Mgmt Open", AuditSeverity.Critical)] };
+        var result = ImpactAnalyzer.Compare(before, after);
+        result.AfterIssueCount.Should().Be(1);
+        result.Regressions.Should().ContainSingle(r => r.Title == "Mgmt Open");
+        result.Fixes.Should().BeEmpty();
+    }
+
+    [Fact]
     public void TriggerList_DerivesFromAuditInputs()
     {
         AuditConfigInputs.TriggerCollections.Should().Contain(["networkconf", "firewall_policy", "firewallgroup", "portconf", "setting", "nat", "device", "portforward", "firewall_zone"]);

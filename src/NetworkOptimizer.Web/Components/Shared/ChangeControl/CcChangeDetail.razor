@@ -11,6 +11,10 @@ else
         <div class="cc-panel">
             <div class="cc-panel-title">What changed</div>
             <table class="cc-field-table">
+                @foreach (var (label, value) in Detail.Facts)
+                {
+                    <tr><td class="label">@label</td><td style="text-align:right">@value</td></tr>
+                }
                 @foreach (var o in Detail.Objects)
                 {
                     @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated)

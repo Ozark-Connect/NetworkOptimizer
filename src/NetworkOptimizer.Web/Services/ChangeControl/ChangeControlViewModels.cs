@@ -62,6 +62,8 @@ public sealed class ChangeDetailView
     public List<MetricDelta> BeforeAfter { get; init; } = [];
     public string? Source { get; init; }
     public bool CanRollBack { get; init; }
+    /// <summary>Label and value rows for a change with no config objects: a firmware or Network app upgrade.</summary>
+    public List<(string Label, string Value)> Facts { get; init; } = [];
 }
 
 /// <summary>One snapshot row.</summary>

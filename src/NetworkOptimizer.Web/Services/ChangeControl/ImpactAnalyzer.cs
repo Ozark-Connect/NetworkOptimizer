@@ -130,11 +130,14 @@ public static class ImpactAnalyzer
     /// <summary>Regressions (issues added) and fixes (issues removed) between two audit results.</summary>
     public static ImpactResult Compare(AuditResult before, AuditResult after)
     {
-        var result = new ImpactResult { BeforeIssueCount = before.Issues.Count, AfterIssueCount = after.Issues.Count };
-        var beforeKeys = before.Issues.Select(IssueKey).ToHashSet(StringComparer.Ordinal);
-        var afterKeys = after.Issues.Select(IssueKey).ToHashSet(StringComparer.Ordinal);
+        // Informational findings are not issues: they are counted and compared nowhere.
+        var beforeIssues = before.Issues.Where(i => i.Severity != AuditSeverity.Informational).ToList();
+        var afterIssues = after.Issues.Where(i => i.Severity != AuditSeverity.Informational).ToList();
+        var result = new ImpactResult { BeforeIssueCount = beforeIssues.Count, AfterIssueCount = afterIssues.Count };
+        var beforeKeys = beforeIssues.Select(IssueKey).ToHashSet(StringComparer.Ordinal);
+        var afterKeys = afterIssues.Select(IssueKey).ToHashSet(StringComparer.Ordinal);
 
-        foreach (var issue in after.Issues.DistinctBy(IssueKey))
+        foreach (var issue in afterIssues.DistinctBy(IssueKey))
         {
             var line = Line(issue, "Regression");
             result.AfterIssues.Add(line);
@@ -142,7 +145,7 @@ public static class ImpactAnalyzer
             result.Regressions.Add(line);
             if (result.WorstRegression == null || issue.Severity > result.WorstRegression) result.WorstRegression = issue.Severity;
         }
-        foreach (var issue in before.Issues.DistinctBy(IssueKey).Where(i => !afterKeys.Contains(IssueKey(i))))
+        foreach (var issue in beforeIssues.DistinctBy(IssueKey).Where(i => !afterKeys.Contains(IssueKey(i))))
             result.Fixes.Add(Line(issue, "Fix"));
         return result;
     }

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Storage.Services;
@@ -140,7 +141,30 @@ public sealed partial class ChangeControlService : IChangeControlService
             BeforeAfter = metrics,
             Source = source,
             CanRollBack = l.change.Kind == ConfigChangeKind.Config && l.change.PreviousSnapshotId != null,
+            Facts = Facts(l.change),
         };
+    }
+
+    // Recorded this long after it happened means it came from history, not from a live device read.
+    private static readonly TimeSpan ImportedAfter = TimeSpan.FromHours(1);
+
+    internal static List<(string Label, string Value)> Facts(ConfigChange c)
+    {
+        if (c.Kind is not (ConfigChangeKind.DeviceFirmware or ConfigChangeKind.NetworkAppUpgrade)) return [];
+        var facts = new List<(string, string)>();
+        if (c.Kind == ConfigChangeKind.DeviceFirmware && c.Summary.IndexOf(": firmware", StringComparison.Ordinal) is > 0 and var end)
+            facts.Add(("Device", c.Summary[..end]));
+        facts.Add(("From", FirmwareVersionFormat.ShortOrNull(c.VersionFrom) ?? "Not recorded"));
+        facts.Add(("To", FirmwareVersionFormat.ShortOrNull(c.VersionTo) ?? "Not recorded"));
+        facts.Add(("Upgraded by", c.ActorKind switch
+        {
+            ConfigChangeActorKind.Firmware => c.ActorName ?? "Firmware Rollout",
+            ConfigChangeActorKind.LikelyUniFi => "Outside Network Optimizer (UniFi Console or auto-update)",
+            _ => Who(c),
+        }));
+        if (c.DetectedAt - c.OccurredAt > ImportedAfter)
+            facts.Add(("Recorded", c.FirmwareRolloutPlanId != null ? "From Firmware Rollout history" : "From reboot history"));
+        return facts;
     }
 
     internal static ChangeObjectView ObjectView(ConfigChangeObject o)
