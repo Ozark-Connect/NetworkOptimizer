@@ -93,6 +93,9 @@ public class ConfigPlan
     /// <summary>The snapshot the desired state came from, when it came from one.</summary>
     public int? SourceSnapshotId { get; set; }
 
+    /// <summary>For a Roll Back of one change: the change it rolls back.</summary>
+    public int? RollsBackChangeId { get; set; }
+
     /// <summary>The site a cross-site restore or template came from.</summary>
     [MaxLength(100)]
     public string? SourceSiteSlug { get; set; }

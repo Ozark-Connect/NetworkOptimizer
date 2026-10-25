@@ -209,6 +209,7 @@
                         @foreach (var tag in c.Tags.Where(ServiceTags.ClassD.Contains)) { <span class="status-badge status-info">@tag</span> }
                         @if (c.IncidentsAfter > 0) { <span class="status-badge status-warning">@CcFormat.Plural(c.IncidentsAfter, "incident after", "incidents after")</span> }
                         @if (c.HealthDrop is >= 5 and var drop) { <span class="status-badge status-error">Health -@drop.ToString("0") after</span> }
+                        @if (c.RolledBackByPlanId != null) { <span class="status-badge status-info">Rolled back</span> }
                     </div>
                 </div>
                 <div class="expand-wrapper @(isOpen ? "expanded" : "")">
@@ -277,6 +278,10 @@
                                 @if (c.HealthDrop is >= 5 and var drop)
                                 {
                                     <span class="status-badge status-error" data-tooltip="Site Health in the 3 hours after vs. the 3 hours before, ISP problems left out">Health -@drop.ToString("0")</span>
+                                }
+                                @if (c.RolledBackByPlanId != null)
+                                {
+                                    <span class="status-badge status-info" data-tooltip="A Roll Back of this change applied">Rolled back</span>
                                 }
                             </td>
                             <td class="expand-chevron">@(isOpen ? "▲" : "▼")</td>

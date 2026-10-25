@@ -528,6 +528,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 ActorName = g.ActorName,
                 ActorIp = g.ActorIp,
                 ActorPlatform = g.ActorPlatform,
+                PlanId = g.PlanId,
                 Summary = Truncate(ChangeDescriber.GroupSummary(g.Objects, context, beforeNames, afterNames), 500),
                 ObjectCount = g.Objects.Count,
                 ServiceTagsJson = JsonSerializer.Serialize(g.Objects.SelectMany(o => o.Tags).Distinct().OrderBy(t => t)),

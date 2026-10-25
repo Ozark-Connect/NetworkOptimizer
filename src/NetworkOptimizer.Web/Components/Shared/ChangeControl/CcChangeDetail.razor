@@ -88,6 +88,13 @@ else
                     </tr>
                 }
             </table>
+            @if (Detail.Row.RolledBackByPlanId is { } rolledBackBy)
+            {
+                <div class="cc-item-detail">
+                    Rolled back@(Detail.Row.RolledBackAt is { } at ? $" {CcFormat.Local(at):MMM d, h:mm tt}" : "").
+                    <a href="@SiteContextService.WithSiteParam($"/change-control/plans/{rolledBackBy}", Detail.Row.SiteSlug)">View the plan</a>
+                </div>
+            }
             <div class="action-buttons">
                 @if (Detail.CanRollBack)
                 {

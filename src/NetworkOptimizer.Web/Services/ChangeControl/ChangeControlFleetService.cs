@@ -326,11 +326,12 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         foreach (var site in await SitesAsync(sites, cancellationToken))
         {
             var engine = _registry.GetFor(site.Slug);
-            var (changes, incidents, settings) = await engine.Repositories.UseAsync(async (r, c) =>
-                (await r.GetChangesAsync(fromUtc, toUtc, 2000, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c), await r.GetSettingsAsync(c)), cancellationToken);
+            var (changes, incidents, settings, rollbacks) = await engine.Repositories.UseAsync(async (r, c) =>
+                (await r.GetChangesAsync(fromUtc, toUtc, 2000, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c),
+                 await r.GetSettingsAsync(c), ChangeControlService.RollbacksByChange(await r.GetChangeRollbacksAsync(c))), cancellationToken);
             rows.AddRange(changes
                 .Where(x => settings.ShowOwnChanges || x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null)
-                .Select(x => ChangeControlService.Row(x, site.Slug, site.Name, ChangeControlService.LinkedAfter(x, incidents))));
+                .Select(x => ChangeControlService.Row(x, site.Slug, site.Name, ChangeControlService.LinkedAfter(x, incidents), rollbacks)));
         }
         return rows.OrderByDescending(r => r.OccurredAt).ToList();
     }

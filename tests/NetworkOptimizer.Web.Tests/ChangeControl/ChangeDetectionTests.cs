@@ -114,6 +114,17 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_OwnWrite_CarriesThePlanThatMadeIt()
+    {
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-5), Method = "PUT", Path = "rest/wlanconf/w1", Collection = "wlanconf", ObjectId = "w1", Source = "change-control:plan:12" },
+        };
+        ChangeAttributor.Attribute([Diff("wlanconf", "w1", "Home")], [], journal, Now, false).Single().PlanId.Should().Be(12);
+        ChangeAttributor.PlanOf("change-control").Should().BeNull();
+    }
+
+    [Fact]
     public void Attribute_NoEvent_IsNoAdminRecorded()
     {
         var groups = ChangeAttributor.Attribute([Diff("portconf", "p1", "Cameras")], [], [], Now, false);

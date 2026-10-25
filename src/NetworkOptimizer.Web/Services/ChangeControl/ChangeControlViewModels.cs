@@ -21,6 +21,9 @@ public sealed class ChangeRowView
     public int? SnapshotId { get; init; }
     public int? PreviousSnapshotId { get; init; }
     public int? PlanId { get; init; }
+    /// <summary>The applied Roll Back plan that undid this change, and when it finished; null when none has.</summary>
+    public int? RolledBackByPlanId { get; init; }
+    public DateTime? RolledBackAt { get; init; }
     /// <summary>Site Health lost in the 3 hours after (ISP part removed); null until scored or with no data.</summary>
     public double? HealthDrop { get; init; }
 }

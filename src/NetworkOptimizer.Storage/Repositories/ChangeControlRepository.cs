@@ -365,6 +365,18 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
             return query.OrderByDescending(p => p.CreatedAt).Take(limit).ToListAsync(cancellationToken);
         }, nameof(GetPlansAsync));
 
+    public Task<List<(int ChangeId, int PlanId, DateTime? CompletedAt)>> GetChangeRollbacksAsync(CancellationToken cancellationToken = default) =>
+        ExecuteAsync(async () =>
+        {
+            var applied = new[] { ConfigPlanStatus.Applying, ConfigPlanStatus.Watching, ConfigPlanStatus.Applied };
+            var rows = await _context.ConfigPlans.AsNoTracking()
+                .Where(p => p.RollsBackChangeId != null && applied.Contains(p.Status))
+                .OrderByDescending(p => p.CreatedAt)
+                .Select(p => new { ChangeId = p.RollsBackChangeId!.Value, p.Id, p.CompletedAt })
+                .ToListAsync(cancellationToken);
+            return rows.Select(r => (r.ChangeId, r.Id, r.CompletedAt)).ToList();
+        }, nameof(GetChangeRollbacksAsync));
+
     public Task<List<(NetworkOptimizer.Alerts.Models.AlertIncident Incident, List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry> Alerts)>> GetIncidentsStartedAsync(
         DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default) =>
         ExecuteAsync(async () =>

@@ -1463,6 +1463,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int?>("RevertOfPlanId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("RollsBackChangeId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("ScheduledFor")
                         .HasColumnType("TEXT");
 

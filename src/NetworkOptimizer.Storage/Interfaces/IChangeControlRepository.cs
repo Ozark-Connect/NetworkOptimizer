@@ -126,6 +126,9 @@ public interface IChangeControlRepository
     /// <summary>Plans in the given statuses (all when null), newest first.</summary>
     Task<List<ConfigPlan>> GetPlansAsync(IReadOnlyCollection<ConfigPlanStatus>? statuses = null, int limit = 100, CancellationToken cancellationToken = default);
 
+    /// <summary>Roll Back plans of one change that applied (or are applying), newest first: the change, the plan, and when it finished.</summary>
+    Task<List<(int ChangeId, int PlanId, DateTime? CompletedAt)>> GetChangeRollbacksAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Alert incidents that started in a range and hold at least one alert of the given types
     /// (Changes and incidents: before / after), each with its alerts of those types.

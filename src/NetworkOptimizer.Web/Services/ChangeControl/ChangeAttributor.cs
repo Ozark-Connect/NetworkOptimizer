@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using NetworkOptimizer.Storage.Models;
 
@@ -11,6 +12,10 @@ public sealed class AttributedChange
     public string? ActorIp { get; init; }
     public string? ActorPlatform { get; init; }
     public DateTime OccurredAt { get; init; }
+
+    /// <summary>The Change Control plan whose writes made this change, when it was one.</summary>
+    public int? PlanId { get; init; }
+
     public List<ObjectDiff> Objects { get; } = [];
     public List<AuditLogEvent> Events { get; } = [];
 }
@@ -137,6 +142,7 @@ public static class ChangeAttributor
                 ActorKind = ConfigChangeActorKind.NetworkOptimizer,
                 ActorName = ownObjects.Select(o => o.OwnedBy).FirstOrDefault(n => n != null) ?? JournalSource(writes) ?? JournalSource(journal) ?? "Network Optimizer",
                 OccurredAt = writes.Count > 0 ? writes.Max(j => j.At) : now,
+                PlanId = writes.OrderByDescending(j => j.At).Select(j => PlanOf(j.Source)).FirstOrDefault(p => p != null),
             };
             noChange.Objects.AddRange(ownObjects);
             result.Add(noChange);
@@ -158,6 +164,14 @@ public static class ChangeAttributor
         }
         return result.OrderBy(g => g.OccurredAt).ToList();
     }
+
+    /// <summary>The plan ID in a write's source ("change-control:plan:12"), or null.</summary>
+    internal static int? PlanOf(string? source) =>
+        source != null && source.StartsWith(PlanSourcePrefix, StringComparison.Ordinal)
+        && int.TryParse(source.AsSpan(PlanSourcePrefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
+
+    /// <summary>The write source a plan's apply runs under, followed by its ID.</summary>
+    public const string PlanSourcePrefix = "change-control:plan:";
 
     private static bool IsWlanApGroup(ObjectDiff o) =>
         o.Collection == "apgroups" && (o.Before ?? o.After)?["for_wlanconf"] is JsonValue v && v.TryGetValue<bool>(out var b) && b;

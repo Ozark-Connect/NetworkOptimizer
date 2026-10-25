@@ -80,8 +80,15 @@ public sealed partial class ChangeControlService : IChangeControlService
         _ => "No admin recorded",
     };
 
-    internal static ChangeRowView Row(ConfigChange c, string slug, string siteName, int incidentsAfter) => new()
+    /// <summary>The newest applied Roll Back of each change, by change ID.</summary>
+    internal static Dictionary<int, (int PlanId, DateTime? At)> RollbacksByChange(List<(int ChangeId, int PlanId, DateTime? CompletedAt)> rows) =>
+        rows.GroupBy(r => r.ChangeId).ToDictionary(g => g.Key, g => (g.First().PlanId, g.First().CompletedAt));
+
+    internal static ChangeRowView Row(ConfigChange c, string slug, string siteName, int incidentsAfter,
+        IReadOnlyDictionary<int, (int PlanId, DateTime? At)>? rollbacks = null) => new()
     {
+        RolledBackByPlanId = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rb) ? rb.PlanId : null,
+        RolledBackAt = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rba) ? rba.At : null,
         Id = c.Id,
         SiteSlug = slug,
         SiteName = siteName,
@@ -111,7 +118,8 @@ public sealed partial class ChangeControlService : IChangeControlService
             var changes = (await r.GetChangesAsync(fromUtc, toUtc, 2000, c))
                 .Where(x => own || x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
             var incidents = await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c);
-            return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents))).ToList();
+            var rollbacks = RollbacksByChange(await r.GetChangeRollbacksAsync(c));
+            return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents), rollbacks)).ToList();
         }, cancellationToken);
     }
 
@@ -134,14 +142,15 @@ public sealed partial class ChangeControlService : IChangeControlService
     public async Task<ChangeDetailView?> GetChangeDetailAsync(int changeId, CancellationToken cancellationToken = default)
     {
         var name = await SiteNameAsync(cancellationToken);
-        var loaded = await Repo.UseAsync<(ConfigChange change, List<ConfigChangeObject> objects, List<ScopedIncident> incidents, List<SiteHealthHour> health)?>(async (r, c) =>
+        var loaded = await Repo.UseAsync<(ConfigChange change, List<ConfigChangeObject> objects, List<ScopedIncident> incidents, List<SiteHealthHour> health,
+            Dictionary<int, (int PlanId, DateTime? At)> rollbacks)?>(async (r, c) =>
         {
             var change = await r.GetChangeAsync(changeId, c);
             if (change == null) return null;
             var objects = await r.GetChangeObjectsAsync([change.Id], c);
             var incidents = await ChangeIncidents.StartedAsync(r, change.OccurredAt, change.OccurredAt + ChangeControlSiteEngine.IncidentWindow, c);
             var health = await r.GetHealthHoursAsync(change.OccurredAt.AddHours(-4), change.OccurredAt.AddHours(5), c);
-            return (change, objects, incidents, health);
+            return (change, objects, incidents, health, RollbacksByChange(await r.GetChangeRollbacksAsync(c)));
         }, cancellationToken);
         if (loaded is not { } l) return null;
 
@@ -153,13 +162,13 @@ public sealed partial class ChangeControlService : IChangeControlService
             : null;
         return new ChangeDetailView
         {
-            Row = Row(l.change, _site.Slug, name, LinkedAfter(l.change, l.incidents)),
+            Row = Row(l.change, _site.Slug, name, LinkedAfter(l.change, l.incidents), l.rollbacks),
             Objects = l.objects.Select(ObjectView).ToList(),
             Impact = impact,
             IncidentsAfter = l.incidents.Select(Incident).ToList(),
             BeforeAfter = metrics,
             Source = source,
-            CanRollBack = l.change.Kind == ConfigChangeKind.Config && l.change.PreviousSnapshotId != null,
+            CanRollBack = l.change.Kind == ConfigChangeKind.Config && l.change.PreviousSnapshotId != null && !l.rollbacks.ContainsKey(l.change.Id),
             Facts = Facts(l.change),
         };
     }
@@ -536,11 +545,14 @@ public sealed partial class ChangeControlService : IChangeControlService
             return (ch, await r.GetChangeObjectsAsync([ch.Id], c));
         }, cancellationToken);
         if (change.PreviousSnapshotId is not { } prev) throw new InvalidOperationException("No snapshot before this change.");
+        if ((await Repo.UseAsync((r, c) => r.GetChangeRollbacksAsync(c), cancellationToken)).Any(x => x.ChangeId == change.Id))
+            throw new InvalidOperationException("This change is already rolled back.");
         var state = await Engine.LoadSnapshotStateAsync(prev, cancellationToken) ?? throw new InvalidOperationException("Snapshot content not found.");
         var only = objects.Where(o => !o.ObjectId.StartsWith("order:", StringComparison.Ordinal)).Select(o => (o.Collection, o.ObjectId)).ToHashSet();
         var plan = await Plans.CreateAsync(ConfigPlanKind.RollbackChange, $"Roll Back: {change.Summary}",
             $"Change, {Local(change.OccurredAt):MMM d, h:mm tt}", prev, null, state,
-            new PlanOptions { OnlyObjects = only, Collections = objects.Select(o => o.Collection).ToHashSet() }, Actor, cancellationToken);
+            new PlanOptions { OnlyObjects = only, Collections = objects.Select(o => o.Collection).ToHashSet() }, Actor, cancellationToken,
+            rollsBackChangeId: change.Id);
         return plan.Id;
     }
 

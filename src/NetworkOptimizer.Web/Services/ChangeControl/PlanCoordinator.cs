@@ -91,7 +91,7 @@ public sealed class PlanCoordinator
     /// <summary>Builds a plan against live, runs its impact, and stores it as a Draft.</summary>
     public async Task<ConfigPlan> CreateAsync(ConfigPlanKind kind, string name, string source, int? sourceSnapshotId, string? sourceSite,
         ConfigState desired, PlanOptions options, string createdBy, CancellationToken ct, Action<PlanDocument>? decorate = null,
-        ConfigState? impactBefore = null)
+        ConfigState? impactBefore = null, int? rollsBackChangeId = null)
     {
         var live = await _engine.ReadLiveAsync(ct);
         var doc = PlanBuilder.Build(desired, live, Options(options));
@@ -109,6 +109,7 @@ public sealed class PlanCoordinator
             SourceDescription = source,
             SourceSnapshotId = sourceSnapshotId,
             SourceSiteSlug = sourceSite,
+            RollsBackChangeId = rollsBackChangeId,
             OperationsEncrypted = Seal(doc),
             HighestTier = doc.HighestTier,
             ObjectCount = doc.Operations.Count(o => o.Collection != "device"),
@@ -267,7 +268,7 @@ public sealed class PlanCoordinator
 
             bool ok;
             PlanResult result;
-            using (UniFiWriteSource.Use($"change-control:plan:{plan.Id}"))
+            using (UniFiWriteSource.Use($"{ChangeAttributor.PlanSourcePrefix}{plan.Id}"))
                 (ok, result) = await new PlanExecutor(_engine.Api, _logger).ApplyAsync(doc, HasGateway(live), null, ct);
 
             // Verify: a fresh snapshot, compared with what the plan meant to write.
