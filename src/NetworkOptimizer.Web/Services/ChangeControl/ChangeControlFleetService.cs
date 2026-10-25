@@ -143,6 +143,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             (await r.GetLatestSnapshotAsync(c), await r.GetChangesAsync(now.AddDays(-7), now, 2000, c), await r.GetDetectionStateAsync(c),
              await r.GetLastConfigChangeAsync(c)), ct);
         var config = changes.Where(x => x.Kind == ConfigChangeKind.Config && x.ActorKind != ConfigChangeActorKind.NetworkOptimizer).ToList();
+        var counted = changes.Where(x => x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
         int? drift = null;
         if (withDrift)
         {
@@ -157,7 +158,8 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         }
         return new FleetSiteView
         {
-            Slug = site.Slug, Name = site.Name,
+            Slug = site.Slug,
+            Name = site.Name,
             // The connection state first: an empty row then reads as unseen, not unchanged.
             Detail = connection.IsAwaitingAgent ? "Agent offline"
                 : !connection.IsConnected ? "Console unreachable"
@@ -167,8 +169,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             Online = connection.IsConnected,
             AgentOffline = connection.IsAwaitingAgent,
             LastSnapshotAt = latest?.TakenAt,
-            Changes7d = config.Count,
-            Changes24h = config.Count(c => c.OccurredAt > now.AddDays(-1)),
+            // Counted as the timeline counts: config and firmware alike, NO's own only when a plan applied them.
+            Changes7d = counted.Count,
+            Changes24h = counted.Count(c => c.OccurredAt > now.AddDays(-1)),
             Regressions = config.Sum(c => c.RegressionCount),
             Unattributed = config.Count(c => c.ActorKind is ConfigChangeActorKind.NoAdminRecorded or ConfigChangeActorKind.LikelyUniFi),
             DriftObjects = drift,
@@ -214,8 +217,13 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 var upgrade = ch.ActorKind == ConfigChangeActorKind.LikelyUniFi && ch.Summary.Contains("Network app upgrade", StringComparison.Ordinal);
                 view.Attention.Add(new AttentionItem
                 {
-                    Kind = "Regression", SiteSlug = site.Slug, SiteName = site.Name, At = ch.OccurredAt, ChangeId = ch.Id,
-                    FromSnapshotId = upgrade ? ch.PreviousSnapshotId : null, ToSnapshotId = upgrade ? ch.SnapshotId : null,
+                    Kind = "Regression",
+                    SiteSlug = site.Slug,
+                    SiteName = site.Name,
+                    At = ch.OccurredAt,
+                    ChangeId = ch.Id,
+                    FromSnapshotId = upgrade ? ch.PreviousSnapshotId : null,
+                    ToSnapshotId = upgrade ? ch.SnapshotId : null,
                     Title = upgrade ? $"{ch.RegressionCount} regression{(ch.RegressionCount == 1 ? "" : "s")} from the Network app upgrade" : FirstImpact(ch) ?? ch.Summary,
                     Detail = upgrade ? ch.Summary : $"{ch.Summary}. {ChangeControlService.Who(ch)}.",
                 });
@@ -223,28 +231,45 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             foreach (var p in plans.Where(p => p.Status == ConfigPlanStatus.PendingApproval))
                 view.Attention.Add(new AttentionItem
                 {
-                    Kind = "Approval", SiteSlug = site.Slug, SiteName = site.Name, At = p.SubmittedAt ?? p.CreatedAt, PlanId = p.Id, Title = p.Name,
+                    Kind = "Approval",
+                    SiteSlug = site.Slug,
+                    SiteName = site.Name,
+                    At = p.SubmittedAt ?? p.CreatedAt,
+                    PlanId = p.Id,
+                    Title = p.Name,
                     Detail = $"Submitted by {p.SubmittedBy}." + (p.ScheduledFor is { } s ? $" Scheduled {Local(s):MMM d, h:mm tt} once approved." : "")
                              + (p.HighestTier >= PlanTiers.Lockout ? " Possible lockout." : ""),
                 });
             foreach (var p in plans.Where(p => p.Status == ConfigPlanStatus.Reverted && p.CompletedAt > now.AddDays(-2)))
                 view.Attention.Add(new AttentionItem
                 {
-                    Kind = "Reverted", SiteSlug = site.Slug, SiteName = site.Name, At = p.CompletedAt ?? now, PlanId = p.Id,
-                    Title = $"Plan reverted: {p.Name}", Detail = p.Message ?? "",
+                    Kind = "Reverted",
+                    SiteSlug = site.Slug,
+                    SiteName = site.Name,
+                    At = p.CompletedAt ?? now,
+                    PlanId = p.Id,
+                    Title = $"Plan reverted: {p.Name}",
+                    Detail = p.Message ?? "",
                 });
             foreach (var g in gaps.Where(g => g.EndedAt == null))
                 view.Attention.Add(new AttentionItem
                 {
-                    Kind = "Gap", SiteSlug = site.Slug, SiteName = site.Name, At = g.StartedAt,
+                    Kind = "Gap",
+                    SiteSlug = site.Slug,
+                    SiteName = site.Name,
+                    At = g.StartedAt,
                     Title = g.Reason.Contains("agent", StringComparison.OrdinalIgnoreCase) ? $"Agent offline for {Span(now - g.StartedAt)}" : $"UniFi Console unreachable for {Span(now - g.StartedAt)}",
                     Detail = "Change detection is paused. Network Optimizer catches up from the UniFi audit log when it reconnects.",
                 });
             if (siteView.DriftObjects is > 0)
                 view.Attention.Add(new AttentionItem
                 {
-                    Kind = "Drift", SiteSlug = site.Slug, SiteName = site.Name, At = now,
-                    Title = $"{siteView.DriftObjects} objects drifted from the Baseline", Detail = "Return to Baseline opens a plan; Accept as Baseline keeps them.",
+                    Kind = "Drift",
+                    SiteSlug = site.Slug,
+                    SiteName = site.Name,
+                    At = now,
+                    Title = $"{siteView.DriftObjects} objects drifted from the Baseline",
+                    Detail = "Return to Baseline opens a plan; Accept as Baseline keeps them.",
                 });
 
             view.Plans.AddRange(plans.Where(p => ConfigPlanStatuses.InProgress.Contains(p.Status)).Select(p => ChangeControlService.Summary(p, site.Slug, site.Name)));
@@ -322,8 +347,12 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             }
             result.Add(new TimelineSiteRow
             {
-                Site = view, Markers = markers, Bands = bands, Sparkline = sparkline,
-                ChangeCount = markers.Count, RegressionCount = markers.Sum(m => m.RegressionCount),
+                Site = view,
+                Markers = markers,
+                Bands = bands,
+                Sparkline = sparkline,
+                ChangeCount = markers.Count,
+                RegressionCount = markers.Sum(m => m.RegressionCount),
             });
         }
         return result;
