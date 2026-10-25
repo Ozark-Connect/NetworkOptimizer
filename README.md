@@ -385,7 +385,7 @@ Business Source License 1.1
 
 **Commercial Use:** Use by managed service providers (MSPs), network installers, IT consultants, or any entity using this software in the delivery of paid services requires a commercial license.
 
-**Change Date:** January 1, 2028
+**Change Date:** Three years from the date each version is published. Versions published before this change keep January 1, 2028.
 
 **Change License:** Apache License 2.0
 
