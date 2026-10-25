@@ -90,6 +90,28 @@ public class AuditFindingDeltaTests
     }
 
     [Fact]
+    public void GetIssueKey_PortlessFindingsWithSameTitle_DifferByMessage()
+    {
+        var plex = new AuditIssue { Title = "Firewall: Rule Order Issue", Description = "Allow rule 'Plex' may subvert deny rule 'Block IoT'" };
+        var other = new AuditIssue { Title = "Firewall: Rule Order Issue", Description = "Allow rule 'Any' may subvert deny rule 'Block Guest'" };
+
+        AuditService.GetIssueKey(plex).Should().NotBe(AuditService.GetIssueKey(other));
+        AuditService.GetIssueKey(plex).Should().Be(AuditService.GetIssueKey(
+            new AuditIssue { Title = plex.Title, Description = plex.Description }));
+    }
+
+    [Fact]
+    public void GetIssueKey_PortAndClientFindings_IgnoreMessage()
+    {
+        var port = Issue("Port Lock Available");
+        port.Description = "changed";
+        var client = new AuditIssue { Title = "IoT Device on Wrong VLAN", DeviceName = "Plug", ClientMac = "aa:bb:cc:dd:ee:ff", Description = "x" };
+
+        AuditService.GetIssueKey(port).Should().Be("Port Lock Available|Port 3 on Switch|3");
+        AuditService.GetIssueKey(client).Should().Be("IoT Device on Wrong VLAN|Plug|");
+    }
+
+    [Fact]
     public void Compare_SystemFindings_Ignored()
     {
         var current = new[] { Issue("Fingerprint database unavailable", category: "System") };
