@@ -1,39 +1,33 @@
 # Rebuilds the vendored CodeMirror 6 bundle used by Change Control's YAML editor.
 # Output: src/NetworkOptimizer.Web/wwwroot/lib/codemirror/codemirror.bundle.js (+ LICENSE).
-# Needs Node and npm. Nothing is installed into the repo: the build runs in a temp folder.
+# Needs Node and npm. Installs from scripts/codemirror-bundle/package-lock.json (every transitive
+# version pinned) with install scripts off, in a temp folder; nothing is installed into the repo.
+# After a rebuild, bump the ?v= on the bundle import in wwwroot/js/cc-editor.js.
+param([switch]$UpdateLock)
 $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path -Parent $PSScriptRoot
+$pkgDir = Join-Path $PSScriptRoot 'codemirror-bundle'
 $out = Join-Path $repo 'src/NetworkOptimizer.Web/wwwroot/lib/codemirror'
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "cm-bundle-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Force $work, $out | Out-Null
 
-$packages = @(
-    'codemirror@6.0.1', '@codemirror/state@6.5.2', '@codemirror/view@6.38.1', '@codemirror/language@6.11.2',
-    '@codemirror/commands@6.8.1', '@codemirror/autocomplete@6.18.6', '@codemirror/lint@6.8.5',
-    '@codemirror/search@6.5.11', '@codemirror/lang-yaml@6.1.2', '@lezer/highlight@1.2.1', 'esbuild@0.25.8'
-)
-
-$entry = @'
-export { EditorView, keymap, hoverTooltip, Decoration, WidgetType, ViewPlugin, MatchDecorator } from '@codemirror/view';
-export { EditorState, Compartment, StateEffect } from '@codemirror/state';
-export { basicSetup } from 'codemirror';
-export { indentWithTab } from '@codemirror/commands';
-export { indentUnit, syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
-export { autocompletion, completionKeymap, startCompletion } from '@codemirror/autocomplete';
-export { linter, setDiagnostics, lintGutter } from '@codemirror/lint';
-export { yaml } from '@codemirror/lang-yaml';
-export { tags } from '@lezer/highlight';
-'@
-
 Push-Location $work
 try {
-    npm init -y | Out-Null
-    npm install --no-audit --no-fund --save-exact @packages | Out-Null
-    Set-Content -Path entry.js -Value $entry -Encoding utf8
-    npx esbuild entry.js --bundle --format=esm --minify --legal-comments=none --outfile=bundle.js
-    $versions = ($packages | Where-Object { $_ -notlike 'esbuild@*' }) -join ', '
-    $header = "/* CodeMirror 6 bundle for Change Control (MIT, see LICENSE). Built by scripts/build-codemirror-bundle.ps1 from: $versions */`n"
+    Copy-Item (Join-Path $pkgDir 'package.json'), (Join-Path $pkgDir 'entry.js') .
+    if ($UpdateLock -or -not (Test-Path (Join-Path $pkgDir 'package-lock.json'))) {
+        npm install --package-lock-only --ignore-scripts --no-audit --no-fund | Out-Null
+        Copy-Item package-lock.json (Join-Path $pkgDir 'package-lock.json')
+    }
+    else {
+        Copy-Item (Join-Path $pkgDir 'package-lock.json') .
+    }
+    npm ci --ignore-scripts --no-audit --no-fund | Out-Null
+    # esbuild's binary comes from an optional platform package, which ci installs without scripts.
+    npx --no-install esbuild entry.js --bundle --format=esm --minify --legal-comments=eof --outfile=bundle.js
+    $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+    $versions = ($pkg.dependencies.PSObject.Properties | Where-Object Name -ne 'esbuild' | ForEach-Object { "$($_.Name)@$($_.Value)" }) -join ', '
+    $header = "/* CodeMirror 6 bundle for Change Control (MIT; licenses at the end and in LICENSE). Built by scripts/build-codemirror-bundle.ps1 from: $versions */`n"
     Set-Content -Path (Join-Path $out 'codemirror.bundle.js') -Value ($header + (Get-Content bundle.js -Raw)) -Encoding utf8 -NoNewline
     Copy-Item node_modules/codemirror/LICENSE (Join-Path $out 'LICENSE')
 }

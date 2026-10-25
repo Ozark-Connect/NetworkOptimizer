@@ -321,9 +321,17 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     public async Task<string?> RevealSecretAsync(int? snapshotId, string token, CancellationToken cancellationToken = default)
     {
-        if (YamlConverter.SecretTokenPath(token) is not { } path) return null;
+        if (YamlConverter.SecretTokenPath(token) is not { } path)
+        {
+            _audit.SetTarget(null, "Not a masked secret");
+            return null;
+        }
         var state = (await LoadSideAsync(snapshotId, cancellationToken)).State;
-        if (YamlConverter.FindSecret(state, path) is not { } found) return null;
+        if (YamlConverter.FindSecret(state, path) is not { } found)
+        {
+            _audit.SetTarget(path, "Not found; nothing shown");
+            return null;
+        }
         // The audit names which secret was shown, never its value.
         _audit.SetTarget(path, $"{found.Def.Noun} {ConfigState.DisplayName(found.Def, found.Object)}: {ChangeDescriber.LabelFor(found.Field)}");
         return YamlConverter.ScalarText(found.Value);
@@ -361,9 +369,17 @@ public sealed partial class ChangeControlService : IChangeControlService
         var plan = touched.Count == 0 ? null : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched });
         var ops = plan?.Operations ?? [];
         // Plan errors (a kept secret with nothing to keep, a dangling reference) block Review Plan too.
-        foreach (var error in plan?.Errors ?? [])
-            problems.Add(new YamlProblem("Error", filesByCollection.Keys.Select(k => ConfigCollections.Get(k)).OfType<ConfigCollectionDef>()
-                .Select(YamlConverter.FileName).FirstOrDefault() ?? "", 1, error));
+        // Only from live: from a snapshot this plans against the snapshot, while Review Plan plans against live.
+        if (snapshotId == null)
+        {
+            var edited = filesByCollection.Keys.Select(ConfigCollections.Get).OfType<ConfigCollectionDef>().ToList();
+            foreach (var error in plan?.Errors ?? [])
+            {
+                // Errors start with the object's noun ("WLAN Home: ..."); file them under that collection.
+                var def = edited.FirstOrDefault(d => error.StartsWith(d.Noun + " ", StringComparison.Ordinal)) ?? edited.FirstOrDefault();
+                problems.Add(new YamlProblem("Error", def == null ? "" : YamlConverter.FileName(def), 1, error));
+            }
+        }
         return new YamlValidation
         {
             Problems = problems, EditedObjects = ops.Count, EditedCollections = ops.Select(o => o.Collection).Distinct().Count(),

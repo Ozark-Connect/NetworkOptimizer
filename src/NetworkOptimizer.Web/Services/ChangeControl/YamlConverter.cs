@@ -163,15 +163,17 @@ public static partial class YamlConverter
             sb.Append("id: ").Append(Scalar(ConfigState.IdOf(o))).Append('\n');
         }
         string? pending = null;
+        var anyField = false;
         foreach (var (heading, key, value) in Ordered(def, o, top))
         {
             // A group's heading survives its skipped fields and prints before its first written one.
             pending = heading ?? pending;
             if (top && (key is "_id" or "id" or "site_id" || key == ConfigCollections.DeviceMetaField || def.ReadOnlyFields.Contains(key) && key is not "key")) continue;
             if (ConfigDiffEngine.IsChurnField(key)) continue;
-            // Never above the object's first line, which carries the list marker.
-            if (pending != null && !first) sb.Append(' ', indent).Append("# ").Append(pending).Append('\n');
+            // Never above the object's first field (the id: line of an ambiguous object does not count).
+            if (pending != null && anyField) sb.Append(' ', indent).Append("# ").Append(pending).Append('\n');
             pending = null;
+            anyField = true;
             var outKey = key;
             JsonNode? outValue = value;
             var childPath = $"{path}/{key}";
@@ -217,7 +219,11 @@ public static partial class YamlConverter
             yield break;
         }
 
-        IEnumerable<string> lead = top ? [def.NameField] : [def.NameField, .. def.NestedFieldOrder];
+        IEnumerable<string> lead = !top
+            ? def.NestedFieldOrder.Count > 0 ? def.NestedFieldOrder : [def.NameField]
+            : def.SectionFieldOrder != null && o[def.NameField]?.ToString() is { } section && def.SectionFieldOrder.TryGetValue(section, out var fields)
+                ? [def.NameField, .. fields]
+                : [def.NameField];
         foreach (var field in lead)
             if (o.TryGetPropertyValue(field, out var v) && placed.Add(field)) yield return (null, field, v);
         foreach (var p in o.Where(p => !placed.Contains(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal))
@@ -391,12 +397,16 @@ public static partial class YamlConverter
                 {
                     if (value is JsonValue v && v.TryGetValue<string>(out var s) && SecretTokenPath(s) is { } path)
                     {
+                        var found = FindSecret(baseState, path);
                         if (!ConfigCollections.IsSecretField(def, key))
                             result.Problems.Add(new YamlProblem("Error", fileName, line, $"{key}: a masked secret can only be the value of a secret field."));
-                        else if (FindSecret(baseState, path) is { } found)
-                            o[key] = found.Value.DeepClone();
-                        else
+                        else if (found == null)
                             result.Problems.Add(new YamlProblem("Error", fileName, line, $"{key}: the masked secret is not in the config this edit started from. Enter a value."));
+                        // Same field name only, so a VPN key can never become a Wi-Fi passphrase someone can read.
+                        else if (found.Value.Field != key)
+                            result.Problems.Add(new YamlProblem("Error", fileName, line, $"{key}: a masked {found.Value.Field} cannot be used here. Enter a value."));
+                        else
+                            o[key] = found.Value.Value.DeepClone();
                     }
                     else ResolveSecretTokens(def, value, baseState, line, result, fileName);
                 }

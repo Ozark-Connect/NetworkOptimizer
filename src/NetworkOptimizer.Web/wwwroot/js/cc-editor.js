@@ -4,7 +4,7 @@ import {
     EditorView, EditorState, Compartment, basicSetup, keymap, indentWithTab, indentUnit, yaml,
     autocompletion, startCompletion, setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
     Decoration, WidgetType, ViewPlugin, MatchDecorator,
-} from '../lib/codemirror/codemirror.bundle.js?v=2';
+} from '../lib/codemirror/codemirror.bundle.js?v=3';
 
 const highlight = HighlightStyle.define([
     { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--info-color)' },
@@ -20,13 +20,13 @@ const theme = EditorView.theme({
     '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', lineHeight: '1.6', overflow: 'auto' },
     '.cm-content': { caretColor: 'var(--text-primary)', minHeight: '480px', padding: '0.75rem 0' },
     '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--text-muted)', border: 'none' },
-    '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
+    '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--bg-hover) 50%, transparent)' },
     '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--text-secondary)' },
     '&.cm-focused': { outline: 'none' },
     '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--text-primary)' },
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': { backgroundColor: 'rgba(71,151,255,0.25)' },
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': { backgroundColor: 'color-mix(in srgb, var(--info-color) 25%, transparent)' },
     '.cm-tooltip': { backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--bg-hover)', color: 'var(--text-primary)' },
-    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--primary-color)', color: '#fff' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--primary-color)', color: 'var(--text-primary)' },
     '.cm-completionDetail': { color: 'var(--text-secondary)', fontStyle: 'normal', marginLeft: '0.75rem' },
     '.cm-diagnostic-error': { borderLeftColor: 'var(--danger-color)' },
     '.cm-diagnostic-warning': { borderLeftColor: 'var(--warning-color)' },
@@ -139,6 +139,7 @@ export function create(host, dotnet, text, label, key, canReveal) {
                     clearTimeout(state.timer);
                     const key = state.key;
                     state.timer = setTimeout(() => {
+                        state.timer = 0;
                         state.dotnet.invokeMethodAsync('OnEditorChanged', key, view.state.doc.toString())
                             .catch(e => console.warn('cc-editor: change callback failed', e));
                     }, 250);

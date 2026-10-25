@@ -113,7 +113,7 @@ public interface IConfigTemplateService
     [AuditAction(AuditActions.ChangeControlTemplateSaved, TargetType = "config_template", InstanceScoped = true)]
     Task<List<YamlProblem>> UpdateFromYamlAsync(int templateId, string name, string? description, string yaml, CancellationToken cancellationToken = default);
 
-    /// <summary>A template as YAML (secrets redacted).</summary>
+    /// <summary>A template as YAML (secrets masked as tokens that resolve against the template).</summary>
     [RequireRole(Roles.Admin)]
     Task<string> GetYamlAsync(int templateId, CancellationToken cancellationToken = default);
 
@@ -166,7 +166,9 @@ public sealed class ConfigTemplateService : IConfigTemplateService
     public async Task<string> GetYamlAsync(int templateId, CancellationToken cancellationToken = default)
     {
         var loaded = await _store.LoadAsync(templateId, cancellationToken) ?? throw new InvalidOperationException("Template not found.");
-        return YamlConverter.Export(loaded.State, null, includeSecrets: false);
+        // Masked, not redacted: UpdateFromYamlAsync parses against this same state, so each token
+        // resolves to the template's own secret. <keep current> would be stored as the value.
+        return YamlConverter.Export(loaded.State, null, SecretMode.Mask);
     }
 
     public Task DeleteAsync(int templateId, CancellationToken cancellationToken = default) => _store.DeleteAsync(templateId, cancellationToken);

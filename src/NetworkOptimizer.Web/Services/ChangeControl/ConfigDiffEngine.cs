@@ -282,7 +282,7 @@ public static class ConfigDiffEngine
             a.TryGetValue(key, out var ao);
             if (bo == null || ao == null)
             {
-                fields.Add(new FieldChange(elementPath, bo?.DeepClone(), ao?.DeepClone()));
+                fields.Add(Shown(def, elementPath, bo, ao));
                 continue;
             }
             CompareNode(def, elementPath, bo, ao, fields, noOwned);

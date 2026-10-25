@@ -54,6 +54,49 @@ public class YamlFieldOrderTests
         plan.Operations.Should().BeEmpty("an unedited export changes nothing");
     }
 
+    [Fact]
+    public void EveryCollection_ListsEachFieldOnce()
+    {
+        foreach (var def in ConfigCollections.All)
+        {
+            var listed = def.FieldGroups.SelectMany(g => g.Fields).ToList();
+            listed.Should().OnlyHaveUniqueItems($"{def.Key} places each field in one group");
+        }
+    }
+
+    [Fact]
+    public void Settings_FollowTheirSectionOrder()
+    {
+        var order = ConfigFieldOrder.SettingSections["mgmt"].Take(4).ToList();
+        var obj = new System.Text.Json.Nodes.JsonObject { ["_id"] = "s1", ["key"] = "mgmt" };
+        foreach (var f in order.AsEnumerable().Reverse()) obj[f] = "x";
+        var state = new ConfigState();
+        state.Collections["setting"] = [obj];
+        var lines = YamlConverter.Export(state, ["setting"], SecretMode.Mask).Split('\n').Select(l => l.Trim()).ToList();
+        lines.Should().ContainInOrder(["- key: mgmt", .. order.Select(f => $"{f}: x")]);
+    }
+
+    [Fact]
+    public void DevicePortOverride_PortIndexThenNameThenProfile()
+    {
+        var state = State(("device", """{"_id":"d1","mac":"aa:bb:cc:00:00:01","name":"Switch","port_overrides":[{"poe_mode":"auto","portconf_id":"pc1","name":"AP","port_idx":4}]}"""));
+        var lines = YamlConverter.Export(state, ["device"], SecretMode.Mask).Split('\n').Select(l => l.Trim()).ToList();
+        lines.Should().ContainInOrder("- port_idx: 4", "name: AP", "portconf_id: pc1", "poe_mode: auto");
+    }
+
+    [Fact]
+    public void AmbiguousObject_NoHeadingRightAfterTheIdLine()
+    {
+        // Port profiles have no enforced key, so a name clash writes id: first.
+        var state = State(
+            ("portconf", """{"_id":"p1","name":"Same","poe_mode":"off"}"""),
+            ("portconf", """{"_id":"p2","name":"Same","poe_mode":"auto"}"""));
+        var lines = YamlConverter.Export(state, ["portconf"], SecretMode.Mask).Split('\n').Select(l => l.Trim()).ToList();
+        lines.Should().Contain("- id: p1");
+        lines[lines.IndexOf("- id: p1") + 1].Should().Be("name: Same");
+        lines.Should().ContainInOrder("- id: p1", "name: Same", "# PoE", "poe_mode: \"off\"");
+    }
+
     private static ConfigState Merge(ConfigState baseState, YamlParseResult parsed)
     {
         var desired = baseState.Clone();

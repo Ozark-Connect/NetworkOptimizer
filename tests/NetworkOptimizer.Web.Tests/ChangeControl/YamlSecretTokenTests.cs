@@ -63,6 +63,14 @@ public class YamlSecretTokenTests
     }
 
     [Fact]
+    public void Token_FromADifferentSecretField_IsRefused()
+    {
+        var parsed = Parse("wlanconf:\n  - name: Guest\n    network: IoT\n    x_passphrase: <secret:w1/private_preshared_keys/0/password>\n");
+        parsed.Problems.Should().Contain(p => p.Level == "Error" && p.Message.Contains("cannot be used here"));
+        parsed.Collections["wlanconf"].Single()["x_passphrase"]!.ToString().Should().NotBe("pw-lan");
+    }
+
+    [Fact]
     public void Token_InAnOrdinaryField_IsRefused_AndNotResolved()
     {
         var parsed = Parse("wlanconf:\n  - name: <secret:w1/x_passphrase>\n    network: IoT\n");

@@ -169,6 +169,8 @@
     private bool _canReveal;
     // Set when _text or _group changes on this side; the next render hands both to the editor.
     private bool _pushText;
+    private int _generation;
+    private bool _disposed;
 
     private int? SnapshotId => int.TryParse(StartFrom, out var id) ? id : null;
     private int Errors => _validation.Problems.Count(p => p.Level == "Error");
@@ -248,11 +250,14 @@
                 _self = DotNetObjectReference.Create(this);
                 var module = await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/cc-editor.js"));
                 _canReveal = await Site.IsSiteAdminAsync();
-                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), _group, _canReveal);
+                if (_disposed) { await module.DisposeAsync(); return; }
+                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), EditKey, _canReveal);
                 _editor = module;
                 _pushText = true;
+                // Left the tab while create was in flight: DisposeAsync already ran without an editor to tear down.
+                if (_disposed) { await DisposeEditorAsync(); return; }
             }
-            catch (JSDisconnectedException) { return; }
+            catch (Exception ex) when (ex is JSDisconnectedException or ObjectDisposedException) { return; }
             finally { _creating = false; }
         }
         if (_editor != null && _pushText && !_loading)
@@ -260,7 +265,7 @@
             _pushText = false;
             try
             {
-                await _editor.InvokeVoidAsync("setText", _host, _text, _group);
+                await _editor.InvokeVoidAsync("setText", _host, _text, EditKey);
                 await _editor.InvokeVoidAsync("setSchema", _host, _schemas.GetValueOrDefault(_group, "{}"));
                 await PushProblemsAsync();
             }
@@ -268,10 +273,17 @@
         }
     }
 
-    /// <summary>The editor's text after typing pauses. <paramref name="group"/> is the group it was typed in.</summary>
+    // Group plus a generation that Discard, Start from, and Upload advance, so a change still in
+    // flight from before one of them is dropped instead of restoring the text it replaced.
+    private string EditKey => $"{_generation}|{_group}";
+
+    /// <summary>The editor's text after typing pauses. <paramref name="key"/> is <see cref="EditKey"/> when it was typed.</summary>
     [JSInvokable]
-    public void OnEditorChanged(string group, string text)
+    public void OnEditorChanged(string key, string text)
     {
+        var bar = key.IndexOf('|');
+        if (bar < 0 || key[..bar] != _generation.ToString(System.Globalization.CultureInfo.InvariantCulture)) return;
+        var group = key[(bar + 1)..];
         if (group == _group) _text = text;
         if (_original.TryGetValue(group, out var original) && original == text) _edited.Remove(group);
         else _edited[group] = text;
@@ -329,6 +341,7 @@
 
     private async Task StartOverAsync()
     {
+        _generation++;
         _edited.Clear();
         _original.Clear();
         _schemas.Clear();
@@ -358,6 +371,7 @@
                 }
                 current?.Append(line).Append('\n');
             }
+            _generation++;
             foreach (var (group, sb) in segments) _edited[group] = sb.ToString();
             if (segments.Count > 0) await OpenGroupAsync(segments.Keys.First());
             await ValidateAsync();
@@ -396,16 +410,21 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         _debounce?.Dispose();
-        if (_editor != null)
-        {
-            try
-            {
-                await _editor.InvokeVoidAsync("dispose", _host);
-                await _editor.DisposeAsync();
-            }
-            catch (JSDisconnectedException) { }
-        }
+        await DisposeEditorAsync();
         _self?.Dispose();
+    }
+
+    private async Task DisposeEditorAsync()
+    {
+        if (_editor is not { } editor) return;
+        _editor = null;
+        try
+        {
+            await editor.InvokeVoidAsync("dispose", _host);
+            await editor.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
     }
 }
