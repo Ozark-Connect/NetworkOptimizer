@@ -107,17 +107,45 @@
             }
             else
             {
-                <div class="cc-card-note">The plan cannot reach these. Change each one by hand after the move.</div>
+                <div class="cc-card-note">Connected without a DHCP lease, so the plan cannot reach these. Change each one on the device after the move.@(v.StaticClients.Any(s => s.Reserved) ? " Reserved ones have their reservation moved too." : "")</div>
                 <div class="table-responsive">
                     <table class="data-table">
                         <thead><tr><th>Client</th><th>Now</th><th>New</th></tr></thead>
                         <tbody>
                             @foreach (var s in v.StaticClients)
                             {
-                                <tr><td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Network.Length > 0 ? $", {s.Network}" : "")</div></td><td><code>@s.Ip</code></td><td><code>@s.NewIp</code></td></tr>
+                                <tr><td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Network.Length > 0 ? $", {s.Network}" : "")@(s.Reserved ? ", reserved" : "")</div></td><td><code>@s.Ip</code></td><td><code>@s.NewIp</code></td></tr>
                             }
                         </tbody>
                     </table>
+                </div>
+            }
+            @if (v.OfflineClients.Count > 0)
+            {
+                <div class="cc-card-note">
+                    @CcFormat.Plural(v.OfflineClients.Count, "offline client was", "offline clients were") last seen in a moved subnet. Offline, a DHCP lease proves nothing either way:
+                    reserved ones move if they use DHCP; any set on the device need changing when they are back.
+                    <button class="cc-link-btn" @onclick="() => _showOffline = !_showOffline">@(_showOffline ? "Hide" : "Show") them</button>
+                </div>
+                <div class="expand-wrapper @(_showOffline ? "expanded" : "")">
+                    <div class="expand-content">
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead><tr><th>Client</th><th>Last seen</th><th>Now</th><th>New</th></tr></thead>
+                                <tbody>
+                                    @foreach (var s in v.OfflineClients)
+                                    {
+                                        <tr>
+                                            <td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Reserved ? ", reserved" : "")</div></td>
+                                            <td>@(s.LastSeen is { } seen && seen > DateTime.MinValue ? CcFormat.Local(seen).ToString("MMM d, yyyy") : "unknown")</td>
+                                            <td><code>@s.Ip</code></td>
+                                            <td><code>@s.NewIp</code></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             }
         </div>
@@ -176,6 +204,7 @@
     private ReaddressView? _view;
     private bool _previewed;
     private bool _showAll;
+    private bool _showOffline;
     private bool _busy;
     private string? _error;
 

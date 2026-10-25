@@ -60,6 +60,30 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         return _coordinators[slug];
     }
 
+    /// <summary>
+    /// MACs the site's gateway is serving a DHCP lease to (dnsmasq's lease file, over Gateway SSH); null
+    /// without Gateway SSH. A connected client missing here set its address on the device, reserved or not.
+    /// </summary>
+    public async Task<HashSet<string>?> GatewayLeaseMacsAsync(string slug, CancellationToken ct)
+    {
+        try
+        {
+            var (ok, output) = await _sp.GetRequiredService<GatewaySshRegistry>().GetFor(slug)
+                .RunCommandAsync("cat /data/udapi-config/dnsmasq.lease", TimeSpan.FromSeconds(15), ct);
+            if (!ok) return null;
+            // "<expiry> <mac> <ip> <hostname> <client-id>" per line.
+            return output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                .Where(p => p.Length >= 3 && p[1].Count(c => c == ':') == 5)
+                .Select(p => p[1].ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Gateway lease file read failed for site {Site}", slug);
+            return null;
+        }
+    }
+
     /// <summary>Network Optimizer's own settings of a site that a re-address moves; saved when <paramref name="apply"/>.</summary>
     public async Task<List<SettingRewrite>> ReaddressSettingsAsync(string slug, IReadOnlyList<SubnetMove> moves, IReadOnlyList<string> remote, bool apply, CancellationToken ct)
     {

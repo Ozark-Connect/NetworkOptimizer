@@ -13,8 +13,8 @@ public sealed class ReaddressChoices
     public Dictionary<string, string> NewSubnets { get; init; } = [];
 }
 
-/// <summary>A client whose address is set on the device itself: the plan cannot move it.</summary>
-public sealed record StaticClient(string Name, string Mac, string Ip, string NewIp, string Network);
+/// <summary>A client whose address may be set on the device; <c>LastSeen</c> is set for an offline one, which cannot be told apart.</summary>
+public sealed record StaticClient(string Name, string Mac, string Ip, string NewIp, string Network, bool Reserved, DateTime? LastSeen = null);
 
 /// <summary>The dry run: every move, rewrite, and thing a person must handle.</summary>
 public sealed class ReaddressView
@@ -27,6 +27,8 @@ public sealed class ReaddressView
     /// <summary>Addresses in a moved subnet left alone because a WAN or a VPN's far side owns them.</summary>
     public List<AddressMention> Remote { get; init; } = [];
     public List<StaticClient> StaticClients { get; init; } = [];
+    /// <summary>Known clients last seen in a moved subnet but offline now: no lease proves nothing for them.</summary>
+    public List<StaticClient> OfflineClients { get; init; } = [];
     /// <summary>Where the static clients came from: UniFi's IP Table, or DHCP ranges when it was not readable.</summary>
     public string StaticSource { get; init; } = "";
     public List<SettingRewrite> Settings { get; init; } = [];
@@ -61,7 +63,8 @@ public sealed partial class ChangeControlService
             Rewrites = result.Rewrites,
             Mentions = result.Mentions,
             Remote = result.Remote,
-            StaticClients = statics,
+            StaticClients = statics.Where(s => s.LastSeen == null).ToList(),
+            OfflineClients = statics.Where(s => s.LastSeen != null).ToList(),
             StaticSource = source,
             Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, RemoteCidrs(live), apply: false, cancellationToken),
         };
@@ -90,8 +93,10 @@ public sealed partial class ChangeControlService
                 foreach (var m in result.Remote)
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 foreach (var w in warnings) doc.Notes.Add(w);
-                if (statics.Count > 0)
-                    doc.Notes.Add($"Set on the device itself, so this plan cannot move them: {string.Join(", ", statics.Select(s => $"{s.Name} ({s.Ip})"))}.");
+                if (statics.Where(s => s.LastSeen == null).ToList() is { Count: > 0 } set)
+                    doc.Notes.Add($"Set on the device itself, so this plan cannot move them: {string.Join(", ", set.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp})"))}.");
+                if (statics.Count(s => s.LastSeen != null) is > 0 and var offline)
+                    doc.Notes.Add($"{offline} offline clients were last seen in a moved subnet. Any set on the device need changing when they are back; the dry run lists them.");
                 foreach (var m in result.Mentions)
                     doc.Notes.Add($"Not rewritten, holds an old address: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 if (settings.Count > 0)
@@ -147,29 +152,31 @@ public sealed partial class ChangeControlService
     }
 
     /// <summary>
-    /// Clients in a moved subnet whose address is set on the device. UniFi's IP Table (active-leases)
-    /// marks them static; when it cannot be read, a client outside its network's DHCP range with no
-    /// reservation counts.
+    /// Clients in a moved subnet whose address is set on the device. The gateway's own DHCP lease file
+    /// (over Gateway SSH) is the record: a connected client with no lease there is static, reserved or
+    /// not, since a DHCP client renews well before its lease ends. Without Gateway SSH, UniFi's IP Table
+    /// can only clear clients with no reservation (it lists every reservation the same way), and without
+    /// that, an address outside its network's DHCP range counts.
     /// </summary>
-    [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/sta clients and v2 active-leases (the IP Table)")]
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/sta clients, the gateway's dnsmasq lease file, v2 active-leases (the IP Table)")]
     private async Task<(List<StaticClient> Clients, string Source)> StaticClientsAsync(ConfigState live, List<SubnetMove> active, CancellationToken ct)
     {
         var map = Readdressing.Map(active);
         var clients = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/sta", null, ct);
         if (!clients.IsSuccess || ConfigSnapshotReader.ExtractList(clients.Body) is not { } list) return ([], "");
 
-        // The IP Table: {"dhcp_lease_info":[{mac, ip, use_fixedip, lease_expiration_time, status}]}, one row per
-        // DHCP lease or reservation. A connected client with no row set its address on the device.
-        var leases = await Engine.Api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Get, "active-leases", null, ct);
-        HashSet<string>? leased = null;
-        if (leases.IsSuccess)
+        var gateway = await _registry.GatewayLeaseMacsAsync(_site.Slug, ct);
+        HashSet<string>? ipTable = null;
+        if (gateway == null)
         {
+            // {"dhcp_lease_info":[{mac, ip, use_fixedip, lease_expiration_time, status}]}: leases and reservations.
+            var leases = await Engine.Api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Get, "active-leases", null, ct);
             try
             {
-                if (JsonNode.Parse(leases.Body)?["dhcp_lease_info"] is JsonArray rows)
-                    leased = rows.OfType<JsonObject>().Select(r => r["mac"]?.ToString()?.ToLowerInvariant()).OfType<string>().ToHashSet(StringComparer.Ordinal);
+                if (leases.IsSuccess && JsonNode.Parse(leases.Body)?["dhcp_lease_info"] is JsonArray rows)
+                    ipTable = rows.OfType<JsonObject>().Select(r => r["mac"]?.ToString()?.ToLowerInvariant()).OfType<string>().ToHashSet(StringComparer.Ordinal);
             }
-            catch (System.Text.Json.JsonException) { }
+            catch (JsonException) { }
         }
 
         var networks = live.Get("networkconf").ToDictionary(ConfigState.IdOf, n => n, StringComparer.OrdinalIgnoreCase);
@@ -177,19 +184,44 @@ public sealed partial class ChangeControlService
         foreach (var c in list)
         {
             if (c["ip"]?.ToString() is not { } ipText || Readdressing.ParseIp(ipText) is not { } ip || Readdressing.MapIp(ip, map) == null) continue;
-            if (c["use_fixedip"] is JsonValue f && f.TryGetValue<bool>(out var fixedIp) && fixedIp) continue;
+            var reserved = c["use_fixedip"] is JsonValue f && f.TryGetValue<bool>(out var fixedIp) && fixedIp;
             var mac = c["mac"]?.ToString()?.ToLowerInvariant() ?? "";
             var network = c["network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n : null;
-            bool isStatic;
-            if (leased != null)
-                isStatic = !leased.Contains(mac);
-            else
-                isStatic = network != null && !InDhcpRange(network, ip);
+            var isStatic = gateway != null ? !gateway.Contains(mac)
+                : !reserved && (ipTable != null ? !ipTable.Contains(mac) : network != null && !InDhcpRange(network, ip));
             if (!isStatic) continue;
             var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
-            result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? ""));
+            result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? "", reserved));
         }
-        return (result.OrderBy(r => Readdressing.ParseIp(r.Ip)).ToList(), leased != null ? "UniFi's IP Table" : "DHCP ranges");
+        result.AddRange(await OfflineClientsAsync(list, networks, map, ct));
+        var source = gateway != null ? "the gateway's DHCP leases"
+            : ipTable != null ? "UniFi's IP Table (reserved clients cannot be told apart without Gateway SSH)"
+            : "DHCP ranges";
+        return (result.OrderBy(r => Readdressing.ParseIp(r.Ip)).ToList(), source);
+    }
+
+    /// <summary>Known clients not connected now whose last (or reserved) address is in a moved subnet.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_ip, last_seen, fixed_ip")]
+    private async Task<List<StaticClient>> OfflineClientsAsync(List<JsonObject> connected, Dictionary<string, JsonObject> networks,
+        List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
+    {
+        var online = connected.Select(c => c["mac"]?.ToString()?.ToLowerInvariant()).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var users = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "rest/user", null, ct);
+        if (!users.IsSuccess || ConfigSnapshotReader.ExtractList(users.Body) is not { } list) return [];
+        var result = new List<StaticClient>();
+        foreach (var u in list)
+        {
+            var mac = u["mac"]?.ToString()?.ToLowerInvariant() ?? "";
+            if (mac.Length == 0 || online.Contains(mac)) continue;
+            var reserved = u["use_fixedip"] is JsonValue f && f.TryGetValue<bool>(out var r) && r;
+            var ipText = (reserved ? u["fixed_ip"]?.ToString() : null) ?? u["last_ip"]?.ToString();
+            if (Readdressing.ParseIp(ipText) is not { } ip || Readdressing.MapIp(ip, map) is not { } moved) continue;
+            DateTime? seen = long.TryParse(u["last_seen"]?.ToString(), out var s) && s > 0 ? DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime : DateTime.MinValue;
+            var network = u["last_connection_network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n["name"]?.ToString() ?? "" : "";
+            var name = u["name"]?.ToString() is { Length: > 0 } nm ? nm : u["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            result.Add(new StaticClient(name, mac, ipText!, Readdressing.Format(moved), network, reserved, seen));
+        }
+        return result.OrderByDescending(c => c.LastSeen).ToList();
     }
 
     private static bool InDhcpRange(JsonObject network, uint ip) =>
