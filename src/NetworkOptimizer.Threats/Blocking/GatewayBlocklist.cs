@@ -463,10 +463,15 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             var peerSubnets = new Dictionary<string, List<string>>();
             foreach (var server in networks.Where(n => n.VpnType == "wireguard-server"))
                 peerSubnets[server.Id] = (await client.GetWireGuardPeersAsync(server.Id, ct)).SelectMany(p => p.AllowedIps).ToList();
+            // Teleport's range is in no network and no zone lists it, but the gateway takes tlprt+ traffic
+            // into the VPN zone's chains, so only the VPN zone's copy of an exception ever matches it.
+            var teleport = exceptions.Any(e => e.Device != null) ? await client.GetTeleportSettingsAsync(ct) : null;
+            string[] teleportSubnet = teleport is { Enabled: true, SubnetCidr: { Length: > 0 } cidr } ? [cidr] : [];
             var others = zones.Where(z => z.Id != external.Id)
                 .Select(z => new ExceptionZone(z.Id, z.ZoneKey == FirewallZoneKeys.Gateway, networks
                     .Where(n => n.FirewallZoneId == z.Id || z.NetworkIds.Contains(n.Id))
                     .SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet }.Concat(peerSubnets.GetValueOrDefault(n.Id) ?? []))
+                    .Concat(z.ZoneKey == FirewallZoneKeys.Vpn ? teleportSubnet : [])
                     .OfType<string>().Where(s => s.Length > 0).ToList()))
                 .ToList();
             if (_logger.IsEnabled(LogLevel.Debug))

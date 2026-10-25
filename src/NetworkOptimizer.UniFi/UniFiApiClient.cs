@@ -3500,6 +3500,17 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET rest/setting - the `teleport` section, with Teleport's client range. Null when it
+    /// cannot be read.
+    /// </summary>
+    [VendorSpecific("UniFi", "rest/setting teleport section")]
+    public async Task<UniFiTeleportSettings?> GetTeleportSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        using var settings = await GetSettingsRawAsync(cancellationToken);
+        return settings == null ? null : UniFiTeleportSettings.FromSettingsResponse(settings);
+    }
+
+    /// <summary>
     /// POST set/setting/mgmt - turns UniFi's own nightly device auto-upgrade on or off. The body
     /// names only `auto_upgrade`, never the rest of the section, which carries SSH credentials.
     /// </summary>
