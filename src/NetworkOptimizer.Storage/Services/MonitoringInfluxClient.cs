@@ -3272,19 +3272,20 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
-    /// Distinct Wi-Fi clients per window. Up to two days reads the raw client_mac field (one field,
-    /// no pivot); longer ranges count per day from the daily rollup, where client_mac is a tag and
-    /// the count pushes down, plus raw days for whatever the rollup has not reached yet.
+    /// Distinct Wi-Fi clients per window and band ("2.4ghz", "5ghz", "6ghz"). Up to two days reads
+    /// the raw client_mac field (one field, no pivot); longer ranges count per day from the daily
+    /// rollup, where client_mac is a tag and the count pushes down, plus raw days for whatever the
+    /// rollup has not reached yet. A client that moved band inside a window counts on both.
     /// </summary>
-    public async Task<IReadOnlyList<(DateTime Time, int Clients)>> QueryWifiClientCountsAsync(
+    public async Task<IReadOnlyList<(DateTime Time, string Band, int Clients)>> QueryWifiClientCountsAsync(
         DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
     {
-        if (!IsConfigured) return Array.Empty<(DateTime, int)>();
+        if (!IsConfigured) return Array.Empty<(DateTime, string, int)>();
         if (to - from <= TimeSpan.FromDays(2) || string.IsNullOrEmpty(_longtermBucket))
             return await RawWifiClientCountsAsync(from, to, window, ct);
 
         var day = TimeSpan.FromDays(1);
-        var perDay = new Dictionary<DateTime, HashSet<string>>();
+        var perDay = new Dictionary<(DateTime Day, string Band), HashSet<string>>();
         var flux = $@"
 from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
@@ -3294,12 +3295,12 @@ from(bucket: ""{_longtermBucket}"")
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
             if (record.GetValueByKey("client_mac") is not string mac || (AsDoubleOrNull(record.GetValue()) ?? 0) <= 0) continue;
-            var t = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow).Date;
-            if (!perDay.TryGetValue(t, out var macs)) perDay[t] = macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow).Date, record.GetValueByKey("band") as string ?? "");
+            if (!perDay.TryGetValue(key, out var macs)) perDay[key] = macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             macs.Add(mac);
         }
-        var result = perDay.Select(kv => (DateTime.SpecifyKind(kv.Key, DateTimeKind.Utc), kv.Value.Count)).ToList();
-        var rolledThrough = perDay.Count == 0 ? from : DateTime.SpecifyKind(perDay.Keys.Max(), DateTimeKind.Utc) + day;
+        var result = perDay.Select(kv => (DateTime.SpecifyKind(kv.Key.Day, DateTimeKind.Utc), kv.Key.Band, kv.Value.Count)).ToList();
+        var rolledThrough = perDay.Count == 0 ? from : DateTime.SpecifyKind(perDay.Keys.Max(k => k.Day), DateTimeKind.Utc) + day;
         if (rolledThrough < to)
             result.AddRange(await RawWifiClientCountsAsync(rolledThrough, to, day, ct));
         result.Sort((a, b) => a.Item1.CompareTo(b.Item1));
@@ -3307,22 +3308,22 @@ from(bucket: ""{_longtermBucket}"")
     }
 
     // Not a pushdown shape (distinct needs the raw values), so callers keep it to two days or less.
-    private async Task<List<(DateTime, int)>> RawWifiClientCountsAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
+    private async Task<List<(DateTime, string, int)>> RawWifiClientCountsAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
     {
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"")
-  |> group()
+  |> group(columns: [""band""])
   |> window(every: {ToFluxDuration(window)})
   |> distinct()
   |> count()
 ";
-        var results = new List<(DateTime, int)>();
+        var results = new List<(DateTime, string, int)>();
         await foreach (var record in QueryFluxAsync(flux, ct))
             if (record.GetStart() is { } start)
-                results.Add((start.ToDateTimeUtc(), (int)(AsDoubleOrNull(record.GetValue()) ?? 0)));
+                results.Add((start.ToDateTimeUtc(), record.GetValueByKey("band") as string ?? "", (int)(AsDoubleOrNull(record.GetValue()) ?? 0)));
         return results;
     }
 

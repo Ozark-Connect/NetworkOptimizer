@@ -1,7 +1,7 @@
 @using NetworkOptimizer.Web.Services.ChangeControl
 @using System.Globalization
 
-@* One timeline track: up to two series on a shared axis, incident and gap bands, change markers,
+@* One timeline track: up to two series (or stacked areas) on a shared axis, incident and gap bands, change markers,
    and the selected change's line. Positions are percentages of the range, so tracks line up. *@
 <div class="cc-track @(Lane ? "cc-lane-track" : "")">
     @foreach (var band in Bands)
@@ -22,9 +22,18 @@
         {
             <line x1="0" y1="96" x2="100" y2="96" stroke="#374151" stroke-width="1" vector-effect="non-scaling-stroke" />
         }
-        @foreach (var line in CcFormat.Polylines(SeriesA, From, To, _max))
+        @foreach (var layer in Stack)
         {
-            <polyline points="@line" fill="none" style="stroke:@ColorA" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+            <polygon points="@CcFormat.Area(layer.Points, From, To, _max)" style="fill:@layer.Color" fill-opacity="0.45" />
+            <polyline points="@CcFormat.Polylines(layer.Points.Select(p => (p.Time, (double?)p.Upper)).ToList(), From, To, _max).FirstOrDefault()" fill="none"
+                      style="stroke:@layer.Color" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+        }
+        @if (Stack.Count == 0)
+        {
+            @foreach (var line in CcFormat.Polylines(SeriesA, From, To, _max))
+            {
+                <polyline points="@line" fill="none" style="stroke:@ColorA" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+            }
         }
         @foreach (var line in CcFormat.Polylines(SeriesB, From, To, _max))
         {
@@ -53,6 +62,7 @@
     [Parameter] public DateTime To { get; set; }
     [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesA { get; set; } = [];
     [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesB { get; set; } = [];
+    [Parameter] public IReadOnlyList<StackLayer> Stack { get; set; } = [];
     [Parameter] public string ColorA { get; set; } = "#2ba89a";
     [Parameter] public string ColorB { get; set; } = "#f59e0b";
     [Parameter] public IReadOnlyList<ChangeRowView> Markers { get; set; } = [];

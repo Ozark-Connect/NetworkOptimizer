@@ -106,6 +106,15 @@ public static class CcFormat
         return lines;
     }
 
+    /// <summary>An SVG polygon "points" string filling between a layer's lower and upper edges, on the same box as <see cref="Polylines"/>.</summary>
+    public static string Area(IReadOnlyList<(DateTime Time, double Lower, double Upper)> points, DateTime from, DateTime to, double max)
+    {
+        var scale = max <= 0 ? 1 : max;
+        string P(DateTime t, double v) =>
+            $"{Pct(t, from, to).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)},{(96 - Math.Clamp(v / scale, 0, 1) * 88).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}";
+        return string.Join(" ", points.Select(p => P(p.Time, p.Upper)).Concat(points.Reverse().Select(p => P(p.Time, p.Lower))));
+    }
+
     /// <summary>The max of two series, for a shared axis.</summary>
     public static double Max(IEnumerable<(DateTime, double?)> a, IEnumerable<(DateTime, double?)>? b = null)
     {

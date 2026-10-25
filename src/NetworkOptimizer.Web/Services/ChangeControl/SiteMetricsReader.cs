@@ -15,7 +15,12 @@ public sealed class TimelineLane
     public List<(DateTime Time, double? Value)> SeriesB { get; init; } = [];
     public string? LatestA { get; init; }
     public string? LatestB { get; init; }
+    /// <summary>Stacked areas drawn instead of series A's line; series A holds their total.</summary>
+    public List<StackLayer> Stack { get; init; } = [];
 }
+
+/// <summary>One stacked area: its lower and upper edge at each time, and its latest value.</summary>
+public sealed record StackLayer(string Name, string Color, List<(DateTime Time, double Lower, double Upper)> Points, int Latest);
 
 /// <summary>
 /// Reads the timeline's stat lanes and a change's before/after numbers from the site's existing
@@ -139,11 +144,7 @@ public sealed class SiteMetricsReader
                     SeriesA = cpuTask.Result.Select(h => (h.Time, (double?)h.Value)).ToList(),
                 });
             }
-            lanes.Add(new TimelineLane
-            {
-                Key = "clients", Title = "Clients", Subtitle = "Wi-Fi", SeriesAName = "Wi-Fi",
-                SeriesA = clientsTask.Result.Select(c => (c.Time, (double?)c.Clients)).ToList(),
-            });
+            lanes.Add(ClientsLane(clientsTask.Result));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -153,10 +154,40 @@ public sealed class SiteMetricsReader
         return lanes.Select(l => new TimelineLane
         {
             Key = l.Key, Title = l.Title, Subtitle = l.Subtitle, SeriesAName = l.SeriesAName, SeriesBName = l.SeriesBName,
-            SeriesA = l.SeriesA, SeriesB = l.SeriesB,
+            SeriesA = l.SeriesA, SeriesB = l.SeriesB, Stack = l.Stack,
             LatestA = Format(l.Key, l.SeriesA.LastOrDefault(p => p.Value != null).Value),
             LatestB = Format(l.Key, l.SeriesB.LastOrDefault(p => p.Value != null).Value),
         }).ToList();
+    }
+
+    private static readonly (string Band, string Name, string Color)[] Bands =
+        [("2.4ghz", "2.4 GHz", "var(--band-24-color)"), ("5ghz", "5 GHz", "var(--band-5-color)"), ("6ghz", "6 GHz", "var(--band-6-color)")];
+
+    /// <summary>Wi-Fi clients stacked by band, 2.4 GHz at the bottom; series A is the total.</summary>
+    internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts)
+    {
+        var times = counts.Select(c => c.Time).Distinct().Order().ToList();
+        var byKey = counts.GroupBy(c => (c.Time, c.Band)).ToDictionary(g => g.Key, g => g.Sum(c => c.Clients));
+        var total = times.ToDictionary(t => t, _ => 0.0);
+        var stack = new List<StackLayer>();
+        foreach (var (band, name, color) in Bands)
+        {
+            var points = new List<(DateTime, double, double)>();
+            foreach (var t in times)
+            {
+                var lower = total[t];
+                total[t] = lower + byKey.GetValueOrDefault((t, band));
+                points.Add((t, lower, total[t]));
+            }
+            if (points.Any(p => p.Item3 > p.Item2))
+                stack.Add(new StackLayer(name, color, points, times.Count == 0 ? 0 : byKey.GetValueOrDefault((times[^1], band))));
+        }
+        return new TimelineLane
+        {
+            Key = "clients", Title = "Clients", Subtitle = "Wi-Fi, by band", SeriesAName = "Wi-Fi",
+            SeriesA = times.Select(t => (t, (double?)total[t])).ToList(),
+            Stack = stack,
+        };
     }
 
     private async Task<Dictionary<DateTime, LoadWindow>> ClassifyAsync(IReadOnlyList<MonitoringInfluxClient.WanRatePoint> rates, CancellationToken ct)

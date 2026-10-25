@@ -114,7 +114,7 @@
                                                 <div class="cc-tl-sub">@lane.Subtitle</div>
                                             </div>
                                             <CcTrack From="_from" To="_to" Lane="true" ShowMarkers="false" Markers="markers" Bands="row.Bands"
-                                                     SeriesA="lane.SeriesA" SeriesB="lane.SeriesB"
+                                                     SeriesA="lane.SeriesA" SeriesB="lane.SeriesB" Stack="lane.Stack"
                                                      ColorA="@LaneColorA(lane.Key)" ColorB="@LaneColorB(lane.Key)" SelectedId="_selected?.Id" />
                                             <div class="cc-lane-latest">
                                                 @if (lane.LatestA != null)
@@ -124,6 +124,15 @@
                                                 @if (lane.LatestB != null)
                                                 {
                                                     <div><span class="@LaneClassB(lane.Key)">@lane.LatestB</span> @lane.SeriesBName</div>
+                                                }
+                                                @if (lane.Stack.Count > 0)
+                                                {
+                                                    <div class="cc-lane-stack">
+                                                        @foreach (var layer in lane.Stack)
+                                                        {
+                                                            <span style="color:@layer.Color" data-tooltip="@layer.Name">@layer.Latest</span>
+                                                        }
+                                                    </div>
                                                 }
                                             </div>
                                         </div>

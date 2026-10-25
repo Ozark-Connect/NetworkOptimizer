@@ -89,7 +89,11 @@
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th style="width:44px"></th>
+                        <th style="width:44px">
+                            <label class="checkbox-label" data-tooltip="@(_selected.Count > 0 ? "Clear selection" : "Select two snapshots to compare")">
+                                <input type="checkbox" checked="@(_selected.Count > 0)" disabled="@(_selected.Count == 0)" @onchange="_selected.Clear" /><span></span>
+                            </label>
+                        </th>
                         <th class="col-time">Time</th>
                         <th>Trigger</th>
                         <th class="hide-mobile">Changed</th>
@@ -206,7 +210,11 @@ else if (_compare != null)
                     <span></span>
                 </div>
             }
-            @if (_compareView == "yaml")
+            @if (_compare.Objects.Count == 0)
+            {
+                <div class="empty-state empty-state-small"><p>No differences. @(_compare.ToSnapshotId == null ? "The live config matches this snapshot." : "These snapshots hold the same config.")</p></div>
+            }
+            else if (_compareView == "yaml")
             {
                 <div class="cc-inset">
                     @if (_yamlDiff == null)
@@ -224,17 +232,20 @@ else if (_compare != null)
             {
                 <CcObjectTable Objects="_compare.Objects" PastTense="true" ShowWhenWho="true" />
             }
-            <div class="cc-card-footer">
-                <button class="btn btn-secondary" @onclick="DownloadDiffAsync">Download Diff</button>
-                @if (_compare.ToSnapshotId == null)
-                {
-                    <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="AcceptBaselineAsync">Accept as Baseline</button></SiteAdminOnly>
-                }
-                @if (_compare.FromSnapshotId is { } fromId && _compare.ToSnapshotId == null)
-                {
-                    <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
-                }
-            </div>
+            @if (_compare.Objects.Count > 0)
+            {
+                <div class="cc-card-footer">
+                    <button class="btn btn-secondary" @onclick="DownloadDiffAsync">Download Diff</button>
+                    @if (_compare.ToSnapshotId == null)
+                    {
+                        <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="AcceptBaselineAsync">Accept as Baseline</button></SiteAdminOnly>
+                    }
+                    @if (_compare.FromSnapshotId is { } fromId && _compare.ToSnapshotId == null)
+                    {
+                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
+                    }
+                </div>
+            }
         }
     </div>
 }

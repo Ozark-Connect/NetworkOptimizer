@@ -23474,6 +23474,10 @@ body:has(.top-bar-hidden) .btn-fit {
     line-height: 1.4;
 }
 
+.change-control .cc-lane-stack span + span {
+    margin-left: 0.4rem;
+}
+
 .change-control .cc-lane-latest .a { color: var(--cc-no); }
 .change-control .cc-lane-latest .b { color: var(--warning-color); }
 .change-control .cc-lane-latest .cpu { color: var(--cc-firmware); }

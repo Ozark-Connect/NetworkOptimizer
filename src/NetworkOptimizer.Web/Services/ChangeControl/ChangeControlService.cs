@@ -244,8 +244,13 @@ public sealed partial class ChangeControlService : IChangeControlService
         var state = await Engine.LoadSnapshotStateAsync(snap.Id, ct) ?? throw new InvalidOperationException("Snapshot content not found.");
         var tags = new List<string>();
         if (snap.IsBaseline) tags.Add("Baseline");
-        tags.Add(TriggerLabel(snap).Text.ToLowerInvariant() + " snapshot");
-        return (state, Local(snap.TakenAt).ToString("MMM d, h:mm tt"), string.Join(", ", tags).Replace("daily snapshot", "daily snapshot"));
+        var (text, dot) = TriggerLabel(snap);
+        // A change snapshot is labeled with who made the change; a name keeps its own casing.
+        tags.Add(snap.Trigger == ConfigSnapshotTrigger.Change
+            ? dot == "unattributed" ? "after a change, no admin recorded" : $"after a change by {text}"
+            : text.ToLowerInvariant() + " snapshot");
+        var detail = string.Join(", ", tags);
+        return (state, Local(snap.TakenAt).ToString("MMM d, h:mm tt"), char.ToUpperInvariant(detail[0]) + detail[1..]);
     }
 
     private static DateTime Local(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
