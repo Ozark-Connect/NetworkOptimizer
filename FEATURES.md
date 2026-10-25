@@ -299,6 +299,9 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **Adopt Pending Devices** whose MAC is in a snapshot
   - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
     - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
+  - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
+    - Addresses on a WAN's carrier side or a VPN's far side stay as they are
+    - The dry run lists clients with the address set on the device (from the gateway's DHCP leases), offline clients last seen in a moved subnet, and console, management network, and Inform Host moves
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
 - **Settings** - retention, change detection, commit-confirmed window, approvals
 
