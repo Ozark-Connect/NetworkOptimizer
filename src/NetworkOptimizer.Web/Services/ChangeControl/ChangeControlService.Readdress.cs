@@ -158,11 +158,19 @@ public sealed partial class ChangeControlService
         var clients = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/sta", null, ct);
         if (!clients.IsSuccess || ConfigSnapshotReader.ExtractList(clients.Body) is not { } list) return ([], "");
 
+        // The IP Table: {"dhcp_lease_info":[{mac, ip, use_fixedip, lease_expiration_time, status}]}, one row per
+        // DHCP lease or reservation. A connected client with no row set its address on the device.
         var leases = await Engine.Api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Get, "active-leases", null, ct);
-        var leaseByMac = leases.IsSuccess && ConfigSnapshotReader.ExtractList(leases.Body) is { Count: > 0 } rows
-            ? rows.Where(r => r["mac"] != null).GroupBy(r => r["mac"]!.ToString().ToLowerInvariant())
-                .ToDictionary(g => g.Key, g => (g.First()["type"] ?? g.First()["lease_type"] ?? g.First()["leaseType"])?.ToString()?.ToLowerInvariant() ?? "dynamic")
-            : null;
+        HashSet<string>? leased = null;
+        if (leases.IsSuccess)
+        {
+            try
+            {
+                if (JsonNode.Parse(leases.Body)?["dhcp_lease_info"] is JsonArray rows)
+                    leased = rows.OfType<JsonObject>().Select(r => r["mac"]?.ToString()?.ToLowerInvariant()).OfType<string>().ToHashSet(StringComparer.Ordinal);
+            }
+            catch (System.Text.Json.JsonException) { }
+        }
 
         var networks = live.Get("networkconf").ToDictionary(ConfigState.IdOf, n => n, StringComparer.OrdinalIgnoreCase);
         var result = new List<StaticClient>();
@@ -173,15 +181,15 @@ public sealed partial class ChangeControlService
             var mac = c["mac"]?.ToString()?.ToLowerInvariant() ?? "";
             var network = c["network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n : null;
             bool isStatic;
-            if (leaseByMac != null)
-                isStatic = !leaseByMac.TryGetValue(mac, out var type) || type.Contains("static", StringComparison.Ordinal);
+            if (leased != null)
+                isStatic = !leased.Contains(mac);
             else
                 isStatic = network != null && !InDhcpRange(network, ip);
             if (!isStatic) continue;
             var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
             result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? ""));
         }
-        return (result.OrderBy(r => Readdressing.ParseIp(r.Ip)).ToList(), leaseByMac != null ? "UniFi's IP Table" : "DHCP ranges");
+        return (result.OrderBy(r => Readdressing.ParseIp(r.Ip)).ToList(), leased != null ? "UniFi's IP Table" : "DHCP ranges");
     }
 
     private static bool InDhcpRange(JsonObject network, uint ip) =>
