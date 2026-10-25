@@ -422,7 +422,8 @@ else
                 <div class="cc-state-track">
                     @foreach (var (label, statuses) in Track)
                     {
-                        <span class="@(statuses.Contains(plan.Status) ? "on" : "")"><span class="cc-dot"></span> @label</span>
+                        var failed = label == "Applied" && plan.Status == ConfigPlanStatus.Failed;
+                        <span class="@(statuses.Contains(plan.Status) ? "on" : "") @(failed ? "danger-text" : "")"><span class="cc-dot"></span> @(failed ? "Failed" : label)</span>
                         @if (label != "Applied") { <span>-</span> }
                     }
                 </div>

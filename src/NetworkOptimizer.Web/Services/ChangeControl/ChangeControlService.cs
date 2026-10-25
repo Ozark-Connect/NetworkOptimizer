@@ -389,7 +389,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var state = (await LoadSideAsync(snapshotId, cancellationToken)).State;
         var counts = state.Collections.ToDictionary(k => k.Key, k => k.Key == "user" ? k.Value.Count(ConfigDiffEngine.HasClientConfig) : k.Value.Count);
         var schema = ConfigCollections.Get(collection) is { } def ? YamlConverter.EditSchema(state, [def]).ToJsonString() : "{}";
-        return (YamlConverter.Export(state, [collection], SecretMode.Mask), counts, schema);
+        return (YamlConverter.Export(state, [collection], SecretMode.Mask, ids: true), counts, schema);
     }
 
     public async Task<string?> RevealSecretAsync(int? snapshotId, string token, CancellationToken cancellationToken = default)

@@ -218,7 +218,7 @@ public sealed class ConfigTemplateService : IConfigTemplateService
         var state = (await LoadAsync(templateId, cancellationToken)).State;
         var counts = state.Collections.ToDictionary(k => k.Key, k => k.Value.Count);
         var schema = ConfigCollections.Get(collection) is { } def ? YamlConverter.EditSchema(state, [def]).ToJsonString() : "{}";
-        return (YamlConverter.Export(state, [collection], SecretMode.Mask), counts, schema);
+        return (YamlConverter.Export(state, [collection], SecretMode.Mask, ids: true), counts, schema);
     }
 
     public async Task<YamlValidation> ValidateYamlAsync(int templateId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)

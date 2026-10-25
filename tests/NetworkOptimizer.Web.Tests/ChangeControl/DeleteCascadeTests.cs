@@ -105,6 +105,36 @@ public class DeleteCascadeTests
         result.Collections["wlanconf"].Single()["ap_group_ids"]!.AsArray().Select(e => e!.ToString()).Should().Equal("g1");
     }
 
+    [Fact]
+    public void Parse_EditorYaml_RenameKeepsTheId()
+    {
+        var baseState = new ConfigState();
+        baseState.Collections["wlanconf"] = [Obj("""{"_id":"w1","name":"Testing"}"""), Obj("""{"_id":"w2","name":"Home"}""")];
+        var yaml = YamlConverter.Export(baseState, ["wlanconf"], SecretMode.Mask, ids: true)
+            .Replace("name: Testing", "name: Testing2", StringComparison.Ordinal);
+
+        var result = YamlConverter.Parse(yaml, baseState, "wlans.yaml");
+
+        result.Collections["wlanconf"].Select(o => (ConfigState.IdOf(o), o["name"]!.ToString()))
+            .Should().Equal(("w1", "Testing2"), ("w2", "Home"));
+        result.Collections["wlanconf"].Should().NotContain(o => o.ContainsKey("id"));
+    }
+
+    [Fact]
+    public void Parse_IdNotInTheBaseOrRepeated_FallsBackToTheName()
+    {
+        var baseState = new ConfigState();
+        baseState.Collections["wlanconf"] = [Obj("""{"_id":"w1","name":"Home"}""")];
+        var yamlName = YamlConverter.YamlName(ConfigCollections.Get("wlanconf")!);
+
+        var result = YamlConverter.Parse($"{yamlName}:\n- id: w1\n  name: Home\n- id: w1\n  name: Copy\n- id: other-site\n  name: Guest\n", baseState, "wlans.yaml");
+
+        var byName = result.Collections["wlanconf"].ToDictionary(o => o["name"]!.ToString());
+        ConfigState.IdOf(byName["Home"]).Should().Be("w1");
+        byName["Copy"].ContainsKey("_id").Should().BeFalse("a copied block is a new object");
+        byName["Guest"].ContainsKey("_id").Should().BeFalse("an ID from another site is ignored");
+    }
+
     private static ConfigState WithParsed(ConfigState baseState, YamlParseResult result)
     {
         var desired = baseState.Clone();

@@ -79,8 +79,12 @@ public static partial class YamlConverter
     public static string Export(ConfigState state, IEnumerable<string>? collections, bool includeSecrets) =>
         Export(state, collections, includeSecrets ? SecretMode.Clear : SecretMode.Redact);
 
-    /// <summary>Writes the given collections (all when null), with secrets as <paramref name="secrets"/> says.</summary>
-    public static string Export(ConfigState state, IEnumerable<string>? collections, SecretMode secrets)
+    /// <summary>
+    /// Writes the given collections (all when null), with secrets as <paramref name="secrets"/> says.
+    /// <paramref name="ids"/> writes every object's ID, for the editor: a rename then stays an update.
+    /// Files meant for another site leave them out; there only ambiguous names carry one.
+    /// </summary>
+    public static string Export(ConfigState state, IEnumerable<string>? collections, SecretMode secrets, bool ids = false)
     {
         var index = new ReferenceIndex(state);
         var sb = new StringBuilder();
@@ -95,7 +99,7 @@ public static partial class YamlConverter
             sb.Append('\n');
             var ambiguous = objects.GroupBy(o => Identity(def, o)).Where(g => g.Count() > 1).SelectMany(g => g).ToHashSet();
             foreach (var o in objects)
-                WriteObject(sb, def, o, index, secrets, indent: 2, listItem: true, withId: ambiguous.Contains(o), top: true, path: ConfigState.IdOf(o));
+                WriteObject(sb, def, o, index, secrets, indent: 2, listItem: true, withId: ids || ambiguous.Contains(o), top: true, path: ConfigState.IdOf(o));
         }
         return sb.ToString();
     }
@@ -357,11 +361,19 @@ public static partial class YamlConverter
         var desired = baseState.Clone();
         foreach (var key in result.Collections.Keys)
             desired.Collections[key] = raw.Where(r => r.Def.Key == key).Select(r => r.Obj).ToList();
-        foreach (var (_, _, obj) in raw)
-            if (!obj.ContainsKey("_id") && obj["id"] is JsonValue idv && idv.TryGetValue<string>(out var given)) { obj["_id"] = given; obj.Remove("id"); }
-        // The file carries no IDs: an object that matches one in the state it was made from (enforced key,
-        // then name, as Review Plan matches) takes that object's ID, so references to it in this file
-        // resolve to the real object. Without this, an untouched WLAN's AP group became a temporary ID.
+        // An id: line counts only for an object of that collection in the base, once. A copied block or
+        // an ID from another site falls back to matching by name below.
+        var givenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (def, _, obj) in raw)
+        {
+            if (obj["id"] is JsonValue idv && idv.TryGetValue<string>(out var given)
+                && baseState.Get(def.Key).Any(b => string.Equals(ConfigState.IdOf(b), given, StringComparison.OrdinalIgnoreCase))
+                && givenIds.Add(given))
+                obj["_id"] = given;
+            obj.Remove("id");
+        }
+        // An object without an ID that matches one in the base (enforced key, then name, as Review Plan
+        // matches) takes that object's ID, so references to it in this file resolve to the real object.
         var baseCtx = new ConfigIdentityContext(baseState.NamesById());
         var fileCtx = new ConfigIdentityContext(desired.NamesById());
         foreach (var key in result.Collections.Keys)
