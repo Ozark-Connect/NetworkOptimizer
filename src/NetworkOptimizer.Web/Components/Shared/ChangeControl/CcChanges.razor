@@ -327,7 +327,8 @@
         var settings = await Site.GetSettingsAsync();
         _showOwn = settings.ShowOwnChanges;
         await ReloadAsync();
-        // Open with the site in context expanded into its lanes; the busiest site when it is not listed.        if ((_timeline?.FirstOrDefault(r => string.Equals(r.Site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
+        // Open with the site in context expanded into its lanes; the busiest site when it is not listed.
+        if ((_timeline?.FirstOrDefault(r => string.Equals(r.Site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
              ?? _timeline?.OrderByDescending(r => r.ChangeCount).FirstOrDefault()) is { } open)
             await ToggleSiteAsync(open.Site.Slug);
 
