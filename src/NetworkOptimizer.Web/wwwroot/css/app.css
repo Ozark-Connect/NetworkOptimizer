@@ -23319,6 +23319,7 @@ body:has(.top-bar-hidden) .btn-fit {
     gap: 0 0.75rem;
     align-items: center;
     min-height: 52px;
+    padding: 0 0.5rem;
     border-bottom: 1px solid var(--border-color);
 }
 
