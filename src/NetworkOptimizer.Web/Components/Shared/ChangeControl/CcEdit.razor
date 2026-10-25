@@ -5,6 +5,8 @@
 @inject IChangeControlService Site
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject IChangeControlFleetService Fleet
+@inject IConfigTemplateService Templates
+@inject AuthenticationStateProvider AuthState
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -17,16 +19,28 @@
     <ChildContent>
         <div class="card hide-mobile">
             <div class="cc-toolbar">
-                <span class="cc-toolbar-label">Site</span>
-                <CcSitePicker Sites="_sites" />
-                <span class="cc-toolbar-label">Start from</span>
-                <select class="form-control" @bind="StartFrom" @bind:after="StartOverAsync">
-                    <option value="">Live config</option>
-                    @foreach (var s in _snapshots.Take(30))
-                    {
-                        <option value="@s.Id">Snapshot, @CcFormat.Time(s.TakenAt)</option>
-                    }
-                </select>
+                @if (_templates.Count > 0)
+                {
+                    <span class="cc-toolbar-label">Editing</span>
+                    @EditingPicker()
+                }
+                @if (CurrentTemplate is { } template)
+                {
+                    <span class="cc-toolbar-label">@CcFormat.Plural(template.Collections.Count, "collection", "collections"), shared across sites</span>
+                }
+                else
+                {
+                    <span class="cc-toolbar-label">Site</span>
+                    <CcSitePicker Sites="_sites" />
+                    <span class="cc-toolbar-label">Start from</span>
+                    <select class="form-control" @bind="StartFrom" @bind:after="StartOverAsync">
+                        <option value="">Live config</option>
+                        @foreach (var s in _snapshots.Take(30))
+                        {
+                            <option value="@s.Id">Snapshot, @CcFormat.Time(s.TakenAt)</option>
+                        }
+                    </select>
+                }
                 <span class="cc-toolbar-spacer"></span>
                 <span class="cc-edit-actions">
                 <label class="btn btn-contrast btn-sm" style="margin:0">
@@ -34,19 +48,29 @@
                     <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
                 </label>
                 <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(false)">Download YAML</button>
-                <SiteAdminOnly>
-                    <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(true)"
-                            data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited.">Download with Secrets</button>
-                </SiteAdminOnly>
+                @if (TemplateId == null)
+                {
+                    <SiteAdminOnly>
+                        <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(true)"
+                                data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited.">Download with Secrets</button>
+                    </SiteAdminOnly>
+                }
                 <button class="btn btn-contrast btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>
                 </span>
             </div>
         </div>
 
+        @if (_templates.Count > 0)
+        {
+            <div class="cc-phone-only form-group">
+                <label class="form-label">Editing</label>
+                @EditingPicker()
+            </div>
+        }
         <div class="cc-phone-only form-group">
             <label class="form-label">Collection</label>
             <select class="form-control" value="@_group" @onchange="e => OpenGroupAsync(e.Value?.ToString() ?? _group)">
-                @foreach (var group in Groups)
+                @foreach (var group in VisibleGroups)
                 {
                     <option value="@group">@group@(EditedCount(group) > 0 ? $" ({EditedCount(group)} edited)" : "")</option>
                 }
@@ -57,7 +81,7 @@
             <div class="card hide-mobile">
                 <div class="card-header"><h3 class="card-title">Collections</h3></div>
                 <div class="cc-collections">
-                    @foreach (var group in Groups)
+                    @foreach (var group in VisibleGroups)
                     {
                         <button class="@(group == _group ? "active" : "")" @onclick="() => OpenGroupAsync(group)">
                             <span>@group</span>
@@ -117,10 +141,17 @@
                 <div class="card">
                     <div class="cc-card-footer">
                         <span class="cc-remaining @(Errors > 0 ? "danger-text" : "muted-text")">
-                            @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before Review Plan" : _edited.Count == 0 ? "No edits yet" : "Ready for Review Plan")
+                            @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before {CommitLabel}" : _edited.Count == 0 ? _saved ?? "No edits yet" : $"Ready to {(TemplateId == null ? "review" : "save")}")
                         </span>
                         <span class="muted-text cc-edit-count">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
-                        <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">Review Plan</button>
+                        @if (TemplateId == null)
+                        {
+                            <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">Review Plan</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy)" @onclick="SaveTemplateAsync">Save Template</button>
+                        }
                         <label class="btn btn-contrast cc-phone-inline" style="margin:0">
                             Upload YAML
                             <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
@@ -172,8 +203,35 @@
     private int _generation;
     private bool _disposed;
 
+    // Templates are listed for instance Admins only; editing one saves the template, not a plan.
+    private List<TemplateView> _templates = [];
+    private string Editing { get; set; } = "";
+    private string? _saved;
+
     private int? SnapshotId => int.TryParse(StartFrom, out var id) ? id : null;
+    private int? TemplateId => Editing.StartsWith("t:", StringComparison.Ordinal) && int.TryParse(Editing[2..], out var id) ? id : null;
+    private TemplateView? CurrentTemplate => TemplateId is { } id ? _templates.FirstOrDefault(t => t.Id == id) : null;
+    private string CommitLabel => TemplateId == null ? "Review Plan" : "Save Template";
     private int Errors => _validation.Problems.Count(p => p.Level == "Error");
+
+    /// <summary>A template shows only the groups holding its collections.</summary>
+    private IEnumerable<string> VisibleGroups => CurrentTemplate is { } t ? Groups.Where(g => Defs(g).Any(d => t.Collections.Contains(d.Key))) : Groups;
+
+    private IEnumerable<ConfigCollectionDef> LoadDefs(string group) =>
+        CurrentTemplate is { } t ? Defs(group).Where(d => t.Collections.Contains(d.Key)) : Defs(group);
+
+    private RenderFragment EditingPicker() => __builder =>
+    {
+        <select class="form-control" @bind="Editing" @bind:after="SwitchEditingAsync">
+            <option value="">Site config</option>
+            <optgroup label="Templates">
+                @foreach (var t in _templates)
+                {
+                    <option value="t:@t.Id">@t.Name</option>
+                }
+            </optgroup>
+        </select>
+    };
 
     private static IEnumerable<ConfigCollectionDef> Defs(string group) => ConfigCollections.All.Where(d => d.Group == group);
     private static string FileName(string group) => Defs(group).FirstOrDefault() is { } d ? YamlConverter.FileName(d) : "";
@@ -185,7 +243,26 @@
     {
         _sites = await Fleet.GetSitesAsync();
         _snapshots = (await Site.GetSnapshotsAsync()).Rows;
+        if ((await AuthState.GetAuthenticationStateAsync()).User.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin))
+        {
+            _templates = await Templates.ListAsync();
+            // Snapshots' Edit YAML links here with ?template=<id>.
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+            if (query.TryGetValue("template", out var t) && int.TryParse(t, out var id) && _templates.Any(x => x.Id == id))
+            {
+                Editing = $"t:{id}";
+                _group = VisibleGroups.FirstOrDefault() ?? _group;
+            }
+        }
         await OpenGroupAsync(_group);
+    }
+
+    private async Task SwitchEditingAsync()
+    {
+        _saved = null;
+        _error = null;
+        if (!VisibleGroups.Contains(_group)) _group = VisibleGroups.FirstOrDefault() ?? Groups[0];
+        await StartOverAsync();
     }
 
     private async Task OpenGroupAsync(string group)
@@ -224,9 +301,11 @@
         var sb = new StringBuilder();
         var collections = new JsonObject();
         var refs = new JsonObject();
-        foreach (var def in Defs(group))
+        foreach (var def in LoadDefs(group))
         {
-            var (yaml, counts, schema) = await Site.GetEditBaseAsync(SnapshotId, def.Key);
+            var (yaml, counts, schema) = TemplateId is { } templateId
+                ? await Templates.GetEditBaseAsync(templateId, def.Key)
+                : await Site.GetEditBaseAsync(SnapshotId, def.Key);
             _counts = counts;
             sb.Append(yaml);
             if (JsonNode.Parse(schema) is JsonObject parsed)
@@ -299,7 +378,9 @@
         if (!_canReveal) return null;
         try
         {
-            return await Site.RevealSecretAsync(SnapshotId, token);
+            return TemplateId is { } templateId
+                ? await Templates.RevealSecretAsync(templateId, token)
+                : await Site.RevealSecretAsync(SnapshotId, token);
         }
         catch (Exception ex)
         {
@@ -329,7 +410,9 @@
     {
         try
         {
-            _validation = _edited.Count == 0 ? new YamlValidation() : await Site.ValidateYamlAsync(SnapshotId, Files());
+            _validation = _edited.Count == 0 ? new YamlValidation()
+                : TemplateId is { } templateId ? await Templates.ValidateYamlAsync(templateId, Files())
+                : await Site.ValidateYamlAsync(SnapshotId, Files());
         }
         catch (Exception ex)
         {
@@ -384,6 +467,14 @@
 
     private async Task DownloadAsync(bool withSecrets)
     {
+        if (CurrentTemplate is { } template)
+        {
+            var text = await Templates.GetYamlAsync(template.Id);
+            var name = new string(template.Name.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-').ToArray()).Trim('-');
+            await JS.InvokeVoidAsync("downloadFile", $"template-{name}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
+                "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
+            return;
+        }
         var yaml = withSecrets ? await Site.DownloadYamlWithSecretsAsync(SnapshotId) : await Site.DownloadYamlAsync(SnapshotId);
         await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config{(withSecrets ? "-with-secrets" : "")}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
             "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
@@ -397,6 +488,34 @@
         {
             var planId = await Site.BuildEditPlanAsync(SnapshotId, Files());
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveTemplateAsync()
+    {
+        if (CurrentTemplate is not { } template) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var problems = await Templates.SaveFilesAsync(template.Id, Files());
+            if (problems.Any(p => p.Level == "Error"))
+            {
+                _validation = new YamlValidation { Problems = problems };
+                await PushProblemsAsync();
+                return;
+            }
+            _templates = await Templates.ListAsync();
+            await StartOverAsync();
+            _saved = $"Saved {template.Name}";
         }
         catch (Exception ex)
         {

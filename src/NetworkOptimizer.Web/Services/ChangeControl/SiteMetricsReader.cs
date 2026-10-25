@@ -150,7 +150,7 @@ public sealed class SiteMetricsReader
                     SeriesA = cpuTask.Result.Select(h => (h.Time, (double?)h.Value)).ToList(),
                 });
             }
-            lanes.Add(ClientsLane(clientsTask.Result));
+            lanes.Add(ClientsLane(clientsTask.Result, to));
             lanes.Add(PhyLane(phyTask.Result));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -171,10 +171,17 @@ public sealed class SiteMetricsReader
         [("2.4ghz", "2.4 GHz", "var(--band-24-color)"), ("5ghz", "5 GHz", "var(--band-5-color)"), ("6ghz", "6 GHz", "var(--band-6-color)")];
 
     /// <summary>Wi-Fi clients stacked by band, 2.4 GHz at the bottom; series A is the total.</summary>
-    internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts)
+    internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts, DateTime? end = null)
     {
         var times = counts.Select(c => c.Time).Distinct().Order().ToList();
         var byKey = counts.GroupBy(c => (c.Time, c.Band)).ToDictionary(g => g.Key, g => g.Sum(c => c.Clients));
+        // Counts are stamped at their window's start (a whole day past two days), so the last one holds to the end.
+        if (end is { } e && times.Count > 0 && times[^1] < e)
+        {
+            foreach (var (band, _, _) in Bands)
+                if (byKey.TryGetValue((times[^1], band), out var last)) byKey[(e, band)] = last;
+            times.Add(e);
+        }
         var total = times.ToDictionary(t => t, _ => 0.0);
         var stack = new List<StackLayer>();
         foreach (var (band, name, color) in Bands)

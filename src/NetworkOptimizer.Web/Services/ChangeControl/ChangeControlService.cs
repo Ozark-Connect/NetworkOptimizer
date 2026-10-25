@@ -376,9 +376,13 @@ public sealed partial class ChangeControlService : IChangeControlService
         Task.FromResult(Secrets.SecretGenerator.Generate(kind));
 
     private async Task<(ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Collections)> ParseEditsAsync(
-        int? snapshotId, IReadOnlyDictionary<string, string> files, CancellationToken ct)
+        int? snapshotId, IReadOnlyDictionary<string, string> files, CancellationToken ct) =>
+        ParseEdits((await LoadSideAsync(snapshotId, ct)).State, files);
+
+    /// <summary>Edit tab files (one per collection group, keyed by its first collection) parsed onto a base state.</summary>
+    internal static (ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Collections) ParseEdits(
+        ConfigState baseState, IReadOnlyDictionary<string, string> files)
     {
-        var baseState = (await LoadSideAsync(snapshotId, ct)).State;
         var desired = baseState.Clone();
         var problems = new List<YamlProblem>();
         var touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

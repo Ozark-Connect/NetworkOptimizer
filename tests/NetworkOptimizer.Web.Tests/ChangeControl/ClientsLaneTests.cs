@@ -25,6 +25,15 @@ public class ClientsLaneTests
     }
 
     [Fact]
+    public void ClientsLane_HoldsTheLastCountToTheEnd()
+    {
+        var end = T.AddHours(20);
+        var lane = SiteMetricsReader.ClientsLane([(T, "5ghz", 7), (T, "2.4ghz", 2)], end);
+        lane.SeriesA.Should().Equal((T, 9.0), (end, 9.0));
+        lane.Stack.Select(l => l.Latest).Should().Equal(2, 7);
+    }
+
+    [Fact]
     public void ClientsLane_DropsABandWithNoClients()
     {
         var lane = SiteMetricsReader.ClientsLane([(T, "5ghz", 7)]);

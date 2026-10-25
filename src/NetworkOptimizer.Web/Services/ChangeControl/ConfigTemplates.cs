@@ -90,6 +90,17 @@ public sealed class ConfigTemplateStore
         await using var db = await _mainDb.CreateDbContextAsync(ct);
         await db.ConfigTemplates.Where(t => t.Id == id).ExecuteDeleteAsync(ct);
     }
+
+    /// <summary>Changes a template's name and description, leaving its content alone.</summary>
+    public async Task RenameAsync(int id, string name, string? description, CancellationToken ct)
+    {
+        await using var db = await _mainDb.CreateDbContextAsync(ct);
+        var t = await db.ConfigTemplates.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new InvalidOperationException("Template not found.");
+        t.Name = name;
+        t.Description = description;
+        t.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
 }
 
 /// <summary>
@@ -121,6 +132,29 @@ public interface IConfigTemplateService
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ChangeControlTemplateDeleted, TargetType = "config_template", InstanceScoped = true)]
     Task DeleteAsync(int templateId, CancellationToken cancellationToken = default);
+
+    /// <summary>Renames a template and replaces its description.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlTemplateSaved, TargetType = "config_template", InstanceScoped = true)]
+    Task RenameAsync(int templateId, string name, string? description, CancellationToken cancellationToken = default);
+
+    /// <summary>Edit tab: one collection of a template as YAML (secrets masked), its object counts, and the editor schema.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int templateId, string collection, CancellationToken cancellationToken = default);
+
+    /// <summary>Edit tab: checks a template's edited files as they are typed, and counts the objects they change.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<YamlValidation> ValidateYamlAsync(int templateId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default);
+
+    /// <summary>Edit tab: saves a template's edited files. Returns the problems; nothing is saved when one is an error.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlTemplateSaved, TargetType = "config_template", InstanceScoped = true)]
+    Task<List<YamlProblem>> SaveFilesAsync(int templateId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default);
+
+    /// <summary>Edit tab: a masked secret of a template as YAML, for the Show button.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlSecretRevealed, TargetType = "config_secret", InstanceScoped = true)]
+    Task<string?> RevealSecretAsync(int templateId, string token, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The template service.</summary>
@@ -172,4 +206,48 @@ public sealed class ConfigTemplateService : IConfigTemplateService
     }
 
     public Task DeleteAsync(int templateId, CancellationToken cancellationToken = default) => _store.DeleteAsync(templateId, cancellationToken);
+
+    public Task RenameAsync(int templateId, string name, string? description, CancellationToken cancellationToken = default) =>
+        _store.RenameAsync(templateId, name, description, cancellationToken);
+
+    private async Task<(TemplateView View, ConfigState State)> LoadAsync(int templateId, CancellationToken ct) =>
+        await _store.LoadAsync(templateId, ct) ?? throw new InvalidOperationException("Template not found.");
+
+    public async Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int templateId, string collection, CancellationToken cancellationToken = default)
+    {
+        var state = (await LoadAsync(templateId, cancellationToken)).State;
+        var counts = state.Collections.ToDictionary(k => k.Key, k => k.Value.Count);
+        var schema = ConfigCollections.Get(collection) is { } def ? YamlConverter.EditSchema(state, [def]).ToJsonString() : "{}";
+        return (YamlConverter.Export(state, [collection], SecretMode.Mask), counts, schema);
+    }
+
+    public async Task<YamlValidation> ValidateYamlAsync(int templateId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)
+    {
+        var baseState = (await LoadAsync(templateId, cancellationToken)).State;
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(baseState, filesByCollection);
+        var ops = touched.Count == 0 ? [] : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched }).Operations;
+        return new YamlValidation
+        {
+            Problems = problems, EditedObjects = ops.Count, EditedCollections = ops.Select(o => o.Collection).Distinct().Count(),
+            EditedByCollection = ops.GroupBy(o => o.Collection).ToDictionary(g => g.Key, g => g.Count()),
+        };
+    }
+
+    public async Task<List<YamlProblem>> SaveFilesAsync(int templateId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)
+    {
+        var (view, state) = await LoadAsync(templateId, cancellationToken);
+        var (desired, problems, _) = ChangeControlService.ParseEdits(state, filesByCollection);
+        if (problems.Any(p => p.Level == "Error")) return problems;
+        // The template keeps its own collections: an edit never adds one it was not created with.
+        await _store.SaveAsync(templateId, view.Name, view.Description, view.SourceSiteSlug, desired, view.Collections,
+            _caller.Current?.ActorName ?? "unknown", cancellationToken);
+        return problems;
+    }
+
+    public async Task<string?> RevealSecretAsync(int templateId, string token, CancellationToken cancellationToken = default)
+    {
+        if (YamlConverter.SecretTokenPath(token) is not { } path) return null;
+        var state = (await LoadAsync(templateId, cancellationToken)).State;
+        return YamlConverter.FindSecret(state, path) is { } found ? YamlConverter.ScalarText(found.Value) : null;
+    }
 }
