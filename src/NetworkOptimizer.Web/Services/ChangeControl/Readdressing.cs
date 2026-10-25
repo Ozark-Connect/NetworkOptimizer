@@ -137,6 +137,14 @@ public static partial class Readdressing
     /// <summary>Network purposes that are not this site's LANs: their addresses are set by the ISP or the VPN's far side.</summary>
     private static bool IsLan(JsonObject n) => LanPurposes.Contains(n["purpose"]?.ToString() ?? "");
 
+    private static bool IsWan(JsonObject n) => n["purpose"]?.ToString() == "wan";
+
+    /// <summary>
+    /// A WAN's carrier-side fields (its address, gateway, netmask, DNS, aliases): the ISP sets them. The
+    /// rest of a WAN can be local, such as a GRE tunnel's <c>ip_subnet</c>, which is the modem's LAN address.
+    /// </summary>
+    private static bool IsCarrierField(string key) => key.StartsWith("wan_", StringComparison.Ordinal);
+
     /// <summary>
     /// Ranges that belong to something other than this site's LANs: WAN and VPN client networks (their
     /// own addresses and peers), and the destinations of static routes, traffic routes, and firewall
@@ -154,7 +162,11 @@ public static partial class Readdressing
                 foreach (var r in Ranges(text)) ranges.Add((r, where));
         }
 
-        foreach (var n in networks.Values.Where(n => !IsLan(n))) Add(n, n["name"]?.ToString() ?? "");
+        foreach (var n in networks.Values.Where(n => !IsLan(n)))
+        {
+            if (!IsWan(n)) { Add(n, n["name"]?.ToString() ?? ""); continue; }
+            foreach (var (k, v) in n.Where(p => IsCarrierField(p.Key))) Add(v, n["name"]?.ToString() ?? "");
+        }
         foreach (var v in live.Get("vpn_connections")) Add(v, Remote(v["network_id"]?.ToString()) ?? "a VPN");
         foreach (var r in live.Get("routing"))
             if (Remote(r["static-route_interface"]?.ToString()) is { } via) Add(r["static-route_network"], via);
@@ -252,14 +264,15 @@ public static partial class Readdressing
             foreach (var obj in list)
             {
                 var ctx = new WalkContext(map, remote, key, ConfigState.DisplayName(def, obj), result);
-                // Whole objects that are not this site's LANs: a WAN, a VPN client, a VPN connection.
-                if ((key == "networkconf" && !IsLan(obj)) || key is "vpn_connections" or "wan_defaults")
+                // Whole objects the far side sets: a VPN client or server, a VPN connection.
+                if ((key == "networkconf" && !IsLan(obj) && !IsWan(obj)) || key is "vpn_connections" or "wan_defaults")
                 {
                     Walk(obj, "", ctx with { ReportOnly = true });
                     continue;
                 }
-                // Destinations that leave over a WAN or a VPN.
+                // A WAN's carrier fields, and destinations that leave over a WAN or a VPN.
                 var far = new HashSet<string>(StringComparer.Ordinal);
+                if (key == "networkconf" && IsWan(obj)) far.UnionWith(obj.Select(p => p.Key).Where(IsCarrierField));
                 if (key == "routing" && RemoteNetwork(obj["static-route_interface"]?.ToString())) far.Add("static-route_network");
                 if (key == "trafficroute" && RemoteNetwork(obj["network_id"]?.ToString())) { far.Add("ip_addresses"); far.Add("ip_ranges"); }
                 if (key == "firewall_policy")

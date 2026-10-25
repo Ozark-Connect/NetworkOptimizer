@@ -79,7 +79,8 @@ public class ReaddressingTests
     // a static route, traffic route, and External-zone policy that reach the VPN's far side.
     private static ConfigState WithRemote() => State(
         ("networkconf", """{"_id":"lan","name":"Management","purpose":"corporate","vlan_enabled":true,"vlan":99,"ip_subnet":"192.168.99.1/24"}"""),
-        ("networkconf", """{"_id":"wan5g","name":"5G","purpose":"wan","ip_subnet":"192.168.99.5/30"}"""),
+        ("networkconf", """{"_id":"wan5g","name":"5G","purpose":"wan","ifname":"gre1","lan_tunnel_wan_device":"aa:bb:cc:dd:ee:05","ip_subnet":"192.168.99.5/30","wan_ip":"100.64.10.9","wan_gateway":"100.64.10.8","wan_netmask":"255.255.255.254"}"""),
+        ("networkconf", """{"_id":"wanc","name":"Cable","purpose":"wan","wan_type":"static","wan_ip":"192.168.99.150","wan_gateway":"192.168.99.149","wan_netmask":"255.255.255.252"}"""),
         ("networkconf", """{"_id":"wg","name":"Far Site","purpose":"vpn-client","vpn_type":"wireguard-client","ip_subnet":"192.168.99.200/32"}"""),
         ("firewall_zone", """{"_id":"zi","name":"Internal","zone_key":"internal","network_ids":["lan"]}"""),
         ("firewall_zone", """{"_id":"ze","name":"External","zone_key":"external","network_ids":["wan5g","wg"]}"""),
@@ -87,7 +88,8 @@ public class ReaddressingTests
         ("trafficroute", """{"_id":"t1","description":"Far site","network_id":"wg","ip_addresses":[{"ip_or_subnet":"192.168.99.128/26"}],"ip_ranges":[]}"""),
         ("firewall_policy", """{"_id":"p1","name":"Block far side","source":{"zone_id":"zi","ips":["192.168.99.10"]},"destination":{"zone_id":"ze","ips":["192.168.99.130"]}}"""),
         ("user", """{"_id":"u1","name":"Switch","mac":"aa:bb:cc:dd:ee:02","use_fixedip":true,"fixed_ip":"192.168.99.10"}"""),
-        ("user", """{"_id":"u2","name":"Modem","mac":"aa:bb:cc:dd:ee:03","use_fixedip":true,"fixed_ip":"192.168.99.6"}"""));
+        ("user", """{"_id":"u2","name":"Cable Modem","mac":"aa:bb:cc:dd:ee:03","use_fixedip":true,"fixed_ip":"192.168.99.149"}"""),
+        ("device", """{"_id":"d5","name":"5G Modem","mac":"aa:bb:cc:dd:ee:05","config_network":{"type":"static","ip":"192.168.99.5","netmask":"255.255.255.0","gateway":"192.168.99.1","dns1":"192.168.99.1"}}"""));
 
     [Fact]
     public void Apply_LeavesWanAndVpnAddressesAlone_EvenInsideAMovedSubnet()
@@ -97,14 +99,20 @@ public class ReaddressingTests
         var d = result.Desired;
 
         d.Get("networkconf")[0]["ip_subnet"]!.ToString().Should().Be("10.42.99.1/24");
-        d.Get("networkconf")[1]["ip_subnet"]!.ToString().Should().Be("192.168.99.5/30", "the WAN's address is the ISP's");
-        d.Get("networkconf")[2]["ip_subnet"]!.ToString().Should().Be("192.168.99.200/32", "the VPN server sets the tunnel address");
+        // A GRE WAN to a modem on the LAN: its endpoint is the modem's LAN address and moves with it.
+        d.Get("networkconf")[1]["ip_subnet"]!.ToString().Should().Be("10.42.99.5/30");
+        d.Get("networkconf")[1]["wan_ip"]!.ToString().Should().Be("100.64.10.9");
+        d.Get("device")[0]["config_network"]!["ip"]!.ToString().Should().Be("10.42.99.5");
+        d.Get("device")[0]["config_network"]!["gateway"]!.ToString().Should().Be("10.42.99.1");
+        // A static WAN's carrier addresses are the ISP's, even inside a LAN range.
+        d.Get("networkconf")[2]["wan_ip"]!.ToString().Should().Be("192.168.99.150");
+        d.Get("networkconf")[3]["ip_subnet"]!.ToString().Should().Be("192.168.99.200/32", "the VPN server sets the tunnel address");
         d.Get("routing")[0]["static-route_network"]!.ToString().Should().Be("192.168.99.240/28");
         d.Get("trafficroute")[0]["ip_addresses"]![0]!["ip_or_subnet"]!.ToString().Should().Be("192.168.99.128/26");
         d.Get("firewall_policy")[0]["source"]!["ips"]![0]!.ToString().Should().Be("10.42.99.10");
         d.Get("firewall_policy")[0]["destination"]!["ips"]![0]!.ToString().Should().Be("192.168.99.130");
         d.Get("user")[0]["fixed_ip"]!.ToString().Should().Be("10.42.99.10");
-        d.Get("user")[1]["fixed_ip"]!.ToString().Should().Be("192.168.99.6", "inside the WAN's /30");
+        d.Get("user")[1]["fixed_ip"]!.ToString().Should().Be("192.168.99.149", "the static WAN's gateway");
 
         result.Remote.Should().HaveCountGreaterThanOrEqualTo(6);
     }
