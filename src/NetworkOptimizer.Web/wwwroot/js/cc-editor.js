@@ -3,7 +3,7 @@
 import {
     EditorView, EditorState, Compartment, basicSetup, keymap, indentWithTab, indentUnit, yaml,
     autocompletion, startCompletion, setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
-    Decoration, WidgetType, ViewPlugin, MatchDecorator,
+    Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect,
 } from '../lib/codemirror/codemirror.bundle.js?v=3';
 
 const highlight = HighlightStyle.define([
@@ -75,7 +75,11 @@ class SecretWidget extends WidgetType {
                     const doc = view.state.doc.toString();
                     // The chip's own range when it is still there; the token may have moved if the doc changed meanwhile.
                     const from = doc.startsWith(this.token, at) ? at : doc.indexOf(this.token);
-                    if (from >= 0) view.dispatch({ changes: { from, to: from + this.token.length, insert: value } });
+                    if (from < 0) return;
+                    // Cursor onto the value so it shows; leaving the line unedited puts the chip back.
+                    this.state.revealed.push({ from, to: from + value.length, token: this.token, value });
+                    view.dispatch({ changes: { from, to: from + this.token.length, insert: value }, selection: { anchor: from + value.length } });
+                    view.focus();
                 } catch (err) {
                     console.warn('cc-editor: reveal failed', err);
                     show.textContent = 'Not allowed';
@@ -102,6 +106,99 @@ function secretMasks(state) {
     return [plugin, EditorView.atomicRanges.of(view => view.plugin(plugin)?.decorations ?? Decoration.none)];
 }
 
+// A secret's value in clear (revealed, typed, or generated) shows only while the cursor is on its line.
+class LiteralMaskWidget extends WidgetType {
+    eq() { return true; }
+
+    toDOM() {
+        const mask = document.createElement('span');
+        mask.className = 'cc-secret';
+        mask.setAttribute('aria-label', 'Secret value: put the cursor on this line to see it');
+        mask.append('••••••••');
+        return mask;
+    }
+
+    // Clicks fall through to the editor, which puts the cursor on the line and so unmasks it.
+    ignoreEvent() { return false; }
+}
+
+const refreshMasks = StateEffect.define();
+
+/**
+ * Ranges of secret-field values in clear on the given lines, except the cursor's line. Tokens and
+ * <keep current> are left to the token chips. Pure: the Node harness tests it.
+ */
+export function secretValueRanges(cmState, schema, fromLine, toLine) {
+    const ranges = [];
+    if (!schema) return ranges;
+    const doc = cmState.doc;
+    const cursorLine = doc.lineAt(cmState.selection.main.head).number;
+    for (let n = Math.max(1, fromLine); n <= Math.min(doc.lines, toLine); n++) {
+        if (n === cursorLine) continue;
+        const line = doc.line(n);
+        const m = /^(\s*)(- )?([A-Za-z0-9_.-]+):[ \t]+(.*)$/.exec(line.text);
+        if (!m) continue;
+        const value = scalarText(m[4]);
+        if (!value || value.startsWith('<secret:') || value === '<keep current>') continue;
+        const indent = m[1].length + (m[2] ? 2 : 0);
+        if (!fieldAt(schema, doc, n, indent, m[3])?.secret) continue;
+        const start = line.text.length - m[4].length;
+        ranges.push({ from: line.from + start, to: line.from + start + value.length });
+    }
+    return ranges;
+}
+
+// A YAML scalar without its trailing comment. A quoted value ends at its closing quote, so a '#'
+// inside a password is part of the value, not a comment.
+function scalarText(rest) {
+    const q = rest[0];
+    if (q === '"' || q === "'") {
+        for (let i = 1; i < rest.length; i++) {
+            if (q === '"' && rest[i] === '\\') { i++; continue; }
+            if (rest[i] === q) {
+                if (q === "'" && rest[i + 1] === "'") { i++; continue; }
+                return rest.slice(0, i + 1);
+            }
+        }
+        return rest.trimEnd();
+    }
+    return rest.replace(/\s+#.*$/, '').trimEnd();
+}
+
+function literalMasks(state) {
+    const build = view => {
+        const ranges = [];
+        for (const { from, to } of view.visibleRanges) {
+            const doc = view.state.doc;
+            ranges.push(...secretValueRanges(view.state, state.schema, doc.lineAt(from).number, doc.lineAt(to).number));
+        }
+        return Decoration.set(ranges.map(r => Decoration.replace({ widget: new LiteralMaskWidget() }).range(r.from, r.to)), true);
+    };
+    return ViewPlugin.fromClass(class {
+        constructor(view) { this.decorations = build(view); }
+        update(u) {
+            if (u.docChanged || u.selectionSet || u.viewportChanged || u.transactions.some(t => t.effects.some(e => e.is(refreshMasks)))) {
+                this.decorations = build(u.view);
+            }
+        }
+    }, { decorations: v => v.decorations });
+}
+
+// Revealed values left unedited go back to their token once the cursor leaves the line, so a reveal
+// is never an edit. An edited one stays as typed (and is masked off its line like any secret value).
+function restoreRevealed(view, state) {
+    const doc = view.state.doc;
+    const cursorLine = doc.lineAt(view.state.selection.main.head).number;
+    const changes = [];
+    state.revealed = state.revealed.filter(r => {
+        if (r.from > r.to || r.to > doc.length) return false;
+        if (doc.lineAt(r.from).number === cursorLine) return true;
+        if (doc.sliceString(r.from, r.to) === r.value) changes.push({ from: r.from, to: r.to, insert: r.token });
+        return false;
+    });
+    if (changes.length) setTimeout(() => view.dispatch({ changes }), 0);
+}
+
 /**
  * Creates the editor in host. dotnet receives OnEditorChanged(key, text) after typing pauses; key
  * names what the text belongs to, so a change still in flight when setText swaps the document
@@ -109,7 +206,7 @@ function secretMasks(state) {
  */
 export function create(host, dotnet, text, label, key, canReveal) {
     dispose(host);
-    const state = { dotnet, key, canReveal: !!canReveal, schema: null, silent: false, timer: 0, editable: new Compartment() };
+    const state = { dotnet, key, canReveal: !!canReveal, schema: null, silent: false, timer: 0, revealed: [], editable: new Compartment() };
     const view = new EditorView({
         parent: host,
         state: EditorState.create({
@@ -123,12 +220,21 @@ export function create(host, dotnet, text, label, key, canReveal) {
                 syntaxHighlighting(highlight),
                 theme,
                 secretMasks(state),
+                literalMasks(state),
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
                 state.editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ 'aria-label': label ?? 'YAML', spellcheck: 'false' }),
                 EditorView.updateListener.of(u => {
+                    if (u.docChanged) {
+                        // Grow with typing at either edge, so an edit there counts as an edit.
+                        for (const r of state.revealed) {
+                            r.from = u.changes.mapPos(r.from, -1);
+                            r.to = u.changes.mapPos(r.to, 1);
+                        }
+                    }
+                    if ((u.selectionSet || u.docChanged) && state.revealed.length) restoreRevealed(u.view, state);
                     if (!u.docChanged || state.silent) return;
                     // Deleting a masked secret leaves "key: "; open the menu there too (phones have no Ctrl+Space).
                     const head = u.state.selection.main.head;
@@ -166,6 +272,7 @@ export function setText(host, text, key) {
             .catch(e => console.warn('cc-editor: change callback failed', e));
     }
     cc.state.key = key;
+    cc.state.revealed = [];
     cc.state.silent = true;
     try {
         cc.view.dispatch({ changes: { from: 0, to: cc.view.state.doc.length, insert: text ?? '' } });
@@ -199,7 +306,11 @@ export function setProblems(host, problems) {
  * Shape: { fields: [{ name, values?, ref?, detail?, shape? }] } in display order; shape nests.
  */
 export function setSchema(host, schema) {
-    if (host?._cc) host._cc.state.schema = typeof schema === 'string' ? JSON.parse(schema) : schema;
+    const cc = host?._cc;
+    if (!cc) return;
+    cc.state.schema = typeof schema === 'string' ? JSON.parse(schema) : schema;
+    // The masks depend on which fields are secret; redraw them now the schema says so.
+    cc.view.dispatch({ effects: refreshMasks.of(null) });
 }
 
 export function dispose(host) {

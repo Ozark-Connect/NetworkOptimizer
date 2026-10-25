@@ -217,6 +217,11 @@ public static class PlanBuilder
 
         var remapped = (JsonObject)Remap(desired, desiredById, idMap, creates, options, doc, $"{def.Noun} {name}")!;
         RestoreKeptSecrets(def, live, remapped, doc, name);
+        // A field YAML leaves out (a locked zone's networks) keeps its live value; absent is not "empty".
+        if (live != null && def.HiddenInYaml != null)
+            foreach (var (field, value) in live)
+                if (!remapped.ContainsKey(field) && def.HiddenInYaml(live, field))
+                    remapped[field] = value?.DeepClone();
 
         // Create.
         if (live == null)

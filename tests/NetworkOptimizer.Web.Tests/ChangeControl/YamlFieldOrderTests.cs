@@ -97,6 +97,25 @@ public class YamlFieldOrderTests
         lines.Should().ContainInOrder("- id: p1", "name: Same", "# PoE", "poe_mode: \"off\"");
     }
 
+    [Fact]
+    public void LockedZones_HideTheirNetworks_AndAPlanKeepsThem()
+    {
+        var site = State(
+            ("networkconf", """{"_id":"n1","name":"LAN","purpose":"corporate","vlan":1}"""),
+            ("networkconf", """{"_id":"n2","name":"WAN","purpose":"wan"}"""),
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","default_zone":true,"attr_no_edit":false,"network_ids":["n1"]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","default_zone":true,"attr_no_edit":true,"network_ids":["n2"]}"""));
+        var yaml = YamlConverter.Export(site, ["firewall_zone"], SecretMode.Mask);
+        var lines = yaml.Split('\n').Select(l => l.Trim()).ToList();
+        lines.Should().ContainInOrder("- name: Internal", "networks: [LAN]", "- name: External");
+        lines.SkipWhile(l => l != "- name: External").Should().NotContain(l => l.StartsWith("networks"));
+
+        var parsed = YamlConverter.Parse(yaml, site, "firewall_zones.yaml");
+        parsed.Problems.Should().NotContain(p => p.Level == "Error");
+        PlanBuilder.Build(Merge(site, parsed), site, new PlanOptions { Collections = new HashSet<string> { "firewall_zone" } })
+            .Operations.Should().BeEmpty("External's hidden networks keep their live value");
+    }
+
     private static ConfigState Merge(ConfigState baseState, YamlParseResult parsed)
     {
         var desired = baseState.Clone();

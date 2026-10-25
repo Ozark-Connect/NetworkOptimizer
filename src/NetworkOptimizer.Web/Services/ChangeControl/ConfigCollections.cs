@@ -157,6 +157,12 @@ public sealed class ConfigCollectionDef
     /// <summary>Objects UniFi generates and owns (predefined, derived): never written, compared for display only.</summary>
     public Func<JsonObject, bool>? IsGenerated { get; init; }
 
+    /// <summary>
+    /// A field UniFi manages on this object (a locked zone's networks): left out of YAML, and a plan
+    /// keeps the live value when the file omits it. Snapshots and diffs still carry it.
+    /// </summary>
+    public Func<JsonObject, string, bool>? HiddenInYaml { get; init; }
+
     /// <summary>Service tags for a changed field path on an object of this collection.</summary>
     public Func<JsonObject, string, IEnumerable<string>>? TagsForField { get; init; }
 
@@ -346,6 +352,8 @@ public static class ConfigCollections
                 Scope = UniFiApiScope.SiteV2, ReadPath = "firewall/zone", Order = 3,
                 ReadOnlyFields = Set("attr_no_edit", "cloud_template", "default_zone", "external_id", "zone_key"),
                 SetArrays = Set("network_ids"),
+                // External, Gateway, and VPN are locked (attr_no_edit); UniFi fills their networks (WANs into External).
+                HiddenInYaml = (o, field) => field == "network_ids" && Bool(o, "attr_no_edit"),
                 EnforcedKey = (o, _) => Str(o, "zone_key") is { Length: > 0 } k ? "zone_key:" + k : null,
                 Write = new CollectionWrite
                 {
