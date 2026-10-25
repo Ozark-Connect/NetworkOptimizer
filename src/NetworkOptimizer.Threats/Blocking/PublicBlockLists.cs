@@ -76,7 +76,7 @@ public static class PublicBlockLists
             ParseSpamhausJson),
         new(ThreatFox, "abuse.ch ThreatFox",
             "Botnet command-and-control servers reported in the last 48 hours (Cobalt Strike, AsyncRAT, Remcos, and more), leaving out hijacked legitimate servers and low-confidence reports. Needs your own abuse.ch Auth Key, which is free.",
-            ["https://threatfox.abuse.ch/export/csv/ip-port/recent/"],
+            ["https://threatfox-api.abuse.ch/v2/files/exports/{token}/recent.csv"],
             TimeSpan.FromMinutes(15), DefaultOn: false, Outbound: true,
             "abuse.ch ThreatFox", "https://threatfox.abuse.ch/",
             ParseThreatFoxIpPort, TokenHeader: "Auth-Key", TokenName: "abuse.ch Auth Key"),
