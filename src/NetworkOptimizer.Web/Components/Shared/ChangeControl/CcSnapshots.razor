@@ -242,7 +242,7 @@ else if (_compare != null)
                     }
                     @if (_compare.FromSnapshotId is { } fromId && _compare.ToSnapshotId == null)
                     {
-                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">Roll Back To @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
+                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
                     }
                 </div>
             }
