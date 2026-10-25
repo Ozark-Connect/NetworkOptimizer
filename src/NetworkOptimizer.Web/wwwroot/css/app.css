@@ -23479,6 +23479,8 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .change-control .cc-lane-latest .a { color: var(--cc-no); }
+.change-control .cc-lane-latest .rtt { color: #d946ef; }
+.change-control .cc-lane-latest .loss { color: #ef4444; }
 .change-control .cc-lane-latest .b { color: var(--warning-color); }
 .change-control .cc-lane-latest .cpu { color: var(--cc-firmware); }
 .change-control .cc-lane-latest .down { color: var(--speed-download-color); }

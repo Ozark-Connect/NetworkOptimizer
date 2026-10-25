@@ -87,7 +87,7 @@
                         <div class="cc-tl-name">@row.Site.Name</div>
                         <div class="cc-tl-sub">@row.Site.Detail</div>
                     </div>
-                    <CcTrack From="_from" To="_to" SeriesA="row.Sparkline" ColorA="#2ba89a" Markers="markers" Bands="row.Bands"
+                    <CcTrack From="_from" To="_to" SeriesA="row.Sparkline" ColorA="@LaneColorA("latency")" Markers="markers" Bands="row.Bands"
                              SelectedId="_selected?.Id" OnMarker="SelectAsync" />
                     <div class="cc-tl-counts">
                         <div><b>@row.ChangeCount</b> changes</div>
@@ -530,9 +530,14 @@
             yield return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(d, DateTimeKind.Unspecified), tz);
     }
 
-    private static string LaneColorA(string key) => key switch { "throughput" => "var(--speed-download-color)", "cpu" => "#a78bfa", "clients" => "#3b82f6", _ => "#2ba89a" };
+    // Latency and loss take the WAN live chart's colors (wan-live-chart.js COLOR_RTT, COLOR_LOSS).
+    private static string LaneColorA(string key) => key switch
+    {
+        "throughput" => "var(--speed-download-color)", "cpu" => "#a78bfa", "clients" => "#3b82f6",
+        "latency" => "#d946ef", "loss" => "#ef4444", _ => "#2ba89a",
+    };
     private static string LaneColorB(string key) => key switch { "throughput" => "var(--speed-upload-color)", _ => "#f59e0b" };
-    private static string LaneClassA(string key) => key switch { "throughput" => "down", "cpu" => "cpu", _ => "a" };
+    private static string LaneClassA(string key) => key switch { "throughput" => "down", "cpu" => "cpu", "latency" => "rtt", "loss" => "loss", _ => "a" };
     private static string LaneClassB(string key) => key switch { "throughput" => "up", _ => "b" };
     private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 }
