@@ -128,19 +128,31 @@ public sealed class SiteMetricsReader
 
             lanes.Add(new TimelineLane
             {
-                Key = "latency", Title = "WAN Latency", Subtitle = "Idle vs loaded, ms", SeriesAName = "idle", SeriesBName = "loaded",
+                Key = "latency",
+                Title = "WAN Latency",
+                Subtitle = "Idle vs loaded, ms",
+                SeriesAName = "idle",
+                SeriesBName = "loaded",
                 SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.Rtt : null)).ToList(),
                 SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.Rtt : null)).ToList(),
             });
             lanes.Add(new TimelineLane
             {
-                Key = "loss", Title = "WAN Loss", Subtitle = "Idle vs loaded, %", SeriesAName = "idle", SeriesBName = "loaded",
+                Key = "loss",
+                Title = "WAN Loss",
+                Subtitle = "Idle vs loaded, %",
+                SeriesAName = "idle",
+                SeriesBName = "loaded",
                 SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.Loss : null)).ToList(),
                 SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.Loss : null)).ToList(),
             });
             lanes.Add(new TimelineLane
             {
-                Key = "throughput", Title = "WAN Throughput", Subtitle = "Mbps", SeriesAName = "down", SeriesBName = "up",
+                Key = "throughput",
+                Title = "WAN Throughput",
+                Subtitle = "Mbps",
+                SeriesAName = "down",
+                SeriesBName = "up",
                 SeriesA = rates.Select(r => (r.Time, r.DownloadBps / 1e6)).ToList(),
                 SeriesB = rates.Select(r => (r.Time, r.UploadBps / 1e6)).ToList(),
             });
@@ -148,7 +160,10 @@ public sealed class SiteMetricsReader
             {
                 lanes.Add(new TimelineLane
                 {
-                    Key = "cpu", Title = "Gateway CPU", Subtitle = "%", SeriesAName = "CPU",
+                    Key = "cpu",
+                    Title = "Gateway CPU",
+                    Subtitle = "%",
+                    SeriesAName = "CPU",
                     SeriesA = cpuTask.Result.Select(h => (h.Time, (double?)h.Value)).ToList(),
                 });
             }
@@ -162,8 +177,15 @@ public sealed class SiteMetricsReader
 
         return lanes.Select(l => new TimelineLane
         {
-            Key = l.Key, Title = l.Title, Subtitle = l.Subtitle, SeriesAName = l.SeriesAName, SeriesBName = l.SeriesBName,
-            SeriesA = l.SeriesA, SeriesB = l.SeriesB, Stack = l.Stack, Lines = l.Lines,
+            Key = l.Key,
+            Title = l.Title,
+            Subtitle = l.Subtitle,
+            SeriesAName = l.SeriesAName,
+            SeriesBName = l.SeriesBName,
+            SeriesA = l.SeriesA,
+            SeriesB = l.SeriesB,
+            Stack = l.Stack,
+            Lines = l.Lines,
             LatestA = Format(l.Key, l.SeriesA.LastOrDefault(p => p.Value != null).Value),
             LatestB = Format(l.Key, l.SeriesB.LastOrDefault(p => p.Value != null).Value),
         }).ToList();
@@ -200,7 +222,10 @@ public sealed class SiteMetricsReader
         }
         return new TimelineLane
         {
-            Key = "clients", Title = "Clients", Subtitle = "Wi-Fi, by band", SeriesAName = "Wi-Fi",
+            Key = "clients",
+            Title = "Clients",
+            Subtitle = "Wi-Fi, by band",
+            SeriesAName = "Wi-Fi",
             SeriesA = times.Select(t => (t, (double?)total[t])).ToList(),
             Stack = stack,
         };
@@ -209,7 +234,9 @@ public sealed class SiteMetricsReader
     /// <summary>Mean TX PHY rate per band in Mbps, one line per band that has clients.</summary>
     internal static TimelineLane PhyLane(IReadOnlyList<(DateTime Time, string Band, double Kbps)> rates) => new()
     {
-        Key = "phy", Title = "Wi-Fi PHY", Subtitle = "TX rate by band, Mbps",
+        Key = "phy",
+        Title = "Wi-Fi PHY",
+        Subtitle = "TX rate by band, Mbps",
         Lines = Bands.Select(b => (b, Series: rates.Where(r => r.Band == b.Band).Select(r => (r.Time, (double?)(r.Kbps / 1000))).ToList()))
             .Where(x => x.Series.Count > 0)
             .Select(x => new LaneLine(x.b.Name, x.b.Color, x.Series, x.Series[^1].Item2?.ToString("0")))
@@ -230,7 +257,7 @@ public sealed class SiteMetricsReader
     {
         "loss" => v.Value.ToString("0.0"),
         "throughput" => v.Value.ToString("0"),
-        "latency" => TwoSignificant(v.Value),
+        "latency" or "cpu" => TwoSignificant(v.Value),
         _ => v.Value.ToString("0"),
     };
 
