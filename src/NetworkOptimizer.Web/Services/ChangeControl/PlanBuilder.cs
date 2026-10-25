@@ -194,6 +194,13 @@ public static class PlanBuilder
         if (desired == null)
         {
             if (!options.DeleteMissing) return null;
+            // A WLAN's own AP group (Specific APs on that WLAN) is removed by UniFi with the WLAN; deleting it
+            // ourselves races that removal, and fails while the WLAN still points at it.
+            if (def.Key == "apgroups" && live!["for_wlanconf"] is JsonValue fw && fw.TryGetValue<bool>(out var forWlan) && forWlan)
+            {
+                doc.Notes.Add($"{def.Noun} {name}: belongs to a WLAN; UniFi removes it with that WLAN.");
+                return null;
+            }
             if (write.DeletePath == null && write.BatchDeletePath == null)
             {
                 doc.Notes.Add($"{def.Noun} {name}: is not in the source, and UniFi has no delete for it; left in place.");

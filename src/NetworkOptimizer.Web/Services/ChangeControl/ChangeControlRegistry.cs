@@ -35,6 +35,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         _logger = logger;
     }
 
+    /// <summary>Raised with a site's slug after it records a snapshot or change, so open pages can refresh.</summary>
+    public event Action<string>? Changed;
+
     /// <summary>The engine for a site, created on first use (not started until reconcile).</summary>
     public ChangeControlSiteEngine GetFor(string slug) => _engines.GetOrAdd(slug, Build);
 
@@ -89,6 +92,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             isRolloutActive: async ct => await rollout.UseAsync(async (r, c) => await r.GetActivePlanAsync(c) is { Status: FirmwareRolloutStatus.Running }, ct),
             isAgentSite: () => connection.IsViaAgent || connection.IsAwaitingAgent);
         engine.Evaluator = _sp.GetService<IChangeEvaluator>();
+        engine.Changed += () => Changed?.Invoke(slug);
         var history = new FirmwareHistoryImport(rollout, () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControl[{slug}]"));
         engine.ImportHistory = (names, ct) => history.RunAsync(engine, names, ct);

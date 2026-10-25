@@ -30,6 +30,18 @@ public class PlanEngineTests
     }
 
     [Fact]
+    public void DeletingAWlan_LeavesItsOwnApGroupToUniFi()
+    {
+        var desired = State(("networkconf", Lan));
+        var live = State(("networkconf", Lan),
+            ("apgroups", """{"_id":"g9","name":"devices_ap_group","for_wlanconf":true,"device_macs":["aa:bb:cc:dd:ee:01"]}"""),
+            ("wlanconf", """{"_id":"w9","name":"Testing","networkconf_id":"n1","ap_group_ids":["g9"]}"""));
+        var doc = Plan(desired, live, new PlanOptions { Collections = new HashSet<string> { "apgroups", "wlanconf" } });
+        doc.Operations.Should().ContainSingle(o => o.Action == PlanAction.Delete).Which.Collection.Should().Be("wlanconf");
+        doc.Notes.Should().Contain(n => n.Contains("UniFi removes it with that WLAN"));
+    }
+
+    [Fact]
     public void Create_ReferencesAnObjectTheSamePlanCreates()
     {
         var desired = State(("networkconf", Lan), ("networkconf", Iot),
