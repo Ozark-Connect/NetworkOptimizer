@@ -460,7 +460,7 @@ public class ChangeControlRenderHarness
                 network: IoT
                 wlan_bands: [2g]
 
-            """, new Dictionary<string, int> { ["setting"] = 41, ["networkconf"] = 17, ["wlanconf"] = 3, ["firewall_zone"] = 9, ["firewall_policy"] = 115, ["firewallgroup"] = 28, ["portconf"] = 16, ["static_dns"] = 108, ["device"] = 22, ["user"] = 86 }));
+            """, new Dictionary<string, int> { ["setting"] = 41, ["networkconf"] = 17, ["wlanconf"] = 3, ["firewall_zone"] = 9, ["firewall_policy"] = 115, ["firewallgroup"] = 28, ["portconf"] = 16, ["static_dns"] = 108, ["device"] = 22, ["user"] = 86 }, "{}"));
         m.Setup(s => s.GetPlanAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(Plan());
         return m;
     }

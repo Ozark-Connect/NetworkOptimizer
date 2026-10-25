@@ -309,11 +309,12 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     // ---------- Edit ----------
 
-    public async Task<(string Yaml, Dictionary<string, int> Counts)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default)
+    public async Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default)
     {
         var state = (await LoadSideAsync(snapshotId, cancellationToken)).State;
         var counts = state.Collections.ToDictionary(k => k.Key, k => k.Key == "user" ? k.Value.Count(ConfigDiffEngine.HasClientConfig) : k.Value.Count);
-        return (YamlConverter.Export(state, [collection], includeSecrets: false), counts);
+        var schema = ConfigCollections.Get(collection) is { } def ? YamlConverter.EditSchema(state, [def]).ToJsonString() : "{}";
+        return (YamlConverter.Export(state, [collection], includeSecrets: false), counts, schema);
     }
 
     private async Task<(ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Collections)> ParseEditsAsync(

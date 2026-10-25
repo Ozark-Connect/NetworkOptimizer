@@ -66,9 +66,12 @@ public interface IChangeControlService
     [RequireRole(Roles.Viewer)]
     Task<string> DownloadDiffAsync(int? fromSnapshotId, int? toSnapshotId, CancellationToken cancellationToken = default);
 
-    /// <summary>Edit tab: the YAML of one collection to start from, and per-collection object counts.</summary>
+    /// <summary>
+    /// Edit tab: the YAML of one collection to start from, per-collection object counts, and the
+    /// editor's completion schema (JSON, see <see cref="YamlConverter.EditSchema"/>).
+    /// </summary>
     [RequireRole(Roles.Operator)]
-    Task<(string Yaml, Dictionary<string, int> Counts)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default);
+    Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default);
 
     /// <summary>Edit tab: checks edited files as they are typed, and counts the objects they change.</summary>
     [RequireRole(Roles.Operator)]

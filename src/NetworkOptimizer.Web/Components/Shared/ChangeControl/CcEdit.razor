@@ -1,7 +1,9 @@
 @using NetworkOptimizer.Web.Services.ChangeControl
 @using System.Text
-@implements IDisposable
+@using System.Text.Json.Nodes
+@implements IAsyncDisposable
 @inject IChangeControlService Site
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject IChangeControlFleetService Fleet
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
@@ -89,14 +91,8 @@
                     {
                         <div class="loading-container"><div class="spinner"></div></div>
                     }
-                    else
-                    {
-                        <div class="cc-editor" id="cc-editor">
-                            <div class="cc-editor-gutter">@for (var i = 1; i <= LineCount; i++){<span class="@(_errorLines.Contains(i) ? "err" : "")">@i
-</span>}</div>
-                            <textarea spellcheck="false" value="@_text" @oninput="OnInput" rows="@Math.Max(24, LineCount + 2)" aria-label="@FileName(_group)"></textarea>
-                        </div>
-                    }
+                    @* Always rendered: CodeMirror owns this element's children, and it must survive group switches. *@
+                    <div class="cc-editor @(_loading ? "is-loading" : "")" @ref="_host"></div>
                 </div>
 
                 <div class="card">
@@ -159,15 +155,21 @@
     private Dictionary<string, int> _counts = [];
     private readonly Dictionary<string, string> _edited = [];
     private readonly Dictionary<string, string> _original = [];
+    private readonly Dictionary<string, string> _schemas = [];
     private YamlValidation _validation = new();
-    private HashSet<int> _errorLines = [];
     private bool _loading = true;
     private bool _busy;
     private string? _error;
     private Timer? _debounce;
 
+    private ElementReference _host;
+    private IJSObjectReference? _editor;
+    private DotNetObjectReference<CcEdit>? _self;
+    private bool _creating;
+    // Set when _text or _group changes on this side; the next render hands both to the editor.
+    private bool _pushText;
+
     private int? SnapshotId => int.TryParse(StartFrom, out var id) ? id : null;
-    private int LineCount => Math.Max(1, _text.Count(c => c == '\n') + 1);
     private int Errors => _validation.Problems.Count(p => p.Level == "Error");
 
     private static IEnumerable<ConfigCollectionDef> Defs(string group) => ConfigCollections.All.Where(d => d.Group == group);
@@ -186,18 +188,22 @@
     private async Task OpenGroupAsync(string group)
     {
         _group = group;
-        if (_edited.TryGetValue(group, out var edited))
+        _pushText = true;
+        // An uploaded group is edited before it was ever loaded: load its base for the schema and
+        // the unedited text, but keep showing the upload.
+        var edited = _edited.GetValueOrDefault(group);
+        if (edited != null && _original.ContainsKey(group))
         {
             _text = edited;
-            UpdateErrorLines();
             return;
         }
         _loading = true;
         StateHasChanged();
         try
         {
-            _text = await LoadGroupAsync(group);
-            _original[group] = _text;
+            var loaded = await LoadGroupAsync(group);
+            _original[group] = loaded;
+            _text = edited ?? loaded;
         }
         catch (Exception ex)
         {
@@ -206,29 +212,79 @@
         finally
         {
             _loading = false;
-            UpdateErrorLines();
+            _pushText = true;
         }
     }
 
     private async Task<string> LoadGroupAsync(string group)
     {
         var sb = new StringBuilder();
+        var collections = new JsonObject();
+        var refs = new JsonObject();
         foreach (var def in Defs(group))
         {
-            var (yaml, counts) = await Site.GetEditBaseAsync(SnapshotId, def.Key);
+            var (yaml, counts, schema) = await Site.GetEditBaseAsync(SnapshotId, def.Key);
             _counts = counts;
             sb.Append(yaml);
+            if (JsonNode.Parse(schema) is JsonObject parsed)
+            {
+                foreach (var (k, v) in parsed["collections"] as JsonObject ?? []) collections[k] = v?.DeepClone();
+                foreach (var (k, v) in parsed["refs"] as JsonObject ?? []) refs[k] = v?.DeepClone();
+            }
         }
+        _schemas[group] = new JsonObject { ["collections"] = collections, ["refs"] = refs }.ToJsonString();
         return sb.ToString();
     }
 
-    private void OnInput(ChangeEventArgs e)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _text = e.Value?.ToString() ?? "";
-        if (_original.TryGetValue(_group, out var original) && original == _text) _edited.Remove(_group);
-        else _edited[_group] = _text;
+        // The host appears only once SiteOperatorOnly has authorized, so not necessarily on the first render.
+        if (_editor == null && !_creating && _host.Id != null)
+        {
+            _creating = true;
+            try
+            {
+                _self = DotNetObjectReference.Create(this);
+                var module = await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/cc-editor.js"));
+                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), _group);
+                _editor = module;
+                _pushText = true;
+            }
+            catch (JSDisconnectedException) { return; }
+            finally { _creating = false; }
+        }
+        if (_editor != null && _pushText && !_loading)
+        {
+            _pushText = false;
+            try
+            {
+                await _editor.InvokeVoidAsync("setText", _host, _text, _group);
+                await _editor.InvokeVoidAsync("setSchema", _host, _schemas.GetValueOrDefault(_group, "{}"));
+                await PushProblemsAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+    }
+
+    /// <summary>The editor's text after typing pauses. <paramref name="group"/> is the group it was typed in.</summary>
+    [JSInvokable]
+    public void OnEditorChanged(string group, string text)
+    {
+        if (group == _group) _text = text;
+        if (_original.TryGetValue(group, out var original) && original == text) _edited.Remove(group);
+        else _edited[group] = text;
         _debounce?.Dispose();
-        _debounce = new Timer(_ => InvokeAsync(ValidateAsync), null, 600, Timeout.Infinite);
+        _debounce = new Timer(_ => InvokeAsync(ValidateAsync), null, 400, Timeout.Infinite);
+        StateHasChanged();
+    }
+
+    private async Task PushProblemsAsync()
+    {
+        if (_editor == null) return;
+        var file = FileName(_group);
+        var problems = _validation.Problems.Where(p => p.File == file).Select(p => new { line = p.Line, level = p.Level, message = p.Message }).ToList();
+        try { await _editor.InvokeVoidAsync("setProblems", _host, problems); }
+        catch (JSDisconnectedException) { }
     }
 
     private Dictionary<string, string> Files() =>
@@ -244,17 +300,15 @@
         {
             Logger.LogDebug(ex, "YAML validation failed");
         }
-        UpdateErrorLines();
+        await PushProblemsAsync();
         StateHasChanged();
     }
-
-    private void UpdateErrorLines() =>
-        _errorLines = _validation.Problems.Where(p => p.Level == "Error" && p.File == FileName(_group)).Select(p => p.Line).ToHashSet();
 
     private async Task StartOverAsync()
     {
         _edited.Clear();
         _original.Clear();
+        _schemas.Clear();
         _validation = new YamlValidation();
         await OpenGroupAsync(_group);
     }
@@ -317,5 +371,18 @@
         }
     }
 
-    public void Dispose() => _debounce?.Dispose();
+    public async ValueTask DisposeAsync()
+    {
+        _debounce?.Dispose();
+        if (_editor != null)
+        {
+            try
+            {
+                await _editor.InvokeVoidAsync("dispose", _host);
+                await _editor.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+        _self?.Dispose();
+    }
 }

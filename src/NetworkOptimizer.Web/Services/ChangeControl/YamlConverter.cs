@@ -439,6 +439,12 @@ public static partial class YamlConverter
             return value is JsonValue jv && jv.TryGetValue<string>(out var id) && _byId.ContainsKey(id) ? RenderOne(id) : null;
         }
 
+        /// <summary>Every object in a collection as (display name, the YAML a reference to it is written as).</summary>
+        public IEnumerable<(string Label, string Value)> Candidates(string collection) =>
+            _byId.Where(e => e.Value.Collection == collection)
+                .Select(e => (ConfigState.DisplayName(ConfigCollections.Get(collection), e.Value.Object), RenderOne(e.Key) is JsonValue v ? Scalar(v) : Flow(RenderOne(e.Key))))
+                .OrderBy(c => c.Item1, StringComparer.OrdinalIgnoreCase);
+
         private JsonNode RenderOne(string id)
         {
             var (collection, obj) = _byId[id];

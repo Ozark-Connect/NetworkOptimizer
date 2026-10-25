@@ -23734,41 +23734,13 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.8125rem;
 }
 
+/* CodeMirror (js/cc-editor.js) draws inside; its theme there sets fonts, colors, and height. */
 .change-control .cc-editor {
-    display: grid;
-    grid-template-columns: 44px minmax(0, 1fr);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    max-height: 560px;
-    overflow: auto;
-}
-
-.change-control .cc-editor-gutter {
-    text-align: right;
-    padding: 0.75rem 0.6rem 0.75rem 0;
-    color: var(--text-muted);
-    user-select: none;
-    white-space: pre;
-}
-
-.change-control .cc-editor-gutter .err {
-    color: var(--danger-color);
-}
-
-.change-control .cc-editor textarea {
-    width: 100%;
     min-height: 480px;
-    background: transparent;
-    color: var(--text-primary);
-    border: none;
-    resize: none;
-    outline: none;
-    padding: 0.75rem 0.75rem 0.75rem 0.5rem;
-    font: inherit;
-    line-height: inherit;
-    white-space: pre;
-    overflow: hidden;
+}
+
+.change-control .cc-editor.is-loading {
+    display: none;
 }
 
 .change-control .cc-problem {
@@ -24094,10 +24066,6 @@ body:has(.top-bar-hidden) .btn-fit {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem 1.5rem;
-}
-
-.change-control .cc-editor-gutter span {
-    display: block;
 }
 
 .change-control .cc-site-list-row {
