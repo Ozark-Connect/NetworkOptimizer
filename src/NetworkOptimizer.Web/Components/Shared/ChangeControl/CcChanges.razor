@@ -308,9 +308,10 @@
         var settings = await Site.GetSettingsAsync();
         if (settings.ShowOwnChanges) _who.Add("no");
         await ReloadAsync();
-        // Open with the busiest site expanded into its lanes, as the timeline is read top-down.
-        if (_timeline?.OrderByDescending(r => r.ChangeCount).FirstOrDefault() is { } busiest)
-            await ToggleSiteAsync(busiest.Site.Slug);
+        // Open with the site in context expanded into its lanes; the busiest site when it is not listed.
+        if ((_timeline?.FirstOrDefault(r => string.Equals(r.Site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
+             ?? _timeline?.OrderByDescending(r => r.ChangeCount).FirstOrDefault()) is { } open)
+            await ToggleSiteAsync(open.Site.Slug);
 
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
         if (query.TryGetValue("change", out var id) && int.TryParse(id, out var changeId))
