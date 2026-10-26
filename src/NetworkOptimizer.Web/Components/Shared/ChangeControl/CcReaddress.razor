@@ -3,6 +3,7 @@
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
 @inject ILogger<CcReaddress> Logger
+@implements IDisposable
 
 <div class="card">
     <div class="card-header">
@@ -36,6 +37,7 @@
                     <div class="cc-change-card-head"><b>@m.NetworkName</b><span class="muted-text">@(m.Vlan is { } vl ? $"VLAN {vl}" : "Untagged")</span></div>
                     <div class="cc-item-detail">Currently <code>@m.OldCidr</code></div>
                     <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="New subnet"
+                           @oninput="e => Typed(m.NetworkId, e.Value?.ToString())"
                            @onchange="e => SetSubnet(m.NetworkId, e.Value?.ToString())" />
                 </div>
             }
@@ -52,6 +54,7 @@
                             <td><code>@m.OldCidr</code></td>
                             <td>
                                 <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="@m.OldCidr"
+                                       @oninput="e => Typed(m.NetworkId, e.Value?.ToString())"
                                        @onchange="e => SetSubnet(m.NetworkId, e.Value?.ToString())" />
                             </td>
                         </tr>
@@ -374,10 +377,49 @@
 
     private string NewFor(SubnetMove m) => _subnets.TryGetValue(m.NetworkId, out var s) ? s : m.NewCidr == m.OldCidr ? "" : m.NewCidr;
 
+    private Timer? _debounce;
+    private readonly Dictionary<string, string?> _typed = new();
+
+    // Recomputes once typing pauses on a complete subnet (or a cleared field); blur still applies anything else.
+    private void Typed(string networkId, string? value)
+    {
+        _typed[networkId] = value;
+        _debounce?.Dispose();
+        _debounce = new Timer(_ => InvokeAsync(ApplyTypedAsync), null, 500, Timeout.Infinite);
+    }
+
+    private async Task ApplyTypedAsync()
+    {
+        var ready = _typed.Where(kv => string.IsNullOrWhiteSpace(kv.Value) || IsSubnet(kv.Value)).ToList();
+        foreach (var (id, _) in ready) _typed.Remove(id);
+        if (ready.Count == 0) return;
+        foreach (var (id, value) in ready)
+        {
+            if (string.IsNullOrWhiteSpace(value)) _subnets.Remove(id);
+            else _subnets[id] = value.Trim();
+        }
+        SyncUrl();
+        await LoadAsync(preview: false);
+        StateHasChanged();
+    }
+
+    private static bool IsSubnet(string value)
+    {
+        var (network, prefix) = NetworkOptimizer.Core.Helpers.NetworkUtilities.ParseCidr(value.Trim());
+        return network?.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && prefix is >= 8 and <= 30;
+    }
+
+    public void Dispose() => _debounce?.Dispose();
+
     private async Task SetSubnet(string networkId, string? value)
     {
-        if (string.IsNullOrWhiteSpace(value)) _subnets.Remove(networkId);
-        else _subnets[networkId] = value.Trim();
+        _typed.Remove(networkId);
+        var current = _subnets.GetValueOrDefault(networkId);
+        var next = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        // The debounce already applied this value.
+        if (current == next) return;
+        if (next == null) _subnets.Remove(networkId);
+        else _subnets[networkId] = next;
         SyncUrl();
         // Recompute now: the address lists and Review Plan follow the choices, with no Preview step.
         await LoadAsync(preview: false);
