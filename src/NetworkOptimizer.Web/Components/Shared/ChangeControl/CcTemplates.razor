@@ -39,6 +39,10 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Collections</label>
+                <label class="checkbox-label">
+                    <input type="checkbox" checked="@AllCollections" @onchange="ToggleAll" />
+                    <span>Select all</span>
+                </label>
                 <div class="cc-template-collections">
                     @foreach (var def in Templatable)
                     {
@@ -168,6 +172,14 @@
     private void Toggle(string key)
     {
         if (!_collections.Remove(key)) _collections.Add(key);
+    }
+
+    private bool AllCollections => Templatable.All(d => _collections.Contains(d.Key));
+
+    private void ToggleAll()
+    {
+        if (AllCollections) _collections.Clear();
+        else _collections.UnionWith(Templatable.Select(d => d.Key));
     }
 
     private async Task CreateAsync() => await RunAsync(async () =>
