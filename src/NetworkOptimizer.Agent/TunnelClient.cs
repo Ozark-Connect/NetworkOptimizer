@@ -151,6 +151,9 @@ public sealed class TunnelClient
             // SYN retries for ~2 minutes per attempt, stretching the reconnect
             // cadence from ~30s to minutes while the server is coming back up.
             ConnectTimeout = TimeSpan.FromSeconds(15),
+            // Races IPv6 and IPv4 so a black-holed IPv6 path cannot spend the whole
+            // ConnectTimeout before IPv4 is tried.
+            ConnectCallback = DualStackConnector.ConnectAsync,
         };
         if (ignoreSslErrors)
         {
