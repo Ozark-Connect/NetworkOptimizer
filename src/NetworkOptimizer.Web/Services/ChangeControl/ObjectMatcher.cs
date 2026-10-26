@@ -49,13 +49,20 @@ public static class ObjectMatcher
             if (left.Count > 0 && right.Count > 0) Pair(left[0], right[0], "single");
         }
 
-        // 1. UniFi ID.
+        // 1. UniFi ID, then the legacy_id Network 11 keeps of a 10.x ObjectId it replaced with a UUID.
         if (matchById)
         {
             var rightById = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in rightOpen) rightById.TryAdd(ConfigState.IdOf(r), r);
             foreach (var l in leftOpen.ToList())
                 if (rightById.TryGetValue(ConfigState.IdOf(l), out var r) && rightOpen.Contains(r))
+                    Pair(l, r, "id");
+
+            var rightByLegacy = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rightOpen)
+                if (r[LegacyIdField]?.ToString() is { Length: > 0 } legacy) rightByLegacy.TryAdd(legacy, r);
+            foreach (var l in leftOpen.ToList())
+                if (rightByLegacy.TryGetValue(ConfigState.IdOf(l), out var r) && rightOpen.Contains(r))
                     Pair(l, r, "id");
         }
 
@@ -90,6 +97,67 @@ public static class ObjectMatcher
         foreach (var l in leftOpen) result.Pairs.Add(new ObjectPair(l, null, "none"));
         foreach (var r in rightOpen) result.Pairs.Add(new ObjectPair(null, r, "none"));
         return result;
+    }
+
+    /// <summary>Network 11's copy of the 10.x ObjectId an object had before the UUID migration.</summary>
+    public const string LegacyIdField = "legacy_id";
+
+    /// <summary>
+    /// Matches every collection both states hold, then pairs objects that share a name or key by their
+    /// content, with references mapped through the pairs already made. Same-named objects (Network
+    /// Optimizer's per-zone policies) are only told apart that way once their IDs change, as in the
+    /// Network 11 UUID migration. Returns the matches and the left-to-right ID map.
+    /// </summary>
+    public static (Dictionary<string, MatchResult> Matches, Dictionary<string, string> IdMap) MatchAll(
+        ConfigState left, ConfigState right, ConfigIdentityContext leftCtx, ConfigIdentityContext rightCtx, bool matchById,
+        Func<ConfigCollectionDef, IReadOnlyList<JsonObject>, IReadOnlyList<JsonObject>> relevant)
+    {
+        var matches = new Dictionary<string, MatchResult>(StringComparer.OrdinalIgnoreCase);
+        var idMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var def in ConfigCollections.All)
+        {
+            if (!left.Collections.ContainsKey(def.Key) || !right.Collections.ContainsKey(def.Key)) continue;
+            var match = Match(def, relevant(def, left.Get(def.Key)), relevant(def, right.Get(def.Key)), leftCtx, rightCtx, matchById);
+            matches[def.Key] = match;
+            AddToMap(match, idMap);
+        }
+
+        foreach (var def in ConfigCollections.All)
+            if (matches.TryGetValue(def.Key, out var match) && match.Conflicts.Count > 0)
+            {
+                PairByContent(def, match, idMap);
+                AddToMap(match, idMap);
+            }
+        return (matches, idMap);
+    }
+
+    private static void AddToMap(MatchResult match, Dictionary<string, string> idMap)
+    {
+        foreach (var p in match.Pairs.Where(p => p.Left != null && p.Right != null))
+            idMap[ConfigState.IdOf(p.Left!)] = ConfigState.IdOf(p.Right!);
+    }
+
+    /// <summary>Pairs the unmatched objects behind each conflict whose shared fields are equal; a conflict fully paired is cleared.</summary>
+    private static void PairByContent(ConfigCollectionDef def, MatchResult match, IReadOnlyDictionary<string, string> idMap)
+    {
+        foreach (var conflict in match.Conflicts.ToList())
+        {
+            var lefts = match.Pairs.Where(p => p.Right == null && ConfigState.DisplayName(def, p.Left!) == conflict.Name).ToList();
+            var rights = match.Pairs.Where(p => p.Left == null && ConfigState.DisplayName(def, p.Right!) == conflict.Name).ToList();
+            if (lefts.Count == 0 || rights.Count == 0) continue;
+            foreach (var l in lefts)
+            {
+                var r = rights.FirstOrDefault(r => ConfigDiffEngine.SharedFieldsEqual(def, l.Left!, r.Right!, idMap));
+                if (r == null) continue;
+                rights.Remove(r);
+                match.Pairs.Remove(l);
+                match.Pairs.Remove(r);
+                match.Pairs.Add(new ObjectPair(l.Left, r.Right, "content"));
+            }
+            if (!match.Pairs.Any(p => (p.Right == null && ConfigState.DisplayName(def, p.Left!) == conflict.Name)
+                    || (p.Left == null && ConfigState.DisplayName(def, p.Right!) == conflict.Name)))
+                match.Conflicts.Remove(conflict);
+        }
     }
 
     private static Dictionary<string, List<JsonObject>> GroupBy(IEnumerable<JsonObject> objects, Func<JsonObject, string?> key)

@@ -71,7 +71,7 @@ else
             {
                 <div class="cc-item">
                     <div class="cc-badge-col">
-                        <span class="status-badge @(item.Kind switch { "Regression" or "Reverted" => "status-error", "Approval" => "status-info", _ => "status-warning" })">@item.Kind</span>
+                        <span class="status-badge @(item.Kind switch { "Regression" or "Reverted" or "Deleted" => "status-error", "Approval" => "status-info", _ => "status-warning" })">@item.Kind</span>
                         @if (sites.Count > 1)
                         {
                             <span class="cc-site-chip cc-phone-inline">@item.SiteName</span>
@@ -109,6 +109,9 @@ else
                         {
                             case "Regression" when item.FromSnapshotId != null:
                                 <button class="btn btn-secondary" @onclick="() => Navigator.CompareAsync(item.SiteSlug, item.FromSnapshotId, item.ToSnapshotId)">View Diff</button>
+                                break;
+                            case "Deleted":
+                                <button class="btn btn-secondary" @onclick="() => Navigator.ChangeAsync(item.SiteSlug, item.ChangeId!.Value)">View Change</button>
                                 break;
                             case "Regression":
                                 <button class="btn btn-secondary" @onclick="() => Navigator.ChangeAsync(item.SiteSlug, item.ChangeId!.Value)">View Change</button>

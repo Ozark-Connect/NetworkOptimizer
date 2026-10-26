@@ -287,6 +287,29 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     Key = $"regression:{string.Join("|", lines.Select(l => l.Key).Order(StringComparer.Ordinal))}",
                 });
             }
+            // What a Network app upgrade deleted: recorded in a change of hundreds of rewrites, where nobody would find it.
+            var upgradeChanges = changes.Where(c => c.Kind == ConfigChangeKind.Config && c.OccurredAt > now.AddDays(-7)
+                && c.ActorKind == ConfigChangeActorKind.LikelyUniFi && c.Summary.Contains("Network app upgrade", StringComparison.Ordinal)).ToList();
+            if (upgradeChanges.Count > 0)
+            {
+                var objects = await engine.Repositories.UseAsync((r, c) => r.GetChangeObjectsAsync(upgradeChanges.Select(u => u.Id).ToList(), c), cancellationToken);
+                foreach (var ch in upgradeChanges)
+                {
+                    var deleted = objects.Where(o => o.ChangeId == ch.Id && o.Action == ConfigChangeAction.Deleted && !UpgradeRetired.Contains(o.Collection)).ToList();
+                    if (deleted.Count == 0) continue;
+                    Add(new AttentionItem
+                    {
+                        Kind = "Deleted",
+                        SiteSlug = site.Slug,
+                        SiteName = site.Name,
+                        At = ch.OccurredAt,
+                        ChangeId = ch.Id,
+                        Title = $"The Network app upgrade deleted {string.Join(", ", deleted.Select(o => o.ObjectName))}",
+                        Detail = $"Restore {(deleted.Count == 1 ? "it" : "them")} from the snapshot taken before the upgrade, in Migrate / Restore.",
+                        Key = $"upgrade-deleted:{ch.Id}",
+                    });
+                }
+            }
             foreach (var p in plans.Where(p => p.Status == ConfigPlanStatus.PendingApproval))
                 Add(new AttentionItem
                 {
@@ -348,11 +371,14 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     during.Sum(c => c.ObjectCount), during.Sum(c => c.RegressionCount), during.FirstOrDefault()?.Id));
             }
         }
-        var order = new Dictionary<string, int> { ["Reverted"] = 0, ["Regression"] = 1, ["Approval"] = 2, ["Gap"] = 3, ["Drift"] = 4 };
+        var order = new Dictionary<string, int> { ["Reverted"] = 0, ["Deleted"] = 1, ["Regression"] = 1, ["Approval"] = 2, ["Gap"] = 3, ["Drift"] = 4 };
         view.Attention.Sort((a, b) => order[a.Kind] != order[b.Kind] ? order[a.Kind].CompareTo(order[b.Kind]) : b.At.CompareTo(a.At));
         view.Upgrades.Sort((a, b) => b.At.CompareTo(a.At));
         return view;
     }
+
+    /// <summary>Collections an upgrade empties on purpose (Network 11 dropped WLAN groups), and churn: not worth an item.</summary>
+    private static readonly HashSet<string> UpgradeRetired = new(StringComparer.Ordinal) { "wlangroup", "channelplan" };
 
     private static List<ImpactLine> Regressions(ConfigChange c) =>
         string.IsNullOrEmpty(c.ImpactJson) ? []

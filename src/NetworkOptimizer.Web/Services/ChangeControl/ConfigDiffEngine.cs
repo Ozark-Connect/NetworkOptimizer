@@ -49,6 +49,12 @@ public sealed class ConfigDiff
     /// <summary>Collections skipped because one side could not read them.</summary>
     public List<string> SkippedCollections { get; } = [];
 
+    /// <summary>
+    /// Fields a Network app upgrade added to every object of a collection, by collection. Compared
+    /// nowhere and reported once, not as a change on each object.
+    /// </summary>
+    public Dictionary<string, List<string>> SchemaAdditions { get; } = new(StringComparer.Ordinal);
+
     public bool IsEmpty => Objects.Count == 0 && PolicyOrder.Count == 0;
 }
 
@@ -65,6 +71,9 @@ public static class ConfigDiffEngine
         var beforeCtx = new ConfigIdentityContext(before.NamesById());
         var afterCtx = new ConfigIdentityContext(after.NamesById());
         var mgmtNetworks = ManagementNetworkIds(before).Concat(ManagementNetworkIds(after)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var (matches, idMap) = ObjectMatcher.MatchAll(before, after, beforeCtx, afterCtx, sameSite, (d, o) => Relevant(d, o));
+        var upgraded = before.NetworkAppVersion != null && after.NetworkAppVersion != null
+            && !string.Equals(before.NetworkAppVersion, after.NetworkAppVersion, StringComparison.OrdinalIgnoreCase);
 
         foreach (var def in ConfigCollections.All)
         {
@@ -78,12 +87,12 @@ public static class ConfigDiffEngine
                 continue;
             }
 
-            var left = Relevant(def, before.Get(def.Key));
-            var right = Relevant(def, after.Get(def.Key));
-            var match = ObjectMatcher.Match(def, left, right, beforeCtx, afterCtx, sameSite);
+            var match = matches[def.Key];
+            var added = upgraded ? AddedFields(match) : [];
+            if (added.Count > 0) diff.SchemaAdditions[def.Key] = [.. added.Order(StringComparer.Ordinal)];
             foreach (var pair in match.Pairs)
             {
-                var objDiff = CompareObjects(def, pair.Left, pair.Right, mgmtNetworks);
+                var objDiff = CompareObjects(def, pair.Left, pair.Right, mgmtNetworks, idMap, added);
                 if (objDiff != null) diff.Objects.Add(objDiff);
             }
         }
@@ -134,8 +143,40 @@ public static class ConfigDiffEngine
         return ids;
     }
 
-    /// <summary>Compares one matched (or unmatched) pair; null when equal.</summary>
-    public static ObjectDiff? CompareObjects(ConfigCollectionDef def, JsonObject? before, JsonObject? after, IReadOnlySet<string>? mgmtNetworks = null)
+    /// <summary>
+    /// Top-level fields present on every paired object after and on none before: columns a Network app
+    /// upgrade added. Network 11's move to PostgreSQL writes every column MongoDB left out.
+    /// </summary>
+    private static HashSet<string> AddedFields(MatchResult match)
+    {
+        var pairs = match.Pairs.Where(p => p.Left != null && p.Right != null).ToList();
+        if (pairs.Count == 0) return [];
+        var added = pairs[0].Right!.Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var p in pairs)
+            added.RemoveWhere(k => p.Left!.ContainsKey(k) || !p.Right!.ContainsKey(k));
+        return added;
+    }
+
+    /// <summary>
+    /// True when the fields both objects carry are equal, references mapped through <paramref name="idMap"/>.
+    /// Pairs same-named objects whose IDs changed; a field only one side has says nothing either way.
+    /// </summary>
+    public static bool SharedFieldsEqual(ConfigCollectionDef def, JsonObject left, JsonObject right, IReadOnlyDictionary<string, string> idMap)
+    {
+        var shared = left.Select(p => p.Key).Where(right.ContainsKey).ToHashSet(StringComparer.Ordinal);
+        var l = new JsonObject(left.Where(p => shared.Contains(p.Key)).Select(p => KeyValuePair.Create(p.Key, p.Value?.DeepClone())));
+        var r = new JsonObject(right.Where(p => shared.Contains(p.Key)).Select(p => KeyValuePair.Create(p.Key, p.Value?.DeepClone())));
+        var fields = new List<FieldChange>();
+        CompareNode(def, "", l, r, fields, ConfigCollections.OwnedBy(def, right) != null, idMap);
+        return fields.Count == 0;
+    }
+
+    /// <summary>
+    /// Compares one matched (or unmatched) pair; null when equal. References on the before side are
+    /// mapped through <paramref name="idMap"/>, so an object that kept its target under a new ID is unchanged.
+    /// </summary>
+    public static ObjectDiff? CompareObjects(ConfigCollectionDef def, JsonObject? before, JsonObject? after, IReadOnlySet<string>? mgmtNetworks = null,
+        IReadOnlyDictionary<string, string>? idMap = null, IReadOnlySet<string>? skipFields = null)
     {
         var any = after ?? before!;
         var owned = ConfigCollections.OwnedBy(def, any);
@@ -163,7 +204,7 @@ public static class ConfigDiffEngine
         else
         {
             var fields = new List<FieldChange>();
-            CompareNode(def, "", before, after, fields, owned != null);
+            CompareNode(def, "", before, after, fields, owned != null, idMap, skipFields);
             if (fields.Count == 0) return null;
             result = Make(ConfigChangeAction.Updated, fields);
         }
@@ -197,18 +238,20 @@ public static class ConfigDiffEngine
         name.EndsWith("_time", StringComparison.Ordinal) || name.StartsWith("last_", StringComparison.Ordinal)
         || name is "uptime" or "_uptime";
 
-    private static void CompareNode(ConfigCollectionDef def, string path, JsonObject before, JsonObject after, List<FieldChange> fields, bool noOwned)
+    private static void CompareNode(ConfigCollectionDef def, string path, JsonObject before, JsonObject after, List<FieldChange> fields, bool noOwned,
+        IReadOnlyDictionary<string, string>? idMap = null, IReadOnlySet<string>? skipFields = null)
     {
         var keys = before.Select(p => p.Key).Union(after.Select(p => p.Key), StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal);
         foreach (var key in keys)
         {
             var isTop = path.Length == 0;
-            if (isTop && (key is "_id" or "id" or "site_id" || def.IsReadOnly(after, key))) continue;
+            if (isTop && (key is "_id" or "id" or "site_id" or ObjectMatcher.LegacyIdField || def.IsReadOnly(after, key))) continue;
+            if (isTop && skipFields?.Contains(key) == true) continue;
             if (IsChurnField(key)) continue;
             if (isTop && noOwned && ConfigCollections.NoOwnedContentFields.Contains(key)) continue;
 
             var childPath = isTop ? key : $"{path}.{key}";
-            var b = before[key];
+            var b = Remap(before[key], idMap);
             var a = after[key];
             if (isTop && def.FieldDefaults.TryGetValue(key, out var fallback))
             {
@@ -242,10 +285,32 @@ public static class ConfigDiffEngine
                 continue;
             }
 
-            if (!CanonicalJson.DeepEquals(b, a) && !(IsEmpty(b) && IsEmpty(a)))
+            if (!CanonicalJson.DeepEquals(b, a) && !(IsEmpty(b) && IsEmpty(a)) && !SameNumber(b, a))
                 fields.Add(Shown(def, childPath, b, a));
         }
     }
+
+    /// <summary>A copy of <paramref name="node"/> with every ID in <paramref name="idMap"/> replaced by its match.</summary>
+    private static JsonNode? Remap(JsonNode? node, IReadOnlyDictionary<string, string>? idMap)
+    {
+        if (idMap == null || idMap.Count == 0 || node == null) return node;
+        return node switch
+        {
+            JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key, Remap(p.Value, idMap)))),
+            JsonArray arr => new JsonArray(arr.Select(e => Remap(e, idMap)).ToArray()),
+            JsonValue v when v.TryGetValue<string>(out var s) && idMap.TryGetValue(s, out var mapped) && mapped != s => JsonValue.Create(mapped),
+            _ => node.DeepClone(),
+        };
+    }
+
+    /// <summary>A number and a string holding the same number ("4109" and 4109): UniFi stores some fields either way.</summary>
+    private static bool SameNumber(JsonNode? b, JsonNode? a) =>
+        AsNumber(b) is { } x && AsNumber(a) is { } y && x == y;
+
+    private static decimal? AsNumber(JsonNode? n) => n is JsonValue v
+        ? v.TryGetValue<decimal>(out var d) ? d
+          : v.TryGetValue<string>(out var s) && decimal.TryParse(s, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : null
+        : null;
 
     // A value holding nested secrets (PPSK entries) is compared whole but shown with those secrets
     // hidden; when only a secret differs, the change is a secret change with no values at all.
@@ -297,8 +362,11 @@ public static class ConfigDiffEngine
     private static HashSet<string> AsSet(JsonArray? arr) =>
         arr == null ? [] : arr.Select(CanonicalJson.Serialize).ToHashSet(StringComparer.Ordinal);
 
+    // An absent field reads as unset: UniFi treats a missing flag as false, and Network 11's PostgreSQL
+    // store writes false, 0, and empty values into every column MongoDB left out.
     private static bool IsEmpty(JsonNode? n) =>
-        n == null || (n is JsonArray arr && arr.Count == 0) || (n is JsonValue v && v.TryGetValue<string>(out var s) && s.Length == 0);
+        n == null || (n is JsonArray arr && arr.Count == 0) || (n is JsonValue v &&
+            ((v.TryGetValue<string>(out var s) && s.Length == 0) || (v.TryGetValue<bool>(out var flag) && !flag) || (v.TryGetValue<decimal>(out var num) && num == 0)));
 
     /// <summary>Hash of a secret's canonical value. Only ever compared, never stored or shown.</summary>
     public static string HashOf(JsonNode? node) =>

@@ -55,8 +55,11 @@ public static class PlanBuilder
     public static PlanDocument Build(ConfigState desired, ConfigState live, PlanOptions options)
     {
         var doc = new PlanDocument();
-        // Onto another site, the target's per-site generated values are kept, so work on a copy.
-        if (!options.SameSite) desired = desired.Clone();
+        // Onto another site, or from another Network version, the target's own values fill what the source
+        // lacks, so work on a copy.
+        var otherVersion = desired.NetworkAppVersion != null && live.NetworkAppVersion != null
+            && !string.Equals(desired.NetworkAppVersion, live.NetworkAppVersion, StringComparison.OrdinalIgnoreCase);
+        if (!options.SameSite || otherVersion) desired = desired.Clone();
         var desiredCtx = new ConfigIdentityContext(desired.NamesById());
         var liveCtx = new ConfigIdentityContext(live.NamesById());
         var desiredById = desired.ObjectsById();
@@ -64,20 +67,11 @@ public static class PlanBuilder
 
         // Pass 1: match every collection both states have, so references resolve across collections
         // (zones in policies, networks in profiles), including objects this plan never writes.
-        var idMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var matches = new Dictionary<string, MatchResult>(StringComparer.OrdinalIgnoreCase);
-        foreach (var def in ConfigCollections.All)
-        {
-            if (!desired.Collections.ContainsKey(def.Key) || !live.Collections.ContainsKey(def.Key)) continue;
-            var left = Relevant(def, desired.Get(def.Key), options);
-            var right = Relevant(def, live.Get(def.Key), options);
-            var match = ObjectMatcher.Match(def, left, right, desiredCtx, liveCtx, options.SameSite);
-            matches[def.Key] = match;
-            foreach (var p in match.Pairs.Where(p => p.Left != null && p.Right != null))
-                idMap[ConfigState.IdOf(p.Left!)] = ConfigState.IdOf(p.Right!);
-        }
+        var (matches, idMap) = ObjectMatcher.MatchAll(desired, live, desiredCtx, liveCtx, options.SameSite, (d, o) => Relevant(d, o, options));
 
-        if (!options.SameSite)
+        // A snapshot from another Network version predates the columns the upgrade added.
+        if (!options.SameSite || otherVersion)
+        {
             foreach (var def in ConfigCollections.All.Where(d => matches.ContainsKey(d.Key)))
                 foreach (var p in matches[def.Key].Pairs.Where(p => p.Left != null && p.Right != null))
                 {
@@ -85,9 +79,10 @@ public static class PlanBuilder
                     // is unspecified, not unset: the target keeps its own.
                     foreach (var (k, v) in p.Right!)
                         if (!p.Left!.ContainsKey(k)) p.Left[k] = v?.DeepClone();
-                    if (def.KeepTargetValues?.Invoke(p.Left!, p.Right!) is { } what)
+                    if (!options.SameSite && def.KeepTargetValues?.Invoke(p.Left!, p.Right!) is { } what)
                         doc.KeptValues.Add(what);
                 }
+        }
 
         var mgmtNetworks = ConfigDiffEngine.ManagementNetworkIds(live);
 

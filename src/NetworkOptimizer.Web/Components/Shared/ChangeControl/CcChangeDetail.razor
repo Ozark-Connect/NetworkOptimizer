@@ -15,7 +15,7 @@ else
                 {
                     <tr><td class="label">@label</td><td style="text-align:right">@value</td></tr>
                 }
-                @foreach (var o in Detail.Objects)
+                @foreach (var o in Detail.Objects.OrderBy(o => o.Action == ConfigChangeAction.Deleted ? 0 : 1))
                 {
                     @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated)
                     {
@@ -37,7 +37,7 @@ else
                 {
                     <tr>
                         <td class="label">@line.Kind</td>
-                        <td style="text-align:right" class="@(line.Kind == "Regression" ? "danger-text" : "success-text")">@line.Title</td>
+                        <td style="text-align:right" class="@(line.Kind == "Regression" ? "danger-text" : "success-text")">@line.Title@(line.Device is { Length: > 0 } device ? $" ({device})" : "")</td>
                     </tr>
                 }
             </table>

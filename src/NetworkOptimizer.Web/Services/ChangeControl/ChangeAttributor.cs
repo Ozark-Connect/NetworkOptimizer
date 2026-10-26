@@ -110,7 +110,8 @@ public static class ChangeAttributor
                 continue;
             }
 
-            if (WrittenByNo(obj, journal) || obj.OwnedBy != null)
+            // An object NO owns but did not write is NO's only outside an upgrade: the upgrade rewrites them too.
+            if (WrittenByNo(obj, journal) || (obj.OwnedBy != null && !inUpgradeWindow))
             {
                 ownObjects.Add(obj);
                 continue;

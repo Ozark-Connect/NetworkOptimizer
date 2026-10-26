@@ -468,7 +468,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             if (previous != null && diff != null && (recordable.Count > 0 || diff.PolicyOrder.Count > 0))
             {
                 changes = await RecordChangesAsync(snapshot, previousId, previous, live, recordable, diff, events, journal, inUpgradeWindow, ct);
-                if (Evaluator != null && changes.Count > 0) EvaluateInBackground(Evaluator, changes, previous, live);
+                if (Evaluator != null && changes.Count > 0) EvaluateInBackground(Evaluator, changes, previous, live, inUpgradeWindow);
             }
             Changed?.Invoke();
             return (true, snapshot, changes);
@@ -481,15 +481,18 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
     /// <summary>
     /// Runs the Security Audit impact of recorded changes off the snapshot path: it takes two full audits,
-    /// and a plan apply waits on its snapshots. Evaluations run one at a time, in order.
+    /// and a plan apply waits on its snapshots. Evaluations run one at a time, in order. After a Network app
+    /// upgrade it first waits for the devices to reconnect: the audit reads live port state, and right after
+    /// the app restarts every port reads as down.
     /// </summary>
-    private void EvaluateInBackground(IChangeEvaluator evaluator, List<ConfigChange> changes, ConfigState previous, ConfigState live)
+    private void EvaluateInBackground(IChangeEvaluator evaluator, List<ConfigChange> changes, ConfigState previous, ConfigState live, bool afterUpgrade)
     {
         _ = Task.Run(async () =>
         {
             await _evaluateLock.WaitAsync();
             try
             {
+                if (afterUpgrade) await WaitForDevicesAsync();
                 await evaluator.EvaluateAsync(_slug, changes, previous, live, CancellationToken.None);
                 Changed?.Invoke();
             }
@@ -502,6 +505,30 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 _evaluateLock.Release();
             }
         });
+    }
+
+    /// <summary>Waits, up to ten minutes, until every adopted device reports connected, then a minute more for port state.</summary>
+    private async Task WaitForDevicesAsync()
+    {
+        var deadline = DateTime.UtcNow.AddMinutes(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var devices = await _api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, CancellationToken.None);
+                if (devices.IsSuccess && ConfigSnapshotReader.ExtractList(devices.Body) is { } list
+                    && list.All(d => string.Equals(d["adopted"]?.ToString(), "false", StringComparison.OrdinalIgnoreCase) || d["state"]?.ToString() == "1"))
+                {
+                    if (list.Count > 0) await Task.Delay(TimeSpan.FromMinutes(1));
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Change Control could not read devices for site {Site} after an upgrade", _slug);
+            }
+            await Task.Delay(TimeSpan.FromSeconds(15));
+        }
     }
 
     private static string? DescribeTrigger(IReadOnlyList<ObjectDiff> objects, IReadOnlyList<AuditLogEvent> events, IReadOnlyList<ConfigWriteJournalEntry> journal)
@@ -540,6 +567,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         foreach (var g in groups)
         {
             var context = g.ActorKind == ConfigChangeActorKind.LikelyUniFi && inUpgradeWindow ? "during Network app upgrade" : null;
+            var added = diff.SchemaAdditions.Values.SelectMany(f => f).Distinct(StringComparer.Ordinal).Count();
+            if (context != null && added > 0) context += $" (plus {added} new fields the upgrade added, not listed)";
             var change = new ConfigChange
             {
                 Kind = ConfigChangeKind.Config,

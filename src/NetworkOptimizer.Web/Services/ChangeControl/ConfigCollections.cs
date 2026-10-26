@@ -442,7 +442,8 @@ public static class ConfigCollections
             {
                 Key = "firewallgroup", DisplayName = "Firewall groups", Noun = "Firewall group", Group = "Firewall Groups",
                 FieldGroups = ConfigFieldOrder.FirewallGroupFields,
-                Scope = UniFiApiScope.SiteV1, ReadPath = "rest/firewallgroup", Order = 3, ReadOnlyFields = CommonReadOnly,
+                // short_id: UniFi's per-site index, added to every group by Network 11, like a WLAN's.
+                Scope = UniFiApiScope.SiteV1, ReadPath = "rest/firewallgroup", Order = 3, ReadOnlyFields = Set([.. CommonReadOnly, "short_id"]),
                 // A group with no source is static (UniFi's UI writes "static" on its first save); a write
                 // cannot remove the field, so missing and "static" must compare equal.
                 FieldDefaults = new Dictionary<string, string> { ["source"] = "static" },
@@ -710,6 +711,8 @@ public static class ConfigCollections
                 Key = "channelplan", DisplayName = "Channel plans", Noun = "Channel plan", Group = "Devices",
                 FieldGroups = ConfigFieldOrder.ChannelPlanFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/channelplan", Order = 99, Churn = true, ReadOnlyFields = CommonReadOnly,
+                // A plan's creation time survives the Network 11 UUID migration; its ID does not.
+                EnforcedKey = (o, _) => Str(o, "date"),
             },
             new()
             {
