@@ -88,10 +88,13 @@ public sealed class PlanCoordinator
     /// <summary>Addresses Network Optimizer reaches the site from, for the lockout pre-flight.</summary>
     public Func<IReadOnlyList<string>> ManagementAddresses { get; set; } = () => [];
 
-    /// <summary>Builds a plan against live, runs its impact, and stores it as a Draft.</summary>
+    /// <summary>
+    /// Builds a plan against live, runs its impact, and stores it as a Draft. <paramref name="runImpact"/> false
+    /// skips the Security Audit, only for a change no audit rule reads (a lease time).
+    /// </summary>
     public async Task<ConfigPlan> CreateAsync(ConfigPlanKind kind, string name, string source, int? sourceSnapshotId, string? sourceSite,
         ConfigState desired, PlanOptions options, string createdBy, CancellationToken ct, Action<PlanDocument>? decorate = null,
-        ConfigState? impactBefore = null, int? rollsBackChangeId = null)
+        ConfigState? impactBefore = null, int? rollsBackChangeId = null, bool runImpact = true)
     {
         var live = await _engine.ReadLiveAsync(ct);
         var doc = PlanBuilder.Build(desired, live, Options(options));
@@ -99,7 +102,7 @@ public sealed class PlanCoordinator
         if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
             doc.Notes.Add("This site's On-Site Agent cannot hold the revert (it needs an agent update). "
                 + "If the change cuts the tunnel, the automatic revert cannot reach the site.");
-        await RunImpactAsync(doc, impactBefore ?? live, live, ct);
+        if (runImpact) await RunImpactAsync(doc, impactBefore ?? live, live, ct);
 
         var plan = new ConfigPlan
         {

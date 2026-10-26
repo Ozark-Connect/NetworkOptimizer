@@ -88,7 +88,9 @@ public sealed partial class ChangeControlService
                 doc.Context[PrepareContext] = JsonSerializer.Serialize(originals);
                 doc.Notes.Add($"Every DHCP client is on the short lease {CcHours(longest)} after this applies, the longest current lease. "
                     + "Apply the re-address after that, and it puts each network's lease time back.");
-            });
+            },
+            // No Security Audit rule reads a lease time, so the before/after audit can only cost time.
+            runImpact: false);
         return plan.Id;
     }
 
