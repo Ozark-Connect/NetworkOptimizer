@@ -77,7 +77,7 @@
                 <div>Before the move: lower lease times</div>
                 <div class="cc-item-detail">@PrepareStatus(steps)</div>
             </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.Prepare != null || steps.LongestLeaseSeconds == null || LeasesShort(steps))" @onclick="PrepareAsync">Lower Lease Times</button>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null || LeasesShort(steps))" @onclick="PrepareAsync">Lower Lease Times</button>
         </div>
         <div class="cc-setting-row cc-step-row">
             <div>
@@ -300,7 +300,8 @@
 
     private static string PrepareStatus(ReaddressView v)
     {
-        if (v.Prepare is { } p)
+        // A moving network still on a long lease (a preparation missed it, or it was added since) needs lowering again.
+        if (v.Prepare is { } p && LeasesShort(v))
             return p.ReadyAt > DateTime.UtcNow
                 ? $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease by {CcFormat.Local(p.ReadyAt):MMM d, h:mm tt}."
                 : $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease: ready to move.";

@@ -33,19 +33,32 @@ public sealed partial class ChangeControlService
 
     private const string PrepareContext = "readdress_prepare";
 
-    /// <summary>The latest lease preparation that applied in the last two weeks, if any.</summary>
+    /// <summary>
+    /// The lease preparations applied in the last two weeks since the last re-address, merged: a later one
+    /// lowers networks an earlier one missed, and each network keeps the original from the first that lowered it.
+    /// </summary>
     private async Task<LeasePrepare?> LeasePrepareAsync(CancellationToken ct)
     {
         var plans = await Repo.UseAsync((r, c) => r.GetPlansAsync([ConfigPlanStatus.Applied, ConfigPlanStatus.Watching], 200, c), ct);
-        var latest = plans.Where(p => p.Kind == ConfigPlanKind.ReaddressPrepare && p.CompletedAt > DateTime.UtcNow.AddDays(-14))
-            .OrderByDescending(p => p.CompletedAt).FirstOrDefault();
-        if (latest == null || await Plans.LoadAsync(latest.Id, ct) is not { } loaded
-            || !loaded.Doc.Context.TryGetValue(PrepareContext, out var json)
-            || JsonSerializer.Deserialize<Dictionary<string, int>>(json) is not { Count: > 0 } originals) return null;
-        // A re-address applied after it has already put the lease times back.
-        if (plans.Any(p => p.Kind == ConfigPlanKind.Readdress && p.CompletedAt > latest.CompletedAt)) return null;
-        var at = latest.CompletedAt!.Value;
-        return new LeasePrepare(latest.Id, at, at.AddSeconds(originals.Values.Max()), originals);
+        // A re-address applied after a preparation has already put its lease times back.
+        var lastReaddress = plans.Where(p => p.Kind == ConfigPlanKind.Readdress).Max(p => p.CompletedAt);
+        var prepares = plans.Where(p => p.Kind == ConfigPlanKind.ReaddressPrepare && p.CompletedAt > DateTime.UtcNow.AddDays(-14)
+                && (lastReaddress == null || p.CompletedAt > lastReaddress))
+            .OrderBy(p => p.CompletedAt).ToList();
+
+        var originals = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        ConfigPlan? latest = null;
+        DateTime ready = DateTime.MinValue;
+        foreach (var p in prepares)
+        {
+            if (await Plans.LoadAsync(p.Id, ct) is not { } loaded || !loaded.Doc.Context.TryGetValue(PrepareContext, out var json)
+                || JsonSerializer.Deserialize<Dictionary<string, int>>(json) is not { Count: > 0 } lowered) continue;
+            foreach (var (id, lease) in lowered) originals.TryAdd(id, lease);
+            latest = p;
+            var at = p.CompletedAt!.Value.AddSeconds(lowered.Values.Max());
+            if (at > ready) ready = at;
+        }
+        return latest == null ? null : new LeasePrepare(latest.Id, latest.CompletedAt!.Value, ready, originals);
     }
 
     private async Task<int> BuildReaddressPreparePlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
