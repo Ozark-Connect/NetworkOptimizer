@@ -145,6 +145,10 @@ else
             @if (tierCount > 0)
             {
                 <span class="status-badge badge-muted">@acked of @tierCount acknowledged</span>
+                @if (editable && acked < tierCount)
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeAll(doc)">Acknowledge All</button>
+                }
             }
         </div>
         @if (doc.Operations.Count == 0)
@@ -587,6 +591,12 @@ else
 
     private static string SourceShort(ConfigPlan plan) =>
         plan.SourceDescription.StartsWith("Snapshot, ", StringComparison.Ordinal) ? plan.SourceDescription[10..].Split(',')[0] : "New";
+
+    private void AcknowledgeAll(PlanDocument doc)
+    {
+        foreach (var op in doc.Operations.Where(o => o.Tier == PlanTiers.Acknowledge)) _acks.Items.Add(op.Key);
+        Changed();
+    }
 
     private void Toggle(HashSet<string> set, string key)
     {

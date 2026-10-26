@@ -332,8 +332,9 @@ public static class ConfigCollections
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/setting", NameField = "key", Order = 1,
                 // hostname (super_identity) is the console's OS hostname, which UniFi fills in; a container recreate changes it.
                 // network_defaults (ether_lighting) are the colors UniFi assigns each network; a write of them is ignored.
+                // x_api_token (mgmt) is issued anew by UniFi on every write of mgmt.
                 ReadOnlyFields = Set("site_id", "last_alert_id", "available_controller_channels", "available_firmware_channels", "layout_preference", "widgets", "hostname",
-                    "network_defaults"),
+                    "network_defaults", "x_api_token"),
                 ExtraSecretFields = Set("psk", "utm_token", "fingerbank_key"),
                 SetArrays = Set("enabled_networks", "excluded_network_ids", "enabled_categories", "geo_ip_filtering_countries"),
                 EnforcedKey = (o, _) => Str(o, "key"), KeyIsUnique = true,
@@ -353,7 +354,7 @@ public static class ConfigCollections
                 // Device SSH credentials (x_ssh_username, x_ssh_password) are user config and do carry.
                 KeepTargetValues = (d, l) => (Str(d, "key") ?? "") switch
                 {
-                    "mgmt" => KeepFields(d, l, "Device management key and API token", "x_mgmt_key", "x_api_token"),
+                    "mgmt" => KeepFields(d, l, "Device management key", "x_mgmt_key"),
                     "connectivity" => KeepFields(d, l, "Mesh SSID and key", "x_mesh_essid", "x_mesh_psk"),
                     "element_adopt" => KeepFields(d, l, "Adoption SSID and key", "x_element_essid", "x_element_psk"),
                     "peer_to_peer" => KeepFields(d, l, "Peer-to-peer SSID and key", "ssid", "psk"),

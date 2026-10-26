@@ -234,7 +234,7 @@ public class PlanEngineTests
         mgmt.Body!["x_ssh_password"]!.GetValue<string>().Should().Be("my-ssh-password");
         mgmt.Body!["x_mgmt_key"]!.GetValue<string>().Should().Be("target-key", "the target's own management key is kept");
         doc.Operations.Should().NotContain(o => o.Collection == "radiusprofile");
-        doc.KeptValues.Should().Equal("Device management key and API token", "Peer-to-peer SSID and key", "Server secret on RADIUS profile Default");
+        doc.KeptValues.Should().Equal("Device management key", "Peer-to-peer SSID and key", "Server secret on RADIUS profile Default");
         ConfigState.IdOf(source.Get("setting")[0]).Should().Be("s-mgmt");
         source.Get("setting")[0]["x_mgmt_key"]!.GetValue<string>().Should().Be("source-key", "the caller's state is not changed");
     }
