@@ -409,10 +409,6 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
-    /// The client proved the console stopped answering mid-session. Marks it down so pages render
-    /// the banner instead of paying a timeout per call; the background reconnect clears it.
-    /// </summary>
-    /// <summary>
     /// Sign-ins have kept failing past the alert window: mark the console down so pages show the
     /// banner and stop signing in per call. The background reconnect clears it.
     /// </summary>
@@ -426,6 +422,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         OnConnectionChanged?.Invoke();
     }
 
+    /// <summary>
+    /// The client proved the console stopped answering mid-session. Marks it down so pages render
+    /// the banner instead of paying a timeout per call; the background reconnect clears it.
+    /// </summary>
     private void HandleConsoleWentSilent(UniFiApiClient client)
     {
         // Only the live client may report this. A disposed one's request can fault seconds after a
