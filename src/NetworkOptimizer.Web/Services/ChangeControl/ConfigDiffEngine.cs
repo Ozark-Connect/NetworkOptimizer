@@ -245,7 +245,7 @@ public static class ConfigDiffEngine
         foreach (var key in keys)
         {
             var isTop = path.Length == 0;
-            if (isTop && (key is "_id" or "id" or "site_id" or ObjectMatcher.LegacyIdField || def.IsReadOnly(after, key))) continue;
+            if (isTop && (key is "_id" or "id" or "site_id" or "external_id" or ObjectMatcher.LegacyIdField || def.IsReadOnly(after, key))) continue;
             if (isTop && skipFields?.Contains(key) == true) continue;
             if (IsChurnField(key)) continue;
             if (isTop && noOwned && ConfigCollections.NoOwnedContentFields.Contains(key)) continue;

@@ -238,7 +238,8 @@ public static class PlanBuilder
         if (live != null)
             foreach (var field in remapped.Select(p => p.Key).ToList())
             {
-                if (field is "_id" or "id" or "site_id") continue;
+                // Fields never compared or written (external_id, legacy_id) have nothing to keep or report.
+                if (field is "_id" or "id" or "site_id" or "external_id" or ObjectMatcher.LegacyIdField || def.IsReadOnly(remapped, field)) continue;
                 var liveValue = live[field];
                 // Identical before mapping: the live object still points at an old ID UniFi renumbered (Network 11's
                 // Default WLAN group), and writing the mapped ID would change what nothing asked to change.
@@ -277,7 +278,7 @@ public static class PlanBuilder
             // An ID that matches nothing here (an object deleted since, or one the source never captured) is refused
             // by UniFi (api.err.IdInvalid). Dropped from a list it costs one member; as a single reference the
             // object cannot be built, so it is left out with a note instead of failing on the console.
-            foreach (var field in remapped.Select(p => p.Key).Where(k => k is not "_id" and not "id" and not "site_id" and not ObjectMatcher.LegacyIdField
+            foreach (var field in remapped.Select(p => p.Key).Where(k => k is not "_id" and not "id" and not "site_id" and not "external_id" and not ObjectMatcher.LegacyIdField
                          && !def.IsReadOnly(remapped, k) && !ConfigCollections.IsSecretField(def, k)).ToList())
             {
                 if (!UnresolvedIds(remapped[field], idMap, liveById, creates).Any()) continue;

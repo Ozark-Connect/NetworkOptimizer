@@ -159,7 +159,7 @@ public class NetworkUpgradeDiffTests
     {
         // The 10.6 snapshot predates client groups, so the client's old group ID resolves to nothing.
         var before = Versioned("10.6.109",
-            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["0123456789abcdef01234567"]}"""),
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["0123456789abcdef01234567"],"external_id":"0123456789abcdef01234599"}"""),
             ("firewall_policy", """{"_id":"p1","index":10000,"name":"Allow","action":"ALLOW","source":{"zone_id":"z"},"destination":{"zone_id":"z"}}"""));
         var after = Versioned("11.0.97",
             ("user", """{"_id":"u-u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["2cb64e2c-eb5f-4af9-bb9f-44750f948594"]}"""),
@@ -171,6 +171,7 @@ public class NetworkUpgradeDiffTests
         doc.Errors.Should().BeEmpty();
         doc.Operations.Should().BeEmpty();
         doc.KeptReferences.Should().ContainKey("Clients");
+        doc.KeptReferences.Values.SelectMany(v => v).Should().NotContain("External");
     }
 
     [Fact]
