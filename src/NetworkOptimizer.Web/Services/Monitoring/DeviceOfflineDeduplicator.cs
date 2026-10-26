@@ -55,6 +55,7 @@ public class DeviceOfflineDeduplicator
         }
     }
 
-    private static string NormalizeMac(string mac) =>
+    /// <summary>A MAC in one form whatever separator or case its source used: the key every device offline path shares.</summary>
+    public static string NormalizeMac(string mac) =>
         mac.Replace(":", "").Replace("-", "").ToLowerInvariant();
 }

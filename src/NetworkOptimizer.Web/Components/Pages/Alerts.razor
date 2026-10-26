@@ -1882,6 +1882,8 @@
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("console.connection_failed")'><code>console.connection_failed</code> <span>Console connection or authentication failing</span></div>
                         <div @onclick='() => SelectEventType("console.connection_restored")'><code>console.connection_restored</code> <span>Console connection recovered</span></div>
+                        <div @onclick='() => SelectEventType("console.devices_unmanaged")'><code>console.devices_unmanaged</code> <span>Most of the site's devices stopped reporting to UniFi Network but still pass traffic</span></div>
+                        <div @onclick='() => SelectEventType("console.devices_managed")'><code>console.devices_managed</code> <span>UniFi Network is hearing from those devices again</span></div>
                     </div>
                 </div>
                 <div>
@@ -1916,6 +1918,8 @@
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("device.offline")'><code>device.offline</code> <span>Device went offline</span></div>
                         <div @onclick='() => SelectEventType("device.recovered")'><code>device.recovered</code> <span>Device came back online</span></div>
+                        <div @onclick='() => SelectEventType("device.unmanaged")'><code>device.unmanaged</code> <span>Device stopped reporting to UniFi Network for 10 minutes but still passes traffic</span></div>
+                        <div @onclick='() => SelectEventType("device.managed")'><code>device.managed</code> <span>Device is reporting to UniFi Network again</span></div>
                         <div @onclick='() => SelectEventType("device.rebooted")'><code>device.rebooted</code> <span>Device restarted</span></div>
                         <div @onclick='() => SelectEventType("device.high_temperature")'><code>device.high_temperature</code> <span>Device (switch, gateway, or AP) temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.gateway_high_cpu")'><code>device.gateway_high_cpu</code> <span>Gateway CPU sustained above threshold</span></div>

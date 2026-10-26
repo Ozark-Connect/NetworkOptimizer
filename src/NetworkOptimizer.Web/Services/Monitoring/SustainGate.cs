@@ -37,6 +37,9 @@ internal sealed class SustainGate
         return GateTransition.None;
     }
 
+    /// <summary>Starts the gate open, for an alert still open before a restart, so its clear is published.</summary>
+    public void MarkOpen() => Open = true;
+
     /// <summary>
     /// Discards both pending runs without changing whether the alert is open, for a poll whose
     /// reading says nothing either way.

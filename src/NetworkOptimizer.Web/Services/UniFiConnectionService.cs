@@ -60,6 +60,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private DateTime _firstAuthFailureAt;
     private readonly object _consoleAlertLock = new();
     private static readonly TimeSpan ConsoleFailureMinWindow = TimeSpan.FromSeconds(50);
+    private const string ConsoleFailedEventType = "console.connection_failed";
+    private const string ConsoleRestoredEventType = "console.connection_restored";
+    // A failure still open before a restart, read on the first probe and applied once it is in, so
+    // the restore is published. Probes are synchronous callbacks, so the read is never awaited.
+    private Task<Monitoring.OpenAlerts>? _consoleSeed;
+    private bool _consoleSeedApplied;
 
     // Cache to avoid repeated DB queries
     private DateTime _cacheTime = DateTime.MinValue;
@@ -129,9 +135,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         // alert is published and standing". Latching a suppressed failure left it true with no
         // alert out, so a console that never recovered was never alerted on at all.
         var suppressed = IsInRolloutConsoleCycle();
+        var seed = _consoleSeed ??= StartConsoleSeed();
         bool publishFailed = false, publishRestored = false;
         lock (_consoleAlertLock)
         {
+            if (!_consoleSeedApplied && seed.IsCompleted)
+            {
+                _consoleSeedApplied = true;
+                if (seed.Result.Take(ConsoleFailedEventType, SiteSlug) != null)
+                    _consoleAlertActive = _consoleAlertArmed = true;
+            }
+
             if (success)
             {
                 if (_consoleAlertActive && !suppressed)
@@ -164,13 +178,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         if (publishFailed)
         {
-            PublishConsoleAlert("console.connection_failed", AlertSeverity.Warning,
+            PublishConsoleAlert(ConsoleFailedEventType, AlertSeverity.Warning,
                 "UniFi Console connection failed",
                 $"Repeated attempts to authenticate with the UniFi Console have failed. Features that read the console API (Wi-Fi Optimizer, Config Optimizer, Security Audit, Threat Intelligence) are unavailable until it recovers. Last error: {error ?? "unknown"}");
         }
         if (publishRestored)
         {
-            PublishConsoleAlert("console.connection_restored", AlertSeverity.Info,
+            PublishConsoleAlert(ConsoleRestoredEventType, AlertSeverity.Info,
                 "UniFi Console connection restored",
                 "The connection to the UniFi Console has recovered.");
         }
@@ -187,6 +201,21 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         lock (_consoleAlertLock)
         {
             _consecutiveAuthFailures = 0;
+        }
+    }
+
+    private Task<Monitoring.OpenAlerts> StartConsoleSeed()
+    {
+        try
+        {
+            // Every console alert in a site's database is this instance's, so the site is the subject.
+            return new Monitoring.OpenAlertSeed(_serviceProvider.GetService<IServiceScopeFactory>(), SiteSlug,
+                [ConsoleFailedEventType], _ => SiteSlug, _logger).OpenAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Console alert seed could not start for site {Site}", SiteSlug);
+            return Task.FromResult(Monitoring.OpenAlerts.None);
         }
     }
 

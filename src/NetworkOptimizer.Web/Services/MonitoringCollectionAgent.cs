@@ -2498,6 +2498,15 @@ public class MonitoringCollectionAgent : BackgroundService
 
         try
         {
+            await _deviceStateAlertEvaluator.CompletePassAsync(now, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Device state alert pass completion failed for site {Slug}", _siteSlug);
+        }
+
+        try
+        {
             await RecordGatewayLinkSpeedsAsync(all, now, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

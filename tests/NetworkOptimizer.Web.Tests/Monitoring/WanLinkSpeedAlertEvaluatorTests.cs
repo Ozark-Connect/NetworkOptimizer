@@ -49,6 +49,34 @@ public class WanLinkSpeedAlertEvaluatorTests
         _bus.Published.Should().BeEmpty();
     }
 
+    private WanLinkSpeedAlertEvaluator AfterRestart(params (string Key, string Value)[] context) =>
+        new(_bus, NullLogger<WanLinkSpeedAlertEvaluator>.Instance, scopeFactory: OpenAlertTestScope.With(
+            OpenAlertTestScope.Alert(WanLinkSpeedAlertEvaluator.DegradedEventType, $"{Mac}/eth3", TimeSpan.FromMinutes(30), context: context)));
+
+    [Fact]
+    public async Task DegradedBeforeRestart_BackToSpeed_PublishesRecovery()
+    {
+        var evaluator = AfterRestart(("link_speed_mbps", "100"), ("full_duplex", "true"));
+
+        for (var i = 0; i < 10; i++)
+            await evaluator.EvaluateAsync(Port(1000), _now = _now.AddMinutes(1));
+
+        Recovered.Should().ContainSingle();
+        Degraded.Should().BeEmpty();
+    }
+
+    /// <summary>The same drop it was alerted on stays the one alert; only a further drop republishes.</summary>
+    [Fact]
+    public async Task DegradedBeforeRestart_StillDegraded_IsNotRepublished()
+    {
+        var evaluator = AfterRestart(("link_speed_mbps", "100"), ("full_duplex", "true"));
+
+        for (var i = 0; i < 10; i++)
+            await evaluator.EvaluateAsync(Port(100), _now = _now.AddMinutes(1));
+
+        _bus.Published.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task SustainedDownshift_OpensOnceAfterSustain()
     {

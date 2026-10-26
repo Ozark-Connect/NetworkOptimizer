@@ -67,15 +67,21 @@ public class WanLinkSpeedAlertEvaluator
     private readonly ILogger<WanLinkSpeedAlertEvaluator> _logger;
     private readonly string _siteSuffix;
     private readonly Dictionary<string, PortState> _states = new(StringComparer.OrdinalIgnoreCase);
+    private readonly OpenAlertSeed _openAtStart;
 
     /// <param name="eventBus">Site-stamped alert bus.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">Site this instance evaluates for (one per site, owned by the registry).</param>
+    /// <param name="scopeFactory">Reads ports still degraded before a restart, so their recovery is published.</param>
     public WanLinkSpeedAlertEvaluator(
         IAlertEventBus eventBus,
         ILogger<WanLinkSpeedAlertEvaluator> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        IServiceScopeFactory? scopeFactory = null)
     {
+        _openAtStart = new OpenAlertSeed(scopeFactory,
+            string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug,
+            [DegradedEventType], a => a.DeviceId?.ToLowerInvariant(), logger);
         _eventBus = eventBus;
         _logger = logger;
         _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
@@ -104,7 +110,7 @@ public class WanLinkSpeedAlertEvaluator
     {
         var key = PortKey(observation.DeviceMac, observation.IfName);
         if (!_states.TryGetValue(key, out var state))
-            _states[key] = state = new PortState();
+            _states[key] = state = NewPortState(await _openAtStart.OpenAsync(), key);
 
         if (state.LastSnapshotAt is { } last && now - last > MaxSnapshotGap)
             state.Gate.Stall();
@@ -138,6 +144,20 @@ public class WanLinkSpeedAlertEvaluator
         state.PublishedSpeedMbps = speed;
         state.PublishedFullDuplex = observation.FullDuplex;
         await PublishDegradedAsync(observation, speed, expected, halfDuplex, ct);
+    }
+
+    /// <summary>A port first seen by this process; one still degraded before a restart starts open, at the speed it was alerted on.</summary>
+    private static PortState NewPortState(OpenAlerts open, string key)
+    {
+        var state = new PortState();
+        if (open.Take(DegradedEventType, key.ToLowerInvariant()) is { } degraded)
+        {
+            state.Gate.MarkOpen();
+            state.PublishedSpeedMbps = int.TryParse(OpenAlertSeed.Context(degraded, "link_speed_mbps"), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out var speed) ? speed : null;
+            state.PublishedFullDuplex = OpenAlertSeed.Context(degraded, "full_duplex") is { } duplex ? duplex == "true" : null;
+        }
+        return state;
     }
 
     private async ValueTask PublishDegradedAsync(
