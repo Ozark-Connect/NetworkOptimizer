@@ -163,6 +163,13 @@ public sealed class ConfigCollectionDef
     /// </summary>
     public Func<JsonObject, string, bool>? HiddenInYaml { get; init; }
 
+    /// <summary>
+    /// Values UniFi generates for each site (the device management key, hidden mesh and adoption
+    /// SSIDs, built-in secrets). On a plan onto another site, copies the target's own values into the
+    /// desired object (first argument) from the live one, and returns the field labels that differed.
+    /// </summary>
+    public Func<JsonObject, JsonObject, IReadOnlyList<string>>? KeepTargetValues { get; init; }
+
     /// <summary>Service tags for a changed field path on an object of this collection.</summary>
     public Func<JsonObject, string, IEnumerable<string>>? TagsForField { get; init; }
 
@@ -273,6 +280,39 @@ public static class ConfigCollections
         return null;
     }
 
+    /// <summary>Copies <paramref name="fields"/> from the target's object into the desired one; returns those that differed.</summary>
+    private static IReadOnlyList<string> KeepFields(JsonObject desired, JsonObject live, IReadOnlyList<string> fields)
+    {
+        var kept = new List<string>();
+        foreach (var f in fields)
+        {
+            if (JsonNode.DeepEquals(desired[f], live[f])) continue;
+            if (live[f] is { } value) desired[f] = value.DeepClone();
+            else desired.Remove(f);
+            kept.Add(f);
+        }
+        return kept;
+    }
+
+    /// <summary>Keeps the target's x_secret on each RADIUS server it also has (same IP and port).</summary>
+    private static IReadOnlyList<string> KeepServerSecrets(JsonObject desired, JsonObject live)
+    {
+        var kept = false;
+        foreach (var list in new[] { "auth_servers", "acct_servers" })
+        {
+            if (desired[list] is not JsonArray want || live[list] is not JsonArray have) continue;
+            foreach (var server in want.OfType<JsonObject>())
+            {
+                var match = have.OfType<JsonObject>().FirstOrDefault(h =>
+                    Str(h, "ip") == Str(server, "ip") && Str(h, "port") == Str(server, "port"));
+                if (match?["x_secret"] is not { } secret || JsonNode.DeepEquals(secret, server["x_secret"])) continue;
+                server["x_secret"] = secret.DeepClone();
+                kept = true;
+            }
+        }
+        return kept ? ["x_secret"] : [];
+    }
+
     /// <summary>Fields of a NO-owned object that are its generated contents, not its shell.</summary>
     public static readonly IReadOnlySet<string> NoOwnedContentFields = Set("group_members", "ips", "ip_addresses");
 
@@ -306,6 +346,17 @@ public static class ConfigCollections
                     _ => Tags(f, ("mdns", ServiceTags.Mdns), ("igmp", ServiceTags.Mdns)),
                 },
                 IsManagementField = (o, f) => (Str(o, "key"), f) is ("super_mgmt", "override_inform_host") or ("super_mgmt", "override_inform_host_location"),
+                // Differ between two new sites on one console with no user action (grounding.md, 2026-10-26).
+                // Device SSH credentials (x_ssh_username, x_ssh_password) are user config and do carry.
+                KeepTargetValues = (d, l) => KeepFields(d, l, (Str(d, "key") ?? "") switch
+                {
+                    "mgmt" => ["x_mgmt_key", "x_api_token"],
+                    "connectivity" => ["x_mesh_essid", "x_mesh_psk"],
+                    "element_adopt" => ["x_element_essid", "x_element_psk"],
+                    "peer_to_peer" => ["ssid", "psk"],
+                    "openvpn" => ["x_pregenerated_dh_key"],
+                    _ => [],
+                }),
                 IsWanPath = o => Str(o, "key") is "doh" or "global_nat",
             },
             new()
@@ -344,6 +395,8 @@ public static class ConfigCollections
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/radiusprofile", Order = 2, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/radiusprofile", UpdatePath = "rest/radiusprofile/{id}", DeletePath = "rest/radiusprofile/{id}" },
                 AuditCollectionNames = ["radiusprofile"],
+                // The built-in profile's server secret is random per site.
+                KeepTargetValues = (d, l) => DeleteCascade.IsProtected(l) ? KeepServerSecrets(d, l) : [],
                 TagsForField = (_, _) => [ServiceTags.WlanSecurity],
             },
             new()

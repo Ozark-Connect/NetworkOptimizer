@@ -217,6 +217,38 @@ public class PlanEngineTests
         PlanCoordinator.VerifyAgainst(doc, live, after).Should().ContainSingle(d => d.Contains("Trunk"));
     }
 
+    private static ConfigState MgmtSite(string mgmtKey, string sshPassword, string radiusSecret) => State(
+        ("setting", $$"""{"_id":"s-mgmt","key":"mgmt","x_mgmt_key":"{{mgmtKey}}","x_ssh_password":"{{sshPassword}}","auto_upgrade":true}"""),
+        ("setting", $$"""{"_id":"s-p2p","key":"peer_to_peer","ssid":"ssid-{{mgmtKey}}","psk":"psk-{{mgmtKey}}"}"""),
+        ("radiusprofile", $$"""{"_id":"r1","name":"Default","attr_no_delete":true,"auth_servers":[{"ip":"192.168.1.1","port":1812,"x_secret":"{{radiusSecret}}"}]}"""));
+
+    [Fact]
+    public void OtherSite_KeepsTheTargetsGeneratedValues_CarriesSshCredentials()
+    {
+        var source = MgmtSite("source-key", "my-ssh-password", "source-secret");
+        var target = MgmtSite("target-key", "target-ssh", "target-secret");
+
+        var doc = Plan(source, target, new PlanOptions { SameSite = false });
+
+        var mgmt = doc.Operations.Should().ContainSingle(o => o.Collection == "setting").Subject;
+        mgmt.Body!["x_ssh_password"]!.GetValue<string>().Should().Be("my-ssh-password");
+        mgmt.Body!["x_mgmt_key"]!.GetValue<string>().Should().Be("target-key", "the target's own management key is kept");
+        doc.Operations.Should().NotContain(o => o.Collection == "radiusprofile");
+        doc.Notes.Should().ContainSingle(n => n.StartsWith("Kept this site's own values") && n.Contains("mgmt") && n.Contains("peer_to_peer") && n.Contains("Default"));
+        ConfigState.IdOf(source.Get("setting")[0]).Should().Be("s-mgmt");
+        source.Get("setting")[0]["x_mgmt_key"]!.GetValue<string>().Should().Be("source-key", "the caller's state is not changed");
+    }
+
+    [Fact]
+    public void SameSite_RestoresTheGeneratedValues()
+    {
+        var doc = Plan(MgmtSite("old-key", "pw", "old-secret"), MgmtSite("new-key", "pw", "new-secret"));
+
+        doc.Operations.Single(o => o.ObjectName == "mgmt").Body!["x_mgmt_key"]!.GetValue<string>().Should().Be("old-key");
+        doc.Operations.Should().Contain(o => o.Collection == "radiusprofile");
+        doc.Notes.Should().NotContain(n => n.StartsWith("Kept this site's own values"));
+    }
+
     [Fact]
     public void Verify_SkipsAWriteThatIsWaiting()
     {

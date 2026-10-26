@@ -55,6 +55,8 @@ public static class PlanBuilder
     public static PlanDocument Build(ConfigState desired, ConfigState live, PlanOptions options)
     {
         var doc = new PlanDocument();
+        // Onto another site, the target's per-site generated values are kept, so work on a copy.
+        if (!options.SameSite) desired = desired.Clone();
         var desiredCtx = new ConfigIdentityContext(desired.NamesById());
         var liveCtx = new ConfigIdentityContext(live.NamesById());
         var desiredById = desired.ObjectsById();
@@ -73,6 +75,17 @@ public static class PlanBuilder
             matches[def.Key] = match;
             foreach (var p in match.Pairs.Where(p => p.Left != null && p.Right != null))
                 idMap[ConfigState.IdOf(p.Left!)] = ConfigState.IdOf(p.Right!);
+        }
+
+        if (!options.SameSite)
+        {
+            var kept = new List<string>();
+            foreach (var def in ConfigCollections.All.Where(d => d.KeepTargetValues != null && matches.ContainsKey(d.Key)))
+                foreach (var p in matches[def.Key].Pairs.Where(p => p.Left != null && p.Right != null))
+                    if (def.KeepTargetValues!(p.Left!, p.Right!) is { Count: > 0 } fields)
+                        kept.Add($"{ConfigState.DisplayName(def, p.Right!)} ({string.Join(", ", fields.Select(ChangeDescriber.LabelFor))})");
+            if (kept.Count > 0)
+                doc.Notes.Add($"Kept this site's own values that UniFi generates for each site, not the source's: {string.Join("; ", kept)}.");
         }
 
         var mgmtNetworks = ConfigDiffEngine.ManagementNetworkIds(live);
