@@ -193,12 +193,10 @@ public sealed partial class ChangeControlService
                 warnings.Add(new("The console moves", byIp != null
                     ? $"{uri.Host} to {moved}. Network Optimizer reconnects at the new address."
                     : $"{uri.Host} resolves to {Readdressing.Format(a)}: point it at {moved}, unless it is a Local DNS record this plan moves."));
-                var inform = live.Get("setting").FirstOrDefault(s => s["key"]?.ToString() == "super_mgmt");
-                if (!(inform?["override_inform_host"] is JsonValue o && o.TryGetValue<bool>(out var on) && on))
-                    warnings.Add(new("Set the Inform Host first",
-                        $"Devices inform to the console's current address. Set UniFi Network's Inform Host override to {moved} or a name, or devices disconnect until re-pointed."));
             }
         }
+
+        if (await InformWarningAsync(live, map, ct) is { } inform) warnings.Add(inform);
 
         var lease = live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n)))
             .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) ? s : 86400).DefaultIfEmpty(86400).Max();
@@ -213,6 +211,44 @@ public sealed partial class ChangeControlService
             _ => new("Leases are short", "Clients move within minutes. The plan puts each network's lease time back."),
         });
         return warnings;
+    }
+
+    /// <summary>
+    /// Devices whose inform address is in a moved subnet, read from each device's own inform_url, so it holds
+    /// whatever set it (the Inform Host override, a self-hosted server's system_ip, or adoption). A name counts
+    /// when it resolves into a moved subnet and no Local DNS record in the config moves it.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/device inform_url")]
+    private async Task<ReaddressWarning?> InformWarningAsync(ConfigState live, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
+    {
+        var devices = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
+        if (!devices.IsSuccess || ConfigSnapshotReader.ExtractList(devices.Body) is not { } list) return null;
+
+        var localDns = live.Get("static_dns").Select(r => r["key"]?.ToString()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var resolved = new Dictionary<string, uint?>(StringComparer.OrdinalIgnoreCase);
+        var affected = new List<(string Device, string Host, uint Old)>();
+        foreach (var d in list.OfType<JsonObject>())
+        {
+            if (!Uri.TryCreate(d["inform_url"]?.ToString(), UriKind.Absolute, out var inform)) continue;
+            var host = inform.Host;
+            if (!resolved.TryGetValue(host, out var ip))
+            {
+                ip = Readdressing.ParseIp(host)
+                    ?? (localDns.Contains(host) ? null
+                        : (await SafeResolveAsync(host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().Cast<uint?>().FirstOrDefault());
+                resolved[host] = ip;
+            }
+            if (ip is { } old && Readdressing.MapIp(old, map) != null)
+                affected.Add((d["name"]?.ToString() is { Length: > 0 } n ? n : d["mac"]?.ToString() ?? "", host, old));
+        }
+        if (affected.Count == 0) return null;
+
+        var first = affected[0];
+        var moved = Readdressing.Format(Readdressing.MapIp(first.Old, map)!.Value);
+        var hosts = string.Join(", ", affected.Select(x => x.Host).Distinct());
+        return new(affected.Count == 1 ? "A device informs to a moving address" : $"{affected.Count} devices inform to a moving address",
+            $"{string.Join(", ", affected.Take(3).Select(x => x.Device))}{(affected.Count > 3 ? $" and {affected.Count - 3} more" : "")} inform to {hosts}. "
+            + $"Point the Inform Host at {moved} first (UniFi Network's Inform Host override, or system_ip on a self-hosted UniFi OS Server), or they disconnect until re-pointed.");
     }
 
     private static async Task<IPAddress[]> SafeResolveAsync(string host, CancellationToken ct)
@@ -265,7 +301,7 @@ public sealed partial class ChangeControlService
             // standby); one passing traffic would have renewed, so its address is set on the device (a NAS).
             var idle = reserved && gateway != null && Rate(c) < ActiveBytesPerSecond;
             result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? "", reserved)
-                { Idle = idle });
+            { Idle = idle });
         }
         result.AddRange(await OfflineClientsAsync(list, networks, map, ct));
         var source = gateway != null ? "from the gateway's DHCP leases"
