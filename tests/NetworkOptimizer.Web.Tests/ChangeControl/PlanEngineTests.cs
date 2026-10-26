@@ -279,6 +279,20 @@ public class PlanEngineTests
         doc.Operations.Should().ContainSingle(o => o.Action == PlanAction.Delete && o.ObjectId == "n2");
     }
 
+    [Fact]
+    public void WlanCreate_LeavesOutTheLegacyBandField()
+    {
+        const string other = """{"_id":"w0","name":"Other","networkconf_id":"n1"}""";
+        var desired = State(("networkconf", Lan), ("wlanconf", other),
+            ("wlanconf", """{"_id":"w1","name":"Six","networkconf_id":"n1","wlan_band":"both","wlan_bands":["2g","5g","6g"]}"""));
+        var live = State(("networkconf", Lan), ("wlanconf", other));
+
+        var create = Plan(desired, live).Operations.Single(o => o.Action == PlanAction.Create);
+
+        create.Body!.AsObject().ContainsKey("wlan_band").Should().BeFalse();
+        create.Body!["wlan_bands"]!.AsArray().Should().HaveCount(3);
+    }
+
     [Theory]
     [InlineData("ok", true)]
     [InlineData("error", false)]
