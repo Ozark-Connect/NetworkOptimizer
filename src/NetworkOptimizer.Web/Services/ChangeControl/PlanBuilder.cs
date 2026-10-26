@@ -274,6 +274,23 @@ public static class PlanBuilder
                 doc.Notes.Add($"{def.Noun} {name}: UniFi has no create for it; not written.");
                 return null;
             }
+            // An ID that matches nothing here (an object deleted since, or one the source never captured) is refused
+            // by UniFi (api.err.IdInvalid). Dropped from a list it costs one member; as a single reference the
+            // object cannot be built, so it is left out with a note instead of failing on the console.
+            foreach (var field in remapped.Select(p => p.Key).Where(k => k is not "_id" and not "id" and not "site_id" and not ObjectMatcher.LegacyIdField
+                         && !def.IsReadOnly(remapped, k) && !ConfigCollections.IsSecretField(def, k)).ToList())
+            {
+                if (!UnresolvedIds(remapped[field], idMap, liveById, creates).Any()) continue;
+                var (pruned, single) = PruneUnresolved(remapped[field], idMap, liveById, creates);
+                if (single)
+                {
+                    doc.Notes.Add($"{def.Noun} {name}: not created. Its {FieldLabel(field).ToLowerInvariant()} is an object that is not on this console.");
+                    return null;
+                }
+                remapped[field] = pruned;
+                var note = $"{def.DisplayName}: references to objects not on this console were left out ({FieldLabel(field)}).";
+                if (!doc.Notes.Contains(note)) doc.Notes.Add(note);
+            }
             var body = CreateBody(def, remapped, doc, name);
             var op = creates[ConfigState.IdOf(desired)];
             op.Collection = def.Key;
@@ -479,6 +496,46 @@ public static class PlanBuilder
         JsonValue v when v.TryGetValue<string>(out var s) && LooksLikeId(s) && !idMap.ContainsKey(s) && !liveById.ContainsKey(s) && !creates.ContainsKey(s) => [s],
         _ => [],
     };
+
+    /// <summary>
+    /// A copy with unresolved IDs removed from every list; <c>Single</c> is true when one sits where a list is not,
+    /// so it cannot be removed without leaving the field without its value.
+    /// </summary>
+    private static (JsonNode? Node, bool Single) PruneUnresolved(JsonNode? node, Dictionary<string, string> idMap,
+        Dictionary<string, (string Collection, JsonObject Object)> liveById, Dictionary<string, PlanOperation> creates)
+    {
+        bool Unresolved(JsonNode? n) => UnresolvedIds(n, idMap, liveById, creates).Any();
+        switch (node)
+        {
+            case JsonArray arr:
+            {
+                var copy = new JsonArray();
+                var single = false;
+                foreach (var e in arr)
+                {
+                    if (e is JsonValue && Unresolved(e)) continue;
+                    var (p, s) = PruneUnresolved(e, idMap, liveById, creates);
+                    single |= s;
+                    copy.Add(p);
+                }
+                return (copy, single);
+            }
+            case JsonObject obj:
+            {
+                var copy = new JsonObject();
+                var single = false;
+                foreach (var (k, v) in obj)
+                {
+                    var (p, s) = PruneUnresolved(v, idMap, liveById, creates);
+                    single |= s;
+                    copy[k] = p;
+                }
+                return (copy, single);
+            }
+            default:
+                return (node?.DeepClone(), Unresolved(node));
+        }
+    }
 
     /// <summary>A UniFi object ID: a 24-hex ObjectId (Network 10) or a UUID (Network 11).</summary>
     private static bool LooksLikeId(string s) =>

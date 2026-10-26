@@ -243,6 +243,27 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void CreateWithAReferenceToNothing_IsLeftOutWithANote_NotSentToTheConsole()
+    {
+        // Two disabled routes pointed at a WAN network deleted before the snapshot.
+        var before = Versioned("10.6.109",
+            ("networkconf", """{"_id":"0123456789abcdef01234500","name":"Main","vlan":1,"purpose":"corporate"}"""),
+            ("routing", """{"_id":"r1","name":"Old WAN Admin","static-route_interface":"0123456789abcdef01234567"}"""),
+            ("routing", """{"_id":"r2","name":"Main Admin","static-route_interface":"0123456789abcdef01234500"}"""),
+            ("wlanconf", """{"_id":"w1","name":"Home","networkconf_id":"0123456789abcdef01234500","ap_group_ids":["0123456789abcdef01234511"]}"""));
+        var after = Versioned("11.0.97",
+            ("networkconf", """{"_id":"2cb64e2c-eb5f-4af9-bb9f-44750f948594","legacy_id":"0123456789abcdef01234500","name":"Main","vlan":1,"purpose":"corporate"}"""));
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions());
+
+        doc.Operations.Should().NotContain(o => o.ObjectName == "Old WAN Admin");
+        doc.Notes.Should().Contain(n => n.Contains("Old WAN Admin: not created"));
+        doc.Operations.Single(o => o.ObjectName == "Main Admin").Body!["static-route_interface"]!.ToString()
+            .Should().Be("2cb64e2c-eb5f-4af9-bb9f-44750f948594");
+        doc.Operations.Single(o => o.ObjectName == "Home").Body!["ap_group_ids"]!.AsArray().Should().BeEmpty();
+    }
+
+    [Fact]
     public void BeforeNames_FallBackToTheAfterSide()
     {
         var ctx = ConfigIdentityContext.ForBefore(Before(), After());
