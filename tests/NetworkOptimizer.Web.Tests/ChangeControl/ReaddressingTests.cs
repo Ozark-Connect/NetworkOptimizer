@@ -19,6 +19,29 @@ public class ReaddressingTests
 
     private static List<SubnetMove> Pattern(ConfigState s) => Readdressing.Proposal(s, "10.42.{vlan}.0/24");
 
+    [Theory]
+    [InlineData("nas.lan", true)]
+    [InlineData("console.lan", true)]
+    [InlineData("loop.lan", false)]
+    [InlineData("other.lan", false)]
+    [InlineData("server.example.lan", true)]
+    [InlineData("tv.example.lan", false)]
+    public void MovedByLocalDns_FollowsCnamesToAMovedRecord(string host, bool moved)
+    {
+        var s = State(
+            ("networkconf", """{"_id":"n1","name":"Default","purpose":"corporate","ip_subnet":"192.168.1.1/24"}"""),
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","use_fixedip":true,"fixed_ip":"192.168.1.9","local_dns_record_enabled":true,"local_dns_record":"host1"}"""),
+            ("user", """{"_id":"u2","mac":"aa:bb:cc:dd:ee:02","use_fixedip":false,"fixed_ip":"192.168.1.10","local_dns_record_enabled":true,"local_dns_record":"tv1"}"""),
+            ("static_dns", """{"_id":"d6","key":"server.example.lan","record_type":"CNAME","value":"host1.example.lan"}"""),
+            ("static_dns", """{"_id":"d7","key":"tv.example.lan","record_type":"CNAME","value":"tv1.example.lan"}"""),
+            ("static_dns", """{"_id":"d1","key":"nas.lan","record_type":"A","value":"192.168.1.5"}"""),
+            ("static_dns", """{"_id":"d2","key":"console.lan","record_type":"CNAME","value":"nas.lan"}"""),
+            ("static_dns", """{"_id":"d3","key":"loop.lan","record_type":"CNAME","value":"loop2.lan"}"""),
+            ("static_dns", """{"_id":"d4","key":"loop2.lan","record_type":"CNAME","value":"loop.lan"}"""),
+            ("static_dns", """{"_id":"d5","key":"other.lan","record_type":"A","value":"198.51.100.7"}"""));
+        ChangeControlService.MovedByLocalDns(s, host, Readdressing.Map(Pattern(s))).Should().Be(moved);
+    }
+
     [Fact]
     public void Proposal_LanNetworksOnly_FromThePattern()
     {

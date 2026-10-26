@@ -253,16 +253,23 @@ public sealed partial class ChangeControlService
 
     /// <summary>
     /// A Local DNS record for the name, followed through CNAMEs, points into a moved subnet, so the plan
-    /// rewrites it with the rest.
+    /// rewrites it with the rest. A client's own DNS record (a short name UniFi extends with the domain)
+    /// counts through its fixed IP.
     /// </summary>
-    private static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map)
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "static_dns key/value; rest/user local_dns_record with fixed_ip")]
+    internal static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map)
     {
-        var records = live.Get("static_dns").ToList();
+        var records = live.Get("static_dns").Select(r => (Name: r["key"]?.ToString(), Value: r["value"]?.ToString()))
+            .Concat(live.Get("user").Where(u => u["local_dns_record_enabled"]?.ToString() == "true" && u["use_fixedip"]?.ToString() == "true")
+                .Select(u => (Name: u["local_dns_record"]?.ToString(), Value: u["fixed_ip"]?.ToString())))
+            .Where(r => !string.IsNullOrEmpty(r.Name)).ToList();
+        static bool Names(string record, string name) =>
+            string.Equals(record, name, StringComparison.OrdinalIgnoreCase)
+            || (!record.Contains('.') && name.StartsWith(record + ".", StringComparison.OrdinalIgnoreCase));
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var name = host.TrimEnd('.'); names.Add(name);)
         {
-            var targets = records.Where(r => string.Equals(r["key"]?.ToString()?.TrimEnd('.'), name, StringComparison.OrdinalIgnoreCase))
-                .Select(r => r["value"]?.ToString() ?? "").ToList();
+            var targets = records.Where(r => Names(r.Name!.TrimEnd('.'), name)).Select(r => r.Value ?? "").ToList();
             if (targets.Any(v => Readdressing.ParseIp(v) is { } ip && Readdressing.MapIp(ip, map) != null)) return true;
             if (targets.FirstOrDefault(v => v.Length > 0 && Readdressing.ParseIp(v) == null) is not { } cname) return false;
             name = cname.TrimEnd('.');
