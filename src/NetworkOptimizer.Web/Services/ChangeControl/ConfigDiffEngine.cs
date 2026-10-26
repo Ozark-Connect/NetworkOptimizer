@@ -210,6 +210,11 @@ public static class ConfigDiffEngine
             var childPath = isTop ? key : $"{path}.{key}";
             var b = before[key];
             var a = after[key];
+            if (isTop && def.FieldDefaults.TryGetValue(key, out var fallback))
+            {
+                b ??= JsonValue.Create(fallback);
+                a ??= JsonValue.Create(fallback);
+            }
 
             if (ConfigCollections.IsSecretField(def, key))
             {

@@ -81,6 +81,17 @@ public class ConfigDiffEngineTests
     }
 
     [Fact]
+    public void FirewallGroupSource_MissingEqualsStatic_ButDynamicDiffers()
+    {
+        var none = State(("firewallgroup", """{"_id":"g1","name":"SNMP","group_type":"port-group","group_members":["161"]}"""));
+        var stat = State(("firewallgroup", """{"_id":"g1","name":"SNMP","group_type":"port-group","group_members":["161"],"source":"static"}"""));
+        var dyn = State(("firewallgroup", """{"_id":"g1","name":"SNMP","group_type":"port-group","group_members":["161"],"source":"dynamic"}"""));
+
+        ConfigDiffEngine.Compare(none, stat).IsEmpty.Should().BeTrue();
+        ConfigDiffEngine.Compare(none, dyn).IsEmpty.Should().BeFalse();
+    }
+
+    [Fact]
     public void ChurnFields_AreIgnored()
     {
         var before = State(("firewall_policy", """{"_id":"p1","name":"Block","hits":1,"last_hit":5}"""));

@@ -177,6 +177,12 @@ public sealed class ConfigCollectionDef
     /// </summary>
     public Func<JsonObject, string, bool>? ManagedField { get; init; }
 
+    /// <summary>
+    /// The value UniFi treats a missing top-level field as. Compared that way, so a field UniFi adds on its
+    /// own (and no write can remove) is not a difference when it holds the default.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> FieldDefaults { get; init; } = new Dictionary<string, string>();
+
     /// <summary>Whether a top-level field is never compared or written, on this object.</summary>
     public bool IsReadOnly(JsonObject? o, string key) =>
         ReadOnlyFields.Contains(key) || (o != null && ManagedField?.Invoke(o, key) == true);
@@ -437,6 +443,9 @@ public static class ConfigCollections
                 Key = "firewallgroup", DisplayName = "Firewall groups", Noun = "Firewall group", Group = "Firewall Groups",
                 FieldGroups = ConfigFieldOrder.FirewallGroupFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/firewallgroup", Order = 3, ReadOnlyFields = CommonReadOnly,
+                // A group with no source is static (UniFi's UI writes "static" on its first save); a write
+                // cannot remove the field, so missing and "static" must compare equal.
+                FieldDefaults = new Dictionary<string, string> { ["source"] = "static" },
                 SetArrays = Set("group_members"),
                 EnforcedKey = (o, _) => Str(o, "name"), KeyIsUnique = true,
                 Write = new CollectionWrite { CreatePath = "rest/firewallgroup", UpdatePath = "rest/firewallgroup/{id}", DeletePath = "rest/firewallgroup/{id}", Proven = true },
