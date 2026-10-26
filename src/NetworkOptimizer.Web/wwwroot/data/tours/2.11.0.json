@@ -52,7 +52,7 @@
       "level": "major",
       "url": "/change-control/migrate",
       "selector": "[data-tour=\"cc-migrate-tasks\"]",
-      "title": "Migrate",
+      "title": "Migrate / Restore",
       "listLabel": "Replace a device with a different model, re-address your networks, or move to firewall zones",
       "body": "**Replace Device** moves a device's config to new hardware, a different model included: it maps each port with its config (uplink and LAG first), fits AP radio settings to the new model, and gives you a **Re-cabling Sheet** to work from. Once the plan is confirmed, **Forget Old Device** removes the old one.\n\n**Re-address Networks** moves networks to new subnets along with every address in them, and **Set Up Zones** groups them into firewall zones by trust.",
       "placement": "bottom",
