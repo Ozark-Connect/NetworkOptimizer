@@ -147,7 +147,14 @@
                                     <SiteOperatorOnly>
                                         @if (!s.IsBaseline)
                                         {
-                                            <button class="cc-link-btn" @onclick="() => TogglePinAsync(s)">@(s.Pinned ? "Unpin" : "Pin")</button>
+                                            <button class="cc-link-btn" @onclick="() => TogglePinAsync(s)"
+                                                    aria-label="@(s.Pinned ? "Unpin" : "Pin")"
+                                                    data-tooltip="@(s.Pinned ? "Pinned: kept forever. Unpin to let retention remove it on schedule." : "Pin to keep this snapshot forever, out of retention.")">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="@(s.Pinned ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
+                                                    <line x1="12" y1="17" x2="12" y2="22" />
+                                                    <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+                                                </svg>
+                                            </button>
                                         }
                                         <button class="cc-link-btn" data-tooltip="This snapshot's config as a YAML file, secrets redacted" aria-label="Download YAML" @onclick="() => DownloadYamlAsync(s.Id)">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
