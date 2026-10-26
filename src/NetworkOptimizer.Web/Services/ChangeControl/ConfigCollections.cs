@@ -468,7 +468,8 @@ public static class ConfigCollections
                 FieldGroups = ConfigFieldOrder.WlanFields,
                 // wlan_band is the legacy band field UniFi derives from wlan_bands. Sent on a create, it wins:
                 // "both" drops 6 GHz (main, 10.6.109). The WLAN's bands are wlan_bands.
-                Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlanconf", Order = 5, ReadOnlyFields = Set([.. CommonReadOnly, "wlan_band"]),
+                // short_id is an index UniFi assigns per site; a create gets the next free one.
+                Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlanconf", Order = 5, ReadOnlyFields = Set([.. CommonReadOnly, "wlan_band", "short_id"]),
                 // Inside private_preshared_keys and sae_psk entries. PlanBuilder.RestoreKeptSecrets keeps them per entry.
                 ExtraSecretFields = Set("password", "psk"),
                 SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration"),
