@@ -127,7 +127,7 @@ public static class PlanBuilder
 
         foreach (var (def, d, l) in pending)
         {
-            var op = BuildOperation(def, d, l, desiredById, liveById, idMap, creates, desiredCtx, liveCtx, options, doc, mgmtNetworks);
+            var op = BuildOperation(def, d, l, desiredById, liveById, idMap, creates, desiredCtx, liveCtx, options, doc, mgmtNetworks, otherVersion);
             if (op != null) doc.Operations.Add(op);
         }
 
@@ -184,12 +184,14 @@ public static class PlanBuilder
         Dictionary<string, (string Collection, JsonObject Object)> desiredById,
         Dictionary<string, (string Collection, JsonObject Object)> liveById,
         Dictionary<string, string> idMap, Dictionary<string, PlanOperation> creates,
-        ConfigIdentityContext desiredCtx, ConfigIdentityContext liveCtx, PlanOptions options, PlanDocument doc, IReadOnlySet<string> mgmtNetworks)
+        ConfigIdentityContext desiredCtx, ConfigIdentityContext liveCtx, PlanOptions options, PlanDocument doc, IReadOnlySet<string> mgmtNetworks,
+        bool otherVersion = false)
     {
         var name = ConfigState.DisplayName(def, desired ?? live!);
         var write = def.Write!;
 
-        if (desired != null && (def.IsGenerated?.Invoke(desired) == true || (live != null && def.IsGenerated?.Invoke(live) == true)))
+        // UniFi derives these (predefined, Return, Isolated Networks policies): never created, updated, or deleted.
+        if ((desired != null && def.IsGenerated?.Invoke(desired) == true) || (live != null && def.IsGenerated?.Invoke(live) == true))
             return null;
         var owned = ConfigCollections.OwnedBy(def, desired ?? live!);
         if (owned != null)
@@ -233,6 +235,23 @@ public static class PlanBuilder
 
         var remapped = (JsonObject)Remap(desired, desiredById, idMap, creates, options, doc, $"{def.Noun} {name}")!;
         RestoreKeptSecrets(def, live, remapped, doc, name);
+        if (live != null && desired != null)
+            foreach (var (field, liveValue) in live.ToList())
+            {
+                if (field is "_id" or "id" or "site_id" || !remapped.ContainsKey(field)) continue;
+                // Identical before mapping: the live object still points at an old ID UniFi renumbered (Network 11's
+                // Default WLAN group), and writing the mapped ID would change what nothing asked to change.
+                var keep = CanonicalJson.DeepEquals(desired[field], liveValue);
+                // A snapshot from another Network version can reference objects it never captured (client groups
+                // before 11): those IDs mean nothing here, and writing them would drop the live references.
+                if (!keep && otherVersion && UnresolvedIds(desired[field], idMap, liveById, creates).Any())
+                {
+                    keep = true;
+                    var note = $"{def.DisplayName}: references to objects the snapshot did not capture are kept as they are ({FieldLabel(field)}).";
+                    if (!doc.Notes.Contains(note)) doc.Notes.Add(note);
+                }
+                if (keep) remapped[field] = liveValue?.DeepClone();
+            }
         // A field YAML leaves out (a locked zone's networks) keeps its live value; absent is not "empty".
         if (live != null && def.HiddenInYaml != null)
             foreach (var (field, value) in live)
@@ -447,6 +466,22 @@ public static class PlanBuilder
                 return node?.DeepClone();
         }
     }
+
+    /// <summary>ID-shaped strings in a value that map to nothing: no match, no live object, no create.</summary>
+    private static IEnumerable<string> UnresolvedIds(JsonNode? node, Dictionary<string, string> idMap,
+        Dictionary<string, (string Collection, JsonObject Object)> liveById, Dictionary<string, PlanOperation> creates) => node switch
+    {
+        JsonObject o => o.SelectMany(p => p.Key is "_id" or "id" ? [] : UnresolvedIds(p.Value, idMap, liveById, creates)),
+        JsonArray a => a.SelectMany(e => UnresolvedIds(e, idMap, liveById, creates)),
+        JsonValue v when v.TryGetValue<string>(out var s) && LooksLikeId(s) && !idMap.ContainsKey(s) && !liveById.ContainsKey(s) && !creates.ContainsKey(s) => [s],
+        _ => [],
+    };
+
+    /// <summary>A UniFi object ID: a 24-hex ObjectId (Network 10) or a UUID (Network 11).</summary>
+    private static bool LooksLikeId(string s) =>
+        (s.Length == 24 && s.All(Uri.IsHexDigit)) || (s.Length == 36 && Guid.TryParse(s, out _));
+
+    private static string FieldLabel(string field) => ChangeDescriber.LabelFor(field);
 
     private static JsonObject CreateBody(ConfigCollectionDef def, JsonObject desired, PlanDocument doc, string name)
     {

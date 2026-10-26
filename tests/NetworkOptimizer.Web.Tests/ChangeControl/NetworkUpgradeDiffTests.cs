@@ -155,6 +155,43 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void RestoreOfPreUpgradeSnapshot_KeepsReferencesItNeverCaptured_AndLeavesGeneratedPolicies()
+    {
+        // The 10.6 snapshot predates client groups, so the client's old group ID resolves to nothing.
+        var before = Versioned("10.6.109",
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["0123456789abcdef01234567"]}"""),
+            ("firewall_policy", """{"_id":"p1","index":10000,"name":"Allow","action":"ALLOW","source":{"zone_id":"z"},"destination":{"zone_id":"z"}}"""));
+        var after = Versioned("11.0.97",
+            ("user", """{"_id":"u-u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["2cb64e2c-eb5f-4af9-bb9f-44750f948594"]}"""),
+            ("firewall_policy", """{"_id":"u-p1","index":10000,"name":"Allow","action":"ALLOW","source":{"zone_id":"z"},"destination":{"zone_id":"z"}}"""),
+            ("firewall_policy", """{"_id":"u-r1","index":30000,"name":"Allow (Return)","action":"ALLOW","predefined":true,"origin_type":"custom_firewall_rule","origin_id":"u-p1","source":{"zone_id":"z"},"destination":{"zone_id":"z"}}"""));
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions());
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().BeEmpty();
+        doc.Notes.Should().Contain(n => n.Contains("did not capture"));
+    }
+
+    [Fact]
+    public void SameVersionRollBack_StillRestoresAChangedReference()
+    {
+        var before = Versioned("11.0.97",
+            ("network_members_group", """{"id":"g1","name":"Gaming","type":"CLIENTS","members":[]}"""),
+            ("network_members_group", """{"id":"g2","name":"Servers","type":"CLIENTS","members":[]}"""),
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["g1"]}"""));
+        var after = Versioned("11.0.97",
+            ("network_members_group", """{"id":"g1","name":"Gaming","type":"CLIENTS","members":[]}"""),
+            ("network_members_group", """{"id":"g2","name":"Servers","type":"CLIENTS","members":[]}"""),
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["g2"]}"""));
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions());
+
+        doc.Operations.Should().ContainSingle(o => o.Collection == "user" && o.Action == PlanAction.Update);
+        doc.Notes.Should().NotContain(n => n.Contains("did not capture"));
+    }
+
+    [Fact]
     public void RestoreOfPreUpgradeSnapshot_RecreatesOnlyTheDeletedRoute()
     {
         var doc = PlanBuilder.Build(Before(), After(), new PlanOptions());
