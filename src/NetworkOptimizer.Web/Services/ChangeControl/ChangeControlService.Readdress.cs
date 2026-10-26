@@ -251,10 +251,24 @@ public sealed partial class ChangeControlService
             + $"Point the Inform Host at {moved} first (UniFi Network's Inform Host override, or system_ip on a self-hosted UniFi OS Server), or they disconnect until re-pointed.");
     }
 
-    /// <summary>A Local DNS record for the name points into a moved subnet, so the plan rewrites it with the rest.</summary>
-    private static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map) =>
-        live.Get("static_dns").Any(r => string.Equals(r["key"]?.ToString(), host, StringComparison.OrdinalIgnoreCase)
-            && Readdressing.ParseIp(r["value"]?.ToString() ?? "") is { } ip && Readdressing.MapIp(ip, map) != null);
+    /// <summary>
+    /// A Local DNS record for the name, followed through CNAMEs, points into a moved subnet, so the plan
+    /// rewrites it with the rest.
+    /// </summary>
+    private static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map)
+    {
+        var records = live.Get("static_dns").ToList();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var name = host.TrimEnd('.'); names.Add(name);)
+        {
+            var targets = records.Where(r => string.Equals(r["key"]?.ToString()?.TrimEnd('.'), name, StringComparison.OrdinalIgnoreCase))
+                .Select(r => r["value"]?.ToString() ?? "").ToList();
+            if (targets.Any(v => Readdressing.ParseIp(v) is { } ip && Readdressing.MapIp(ip, map) != null)) return true;
+            if (targets.FirstOrDefault(v => v.Length > 0 && Readdressing.ParseIp(v) == null) is not { } cname) return false;
+            name = cname.TrimEnd('.');
+        }
+        return false;
+    }
 
     private static async Task<IPAddress[]> SafeResolveAsync(string host, CancellationToken ct)
     {
