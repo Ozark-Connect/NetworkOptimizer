@@ -58,7 +58,9 @@ public static class PlanReadiness
             open.Add(doc.Errors.Count == 1 ? "1 error to fix" : $"{doc.Errors.Count} errors to fix");
 
         var left = LeftOut(doc, acks.Excluded);
-        if (doc.Operations.Count > 0 && doc.Operations.All(o => left.Contains(o.Key)))
+        if (doc.Operations.Count == 0)
+            open.Add("nothing to write");
+        else if (doc.Operations.All(o => left.Contains(o.Key)))
             open.Add("every item unticked");
 
         var toAck = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge && !left.Contains(o.Key) && !acks.Items.Contains(o.Key));
