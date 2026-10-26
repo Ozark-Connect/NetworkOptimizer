@@ -23412,21 +23412,6 @@ body:has(.top-bar-hidden) .btn-fit {
     --cc-badge-col: 110px;
 }
 
-/* Review Plan: a long plan name steps down so it does not crowd the page. */
-.page-header-suffix.cc-plan-name-m {
-    font-size: 1rem;
-}
-
-.page-header-suffix.cc-plan-name-l {
-    font-size: 0.875rem;
-    line-height: 1.4;
-}
-
-.page-header-suffix.cc-plan-name-xl {
-    font-size: 0.8rem;
-    line-height: 1.4;
-}
-
 .change-control .cc-toolbar {
     display: flex;
     align-items: center;
@@ -23928,29 +23913,6 @@ body:has(.top-bar-hidden) .btn-fit {
     padding: 0 16px 0.75rem;
 }
 
-.change-control .cc-plan-notes {
-    margin: 0;
-    padding-left: 1.1rem;
-}
-
-.change-control .cc-plan-notes li + li {
-    margin-top: 0.35rem;
-}
-
-.change-control .cc-plan-kept {
-    padding-top: 0.75rem;
-}
-
-.change-control .cc-plan-kept .cc-plan-notes {
-    margin-top: 0.4rem;
-}
-
-.change-control .cc-plan-kept-title {
-    color: var(--text-primary);
-    font-weight: 600;
-    margin-bottom: 0.15rem;
-}
-
 .change-control .cc-action-text.created { color: var(--success-color); }
 .change-control .cc-action-text.updated { color: var(--primary-light); }
 .change-control .cc-action-text.deleted { color: var(--danger-color); }
@@ -24083,26 +24045,6 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-write-step:last-child {
     border-bottom: none;
-}
-
-.change-control .cc-write-group {
-    font-size: 0.875rem;
-}
-
-/* A sentence in a tile (Review Plan's Source), not a short value. */
-.change-control .cc-tile-value.cc-tile-value-text {
-    font-size: 0.9375rem;
-    line-height: 1.35;
-}
-
-.change-control .cc-write-group + .cc-write-group {
-    margin-top: 0.2rem;
-}
-
-.change-control .cc-write-group-name {
-    color: var(--text-secondary);
-    font-size: 0.8125rem;
-    margin-right: 0.35rem;
 }
 
 .change-control .cc-step-num {

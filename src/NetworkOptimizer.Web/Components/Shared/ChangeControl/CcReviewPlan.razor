@@ -13,7 +13,7 @@
 
 <div class="page-header">
     <PageBackButton />
-    <h1>Review Plan @if (_view != null) { <span class="page-header-suffix @PlanNameSize(_view.Plan.Name)">@_view.Plan.Name</span> }</h1>
+    <h1>Review Plan @if (_view != null) { <span class="page-header-suffix">@_view.Plan.Name</span> }</h1>
     <p class="page-description">Nothing is written until you apply. Every item below is what Network Optimizer will change on the UniFi Console.</p>
 </div>
 
@@ -48,8 +48,12 @@ else
         </div>
         <div class="cc-tile">
             <div class="cc-tile-label">Source</div>
-            <div class="cc-tile-value cc-tile-value-text">@plan.SourceDescription</div>
-            <div class="cc-tile-sub">@doc.Context.GetValueOrDefault("source_detail", "")</div>
+            <div class="cc-tile-value" style="font-size:1.05rem">@KindLabel(plan.Kind)</div>
+            <div class="cc-tile-sub">@plan.SourceDescription</div>
+            @if (doc.Context.GetValueOrDefault("source_detail") is { Length: > 0 } sourceDetail)
+            {
+                <div class="cc-tile-sub">@sourceDetail</div>
+            }
         </div>
         <div class="cc-tile">
             <div class="cc-tile-label">Writes</div>
@@ -276,20 +280,19 @@ else
         }
         @if (doc.KeptValues.Count > 0)
         {
-            <div class="cc-inset-note cc-plan-kept">
-                <div class="cc-plan-kept-title">Kept this site's own values</div>
-                <div>UniFi generates these for each site, so the source's are not copied.</div>
-                <ul class="cc-plan-notes">
-                    @foreach (var k in doc.KeptValues) { <li>@k</li> }
-                </ul>
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge status-info">Kept</span></div>
+                <div>
+                    <div class="cc-item-title">This site's own values, not the source's</div>
+                    <div class="cc-item-detail">UniFi generates these for each site: @string.Join(", ", doc.KeptValues).</div>
+                </div>
+                <span></span>
             </div>
         }
         @if (doc.Notes.Count > 0)
         {
             <div class="cc-inset-note" style="padding-top:0.75rem">
-                <ul class="cc-plan-notes">
-                    @foreach (var n in doc.Notes) { <li>@n</li> }
-                </ul>
+                @foreach (var n in doc.Notes) { <div>@n</div> }
             </div>
         }
         @if (doc.FirmwareAlign.Count > 0)
@@ -314,16 +317,10 @@ else
                     <div class="cc-write-step">
                         <span class="cc-step-num">@(i + 1)</span>
                         <div>
-                            @if (step.Groups.Count > 0)
+                            <div>@step.Title</div>
+                            @foreach (var g in step.Groups)
                             {
-                                @foreach (var g in step.Groups)
-                                {
-                                    <div class="cc-write-group"><span class="cc-write-group-name">@g.Collection</span> @string.Join(", ", g.Names)</div>
-                                }
-                            }
-                            else
-                            {
-                                <div>@step.Title</div>
+                                <div class="cc-item-detail">@g.Collection: @string.Join(", ", g.Names)</div>
                             }
                             @if (!string.IsNullOrEmpty(step.Detail))
                             {
@@ -499,13 +496,20 @@ else
 @code {
     [Parameter] public int PlanId { get; set; }
 
-    /// <summary>A long plan name (an edit names every collection it touched) steps its font down.</summary>
-    private static string PlanNameSize(string name) => name.Length switch
+    /// <summary>The Source tile's short value: what kind of plan this is.</summary>
+    private static string KindLabel(ConfigPlanKind kind) => kind switch
     {
-        > 400 => "cc-plan-name-xl",
-        > 160 => "cc-plan-name-l",
-        > 60 => "cc-plan-name-m",
-        _ => "",
+        ConfigPlanKind.RollbackSnapshot or ConfigPlanKind.RollbackChange => "Roll Back",
+        ConfigPlanKind.Edit => "YAML edit",
+        ConfigPlanKind.Restore => "Restore",
+        ConfigPlanKind.ReplaceDevice => "Replace Device",
+        ConfigPlanKind.Zones => "Set Up Zones",
+        ConfigPlanKind.LegacyToZones => "Translate Legacy Rules",
+        ConfigPlanKind.Template => "Template",
+        ConfigPlanKind.Baseline => "Return to Baseline",
+        ConfigPlanKind.Revert => "Revert",
+        ConfigPlanKind.Readdress or ConfigPlanKind.ReaddressPrepare => "Re-address Networks",
+        _ => kind.ToString(),
     };
 
     private static readonly (string Label, ConfigPlanStatus[] Statuses)[] Track =
