@@ -61,8 +61,18 @@
         </div>
     }
     <div class="cc-card-footer">
-        <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Preview lists every address that moves before anything is planned.")</span>
-        <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected || _view == null)" @onclick="PreviewAsync">Preview</button>
+        @if (_previewed && _view is { } lv && LeaseWarning(lv) is { } warning)
+        {
+            <span class="cc-remaining warning-text">@warning</span>
+            @if (!LeasesShort(lv))
+            {
+                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">Lower Lease Times</button>
+            }
+        }
+        else
+        {
+            <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")</span>
+        }
         <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
             @if (_building)
             {
@@ -374,7 +384,19 @@
         await LoadAsync(preview: false);
     }
 
-    private Task PreviewAsync() => LoadAsync(preview: true);
+    /// <summary>
+    /// What to do about lease times before Review Plan, or null when nothing is: long leases on a moving
+    /// network leave its clients on the old address until they renew.
+    /// </summary>
+    private static string? LeaseWarning(ReaddressView v)
+    {
+        if (v.LongestLeaseSeconds is not { } lease || v.Errors.Count > 0) return null;
+        if (!LeasesShort(v))
+            return $"Lower lease times first: clients on the moving networks keep their old address for up to {Hours(lease / 2)} after the move.";
+        if (v.Prepare is { } p && p.ReadyAt > DateTime.UtcNow)
+            return $"Leases lowered. Every DHCP client is on the short lease by {CcFormat.Local(p.ReadyAt):h:mm tt}; moving earlier leaves some on the old address until they renew.";
+        return null;
+    }
 
     private async Task LoadAsync(bool preview)
     {
@@ -383,7 +405,8 @@
         try
         {
             _view = await Site.GetReaddressAsync(Choices());
-            _previewed = preview;
+            // The address lists show as soon as a network has a new subnet: there is no Preview step to skip.
+            _previewed = preview || _view.Moves.Any(m => m.OldCidr != m.NewCidr);
             _showAll = false;
         }
         catch (Exception ex)
