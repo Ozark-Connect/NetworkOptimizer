@@ -51,7 +51,7 @@ public static class DualStackConnector
                 // Wake on the first attempt to finish, or when the next address is due to start.
                 var waitOn = pending.Cast<Task>().ToList();
                 if (next < ordered.Count)
-                    waitOn.Add(Task.Delay(attemptDelay, ct));
+                    waitOn.Add(Task.Delay(attemptDelay, attemptsCts.Token));
                 var finished = await Task.WhenAny(waitOn);
                 ct.ThrowIfCancellationRequested();
 

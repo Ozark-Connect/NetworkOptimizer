@@ -73,6 +73,50 @@ public class DualStackConnectorTests
         await act.Should().ThrowAsync<SocketException>();
     }
 
+    [Theory]
+    [InlineData("127.0.0.1", "127.0.0.1")]
+    [InlineData("[::1]", "::1")]
+    [InlineData("localhost", "127.0.0.1")]
+    public async Task HttpClient_ThroughConnectCallback_ReachesServer(string urlHost, string listenOn)
+    {
+        // The handler hands the callback a host as written in the URL: a name, or an IP
+        // literal (IPv6 included). Each has to resolve and connect.
+        using var listener = new TcpListener(IPAddress.Parse(listenOn), 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var serve = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            var stream = client.GetStream();
+            var buffer = new byte[4096];
+            var received = "";
+            while (!received.Contains("\r\n\r\n"))
+                received += System.Text.Encoding.ASCII.GetString(buffer, 0, await stream.ReadAsync(buffer));
+            await stream.WriteAsync("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"u8.ToArray());
+        });
+
+        using var http = new HttpClient(new SocketsHttpHandler { ConnectCallback = DualStackConnector.ConnectAsync })
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+        using var response = await http.GetAsync($"http://{urlHost}:{port}/");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        await serve;
+    }
+
+    [Fact]
+    public async Task ConnectAsync_Cancelled_ThrowsOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = () => DualStackConnector.ConnectAsync(
+            [IPAddress.Loopback], 443, TimeSpan.FromMilliseconds(100), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     [Fact]
     public async Task ConnectAsync_NoAddresses_ThrowsSocketException()
     {
