@@ -43,8 +43,9 @@ public static class StatsReportTranslator
         ["rx_packets"] = "rxPackets",
     };
 
-    // Legacy client attr -> stats field. The client schema is in the client's view, so its rx is the
-    // AP's tx: retries, attempts, and packets swap direction to keep the legacy (AP-side) meaning.
+    // Legacy client attr -> stats field. The client schema's counters are in the client's view, so its
+    // rx is the AP's tx and they swap direction; its rate tier is not (it matches stat/sta's rx_rate).
+    // Both checked against stat/sta and AP Agent counters on Network 11.0.94.
     private static readonly Dictionary<string, string> ClientFields = new()
     {
         ["signal"] = "avgSignalDbm",
@@ -56,7 +57,7 @@ public static class StatsReportTranslator
         ["rx_packets"] = "txPackets",
         ["tx_bytes"] = "rxBytes",
         ["rx_bytes"] = "txBytes",
-        ["tx_rate"] = "mostCommonRxRateTierKbps",
+        ["rx_rate"] = "mostCommonRxRateTierKbps",
         ["radio_protocol_most_common"] = "mostCommonRadioProtocol",
     };
 
