@@ -24089,6 +24089,12 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.875rem;
 }
 
+/* A sentence in a tile (Review Plan's Source), not a short value. */
+.change-control .cc-tile-value.cc-tile-value-text {
+    font-size: 0.9375rem;
+    line-height: 1.35;
+}
+
 .change-control .cc-write-group + .cc-write-group {
     margin-top: 0.2rem;
 }
