@@ -152,6 +152,10 @@
                                         <button class="cc-link-btn" @onclick="() => DownloadYamlAsync(s.Id)">Download YAML</button>
                                         <button class="cc-link-btn" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(s.Id)">@Spinner($"rollback:{s.Id}") Roll Back To</button>
                                     </SiteOperatorOnly>
+                                    @if (!s.IsBaseline)
+                                    {
+                                        <SiteAdminOnly><button class="cc-link-btn" disabled="@_busy" @onclick="() => SetBaselineAsync(s.Id)">Set as Baseline</button></SiteAdminOnly>
+                                    }
                                 </div>
                             </td>
                         </tr>
