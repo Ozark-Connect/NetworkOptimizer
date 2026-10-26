@@ -87,6 +87,23 @@ public class ReaddressingTests
     }
 
     [Fact]
+    public void Apply_SkipsPoliciesUniFiGenerates()
+    {
+        var site = State(
+            ("networkconf", """{"_id":"n1","name":"Cameras","purpose":"corporate","vlan_enabled":true,"vlan":42,"ip_subnet":"192.168.42.1/24"}"""),
+            ("firewall_policy", """{"_id":"p1","name":"Block 192.168.42.0/24 Internet Access","origin_type":"network","origin_id":"n1","source":{"ips":["192.168.42.0/24"]}}"""),
+            ("firewall_policy", """{"_id":"p2","name":"Allow 192.168.42.7","predefined":true,"source":{"ips":["192.168.42.7"]}}"""),
+            ("firewall_policy", """{"_id":"p3","name":"Block 192.168.42.9","source":{"ips":["192.168.42.9"]}}"""));
+        var result = Readdressing.Apply(site, Readdressing.Proposal(site, "10.42.{vlan}.0/24"));
+
+        result.Desired.Get("firewall_policy")[0]["source"]!["ips"]![0]!.ToString().Should().Be("192.168.42.0/24");
+        result.Desired.Get("firewall_policy")[1]["source"]!["ips"]![0]!.ToString().Should().Be("192.168.42.7");
+        result.Desired.Get("firewall_policy")[2]["source"]!["ips"]![0]!.ToString().Should().Be("10.42.42.9");
+        result.Rewrites.Where(r => r.Collection == "firewall_policy").Should().ContainSingle(r => r.New == "10.42.42.9");
+        result.Mentions.Should().ContainSingle(m => m.Value == "Block 192.168.42.9");
+    }
+
+    [Fact]
     public void Rewrite_LeavesAddressesOutsideTheMovedSubnets()
     {
         var map = Readdressing.Map(Pattern(Site()));

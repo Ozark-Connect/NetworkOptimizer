@@ -276,6 +276,8 @@ public static partial class Readdressing
             var def = ConfigCollections.Get(key);
             foreach (var obj in list)
             {
+                // UniFi regenerates these from the network itself, and plans never write them.
+                if (def?.IsGenerated?.Invoke(obj) == true) continue;
                 var ctx = new WalkContext(map, remote, key, ConfigState.DisplayName(def, obj), result);
                 // Whole objects the far side sets: a VPN client or server, a VPN connection.
                 if ((key == "networkconf" && !IsLan(obj) && !IsWan(obj)) || key is "vpn_connections" or "wan_defaults")
