@@ -277,6 +277,13 @@ public class NetworkUpgradeDiffTests
         var same = PlanBuilder.Build(Wan("11.0.97", "old"), Wan("11.0.97", "new"), new PlanOptions());
         same.Operations.Should().ContainSingle();
         same.KeptSecrets.Should().BeEmpty();
+
+        // Network 11 no longer returns x_uplink_password at all.
+        var hidden = Versioned("11.0.97", ("networkconf", """{"_id":"n1","name":"LTE","purpose":"wan"}"""));
+        var plan = PlanBuilder.Build(Wan("10.6.109", "old"), hidden, new PlanOptions());
+        plan.Operations.Should().BeEmpty();
+        plan.KeptSecrets.Should().ContainSingle();
+        ConfigDiffEngine.Compare(Wan("10.6.109", "old"), hidden).IsEmpty.Should().BeTrue();
     }
 
     [Fact]

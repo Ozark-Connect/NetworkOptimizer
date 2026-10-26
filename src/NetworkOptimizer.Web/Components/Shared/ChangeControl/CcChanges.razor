@@ -622,8 +622,12 @@
         {
             StateHasChanged();
             await Task.Yield();
-            await Site.RecomputeChangeAsync(c.Id);
+            var rebuilt = await Site.RecomputeChangeAsync(c.Id);
             await ReloadAsync();
+            // The rebuilt change has a new ID: open it where the old one was.
+            _selected = null;
+            if (_changes?.FirstOrDefault(x => x.Id == rebuilt && x.SiteSlug == c.SiteSlug) is { } row) await SelectAsync(row);
+            else _error = "Recomputed: nothing changed between those two snapshots with the current version of Change Control.";
         }
         catch (Exception ex)
         {

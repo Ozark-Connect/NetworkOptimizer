@@ -92,7 +92,12 @@ public static class ConfigDiffEngine
             if (added.Count > 0) diff.SchemaAdditions[def.Key] = [.. added.Order(StringComparer.Ordinal)];
             foreach (var pair in match.Pairs)
             {
-                var objDiff = CompareObjects(def, pair.Left, pair.Right, mgmtNetworks, idMap, added);
+                // A secret the new version no longer returns (Network 11's x_uplink_password) is hidden, not changed.
+                var skip = upgraded && pair.Left != null && pair.Right != null
+                    ? added.Concat(pair.Left.Select(p => p.Key).Where(k => !pair.Right.ContainsKey(k) && ConfigCollections.IsSecretField(def, k)))
+                        .ToHashSet(StringComparer.Ordinal)
+                    : added;
+                var objDiff = CompareObjects(def, pair.Left, pair.Right, mgmtNetworks, idMap, skip);
                 if (objDiff != null) diff.Objects.Add(objDiff);
             }
         }

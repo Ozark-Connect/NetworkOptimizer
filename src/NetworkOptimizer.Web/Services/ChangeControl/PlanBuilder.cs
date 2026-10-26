@@ -249,8 +249,9 @@ public static class PlanBuilder
                 // Default WLAN group), and writing the mapped ID would change what nothing asked to change.
                 var keep = CanonicalJson.DeepEquals(desired[field], liveValue);
                 // A secret from another Network version: 11's stored form of a 10.6 secret is unproven, and a
-                // wrong one breaks the WAN or VPN using it. The live secret stays.
-                if (!keep && otherVersion && liveValue != null && ConfigCollections.IsSecretField(def, field))
+                // wrong one breaks the WAN or VPN using it. The live secret stays, and one 11 no longer returns
+                // (x_uplink_password) stays unwritten.
+                if (!keep && otherVersion && ConfigCollections.IsSecretField(def, field))
                 {
                     keep = true;
                     doc.KeptSecrets.Add($"{def.Noun} {name}: {FieldLabel(field)}");
