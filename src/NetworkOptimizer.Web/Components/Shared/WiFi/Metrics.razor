@@ -418,11 +418,10 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
-                Y = new TooltipY
-                {
-                    Formatter = "function(val, opts) { if (opts.seriesIndex === 3) return val ? 'Ch ' + Math.round(val) : ''; return val != null ? val.toFixed(1) + '%' : ''; }"
-                }
+                Shared = true,
+                Intersect = false,
+                // Series order, not value order: three percentages and a channel number share no scale.
+                Custom = @"function(ctx) { var pct = function(v) { return (+v).toFixed(1) + '%'; }; return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: [pct, pct, pct, function(v) { return 'Ch ' + Math.round(v); }], sort: false, omitSeconds: true }) : ''; }"
             }
         };
     }
