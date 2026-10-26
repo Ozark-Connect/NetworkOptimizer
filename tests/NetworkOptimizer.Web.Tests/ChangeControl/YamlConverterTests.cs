@@ -14,6 +14,20 @@ public class YamlConverterTests
         ("wlanconf", """{"_id":"w1","name":"Home","security":"wpapsk","wpa_mode":"wpa2","x_passphrase":"hunter2","networkconf_id":"n1","wlan_bands":["2g","5g","6g"]}"""));
 
     [Fact]
+    public void SplitByCollection_KeepsExportedObjects_InTheirCollection()
+    {
+        var yaml = YamlConverter.Export(Site(), ["networkconf", "wlanconf"], includeSecrets: false) + "bogus: []\n";
+        var unknown = new List<string>();
+
+        var segments = YamlConverter.SplitByCollection(yaml, unknown);
+
+        segments.Select(s => s.Def.Key).Should().Equal("networkconf", "wlanconf");
+        segments[0].Text.Should().Contain("name: Default").And.Contain("vlan: 31");
+        segments[1].Text.Should().Contain("name: Home");
+        unknown.Should().Equal("bogus");
+    }
+
+    [Fact]
     public void Export_StripsReferenceSuffix_AndRedactsSecrets()
     {
         var yaml = YamlConverter.Export(Site(), ["wlanconf"], includeSecrets: false);

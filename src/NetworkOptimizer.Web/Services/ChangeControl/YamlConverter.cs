@@ -61,6 +61,27 @@ public static partial class YamlConverter
     private static ConfigCollectionDef? FromYamlName(string name) =>
         ConfigCollections.All.FirstOrDefault(d => YamlName(d) == name || d.Key == name);
 
+    /// <summary>
+    /// Splits a whole-site file at its top-level collection keys, in file order. Export writes list
+    /// items at column 0 ("- name: Default"), so a line starting with "-" belongs to the open collection.
+    /// </summary>
+    public static List<(ConfigCollectionDef Def, string Text)> SplitByCollection(string text, List<string> unknown)
+    {
+        var segments = new List<(ConfigCollectionDef Def, StringBuilder Text)>();
+        StringBuilder? current = null;
+        foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            if (line.Length > 0 && !char.IsWhiteSpace(line[0]) && line[0] is not ('#' or '-') && line.Contains(':'))
+            {
+                var key = line[..line.IndexOf(':')].Trim();
+                if (FromYamlName(key) is not { } def) { current = null; unknown.Add(key); continue; }
+                segments.Add((def, current = new StringBuilder()));
+            }
+            current?.Append(line).Append('\n');
+        }
+        return segments.Select(s => (s.Def, s.Text.ToString())).ToList();
+    }
+
     /// <summary>The stripped key of a reference field, or null when the field is not a reference by name.</summary>
     public static string? StrippedName(string field)
     {

@@ -441,19 +441,14 @@
             using var reader = new StreamReader(e.File.OpenReadStream(5 * 1024 * 1024));
             var text = await reader.ReadToEndAsync();
             // Split the file at its top-level keys and hand each collection to its group.
+            var unknown = new List<string>();
             var segments = new Dictionary<string, StringBuilder>();
-            StringBuilder? current = null;
-            foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
+            foreach (var (def, segment) in YamlConverter.SplitByCollection(text, unknown))
             {
-                if (line.Length > 0 && !char.IsWhiteSpace(line[0]) && !line.StartsWith('#') && line.Contains(':'))
-                {
-                    var key = line[..line.IndexOf(':')].Trim();
-                    var def = ConfigCollections.All.FirstOrDefault(d => YamlConverter.YamlName(d) == key || d.Key == key);
-                    if (def == null) { current = null; _error = $"Unknown collection {key} in the file; it was skipped."; continue; }
-                    if (!segments.TryGetValue(def.Group, out current)) segments[def.Group] = current = new StringBuilder();
-                }
-                current?.Append(line).Append('\n');
+                if (!segments.TryGetValue(def.Group, out var sb)) segments[def.Group] = sb = new StringBuilder();
+                sb.Append(segment);
             }
+            if (unknown.Count > 0) _error = $"Unknown collection {string.Join(", ", unknown)} in the file; it was skipped.";
             _generation++;
             foreach (var (group, sb) in segments) _edited[group] = sb.ToString();
             if (segments.Count > 0) await OpenGroupAsync(segments.Keys.First());
