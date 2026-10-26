@@ -611,6 +611,8 @@ Requires Gateway SSH.
   - Every Firmware Rollout stage, regression, and rollback
 - Fewer false alarms:
   - No offline alert while UniFi reports a device upgrading or provisioning
+  - Device offline confirmed by ping first; one still passing traffic raises **Device Not Reporting**
+  - One **UniFi Network Not Hearing From Devices** alert when most of a site's devices go quiet together
   - One offline alert per device, however many sources notice
   - On-Site Agent offline alert only after 3 minutes continuously offline
 - Delivery: Email (SMTP), Discord, Slack, Microsoft Teams, ntfy, webhooks with HMAC signing
@@ -643,13 +645,14 @@ Requires Gateway SSH.
   - Every UniFi gateway, switch, and access point, with or without SNMP support
   - New models are added as Ubiquiti releases them
 - **Cable modems**
-  - ARRIS Surfboard - S33, S34, SB8200, SB6183, T25
+  - ARRIS Surfboard - S33, S34, SB8200, SB6183, SB6141, T25
+  - FRITZ!Box Cable - 6690 Cable (FRITZ!OS 8.40)
   - Motorola - MB8611, MB8600, MB7621
   - Netgear - CM600, CM700, CM1000, CM1200, CM2050V (with OFDM/OFDMA)
   - Sagemcom - F3896LG (Virgin Media Hub 5, Ziggo SmartWifi)
   - Technicolor - CGA437A, CGA4233VOO, CGA4322DE, CGA6444VF
   - Vodafone Station - ARRIS TG3442DE
-  - Xfinity / Cox / Comcast Business - XB8, XB10, CGM4981, CGA4332
+  - Xfinity / Cox / Comcast Business - XB7, XB8, XB10, CGM4981, CGA4332 (HTTP or HTTPS)
   - UniFi Cable Internet ([On-Site Agent](#on-site-agent) on the gateway)
 - **Fiber ONTs**
   - AT&T - BGW320, BGW210
