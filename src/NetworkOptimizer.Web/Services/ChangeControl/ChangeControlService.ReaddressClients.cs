@@ -58,7 +58,7 @@ public sealed partial class ChangeControlService
         var originals = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var n in desired.Get("networkconf").Where(n => moving.Contains(ConfigState.IdOf(n))))
         {
-            if (!(n["dhcpd_enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && on)) continue;
+            if (!Readdressing.IsTrue(n["dhcpd_enabled"])) continue;
             var lease = int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) && s > 0 ? s : 86400;
             if (lease <= PrepareLeaseSeconds) continue;
             originals[ConfigState.IdOf(n)] = lease;
@@ -152,11 +152,11 @@ public sealed partial class ChangeControlService
             // Network Optimizer's own host: never cut. No lease and no reservation: set on the device, nothing to gain.
             // No lease with a reservation is either static or a lease that lapsed while the client slept (a TV in
             // standby): a wireless rejoin settles it, but a power-cycle is only for clients known to be on DHCP.
-            var reserved = c["use_fixedip"] is JsonValue fx && fx.TryGetValue<bool>(out var isReserved) && isReserved;
+            var reserved = Readdressing.IsTrue(c["use_fixedip"]);
             var noLease = leased != null && !leased.Contains(mac);
             if (own.Contains(ip) || (noLease && !reserved)) continue;
 
-            var wired = c["is_wired"] is JsonValue w && w.TryGetValue<bool>(out var isWired) && isWired;
+            var wired = Readdressing.IsTrue(c["is_wired"]);
             if (wired && noLease) { result.Waiting.Add($"{name} ({ip})"); continue; }
             if (!wired)
             {

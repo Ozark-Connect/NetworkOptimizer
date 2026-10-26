@@ -156,7 +156,7 @@ public sealed partial class ChangeControlService
     /// <summary>The longest DHCP lease among the moving networks with DHCP on (UniFi's default is a day); null when none.</summary>
     private static int? LongestLease(ConfigState live, List<SubnetMove> active) =>
         live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n))
-                && n["dhcpd_enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && on)
+                && Readdressing.IsTrue(n["dhcpd_enabled"]))
             .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) && s > 0 ? s : 86400)
             .Select(s => (int?)s).DefaultIfEmpty(null).Max();
 
@@ -316,7 +316,7 @@ public sealed partial class ChangeControlService
         foreach (var c in list)
         {
             if (c["ip"]?.ToString() is not { } ipText || Readdressing.ParseIp(ipText) is not { } ip || Readdressing.MapIp(ip, map) == null) continue;
-            var reserved = c["use_fixedip"] is JsonValue f && f.TryGetValue<bool>(out var fixedIp) && fixedIp;
+            var reserved = Readdressing.IsTrue(c["use_fixedip"]);
             var mac = c["mac"]?.ToString()?.ToLowerInvariant() ?? "";
             var network = c["network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n : null;
             var isStatic = gateway != null ? !gateway.Contains(mac)
@@ -329,7 +329,7 @@ public sealed partial class ChangeControlService
             result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? "", reserved)
             { Idle = idle });
         }
-        result.AddRange(await OfflineClientsAsync(list, networks, map, ct));
+        result.AddRange(await OfflineClientsAsync(list, gateway ?? ipTable, networks, map, ct));
         var source = gateway != null ? "from the gateway's DHCP leases"
             : ipTable != null ? "from UniFi's IP Table, reserved clients not checked"
             : "from DHCP ranges";
@@ -338,11 +338,11 @@ public sealed partial class ChangeControlService
 
     /// <summary>
     /// Known clients not connected now that were likely set on the device: last seen in a moved subnet,
-    /// with no reservation, on an address outside their network's DHCP range.
+    /// with no reservation and no lease, on an address outside their network's DHCP range.
     /// </summary>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_ip, last_seen, fixed_ip")]
-    private async Task<List<StaticClient>> OfflineClientsAsync(List<JsonObject> connected, Dictionary<string, JsonObject> networks,
-        List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
+    private async Task<List<StaticClient>> OfflineClientsAsync(List<JsonObject> connected, HashSet<string>? leased,
+        Dictionary<string, JsonObject> networks, List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
     {
         var online = connected.Select(c => c["mac"]?.ToString()?.ToLowerInvariant()).OfType<string>().ToHashSet(StringComparer.Ordinal);
         var users = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "rest/user", null, ct);
@@ -351,10 +351,10 @@ public sealed partial class ChangeControlService
         foreach (var u in list)
         {
             var mac = u["mac"]?.ToString()?.ToLowerInvariant() ?? "";
-            if (mac.Length == 0 || online.Contains(mac)) continue;
-            // A reservation means DHCP: it follows. So does an address DHCP's own range handed out.
-            // Left: no reservation and an address outside the range, the one sign of an address set on the device.
-            if (u["use_fixedip"] is JsonValue f && f.TryGetValue<bool>(out var r) && r) continue;
+            // A lease (a phone asleep off stat/sta) or a reservation means DHCP: it follows. So does an address
+            // DHCP's own range handed out. Left: none of those, the one sign of an address set on the device.
+            if (mac.Length == 0 || online.Contains(mac) || leased?.Contains(mac) == true) continue;
+            if (Readdressing.IsTrue(u["use_fixedip"])) continue;
             var ipText = u["last_ip"]?.ToString();
             if (Readdressing.ParseIp(ipText) is not { } ip || Readdressing.MapIp(ip, map) is not { } moved) continue;
             var lastNetwork = u["last_connection_network_id"]?.ToString() is { } lid && networks.TryGetValue(lid, out var ln) ? ln : null;
@@ -379,7 +379,7 @@ public sealed partial class ChangeControlService
     }
 
     private static bool InDhcpRange(JsonObject network, uint ip) =>
-        network["dhcpd_enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && on
+        Readdressing.IsTrue(network["dhcpd_enabled"])
         && Readdressing.ParseIp(network["dhcpd_start"]?.ToString()) is { } start && Readdressing.ParseIp(network["dhcpd_stop"]?.ToString()) is { } stop
         && ip >= start && ip <= stop;
 }

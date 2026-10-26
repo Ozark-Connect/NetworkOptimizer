@@ -42,6 +42,25 @@ public class ReaddressingTests
         ChangeControlService.MovedByLocalDns(s, host, Readdressing.Map(Pattern(s))).Should().Be(moved);
     }
 
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    [InlineData("\"true\"", true)]
+    [InlineData("\"True\"", true)]
+    [InlineData("\"false\"", false)]
+    [InlineData("\"yes\"", false)]
+    [InlineData("1", false)]
+    [InlineData("null", false)]
+    public void IsTrue_TakesAJsonBoolOrTheStringForm(string json, bool expected) =>
+        Readdressing.IsTrue(System.Text.Json.Nodes.JsonNode.Parse(json)).Should().Be(expected);
+
+    [Fact]
+    public void Proposal_VlanEnabledAsAString_StillReadsTheVlan()
+    {
+        var s = State(("networkconf", """{"_id":"n2","name":"IoT","purpose":"corporate","vlan_enabled":"true","vlan":30,"ip_subnet":"192.168.30.1/24"}"""));
+        Pattern(s).Single().NewCidr.Should().Be("10.42.30.0/24");
+    }
+
     [Fact]
     public void Proposal_LanNetworksOnly_FromThePattern()
     {

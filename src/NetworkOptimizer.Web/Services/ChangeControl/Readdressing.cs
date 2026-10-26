@@ -76,6 +76,10 @@ public static partial class Readdressing
 
     public static string Format(uint ip) => $"{ip >> 24}.{(ip >> 16) & 255}.{(ip >> 8) & 255}.{ip & 255}";
 
+    /// <summary>A UniFi flag: a JSON bool, or the string "true" some consoles store (a default LAN's <c>dhcpd_enabled</c>).</summary>
+    public static bool IsTrue(JsonNode? value) =>
+        value is JsonValue v && (v.TryGetValue<bool>(out var b) ? b : v.TryGetValue<string>(out var s) && bool.TryParse(s, out var p) && p);
+
     /// <summary>The site's LAN networks with a subnet, each proposed a new one from <paramref name="pattern"/> when given.</summary>
     public static List<SubnetMove> Proposal(ConfigState live, string? pattern)
     {
@@ -83,7 +87,7 @@ public static partial class Readdressing
         foreach (var n in live.Get("networkconf"))
         {
             if (!LanPurposes.Contains(n["purpose"]?.ToString() ?? "") || ParseSubnet(n["ip_subnet"]?.ToString()) is not { } old) continue;
-            var vlan = n["vlan_enabled"] is JsonValue ve && ve.TryGetValue<bool>(out var on) && on && int.TryParse(n["vlan"]?.ToString(), out var v) ? v : (int?)null;
+            var vlan = IsTrue(n["vlan_enabled"]) && int.TryParse(n["vlan"]?.ToString(), out var v) ? v : (int?)null;
             var proposed = string.IsNullOrWhiteSpace(pattern) ? old.ToString() : ApplyPattern(pattern, vlan, old) ?? "";
             moves.Add(new SubnetMove(ConfigState.IdOf(n), n["name"]?.ToString() ?? "", vlan, old.ToString(), proposed));
         }
