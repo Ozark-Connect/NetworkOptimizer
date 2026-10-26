@@ -192,6 +192,7 @@ public sealed class ConfigTemplateService : IConfigTemplateService
         if (parsed.HasErrors) return parsed.Problems;
         var state = loaded.State.Clone();
         foreach (var (c, list) in parsed.Collections) state.Collections[c] = list;
+        YamlConverter.AssignPermanentIds(state);
         await _store.SaveAsync(templateId, name, description, loaded.View.SourceSiteSlug, state, state.Collections.Keys.ToList(),
             _caller.Current?.ActorName ?? "unknown", cancellationToken);
         return parsed.Problems;
@@ -238,6 +239,7 @@ public sealed class ConfigTemplateService : IConfigTemplateService
         var (view, state) = await LoadAsync(templateId, cancellationToken);
         var (desired, problems, _) = ChangeControlService.ParseEdits(state, filesByCollection);
         if (problems.Any(p => p.Level == "Error")) return problems;
+        YamlConverter.AssignPermanentIds(desired);
         // The template keeps its own collections: an edit never adds one it was not created with.
         await _store.SaveAsync(templateId, view.Name, view.Description, view.SourceSiteSlug, desired, view.Collections,
             _caller.Current?.ActorName ?? "unknown", cancellationToken);

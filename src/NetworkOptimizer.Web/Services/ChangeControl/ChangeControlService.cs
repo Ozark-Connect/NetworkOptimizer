@@ -461,24 +461,40 @@ public sealed partial class ChangeControlService : IChangeControlService
         int? snapshotId, IReadOnlyDictionary<string, string> files, CancellationToken ct) =>
         ParseEdits((await LoadSideAsync(snapshotId, ct)).State, files);
 
-    /// <summary>Edit tab files (one per collection group, keyed by its first collection) parsed onto a base state.</summary>
+    /// <summary>
+    /// Edit tab files (one per collection group, keyed by its first collection) parsed onto a base state.
+    /// Two passes: the first collects every object the edit creates, so a file can reference an object
+    /// another file creates (a WLAN on a new network), whichever order the files come in.
+    /// </summary>
     internal static (ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Collections) ParseEdits(
         ConfigState baseState, IReadOnlyDictionary<string, string> files)
     {
-        var desired = baseState.Clone();
-        var problems = new List<YamlProblem>();
-        var touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (collection, text) in files)
+        var declared = new ConfigState();
+        foreach (var (key, list) in ParseFiles(null).Desired.Collections)
         {
-            var def = ConfigCollections.Get(collection);
-            if (def == null) continue;
-            var parsed = YamlConverter.Parse(text, desired, YamlConverter.FileName(def));
-            problems.AddRange(parsed.Problems);
-            foreach (var (c, list) in parsed.Collections)
+            var created = list.Where(o => ConfigState.IdOf(o).StartsWith(YamlConverter.TempIdPrefix, StringComparison.Ordinal)).ToList();
+            if (created.Count > 0) declared.Collections[key] = created;
+        }
+        var (desired, problems, touched) = ParseFiles(declared);
+
+        (ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Touched) ParseFiles(ConfigState? others)
+        {
+            var state = baseState.Clone();
+            var found = new List<YamlProblem>();
+            var collections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (collection, text) in files)
             {
-                desired.Collections[c] = list;
-                touched.Add(c);
+                var def = ConfigCollections.Get(collection);
+                if (def == null) continue;
+                var parsed = YamlConverter.Parse(text, state, YamlConverter.FileName(def), others);
+                found.AddRange(parsed.Problems);
+                foreach (var (c, list) in parsed.Collections)
+                {
+                    state.Collections[c] = list;
+                    collections.Add(c);
+                }
             }
+            return (state, found, collections);
         }
         // A delete takes list references with it, so the plan carries those updates too.
         touched.UnionWith(DeleteCascade.Apply(baseState, desired, touched));

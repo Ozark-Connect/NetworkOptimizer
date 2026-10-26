@@ -419,16 +419,16 @@ public static class PlanBuilder
                 return new JsonArray(arr.Select(e => Remap(e, desiredById, idMap, creates, options, doc, owner, fieldName)).ToArray());
             case JsonValue val when val.TryGetValue<string>(out var s):
                 if (options.DeviceMap.TryGetValue(s.ToLowerInvariant(), out var newMac)) return newMac;
-                // An edit's temporary ID that never resolved must not reach the console as a value.
+                if (idMap.TryGetValue(s, out var liveId) && desiredById.ContainsKey(s)) return liveId;
+                if (creates.TryGetValue(s, out var create)) return RefPrefix + create.Key;
+                // An edit's temporary ID that is not one of this plan's creates must not reach the console as a value.
                 if (s.StartsWith(YamlConverter.TempIdPrefix, StringComparison.Ordinal))
                 {
-                    var unresolved = $"{owner}: {fieldName ?? "a field"} refers to an object from the edit that could not be resolved. Name an object that exists, or create it in a separate plan first.";
+                    var unresolved = $"{owner}: {fieldName ?? "a field"} refers to an object from the edit that is not created by this plan.";
                     if (!doc.Errors.Contains(unresolved)) doc.Errors.Add(unresolved);
                     return val.DeepClone();
                 }
                 if (!desiredById.TryGetValue(s, out var target)) return val.DeepClone();
-                if (idMap.TryGetValue(s, out var liveId)) return liveId;
-                if (creates.TryGetValue(s, out var create)) return RefPrefix + create.Key;
                 var targetDef = ConfigCollections.Get(target.Collection);
                 var targetName = ConfigState.DisplayName(targetDef, target.Object);
                 var err = $"{owner} references {targetDef?.Noun ?? target.Collection} {targetName}, which is not on the console and is not created by this plan.";

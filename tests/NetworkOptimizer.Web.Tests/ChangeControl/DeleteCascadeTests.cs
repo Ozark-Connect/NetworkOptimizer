@@ -101,7 +101,7 @@ public class DeleteCascadeTests
 
         result.Collections["apgroups"].Should().HaveCount(2);
         result.Collections["apgroups"].Single(o => o["name"]!.ToString() == "All APs")["_id"]!.ToString().Should().Be("g1");
-        result.Collections["apgroups"].Single(o => o["name"]!.ToString() == "Upstairs").ContainsKey("_id").Should().BeFalse();
+        ConfigState.IdOf(result.Collections["apgroups"].Single(o => o["name"]!.ToString() == "Upstairs")).Should().StartWith(YamlConverter.TempIdPrefix);
         result.Collections["wlanconf"].Single()["ap_group_ids"]!.AsArray().Select(e => e!.ToString()).Should().Equal("g1");
     }
 
@@ -131,8 +131,8 @@ public class DeleteCascadeTests
 
         var byName = result.Collections["wlanconf"].ToDictionary(o => o["name"]!.ToString());
         ConfigState.IdOf(byName["Home"]).Should().Be("w1");
-        byName["Copy"].ContainsKey("_id").Should().BeFalse("a copied block is a new object");
-        byName["Guest"].ContainsKey("_id").Should().BeFalse("an ID from another site is ignored");
+        ConfigState.IdOf(byName["Copy"]).Should().StartWith(YamlConverter.TempIdPrefix, "a copied block is a new object");
+        ConfigState.IdOf(byName["Guest"]).Should().StartWith(YamlConverter.TempIdPrefix, "an ID from another site is ignored");
     }
 
     private static ConfigState WithParsed(ConfigState baseState, YamlParseResult result)

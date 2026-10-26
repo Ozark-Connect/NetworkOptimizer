@@ -106,6 +106,109 @@ public class YamlConverterTests
         YamlConverter.Parse(yaml, Site(), "wlans.yaml").Problems.Should().Contain(p => p.Level == "Info" && p.Message.Contains("WPA3"));
     }
 
+    private const string LabNetworkFile = "networks:\n- name: Default\n  purpose: corporate\n- name: IoT\n  vlan: 30\n  vlan_enabled: true\n  purpose: corporate\n"
+        + "- name: IoT\n  vlan: 31\n  vlan_enabled: true\n  purpose: corporate\n- name: Lab\n  vlan: 40\n  vlan_enabled: true\n  purpose: corporate\n";
+
+    [Fact]
+    public void Edit_WlanOnANetworkAnotherFileCreates_ResolvesToTheCreate()
+    {
+        // The WLAN file comes first, so the reference has to see the networks file's create.
+        var files = new Dictionary<string, string>
+        {
+            ["wlanconf"] = YamlConverter.Export(Site(), ["wlanconf"], SecretMode.Mask, ids: true)
+                + "- name: Lab Wi-Fi\n  security: wpapsk\n  x_passphrase: lab-passphrase\n  network: Lab\n",
+            ["networkconf"] = LabNetworkFile,
+        };
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(Site(), files);
+        problems.Should().NotContain(p => p.Level == "Error", string.Join("; ", problems.Select(p => p.Message)));
+
+        var doc = PlanBuilder.Build(desired, Site(), new PlanOptions { Collections = touched });
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().HaveCount(2).And.OnlyContain(o => o.Action == PlanAction.Create);
+        var network = doc.Operations.Single(o => o.Collection == "networkconf");
+        var wlan = doc.Operations.Single(o => o.Collection == "wlanconf");
+        wlan.Body!["networkconf_id"]!.GetValue<string>().Should().Be(PlanBuilder.RefPrefix + network.Key);
+        doc.Operations.IndexOf(network).Should().BeLessThan(doc.Operations.IndexOf(wlan));
+        network.Body!.AsObject().ContainsKey("_id").Should().BeFalse("a temporary ID never reaches the console");
+    }
+
+    [Fact]
+    public void Edit_ChangeToAnExistingObject_IsOneUpdate_WithRealIds()
+    {
+        var files = new Dictionary<string, string>
+        {
+            ["wlanconf"] = "wlans:\n- name: Home\n  security: wpapsk\n  network: {vlan: 30}\n",
+        };
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(Site(), files);
+        problems.Should().NotContain(p => p.Level == "Error");
+
+        var op = PlanBuilder.Build(desired, Site(), new PlanOptions { Collections = touched }).Operations.Should().ContainSingle().Subject;
+
+        op.Action.Should().Be(PlanAction.Update);
+        op.ObjectId.Should().Be("w1");
+        op.Body!["networkconf_id"]!.GetValue<string>().Should().Be("n2");
+    }
+
+    [Fact]
+    public void Edit_SsidRenameWithItsId_IsOneUpdate_NotACreate()
+    {
+        var files = new Dictionary<string, string>
+        {
+            ["wlanconf"] = "wlans:\n- id: w1\n  name: Home Renamed\n  security: wpapsk\n  x_passphrase: <secret:w1/x_passphrase>\n  network: Default\n",
+        };
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(Site(), files);
+        problems.Should().NotContain(p => p.Level == "Error", string.Join("; ", problems.Select(p => p.Message)));
+
+        var op = PlanBuilder.Build(desired, Site(), new PlanOptions { Collections = touched }).Operations.Should().ContainSingle().Subject;
+
+        op.Action.Should().Be(PlanAction.Update);
+        op.ObjectId.Should().Be("w1");
+        op.Body!["name"]!.GetValue<string>().Should().Be("Home Renamed");
+        op.Body!["x_passphrase"]!.GetValue<string>().Should().Be("hunter2", "a masked secret keeps its value");
+    }
+
+    [Fact]
+    public void Edit_PassphraseChange_IsOneUpdate_WithTheNewValue()
+    {
+        var files = new Dictionary<string, string>
+        {
+            ["wlanconf"] = "wlans:\n- id: w1\n  name: Home\n  security: wpapsk\n  x_passphrase: new-passphrase-1\n  network: Default\n",
+        };
+        var (desired, _, touched) = ChangeControlService.ParseEdits(Site(), files);
+
+        var op = PlanBuilder.Build(desired, Site(), new PlanOptions { Collections = touched }).Operations.Should().ContainSingle().Subject;
+
+        op.Action.Should().Be(PlanAction.Update);
+        op.ObjectId.Should().Be("w1");
+        op.Body!["x_passphrase"]!.GetValue<string>().Should().Be("new-passphrase-1");
+    }
+
+    [Fact]
+    public void Edit_ReferenceToANameNothingHas_IsStillAnError()
+    {
+        var files = new Dictionary<string, string> { ["wlanconf"] = "wlans:\n- name: Home\n  network: Nowhere\n" };
+        ChangeControlService.ParseEdits(Site(), files).Problems.Should().Contain(p => p.Level == "Error" && p.Message.Contains("Nowhere"));
+    }
+
+    [Fact]
+    public void AssignPermanentIds_ReplacesTemporaryIds_AndTheirReferences()
+    {
+        var files = new Dictionary<string, string>
+        {
+            ["networkconf"] = LabNetworkFile,
+            ["wlanconf"] = "wlans:\n- name: Home\n  security: wpapsk\n  network: Default\n- name: Lab Wi-Fi\n  network: Lab\n",
+        };
+        var desired = ChangeControlService.ParseEdits(Site(), files).Desired;
+
+        YamlConverter.AssignPermanentIds(desired);
+
+        var lab = desired.Get("networkconf").Single(n => n["name"]!.ToString() == "Lab");
+        ConfigState.IdOf(lab).Should().NotStartWith(YamlConverter.TempIdPrefix);
+        desired.Get("wlanconf").Single(w => w["name"]!.ToString() == "Lab Wi-Fi")["networkconf_id"]!.GetValue<string>().Should().Be(ConfigState.IdOf(lab));
+        ConfigState.IdOf(desired.Get("networkconf").Single(n => n["name"]!.ToString() == "Default")).Should().Be("n1");
+    }
+
     [Fact]
     public void Parse_BadYaml_ReportsTheLine()
     {

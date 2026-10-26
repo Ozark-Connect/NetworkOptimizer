@@ -329,9 +329,11 @@ public static partial class YamlConverter
     /// <summary>
     /// Parses an edited file against the state it was made from. References resolve against the
     /// desired state (the base with this file's objects in place), so a file can refer to an object it
-    /// creates.
+    /// creates. <paramref name="declared"/> adds objects other files of the same edit create.
+    /// A new object keeps a temporary ID (<see cref="TempIdPrefix"/>, stable for the same text), which
+    /// Review Plan turns into a reference to its create.
     /// </summary>
-    public static YamlParseResult Parse(string text, ConfigState baseState, string fileName)
+    public static YamlParseResult Parse(string text, ConfigState baseState, string fileName, ConfigState? declared = null)
     {
         var result = new YamlParseResult();
         var stream = new YamlStream();
@@ -406,12 +408,23 @@ public static partial class YamlConverter
             foreach (var pair in match.Pairs.Where(p => p.Left != null && p.Right != null))
                 pair.Left!["_id"] = ConfigState.IdOf(pair.Right!);
         }
-        // Only new objects are left: a temporary ID, so the file can refer to what it creates.
+        // Only new objects are left: a temporary ID, unique to this file, so the edit can refer to what it creates.
         var tempId = 0;
         foreach (var (_, _, obj) in raw)
-            if (!obj.ContainsKey("_id")) obj["_id"] = $"{TempIdPrefix}{++tempId}";
+            if (!obj.ContainsKey("_id")) obj["_id"] = $"{TempIdPrefix}{fileName}#{++tempId}";
 
-        var index = new ReferenceIndex(desired);
+        var indexState = desired;
+        if (declared != null)
+        {
+            indexState = desired.Clone();
+            var present = desired.ObjectsById();
+            foreach (var (key, list) in declared.Collections)
+            {
+                var extra = list.Where(o => !present.ContainsKey(ConfigState.IdOf(o))).ToList();
+                if (extra.Count > 0) indexState.Collections[key] = [.. indexState.Get(key), .. extra];
+            }
+        }
+        var index = new ReferenceIndex(indexState);
         var fieldMap = ReferenceFields(baseState);
         foreach (var (def, map, obj) in raw)
         {
@@ -419,11 +432,6 @@ public static partial class YamlConverter
             ResolveSecretTokens(def, resolved, baseState, Line(map), result, fileName);
             result.Collections[def.Key].Add(resolved);
         }
-        foreach (var (_, _, obj) in raw.Where(r => ConfigState.IdOf(r.Obj).StartsWith(TempIdPrefix, StringComparison.Ordinal)))
-            obj.Remove("_id");
-        foreach (var list in result.Collections.Values)
-            foreach (var obj in list.Where(o => (o["_id"]?.ToString() ?? "").StartsWith(TempIdPrefix, StringComparison.Ordinal)))
-                obj.Remove("_id");
 
         Lint(result, baseState, raw, fileName);
         return result;
@@ -431,6 +439,30 @@ public static partial class YamlConverter
 
     /// <summary>Prefix of a temporary ID for an object an edit creates. No UniFi value starts with it, so a plan can refuse one.</summary>
     public const string TempIdPrefix = "@new:";
+
+    /// <summary>
+    /// Gives each object with a temporary ID a permanent one, and rewrites references to it. For a
+    /// state that is stored (a template): temporary IDs are only unique within one edit.
+    /// </summary>
+    public static void AssignPermanentIds(ConfigState state)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var list in state.Collections.Values)
+            foreach (var obj in list)
+                if (ConfigState.IdOf(obj) is { } id && id.StartsWith(TempIdPrefix, StringComparison.Ordinal))
+                    map[id] = Guid.NewGuid().ToString("N")[..24];
+        if (map.Count == 0) return;
+        foreach (var (key, list) in state.Collections)
+            state.Collections[key] = list.Select(o => (JsonObject)Rewrite(o)!).ToList();
+
+        JsonNode? Rewrite(JsonNode? node) => node switch
+        {
+            JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key, Rewrite(p.Value)))),
+            JsonArray a => new JsonArray(a.Select(Rewrite).ToArray()),
+            JsonValue v when v.TryGetValue<string>(out var s) && map.TryGetValue(s, out var real) => JsonValue.Create(real),
+            _ => node?.DeepClone(),
+        };
+    }
 
     private static int Line(YamlNode node) => (int)node.Start.Line;
 
