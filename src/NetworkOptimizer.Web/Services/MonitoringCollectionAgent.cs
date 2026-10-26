@@ -2608,9 +2608,11 @@ public class MonitoringCollectionAgent : BackgroundService
         // enumerates devices - fabric targets, interface name map, device stats - recovers on its
         // own. Skipped while an agent tunnel is still coming up; OnAgentConnectedAsync reconnects
         // that case when the tunnel opens.
+        // 10 s: how long the banner outlives a console that is back. One sign-in per try, well clear
+        // of the console's login attempt limit.
         if (!_connectionService.IsConnected
             && !_connectionService.IsAwaitingAgent
-            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(30))
+            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(10))
         {
             _lastConsoleEnsureAt = DateTime.UtcNow;
             try { await _connectionService.ReconnectAsync(); }

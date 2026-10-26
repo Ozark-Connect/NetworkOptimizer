@@ -172,12 +172,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                     _consoleAlertActive = true;
                     publishFailed = true;
                 }
-                markDown = persistent && _isConnected;
+                // The 50 s window keeps blips out of notifications only. A sign-in that never reached
+                // the console marks it down at once: a reverse proxy answers 502 instantly, so the
+                // timeout breaker never trips, and pages read IsConnected.
+                markDown = _isConnected && (persistent || _client?.LastLoginUnreachable == true);
             }
         }
 
-        // A console behind a reverse proxy answers 502 at once rather than timing out, so the silent
-        // breaker never trips; the failed sign-ins are the only evidence, and pages read IsConnected.
         if (markDown)
             MarkConsoleUnresponsive(error);
 
@@ -409,8 +410,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
-    /// Sign-ins have kept failing past the alert window: mark the console down so pages show the
-    /// banner and stop signing in per call. The background reconnect clears it.
+    /// Sign-in failed against a console that is not there, or has kept failing past the alert window:
+    /// mark it down so pages show the banner and stop signing in per call. The background reconnect clears it.
     /// </summary>
     private void MarkConsoleUnresponsive(string? error)
     {
@@ -418,7 +419,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         _isConnected = false;
         _consoleUnresponsive = true;
         _lastError = error ?? ConsoleUnresponsiveMessage;
-        _logger.LogWarning("Console for site {Slug} keeps refusing sign-in ({Error}); marking it unresponsive", SiteSlug, _lastError);
+        _logger.LogWarning("Console for site {Slug} failed sign-in ({Error}); marking it unresponsive", SiteSlug, _lastError);
         OnConnectionChanged?.Invoke();
     }
 
