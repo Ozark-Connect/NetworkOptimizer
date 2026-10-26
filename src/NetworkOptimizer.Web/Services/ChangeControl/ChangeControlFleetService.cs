@@ -303,7 +303,8 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     Detail = p.Message ?? "",
                     Key = $"plan:{p.Id}",
                 });
-            foreach (var g in gaps.Where(g => g.EndedAt == null))
+            // A gap shorter than this is a restart or a reconnect, not something to look at.
+            foreach (var g in gaps.Where(g => g.EndedAt == null && now - g.StartedAt >= TimeSpan.FromMinutes(5)))
                 Add(new AttentionItem
                 {
                     Kind = "Gap",

@@ -204,11 +204,15 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         {
             var reason = _isAgentSite?.Invoke() == true ? "No data: agent offline" : "No data: UniFi Console unreachable";
             await _repos.UseAsync((r, c) => r.OpenGapAsync(now, reason, c), ct);
+            Changed?.Invoke();
             return;
         }
         var closed = await _repos.UseAsync((r, c) => r.CloseGapAsync(now, caughtUp: true, c), ct);
         if (closed != null)
+        {
             _logger.LogInformation("Change detection for site {Site} is back after a gap; catching up from the AUDIT log", _slug);
+            Changed?.Invoke();
+        }
 
         var state = await _repos.UseAsync((r, c) => r.GetDetectionStateAsync(c), ct);
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
