@@ -66,7 +66,10 @@ else
             }
             @if (linked.Count == 0)
             {
-                <div class="cc-item-detail">No incidents in the 2 hours after.</div>
+                var windowEnd = Detail.Row.OccurredAt.AddHours(2);
+                <div class="cc-item-detail">@(DateTime.UtcNow < windowEnd
+                    ? $"No incidents so far. Watching until {CcFormat.Local(windowEnd):h:mm tt}."
+                    : "No incidents in the 2 hours after.")</div>
             }
             <table class="cc-field-table">
                 @foreach (var i in linked)
