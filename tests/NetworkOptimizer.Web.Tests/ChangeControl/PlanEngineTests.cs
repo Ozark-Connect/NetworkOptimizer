@@ -253,9 +253,9 @@ public class PlanEngineTests
     public void SettingNamingANewNetwork_IsWrittenAfterThatNetwork()
     {
         var desired = State(("networkconf", Lan), ("networkconf", Iot),
-            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"},{"key":"n2","raw_color_hex":"0544ff"}]}"""));
+            ("setting", """{"_id":"s1","key":"global_nat","mode":"auto","excluded_network_ids":["n2"]}"""));
         var live = State(("networkconf", Lan),
-            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"}]}"""));
+            ("setting", """{"_id":"s1","key":"global_nat","mode":"auto","excluded_network_ids":[]}"""));
 
         var doc = Plan(desired, live);
 

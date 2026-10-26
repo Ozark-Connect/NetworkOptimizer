@@ -331,7 +331,9 @@ public static class ConfigCollections
                 SectionFieldOrder = ConfigFieldOrder.SettingSections,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/setting", NameField = "key", Order = 1,
                 // hostname (super_identity) is the console's OS hostname, which UniFi fills in; a container recreate changes it.
-                ReadOnlyFields = Set("site_id", "last_alert_id", "available_controller_channels", "available_firmware_channels", "layout_preference", "widgets", "hostname"),
+                // network_defaults (ether_lighting) are the colors UniFi assigns each network; a write of them is ignored.
+                ReadOnlyFields = Set("site_id", "last_alert_id", "available_controller_channels", "available_firmware_channels", "layout_preference", "widgets", "hostname",
+                    "network_defaults"),
                 ExtraSecretFields = Set("psk", "utm_token", "fingerbank_key"),
                 SetArrays = Set("enabled_networks", "excluded_network_ids", "enabled_categories", "geo_ip_filtering_countries"),
                 EnforcedKey = (o, _) => Str(o, "key"), KeyIsUnique = true,
