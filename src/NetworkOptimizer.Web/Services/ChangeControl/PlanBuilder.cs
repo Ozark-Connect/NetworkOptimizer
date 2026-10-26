@@ -646,6 +646,9 @@ public static class PlanBuilder
     /// policies, devices after site objects, deletes in reverse after their referrers change, and
     /// anything that can cut a management path last.
     /// </summary>
+    /// <summary>Re-sorts a plan after a caller changed operation order (Re-address moves the console's network last).</summary>
+    internal static void Reorder(PlanDocument doc) => Order(doc);
+
     private static void Order(PlanDocument doc)
     {
         // Deletes go after everything, management-path updates included: those updates are what move

@@ -84,10 +84,21 @@ public sealed partial class ChangeControlService
         var remote = RemoteCidrs(live);
         var settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, remote, apply: false, cancellationToken);
         var summary = string.Join(", ", active.Select(m => $"{m.NetworkName} {m.OldCidr} to {m.NewCidr}"));
+        var pathNetworks = await PathNetworksAsync(active, cancellationToken);
         var plan = await Plans.CreateAsync(ConfigPlanKind.Readdress, $"Re-address {await SiteNameAsync(cancellationToken)}", summary, null, null,
             result.Desired, new PlanOptions { Collections = result.Collections, DeleteMissing = false }, Actor, cancellationToken,
             doc =>
             {
+                // The network holding the console, or Network Optimizer's path to it, is the last write:
+                // once it moves, the old address every later write goes to is gone.
+                foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)))
+                {
+                    op.Order = 100;
+                    op.ManagementPath = true;
+                }
+                PlanBuilder.Reorder(doc);
+                doc.Context[PlanCoordinator.ReaddressPathContext] = string.Join(",", doc.Operations
+                    .Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)).Select(o => o.Key));
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 foreach (var m in result.Remote)
@@ -104,6 +115,17 @@ public sealed partial class ChangeControlService
                         + string.Join(", ", settings.Select(s => $"{s.Setting} {s.Name} {s.Old} to {s.New}")) + ".");
             });
         return plan.Id;
+    }
+
+    /// <summary>Moved networks that hold the console's address or the address Network Optimizer reaches the site from.</summary>
+    private async Task<HashSet<string>> PathNetworksAsync(List<SubnetMove> active, CancellationToken ct)
+    {
+        var addresses = Plans.ManagementAddresses().Select(Readdressing.ParseIp).OfType<uint>().ToList();
+        if (Uri.TryCreate(_registry.Connection(_site.Slug).CurrentConfig?.ControllerUrl, UriKind.Absolute, out var uri))
+            addresses.AddRange(Readdressing.ParseIp(uri.Host) is { } ip ? [ip]
+                : (await SafeResolveAsync(uri.Host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>());
+        return active.Where(m => Readdressing.ParseSubnet(m.OldCidr) is { } old && addresses.Any(old.Contains))
+            .Select(m => m.NetworkId).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static List<string> RemoteCidrs(ConfigState live) =>

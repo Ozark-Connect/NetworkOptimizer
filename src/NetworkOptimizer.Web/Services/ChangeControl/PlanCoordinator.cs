@@ -278,6 +278,14 @@ public sealed class PlanCoordinator
             if (after != null)
                 result.VerifyDifferences = VerifyAgainst(doc, live, after);
 
+            // A re-address that moves the console's own network writes it last; its reply can be lost with
+            // the old address. Only those writes failing is the expected end, not a failure.
+            var pathMove = doc.Context.TryGetValue(ReaddressPathContext, out var pathKeys) && pathKeys.Length > 0;
+            if (!ok && pathMove && result.Operations.Where(o => o.Outcome == "Error").All(o => pathKeys!.Split(',').Contains(o.Key)))
+            {
+                ok = true;
+                plan.Message = "The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one.";
+            }
             plan.ResultJson = JsonSerializer.Serialize(result);
             plan.OperationsEncrypted = Seal(doc);
             if (!ok)
@@ -639,6 +647,9 @@ public sealed class PlanCoordinator
 
     /// <summary>Plan context key carrying the WAN and VPN ranges a re-address leaves alone (JSON string list).</summary>
     public const string ReaddressRemoteContext = "readdress_remote";
+
+    /// <summary>Plan context key carrying the operation keys of the networks that hold the console's path (comma-separated).</summary>
+    public const string ReaddressPathContext = "readdress_path";
 
     /// <summary>
     /// A re-address moves Network Optimizer's own settings with the site once its writes land; a Revert of
