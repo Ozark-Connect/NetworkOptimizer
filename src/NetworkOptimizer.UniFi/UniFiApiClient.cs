@@ -119,6 +119,9 @@ public class UniFiApiClient : IDisposable
     private static readonly TimeSpan UnsupportedEndpointBackoff = TimeSpan.FromHours(1);
     private long _trafficFlowsUnsupportedUntilTicks;
     private long _threatLogUnsupportedUntilTicks;
+    // Which API serves Wi-Fi time series, probed once per client (so once per Console connect). Null until known.
+    private bool? _usesStatsApi;
+    private string? _statsSiteId;
 
     /// <summary>
     /// Gets the last login error message (e.g., rate limiting, SSL errors)
@@ -2890,6 +2893,86 @@ public class UniFiApiClient : IDisposable
     #region Wi-Fi Optimizer APIs
 
     /// <summary>
+    /// True when the console serves Wi-Fi time series from v2/api/stats (Network 11), where
+    /// stat/report still answers ok with no rows. A 404 on the schema list means stat/report;
+    /// any other failure leaves it unknown, so the next call probes again.
+    /// </summary>
+    private async Task<bool> UsesStatsApiAsync(CancellationToken cancellationToken)
+    {
+        if (_usesStatsApi is { } known) return known;
+
+        using var response = await ExecuteRequestAsync(() => _httpClient!.GetAsync(BuildV2ApiPath("stats/schemas"), cancellationToken));
+        if (response == null) return false;
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            _usesStatsApi = false;
+            return false;
+        }
+        if (!response.IsSuccessStatusCode) return false;
+
+        _statsSiteId = await ResolveSiteIdAsync(cancellationToken);
+        _usesStatsApi = true;
+        _logger.LogInformation("Console serves Wi-Fi time series from the stats API (site id {SiteId})", _statsSiteId);
+        return true;
+    }
+
+    /// <summary>The _id of this client's site, which keys stats rows; null when the site list cannot be read.</summary>
+    private async Task<string?> ResolveSiteIdAsync(CancellationToken cancellationToken)
+    {
+        using var sites = await GetSitesAsync(cancellationToken);
+        if (sites == null || !sites.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var site in data.EnumerateArray())
+            if (site.TryGetProperty("name", out var name) && string.Equals(name.GetString(), _site, StringComparison.OrdinalIgnoreCase)
+                && site.TryGetProperty("_id", out var id))
+                return id.GetString();
+        return null;
+    }
+
+    /// <summary>
+    /// GET v2/api/stats/recent/series - one schema's time series, returned as the legacy stat/report
+    /// rows it replaces. The console picks the bucket from the range (5 minutes up to a day, then hourly,
+    /// then 8 hours), so the caller's granularity does not apply.
+    /// </summary>
+    private async Task<JsonElement> GetStatsReportAsync(
+        StatsReportKind kind,
+        string? filter,
+        long startMs,
+        long endMs,
+        string[] attrs,
+        CancellationToken cancellationToken)
+    {
+        var schema = StatsReportTranslator.Schema(kind);
+        var query = $"schema={schema}&start={startMs}&end={endMs}";
+        if (filter != null) query += "&filter=" + Uri.EscapeDataString(filter);
+        var url = BuildV2ApiPath($"stats/recent/series?{query}");
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Stats {Schema} request failed: {StatusCode} - {Error}", schema, response.StatusCode, json);
+                return default;
+            }
+            using var doc = JsonDocument.Parse(json);
+            return StatsReportTranslator.ToLegacyRows(doc.RootElement, kind, _statsSiteId, attrs);
+        });
+    }
+
+    /// <summary>A stats filter matching any of the MACs: "deviceMac.eq('..')", or "or(..)" for several.</summary>
+    private static string MacFilter(string key, IEnumerable<string> macs)
+    {
+        var terms = macs
+            .Select(m => m.Trim().ToLowerInvariant())
+            .Where(m => m.Length > 0 && m.All(c => Uri.IsHexDigit(c) || c == ':' || c == '-'))
+            .Select(m => $"{key}.eq('{m}')")
+            .ToList();
+        return terms.Count == 1 ? terms[0] : $"or({string.Join(", ", terms)})";
+    }
+
+    /// <summary>
     /// POST stat/report/{granularity}.site - Get site-wide Wi-Fi metrics time series
     /// </summary>
     /// <param name="granularity">Report granularity: 5minutes, hourly, daily</param>
@@ -2909,6 +2992,9 @@ public class UniFiApiClient : IDisposable
         {
             return default;
         }
+
+        if (await UsesStatsApiAsync(cancellationToken))
+            return await GetStatsReportAsync(StatsReportKind.Site, null, startMs, endMs, attrs, cancellationToken);
 
         var url = BuildApiPath($"stat/report/{granularity}.site");
         var payload = new
@@ -2970,6 +3056,9 @@ public class UniFiApiClient : IDisposable
             return default;
         }
 
+        if (await UsesStatsApiAsync(cancellationToken))
+            return await GetStatsReportAsync(StatsReportKind.Ap, MacFilter("deviceMac", apMacs), startMs, endMs, attrs, cancellationToken);
+
         var url = BuildApiPath($"stat/report/{granularity}.ap");
         var payload = new
         {
@@ -3030,6 +3119,9 @@ public class UniFiApiClient : IDisposable
         {
             return default;
         }
+
+        if (await UsesStatsApiAsync(cancellationToken))
+            return await GetStatsReportAsync(StatsReportKind.User, MacFilter("clientId", [clientMac]), startMs, endMs, attrs, cancellationToken);
 
         var url = BuildApiPath($"stat/report/{granularity}.user");
         var payload = new
