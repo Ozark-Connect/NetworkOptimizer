@@ -55,6 +55,65 @@ public class RouterOsLteMonitorParserTests
         "board-name: ATLGM              ",
         "platform: MikroTik  ");
 
+    // The same router over a one-shot `ssh user+ct@host "<commands>"`, the way the provider runs it:
+    // keys are right-aligned with leading spaces, and RouterOS 7.25 prints no channel after the version.
+    private static readonly string OneShotLteMonitor = string.Join("\n",
+        "            status: running",
+        "             model: RG520F-EU",
+        "          revision: RG520FEUEAR03A07M4GX",
+        "  current-operator: Test Carrier",
+        "    current-cellid: 41979168",
+        "            enb-id: 163981",
+        "         sector-id: 32",
+        "        phy-cellid: 11",
+        "        data-class: LTE",
+        "    session-uptime: 2d19h4m9s",
+        "              imei: xxx",
+        "              imsi: xxx",
+        "             iccid: xxx",
+        "      primary-band: B20@10MHz earfcn: 6200 phy-cellid: 11",
+        "     dl-modulation: qpsk",
+        "               cqi: 13",
+        "                ri: 1",
+        "               mcs: 0",
+        "              rssi: -59dBm",
+        "              rsrp: -85dBm",
+        "              rsrq: -9dB",
+        "              sinr: 17dB");
+
+    private static readonly string OneShotSystemResource = string.Join("\n",
+        "                   uptime: 2d19h4m57s",
+        "                  version: 7.25",
+        "               build-time: 2026-10-22 14:12:00",
+        "          minimum-version: 7.19",
+        "                 platform: MikroTik",
+        "               board-name: ATLGM");
+
+    [Fact]
+    public void Parse_OneShotSshOutput_ReadsRightAlignedKeys()
+    {
+        var stats = RouterOsLteMonitorParser.Parse(OneShotLteMonitor, Host, "Backup LTE", "ATLGM")!;
+
+        stats.Should().NotBeNull();
+        stats.NetworkMode.Should().Be(CellularNetworkMode.Lte);
+        stats.Lte!.Rsrp.Should().Be(-85);
+        stats.Lte.Rsrq.Should().Be(-9);
+        stats.Lte.Rssi.Should().Be(-59);
+        stats.Lte.Snr.Should().Be(17);
+        stats.Carrier.Should().Be("Test Carrier");
+        stats.ModuleModel.Should().Be("RG520F-EU");
+        stats.ActiveBand!.BandClass.Should().Be("eutran-20");
+        stats.ActiveBand.BandwidthMhz.Should().Be(10, "the one-shot output spells the unit MHz");
+        stats.ActiveBand.Channel.Should().Be(6200);
+    }
+
+    [Fact]
+    public void ParseVersion_OneShotOutputWithoutChannel()
+    {
+        RouterOsLteMonitorParser.ParseVersion(OneShotSystemResource).Should().Be("7.25");
+        RouterOsLteMonitorParser.ParseBoardName(OneShotSystemResource).Should().Be("ATLGM");
+    }
+
     [Fact]
     public void Parse_LteMonitor_MapsSignal()
     {
