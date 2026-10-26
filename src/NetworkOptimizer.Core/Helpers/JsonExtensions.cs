@@ -85,13 +85,20 @@ public static class JsonExtensions
 
     /// <summary>
     /// Get a boolean property value, or a default if not found.
+    /// Handles the string form ("true" / "false") some UniFi Consoles store, e.g. a default LAN's dhcpd_enabled.
     /// </summary>
     public static bool GetBoolOrDefault(this JsonElement element, string propertyName, bool defaultValue = false)
     {
-        return element.TryGetProperty(propertyName, out var prop) &&
-               (prop.ValueKind == JsonValueKind.True || prop.ValueKind == JsonValueKind.False)
-            ? prop.GetBoolean()
-            : defaultValue;
+        if (!element.TryGetProperty(propertyName, out var prop))
+            return defaultValue;
+
+        return prop.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(prop.GetString(), out var parsed) => parsed,
+            _ => defaultValue
+        };
     }
 
     /// <summary>
