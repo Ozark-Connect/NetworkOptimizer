@@ -187,6 +187,16 @@ public interface IChangeControlService
     [RequireRole(Roles.Admin)]
     Task<ReaddressView> GetReaddressAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
 
+    /// <summary>Builds the plan that shortens DHCP leases on the networks a re-address moves, ahead of it.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildReaddressPreparePlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
+
+    /// <summary>After a re-address: reconnects clients still on an old address so they ask DHCP again.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlClientsReconnected, TargetType = "site")]
+    Task<ReconnectResult> ReconnectClientsAsync(bool powerCycle, CancellationToken cancellationToken = default);
+
     /// <summary>Builds the Re-address Networks plan.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]

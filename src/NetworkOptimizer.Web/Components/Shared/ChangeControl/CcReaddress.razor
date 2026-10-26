@@ -56,6 +56,60 @@
     }
 </div>
 
+@if (_view is { } steps)
+{
+    <div class="cc-two-col">
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Before the Move <span class="card-title-suffix">shorter DHCP leases</span></h3></div>
+            <div class="card-body">
+                @if (steps.Prepare is { } prep)
+                {
+                    <p>Leases lowered to @(ChangeControlService.PrepareLeaseSeconds / 60) minutes on @CcFormat.Local(prep.LoweredAt).ToString("MMM d, h:mm tt").
+                        @if (prep.ReadyAt > DateTime.UtcNow)
+                        {
+                            <span class="warning-text">Every DHCP client is on the short lease by @CcFormat.Local(prep.ReadyAt).ToString("MMM d, h:mm tt").</span>
+                        }
+                        else
+                        {
+                            <span class="success-text">Every DHCP client is on the short lease: ready to move.</span>
+                        }
+                    </p>
+                    <small class="form-help">The re-address plan puts each network's lease time back.</small>
+                }
+                else
+                {
+                    <p class="muted-text">Clients take a new address when their DHCP lease renews, up to half a lease after the move. Lowering the moving networks' leases first, one full lease ahead (a day with UniFi's default), makes them move within minutes.</p>
+                }
+            </div>
+            <div class="cc-card-footer">
+                <span class="cc-remaining"></span>
+                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected || (_subnets.Count == 0 && !steps.Moves.Any(m => m.OldCidr != m.NewCidr)))" @onclick="PrepareAsync">Lower Lease Times</button>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">After the Move <span class="card-title-suffix">reconnect clients</span></h3></div>
+            <div class="card-body">
+                <p class="muted-text">Wireless clients still on an old address rejoin and ask DHCP again. Wired clients move at their next renewal, or now when their port powers them over PoE and you allow a power-cycle. Clients set on the device, and Network Optimizer's host, are left alone.</p>
+                <label class="checkbox-label"><input type="checkbox" @bind="_powerCycle" /><span>Also power-cycle PoE ports of wired clients still on an old address</span></label>
+                @if (_reconnect is { } rc)
+                {
+                    <div class="cc-card-note">
+                        @CcFormat.Plural(rc.Moved, "client is", "clients are") on a new subnet.
+                        @if (rc.Reconnected.Count > 0) { <div>Reconnected: @string.Join(", ", rc.Reconnected)</div> }
+                        @if (rc.PowerCycled.Count > 0) { <div>Power-cycled: @string.Join(", ", rc.PowerCycled)</div> }
+                        @if (rc.Waiting.Count > 0) { <div class="muted-text">At next renewal: @string.Join(", ", rc.Waiting)</div> }
+                        @if (rc.Failed.Count > 0) { <div class="danger-text">Could not reconnect: @string.Join(", ", rc.Failed)</div> }
+                    </div>
+                }
+            </div>
+            <div class="cc-card-footer">
+                <span class="cc-remaining muted-text">@(steps.LastAppliedAt is { } at ? $"Re-address applied {CcFormat.Local(at):MMM d, h:mm tt}" : "After a re-address applies")</span>
+                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected || steps.LastAppliedAt == null)" @onclick="ReconnectAsync">Reconnect Clients</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_previewed && _view is { } v)
 {
     @if (v.Errors.Count > 0)
@@ -205,6 +259,29 @@
     private bool _previewed;
     private bool _showAll;
     private bool _showOffline;
+    private bool _powerCycle;
+    private ReconnectResult? _reconnect;
+
+    private async Task PrepareAsync() => await RunAsync(async () =>
+    {
+        var planId = await Site.BuildReaddressPreparePlanAsync(Choices());
+        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+    });
+
+    private async Task ReconnectAsync() => await RunAsync(async () => _reconnect = await Site.ReconnectClientsAsync(_powerCycle));
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        try { await action(); }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Re-address step failed");
+            _error = ex.Message;
+        }
+        finally { _busy = false; }
+    }
     private bool _busy;
     private string? _error;
 

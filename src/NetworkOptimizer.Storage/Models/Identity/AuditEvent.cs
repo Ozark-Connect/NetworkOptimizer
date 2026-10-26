@@ -241,6 +241,8 @@ public static class AuditActions
     public const string ChangeControlBaselineSet = "change_control.baseline.set";
     public const string ChangeControlSettingsChanged = "change_control.settings.changed";
     public const string ChangeControlDevicesAdopted = "change_control.devices.adopted";
+    /// <summary>Clients reconnected (wireless rejoin, PoE port power-cycle) after a re-address.</summary>
+    public const string ChangeControlClientsReconnected = "change_control.clients.reconnected";
     public const string ChangeControlDeviceForgotten = "change_control.device.forgotten";
     public const string ChangeControlTemplateSaved = "change_control.template.saved";
     public const string ChangeControlTemplateDeleted = "change_control.template.deleted";

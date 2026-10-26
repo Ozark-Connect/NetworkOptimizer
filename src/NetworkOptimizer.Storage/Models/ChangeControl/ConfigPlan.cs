@@ -27,6 +27,8 @@ public enum ConfigPlanKind
     LegacyToZones = 9,
     /// <summary>Re-address Networks: move the site's LAN subnets, and every address in them.</summary>
     Readdress = 10,
+    /// <summary>Re-address Networks, before the move: shorter DHCP leases so clients move quickly.</summary>
+    ReaddressPrepare = 11,
 }
 
 /// <summary>Plan lifecycle. Draft, Pending approval, Approved, Applied are the user-facing track.</summary>

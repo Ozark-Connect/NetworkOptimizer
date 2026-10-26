@@ -32,6 +32,10 @@ public sealed class ReaddressView
     /// <summary>Where the static clients came from: UniFi's IP Table, or DHCP ranges when it was not readable.</summary>
     public string StaticSource { get; init; } = "";
     public List<SettingRewrite> Settings { get; init; } = [];
+    /// <summary>DHCP leases lowered ahead of the move, when they are.</summary>
+    public LeasePrepare? Prepare { get; init; }
+    /// <summary>When the last re-address applied, in the last week: Reconnect Clients is for after it.</summary>
+    public DateTime? LastAppliedAt { get; init; }
     public bool Ready => Errors.Count == 0 && Moves.Any(m => m.OldCidr != m.NewCidr);
 }
 
@@ -50,8 +54,11 @@ public sealed partial class ChangeControlService
         var moves = Moves(live, choices);
         var errors = Readdressing.Validate(live, moves);
         var active = moves.Where(m => m.OldCidr != m.NewCidr).ToList();
+        var prepare = await LeasePrepareAsync(cancellationToken);
+        var lastApplied = (await Repo.UseAsync((r, c) => r.GetPlansAsync([ConfigPlanStatus.Applied, ConfigPlanStatus.Watching], 200, c), cancellationToken))
+            .Where(p => p.Kind == ConfigPlanKind.Readdress && p.CompletedAt > DateTime.UtcNow.AddDays(-7)).Max(p => p.CompletedAt);
         if (active.Count == 0 || errors.Count > 0)
-            return new ReaddressView { Moves = moves, Errors = errors };
+            return new ReaddressView { Moves = moves, Errors = errors, Prepare = prepare, LastAppliedAt = lastApplied };
 
         var result = Readdressing.Apply(live, active);
         var (statics, source) = await StaticClientsAsync(live, active, cancellationToken);
@@ -67,6 +74,8 @@ public sealed partial class ChangeControlService
             OfflineClients = statics.Where(s => s.LastSeen != null).ToList(),
             StaticSource = source,
             Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, RemoteCidrs(live), apply: false, cancellationToken),
+            Prepare = prepare,
+            LastAppliedAt = lastApplied,
         };
     }
 
@@ -79,7 +88,15 @@ public sealed partial class ChangeControlService
         if (active.Count == 0) throw new InvalidOperationException("No network moves: give at least one a new subnet.");
 
         var result = Readdressing.Apply(live, active);
+        var prepare = await LeasePrepareAsync(cancellationToken);
+        RestoreLeases(result, prepare);
         var warnings = await ReaddressWarningsAsync(live, active, result, cancellationToken);
+        if (prepare == null)
+            warnings.Add("DHCP leases were not lowered first: clients move as their current leases renew. Reconnect Clients after the apply speeds that up.");
+        else if (prepare.ReadyAt > DateTime.UtcNow)
+            warnings.Add($"Leases were lowered {Local(prepare.LoweredAt):MMM d, h:mm tt}; some clients are on their old lease until {Local(prepare.ReadyAt):MMM d, h:mm tt}.");
+        else
+            warnings.Add("DHCP leases are short on every moving network; this plan puts each one's lease time back.");
         var (statics, _) = await StaticClientsAsync(live, active, cancellationToken);
         var remote = RemoteCidrs(live);
         var settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, remote, apply: false, cancellationToken);
