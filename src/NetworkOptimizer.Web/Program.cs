@@ -392,6 +392,7 @@ builder.Services.AddSingleton<ICableModemProvider, XfinityGatewayProvider>();
 builder.Services.AddSingleton<ICableModemProvider, TechnicolorCgaProvider>();
 builder.Services.AddSingleton<ICableModemProvider, VodafoneStationProvider>();
 builder.Services.AddSingleton<ICableModemProvider, SagemcomF3896Provider>();
+builder.Services.AddSingleton<ICableModemProvider, FritzBoxCableProvider>();
 // The UCI has no status page: on-gateway agents relay its inform frames, which the inform service
 // decrypts and the provider reads on the normal poll.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService>();
