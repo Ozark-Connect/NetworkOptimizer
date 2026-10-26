@@ -146,7 +146,13 @@
                         <span class="muted-text cc-edit-count">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
                         @if (TemplateId == null)
                         {
-                            <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">Review Plan</button>
+                            <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">
+                                @if (_reviewing)
+                                {
+                                    <span class="spinner-sm"></span>
+                                }
+                                Review Plan
+                            </button>
                         }
                         else
                         {
@@ -190,6 +196,7 @@
     private YamlValidation _validation = new();
     private bool _loading = true;
     private bool _busy;
+    private bool _reviewing;
     private string? _error;
     private Timer? _debounce;
 
@@ -478,9 +485,13 @@
     private async Task ReviewPlanAsync()
     {
         _busy = true;
+        _reviewing = true;
         _error = null;
         try
         {
+            // Building the plan can take seconds; draw the spinner before it starts.
+            StateHasChanged();
+            await Task.Yield();
             var planId = await Site.BuildEditPlanAsync(SnapshotId, Files());
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
@@ -491,6 +502,7 @@
         finally
         {
             _busy = false;
+            _reviewing = false;
         }
     }
 
