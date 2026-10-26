@@ -79,7 +79,7 @@ else
     }
 
     <div class="card">
-        <div class="card-header"><h3 class="card-title">Impact <span class="card-title-suffix">Security Audit and lockout checks on the planned config</span></h3></div>
+        <div class="card-header"><h3 class="card-title">Impact<span class="card-title-suffix">Security Audit and lockout checks on the planned config</span></h3></div>
         @if (doc.Lockouts.Count == 0 && doc.Regressions.Count == 0 && doc.Fixes.Count == 0)
         {
             <div class="empty-state empty-state-small"><p>@(doc.ImpactRan || !doc.Collections.Any() ? "No security regressions or lockout risks." : "No lockout risks. The Security Audit did not run for these collections.")</p></div>
@@ -137,7 +137,7 @@ else
 
     <div class="card">
         <div class="card-header">
-            <h3 class="card-title">Changes <span class="card-title-suffix">@CcFormat.Plural(doc.Operations.Count, "object", "objects")</span></h3>
+            <h3 class="card-title">Changes<span class="card-title-suffix">@CcFormat.Plural(doc.Operations.Count, "object", "objects")</span></h3>
             @if (tierCount > 0)
             {
                 <span class="status-badge badge-muted">@acked of @tierCount acknowledged</span>
@@ -360,7 +360,7 @@ else
     {
         <div class="card">
             <div class="card-header">
-                <h3 class="card-title">Result <span class="card-title-suffix">@CcFormat.PlanStatusText(plan.Status)@(plan.Message != null ? $": {plan.Message}" : "")</span></h3>
+                <h3 class="card-title">Result<span class="card-title-suffix">@CcFormat.PlanStatusText(plan.Status)@(plan.Message != null ? $": {plan.Message}" : "")</span></h3>
                 @if (plan.ReportJson != null)
                 {
                     <button class="btn btn-contrast btn-sm" @onclick="DownloadReportAsync">Before / After Report (PDF)</button>

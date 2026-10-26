@@ -47,7 +47,7 @@
         <ChildContent>
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Replace Device <span class="card-title-suffix">@_siteName</span></h3>
+                    <h3 class="card-title">Replace Device<span class="card-title-suffix">@_siteName</span></h3>
                 </div>
                 <div class="cc-steps">
                     @for (var i = 0; i < Steps.Length; i++)
@@ -148,7 +148,7 @@
                 {
                     <div class="card">
                         <div class="card-header">
-                            <h3 class="card-title">Radio Mapping <span class="card-title-suffix">matched by band</span></h3>
+                            <h3 class="card-title">Radio Mapping<span class="card-title-suffix">matched by band</span></h3>
                             @if (m.ToAcknowledge > 0) { <span class="status-badge status-warning cc-phone-inline">@m.ToAcknowledge to acknowledge</span> }
                         </div>
                         <div class="table-responsive hide-mobile">
@@ -192,7 +192,7 @@
                 {
                     <div class="card">
                         <div class="card-header">
-                            <h3 class="card-title">Port Mapping <span class="card-title-suffix">@CcFormat.Plural(m.Ports.Sum(r => r.OldPorts.Count), "port with config", "ports with config")@(m.SameLayout ? ", same layout" : ", suggested by role")</span></h3>
+                            <h3 class="card-title">Port Mapping<span class="card-title-suffix">@CcFormat.Plural(m.Ports.Sum(r => r.OldPorts.Count), "port with config", "ports with config")@(m.SameLayout ? ", same layout" : ", suggested by role")</span></h3>
                             @if (m.Unresolved > 0) { <span class="status-badge status-error cc-phone-inline">@m.Unresolved to resolve</span> }
                             <button class="btn btn-contrast btn-sm hide-mobile" disabled="@(_choices.Count == 0 && _acks.Count == 0)" @onclick="ResetAsync">Reset Suggestions</button>
                         </div>
@@ -316,7 +316,7 @@ else if (_task == Restore)
         <NotAuthorized><div class="card"><div class="card-body">Restoring a snapshot needs the Site Admin role on this site.</div></div></NotAuthorized>
         <ChildContent>
             <div class="card">
-                <div class="card-header"><h3 class="card-title">Restore a Snapshot <span class="card-title-suffix">onto @_siteName</span></h3></div>
+                <div class="card-header"><h3 class="card-title">Restore a Snapshot<span class="card-title-suffix">onto @_siteName</span></h3></div>
                 <div class="card-body">
                     <div class="form-row cc-migrate-form">
                         <div class="form-group">
@@ -361,7 +361,7 @@ else
         <ChildContent>
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Adopt Pending Devices <span class="card-title-suffix">@_siteName</span></h3>
+                    <h3 class="card-title">Adopt Pending Devices<span class="card-title-suffix">@_siteName</span></h3>
                     <button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="LoadPendingAsync">Refresh</button>
                 </div>
                 @if (_pending == null)

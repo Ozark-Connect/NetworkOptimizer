@@ -24,7 +24,7 @@
 {
     <div class="card">
         <div class="card-header">
-            <h3 class="card-title">Drift from Baseline <span class="card-title-suffix">@drift.BaselineLabel</span></h3>
+            <h3 class="card-title">Drift from Baseline<span class="card-title-suffix">@drift.BaselineLabel</span></h3>
             <span class="status-badge @(drift.Objects.Count == 0 ? "status-connected" : "status-warning")">@(drift.Objects.Count == 0 ? "None" : CcFormat.Plural(drift.Objects.Count, "object", "objects"))</span>
         </div>
         @if (drift.Objects.Count > 0)
@@ -176,7 +176,7 @@ else if (_compare != null)
 {
     <div class="card" id="cc-compare">
         <div class="card-header">
-            <h3 class="card-title">Compare <span class="card-title-suffix">@CcFormat.Plural(_compare.Objects.Count, "object differs", "objects differ")</span></h3>
+            <h3 class="card-title">Compare<span class="card-title-suffix">@CcFormat.Plural(_compare.Objects.Count, "object differs", "objects differ")</span></h3>
             <div class="time-range-selector">
                 <button class="time-btn @(_compareView == "changes" ? "active" : "")" @onclick="@(() => _compareView = "changes")">Changes</button>
                 <button class="time-btn @(_compareView == "yaml" ? "active" : "")" @onclick="ShowYamlAsync">YAML</button>

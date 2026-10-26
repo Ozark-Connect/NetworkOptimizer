@@ -6,7 +6,7 @@
 
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">Re-address Networks <span class="card-title-suffix">@SiteName</span></h3>
+        <h3 class="card-title">Re-address Networks<span class="card-title-suffix">@SiteName</span></h3>
     </div>
     <p class="cc-card-intro">Moves each network to a new subnet, with every address in it: reservations, DNS records, port forwards, firewall matches, routes, device static IPs, and Network Optimizer's own settings. Each address keeps its host part.</p>
     <div class="card-body">
@@ -103,7 +103,7 @@
     @if (v.Errors.Count > 0)
     {
         <div class="card">
-            <div class="card-header"><h3 class="card-title">Problems <span class="card-title-suffix">fix these first</span></h3></div>
+            <div class="card-header"><h3 class="card-title">Problems<span class="card-title-suffix">fix these first</span></h3></div>
             @foreach (var e in v.Errors) { <div class="cc-setting-row"><span class="danger-text">@e</span></div> }
         </div>
     }
@@ -121,7 +121,7 @@
     @if (v.Rewrites.Count > 0)
     {
         <div class="card">
-            <div class="card-header"><h3 class="card-title">Addresses That Move <span class="card-title-suffix">@v.Rewrites.Count in @v.Rewrites.Select(r => (r.Collection, r.ObjectName)).Distinct().Count() objects</span></h3></div>
+            <div class="card-header"><h3 class="card-title">Addresses That Move<span class="card-title-suffix">@v.Rewrites.Count in @v.Rewrites.Select(r => (r.Collection, r.ObjectName)).Distinct().Count() objects</span></h3></div>
             <div class="cc-phone-only">
                 @foreach (var r in v.Rewrites.Take(_showAll ? int.MaxValue : 40))
                 {
@@ -155,7 +155,7 @@
     }
 
     <div class="card">
-        <div class="card-header"><h3 class="card-title">No DHCP Lease <span class="card-title-suffix">@v.StaticSource</span></h3></div>
+        <div class="card-header"><h3 class="card-title">No DHCP Lease<span class="card-title-suffix">@v.StaticSource</span></h3></div>
         @if (v.StaticClients.Count == 0)
         {
             <div class="empty-state empty-state-small"><p>No connected client in these networks is working without a DHCP lease.</p></div>
@@ -227,7 +227,7 @@
     @if (v.Settings.Count > 0)
     {
         <div class="card">
-            <div class="card-header"><h3 class="card-title">Network Optimizer Settings <span class="card-title-suffix">move once the plan applies</span></h3></div>
+            <div class="card-header"><h3 class="card-title">Network Optimizer Settings<span class="card-title-suffix">move once the plan applies</span></h3></div>
             @foreach (var s in v.Settings)
             {
                 <div class="cc-setting-row"><span>@s.Setting: @s.Name</span><span><code>@s.Old</code> to <code>@s.New</code></span></div>
@@ -238,7 +238,7 @@
     @if (v.Remote.Count > 0)
     {
         <div class="card">
-            <div class="card-header"><h3 class="card-title">Left Alone <span class="card-title-suffix">a WAN's or a VPN's far side</span></h3></div>
+            <div class="card-header"><h3 class="card-title">Left Alone<span class="card-title-suffix">a WAN's or a VPN's far side</span></h3></div>
             <p class="cc-card-intro">Inside a moved subnet, but the ISP or the VPN server sets these addresses, and routes and policies toward them leave this site.</p>
             @foreach (var m in v.Remote)
             {
@@ -250,7 +250,7 @@
     @if (v.Mentions.Count > 0)
     {
         <div class="card">
-            <div class="card-header"><h3 class="card-title">Not Rewritten <span class="card-title-suffix">an old address inside other text</span></h3></div>
+            <div class="card-header"><h3 class="card-title">Not Rewritten<span class="card-title-suffix">an old address inside other text</span></h3></div>
             @foreach (var m in v.Mentions)
             {
                 <div class="cc-setting-row"><span>@(ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection) @m.ObjectName, @m.Path</span><code>@m.Value</code></div>

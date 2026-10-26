@@ -101,7 +101,7 @@
             <div>
                 <div class="card">
                     <div class="card-header">
-                        <h3 class="card-title">@_group <span class="card-title-suffix">@FileName(_group), @CcFormat.Plural(GroupCount(_group), "object", "objects")</span></h3>
+                        <h3 class="card-title">@_group<span class="card-title-suffix">@FileName(_group), @CcFormat.Plural(GroupCount(_group), "object", "objects")</span></h3>
                         @if (EditedCount(_group) > 0)
                         {
                             <span class="status-badge status-info">@EditedCount(_group) edited</span>
@@ -121,7 +121,7 @@
 
                 <div class="card">
                     <div class="card-header">
-                        <h3 class="card-title">Problems <span class="card-title-suffix">checked as you type</span></h3>
+                        <h3 class="card-title">Problems<span class="card-title-suffix">checked as you type</span></h3>
                         @if (Errors > 0) { <span class="status-badge status-error">@CcFormat.Plural(Errors, "error", "errors")</span> }
                     </div>
                     @if (_validation.Problems.Count == 0)

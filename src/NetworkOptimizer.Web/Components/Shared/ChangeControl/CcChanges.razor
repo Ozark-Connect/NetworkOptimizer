@@ -180,7 +180,7 @@
 
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">Changes <span class="card-title-suffix">@(_changes?.Count(Visible) ?? 0) in range</span></h3>
+        <h3 class="card-title">Changes<span class="card-title-suffix">@(_changes?.Count(Visible) ?? 0) in range</span></h3>
         <button class="btn btn-contrast btn-sm" @onclick="ExportAsync">Export</button>
     </div>
     @if (_changes == null)
