@@ -34,7 +34,7 @@
             {
                 <div class="cc-map-card">
                     <div class="cc-change-card-head"><b>@m.NetworkName</b><span class="muted-text">@(m.Vlan is { } vl ? $"VLAN {vl}" : "Untagged")</span></div>
-                    <div class="cc-item-detail">Now <code>@m.OldCidr</code></div>
+                    <div class="cc-item-detail">Currently <code>@m.OldCidr</code></div>
                     <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="New subnet"
                            @onchange="e => SetSubnet(m.NetworkId, e.Value?.ToString())" />
                 </div>
@@ -42,7 +42,7 @@
         </div>
         <div class="table-responsive hide-mobile">
             <table class="data-table cc-port-table">
-                <thead><tr><th>Network</th><th>VLAN</th><th>Now</th><th>New subnet</th></tr></thead>
+                <thead><tr><th>Network</th><th>VLAN</th><th>Currently</th><th>New subnet</th></tr></thead>
                 <tbody>
                     @foreach (var m in _view.Moves)
                     {
@@ -133,7 +133,7 @@
             </div>
             <div class="table-responsive hide-mobile">
                 <table class="data-table">
-                    <thead><tr><th>Object</th><th>Field</th><th>Now</th><th>New</th></tr></thead>
+                    <thead><tr><th>Object</th><th>Field</th><th>Currently</th><th>New</th></tr></thead>
                     <tbody>
                         @foreach (var r in v.Rewrites.Take(_showAll ? int.MaxValue : 40))
                         {
@@ -174,7 +174,7 @@
             </div>
             <div class="table-responsive hide-mobile">
                 <table class="data-table">
-                    <thead><tr><th>Client</th><th>Now</th><th>New</th></tr></thead>
+                    <thead><tr><th>Client</th><th>Currently</th><th>New</th></tr></thead>
                     <tbody>
                         @foreach (var s in v.StaticClients)
                         {
@@ -205,7 +205,7 @@
                     <p class="cc-card-intro">Last seen outside their network's DHCP range with no reservation. Offline clients with a reservation, or a DHCP-range address, are taken as DHCP and follow the move.</p>
                     <div class="table-responsive">
                         <table class="data-table">
-                            <thead><tr><th>Client</th><th>Last seen</th><th>Now</th><th>New</th></tr></thead>
+                            <thead><tr><th>Client</th><th>Last seen</th><th>Currently</th><th>New</th></tr></thead>
                             <tbody>
                                 @foreach (var s in v.OfflineClients)
                                 {
