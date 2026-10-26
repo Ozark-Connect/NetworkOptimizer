@@ -22,8 +22,13 @@ public class FritzBoxCableProviderTests
         "CableModem", "Fixtures", "fritzbox-6690-docinfo.json"));
     private static CmPollContext Context(IDeviceDialer? dialer = null) => new()
     {
-        Id = 0, SiteSlug = "test-site", Host = "192.0.2.10", Name = "Cable",
-        Username = "test-user", Password = "äbc", Dialer = dialer ?? DirectDeviceDialer.Instance,
+        Id = 0,
+        SiteSlug = "test-site",
+        Host = "192.0.2.10",
+        Name = "Cable",
+        Username = "test-user",
+        Password = "äbc",
+        Dialer = dialer ?? DirectDeviceDialer.Instance,
     };
 
     private static JsonElement Payload(Action<JsonNode>? edit = null)
@@ -553,7 +558,9 @@ public class FritzBoxCableProviderTests
             {
                 using var key = RSA.Create(2048);
                 var request = new CertificateRequest("CN=modem.invalid", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-                _certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+                // Windows SChannel cannot serve TLS from an ephemeral key; a PFX round trip persists it.
+                using var ephemeral = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+                _certificate = X509CertificateLoader.LoadPkcs12(ephemeral.Export(X509ContentType.Pfx), null);
             }
             _listener.Start();
             _accept = AcceptAsync();
