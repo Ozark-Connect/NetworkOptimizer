@@ -514,7 +514,8 @@ public static class ConfigCollections
                 ManagedField = (o, f) => f == "x_passphrase" && o["private_preshared_keys_enabled"] is JsonValue v && v.TryGetValue<bool>(out var on) && on,
                 // Inside private_preshared_keys and sae_psk entries. PlanBuilder.RestoreKeptSecrets keeps them per entry.
                 ExtraSecretFields = Set("password", "psk"),
-                SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration"),
+                // ap_macs and networkconf_ids also appear inside mdns_proxy_custom entries, where order means nothing either.
+                SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration", "ap_macs", "networkconf_ids"),
                 EnforcedKey = (o, ctx) => $"{Str(o, "name")}@{ctx.NameOf(Str(o, "networkconf_id"))}",
                 Write = new CollectionWrite { CreatePath = "rest/wlanconf", UpdatePath = "rest/wlanconf/{id}", DeletePath = "rest/wlanconf/{id}", Proven = true },
                 AuditSections = ["WIFI", "WLAN"], AuditCollectionNames = ["wlanconf"], AuditInput = true,

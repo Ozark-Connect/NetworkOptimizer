@@ -174,6 +174,25 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void NestedIdListOrder_IsNotAChange()
+    {
+        var before = State(("wlanconf", """{"_id":"w1","name":"IoT","mdns_proxy_custom":[{"services_mode":"all","networkconf_ids":["n1","n2","n3"]}]}"""));
+        var after = State(("wlanconf", """{"_id":"w1","name":"IoT","mdns_proxy_custom":[{"services_mode":"all","networkconf_ids":["n3","n1","n2"]}]}"""));
+        ConfigDiffEngine.Compare(before, after).IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void RestoreOfPreUpgradeSnapshot_DropsADanglingReferenceLiveNoLongerHas()
+    {
+        // 10.6 kept an override pointing at a network that no longer exists; Network 11 dropped the field.
+        var before = Versioned("10.6.109",
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","virtual_network_override_enabled":false,"virtual_network_override_id":"695c50bebdb4d8de9a282311"}"""));
+        var after = Versioned("11.0.97",
+            ("user", """{"_id":"u-u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","virtual_network_override_enabled":false}"""));
+        PlanBuilder.Build(before, after, new PlanOptions()).Operations.Should().BeEmpty();
+    }
+
+    [Fact]
     public void SameVersionRollBack_StillRestoresAChangedReference()
     {
         var before = Versioned("11.0.97",

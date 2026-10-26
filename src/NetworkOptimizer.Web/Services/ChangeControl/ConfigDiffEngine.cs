@@ -288,10 +288,21 @@ public static class ConfigDiffEngine
                 continue;
             }
 
-            if (!CanonicalJson.DeepEquals(b, a) && !(IsEmpty(b) && IsEmpty(a)) && !SameNumber(b, a))
+            if (!CanonicalJson.DeepEquals(SetsSorted(def, b), SetsSorted(def, a)) && !(IsEmpty(b) && IsEmpty(a)) && !SameNumber(b, a))
                 fields.Add(Shown(def, childPath, b, a));
         }
     }
+
+    /// <summary>A copy with every set array nested anywhere inside sorted, so order inside a list of objects is not a change.</summary>
+    private static JsonNode? SetsSorted(ConfigCollectionDef def, JsonNode? node) => node switch
+    {
+        JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key,
+            def.SetArrays.Contains(p.Key) && p.Value is JsonArray set
+                ? new JsonArray(set.Select(e => SetsSorted(def, e)).OrderBy(CanonicalJson.Serialize, StringComparer.Ordinal).ToArray())
+                : SetsSorted(def, p.Value)))),
+        JsonArray arr => new JsonArray(arr.Select(e => SetsSorted(def, e)).ToArray()),
+        _ => node?.DeepClone(),
+    };
 
     /// <summary>A copy of <paramref name="before"/> with every ID and reference replaced by its match in <paramref name="after"/>.</summary>
     public static ConfigState InAfterIds(ConfigState before, ConfigState after)

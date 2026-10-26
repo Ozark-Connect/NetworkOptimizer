@@ -236,9 +236,10 @@ public static class PlanBuilder
         var remapped = (JsonObject)Remap(desired, desiredById, idMap, creates, options, doc, $"{def.Noun} {name}")!;
         RestoreKeptSecrets(def, live, remapped, doc, name);
         if (live != null && desired != null)
-            foreach (var (field, liveValue) in live.ToList())
+            foreach (var field in remapped.Select(p => p.Key).ToList())
             {
-                if (field is "_id" or "id" or "site_id" || !remapped.ContainsKey(field)) continue;
+                if (field is "_id" or "id" or "site_id") continue;
+                var liveValue = live[field];
                 // Identical before mapping: the live object still points at an old ID UniFi renumbered (Network 11's
                 // Default WLAN group), and writing the mapped ID would change what nothing asked to change.
                 var keep = CanonicalJson.DeepEquals(desired[field], liveValue);
@@ -250,7 +251,9 @@ public static class PlanBuilder
                     var note = $"{def.DisplayName}: references to objects the snapshot did not capture are kept as they are ({FieldLabel(field)}).";
                     if (!doc.Notes.Contains(note)) doc.Notes.Add(note);
                 }
-                if (keep) remapped[field] = liveValue?.DeepClone();
+                if (!keep) continue;
+                if (liveValue == null) remapped.Remove(field);
+                else remapped[field] = liveValue.DeepClone();
             }
         // A field YAML leaves out (a locked zone's networks) keeps its live value; absent is not "empty".
         if (live != null && def.HiddenInYaml != null)
