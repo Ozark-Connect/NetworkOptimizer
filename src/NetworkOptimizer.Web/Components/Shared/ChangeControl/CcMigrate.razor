@@ -285,7 +285,7 @@
                     <div class="cc-card-footer">
                         <span class="cc-remaining @(m.Ready ? "muted-text" : m.Unresolved > 0 || m.Ports.Any(r => r.FitLevel == "error") ? "danger-text" : "warning-text")">@FooterText(m)</span>
                         <button class="btn btn-contrast hide-mobile" @onclick="() => _step = 2">Back</button>
-                        <button class="btn btn-primary" disabled="@(!m.Ready || _busy || !ConsoleConnected)" @onclick="BuildReplaceAsync">Review Plan</button>
+                        <button class="btn btn-primary" disabled="@(!m.Ready || _busy || !ConsoleConnected)" @onclick="BuildReplaceAsync">@Spinner(nameof(BuildReplaceAsync))Review Plan</button>
                         @if (m.Kind != "ap")
                         {
                             <button class="btn btn-contrast cc-phone-inline" @onclick="DownloadPdfAsync">Download Re-cabling Sheet</button>
@@ -348,7 +348,7 @@ else if (_task == Restore)
                 <div class="cc-card-footer">
                     <span class="cc-remaining"></span>
                     <button class="btn btn-contrast" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(true)">Write Device Config</button>
-                    <button class="btn btn-primary" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(false)">Review Plan</button>
+                    <button class="btn btn-primary" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(false)">@Spinner(nameof(BuildRestoreAsync))Review Plan</button>
                 </div>
             </div>
         </ChildContent>
@@ -605,12 +605,21 @@ else
         await LoadPendingAsync();
     });
 
-    private async Task RunAsync(Func<Task> action)
+    // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
+    private string? _running;
+
+    private RenderFragment? Spinner(string action) =>
+        _running == action ? @<span class="spinner-sm"></span> : null;
+
+    private async Task RunAsync(Func<Task> action, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         _busy = true;
+        _running = caller;
         _error = null;
         try
         {
+            StateHasChanged();
+            await Task.Yield();
             await action();
         }
         catch (Exception ex)
@@ -621,6 +630,7 @@ else
         finally
         {
             _busy = false;
+            _running = null;
         }
     }
 }

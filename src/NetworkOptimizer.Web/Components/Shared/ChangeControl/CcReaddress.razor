@@ -63,7 +63,13 @@
     <div class="cc-card-footer">
         <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Preview lists every address that moves before anything is planned.")</span>
         <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected || _view == null)" @onclick="PreviewAsync">Preview</button>
-        <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">Review Plan</button>
+        <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
+            @if (_building)
+            {
+                <span class="spinner-sm"></span>
+            }
+            Review Plan
+        </button>
     </div>
 </div>
 
@@ -328,6 +334,7 @@
         finally { _busy = false; }
     }
     private bool _busy;
+    private bool _building;
     private string? _error;
 
     protected override async Task OnInitializedAsync()
@@ -401,9 +408,12 @@
     private async Task BuildAsync()
     {
         _busy = true;
+        _building = true;
         _error = null;
         try
         {
+            StateHasChanged();
+            await Task.Yield();
             var planId = await Site.BuildReaddressPlanAsync(Choices());
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
@@ -415,6 +425,7 @@
         finally
         {
             _busy = false;
+            _building = false;
         }
     }
 }
