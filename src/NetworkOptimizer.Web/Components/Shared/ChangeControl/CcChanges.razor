@@ -11,6 +11,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<CcChanges> Logger
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 
 <div class="card">
     <div class="cc-toolbar">
@@ -25,9 +26,13 @@
         <span class="cc-toolbar-label">Source</span>
         @foreach (var (key, label) in WhoFilters)
         {
-            <button class="cc-chip @(WhoShown(key) ? "" : "off")" @onclick="() => ToggleWho(key)">
+            <button class="cc-chip @(WhoShown(key) ? "" : "off")" @onclick="e => ToggleWho(key, e)">
                 <span class="cc-dot @key"></span>@label
             </button>
+        }
+        @if (_who.Count > 0)
+        {
+            <NetworkOptimizer.Web.Components.Shared.Monitoring.WanFilterResetButton OnReset="ResetWhoAsync" Label="Clear source filter" />
         }
         <span class="cc-toolbar-spacer"></span>
         <div class="time-range-selector">
@@ -41,9 +46,9 @@
     {
         <div class="cc-toolbar">
             <span class="cc-toolbar-label">From</span>
-            <input type="date" class="form-control" @bind="_customFrom" @bind:after="ReloadAsync" />
+            <input type="date" class="form-control" @bind="_customFrom" @bind:after="CustomRangeChangedAsync" />
             <span class="cc-toolbar-label">To</span>
-            <input type="date" class="form-control" @bind="_customTo" @bind:after="ReloadAsync" />
+            <input type="date" class="form-control" @bind="_customTo" @bind:after="CustomRangeChangedAsync" />
         </div>
     }
 </div>
@@ -327,10 +332,50 @@
     private List<FleetSiteView> _sites = [];
     private string SiteFilter { get; set; } = "";
     // The app's pill pattern: nothing focused shows all, the first click focuses one, more clicks add.
-    // Network Optimizer's own changes are a separate on/off and never count as a focus.
     private readonly HashSet<string> _who = [];
-    private bool _showOwn;
     private string _range = "7d";
+
+    /// <summary>Per-user: the who pills and the range. The site picker follows the site in context instead.</summary>
+    private const string FilterPreference = "changecontrol.changes.filters";
+
+    private sealed record FilterState(string[] Who, string Range, DateTime? From, DateTime? To);
+
+    private async Task LoadFiltersAsync()
+    {
+        try
+        {
+            if (await UserPreferences.GetAsync(FilterPreference) is not { Length: > 0 } json) return;
+            var f = System.Text.Json.JsonSerializer.Deserialize<FilterState>(json);
+            if (f == null) return;
+            _who.UnionWith(f.Who.Where(w => WhoFilters.Any(p => p.Key == w)));
+            if (Ranges.Any(r => r.Key == f.Range)) _range = f.Range;
+            if (f.From is { } from) _customFrom = from;
+            if (f.To is { } to) _customTo = to;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Changes filter preference unreadable; using defaults");
+        }
+    }
+
+    private async Task SaveFiltersAsync()
+    {
+        try
+        {
+            var f = new FilterState([.. _who], _range, _range == "custom" ? _customFrom : null, _range == "custom" ? _customTo : null);
+            await UserPreferences.SetAsync(FilterPreference, System.Text.Json.JsonSerializer.Serialize(f));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Saving the Changes filter preference failed");
+        }
+    }
+
+    private async Task CustomRangeChangedAsync()
+    {
+        await ReloadAsync();
+        await SaveFiltersAsync();
+    }
 
     /// <summary>The range as a period ("7 days"), for "up 2 from the 7 days before".</summary>
     private string RangeLabel() => _range switch
@@ -363,8 +408,7 @@
         // Open on the site in context; All sites is a choice in the picker.
         if (_sites.FirstOrDefault(s => string.Equals(s.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase)) is { } current)
             SiteFilter = current.Slug;
-        var settings = await Site.GetSettingsAsync();
-        _showOwn = settings.ShowOwnChanges;
+        await LoadFiltersAsync();
         await ReloadAsync();
         _live = new CcLiveRefresh(Registry,
             slug => _range != "custom" && (string.IsNullOrEmpty(SiteFilter) || string.Equals(SiteFilter, slug, StringComparison.OrdinalIgnoreCase)),
@@ -394,7 +438,7 @@
         }
     }
 
-    private bool WhoShown(string key) => key == "no" ? _showOwn : _who.Count == 0 || _who.Contains(key);
+    private bool WhoShown(string key) => _who.Count == 0 || _who.Contains(key);
 
     private bool Visible(ChangeRowView c) => WhoShown(CcFormat.Marker(c));
 
@@ -402,25 +446,34 @@
 
     private int PageCount => _changes == null ? 0 : (int)Math.Ceiling(_changes.Count(Visible) / (double)PageSize);
 
-    private void ToggleWho(string key)
+    // The chip-row convention (chart-stats.js): a plain click solos, or flips the chip once something is
+    // solo; Ctrl or Cmd hides or shows just that chip. Every chip shown is the same as none focused.
+    private async Task ToggleWho(string key, MouseEventArgs e)
     {
-        if (key == "no")
+        if (e.CtrlKey || e.MetaKey)
         {
-            _showOwn = !_showOwn;
+            if (!WhoShown(key)) _who.Add(key);
+            else if (_who.Count == 0) _who.UnionWith(WhoFilters.Select(f => f.Key).Where(k => k != key));
+            else if (_who.Count > 1) _who.Remove(key);
         }
-        else
-        {
-            if (!_who.Remove(key)) _who.Add(key);
-            // Every pill focused is the same as none: back to showing all.
-            if (_who.Count == WhoFilters.Count(f => f.Key != "no")) _who.Clear();
-        }
+        else if (!_who.Remove(key)) _who.Add(key);
+        if (_who.Count == WhoFilters.Length) _who.Clear();
         _page = 0;
+        await SaveFiltersAsync();
+    }
+
+    private async Task ResetWhoAsync()
+    {
+        _who.Clear();
+        _page = 0;
+        await SaveFiltersAsync();
     }
 
     private async Task SetRangeAsync(string key)
     {
         _range = key;
         if (key != "custom") await ReloadAsync();
+        await SaveFiltersAsync();
     }
 
     private (DateTime From, DateTime To) Range()
