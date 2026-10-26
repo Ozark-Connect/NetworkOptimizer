@@ -23625,6 +23625,7 @@ body:has(.top-bar-hidden) .btn-fit {
     gap: 0.75rem;
     align-items: flex-start;
     font-weight: 500;
+    font-size: 0.875rem;
 }
 
 .change-control .cc-progress {
