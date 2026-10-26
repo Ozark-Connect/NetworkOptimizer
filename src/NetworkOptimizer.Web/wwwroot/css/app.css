@@ -23952,6 +23952,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .change-control .cc-row-actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
     gap: 0.25rem 0.75rem;
     flex-wrap: wrap;
 }
