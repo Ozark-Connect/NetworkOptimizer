@@ -2932,10 +2932,11 @@ public partial class UniFiApiClient : IDisposable
     /// <summary>
     /// GET v2/api/stats/recent/series - one schema's time series, returned as the legacy stat/report
     /// rows it replaces. The console picks the bucket from the range (5 minutes up to a day, then hourly,
-    /// then 8 hours), so the caller's granularity does not apply.
+    /// then 8 hours); finer points are rolled up to the caller's granularity.
     /// </summary>
     private async Task<JsonElement> GetStatsReportAsync(
         StatsReportKind kind,
+        string granularity,
         string? filter,
         long startMs,
         long endMs,
@@ -2957,7 +2958,7 @@ public partial class UniFiApiClient : IDisposable
                 return default;
             }
             using var doc = JsonDocument.Parse(json);
-            return StatsReportTranslator.ToLegacyRows(doc.RootElement, kind, _statsSiteId, attrs);
+            return StatsReportTranslator.ToLegacyRows(doc.RootElement, kind, _statsSiteId, attrs, StatsReportTranslator.Bucket(granularity));
         });
     }
 
@@ -2994,7 +2995,7 @@ public partial class UniFiApiClient : IDisposable
         }
 
         if (await UsesStatsApiAsync(cancellationToken))
-            return await GetStatsReportAsync(StatsReportKind.Site, null, startMs, endMs, attrs, cancellationToken);
+            return await GetStatsReportAsync(StatsReportKind.Site, granularity, null, startMs, endMs, attrs, cancellationToken);
 
         var url = BuildApiPath($"stat/report/{granularity}.site");
         var payload = new
@@ -3057,7 +3058,7 @@ public partial class UniFiApiClient : IDisposable
         }
 
         if (await UsesStatsApiAsync(cancellationToken))
-            return await GetStatsReportAsync(StatsReportKind.Ap, MacFilter("deviceMac", apMacs), startMs, endMs, attrs, cancellationToken);
+            return await GetStatsReportAsync(StatsReportKind.Ap, granularity, MacFilter("deviceMac", apMacs), startMs, endMs, attrs, cancellationToken);
 
         var url = BuildApiPath($"stat/report/{granularity}.ap");
         var payload = new
@@ -3121,7 +3122,7 @@ public partial class UniFiApiClient : IDisposable
         }
 
         if (await UsesStatsApiAsync(cancellationToken))
-            return await GetStatsReportAsync(StatsReportKind.User, MacFilter("clientId", [clientMac]), startMs, endMs, attrs, cancellationToken);
+            return await GetStatsReportAsync(StatsReportKind.User, granularity, MacFilter("clientId", [clientMac]), startMs, endMs, attrs, cancellationToken);
 
         var url = BuildApiPath($"stat/report/{granularity}.user");
         var payload = new
