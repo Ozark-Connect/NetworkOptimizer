@@ -99,7 +99,7 @@ public class StatsReportTranslatorTests
         var row = StatsReportTranslator.ToLegacyRows(stats, StatsReportKind.User, Site,
         [
             "time", "signal", "satisfaction", "tx_retries", "wifi_tx_attempts", "tx_packets", "rx_packets",
-            "radio_protocol_most_common", "tx_rate", "na-signal", "x-set-ap_macs", "duration_map-ap_duration",
+            "radio_protocol_most_common", "tx_rate", "rx_rate", "na-signal", "x-set-ap_macs", "duration_map-ap_duration",
             "na-aa:aa:aa:aa:aa:02-channel_info_most_common",
         ])[0];
 
@@ -109,7 +109,8 @@ public class StatsReportTranslatorTests
         row.GetProperty("tx_packets").GetDouble().Should().Be(900.0, "the AP's tx is the client's rx");
         row.GetProperty("rx_packets").GetDouble().Should().Be(100.0);
         row.GetProperty("radio_protocol_most_common").GetString().Should().Be("ax");
-        row.GetProperty("tx_rate").GetDouble().Should().Be(720600);
+        row.GetProperty("rx_rate").GetDouble().Should().Be(720600, "the rate tier is the client's rate to the AP");
+        row.TryGetProperty("tx_rate", out _).Should().BeFalse("the stats API has no AP-to-client rate");
         row.GetProperty("na-signal").GetDouble().Should().Be(-61.5);
         row.GetProperty("x-set-ap_macs")[0].GetString().Should().Be("aa:aa:aa:aa:aa:02");
         row.GetProperty("duration_map-ap_duration").GetProperty("aa:aa:aa:aa:aa:01").GetDouble().Should().Be(60000);
