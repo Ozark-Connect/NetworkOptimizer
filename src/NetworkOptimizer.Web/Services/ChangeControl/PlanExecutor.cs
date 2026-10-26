@@ -94,6 +94,7 @@ public sealed class PlanExecutor
             foreach (var op in sent)
             {
                 var r = result.Operations.Last(x => x.Key == op.Key);
+                if (r.Outcome == "Waiting") continue;
                 Verify(def, op, objects, r);
                 if (r.Outcome == "Error")
                 {
@@ -117,6 +118,9 @@ public sealed class PlanExecutor
     {
         var write = def.Write!;
         var body = Resolve(op.Body);
+        // A reference to an object not created yet (its create is waiting) must never reach the console as text.
+        if (body?.ToJsonString().Contains(PlanBuilder.RefPrefix, StringComparison.Ordinal) == true)
+            return new OperationResult { Key = op.Key, Outcome = "Waiting", Message = "Refers to an object this plan has not created yet" };
         var id = ResolveId(op.ObjectId);
         HttpMethod method;
         string path;

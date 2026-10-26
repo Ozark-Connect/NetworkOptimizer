@@ -250,6 +250,31 @@ public class PlanEngineTests
     }
 
     [Fact]
+    public void SettingNamingANewNetwork_IsWrittenAfterThatNetwork()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot),
+            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"},{"key":"n2","raw_color_hex":"0544ff"}]}"""));
+        var live = State(("networkconf", Lan),
+            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"}]}"""));
+
+        var doc = Plan(desired, live);
+
+        var network = doc.Operations.Single(o => o.Collection == "networkconf");
+        var setting = doc.Operations.Single(o => o.Collection == "setting");
+        doc.Operations.IndexOf(network).Should().BeLessThan(doc.Operations.IndexOf(setting));
+        setting.Body!.ToJsonString().Should().Contain(PlanBuilder.RefPrefix + network.Key);
+    }
+
+    [Theory]
+    [InlineData("ok", true)]
+    [InlineData("error", false)]
+    [InlineData("warning", false)]
+    [InlineData("unknown", null)]
+    [InlineData(null, null)]
+    public void HealthReachable_UnknownIsNoSignal(string? status, bool? expected) =>
+        PlanCoordinator.HealthReachable(status).Should().Be(expected);
+
+    [Fact]
     public void Verify_SkipsAWriteThatIsWaiting()
     {
         var desired = State(("networkconf", Lan), ("networkconf", Iot));

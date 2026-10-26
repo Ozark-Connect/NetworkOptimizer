@@ -260,6 +260,9 @@ public sealed class PlanCoordinator
             // Devices online now are the ones the commit-confirmed watch expects to stay online.
             var online = await OnlineDevicesAsync(ct);
             doc.Context["watch_online"] = string.Join(",", online);
+            // Only a site whose internet was reachable can lose it; one with no gateway reports no signal.
+            if (doc.WatchInternet)
+                doc.Context[InternetBeforeContext] = await InternetReachableAsync(ct) == true ? "true" : "false";
             var settings = await _engine.Repositories.UseAsync((r, c) => r.GetSettingsAsync(c), ct);
             var window = TimeSpan.FromMinutes(IsAgentSite() ? settings.AgentCommitWindowMinutes : settings.CommitWindowMinutes);
             var watch = doc.WatchDevices || (doc.WatchInternet && settings.WatchInternet);
@@ -499,7 +502,8 @@ public sealed class PlanCoordinator
         string? reason = null;
         if (offline is null) reason = "The device list did not load";
         else if (offline.Count > 0) reason = $"{offline.Count} device{(offline.Count == 1 ? "" : "s")} went offline";
-        else if (doc.WatchInternet && !await InternetReachableAsync(ct)) reason = "Internet reachability was lost";
+        else if (doc.WatchInternet && doc.Context.GetValueOrDefault(InternetBeforeContext) == "true"
+                 && await InternetReachableAsync(ct) == false) reason = "Internet reachability was lost";
 
         if (reason == null)
         {
@@ -542,17 +546,29 @@ public sealed class PlanCoordinator
 
     /// <summary>
     /// Internet reachability from the console's own health: the "www" subsystem (the gateway's own
-    /// internet test) or, without it, the "wan" subsystem.
+    /// internet test) or, without it, the "wan" subsystem. Null when there is no signal: a site with
+    /// no gateway reports "unknown" for both.
     /// </summary>
-    private async Task<bool> InternetReachableAsync(CancellationToken ct)
+    private async Task<bool?> InternetReachableAsync(CancellationToken ct)
     {
         var r = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/health", null, ct);
         if (!r.IsSuccess) return false;
         var subsystems = ConfigSnapshotReader.ExtractList(r.Body) ?? [];
         var www = subsystems.FirstOrDefault(s => s["subsystem"]?.ToString() == "www")
                   ?? subsystems.FirstOrDefault(s => s["subsystem"]?.ToString() == "wan");
-        return www == null || www["status"]?.ToString() is "ok" or null;
+        return HealthReachable(www?["status"]?.ToString());
     }
+
+    /// <summary>A health status as reachability: "ok" is reachable, "unknown" or none is no signal.</summary>
+    internal static bool? HealthReachable(string? status) => status switch
+    {
+        "ok" => true,
+        null or "" or "unknown" => null,
+        _ => false,
+    };
+
+    /// <summary>Context key: internet was reachable before the apply, so the watch may hold the plan to it.</summary>
+    private const string InternetBeforeContext = "watch_internet_before";
 
     /// <summary>
     /// Puts back the pre-apply snapshot for the objects a plan touched, as a Revert plan applied at once.

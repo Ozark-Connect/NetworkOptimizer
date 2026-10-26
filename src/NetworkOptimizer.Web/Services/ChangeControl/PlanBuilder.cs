@@ -662,11 +662,11 @@ public static class PlanBuilder
         // Deletes go after everything, management-path updates included: those updates are what move
         // ports and devices off a profile or network the plan deletes (CheckReferrers relies on it).
         int Rank(PlanOperation o) => o.Action == PlanAction.Delete ? 3 : o.ManagementPath ? 2 : 1;
-        doc.Operations = doc.Operations
+        doc.Operations = AfterTheirCreates(doc.Operations
             .OrderBy(Rank)
             .ThenBy(o => o.Action == PlanAction.Delete ? -o.Order : o.Order)
             .ThenBy(o => o.ObjectName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .ToList());
 
         doc.WriteOrder.Clear();
         var step = new List<PlanOperation>();
@@ -685,6 +685,35 @@ public static class PlanBuilder
         if (step.Count > 0) doc.WriteOrder.Add(Step(step, stepGroup!));
         doc.WriteOrder.Add(new WriteStep { Title = "Verify", Detail = "New snapshot, compared with the plan" });
     }
+
+    /// <summary>
+    /// Moves each operation after the creates it references (a setting naming a network the plan
+    /// creates), keeping the given order otherwise. Collection order alone writes settings first.
+    /// </summary>
+    private static List<PlanOperation> AfterTheirCreates(List<PlanOperation> ops)
+    {
+        var byKey = ops.ToDictionary(o => o.Key, StringComparer.Ordinal);
+        var needs = ops.ToDictionary(o => o.Key, o => RefsIn(o.Body).Where(k => k != o.Key && byKey.ContainsKey(k)).ToHashSet(), StringComparer.Ordinal);
+        var placed = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<PlanOperation>(ops.Count);
+        var pending = new List<PlanOperation>(ops);
+        while (pending.Count > 0)
+        {
+            var next = pending.FirstOrDefault(o => needs[o.Key].All(placed.Contains)) ?? pending[0];
+            pending.Remove(next);
+            placed.Add(next.Key);
+            result.Add(next);
+        }
+        return result;
+    }
+
+    private static IEnumerable<string> RefsIn(JsonNode? node) => node switch
+    {
+        JsonObject o => o.SelectMany(p => RefsIn(p.Value)),
+        JsonArray a => a.SelectMany(RefsIn),
+        JsonValue v when v.TryGetValue<string>(out var s) && s.StartsWith(RefPrefix, StringComparison.Ordinal) => [s[RefPrefix.Length..]],
+        _ => [],
+    };
 
     private static string GroupFor(PlanOperation op) => op.Order switch
     {
