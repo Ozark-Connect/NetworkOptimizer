@@ -136,7 +136,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         // alert out, so a console that never recovered was never alerted on at all.
         var suppressed = IsInRolloutConsoleCycle();
         var seed = _consoleSeed ??= StartConsoleSeed();
-        bool publishFailed = false, publishRestored = false;
+        bool publishFailed = false, publishRestored = false, markDown = false;
         lock (_consoleAlertLock)
         {
             if (!_consoleSeedApplied && seed.IsCompleted)
@@ -165,16 +165,21 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                     _firstAuthFailureAt = DateTime.UtcNow;
                 _consecutiveAuthFailures++;
 
-                if (!_consoleAlertActive
-                    && !suppressed
-                    && _consecutiveAuthFailures >= 2
-                    && DateTime.UtcNow - _firstAuthFailureAt >= ConsoleFailureMinWindow)
+                var persistent = _consecutiveAuthFailures >= 2
+                    && DateTime.UtcNow - _firstAuthFailureAt >= ConsoleFailureMinWindow;
+                if (persistent && !_consoleAlertActive && !suppressed)
                 {
                     _consoleAlertActive = true;
                     publishFailed = true;
                 }
+                markDown = persistent && _isConnected;
             }
         }
+
+        // A console behind a reverse proxy answers 502 at once rather than timing out, so the silent
+        // breaker never trips; the failed sign-ins are the only evidence, and pages read IsConnected.
+        if (markDown)
+            MarkConsoleUnresponsive(error);
 
         if (publishFailed)
         {
@@ -407,6 +412,20 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// The client proved the console stopped answering mid-session. Marks it down so pages render
     /// the banner instead of paying a timeout per call; the background reconnect clears it.
     /// </summary>
+    /// <summary>
+    /// Sign-ins have kept failing past the alert window: mark the console down so pages show the
+    /// banner and stop signing in per call. The background reconnect clears it.
+    /// </summary>
+    private void MarkConsoleUnresponsive(string? error)
+    {
+        if (!_isConnected) return;
+        _isConnected = false;
+        _consoleUnresponsive = true;
+        _lastError = error ?? ConsoleUnresponsiveMessage;
+        _logger.LogWarning("Console for site {Slug} keeps refusing sign-in ({Error}); marking it unresponsive", SiteSlug, _lastError);
+        OnConnectionChanged?.Invoke();
+    }
+
     private void HandleConsoleWentSilent(UniFiApiClient client)
     {
         // Only the live client may report this. A disposed one's request can fault seconds after a
