@@ -122,7 +122,7 @@ public sealed partial class ChangeControlService
                 if (statics.Where(s => s.LastSeen == null).ToList() is { Count: > 0 } set)
                     doc.Notes.Add($"Set on the device itself, so this plan cannot move them: {string.Join(", ", set.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp})"))}.");
                 if (statics.Count(s => s.LastSeen != null) is > 0 and var offline)
-                    doc.Notes.Add($"{offline} offline clients were last seen in a moved subnet. Any set on the device need changing when they are back; the dry run lists them.");
+                    doc.Notes.Add($"{offline} offline clients were likely set on the device (no reservation, last address outside the DHCP range): change them when they are back. The dry run lists them.");
                 foreach (var m in result.Mentions)
                     doc.Notes.Add($"Not rewritten, holds an old address: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 if (settings.Count > 0)
@@ -251,7 +251,10 @@ public sealed partial class ChangeControlService
         return (result.OrderBy(r => Readdressing.ParseIp(r.Ip)).ToList(), source);
     }
 
-    /// <summary>Known clients not connected now whose last (or reserved) address is in a moved subnet.</summary>
+    /// <summary>
+    /// Known clients not connected now that were likely set on the device: last seen in a moved subnet,
+    /// with no reservation, on an address outside their network's DHCP range.
+    /// </summary>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_ip, last_seen, fixed_ip")]
     private async Task<List<StaticClient>> OfflineClientsAsync(List<JsonObject> connected, Dictionary<string, JsonObject> networks,
         List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
@@ -264,9 +267,14 @@ public sealed partial class ChangeControlService
         {
             var mac = u["mac"]?.ToString()?.ToLowerInvariant() ?? "";
             if (mac.Length == 0 || online.Contains(mac)) continue;
-            var reserved = u["use_fixedip"] is JsonValue f && f.TryGetValue<bool>(out var r) && r;
-            var ipText = (reserved ? u["fixed_ip"]?.ToString() : null) ?? u["last_ip"]?.ToString();
+            // A reservation means DHCP: it follows. So does an address DHCP's own range handed out.
+            // Left: no reservation and an address outside the range, the one sign of an address set on the device.
+            if (u["use_fixedip"] is JsonValue f && f.TryGetValue<bool>(out var r) && r) continue;
+            var ipText = u["last_ip"]?.ToString();
             if (Readdressing.ParseIp(ipText) is not { } ip || Readdressing.MapIp(ip, map) is not { } moved) continue;
+            var lastNetwork = u["last_connection_network_id"]?.ToString() is { } lid && networks.TryGetValue(lid, out var ln) ? ln : null;
+            if (lastNetwork == null || InDhcpRange(lastNetwork, ip)) continue;
+            var reserved = false;
             DateTime? seen = long.TryParse(u["last_seen"]?.ToString(), out var s) && s > 0 ? DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime : DateTime.MinValue;
             var network = u["last_connection_network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n["name"]?.ToString() ?? "" : "";
             var name = u["name"]?.ToString() is { Length: > 0 } nm ? nm : u["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;

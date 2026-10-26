@@ -186,10 +186,10 @@
         }
         @if (v.OfflineClients.Count > 0)
         {
-            <button class="cc-link-btn cc-more" @onclick="() => _showOffline = !_showOffline">@(_showOffline ? "Hide" : "Show") @CcFormat.Plural(v.OfflineClients.Count, "offline client", "offline clients") last seen in a moved subnet</button>
+            <button class="cc-link-btn cc-more" @onclick="() => _showOffline = !_showOffline">@(_showOffline ? "Hide" : "Show") @CcFormat.Plural(v.OfflineClients.Count, "offline client", "offline clients") likely set on the device</button>
             <div class="expand-wrapper @(_showOffline ? "expanded" : "")">
                 <div class="expand-content">
-                    <p class="cc-card-intro">Offline, a missing lease proves nothing: reserved ones move if they use DHCP, and any set on the device need changing when they are back.</p>
+                    <p class="cc-card-intro">Last seen outside their network's DHCP range with no reservation. Offline clients with a reservation, or a DHCP-range address, are taken as DHCP and follow the move.</p>
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead><tr><th>Client</th><th>Last seen</th><th>Now</th><th>New</th></tr></thead>
