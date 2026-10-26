@@ -288,6 +288,16 @@ public static class ConfigDiffEngine
                 continue;
             }
 
+            // A list of entries of the same length compares entry by entry, so the row names the field that differs
+            // inside ("Mdns proxy custom 1 networks"), not "1 items to 1 items".
+            if (b is JsonArray { Count: > 0 } bl && a is JsonArray al && bl.Count == al.Count
+                && bl.All(e => e is JsonObject) && al.All(e => e is JsonObject))
+            {
+                for (var i = 0; i < bl.Count; i++)
+                    CompareNode(def, $"{childPath}[entry={i + 1}]", (JsonObject)bl[i]!, (JsonObject)al[i]!, fields, noOwned);
+                continue;
+            }
+
             if (!CanonicalJson.DeepEquals(SetsSorted(def, b), SetsSorted(def, a)) && !(IsEmpty(b) && IsEmpty(a)) && !SameNumber(b, a))
                 fields.Add(Shown(def, childPath, b, a));
         }

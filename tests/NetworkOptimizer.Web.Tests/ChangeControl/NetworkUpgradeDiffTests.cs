@@ -189,7 +189,9 @@ public class NetworkUpgradeDiffTests
         var loud = State(("wlanconf", """{"_id":"w1","name":"IoT","mdns_proxy_custom":[{"services_mode":"specific","networkconf_ids":["n1"]}]}"""));
 
         ConfigDiffEngine.Compare(before, quiet).IsEmpty.Should().BeTrue();
-        ConfigDiffEngine.Compare(before, loud).IsEmpty.Should().BeFalse();
+        ConfigDiffEngine.Compare(before, loud).Objects.Single().Fields
+            .Should().ContainSingle(f => f.Path == "mdns_proxy_custom[entry=1].services_mode");
+        ChangeDescriber.LabelFor("mdns_proxy_custom[entry=1].services_mode").Should().StartWith("Mdns proxy custom 1");
     }
 
     [Fact]
