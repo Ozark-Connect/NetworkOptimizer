@@ -490,7 +490,14 @@ else
             }
             @if (!editable && plan.Status != ConfigPlanStatus.Applying)
             {
-                <a class="btn btn-primary" href="/change-control/changes">Back to Changes</a>
+                @if (plan.Kind is ConfigPlanKind.Readdress or ConfigPlanKind.ReaddressPrepare)
+                {
+                    <a class="btn btn-primary" href="/change-control/migrate?task=readdress">Back to Re-address Networks</a>
+                }
+                else
+                {
+                    <a class="btn btn-primary" href="/change-control/changes">Back to Changes</a>
+                }
             }
         </div>
     </div>
