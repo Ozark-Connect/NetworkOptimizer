@@ -16,12 +16,15 @@ public sealed class ReaddressChoices
 /// <summary>A client whose address may be set on the device; <c>LastSeen</c> is set for an offline one, which cannot be told apart.</summary>
 public sealed record StaticClient(string Name, string Mac, string Ip, string NewIp, string Network, bool Reserved, DateTime? LastSeen = null);
 
+/// <summary>Something to know before applying: a short title and one line of detail.</summary>
+public sealed record ReaddressWarning(string Title, string Detail);
+
 /// <summary>The dry run: every move, rewrite, and thing a person must handle.</summary>
 public sealed class ReaddressView
 {
     public List<SubnetMove> Moves { get; init; } = [];
     public List<string> Errors { get; init; } = [];
-    public List<string> Warnings { get; init; } = [];
+    public List<ReaddressWarning> Warnings { get; init; } = [];
     public List<AddressRewrite> Rewrites { get; init; } = [];
     public List<AddressMention> Mentions { get; init; } = [];
     /// <summary>Addresses in a moved subnet left alone because a WAN or a VPN's far side owns them.</summary>
@@ -66,7 +69,7 @@ public sealed partial class ChangeControlService
         {
             Moves = moves,
             Errors = errors,
-            Warnings = await ReaddressWarningsAsync(live, active, result, cancellationToken),
+            Warnings = await ReaddressWarningsAsync(live, active, prepare, cancellationToken),
             Rewrites = result.Rewrites,
             Mentions = result.Mentions,
             Remote = result.Remote,
@@ -90,13 +93,8 @@ public sealed partial class ChangeControlService
         var result = Readdressing.Apply(live, active);
         var prepare = await LeasePrepareAsync(cancellationToken);
         RestoreLeases(result, prepare);
-        var warnings = await ReaddressWarningsAsync(live, active, result, cancellationToken);
-        if (prepare == null)
-            warnings.Add("DHCP leases were not lowered first: clients move as their current leases renew. Reconnect Clients after the apply speeds that up.");
-        else if (prepare.ReadyAt > DateTime.UtcNow)
-            warnings.Add($"Leases were lowered {Local(prepare.LoweredAt):MMM d, h:mm tt}; some clients are on their old lease until {Local(prepare.ReadyAt):MMM d, h:mm tt}.");
-        else
-            warnings.Add("DHCP leases are short on every moving network; this plan puts each one's lease time back.");
+        var warnings = await ReaddressWarningsAsync(live, active, prepare, cancellationToken);
+
         var (statics, _) = await StaticClientsAsync(live, active, cancellationToken);
         var remote = RemoteCidrs(live);
         var settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, remote, apply: false, cancellationToken);
@@ -120,7 +118,7 @@ public sealed partial class ChangeControlService
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 foreach (var m in result.Remote)
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
-                foreach (var w in warnings) doc.Notes.Add(w);
+                foreach (var w in warnings) doc.Notes.Add($"{w.Title}: {w.Detail}");
                 if (statics.Where(s => s.LastSeen == null).ToList() is { Count: > 0 } set)
                     doc.Notes.Add($"Set on the device itself, so this plan cannot move them: {string.Join(", ", set.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp})"))}.");
                 if (statics.Count(s => s.LastSeen != null) is > 0 and var offline)
@@ -148,44 +146,53 @@ public sealed partial class ChangeControlService
     private static List<string> RemoteCidrs(ConfigState live) =>
         Readdressing.RemoteRanges(live).Select(r => r.Range.ToString()).Distinct().ToList();
 
-    private async Task<List<string>> ReaddressWarningsAsync(ConfigState live, List<SubnetMove> active, ReaddressResult result, CancellationToken ct)
+    /// <summary>What to know before applying: one short title and one line of detail each, the most disruptive first.</summary>
+    private async Task<List<ReaddressWarning>> ReaddressWarningsAsync(ConfigState live, List<SubnetMove> active, LeasePrepare? prepare, CancellationToken ct)
     {
-        var warnings = new List<string>();
+        var warnings = new List<ReaddressWarning>();
         var map = Readdressing.Map(active);
+
         // Network Optimizer's own host (or this site's On-Site Agent): it cannot watch or revert from an address that is gone.
         var own = Plans.ManagementAddresses().Where(a => Readdressing.ParseIp(a) is { } ip && Readdressing.MapIp(ip, map) != null).Distinct().ToList();
         if (own.Count > 0)
-            warnings.Add($"Network Optimizer reaches this site from {string.Join(", ", own)}, which {(own.Count == 1 ? "is" : "are")} in a moved subnet. "
-                + "Re-address that host in the same window: until then it is off the network, and no watch or revert can run.");
+            warnings.Add(new("Network Optimizer's host moves",
+                $"{own[0]}{(own.Count > 1 ? $" and {own.Count - 1} more" : "")}. Re-address it in the same window; no watch or revert runs until it is back."));
+
         var mgmt = ConfigDiffEngine.ManagementNetworkIds(live);
-        foreach (var m in active.Where(m => mgmt.Contains(m.NetworkId)))
-            warnings.Add($"{m.NetworkName} is a management network: devices and the UniFi Console are reached at new addresses after the move. Review Plan holds it at the Lockout tier.");
+        var managed = active.Where(m => mgmt.Contains(m.NetworkId)).Select(m => m.NetworkName).ToList();
+        if (managed.Count > 0)
+            warnings.Add(new(managed.Count == 1 ? "A management network moves" : "Management networks move",
+                $"{string.Join(", ", managed)}. Devices and the UniFi Console are reached at new addresses; Review Plan holds {(managed.Count == 1 ? "it" : "them")} at the Lockout tier."));
 
         // Devices find the console by its inform address; a console inside a moved subnet must be found at its new one.
-        var url = _registry.Connection(_site.Slug).CurrentConfig?.ControllerUrl;
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        if (Uri.TryCreate(_registry.Connection(_site.Slug).CurrentConfig?.ControllerUrl, UriKind.Absolute, out var uri))
         {
-            var addresses = Readdressing.ParseIp(uri.Host) is { } ip ? [ip]
+            var byIp = Readdressing.ParseIp(uri.Host) is { } ip ? ip : (uint?)null;
+            var addresses = byIp is { } direct ? [direct]
                 : (await SafeResolveAsync(uri.Host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().ToList();
-            foreach (var a in addresses.Where(a => Readdressing.MapIp(a, map) != null).Distinct())
+            if (addresses.FirstOrDefault(a => Readdressing.MapIp(a, map) != null) is var a && a != 0)
             {
                 var moved = Readdressing.Format(Readdressing.MapIp(a, map)!.Value);
+                warnings.Add(new("The console moves", byIp != null
+                    ? $"{uri.Host} to {moved}. Network Optimizer reconnects at the new address."
+                    : $"{uri.Host} resolves to {Readdressing.Format(a)}: point it at {moved}, unless it is a Local DNS record this plan moves."));
                 var inform = live.Get("setting").FirstOrDefault(s => s["key"]?.ToString() == "super_mgmt");
-                var overridden = inform?["override_inform_host"] is JsonValue o && o.TryGetValue<bool>(out var on) && on;
-                warnings.Add(Readdressing.ParseIp(uri.Host) != null
-                    ? $"The UniFi Console is at {uri.Host}, which moves to {moved}. Network Optimizer's console connection is moved with the plan."
-                    : $"{uri.Host} resolves to {Readdressing.Format(a)}, which moves to {moved}. Update its DNS record with the move.");
-                warnings.Add(overridden
-                    ? "Devices inform to the Inform Host override, which this plan moves if it is an address."
-                    : $"Devices inform to the console's current address. Set UniFi Network's Inform Host override to {moved} or a name before applying, or devices disconnect until they are re-pointed.");
+                if (!(inform?["override_inform_host"] is JsonValue o && o.TryGetValue<bool>(out var on) && on))
+                    warnings.Add(new("Set the Inform Host first",
+                        $"Devices inform to the console's current address. Set UniFi Network's Inform Host override to {moved} or a name, or devices disconnect until re-pointed."));
             }
         }
 
-        var leases = live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n)))
+        var lease = live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n)))
             .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) ? s : 86400).DefaultIfEmpty(86400).Max();
-        warnings.Add($"Clients take their new address when their DHCP lease renews, within {TimeSpan.FromSeconds(leases).TotalHours:0.#} hours, or at once when they reconnect.");
-        if (result.Collections.Contains("device"))
-            warnings.Add("Devices with a static management address are moved in the plan; devices on DHCP follow their lease.");
+        warnings.Add(prepare switch
+        {
+            null => new("Clients move as leases renew",
+                $"Within {CcHours(TimeSpan.FromSeconds(lease / 2))} of the move. Lower Lease Times first, or Reconnect Clients after, makes it minutes."),
+            { } p when p.ReadyAt > DateTime.UtcNow => new("Leases lowered, not everywhere yet",
+                $"Some clients keep their old lease until {Local(p.ReadyAt):MMM d, h:mm tt}. The plan puts each lease time back."),
+            _ => new("Leases are short", "Clients move within minutes. The plan puts each network's lease time back."),
+        });
         return warnings;
     }
 
@@ -238,9 +245,9 @@ public sealed partial class ChangeControlService
             result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? "", reserved));
         }
         result.AddRange(await OfflineClientsAsync(list, networks, map, ct));
-        var source = gateway != null ? "the gateway's DHCP leases"
-            : ipTable != null ? "UniFi's IP Table (reserved clients cannot be told apart without Gateway SSH)"
-            : "DHCP ranges";
+        var source = gateway != null ? "from the gateway's DHCP leases"
+            : ipTable != null ? "from UniFi's IP Table, reserved clients not checked"
+            : "from DHCP ranges";
         return (result.OrderBy(r => Readdressing.ParseIp(r.Ip)).ToList(), source);
     }
 
