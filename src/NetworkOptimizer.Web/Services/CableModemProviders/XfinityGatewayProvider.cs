@@ -9,10 +9,11 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
 /// Cable modem provider for gateways sharing the Comcast-derived .jst web UI,
-/// whatever the OEM: Xfinity XB8/XB10 (Sercomm), Comcast Business CGA4332
-/// (Technicolor), Cox CGM4981 (Technicolor). Authenticates via form POST to
+/// whatever the OEM: Xfinity XB8/XB10 (Sercomm), Xfinity XB7 / CGM4331, Comcast
+/// Business CGA4332 and Cox CGM4981 (Technicolor). Authenticates via form POST to
 /// /check.jst, then scrapes DOCSIS channel tables that use a transposed layout
-/// where each row is a metric and each column is a channel.
+/// where each row is a metric and each column is a channel. Port 443 selects
+/// HTTPS; the gateways serve the same UI on both.
 ///
 /// Firmware families differ in two ways this provider absorbs rather than
 /// exposing as separate providers, because a user cannot tell them apart from
@@ -30,7 +31,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     public string ProviderKey => "xfinity-gateway";
 
     /// <inheritdoc/>
-    public string DisplayName => "Xfinity XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)";
+    public string DisplayName => "Xfinity XB7/XB8/XB10, Comcast Business CGA4332, Cox CGM4981 (HTTP)";
 
     /// <inheritdoc/>
     public CmCredentialRequirement Credentials => CmCredentialRequirement.Required;
@@ -176,9 +177,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
     /// </summary>
     private async Task<string?> FetchStatusPageAsync(CmPollContext context, CancellationToken cancellationToken)
     {
-        var port = context.Port > 0 ? context.Port : 80;
-        var portSuffix = port == 80 ? "" : $":{port}";
-        var baseUrl = $"http://{context.Host}{portSuffix}";
+        var baseUrl = BuildBaseUrl(context);
 
         using var handler = new SocketsHttpHandler
         {
@@ -186,6 +185,8 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             CookieContainer = new CookieContainer(),
             AllowAutoRedirect = true,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            // The gateways' certificate chains end in a self-signed root.
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
         };
         using var client = new HttpClient(handler)
         {
@@ -234,6 +235,21 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         }
 
         return readableButUnparsed;
+    }
+
+    /// <summary>
+    /// Origin for the configured port: 443 means HTTPS, as in the Technicolor CGA,
+    /// Sagemcom and Vodafone providers; blank means 80; any other port is HTTP.
+    /// </summary>
+    internal static string BuildBaseUrl(CmPollContext context)
+    {
+        var port = context.Port > 0 ? context.Port : 80;
+        return port switch
+        {
+            80 => $"http://{context.Host}",
+            443 => $"https://{context.Host}",
+            _ => $"http://{context.Host}:{port}",
+        };
     }
 
     /// <summary>
