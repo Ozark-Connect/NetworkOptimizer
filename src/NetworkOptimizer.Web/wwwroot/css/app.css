@@ -23830,6 +23830,12 @@ body:has(.top-bar-hidden) .btn-fit {
 .change-control .cc-lane-latest .up { color: var(--speed-upload-color); }
 
 /* Change detail */
+/* Zero intrinsic width: the details cell spans every column, so its content would otherwise re-split the table's columns as it opens. */
+.change-control .history-details-row > td > .expand-wrapper {
+    width: 0;
+    min-width: 100%;
+}
+
 .change-control .cc-detail-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
