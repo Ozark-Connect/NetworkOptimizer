@@ -300,16 +300,20 @@ public class DeviceStateAlertEvaluatorTests
 
     private static readonly string[] Site4 = ["aabbccddee01", "aabbccddee02", "aabbccddee03", "aabbccddee04"];
 
+    // Half a minute either side of the hold, which polls of 30 s straddle.
+    private static readonly DateTime BeforeHold = Now + DeviceStateAlertEvaluator.UnmanagedHold - TimeSpan.FromSeconds(30);
+    private static readonly DateTime PastHold = Now + DeviceStateAlertEvaluator.UnmanagedHold + TimeSpan.FromSeconds(30);
+
     /// <summary>The case this exists for: a Network restart or inform change, traffic untouched.</summary>
     [Fact]
     public async Task Answers_IsHeldThenPublishedAsUnmanaged()
     {
         var (evaluator, bus, _) = Build(new FakeProbe());
 
-        await PollAsync(evaluator, Now, Now.AddMinutes(9.5), All(Disconnected), Mac);
+        await PollAsync(evaluator, Now, BeforeHold, All(Disconnected), Mac);
         Assert.Empty(bus.Published);
 
-        await PollAsync(evaluator, Now.AddMinutes(9.5), Now.AddMinutes(10.5), All(Disconnected), Mac);
+        await PollAsync(evaluator, BeforeHold, PastHold, All(Disconnected), Mac);
 
         var evt = bus.Published.Single();
         Assert.Equal("device.unmanaged", evt.EventType);
@@ -335,8 +339,8 @@ public class DeviceStateAlertEvaluatorTests
     {
         var (evaluator, bus, _) = Build(new FakeProbe());
 
-        await PollAsync(evaluator, Now, Now.AddMinutes(10.5), All(Disconnected), Mac);
-        await PollAsync(evaluator, Now.AddMinutes(10.5), Now.AddMinutes(11), All(Connected), Mac);
+        await PollAsync(evaluator, Now, PastHold, All(Disconnected), Mac);
+        await PollAsync(evaluator, PastHold, PastHold.AddSeconds(30), All(Connected), Mac);
 
         Assert.Equal(["device.unmanaged", "device.managed"], bus.Published.Select(e => e.EventType));
     }
@@ -379,14 +383,14 @@ public class DeviceStateAlertEvaluatorTests
     {
         var (evaluator, bus, _) = Build(new FakeProbe());
 
-        await PollAsync(evaluator, Now, Now.AddMinutes(10.5), All(Disconnected), Site4);
+        await PollAsync(evaluator, Now, PastHold, All(Disconnected), Site4);
 
         var group = bus.Published.Single();
         Assert.Equal("console.devices_unmanaged", group.EventType);
         Assert.Equal("all-devices", group.DeviceId);
         Assert.Equal(string.Join(",", Site4), group.Context!["devices"]);
 
-        await PollAsync(evaluator, Now.AddMinutes(10.5), Now.AddMinutes(11), All(Connected), Site4);
+        await PollAsync(evaluator, PastHold, PastHold.AddSeconds(30), All(Connected), Site4);
 
         Assert.Equal(["console.devices_unmanaged", "console.devices_managed"], bus.Published.Select(e => e.EventType));
     }
@@ -396,7 +400,7 @@ public class DeviceStateAlertEvaluatorTests
     {
         var (evaluator, bus, _) = Build(new FakeProbe());
 
-        await PollAsync(evaluator, Now, Now.AddMinutes(10.5), mac => mac == Mac ? Disconnected : Connected, [Mac, .. Site4]);
+        await PollAsync(evaluator, Now, PastHold, mac => mac == Mac ? Disconnected : Connected, [Mac, .. Site4]);
 
         var evt = bus.Published.Single();
         Assert.Equal("device.unmanaged", evt.EventType);
@@ -409,8 +413,8 @@ public class DeviceStateAlertEvaluatorTests
     {
         var (evaluator, bus, _) = Build(new FakeProbe());
 
-        await PollAsync(evaluator, Now, Now.AddMinutes(10.5), All(Disconnected), Site4);
-        await PollAsync(evaluator, Now.AddMinutes(10.5), Now.AddMinutes(11),
+        await PollAsync(evaluator, Now, PastHold, All(Disconnected), Site4);
+        await PollAsync(evaluator, PastHold, PastHold.AddSeconds(30),
             mac => mac == Site4[3] ? Disconnected : Connected, Site4);
 
         Assert.Equal(["console.devices_unmanaged", "console.devices_managed", "device.unmanaged"],
