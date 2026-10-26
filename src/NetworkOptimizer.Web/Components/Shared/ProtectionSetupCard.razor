@@ -14,7 +14,7 @@
 {
     @if (AllComplete)
     {
-        <div class="protection-setup-done">
+        <div class="protection-setup-done" data-tour="protection-setup">
             <span class="status-dot online"></span>
             <span>Protection: blocking on @EnforcingOn@(FloodDone ? " + WAN Flood Protection on" : "").</span>
             <a href="/settings#automatic-blocking">Settings</a>
