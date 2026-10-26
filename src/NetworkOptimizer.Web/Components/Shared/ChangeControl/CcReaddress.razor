@@ -96,7 +96,14 @@
                 <div>Before the move: lower lease times</div>
                 <div class="cc-item-detail">@PrepareStatus(steps)</div>
             </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null || LeasesShort(steps))" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
+            @if (steps.LongestLeaseSeconds != null && LeasesShort(steps))
+            {
+                <span class="success-text">✓ Already lowered</span>
+            }
+            else
+            {
+                <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
+            }
         </div>
         <div class="cc-setting-row cc-step-row">
             <div>
