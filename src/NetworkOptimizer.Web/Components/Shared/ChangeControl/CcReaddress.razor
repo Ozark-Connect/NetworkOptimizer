@@ -350,17 +350,22 @@
     protected override async Task OnInitializedAsync()
     {
         // The choices live in the URL, so Back from Review Plan returns them.
+        // Only for the site they were made on: switching sites keeps the query, and a pattern fits any site.
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
-        if (query.TryGetValue("pattern", out var pattern)) _pattern = pattern.ToString();
-        if (query.TryGetValue("subnets", out var subnets))
-            foreach (var pair in subnets.ToString().Split('|', StringSplitOptions.RemoveEmptyEntries))
-                if (pair.Split('=', 2) is [var id, var cidr] && id.Length > 0) _subnets[id] = cidr;
+        if (query.TryGetValue("for", out var forSite) && string.Equals(forSite.ToString(), SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
+        {
+            if (query.TryGetValue("pattern", out var pattern)) _pattern = pattern.ToString();
+            if (query.TryGetValue("subnets", out var subnets))
+                foreach (var pair in subnets.ToString().Split('|', StringSplitOptions.RemoveEmptyEntries))
+                    if (pair.Split('=', 2) is [var id, var cidr] && id.Length > 0) _subnets[id] = cidr;
+        }
         await LoadAsync(preview: false);
     }
 
     private void SyncUrl() => Nav.NavigateTo(Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
     {
         ["task"] = "readdress",
+        ["for"] = SiteCtx.Slug,
         ["pattern"] = string.IsNullOrWhiteSpace(_pattern) ? null : _pattern,
         ["subnets"] = _subnets.Count == 0 ? null : string.Join("|", _subnets.Select(kv => $"{kv.Key}={kv.Value}")),
     }), replace: true);
