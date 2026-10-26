@@ -157,6 +157,9 @@ function paintHoverDots(w, at) {
         if (!p) continue;
         const [cx, cy] = p;
         if (cx == null || cy == null || isNaN(cx) || isNaN(cy)) continue;
+        // A transparent series is a tooltip-only carrier (Wi-Fi Metrics' Channel), not a line to mark.
+        const color = w.globals.colors[i % w.globals.colors.length];
+        if (color === 'transparent' || /^rgba\([^)]*,\s*0\)$/.test(color)) continue;
 
         const dot = document.createElementNS(SVG_NS, 'circle');
         dot.setAttribute('cx', cx);
