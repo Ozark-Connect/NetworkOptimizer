@@ -195,6 +195,9 @@ public sealed class PlanAcknowledgements
     public HashSet<string> Items { get; set; } = [];
     public HashSet<string> Regressions { get; set; } = [];
     public string? TypedConfirmation { get; set; }
+
+    /// <summary>Operation keys unticked on Review Plan: left out of the apply, with anything that needs them.</summary>
+    public HashSet<string> Excluded { get; set; } = [];
 }
 
 /// <summary>One operation's result.</summary>

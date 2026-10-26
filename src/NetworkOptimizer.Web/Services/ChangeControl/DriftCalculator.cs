@@ -16,7 +16,7 @@ public static class DriftCalculator
         var diff = options.SameSite
             ? ConfigDiffEngine.Compare(baseline, current)
             : ConfigDiffEngine.Compare(baseline, Restrict(current, baseline), sameSite: false);
-        var beforeNames = new ConfigIdentityContext(baseline.NamesById());
+        var beforeNames = ConfigIdentityContext.ForBefore(baseline, current);
         var afterNames = new ConfigIdentityContext(current.NamesById());
         var objects = diff.Objects.Where(o => !o.Generated && o.OwnedBy == null).ToList();
         if (!options.SameSite || options.DeleteMissing == false)

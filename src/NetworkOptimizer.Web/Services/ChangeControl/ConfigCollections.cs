@@ -215,6 +215,17 @@ public sealed class ConfigIdentityContext
 
     public ConfigIdentityContext(IReadOnlyDictionary<string, string> namesById) => _namesById = namesById;
 
+    /// <summary>
+    /// Names for a diff's before side: its own, then the after side's. A before value is compared, and shown,
+    /// with its references mapped to the after side's IDs once those changed (Network 11's UUIDs).
+    /// </summary>
+    public static ConfigIdentityContext ForBefore(ConfigState before, ConfigState after)
+    {
+        var names = before.NamesById();
+        foreach (var (id, name) in after.NamesById()) names.TryAdd(id, name);
+        return new ConfigIdentityContext(names);
+    }
+
     /// <summary>Display name of the object with this UniFi ID, or the ID itself when unknown.</summary>
     public string NameOf(string? id) =>
         id != null && _namesById.TryGetValue(id, out var name) ? name : id ?? "";

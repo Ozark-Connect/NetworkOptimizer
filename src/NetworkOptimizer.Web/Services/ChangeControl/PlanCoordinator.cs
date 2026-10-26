@@ -244,6 +244,9 @@ public sealed class PlanCoordinator
                 await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
                 return plan.Message;
             }
+            // Unticked items leave here, after the hash (built on the whole plan): the sealed document, verify, and
+            // the commit-confirmed watch all see only what applied.
+            PlanReadiness.Exclude(doc, acks.Excluded);
 
             if (PlanReadiness.HasCertainLockout(doc))
                 _audit?.Log(AuditEventBuilder.FromSystem(AuditCategories.Action, AuditActions.ChangeControlLockoutOverridden,

@@ -235,7 +235,7 @@ public static class PlanBuilder
 
         var remapped = (JsonObject)Remap(desired, desiredById, idMap, creates, options, doc, $"{def.Noun} {name}")!;
         RestoreKeptSecrets(def, live, remapped, doc, name);
-        if (live != null && desired != null)
+        if (live != null)
             foreach (var field in remapped.Select(p => p.Key).ToList())
             {
                 if (field is "_id" or "id" or "site_id") continue;

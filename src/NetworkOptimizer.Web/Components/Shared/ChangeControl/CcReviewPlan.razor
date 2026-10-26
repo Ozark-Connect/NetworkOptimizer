@@ -38,6 +38,8 @@ else
     var editable = plan.Status is ConfigPlanStatus.Draft or ConfigPlanStatus.PendingApproval or ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled;
     var tierCount = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge);
     var acked = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge && _acks.Items.Contains(o.Key));
+    var leftOut = PlanReadiness.LeftOut(doc, _acks.Excluded);
+    var columns = editable ? 7 : 6;
     var gatewaySteps = doc.WriteOrder.Count(s => s.Detail.Contains("gateway provision", StringComparison.OrdinalIgnoreCase));
 
     <div class="cc-strip">
@@ -142,6 +144,10 @@ else
     <div class="card">
         <div class="card-header">
             <h3 class="card-title">Changes<span class="card-title-suffix">@CcFormat.Plural(doc.Operations.Count, "object", "objects")</span></h3>
+            @if (leftOut.Count > 0)
+            {
+                <span class="status-badge badge-muted">@leftOut.Count left out</span>
+            }
             @if (tierCount > 0)
             {
                 <span class="status-badge badge-muted">@acked of @tierCount acknowledged</span>
@@ -170,6 +176,13 @@ else
                                 <span class="status-badge @CcFormat.TierBadge(op.Tier)">@(op.Tier == PlanTiers.Acknowledge ? "Ack" : PlanTiers.Label(op.Tier))</span>
                             </div>
                             <div class="cc-item-detail">@op.ChangeText</div>
+                            @if (editable)
+                            {
+                                <label class="checkbox-label" @onclick:stopPropagation>
+                                    <input type="checkbox" checked="@(!leftOut.Contains(op.Key))" disabled="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key))" @onchange="() => Toggle(_acks.Excluded, op.Key)" />
+                                    <span>@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key) ? "Left out: needs an unticked item" : "Apply")</span>
+                                </label>
+                            }
                             <div class="expand-wrapper @(open ? "expanded" : "")">
                                 <div class="expand-content">
                                     @if (op.Fields.Count > 0)
@@ -210,6 +223,10 @@ else
                     <thead>
                         <tr>
                             <th class="expand-chevron"></th>
+                            @if (editable)
+                            {
+                                <th class="cc-ack-col"><label class="checkbox-label" data-tooltip="Untick a row to leave it out of this apply"><input type="checkbox" checked="@(_acks.Excluded.Count == 0)" @onchange="() => ToggleAllIncluded(doc)" /><span>Apply</span></label></th>
+                            }
                             <th>Action</th>
                             <th>Object</th>
                             <th class="hide-mobile">Change</th>
@@ -220,15 +237,23 @@ else
                     <tbody>
                         @foreach (var group in doc.Operations.GroupBy(o => ConfigCollections.Get(o.Collection)?.Group ?? o.Collection))
                         {
-                            <tr class="cc-group-row"><td colspan="6">@group.Key</td></tr>
+                            <tr class="cc-group-row"><td colspan="@columns">@group.Key</td></tr>
                             @foreach (var op in group)
                             {
                                 var open = _open.Contains(op.Key);
                                 var result = _view.Result?.Operations.FirstOrDefault(r => r.Key == op.Key);
                                 <tr class="history-row-clickable @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(_open, op.Key)">
                                     <td class="expand-chevron">@(open ? "▲" : "▼")</td>
+                                    @if (editable)
+                                    {
+                                        <td class="cc-ack-col" @onclick:stopPropagation>
+                                            <input type="checkbox" checked="@(!leftOut.Contains(op.Key))" disabled="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key))"
+                                                   data-tooltip="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key) ? "Left out: it uses an object an unticked item creates" : null)"
+                                                   @onchange="() => Toggle(_acks.Excluded, op.Key)" />
+                                        </td>
+                                    }
                                     <td><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span></td>
-                                    <td>@op.ObjectName</td>
+                                    <td class="@(leftOut.Contains(op.Key) ? "muted-text" : "")">@op.ObjectName</td>
                                     <td class="hide-mobile">@op.ChangeText@(result != null && result.Outcome != "Applied" ? $" ({result.Outcome}: {result.Message})" : "")</td>
                                     <td><span class="status-badge @CcFormat.TierBadge(op.Tier)">@PlanTiers.Label(op.Tier)</span></td>
                                     <td class="cc-ack-col" @onclick:stopPropagation>
@@ -246,7 +271,7 @@ else
                                     </td>
                                 </tr>
                                 <tr class="history-details-row">
-                                    <td colspan="6">
+                                    <td colspan="@columns">
                                         <div class="expand-wrapper @(open ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="cc-inset" style="margin-top:0.75rem">
@@ -619,6 +644,13 @@ else
     private void AcknowledgeAll(PlanDocument doc)
     {
         foreach (var op in doc.Operations.Where(o => o.Tier == PlanTiers.Acknowledge)) _acks.Items.Add(op.Key);
+        Changed();
+    }
+
+    private void ToggleAllIncluded(PlanDocument doc)
+    {
+        if (_acks.Excluded.Count > 0) _acks.Excluded.Clear();
+        else _acks.Excluded.UnionWith(doc.Operations.Select(o => o.Key));
         Changed();
     }
 

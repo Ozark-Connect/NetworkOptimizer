@@ -224,6 +224,32 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void UntickedCreate_LeavesOutWhatUsesIt_AndAckIsNoLongerNeeded()
+    {
+        var doc = new PlanDocument();
+        doc.Operations.Add(new PlanOperation { Key = "create-net", Collection = "networkconf", Action = PlanAction.Create });
+        doc.Operations.Add(new PlanOperation { Key = "wlan", Collection = "wlanconf", Action = PlanAction.Update,
+            Body = new JsonObject { ["networkconf_id"] = PlanBuilder.RefPrefix + "create-net" } });
+        doc.Operations.Add(new PlanOperation { Key = "secret", Collection = "networkconf", Action = PlanAction.Update, Tier = PlanTiers.Acknowledge });
+        var acks = new PlanAcknowledgements { Excluded = ["create-net", "secret"] };
+
+        PlanReadiness.LeftOut(doc, acks.Excluded).Should().BeEquivalentTo(["create-net", "wlan", "secret"]);
+        PlanReadiness.Remaining(doc, acks, isSiteAdmin: true).Should().Equal("every item unticked");
+
+        acks.Excluded = ["secret"];
+        PlanReadiness.Remaining(doc, acks, isSiteAdmin: true).Should().BeEmpty();
+        PlanReadiness.Exclude(doc, acks.Excluded);
+        doc.Operations.Select(o => o.Key).Should().Equal("create-net", "wlan");
+    }
+
+    [Fact]
+    public void BeforeNames_FallBackToTheAfterSide()
+    {
+        var ctx = ConfigIdentityContext.ForBefore(Before(), After());
+        ctx.NameOf("u-z1").Should().Be("Internal");
+    }
+
+    [Fact]
     public void RestoreOfPreUpgradeSnapshot_RecreatesOnlyTheDeletedRoute()
     {
         var doc = PlanBuilder.Build(Before(), After(), new PlanOptions());

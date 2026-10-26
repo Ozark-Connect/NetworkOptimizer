@@ -338,7 +338,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             var from = await LoadSideAsync(fromSnapshotId, cancellationToken);
             var to = await LoadSideAsync(toSnapshotId, cancellationToken);
             var diff = ConfigDiffEngine.Compare(from.State, to.State);
-            var beforeNames = new ConfigIdentityContext(from.State.NamesById());
+            var beforeNames = ConfigIdentityContext.ForBefore(from.State, to.State);
             var afterNames = new ConfigIdentityContext(to.State.NamesById());
             var fromTime = from.State.ReadAt;
             var toTime = toSnapshotId == null ? DateTime.UtcNow : to.State.ReadAt;

@@ -21,6 +21,35 @@ public static class PlanReadiness
     /// <summary>The plan has a certain lockout, which only a Site Admin can override.</summary>
     public static bool HasCertainLockout(PlanDocument doc) => doc.Lockouts.Any(l => l.Kind == "certain");
 
+    /// <summary>
+    /// The operation keys left out of an apply: those unticked, and every operation that uses an object one
+    /// of them would create (it would wait for it forever).
+    /// </summary>
+    public static HashSet<string> LeftOut(PlanDocument doc, IReadOnlySet<string> excluded)
+    {
+        var left = doc.Operations.Where(o => excluded.Contains(o.Key)).Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+        bool grew;
+        do
+        {
+            grew = false;
+            foreach (var op in doc.Operations.Where(o => !left.Contains(o.Key)))
+            {
+                var text = (op.ObjectId ?? "") + (op.Body?.ToJsonString() ?? "");
+                if (left.Any(k => text.Contains(PlanBuilder.RefPrefix + k, StringComparison.Ordinal)) && left.Add(op.Key)) grew = true;
+            }
+        } while (grew);
+        return left;
+    }
+
+    /// <summary>Removes the operations left out, and lockouts that only they caused, before an apply.</summary>
+    public static void Exclude(PlanDocument doc, IReadOnlySet<string> excluded)
+    {
+        if (excluded.Count == 0) return;
+        var left = LeftOut(doc, excluded);
+        doc.Operations.RemoveAll(o => left.Contains(o.Key));
+        doc.Lockouts.RemoveAll(l => l.OperationKeys.Count > 0 && l.OperationKeys.All(left.Contains));
+    }
+
     /// <summary>Items still open, empty when the plan can apply.</summary>
     public static List<string> Remaining(PlanDocument doc, PlanAcknowledgements acks, bool isSiteAdmin)
     {
@@ -28,13 +57,17 @@ public static class PlanReadiness
         if (doc.Errors.Count > 0)
             open.Add(doc.Errors.Count == 1 ? "1 error to fix" : $"{doc.Errors.Count} errors to fix");
 
-        var toAck = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge && !acks.Items.Contains(o.Key));
+        var left = LeftOut(doc, acks.Excluded);
+        if (doc.Operations.Count > 0 && doc.Operations.All(o => left.Contains(o.Key)))
+            open.Add("every item unticked");
+
+        var toAck = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge && !left.Contains(o.Key) && !acks.Items.Contains(o.Key));
         if (toAck > 0) open.Add(toAck == 1 ? "1 item to acknowledge" : $"{toAck} items to acknowledge");
 
         var toAccept = doc.Regressions.Count(r => !acks.Regressions.Contains(r.Key));
         if (toAccept > 0) open.Add(toAccept == 1 ? "1 regression to accept" : $"{toAccept} regressions to accept");
 
-        if (doc.Lockouts.Count > 0)
+        if (doc.Lockouts.Any(l => l.OperationKeys.Count == 0 || !l.OperationKeys.All(left.Contains)))
         {
             if (HasCertainLockout(doc) && !isSiteAdmin)
                 open.Add("a certain lockout only a Site Admin can override");

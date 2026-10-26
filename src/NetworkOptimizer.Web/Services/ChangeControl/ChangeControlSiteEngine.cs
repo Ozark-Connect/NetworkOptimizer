@@ -556,7 +556,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         ConfigSnapshot snapshot, int? previousId, ConfigState before, ConfigState after, List<ObjectDiff> objects, ConfigDiff diff,
         IReadOnlyList<AuditLogEvent> events, IReadOnlyList<ConfigWriteJournalEntry> journal, bool inUpgradeWindow, CancellationToken ct)
     {
-        var beforeNames = new ConfigIdentityContext(before.NamesById());
+        var beforeNames = ConfigIdentityContext.ForBefore(before, after);
         var afterNames = new ConfigIdentityContext(after.NamesById());
         var all = objects.ToList();
         foreach (var order in diff.PolicyOrder)
