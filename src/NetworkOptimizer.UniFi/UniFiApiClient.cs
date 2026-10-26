@@ -447,6 +447,7 @@ public class UniFiApiClient : IDisposable
                                 ? ConsoleUnavailableMessage
                                 : $"API key validation failed with status {(int)validateResponse.StatusCode}.";
                         _logger.LogWarning("API key validation failed: {StatusCode}", validateResponse.StatusCode);
+                        LastLoginUnreachable = IsConsoleUnavailable(validateResponse.StatusCode);
                         AuthProbeCompleted?.Invoke(false, _lastLoginError);
                         return false;
                     }
@@ -454,6 +455,7 @@ public class UniFiApiClient : IDisposable
                     _isAuthenticated = true;
                     await DetectControllerTypeAsync(cancellationToken);
                     _logger.LogInformation("API key authentication validated (UniFi OS: {IsUniFiOs})", _isUniFiOs);
+                    LastLoginUnreachable = false;
                     AuthProbeCompleted?.Invoke(true, null);
                     return true;
                 }
@@ -461,6 +463,7 @@ public class UniFiApiClient : IDisposable
                 {
                     _lastLoginError = ParseExceptionError(ex);
                     _logger.LogError(ex, "Exception validating API key");
+                    LastLoginUnreachable = IsUnreachable(ex);
                     AuthProbeCompleted?.Invoke(false, _lastLoginError);
                     return false;
                 }
@@ -533,6 +536,7 @@ public class UniFiApiClient : IDisposable
                         : TimeSpan.FromTicks(Math.Min(_loginLimitBackoff.Ticks * 2, LoginLimitMaxBackoff.Ticks));
                     _loginLimitedUntil = DateTime.UtcNow + _loginLimitBackoff;
                 }
+                LastLoginUnreachable = IsConsoleUnavailable(response.StatusCode);
                 AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
@@ -572,6 +576,7 @@ public class UniFiApiClient : IDisposable
             // Detect controller type after successful authentication
             await DetectControllerTypeAsync(cancellationToken);
 
+            LastLoginUnreachable = false;
             AuthProbeCompleted?.Invoke(true, null);
             return true;
         }
@@ -579,6 +584,7 @@ public class UniFiApiClient : IDisposable
         {
             _logger.LogError(ex, "Exception during login");
             _lastLoginError = ParseExceptionError(ex);
+            LastLoginUnreachable = IsUnreachable(ex);
             AuthProbeCompleted?.Invoke(false, _lastLoginError);
             return false;
         }
@@ -723,6 +729,22 @@ public class UniFiApiClient : IDisposable
         // Generic fallback
         return ex.Message;
     }
+
+    /// <summary>
+    /// Whether the last failed sign-in found the console unreachable (gateway 5xx, refused or timed-out
+    /// connection) rather than refusing the credentials. Set before <see cref="AuthProbeCompleted"/> fires.
+    /// </summary>
+    public bool LastLoginUnreachable { get; private set; }
+
+    /// <summary>A sign-in that never reached the console, as opposed to one the console rejected.</summary>
+    private static bool IsUnreachable(Exception ex) => ex switch
+    {
+        TaskCanceledException => true,
+        // A certificate failure is a setting to fix, not a console that is down.
+        HttpRequestException http => !http.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase)
+            && !(http.InnerException?.Message.Contains("certificate", StringComparison.OrdinalIgnoreCase) ?? false),
+        _ => false,
+    };
 
     /// <summary>Shown when the console's reverse proxy reports the backend down (502/503/504).</summary>
     private const string ConsoleUnavailableMessage =
