@@ -785,6 +785,10 @@ builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>
 // analysis at a hostname override the way the site's clients resolve it.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SiteVantageDnsResolver>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
+// Data-plane check behind device offline alerts: tells an outage from a device that only stopped
+// reporting to UniFi Network. Resolved by the per-site DeviceStateAlertEvaluator.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IDeviceReachabilityProbe,
+    NetworkOptimizer.Web.Services.Monitoring.DeviceReachabilityProbe>();
 // Read-only gateway interface diagnostics (Network Tools). Scoped because it runs through
 // the current site's gateway SSH service.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.GatewayDiagnosticsService>();

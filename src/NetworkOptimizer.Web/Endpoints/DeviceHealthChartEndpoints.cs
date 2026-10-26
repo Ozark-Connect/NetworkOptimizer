@@ -392,6 +392,8 @@ public static class DeviceHealthChartEndpoints
     {
         "device.offline" => "Offline",
         "device.recovered" => "Recovered",
+        DeviceStateAlertEvaluator.UnmanagedEventType => "Not Reporting",
+        DeviceStateAlertEvaluator.ManagedEventType => "Reporting Again",
         "monitoring.target_offline" => "Device offline",
         "monitoring.target_recovered" => "Device back online",
         DeviceHealthAlertEvaluator.HighCpuEventType => "High CPU",

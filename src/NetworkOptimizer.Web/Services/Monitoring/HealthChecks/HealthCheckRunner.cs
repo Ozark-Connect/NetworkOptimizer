@@ -48,7 +48,7 @@ public sealed class HealthCheckRunner
     /// </summary>
     private static readonly TimeSpan ExpectedOutageRefresh = TimeSpan.FromMinutes(4);
 
-    private sealed class CheckState
+    internal sealed class CheckState
     {
         public HealthCheckLiveStatus Status { get; } = new();
         public DateTime? LastFailedAlertAt { get; set; }
@@ -75,6 +75,7 @@ public sealed class HealthCheckRunner
 
     private readonly ConcurrentDictionary<int, CheckState> _states = new();
     private readonly SemaphoreSlim _sshGate = new(2);
+    private readonly OpenAlertSeed _openAtStart;
 
     private List<HealthCheckDefinition> _definitions = new();
     private DateTime _definitionsLoadedAt = DateTime.MinValue;
@@ -94,8 +95,10 @@ public sealed class HealthCheckRunner
         IAlertEventBus eventBus,
         RolloutSuppressionRegistry suppression,
         IAuditLogger audit,
-        ILogger<HealthCheckRunner> logger)
+        ILogger<HealthCheckRunner> logger,
+        IServiceScopeFactory? scopeFactory = null)
     {
+        _openAtStart = new OpenAlertSeed(scopeFactory, siteSlug, [HealthCheckAlertTypes.Failed], SeedSubject, logger);
         _siteSlug = siteSlug;
         _isDefault = siteSlug == SiteManagementService.DefaultSiteSlug;
         _siteDbFactory = siteDbFactory;
@@ -169,10 +172,11 @@ public sealed class HealthCheckRunner
         if (definitions.Count == 0) return;
 
         var now = DateTime.UtcNow;
+        var open = await _openAtStart.OpenAsync();
         foreach (var check in definitions)
         {
             if (!check.Enabled) continue;
-            var state = _states.GetOrAdd(check.Id, _ => new CheckState());
+            var state = _states.GetOrAdd(check.Id, id => NewCheckState(open, id));
             var interval = TimeSpan.FromSeconds(Math.Max(30, check.IntervalSeconds));
             if (state.Status.LastRunAt is { } last && now - last < interval) continue;
             if (Interlocked.CompareExchange(ref state.InFlight, 1, 0) != 0) continue;
@@ -181,6 +185,24 @@ public sealed class HealthCheckRunner
             state.Status.LastRunAt = now;
             _ = RunOneAsync(check, state, ct);
         }
+    }
+
+    /// <summary>Which check a stored alert is about: the id its context carries.</summary>
+    internal static string? SeedSubject(NetworkOptimizer.Alerts.Models.AlertHistoryEntry alert) =>
+        OpenAlertSeed.Context(alert, CheckIdKey);
+
+    private const string CheckIdKey = "check_id";
+
+    /// <summary>A check first seen by this process; one still failing before a restart starts tripped, so it recovers.</summary>
+    internal static CheckState NewCheckState(OpenAlerts open, int checkId)
+    {
+        var state = new CheckState();
+        if (open.Take(HealthCheckAlertTypes.Failed, checkId.ToString()) is { } failed)
+        {
+            state.Status.Tripped = true;
+            state.LastFailedAlertAt = failed.TriggeredAt;
+        }
+        return state;
     }
 
     private async Task RunOneAsync(HealthCheckDefinition check, CheckState state, CancellationToken ct)
@@ -509,7 +531,7 @@ public sealed class HealthCheckRunner
     private static Dictionary<string, string> Context(HealthCheckDefinition check, double value, string? remedy) => new()
     {
         ["device_mac"] = check.DeviceMac,
-        ["check_id"] = check.Id.ToString(),
+        [CheckIdKey] = check.Id.ToString(),
         ["check"] = check.Name,
         ["field"] = check.FieldName,
         ["value"] = value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture),

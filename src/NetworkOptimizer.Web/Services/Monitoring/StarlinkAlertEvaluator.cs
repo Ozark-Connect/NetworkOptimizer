@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Models;
 
@@ -35,10 +36,11 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </para>
 ///
 /// <para>
-/// State is in memory only, so a restart re-arms every rule: an already-open condition raises its
-/// alert once more, and the windowed rules (alignment, outage burst) stay quiet until they have
-/// gathered enough samples again. That is the accepted cost of never persisting a verdict that
-/// could go stale against a dish that has since recovered.
+/// State is in memory only. At start-up the alerts still open are read back
+/// (<see cref="OpenAlertSeed"/>) and each rule starts open, so a condition spanning a restart keeps
+/// its one alert and one that cleared meanwhile is closed by the rule's own clear test. The
+/// windowed rules still need their samples again: alignment stays quiet until the window refills,
+/// and a seeded outage burst is held open for a full window rather than closed on an empty one.
 /// </para>
 /// </summary>
 public class StarlinkAlertEvaluator
@@ -201,6 +203,7 @@ public class StarlinkAlertEvaluator
     private readonly TimeProvider _time;
     private readonly ConcurrentDictionary<int, DishState> _states = new();
     private readonly string _siteSuffix;
+    private readonly OpenAlertSeed _openAtStart;
 
     /// <param name="siteSlug">
     /// Site this instance evaluates for (one instance per site, owned by
@@ -209,10 +212,16 @@ public class StarlinkAlertEvaluator
     /// alert titles.
     /// </param>
     /// <param name="timeProvider">Injected in tests so the sustain windows can be driven without waiting.</param>
+    /// <param name="scopeFactory">Reads dish alerts still open before a restart, so each is closed when it clears.</param>
     public StarlinkAlertEvaluator(IAlertEventBus eventBus, ILogger<StarlinkAlertEvaluator> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IServiceScopeFactory? scopeFactory = null)
     {
+        _openAtStart = new OpenAlertSeed(scopeFactory,
+            string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug,
+            [DishAlertEvent, ObstructedEvent, AlignmentDriftEvent, EthSpeedDegradedEvent, OutageBurstEvent, ServiceRestrictedEvent],
+            SeedSubject, logger);
         _eventBus = eventBus;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
@@ -255,8 +264,9 @@ public class StarlinkAlertEvaluator
         string? wanLabel = null,
         CancellationToken ct = default)
     {
-        var state = _states.GetOrAdd(starlinkId, _ => new DishState());
         var now = _time.GetUtcNow().UtcDateTime;
+        var open = await _openAtStart.OpenAsync();
+        var state = _states.GetOrAdd(starlinkId, id => NewDishState(open, id, now));
         var subject = new DishSubject(starlinkId, dishName, wanLabel);
 
         // One evaluation per dish at a time. The timer poll is single-flighted against itself, but
@@ -284,6 +294,57 @@ public class StarlinkAlertEvaluator
         {
             state.Gate.Release();
         }
+    }
+
+    /// <summary>
+    /// A dish's alerts pair by dish and by the type a recovery names, since one recovery type
+    /// closes six kinds of alert.
+    /// </summary>
+    private static string? SeedSubject(NetworkOptimizer.Alerts.Models.AlertHistoryEntry alert)
+    {
+        if (alert.DeviceId is not { } device || !device.StartsWith(DeviceIdPrefix, StringComparison.Ordinal)) return null;
+        var type = alert.EventType == RecoveredEvent ? OpenAlertSeed.Context(alert, RecoveredTypeKey) : alert.EventType;
+        return type == null ? null : $"{device}|{type}";
+    }
+
+    /// <summary>A dish first seen by this process, with every rule whose alert was open at start-up starting open.</summary>
+    private static DishState NewDishState(OpenAlerts open, int starlinkId, DateTime now)
+    {
+        var state = new DishState();
+        var device = $"{DeviceIdPrefix}{starlinkId}";
+        AlertHistoryEntry? Open(string type) => open.Take(type, $"{device}|{type}");
+
+        if (Open(DishAlertEvent) is { } fault)
+        {
+            var signature = new HashSet<string>(
+                (OpenAlertSeed.Context(fault, "dish_alerts") ?? "").Split(", ", StringSplitOptions.RemoveEmptyEntries),
+                StringComparer.OrdinalIgnoreCase);
+            var disablement = OpenAlertSeed.Context(fault, "disablement_code");
+            if (IsDisabled(disablement)) signature.Add($"disablement:{disablement}");
+            if (OpenAlertSeed.Context(fault, "self_test_regressed") == "true")
+            {
+                // It regressed, so it had passed: without this a still-failing self-test reads as cleared.
+                state.SelfTestHasPassed = true;
+                signature.Add("hardware_self_test:failed");
+            }
+            if (signature.Count == 0) signature.Add("unknown");
+            state.OpenDishAlertCodes = signature;
+            state.OpenDishAlertSeverity = fault.Severity;
+        }
+        if (Open(ObstructedEvent) is { } obstructed)
+        {
+            state.Obstruction.MarkOpen();
+            state.ObstructionCritical = obstructed.Severity == AlertSeverity.Critical;
+        }
+        if (Open(AlignmentDriftEvent) != null) state.Alignment.MarkOpen();
+        if (Open(EthSpeedDegradedEvent) != null) state.EthSpeed.MarkOpen();
+        if (Open(OutageBurstEvent) != null)
+        {
+            state.OutageBurstOpen = true;
+            state.OutageBurstHeldUntil = now + OutageWindow;
+        }
+        if (Open(ServiceRestrictedEvent) != null) state.WasRestricted = true;
+        return state;
     }
 
     /// <summary>
@@ -466,6 +527,8 @@ public class StarlinkAlertEvaluator
                 ["dish_alerts"] = codeList,
                 ["disablement_code"] = disablement ?? "",
                 ["hardware_self_test"] = stats.HardwareSelfTest ?? "",
+                // Read back at start-up: a regression is the only self-test state that raises this.
+                ["self_test_regressed"] = state.SelfTestRegressed ? "true" : "false",
             })
         }, ct);
     }
@@ -718,7 +781,7 @@ public class StarlinkAlertEvaluator
 
         if (state.OutageBurstOpen)
         {
-            if (total >= OutageClearSecondsPerDay) return;
+            if (total >= OutageClearSecondsPerDay || now < state.OutageBurstHeldUntil) return;
             state.OutageBurstOpen = false;
             await PublishRecovered(subject, OutageBurstEvent, "outages",
                 "The dish is back under a normal amount of downtime for the day.", ct);
@@ -972,6 +1035,9 @@ public class StarlinkAlertEvaluator
 
         public readonly Queue<(DateTime At, double Seconds)> OutageSamples = new();
         public bool OutageBurstOpen;
+
+        /// <summary>A burst open before a restart stays open until the emptied window has refilled.</summary>
+        public DateTime? OutageBurstHeldUntil;
 
         /// <summary>Null until the first poll: the first reading only establishes what normal looks like.</summary>
         public bool? WasRestricted;
