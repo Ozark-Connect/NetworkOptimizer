@@ -251,6 +251,9 @@ public static class ConfigDiffEngine
             if (isTop && noOwned && ConfigCollections.NoOwnedContentFields.Contains(key)) continue;
 
             var childPath = isTop ? key : $"{path}.{key}";
+            // Identical before mapping is unchanged: Network 11 renumbered the Default WLAN group but left
+            // the APs pointing at its old ID, which mapping alone would report as a change.
+            if (idMap is { Count: > 0 } && CanonicalJson.DeepEquals(before[key], after[key])) continue;
             var b = Remap(before[key], idMap);
             var a = after[key];
             if (isTop && def.FieldDefaults.TryGetValue(key, out var fallback))
@@ -267,7 +270,7 @@ public static class ConfigDiffEngine
 
             if (isTop && def.KeyedArrays.TryGetValue(key, out var keyField) && (b is JsonArray || a is JsonArray))
             {
-                CompareKeyedArray(def, childPath, b as JsonArray, a as JsonArray, keyField, fields, noOwned);
+                CompareKeyedArray(def, key, childPath, b as JsonArray, a as JsonArray, keyField, fields, noOwned);
                 continue;
             }
 
@@ -342,7 +345,7 @@ public static class ConfigDiffEngine
         _ => n?.DeepClone(),
     };
 
-    private static void CompareKeyedArray(ConfigCollectionDef def, string path, JsonArray? before, JsonArray? after,
+    private static void CompareKeyedArray(ConfigCollectionDef def, string field, string path, JsonArray? before, JsonArray? after,
         string keyField, List<FieldChange> fields, bool noOwned)
     {
         Dictionary<string, JsonObject> Index(JsonArray? arr)
@@ -363,6 +366,7 @@ public static class ConfigDiffEngine
             a.TryGetValue(key, out var ao);
             if (bo == null || ao == null)
             {
+                if (def.UnsetElement?.Invoke(field, (bo ?? ao)!) == true) continue;
                 fields.Add(Shown(def, elementPath, bo, ao));
                 continue;
             }

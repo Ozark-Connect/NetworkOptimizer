@@ -107,6 +107,12 @@ public sealed class ConfigCollectionDef
     /// <summary>Array fields of objects compared element by element on a key field (port_overrides by port_idx).</summary>
     public IReadOnlyDictionary<string, string> KeyedArrays { get; init; } = new Dictionary<string, string>();
 
+    /// <summary>
+    /// A keyed-array element (array field, element) that means the same as no element: adding or dropping it
+    /// is not a difference.
+    /// </summary>
+    public Func<string, JsonObject, bool>? UnsetElement { get; init; }
+
     /// <summary>Secret fields beyond the <c>x_</c> convention.</summary>
     public IReadOnlySet<string> ExtraSecretFields { get; init; } = Empty;
 
@@ -353,6 +359,11 @@ public static class ConfigCollections
                     "network_defaults", "x_api_token"),
                 ExtraSecretFields = Set("psk", "utm_token", "fingerbank_key"),
                 SetArrays = Set("enabled_networks", "excluded_network_ids", "enabled_categories", "geo_ip_filtering_countries"),
+                // ips dns_filters: one content filter per network. A "none" filter with no lists filters nothing,
+                // so it equals no entry (Network 11 dropped two such entries on main's upgrade).
+                KeyedArrays = new Dictionary<string, string> { ["dns_filters"] = "network_id" },
+                UnsetElement = (field, e) => field == "dns_filters" && Str(e, "filter") is null or "none"
+                    && new[] { "allowed_sites", "blocked_sites", "blocked_tld" }.All(k => e[k] is not JsonArray { Count: > 0 }),
                 EnforcedKey = (o, _) => Str(o, "key"), KeyIsUnique = true,
                 Write = new CollectionWrite { UpdatePath = "rest/setting/{key}/{id}", Proven = true },
                 AuditSections = ["SETTINGS", "SYSTEM", "NETWORK_GLOBAL", "INTERNET", "WIFI_GLOBAL"],
@@ -451,6 +462,15 @@ public static class ConfigCollections
                 EnforcedKey = (o, _) => Str(o, "name"), KeyIsUnique = true,
                 Write = new CollectionWrite { CreatePath = "rest/firewallgroup", UpdatePath = "rest/firewallgroup/{id}", DeletePath = "rest/firewallgroup/{id}", Proven = true },
                 AuditSections = ["FIREWALL_GROUP"], AuditCollectionNames = ["firewallgroup"], AuditInput = true,
+            },
+            new()
+            {
+                // Read-only: captured so clients' network_members_group_ids and other references resolve to names
+                // and follow the groups across an ID change (Network 11's UUID migration). Not written yet.
+                Key = "network_members_group", DisplayName = "Client groups", Noun = "Client group", Group = "Clients",
+                Scope = UniFiApiScope.SiteV2, ReadPath = "network-members-groups", Order = 3, ReadOnlyFields = CommonReadOnly,
+                SetArrays = Set("members"),
+                EnforcedKey = (o, _) => $"{Str(o, "type")}|{Str(o, "name")}", KeyIsUnique = true,
             },
             new()
             {

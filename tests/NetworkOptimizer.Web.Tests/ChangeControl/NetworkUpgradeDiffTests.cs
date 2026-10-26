@@ -110,6 +110,42 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void ReferenceUnchangedWhileItsTargetWasRenumbered_IsNotAChange()
+    {
+        // Network 11 gave the Default WLAN group a new ID; the AP kept the old one.
+        var before = Versioned("10.6.109",
+            ("wlangroup", """{"_id":"old-default","name":"Default"}"""),
+            ("device", """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"AP","wlangroup_id_na":"old-default"}"""));
+        var after = Versioned("11.0.97",
+            ("wlangroup", """{"_id":"000000000000000000000001","name":"Default"}"""),
+            ("device", """{"_id":"u-d1","mac":"aa:bb:cc:dd:ee:01","name":"AP","wlangroup_id_na":"old-default"}"""));
+        ConfigDiffEngine.Compare(before, after).IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DnsFilter_NoneEntryDropped_IsNotAChange_ButARealFilterIs()
+    {
+        var before = State(("setting", """{"_id":"s1","key":"ips","dns_filters":[{"network_id":"n1","filter":"none","allowed_sites":[],"blocked_sites":[]},{"network_id":"n2","filter":"security"}]}"""));
+        var none = State(("setting", """{"_id":"s1","key":"ips","dns_filters":[{"network_id":"n2","filter":"security"}]}"""));
+        var real = State(("setting", """{"_id":"s1","key":"ips","dns_filters":[{"network_id":"n1","filter":"none","allowed_sites":[],"blocked_sites":[]}]}"""));
+
+        ConfigDiffEngine.Compare(before, none).IsEmpty.Should().BeTrue();
+        ConfigDiffEngine.Compare(before, real).Objects.Single().Fields.Should().ContainSingle(f => f.Path == "dns_filters[network_id=n2]");
+    }
+
+    [Fact]
+    public void ClientGroupReference_FollowsTheGroupAcrossTheUpgrade()
+    {
+        var before = Versioned("10.6.109",
+            ("network_members_group", """{"_id":"g-old","name":"PC Gaming","type":"CLIENTS","members":["aa:bb:cc:dd:ee:01"]}"""),
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["g-old"]}"""));
+        var after = Versioned("11.0.97",
+            ("network_members_group", """{"id":"g-new","name":"PC Gaming","type":"CLIENTS","members":["aa:bb:cc:dd:ee:01"]}"""),
+            ("user", """{"_id":"u-u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["g-new"]}"""));
+        ConfigDiffEngine.Compare(before, after).IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
     public void BeforeStateInAfterIds_ReferencesTheUpgradedObjects()
     {
         var mapped = ConfigDiffEngine.InAfterIds(Before(), After());
