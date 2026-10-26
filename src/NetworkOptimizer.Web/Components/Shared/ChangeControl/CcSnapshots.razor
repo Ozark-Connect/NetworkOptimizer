@@ -242,8 +242,7 @@ else if (_compare != null)
                     }
                     else
                     {
-                        <pre class="gateway-diag-raw" style="margin:0;max-height:520px;overflow:auto">@foreach (var (kind, text) in _yamlDiff){<span class="@(kind == '-' ? "danger-text" : kind == '+' ? "success-text" : "muted-text")">@($"{kind} {text}")
-</span>}</pre>
+                        <pre class="gateway-diag-raw" style="margin:0;max-height:520px;overflow:auto">@foreach (var (kind, text) in _yamlDiff){<span class="@(kind == '-' ? "danger-text" : kind == '+' ? "success-text" : "muted-text")">@($"{kind} {text}\n")</span>}</pre>
                     }
                 </div>
             }
