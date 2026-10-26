@@ -1,0 +1,227 @@
+@using System.Globalization
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Web.Services.ChangeControl.SiteHealth
+@using NetworkOptimizer.Web.Components.Shared.ChangeControl
+@implements IDisposable
+@inject ISiteManagementService SiteManagement
+@inject IChangeControlFleetService Fleet
+@inject IAgentEnrollmentService AgentEnrollment
+@inject AgentTunnelRegistry TunnelRegistry
+@inject SiteRegistryChangeNotifier ChangeNotifier
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
+@inject ILogger<SitesHealthPanel> Logger
+
+@* The Dashboard's Sites panel: which site needs you and why, worst first. Renders nothing until
+   multi-site is on with more than one site, so it sits on the Dashboard unconditionally. Reads only
+   stored Site Health hours and Change Control tables, never Influx. *@
+@if (_sites is { Count: > 1 } sites)
+{
+    var withData = sites.Where(s => s.Health.Average != null).ToList();
+    double? avg = withData.Count > 0 ? withData.Average(s => s.Health.Average!.Value) : null;
+    var prevSites = withData.Where(s => s.Health.PreviousAverage != null).ToList();
+    double? prev = prevSites.Count > 0 ? prevSites.Average(s => s.Health.PreviousAverage!.Value) : null;
+    var down = sites.Count(s => !s.Online || SiteHealthSeriesBuilder.Level(Now(s)) == "down");
+    var degraded = sites.Count(s => s.Online && SiteHealthSeriesBuilder.Level(Now(s)) == "degraded");
+    var healthy = sites.Count - down - degraded;
+    var cap = _more ? ExpandedCap : CondensedCap;
+    var shown = sites.Take(cap).ToList();
+
+    <section class="card sites-health-panel" data-tour="dashboard-sites">
+        <header class="shp-header">
+            <h3 class="shp-title">Sites</h3>
+            @if (!_more && avg is { } a)
+            {
+                <span class="shp-inline-avg"><b class="health-@SiteHealthSeriesBuilder.Level(a)">@F(a)</b>
+                    @if (prev is { } p0 && Math.Abs(a - p0) >= 0.1)
+                    {
+                        <span class="shp-delta @(a < p0 ? "down" : "up")" data-tooltip="@($"{(a < p0 ? "Down" : "Up")} {F(Math.Abs(a - p0))} from the 24 hours before")">@(a < p0 ? "▼" : "▲") @F(Math.Abs(a - p0))</span>
+                    }
+                    <span>avg health, 24 hours</span></span>
+            }
+            <span class="shp-spacer"></span>
+            <a class="shp-switcher" href="/sites">Open site switcher</a>
+            <div class="time-range-selector shp-view" role="group" aria-label="View">
+                <button type="button" class="time-btn @(_more ? "" : "active")" aria-pressed="@(!_more)" @onclick="() => SetViewAsync(false)">Less</button>
+                <button type="button" class="time-btn @(_more ? "active" : "")" aria-pressed="@_more" @onclick="() => SetViewAsync(true)">More</button>
+            </div>
+        </header>
+
+        @if (_more)
+        {
+            <div class="shp-summary">
+                <div class="shp-avg">
+                    <div class="shp-avg-label">Avg Site Health, last 24 hours</div>
+                    <div class="shp-avg-value">
+                        <span class="health-@SiteHealthSeriesBuilder.Level(avg)">@(avg is { } v ? F(v) : "--")</span>
+                        @if (avg is { } a2 && prev is { } p && Math.Abs(a2 - p) >= 0.1)
+                        {
+                            <span class="shp-delta @(a2 < p ? "down" : "up")" data-tooltip="@($"{(a2 < p ? "Down" : "Up")} {F(Math.Abs(a2 - p))} from the 24 hours before")">@(a2 < p ? "▼" : "▲") @F(Math.Abs(a2 - p))</span>
+                        }
+                    </div>
+                    <div class="shp-avg-sub">@healthy healthy, @degraded degraded, @down down</div>
+                </div>
+                <div class="shp-chips">
+                    @foreach (var chip in Chips(sites))
+                    {
+                        <span class="shp-chip @chip.Kind"><span class="shp-chip-dot"></span>@chip.Text</span>
+                    }
+                </div>
+            </div>
+            <div class="shp-head-row hide-mobile">
+                <span></span><span>Site</span><span>Health, 24 hours</span><span class="num">Now</span><span>Top issue</span><span class="num">Incidents</span><span class="num">Changes</span>
+            </div>
+            @foreach (var s in shown)
+            {
+                var now = Now(s);
+                <div class="shp-row">
+                    <a class="shp-row-link" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug" aria-label="@s.Name"></a>
+                    <span class="status-dot @(s.Online ? "online" : "offline")"></span>
+                    <span class="shp-name">
+                        <span class="shp-site">@s.Name</span>
+                        <span class="shp-sub">@s.Connection</span>
+                    </span>
+                    <svg class="shp-spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="@SparkLabel(s)">
+                        <polyline points="@Spark(s)" fill="none" class="shp-spark-line @(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+                    </svg>
+                    <span class="shp-now num health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>
+                    <span class="shp-issue @(Issue(s) == null ? "muted" : "")">@(Issue(s) ?? "No issues")</span>
+                    <a class="num shp-count shp-count-link @(s.Incidents24h > 0 ? "danger-text" : "")" href="@SiteContextService.WithSiteParam("/alerts?tab=incidents", s.Slug)" data-site-switch="@s.Slug"
+                       data-tooltip="Open Alerts & Schedule - Incidents">@s.Incidents24h</a>
+                    <a class="num shp-count shp-count-link" href="@SiteContextService.WithSiteParam("/change-control/changes", s.Slug)" data-site-switch="@s.Slug"
+                       data-tooltip="Open Change Control - Changes">@s.Changes24h</a>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="shp-count-chips">
+                @if (down > 0) { <span class="shp-chip danger">@down down</span> }
+                @if (degraded > 0) { <span class="shp-chip warning">@degraded degraded</span> }
+                @if (sites.Sum(s => s.PendingApprovals) is var approvals && approvals > 0) { <span class="shp-chip info">@CcFormat.Plural(approvals, "approval", "approvals")</span> }
+            </div>
+            <div class="shp-tiles">
+                @foreach (var s in shown)
+                {
+                    var now = Now(s);
+                    var level = s.Online ? SiteHealthSeriesBuilder.Level(now) : "down";
+                    <a class="shp-tile @level" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug"
+                       data-tooltip="@(Issue(s) ?? "No issues")">
+                        <span class="shp-tile-name"><span class="status-dot @(s.Online ? "online" : "offline")"></span>@s.Name</span>
+                        <span class="shp-tile-health health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>
+                        <span class="shp-tile-issue hide-mobile">@(ShortIssue(s) ?? "No issues")</span>
+                    </a>
+                }
+            </div>
+        }
+
+        @if (sites.Count > cap)
+        {
+            <div class="shp-footer">
+                <span>Showing @cap of @sites.Count, worst first.</span>
+                <a href="/sites">Open site switcher for all @sites.Count</a>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private const string ViewPreference = "dashboard.sites.view";
+    private const int ExpandedCap = 8;
+    private const int CondensedCap = 12;
+
+    private List<SiteHealthSummary>? _sites;
+    private List<NetworkOptimizer.Storage.Models.SiteAgent> _agents = [];
+    private bool _more = true;
+    private Timer? _poll;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        if (!await SiteManagement.IsMultiSiteEnabledAsync()) return;
+        _more = await UserPreferences.GetAsync(ViewPreference) != "less";
+        await LoadAsync();
+        // Health moves hourly; reachability and agents can change any minute.
+        _poll = new Timer(async _ =>
+        {
+            try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _sites = await Fleet.GetSiteHealthAsync();
+            _agents = await AgentEnrollment.GetAllAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Sites panel could not load");
+        }
+    }
+
+    private async Task SetViewAsync(bool more)
+    {
+        _more = more;
+        // The last choice is this user's default.
+        await UserPreferences.SetAsync(ViewPreference, more ? "more" : "less");
+    }
+
+    private void OnSitesChanged() => _ = InvokeAsync(async () =>
+    {
+        try { await LoadAsync(); StateHasChanged(); }
+        catch (ObjectDisposedException) { }
+    });
+
+    private sealed record Chip(string Kind, string Text);
+
+    private IEnumerable<Chip> Chips(List<SiteHealthSummary> sites)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var s in sites.Where(s => !s.Online))
+            yield return new Chip("danger", $"{s.Name}: {(s.AgentOffline ? "agent offline" : "UniFi Console unreachable")}{(s.UnreachableSince is { } since ? $" for {Span(now - since)}" : "")}");
+        foreach (var s in sites.Where(s => s.Regressions24h > 0))
+            yield return new Chip("warning", $"{s.Name}: {CcFormat.Plural(s.Regressions24h, "security regression", "security regressions")}");
+        if (sites.Sum(s => s.PendingApprovals) is var approvals && approvals > 0)
+            yield return new Chip("info", CcFormat.Plural(approvals, "plan awaiting approval", "plans awaiting approval"));
+        var enrolled = _agents.Count(a => a.Enabled && a.EnrolledAt != null);
+        if (enrolled > 0)
+            yield return new Chip("muted", $"Agents {_agents.Count(a => a.Enabled && TunnelRegistry.IsAgentLive(a))} of {enrolled} online");
+    }
+
+    private static double? Now(SiteHealthSummary s) => s.Health.Latest ?? s.Health.Average;
+
+    private static string? Issue(SiteHealthSummary s) => !s.Online
+        ? (s.UnreachableSince is { } since ? $"No data for {Span(DateTime.UtcNow - since)}" : "No data")
+        : s.Health.TopIssue;
+
+    private static string? ShortIssue(SiteHealthSummary s) => !s.Online
+        ? (s.AgentOffline ? "Agent offline" : "Console unreachable")
+        : s.Health.TopShort;
+
+    /// <summary>The 24-hour line on a 60 to 100 axis; hours with no data break it.</summary>
+    private static string Spark(SiteHealthSummary s)
+    {
+        var pts = s.Health.Points;
+        if (pts.Count == 0) return "";
+        var from = pts[0].Start;
+        var span = Math.Max(1, (pts[^1].End - from).TotalSeconds);
+        return string.Join(" ", pts.Where(p => p.Health != null).Select(p =>
+            $"{((p.Start - from).TotalSeconds / span * 100).ToString("0.#", CultureInfo.InvariantCulture)},{(29 - Math.Clamp((p.Health!.Value - 60) / 40, 0, 1) * 27).ToString("0.#", CultureInfo.InvariantCulture)}"));
+    }
+
+    private static string SparkLabel(SiteHealthSummary s) =>
+        s.Health.Average is { } a ? $"Site Health over 24 hours, average {a:0.#}" : "No Site Health data";
+
+    private static string F(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
+
+    private static string Span(TimeSpan t) => t.TotalMinutes < 90 ? $"{Math.Max(1, (int)t.TotalMinutes)} minutes" : t.TotalHours < 48 ? $"{(int)t.TotalHours} hours" : $"{(int)t.TotalDays} days";
+
+    public void Dispose()
+    {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
+        _poll?.Dispose();
+    }
+}

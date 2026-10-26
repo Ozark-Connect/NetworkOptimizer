@@ -126,6 +126,22 @@ public class NetworkOptimizerDbContext : DbContext
     /// <inheritdoc cref="SharedFirmwareBuilds"/>
     public DbSet<SharedUniFiOsBuild> SharedUniFiOsBuilds { get; set; }
 
+    // Change Control (per site, except templates which live in the main database)
+    public DbSet<ConfigSnapshot> ConfigSnapshots { get; set; }
+    public DbSet<ConfigSnapshotBlob> ConfigSnapshotBlobs { get; set; }
+    public DbSet<ConfigChange> ConfigChanges { get; set; }
+    public DbSet<ConfigChangeObject> ConfigChangeObjects { get; set; }
+    public DbSet<ConfigWriteJournalEntry> ConfigWriteJournal { get; set; }
+    public DbSet<ChangeDetectionGap> ChangeDetectionGaps { get; set; }
+    public DbSet<ConfigPlan> ConfigPlans { get; set; }
+    public DbSet<ChangeControlSettings> ChangeControlSettings { get; set; }
+    public DbSet<ChangeDetectionState> ChangeDetectionStates { get; set; }
+    public DbSet<ConsoleBackupRecord> ConsoleBackups { get; set; }
+    public DbSet<SiteHealthHour> SiteHealthHours { get; set; }
+
+    /// <summary>Instance-wide config templates. Meaningful only in the MAIN database.</summary>
+    public DbSet<ConfigTemplate> ConfigTemplates { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -789,6 +805,84 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("SharedUniFiOsBuilds");
             entity.HasKey(e => new { e.Platform, e.Channel, e.Version });
         });
+
+        // Change Control
+        modelBuilder.Entity<ConfigSnapshot>(entity =>
+        {
+            entity.ToTable("ConfigSnapshots");
+            entity.HasIndex(e => e.TakenAt);
+            entity.Property(e => e.Trigger).HasConversion<int>();
+        });
+
+        modelBuilder.Entity<ConfigSnapshotBlob>(entity =>
+        {
+            entity.ToTable("ConfigSnapshotBlobs");
+            entity.HasKey(e => new { e.SnapshotId, e.Collection });
+            entity.HasIndex(e => e.Hash);
+            entity.HasOne<ConfigSnapshot>()
+                .WithMany()
+                .HasForeignKey(e => e.SnapshotId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ConfigChange>(entity =>
+        {
+            entity.ToTable("ConfigChanges");
+            entity.HasIndex(e => e.OccurredAt);
+            entity.HasIndex(e => e.SnapshotId);
+            entity.Property(e => e.Kind).HasConversion<int>();
+            entity.Property(e => e.ActorKind).HasConversion<int>();
+        });
+
+        modelBuilder.Entity<ConfigChangeObject>(entity =>
+        {
+            entity.ToTable("ConfigChangeObjects");
+            entity.HasIndex(e => e.ChangeId);
+            entity.HasIndex(e => new { e.Collection, e.ObjectId });
+            entity.Property(e => e.Action).HasConversion<int>();
+            entity.HasOne<ConfigChange>()
+                .WithMany()
+                .HasForeignKey(e => e.ChangeId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ConfigWriteJournalEntry>(entity =>
+        {
+            entity.ToTable("ConfigWriteJournal");
+            entity.HasIndex(e => e.At);
+        });
+
+        modelBuilder.Entity<ChangeDetectionGap>(entity =>
+        {
+            entity.ToTable("ChangeDetectionGaps");
+            entity.HasIndex(e => e.StartedAt);
+        });
+
+        modelBuilder.Entity<SiteHealthHour>(entity =>
+        {
+            entity.ToTable("SiteHealthHours");
+            entity.HasIndex(e => e.HourStart).IsUnique();
+        });
+
+        modelBuilder.Entity<ConfigPlan>(entity =>
+        {
+            entity.ToTable("ConfigPlans");
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.Property(e => e.Kind).HasConversion<int>();
+            entity.Property(e => e.Status).HasConversion<int>();
+        });
+
+        modelBuilder.Entity<ChangeControlSettings>(entity => entity.ToTable("ChangeControlSettings"));
+        modelBuilder.Entity<ChangeDetectionState>(entity => entity.ToTable("ChangeDetectionStates"));
+
+        modelBuilder.Entity<ConsoleBackupRecord>(entity =>
+        {
+            entity.ToTable("ConsoleBackups");
+            entity.HasIndex(e => e.FileName).IsUnique();
+        });
+
+        modelBuilder.Entity<ConfigTemplate>(entity => entity.ToTable("ConfigTemplates"));
     }
 }
 

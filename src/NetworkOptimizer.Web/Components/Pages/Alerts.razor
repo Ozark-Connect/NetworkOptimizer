@@ -1341,6 +1341,7 @@
                                     <span class="detail-value">@FormatTime(incident.LastTriggeredAt)</span>
                                 </div>
                             </div>
+                            <NetworkOptimizer.Web.Components.Shared.ChangeControl.CcIncidentChanges IncidentId="incident.Id" />
                             <div class="incident-actions">
                                 @if (incident.Status == AlertStatus.Active)
                                 {

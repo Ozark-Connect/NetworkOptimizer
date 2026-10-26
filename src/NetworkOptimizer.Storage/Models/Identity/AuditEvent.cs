@@ -225,6 +225,28 @@ public static class AuditActions
     public const string AgentGatewayInstallCanceled = "agent.gateway_install.canceled";
 
     // Meta
+    public const string ChangeControlSnapshotTaken = "change_control.snapshot.taken";
+    public const string ChangeControlSnapshotPinned = "change_control.snapshot.pinned";
+    public const string ChangeControlSnapshotUnpinned = "change_control.snapshot.unpinned";
+    public const string ChangeControlYamlDownloaded = "change_control.yaml.downloaded";
+    public const string ChangeControlSecretsExported = "change_control.secrets.exported";
+    public const string ChangeControlSecretRevealed = "change_control.secret.revealed";
+    public const string ChangeControlPlanSaved = "change_control.plan.saved";
+    public const string ChangeControlPlanSubmitted = "change_control.plan.submitted";
+    public const string ChangeControlPlanApproved = "change_control.plan.approved";
+    public const string ChangeControlPlanApplied = "change_control.plan.applied";
+    public const string ChangeControlPlanReverted = "change_control.plan.reverted";
+    public const string ChangeControlPlanCancelled = "change_control.plan.cancelled";
+    public const string ChangeControlLockoutOverridden = "change_control.lockout.overridden";
+    public const string ChangeControlBaselineSet = "change_control.baseline.set";
+    public const string ChangeControlSettingsChanged = "change_control.settings.changed";
+    public const string ChangeControlDevicesAdopted = "change_control.devices.adopted";
+    /// <summary>Clients reconnected (wireless rejoin, PoE port power-cycle) after a re-address.</summary>
+    public const string ChangeControlClientsReconnected = "change_control.clients.reconnected";
+    public const string ChangeControlDeviceForgotten = "change_control.device.forgotten";
+    public const string ChangeControlTemplateSaved = "change_control.template.saved";
+    public const string ChangeControlTemplateDeleted = "change_control.template.deleted";
+    public const string ChangeControlConsoleBackupDownloaded = "change_control.console_backup.downloaded";
     public const string MigrationPerformed = "audit.migration";
     public const string Pruned = "audit.pruned";
 }

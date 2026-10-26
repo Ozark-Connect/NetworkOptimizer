@@ -107,6 +107,18 @@ public sealed class TunnelClient
     /// </summary>
     public Action<long>? OnResultAck { get; set; }
 
+    /// <summary>Change Control hands over (or replaces) a plan's revert.</summary>
+    public Action<ConfigRevertArm>? OnConfigRevertArm { get; set; }
+
+    /// <summary>Change Control confirms, cancels, or acknowledges a revert report.</summary>
+    public Action<ConfigRevertConfirm>? OnConfigRevertConfirm { get; set; }
+
+    /// <summary>Raised once the server hello has arrived.</summary>
+    public Action? OnOpened { get; set; }
+
+    /// <summary>Whether the tunnel is open (hello received, not yet torn down).</summary>
+    public bool IsOpen { get; private set; }
+
     /// <summary>Queues a message for the stream pump. Safe from any thread.</summary>
     public bool TrySend(AgentMessage message) => _outbound.Writer.TryWrite(message);
 
@@ -212,6 +224,8 @@ public sealed class TunnelClient
         }
 
         Console.WriteLine($"Tunnel open for site '{siteSlug}' (heartbeat every {heartbeatInterval.TotalSeconds:0}s)");
+        IsOpen = true;
+        OnOpened?.Invoke();
 
         Volatile.Write(ref _lastInboundTicks, Environment.TickCount64);
         var pumpTask = PumpOutboundAsync(call.RequestStream, linked.Token);
@@ -288,11 +302,18 @@ public sealed class TunnelClient
                     case ServerMessage.PayloadOneofCase.ResultAck:
                         OnResultAck?.Invoke((long)message.ResultAck.Sequence);
                         break;
+                    case ServerMessage.PayloadOneofCase.ConfigRevertArm:
+                        OnConfigRevertArm?.Invoke(message.ConfigRevertArm);
+                        break;
+                    case ServerMessage.PayloadOneofCase.ConfigRevertConfirm:
+                        OnConfigRevertConfirm?.Invoke(message.ConfigRevertConfirm);
+                        break;
                 }
             }
         }
         finally
         {
+            IsOpen = false;
             linked.Cancel();
             _outbound.Writer.TryComplete();
             try { await Task.WhenAll(pumpTask, heartbeatTask, watchdogTask); } catch (OperationCanceledException) { }

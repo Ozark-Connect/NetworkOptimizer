@@ -1,0 +1,118 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+
+@* Objects grouped by collection with an expandable field diff (old red, new green), as on Compare. *@
+<div class="cc-phone-only">
+    @foreach (var group in Objects.GroupBy(o => ConfigCollections.Get(o.Object.Collection)?.Group ?? o.Object.CollectionName))
+    {
+        <div class="cc-mobile-group">@group.Key</div>
+        @foreach (var item in group)
+        {
+            var o = item.Object;
+            var key = $"{o.Collection}:{o.ObjectId}";
+            var open = _open.Contains(key);
+            <div class="cc-plan-card @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(key)">
+                <div><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, PastTense)</span> @Label(o)</div>
+                @if (!string.IsNullOrEmpty(item.WhenWho)) { <div class="cc-item-detail">@item.WhenWho</div> }
+                <div class="expand-wrapper @(open ? "expanded" : "")">
+                    <div class="expand-content">
+                        <div class="cc-inset" style="margin:0.4rem 0 0">
+                            @foreach (var f in o.Fields)
+                            {
+                                <div class="cc-mobile-field">@f.Label: <span class="danger-text">@(f.Secret ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? "Changed (hidden)" : f.New)</span></div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+<div class="table-responsive hide-mobile">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th class="expand-chevron"></th>
+                <th>Action</th>
+                <th>Object</th>
+                <th class="hide-mobile">Change</th>
+                @if (ShowWhenWho)
+                {
+                    <th class="hide-mobile" style="text-align:right">When, who</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var group in Objects.GroupBy(o => ConfigCollections.Get(o.Object.Collection)?.Group ?? o.Object.CollectionName))
+            {
+                <tr class="cc-group-row"><td colspan="@(ShowWhenWho ? 5 : 4)">@group.Key</td></tr>
+                @foreach (var item in group)
+                {
+                    var o = item.Object;
+                    var key = $"{o.Collection}:{o.ObjectId}";
+                    var open = _open.Contains(key);
+                    <tr class="history-row-clickable @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(key)">
+                        <td class="expand-chevron">@(open ? "▲" : "▼")</td>
+                        <td><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, PastTense)</span></td>
+                        <td>@Label(o)</td>
+                        <td class="hide-mobile">@o.ChangeText</td>
+                        @if (ShowWhenWho)
+                        {
+                            <td class="hide-mobile" style="text-align:right">@item.WhenWho</td>
+                        }
+                    </tr>
+                    <tr class="history-details-row">
+                        <td colspan="@(ShowWhenWho ? 5 : 4)">
+                            <div class="expand-wrapper @(open ? "expanded" : "")">
+                                <div class="expand-content">
+                                    <div class="cc-inset" style="margin-top:0.75rem">
+                                        <table class="cc-field-table">
+                                            @if (o.Fields.Count == 0)
+                                            {
+                                                <tr><td class="label">@(o.Action == ConfigChangeAction.Created ? "New object" : "Removed")</td><td></td><td></td></tr>
+                                            }
+                                            @foreach (var f in o.Fields)
+                                            {
+                                                <tr>
+                                                    <td class="label">@f.Label</td>
+                                                    <td class="old">@(f.Secret ? "Current value" : f.Old)</td>
+                                                    <td class="new">@(f.Secret ? "Changed (hidden)" : f.New)</td>
+                                                </tr>
+                                            }
+                                        </table>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(item.Note))
+                                    {
+                                        <div class="cc-inset-note" style="text-align:right">@item.Note</div>
+                                    }
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    [Parameter] public List<CompareObjectView> Objects { get; set; } = [];
+    [Parameter] public bool PastTense { get; set; } = true;
+    [Parameter] public bool ShowWhenWho { get; set; }
+
+    private readonly HashSet<string> _open = [];
+
+    private void Toggle(string key)
+    {
+        if (!_open.Remove(key)) _open.Add(key);
+    }
+
+    private static string Label(ChangeObjectView o) => o.Collection switch
+    {
+        "user" => $"Client: {o.Name}",
+        "static_dns" => $"Local DNS: {o.Name}",
+        "portconf" => $"Port profile {o.Name}",
+        "wlanconf" => $"WLAN {o.Name}",
+        _ => o.Name,
+    };
+}

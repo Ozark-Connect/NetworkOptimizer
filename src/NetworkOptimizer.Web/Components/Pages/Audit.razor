@@ -293,6 +293,10 @@
                                                     </span>
                                                 </span>
                                             }
+                                            @if (ZoneFixTypes.Contains(issue.Type))
+                                            {
+                                                <SiteOperatorOnly><a class="btn btn-sm btn-ghost issue-action" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=zones", SiteContext.Slug)" @onclick:stopPropagation="true">Fix with zones</a></SiteOperatorOnly>
+                                            }
                                             <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Hide this issue - still scored">
                                                 Acknowledge
                                             </button></SiteAdminOnly>
@@ -893,6 +897,14 @@
 
 @code {
     private bool IsLicenseRestricted => !LicenseState.IsSiteOperational(SiteContext.Slug);
+
+    // Isolation findings Change Control's Set Up Zones can fix (spec: "Fix with zones").
+    private static readonly HashSet<string> ZoneFixTypes =
+    [
+        NetworkOptimizer.Audit.IssueTypes.IotNetworkNotIsolated, NetworkOptimizer.Audit.IssueTypes.MediaNetworkNotIsolated,
+        NetworkOptimizer.Audit.IssueTypes.SecurityNetworkNotIsolated, NetworkOptimizer.Audit.IssueTypes.MgmtNetworkNotIsolated,
+        NetworkOptimizer.Audit.IssueTypes.MissingIsolation,
+    ];
 
     private static string FormatCoveringRules(IReadOnlyList<CoveringRuleInfo> rules)
     {

@@ -7,7 +7,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 **Jump to:** [Dashboard](#dashboard) · [Multi-Site](#multi-site) · [Monitoring](#monitoring) ·
 [Network Tools](#network-tools) · [Client Performance](#client-performance) ·
 [Config Optimizer](#config-optimizer) · [Performance Tweaks](#performance-tweaks) ·
-[Firmware Rollout](#firmware-rollout) · [Wi-Fi Optimizer](#wi-fi-optimizer) ·
+[Change Control](#change-control) · [Firmware Rollout](#firmware-rollout) · [Wi-Fi Optimizer](#wi-fi-optimizer) ·
 [Security Audit](#security-audit) · [UPnP Inspector](#upnp-inspector) ·
 [Threat Intelligence](#threat-intelligence) · [Web Application Firewall](#web-application-firewall) · [Adaptive SQM](#adaptive-sqm) ·
 [WAN Steering](#wan-steering) · [WAN Speed Test](#wan-speed-test) ·
@@ -38,7 +38,8 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 ## Multi-Site
 
 - Manage many UniFi sites from one server, each with its own database and InfluxDB buckets
-- **Sites** page - per-site cards with console status, license, agents online, and quick switch
+- **Sites** page - per-site cards with console status, license, agents online, Site Health, and quick switch
+- Dashboard **Sites** card - every site's Site Health and top issue, worst first; **Less** / **More** views; click a row to switch to that site
 - Site switcher in the top bar on every page
 - **Add a site** wizard - create the site, connect its console, then set up an [On-Site Agent](#on-site-agent) or skip it
 - Onboard a site over an existing site-to-site VPN with no agent
@@ -261,6 +262,51 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Mutes standard alerts while a deploy step restarts UniFi Network
 - **Install UDM Boot**; firmware upgrade impact notes; GPON stick compatibility guide
 
+## Change Control
+
+- UniFi Network keeps whole-console backups (.unf) that restore all at once; Change Control adds per-change history, diffs, and object-level roll back
+- **Overview** - what needs attention across every site: regressions, changes no admin made, drift, plans in progress
+  - Sites ranked worst first by Site Health
+- **Site Health** - one hourly score per site: the share of user-time the network served well
+  - Internet (outages, loss, latency, bufferbloat on the primary WAN), device availability, Wi-Fi satisfaction, and LAN errors and loss
+  - Separates ISP impairment from local causes (gateway reboot, gateway offline, gateway CPU)
+  - Names the top issue in words, with the points it cost and a trend arrow
+  - Backfills 90 days from history at first start
+- **Changes** - multi-site timeline of every config change, firmware step, and Network app upgrade, with who made it
+  - Source: the admin from UniFi's audit log, Network Optimizer's own writes, or "No admin recorded"
+  - Site Health lane, and stat lanes on the same time axis (InfluxDB): primary WAN latency and loss, WAN throughput, gateway CPU, Wi-Fi clients by band, and Wi-Fi PHY rate per band
+  - Each change shows the fields that moved, Site Health and the Security Audit before and after, and incidents that followed
+  - Alert when Site Health falls after a change
+  - **Roll Back** one change
+- **Snapshots** - the full UniFi Network config, stored encrypted outside the console
+  - Taken on every change, daily, before every apply, Firmware Rollout, and Network app upgrade
+  - **Compare** any two snapshots or one against live; **Download YAML**; **Pin**; **Roll Back** to a snapshot
+  - Baseline and **Drift from Baseline**, with **Return to Baseline** and **Accept as Baseline**
+  - **Templates** - save collections from one site, apply them to others, or use one as the Baseline
+  - **UniFi Console Backups** - keeps copies of UniFi's own .unf autobackups for download (Site Admin)
+- **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files
+  - Remove an object with one click; references to it in lists are removed in the same plan
+  - Edit a saved template the same way
+- **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
+  - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
+  - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
+- **Migrate**
+  - **Restore a Snapshot** onto this site, another site, or a blank UniFi Console
+    - Legacy firewall rules restored onto a zone-based console become zone policies, checked by the Security Audit
+  - **Replace Device** - move a switch, AP, or gateway's config to new hardware, same model or not
+    - Port mapping by role (uplink, LAG, PoE, SFP), radio clamping by band, and a re-cabling sheet PDF
+    - Older firmware on the new device links to Firmware Rollout to align it first
+  - **Adopt Pending Devices** whose MAC is in a snapshot
+  - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
+    - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
+  - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
+    - Addresses on a WAN's carrier side or a VPN's far side stay as they are
+    - The dry run lists clients with the address set on the device (from the gateway's DHCP leases, Gateway SSH), telling them from reserved clients that are only idle or offline
+    - Warns when Network Optimizer's host, a management network, or the console moves, and names devices that need a new inform address
+    - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
+- Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
+- **Settings** - retention, change detection, commit-confirmed window, approvals
+
 ## Firmware Rollout
 
 - Upgrade a whole site in waves, timed to the quietest window in your own traffic history
@@ -271,6 +317,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Update the UniFi Network application and UniFi OS as part of the rollout
 - Covers UniFi cellular modems; downgrades only when you pick an older build or roll back, and never for UniFi OS or UniFi Network
 - Console backup before the rollout; turns off UniFi auto-update schedules that would collide
+- Pins a [Change Control](#change-control) snapshot first; pauses for review when the Network app update leaves a security regression or a change no admin made
+- After a firmware roll back, **Compare Config Snapshot** against the snapshot taken before the rollout
 - **Start now**, **Schedule once**, or **Autopilot** on every new firmware, with a heads-up
 - Pace (Conservative, Balanced, Fast), approval at every wave, minimum release age
 - Live map and step table; pause, resume, abort, postpone, deploy now, re-plan
@@ -288,7 +336,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 ### Overview
 
-- **Site Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
+- **Wi-Fi Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
@@ -370,6 +418,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
   - Networks that should be isolated or have no internet; management devices without fixed IPs
+  - **Fix with zones** on isolation findings opens Set Up Zones in [Change Control](#change-control)
 - **Port Security** - MAC restriction, port lock, unused ports, port isolation, excessive tagged VLANs, subnet mismatches
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
@@ -546,6 +595,7 @@ Requires Gateway SSH.
 - **History** - every alert by source and severity
 - **Rules** - event pattern, threshold, severity, cooldown, escalation, digest-only, target devices
 - **Incidents** - related alerts grouped automatically
+  - Config changes in the 2 hours before each incident, with **Roll Back** ([Change Control](#change-control))
 - Alerts cover:
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
   - A device reaching, or trying to reach, an address on a public block list

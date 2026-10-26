@@ -423,6 +423,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         OnConnectionChanged?.Invoke();
     }
 
+    /// <summary>Hands every config write to Change Control's write journal for this site.</summary>
+    private void HandleWriteSent(NetworkOptimizer.UniFi.UniFiWriteRecord record) =>
+        _serviceProvider.GetService<ChangeControl.ChangeControlRegistry>()?.Journal(SiteSlug, record);
+
     /// <summary>
     /// The client proved the console stopped answering mid-session. Marks it down so pages render
     /// the banner instead of paying a timeout per call; the background reconnect clears it.
@@ -708,6 +712,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public DateTime? LastConnectedAt => _lastConnectedAt;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
 
+    /// <summary>The console is reached through the site's On-Site Agent tunnel.</summary>
+    public bool IsViaAgent => _clientViaAgent;
+
     /// <summary>
     /// Gets the current connection config (for UI display)
     /// </summary>
@@ -864,6 +871,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
             _client.ConsoleWentSilent += HandleConsoleWentSilent;
+            _client.WriteSent += HandleWriteSent;
 
             // Attempt to authenticate. A Save is never held, but its 429 still holds the reconnects after it.
             var success = await _client.LoginAsync();
@@ -1035,6 +1043,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             );
             _client.AuthProbeCompleted += HandleAuthProbe;
             _client.ConsoleWentSilent += HandleConsoleWentSilent;
+            _client.WriteSent += HandleWriteSent;
             _client.CarryLoginLimit(_loginLimitedUntil, _loginLimitBackoff);
 
             var success = await _client.LoginAsync(cts.Token);
@@ -1399,6 +1408,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             testClient?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Re-reads the saved settings, skipping the cache, and reconnects: for a settings change made outside
+    /// this service (a re-address moving the console URL).
+    /// </summary>
+    public Task<bool> ReloadAndReconnectAsync()
+    {
+        _settings = null;
+        _cacheTime = DateTime.MinValue;
+        return ReconnectAsync();
     }
 
     /// <summary>

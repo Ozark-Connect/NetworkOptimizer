@@ -1,0 +1,128 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using System.Globalization
+
+@* One timeline track: up to two series (or stacked areas) on a shared axis, incident and gap bands, change markers,
+   and the selected change's line. Positions are percentages of the range, so tracks line up. *@
+<div class="cc-track @(Lane ? "cc-lane-track" : "")">
+    @* Hover zones first, so an incident band drawn after them keeps its own tooltip. *@
+    @foreach (var p in Health ?? [])
+    {
+        var left = CcFormat.Pct(p.Start, From, To);
+        <div class="cc-health-zone" style="left:@F(left)%;width:@F(Math.Max(0.2, CcFormat.Pct(p.End, From, To) - left))%"
+             data-tooltip="@($"{CcFormat.Time(p.Start)}: {p.Tip ?? (p.Health is { } h ? $"Health {h:0.#}" : "No data")}")"></div>
+    }
+    @foreach (var band in Bands)
+    {
+        var left = CcFormat.Pct(band.Start, From, To);
+        var width = Math.Max(0.4, CcFormat.Pct(band.End, From, To) - left);
+        <div class="cc-band @band.Kind" style="left:@F(left)%;width:@F(width)%" data-tooltip="@BandTip(band)"></div>
+    }
+    @if (Lane)
+    {
+        @foreach (var m in Markers)
+        {
+            <div class="cc-marker-line" style="left:@F(CcFormat.Pct(m.OccurredAt, From, To))%"></div>
+        }
+    }
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        @if (!Lane)
+        {
+            <line x1="0" y1="96" x2="100" y2="96" stroke="#374151" stroke-width="1" vector-effect="non-scaling-stroke" />
+        }
+        @foreach (var layer in Stack)
+        {
+            <polygon points="@CcFormat.Area(layer.Points, From, To, _max)" style="fill:@layer.Color" fill-opacity="0.45" />
+            <polyline points="@CcFormat.Polylines(layer.Points.Select(p => (p.Time, (double?)p.Upper)).ToList(), From, To, _max).FirstOrDefault()" fill="none"
+                      style="stroke:@layer.Color" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+        }
+        @foreach (var (points, level) in HealthSegments())
+        {
+            <polyline points="@points" fill="none" class="cc-health-line @level" stroke-width="1.75" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+        }
+        @if (Stack.Count == 0 && Health == null)
+        {
+            @foreach (var line in CcFormat.Polylines(SeriesA, From, To, _max))
+            {
+                <polyline points="@line" fill="none" style="stroke:@ColorA" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+            }
+        }
+        @foreach (var named in Lines)
+        {
+            @foreach (var line in CcFormat.Polylines(named.Series, From, To, _max))
+            {
+                <polyline points="@line" fill="none" style="stroke:@named.Color" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+            }
+        }
+        @foreach (var line in CcFormat.Polylines(SeriesB, From, To, _max))
+        {
+            <polyline points="@line" fill="none" style="stroke:@ColorB" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+        }
+    </svg>
+    @if (SelectedId is { } sel && Markers.FirstOrDefault(m => m.Id == sel) is { } selected)
+    {
+        <div class="cc-select-line" style="left:@F(CcFormat.Pct(selected.OccurredAt, From, To))%"></div>
+    }
+    @if (ShowMarkers)
+    {
+        @foreach (var m in Markers)
+        {
+            <button type="button" class="cc-marker @CcFormat.Marker(m) @(m.Id == SelectedId ? "selected" : "")"
+                    style="left:@F(CcFormat.Pct(m.OccurredAt, From, To))%"
+                    data-tooltip="@($"{CcFormat.Time(m.OccurredAt)}: {m.Summary} ({m.Who})")"
+                    aria-label="@m.Summary"
+                    @onclick="() => OnMarker.InvokeAsync(m)" @onclick:stopPropagation></button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public DateTime From { get; set; }
+    [Parameter] public DateTime To { get; set; }
+    [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesA { get; set; } = [];
+    [Parameter] public IReadOnlyList<(DateTime Time, double? Value)> SeriesB { get; set; } = [];
+    [Parameter] public IReadOnlyList<StackLayer> Stack { get; set; } = [];
+    [Parameter] public IReadOnlyList<LaneLine> Lines { get; set; } = [];
+    /// <summary>Site Health buckets: drawn on a fixed 60 to 100 axis, colored by level, with hover per bucket.</summary>
+    [Parameter] public IReadOnlyList<NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.HealthPoint>? Health { get; set; }
+
+    // 60 to 100: below 60 is already red and flat-lines at the floor, and the band that matters stays readable.
+    private const double HealthFloor = 60;
+
+    private static double HealthY(double h) => 96 - Math.Clamp((h - HealthFloor) / (100 - HealthFloor), 0, 1) * 88;
+
+    /// <summary>Runs of consecutive known buckets, each segment colored by the lower of its two ends.</summary>
+    private IEnumerable<(string Points, string Level)> HealthSegments()
+    {
+        if (Health is not { Count: > 0 } points) yield break;
+        for (var i = 1; i < points.Count; i++)
+        {
+            if (points[i - 1].Health is not { } a || points[i].Health is not { } b || points[i].Start != points[i - 1].End) continue;
+            var x1 = CcFormat.Pct(points[i - 1].Start + (points[i - 1].End - points[i - 1].Start) / 2, From, To);
+            var x2 = CcFormat.Pct(points[i].Start + (points[i].End - points[i].Start) / 2, From, To);
+            yield return ($"{F(x1)},{F(HealthY(a))} {F(x2)},{F(HealthY(b))}",
+                NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(Math.Min(a, b)));
+        }
+    }
+    [Parameter] public string ColorA { get; set; } = "#2ba89a";
+    [Parameter] public string ColorB { get; set; } = "#f59e0b";
+    [Parameter] public IReadOnlyList<ChangeRowView> Markers { get; set; } = [];
+    [Parameter] public IReadOnlyList<TimelineBand> Bands { get; set; } = [];
+    [Parameter] public int? SelectedId { get; set; }
+    [Parameter] public bool Lane { get; set; }
+    [Parameter] public bool ShowMarkers { get; set; } = true;
+    [Parameter] public EventCallback<ChangeRowView> OnMarker { get; set; }
+
+    private double _max = 1;
+
+    protected override void OnParametersSet() => _max = CcFormat.Max(SeriesA, SeriesB.Concat(Lines.SelectMany(l => l.Series)));
+
+    private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+
+    /// <summary>"Device Offline: [AP] Back Yard, Oct 19, 11:25 AM to 11:40 AM".</summary>
+    private static string BandTip(TimelineBand band)
+    {
+        var end = CcFormat.Local(band.End).Date == CcFormat.Local(band.Start).Date
+            ? CcFormat.Local(band.End).ToString("h:mm tt") : CcFormat.Time(band.End);
+        return $"{band.Label}, {CcFormat.Time(band.Start)} to {end}";
+    }
+}

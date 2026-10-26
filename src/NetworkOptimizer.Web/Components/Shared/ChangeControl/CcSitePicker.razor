@@ -1,0 +1,24 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject SiteContextService SiteCtx
+@inject SiteSwitchService SiteSwitch
+@inject NavigationManager Nav
+
+@* Site-scoped tabs (Snapshots, Edit, Settings) work on one site; picking another switches the site. *@
+<select class="form-control" value="@SiteCtx.Slug" @onchange="ChangeAsync" disabled="@(Sites.Count <= 1)">
+    @foreach (var s in Sites)
+    {
+        <option value="@s.Slug">@s.Name</option>
+    }
+</select>
+
+@code {
+    [Parameter] public List<FleetSiteView> Sites { get; set; } = [];
+
+    private async Task ChangeAsync(ChangeEventArgs e)
+    {
+        var slug = e.Value?.ToString();
+        if (string.IsNullOrEmpty(slug) || slug == SiteCtx.Slug) return;
+        var path = new Uri(Nav.Uri).AbsolutePath;
+        await SiteSwitch.SwitchToAsync(slug, path);
+    }
+}

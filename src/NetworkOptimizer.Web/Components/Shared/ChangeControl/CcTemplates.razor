@@ -1,0 +1,234 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject IConfigTemplateService Templates
+@inject IChangeControlService Site
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject ILogger<CcTemplates> Logger
+
+@* Templates: site-wide config shared across sites. Instance Admins create and edit them; a Site Admin applies one or uses it as the Baseline. *@
+<div class="card" data-tour="cc-templates">
+    <div class="card-header">
+        <h3 class="card-title">Templates<span class="card-title-suffix">shared across sites</span></h3>
+        <AdminOnly>
+            <button class="btn btn-contrast btn-sm" @onclick="() => _creating = !_creating">@(_creating ? "Cancel" : "New Template")</button>
+        </AdminOnly>
+    </div>
+
+    @if (_creating)
+    {
+        <div class="card-body cc-template-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" @bind="_name" maxlength="100" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">From</label>
+                    <select class="form-control" @bind="_source">
+                        <option value="">Live config</option>
+                        @foreach (var s in Snapshots.Take(30))
+                        {
+                            <option value="@s.Id">Snapshot, @CcFormat.Time(s.TakenAt)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <input class="form-control" @bind="_description" maxlength="300" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Collections</label>
+                <div class="cc-template-collections">
+                    @foreach (var def in Templatable)
+                    {
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@_collections.Contains(def.Key)" @onchange="() => Toggle(def.Key)" />
+                            <span>@def.DisplayName</span>
+                        </label>
+                    }
+                </div>
+                <small class="form-help">Devices and clients stay per site. Secrets are copied from the source and kept encrypted.</small>
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || _collections.Count == 0)" @onclick="CreateAsync">Save Template</button>
+            </div>
+        </div>
+    }
+
+    @if (_templates == null)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else if (_templates.Count == 0)
+    {
+        <div class="empty-state empty-state-small"><p>No templates yet.</p></div>
+    }
+    else
+    {
+        @foreach (var t in _templates)
+        {
+            var isBaseline = BaselineTemplateId == t.Id;
+            <div class="cc-template-row">
+                <div class="cc-template-main">
+                    <div><b>@t.Name</b> @if (isBaseline) { <span class="status-badge status-connected">Baseline</span> }</div>
+                    <div class="cc-item-detail">
+                        @CcFormat.Plural(t.Collections.Count, "collection", "collections")@(t.SourceSiteSlug != null ? $", from {t.SourceSiteSlug}" : ""), updated @CcFormat.Time(t.UpdatedAt)
+                    </div>
+                    @if (!string.IsNullOrEmpty(t.Description)) { <div class="cc-item-detail">@t.Description</div> }
+                </div>
+                <div class="cc-row-actions">
+                    <SiteAdminOnly>
+                        <button class="btn btn-sm btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => ApplyAsync(t.Id)">Apply to This Site</button>
+                        @if (isBaseline)
+                        {
+                            <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(null)">Clear Baseline</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(t.Id)">Use as Baseline</button>
+                        }
+                    </SiteAdminOnly>
+                    <AdminOnly>
+                        <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => EditDetails(t)">Edit Details</button>
+                        <button class="btn btn-sm btn-secondary" @onclick="() => EditYaml(t.Id)">Edit YAML</button>
+                        <button class="btn btn-sm btn-danger" disabled="@_busy" @onclick="() => DeleteAsync(t.Id)">Delete</button>
+                    </AdminOnly>
+                </div>
+            </div>
+            @if (_editingId == t.Id)
+            {
+                <div class="card-body cc-template-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input class="form-control" @bind="_name" maxlength="100" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <input class="form-control" @bind="_description" maxlength="300" />
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))" @onclick="SaveDetailsAsync">Save</button>
+                        <button class="btn btn-contrast" @onclick="() => _editingId = null">Cancel</button>
+                    </div>
+                </div>
+            }
+        }
+    }
+    @if (_error != null)
+    {
+        <div class="alert alert-danger" style="margin:0.75rem 1rem">@_error</div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<SnapshotRowView> Snapshots { get; set; } = [];
+    [Parameter] public int? BaselineTemplateId { get; set; }
+    [Parameter] public EventCallback OnBaselineChanged { get; set; }
+
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
+    private static readonly List<ConfigCollectionDef> Templatable =
+        ConfigCollections.All.Where(d => d.Write != null && d.Key is not "device" and not "user").ToList();
+
+    private List<TemplateView>? _templates;
+    private bool _creating;
+    private string _name = "";
+    private string? _description;
+    private string _source = "";
+    private readonly HashSet<string> _collections = [];
+    private int? _editingId;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _templates = await Templates.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Templates failed to load");
+            _templates = [];
+        }
+    }
+
+    private void Toggle(string key)
+    {
+        if (!_collections.Remove(key)) _collections.Add(key);
+    }
+
+    private async Task CreateAsync() => await RunAsync(async () =>
+    {
+        await Templates.CreateFromSiteAsync(SiteCtx.Slug, int.TryParse(_source, out var id) ? id : null, _name.Trim(), _description, _collections.ToList());
+        _creating = false;
+        _name = "";
+        _description = null;
+        _collections.Clear();
+        await LoadAsync();
+    });
+
+    private void EditYaml(int id) =>
+        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/edit?template={id}", SiteCtx.Slug));
+
+    // The YAML itself is edited on the Edit tab; this form holds the name and description.
+    private void EditDetails(TemplateView t)
+    {
+        _name = t.Name;
+        _description = t.Description;
+        _editingId = _editingId == t.Id ? null : t.Id;
+    }
+
+    private async Task SaveDetailsAsync() => await RunAsync(async () =>
+    {
+        if (_editingId is not int id) return;
+        await Templates.RenameAsync(id, _name.Trim(), _description);
+        _editingId = null;
+        await LoadAsync();
+    });
+
+    private async Task DeleteAsync(int id) => await RunAsync(async () =>
+    {
+        await Templates.DeleteAsync(id);
+        if (BaselineTemplateId == id) await SetBaselineCoreAsync(null);
+        await LoadAsync();
+    });
+
+    private async Task ApplyAsync(int id) => await RunAsync(async () =>
+    {
+        var planId = await Site.BuildApplyTemplateAsync(id);
+        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+    });
+
+    private async Task SetBaselineAsync(int? id) => await RunAsync(() => SetBaselineCoreAsync(id));
+
+    private async Task SetBaselineCoreAsync(int? id)
+    {
+        await Site.SetBaselineTemplateAsync(id);
+        await OnBaselineChanged.InvokeAsync();
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

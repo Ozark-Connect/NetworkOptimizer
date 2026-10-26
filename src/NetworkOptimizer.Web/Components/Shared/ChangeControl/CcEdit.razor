@@ -1,0 +1,549 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using System.Text
+@using System.Text.Json.Nodes
+@implements IAsyncDisposable
+@inject IChangeControlService Site
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject IChangeControlFleetService Fleet
+@inject IConfigTemplateService Templates
+@inject AuthenticationStateProvider AuthState
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<CcEdit> Logger
+
+<SiteOperatorOnly>
+    <NotAuthorized>
+        <div class="card"><div class="card-body">Editing needs the Site Operator role on this site.</div></div>
+    </NotAuthorized>
+    <ChildContent>
+        <div class="card hide-mobile">
+            <div class="cc-toolbar">
+                @if (_templates.Count > 0)
+                {
+                    <span class="cc-toolbar-label">Editing</span>
+                    @EditingPicker()
+                }
+                @if (CurrentTemplate is { } template)
+                {
+                    <span class="cc-toolbar-label">@CcFormat.Plural(template.Collections.Count, "collection", "collections"), shared across sites</span>
+                }
+                else
+                {
+                    <span class="cc-toolbar-label">Site</span>
+                    <CcSitePicker Sites="_sites" />
+                    <span class="cc-toolbar-label">Start from</span>
+                    <select class="form-control" @bind="StartFrom" @bind:after="StartOverAsync">
+                        <option value="">Live config</option>
+                        @foreach (var s in _snapshots.Take(30))
+                        {
+                            <option value="@s.Id">Snapshot, @CcFormat.Time(s.TakenAt)</option>
+                        }
+                    </select>
+                }
+                <span class="cc-toolbar-spacer"></span>
+                <span class="cc-edit-actions">
+                <label class="btn btn-contrast btn-sm" style="margin:0">
+                    Upload YAML
+                    <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
+                </label>
+                <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(false)">Download YAML</button>
+                @if (TemplateId == null)
+                {
+                    <SiteAdminOnly>
+                        <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(true)"
+                                data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited.">Download with Secrets</button>
+                    </SiteAdminOnly>
+                }
+                <button class="btn btn-contrast btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>
+                </span>
+            </div>
+        </div>
+
+        @if (_templates.Count > 0)
+        {
+            <div class="cc-phone-only form-group">
+                <label class="form-label">Editing</label>
+                @EditingPicker()
+            </div>
+        }
+        <div class="cc-phone-only form-group">
+            <label class="form-label">Collection</label>
+            <select class="form-control" value="@_group" @onchange="e => OpenGroupAsync(e.Value?.ToString() ?? _group)">
+                @foreach (var group in VisibleGroups)
+                {
+                    <option value="@group">@group@(EditedCount(group) > 0 ? $" ({EditedCount(group)} edited)" : "")</option>
+                }
+            </select>
+        </div>
+
+        <div class="cc-edit-grid">
+            <div class="card hide-mobile" data-tour="cc-editor">
+                <div class="card-header"><h3 class="card-title">Collections</h3></div>
+                <div class="cc-collections">
+                    @foreach (var group in VisibleGroups)
+                    {
+                        <button class="@(group == _group ? "active" : "")" @onclick="() => OpenGroupAsync(group)">
+                            <span>@group</span>
+                            @if (_edited.ContainsKey(group))
+                            {
+                                <span class="status-badge status-info">edited</span>
+                            }
+                            else
+                            {
+                                <span class="cc-count">@GroupCount(group)</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">@_group<span class="card-title-suffix">@FileName(_group), @CcFormat.Plural(GroupCount(_group), "object", "objects")</span></h3>
+                        @if (EditedCount(_group) > 0)
+                        {
+                            <span class="status-badge status-info">@EditedCount(_group) edited</span>
+                        }
+                        else
+                        {
+                            <span class="status-badge badge-muted hide-mobile">Secrets masked</span>
+                        }
+                    </div>
+                    @if (_loading)
+                    {
+                        <div class="loading-container"><div class="spinner"></div></div>
+                    }
+                    @* Always rendered: CodeMirror owns this element's children, and it must survive group switches. *@
+                    <div class="cc-editor @(_loading ? "is-loading" : "")" @ref="_host"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Problems<span class="card-title-suffix">checked as you type</span></h3>
+                        @if (Errors > 0) { <span class="status-badge status-error">@CcFormat.Plural(Errors, "error", "errors")</span> }
+                    </div>
+                    @if (_validation.Problems.Count == 0)
+                    {
+                        <div class="empty-state empty-state-small"><p>@(_edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
+                    }
+                    @foreach (var p in _validation.Problems.OrderBy(p => p.Level == "Error" ? 0 : p.Level == "Warning" ? 1 : 2))
+                    {
+                        <div class="cc-problem">
+                            <span class="status-badge @(p.Level switch { "Error" => "status-error", "Warning" => "status-warning", _ => "badge-muted" })">@p.Level</span>
+                            <code>@p.File:@p.Line</code>
+                            <div>@p.Message</div>
+                        </div>
+                    }
+                </div>
+
+                <div class="card">
+                    <div class="cc-card-footer">
+                        <span class="cc-remaining @(Errors > 0 ? "danger-text" : "muted-text")">
+                            @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before {CommitLabel}" : _edited.Count == 0 ? _saved ?? "No edits yet" : $"Ready to {(TemplateId == null ? "review" : "save")}")
+                        </span>
+                        <span class="muted-text cc-edit-count">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
+                        @if (TemplateId == null)
+                        {
+                            <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy || !ConsoleConnected)" @onclick="ReviewPlanAsync">Review Plan</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy)" @onclick="SaveTemplateAsync">Save Template</button>
+                        }
+                        <label class="btn btn-contrast cc-phone-inline" style="margin:0">
+                            Upload YAML
+                            <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
+                        </label>
+                        <button class="btn btn-contrast cc-phone-inline" @onclick="() => DownloadAsync(false)">Download</button>
+                    </div>
+                </div>
+                @if (_error != null)
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+            </div>
+        </div>
+    </ChildContent>
+</SiteOperatorOnly>
+
+@code {
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
+    private static readonly string[] Groups =
+    [
+        "Settings", "Networks", "WLANs", "Firewall Zones", "Firewall Policies", "Firewall Groups", "Port Profiles",
+        "Routes and Traffic Routes", "QoS and Traffic Rules", "NAT and Port Forwards", "Local DNS", "RADIUS and VPN", "Devices", "Clients", "Other",
+    ];
+
+    private List<FleetSiteView> _sites = [];
+    private List<SnapshotRowView> _snapshots = [];
+    private string StartFrom { get; set; } = "";
+    private string _group = "WLANs";
+    private string _text = "";
+    private Dictionary<string, int> _counts = [];
+    private readonly Dictionary<string, string> _edited = [];
+    private readonly Dictionary<string, string> _original = [];
+    private readonly Dictionary<string, string> _schemas = [];
+    private YamlValidation _validation = new();
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private Timer? _debounce;
+
+    private ElementReference _host;
+    private IJSObjectReference? _editor;
+    private DotNetObjectReference<CcEdit>? _self;
+    private bool _creating;
+    private bool _canReveal;
+    // Set when _text or _group changes on this side; the next render hands both to the editor.
+    private bool _pushText;
+    private int _generation;
+    private bool _disposed;
+
+    // Templates are listed for instance Admins only; editing one saves the template, not a plan.
+    private List<TemplateView> _templates = [];
+    private string Editing { get; set; } = "";
+    private string? _saved;
+
+    private int? SnapshotId => int.TryParse(StartFrom, out var id) ? id : null;
+    private int? TemplateId => Editing.StartsWith("t:", StringComparison.Ordinal) && int.TryParse(Editing[2..], out var id) ? id : null;
+    private TemplateView? CurrentTemplate => TemplateId is { } id ? _templates.FirstOrDefault(t => t.Id == id) : null;
+    private string CommitLabel => TemplateId == null ? "Review Plan" : "Save Template";
+    private int Errors => _validation.Problems.Count(p => p.Level == "Error");
+
+    /// <summary>A template shows only the groups holding its collections.</summary>
+    private IEnumerable<string> VisibleGroups => CurrentTemplate is { } t ? Groups.Where(g => Defs(g).Any(d => t.Collections.Contains(d.Key))) : Groups;
+
+    private IEnumerable<ConfigCollectionDef> LoadDefs(string group) =>
+        CurrentTemplate is { } t ? Defs(group).Where(d => t.Collections.Contains(d.Key)) : Defs(group);
+
+    private RenderFragment EditingPicker() => __builder =>
+    {
+        <select class="form-control" @bind="Editing" @bind:after="SwitchEditingAsync">
+            <option value="">Site config</option>
+            <optgroup label="Templates">
+                @foreach (var t in _templates)
+                {
+                    <option value="t:@t.Id">@t.Name</option>
+                }
+            </optgroup>
+        </select>
+    };
+
+    private static IEnumerable<ConfigCollectionDef> Defs(string group) => ConfigCollections.All.Where(d => d.Group == group);
+    private static string FileName(string group) => Defs(group).FirstOrDefault() is { } d ? YamlConverter.FileName(d) : "";
+    private int GroupCount(string group) => Defs(group).Sum(d => _counts.GetValueOrDefault(d.Key));
+    private int EditedCount(string group) =>
+        _validation.EditedByCollection is { } by ? Defs(group).Sum(d => by.GetValueOrDefault(d.Key)) : 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sites = await Fleet.GetSitesAsync();
+        _snapshots = (await Site.GetSnapshotsAsync()).Rows;
+        if ((await AuthState.GetAuthenticationStateAsync()).User.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin))
+        {
+            _templates = await Templates.ListAsync();
+            // Snapshots' Edit YAML links here with ?template=<id>.
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+            if (query.TryGetValue("template", out var t) && int.TryParse(t, out var id) && _templates.Any(x => x.Id == id))
+            {
+                Editing = $"t:{id}";
+                _group = VisibleGroups.FirstOrDefault() ?? _group;
+            }
+        }
+        await OpenGroupAsync(_group);
+    }
+
+    private async Task SwitchEditingAsync()
+    {
+        _saved = null;
+        _error = null;
+        if (!VisibleGroups.Contains(_group)) _group = VisibleGroups.FirstOrDefault() ?? Groups[0];
+        await StartOverAsync();
+    }
+
+    private async Task OpenGroupAsync(string group)
+    {
+        _group = group;
+        _pushText = true;
+        // An uploaded group is edited before it was ever loaded: load its base for the schema and
+        // the unedited text, but keep showing the upload.
+        var edited = _edited.GetValueOrDefault(group);
+        if (edited != null && _original.ContainsKey(group))
+        {
+            _text = edited;
+            return;
+        }
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            var loaded = await LoadGroupAsync(group);
+            _original[group] = loaded;
+            _text = edited ?? loaded;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            _pushText = true;
+        }
+    }
+
+    private async Task<string> LoadGroupAsync(string group)
+    {
+        var sb = new StringBuilder();
+        var collections = new JsonObject();
+        var refs = new JsonObject();
+        foreach (var def in LoadDefs(group))
+        {
+            var (yaml, counts, schema) = TemplateId is { } templateId
+                ? await Templates.GetEditBaseAsync(templateId, def.Key)
+                : await Site.GetEditBaseAsync(SnapshotId, def.Key);
+            _counts = counts;
+            sb.Append(yaml);
+            if (JsonNode.Parse(schema) is JsonObject parsed)
+            {
+                foreach (var (k, v) in parsed["collections"] as JsonObject ?? []) collections[k] = v?.DeepClone();
+                foreach (var (k, v) in parsed["refs"] as JsonObject ?? []) refs[k] = v?.DeepClone();
+            }
+        }
+        _schemas[group] = new JsonObject { ["collections"] = collections, ["refs"] = refs }.ToJsonString();
+        return sb.ToString();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The host appears only once SiteOperatorOnly has authorized, so not necessarily on the first render.
+        if (_editor == null && !_creating && _host.Id != null)
+        {
+            _creating = true;
+            try
+            {
+                _self = DotNetObjectReference.Create(this);
+                var module = await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/cc-editor.js"));
+                _canReveal = await Site.IsSiteAdminAsync();
+                if (_disposed) { await module.DisposeAsync(); return; }
+                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), EditKey, _canReveal);
+                _editor = module;
+                _pushText = true;
+                // Left the tab while create was in flight: DisposeAsync already ran without an editor to tear down.
+                if (_disposed) { await DisposeEditorAsync(); return; }
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or ObjectDisposedException) { return; }
+            finally { _creating = false; }
+        }
+        if (_editor != null && _pushText && !_loading)
+        {
+            _pushText = false;
+            try
+            {
+                await _editor.InvokeVoidAsync("setText", _host, _text, EditKey);
+                await _editor.InvokeVoidAsync("setSchema", _host, _schemas.GetValueOrDefault(_group, "{}"));
+                await PushProblemsAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+    }
+
+    // Group plus a generation that Discard, Start from, and Upload advance, so a change still in
+    // flight from before one of them is dropped instead of restoring the text it replaced.
+    private string EditKey => $"{_generation}|{_group}";
+
+    /// <summary>The editor's text after typing pauses. <paramref name="key"/> is <see cref="EditKey"/> when it was typed.</summary>
+    [JSInvokable]
+    public void OnEditorChanged(string key, string text)
+    {
+        var bar = key.IndexOf('|');
+        if (bar < 0 || key[..bar] != _generation.ToString(System.Globalization.CultureInfo.InvariantCulture)) return;
+        var group = key[(bar + 1)..];
+        if (group == _group) _text = text;
+        if (_original.TryGetValue(group, out var original) && original == text) _edited.Remove(group);
+        else _edited[group] = text;
+        _debounce?.Dispose();
+        _debounce = new Timer(_ => InvokeAsync(ValidateAsync), null, 400, Timeout.Infinite);
+        StateHasChanged();
+    }
+
+    /// <summary>A masked secret's value as YAML, for the Show button. Null when not allowed or not found.</summary>
+    [JSInvokable]
+    public async Task<string?> RevealSecret(string token)
+    {
+        if (!_canReveal) return null;
+        try
+        {
+            return TemplateId is { } templateId
+                ? await Templates.RevealSecretAsync(templateId, token)
+                : await Site.RevealSecretAsync(SnapshotId, token);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Revealing a masked secret failed");
+            return null;
+        }
+    }
+
+    /// <summary>A new secret from the passphrase engine ("Passphrase") or the random generator ("Random").</summary>
+    [JSInvokable]
+    public Task<string> GenerateSecret(string kind) =>
+        Site.GenerateSecretAsync(Enum.Parse<NetworkOptimizer.Web.Services.Secrets.SecretKind>(kind));
+
+    private async Task PushProblemsAsync()
+    {
+        if (_editor == null) return;
+        var file = FileName(_group);
+        var problems = _validation.Problems.Where(p => p.File == file).Select(p => new { line = p.Line, level = p.Level, message = p.Message }).ToList();
+        try { await _editor.InvokeVoidAsync("setProblems", _host, problems); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private Dictionary<string, string> Files() =>
+        _edited.ToDictionary(e => Defs(e.Key).First().Key, e => e.Value);
+
+    private async Task ValidateAsync()
+    {
+        try
+        {
+            _validation = _edited.Count == 0 ? new YamlValidation()
+                : TemplateId is { } templateId ? await Templates.ValidateYamlAsync(templateId, Files())
+                : await Site.ValidateYamlAsync(SnapshotId, Files());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "YAML validation failed");
+        }
+        await PushProblemsAsync();
+        StateHasChanged();
+    }
+
+    private async Task StartOverAsync()
+    {
+        _generation++;
+        _edited.Clear();
+        _original.Clear();
+        _schemas.Clear();
+        _validation = new YamlValidation();
+        await OpenGroupAsync(_group);
+    }
+
+    private Task DiscardAsync() => StartOverAsync();
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream(5 * 1024 * 1024));
+            var text = await reader.ReadToEndAsync();
+            // Split the file at its top-level keys and hand each collection to its group.
+            var segments = new Dictionary<string, StringBuilder>();
+            StringBuilder? current = null;
+            foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (line.Length > 0 && !char.IsWhiteSpace(line[0]) && !line.StartsWith('#') && line.Contains(':'))
+                {
+                    var key = line[..line.IndexOf(':')].Trim();
+                    var def = ConfigCollections.All.FirstOrDefault(d => YamlConverter.YamlName(d) == key || d.Key == key);
+                    if (def == null) { current = null; _error = $"Unknown collection {key} in the file; it was skipped."; continue; }
+                    if (!segments.TryGetValue(def.Group, out current)) segments[def.Group] = current = new StringBuilder();
+                }
+                current?.Append(line).Append('\n');
+            }
+            _generation++;
+            foreach (var (group, sb) in segments) _edited[group] = sb.ToString();
+            if (segments.Count > 0) await OpenGroupAsync(segments.Keys.First());
+            await ValidateAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DownloadAsync(bool withSecrets)
+    {
+        if (CurrentTemplate is { } template)
+        {
+            var text = await Templates.GetYamlAsync(template.Id);
+            var name = new string(template.Name.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-').ToArray()).Trim('-');
+            await JS.InvokeVoidAsync("downloadFile", $"template-{name}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
+                "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
+            return;
+        }
+        var yaml = withSecrets ? await Site.DownloadYamlWithSecretsAsync(SnapshotId) : await Site.DownloadYamlAsync(SnapshotId);
+        await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config{(withSecrets ? "-with-secrets" : "")}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
+            "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
+    }
+
+    private async Task ReviewPlanAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var planId = await Site.BuildEditPlanAsync(SnapshotId, Files());
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveTemplateAsync()
+    {
+        if (CurrentTemplate is not { } template) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var problems = await Templates.SaveFilesAsync(template.Id, Files());
+            if (problems.Any(p => p.Level == "Error"))
+            {
+                _validation = new YamlValidation { Problems = problems };
+                await PushProblemsAsync();
+                return;
+            }
+            _templates = await Templates.ListAsync();
+            await StartOverAsync();
+            _saved = $"Saved {template.Name}";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        _debounce?.Dispose();
+        await DisposeEditorAsync();
+        _self?.Dispose();
+    }
+
+    private async Task DisposeEditorAsync()
+    {
+        if (_editor is not { } editor) return;
+        _editor = null;
+        try
+        {
+            await editor.InvokeVoidAsync("dispose", _host);
+            await editor.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+    }
+}

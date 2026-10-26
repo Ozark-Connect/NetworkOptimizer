@@ -17,7 +17,7 @@ using StorageAuditResult = NetworkOptimizer.Storage.Models.AuditResult;
 
 namespace NetworkOptimizer.Web.Services;
 
-public class AuditService : IAuditScanService
+public partial class AuditService : IAuditScanService
 {
     // Cache keys for IMemoryCache, scoped per site so the app-wide cache never
     // leaks one site's audit state (score, findings, dismissals, running flag)
@@ -1736,6 +1736,7 @@ public class AuditService : IAuditScanService
 
             issues.Add(new AuditIssue
             {
+                Type = issue.Type,
                 Severity = issue.Severity,
                 Category = category,
                 // The suffix also keeps an IPv6-only finding's dismissal key apart from its IPv4 twin
@@ -2395,6 +2396,8 @@ public class AuditStatistics
 
 public class AuditIssue
 {
+    /// <summary>The engine's issue type (IssueTypes); empty on synthetic issues.</summary>
+    public string Type { get; set; } = "";
     public AuditModels.AuditSeverity Severity { get; set; }
     public string Category { get; set; } = "";
     public string Title { get; set; } = "";

@@ -1,0 +1,605 @@
+@implements IDisposable
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+@using System.Globalization
+@using System.Text
+@inject IChangeControlFleetService Fleet
+@inject ChangeControlRegistry Registry
+@inject IChangeControlService Site
+@inject SiteContextService SiteCtx
+@inject CcNavigator Navigator
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<CcChanges> Logger
+
+<div class="card">
+    <div class="cc-toolbar">
+        <span class="cc-toolbar-label">Sites</span>
+        <select class="form-control" @bind="SiteFilter" @bind:after="SiteFilterChangedAsync">
+            <option value="">All sites (@_sites.Count)</option>
+            @foreach (var s in _sites)
+            {
+                <option value="@s.Slug">@s.Name</option>
+            }
+        </select>
+        <span class="cc-toolbar-label">Source</span>
+        @foreach (var (key, label) in WhoFilters)
+        {
+            <button class="cc-chip @(WhoShown(key) ? "" : "off")" @onclick="() => ToggleWho(key)">
+                <span class="cc-dot @key"></span>@label
+            </button>
+        }
+        <span class="cc-toolbar-spacer"></span>
+        <div class="time-range-selector">
+            @foreach (var (key, label) in Ranges)
+            {
+                <button class="time-btn @(_range == key ? "active" : "")" @onclick="() => SetRangeAsync(key)">@label</button>
+            }
+        </div>
+    </div>
+    @if (_range == "custom")
+    {
+        <div class="cc-toolbar">
+            <span class="cc-toolbar-label">From</span>
+            <input type="date" class="form-control" @bind="_customFrom" @bind:after="ReloadAsync" />
+            <span class="cc-toolbar-label">To</span>
+            <input type="date" class="form-control" @bind="_customTo" @bind:after="ReloadAsync" />
+        </div>
+    }
+</div>
+
+<div class="card" data-tour="cc-timeline">
+    <div class="card-header">
+        <h3 class="card-title">Timeline<span class="card-title-suffix">@CcFormat.Local(_from).ToString("MMM d") - @CcFormat.Local(_to).ToString("MMM d")</span></h3>
+        <div class="cc-legend">
+            <span><span class="cc-dot person"></span>Person</span>
+            <span><span class="cc-dot unattributed"></span>No admin recorded</span>
+            <span><span class="cc-dot firmware" style="border-radius:2px;transform:rotate(45deg)"></span>Firmware</span>
+            <span><span class="cc-band-key"></span>Incident</span>
+        </div>
+    </div>
+    @if (_timeline == null)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else if (_timeline.Count == 0)
+    {
+        <div class="empty-state empty-state-small"><p>No sites to show.</p></div>
+    }
+    else
+    {
+        <div class="cc-timeline">
+            <div class="cc-tl-row cc-tl-axis">
+                <span></span><span></span>
+                <div class="cc-tl-axis-labels">
+                    @foreach (var tick in Ticks())
+                    {
+                        <span style="left:@F(CcFormat.Pct(tick, _from, _to))%"><span class="hide-mobile">@CcFormat.Local(tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "MMM d" : "h tt")</span><span class="show-mobile">@CcFormat.Local(tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "%d" : "%h")</span></span>
+                    }
+                </div>
+                <span></span>
+            </div>
+            @foreach (var row in _timeline)
+            {
+                var expanded = _expandedSites.Contains(row.Site.Slug);
+                var markers = row.Markers.Where(Visible).ToList();
+                <div class="cc-tl-row cc-tl-site" @onclick="() => ToggleSiteAsync(row.Site.Slug)">
+                    <span class="expand-chevron cc-tl-chev">@(expanded ? "▾" : "▸")</span>
+                    <div class="cc-tl-label">
+                        <div class="cc-tl-name">@row.Site.Name</div>
+                        <div class="cc-tl-sub">@row.Site.Detail</div>
+                    </div>
+                    <CcTrack From="_from" To="_to" Health="row.Health.Points" Markers="markers" Bands="row.Bands"
+                             SelectedId="_selected?.Id" OnMarker="SelectAsync" />
+                    <div class="cc-tl-counts">
+                        <div data-tooltip="@(row.Health.TopIssue ?? "Site Health: the share of user-time with good service")">
+                            @if (row.Health.Average is { } avg)
+                            {
+                                <b class="cc-health-@HealthLevel(avg)">@avg.ToString("0.#")</b> <span>health</span>
+                                @if (row.Health.PreviousAverage is { } prev && Math.Abs(avg - prev) >= 0.1)
+                                {
+                                    <span class="cc-health-delta @(avg < prev ? "down" : "up")" data-tooltip="@($"{(avg < prev ? "Down" : "Up")} {Math.Abs(avg - prev):0.#} from the {RangeLabel()} before")">@(avg < prev ? "▼" : "▲") @Math.Abs(avg - prev).ToString("0.#")</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="muted-text">No health data</span>
+                            }
+                        </div>
+                        <div><b>@row.ChangeCount</b> changes@(row.RegressionCount > 0 ? ", " : "")@if (row.RegressionCount > 0) { <span class="danger-text">@CcFormat.Plural(row.RegressionCount, "regression", "regressions")</span> }</div>
+                    </div>
+                </div>
+                <div class="expand-wrapper @(expanded ? "expanded" : "")">
+                    <div class="expand-content">
+                        @if (expanded || _lanes.ContainsKey(row.Site.Slug))
+                        {
+                            <div class="cc-lanes">
+                                @if (!_lanes.TryGetValue(row.Site.Slug, out var lanes))
+                                {
+                                    <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+                                }
+                                else
+                                {
+                                    @foreach (var lane in lanes)
+                                    {
+                                        <div class="cc-tl-row cc-lane-row">
+                                            <span class="cc-tl-chev"></span>
+                                            <div class="cc-tl-label">
+                                                <div class="cc-tl-name">@lane.Title</div>
+                                                <div class="cc-tl-sub">@lane.Subtitle</div>
+                                            </div>
+                                            <CcTrack From="_from" To="_to" Lane="true" ShowMarkers="false" Markers="markers" Bands="row.Bands"
+                                                     SeriesA="lane.SeriesA" SeriesB="lane.SeriesB" Stack="lane.Stack" Lines="lane.Lines"
+                                                     ColorA="@LaneColorA(lane.Key)" ColorB="@LaneColorB(lane.Key)" SelectedId="_selected?.Id" />
+                                            <div class="cc-lane-latest">
+                                                @if (lane.LatestA != null)
+                                                {
+                                                    <div><span class="@LaneClassA(lane.Key)">@lane.LatestA</span> @lane.SeriesAName</div>
+                                                }
+                                                @if (lane.LatestB != null)
+                                                {
+                                                    <div><span class="@LaneClassB(lane.Key)">@lane.LatestB</span> @lane.SeriesBName</div>
+                                                }
+                                                @if (lane.Stack.Count > 0 && lane.Key != "health")
+                                                {
+                                                    <div class="cc-lane-stack">
+                                                        @foreach (var layer in lane.Stack)
+                                                        {
+                                                            <span style="color:@layer.Color" data-tooltip="@layer.Name">@layer.Latest</span>
+                                                        }
+                                                    </div>
+                                                }
+                                                @foreach (var named in lane.Lines.Where(l => l.Latest != null))
+                                                {
+                                                    <div><span style="color:@named.Color">@named.Latest</span> @named.Name</div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                    <div class="cc-tl-row cc-lane-row">
+                                        <span class="cc-tl-chev"></span>
+                                        <div class="cc-tl-label">
+                                            <div class="cc-tl-name">Events</div>
+                                            <div class="cc-tl-sub">Config, firmware, reboots</div>
+                                        </div>
+                                        <CcTrack From="_from" To="_to" Markers="markers" Bands="row.Bands" SelectedId="_selected?.Id" OnMarker="SelectAsync" />
+                                        <div class="cc-lane-latest">
+                                            <div>@CcFormat.Plural(markers.Count, "change", "changes")</div>
+                                            <div>@CcFormat.Plural(row.Bands.Count(b => b.Kind == "incident"), "incident", "incidents")</div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Changes<span class="card-title-suffix">@(_changes?.Count(Visible) ?? 0) in range</span></h3>
+        <button class="btn btn-contrast btn-sm" @onclick="ExportAsync">Export</button>
+    </div>
+    @if (_changes == null)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else if (!_changes.Any(Visible))
+    {
+        <div class="empty-state empty-state-small"><p>No changes in this range.</p></div>
+    }
+    else
+    {
+        <div class="cc-change-list cc-phone-only">
+            @foreach (var c in Paged())
+            {
+                var isOpen = _selected?.Id == c.Id && _selected.SiteSlug == c.SiteSlug;
+                var shown = _shown?.Id == c.Id && _shown.SiteSlug == c.SiteSlug;
+                <div class="cc-change-card history-row-clickable @(isOpen ? "history-row-expanded" : "")" @onclick="() => SelectAsync(c)">
+                    <div class="cc-change-card-head">
+                        <span class="muted-text">@CcFormat.Time(c.OccurredAt)@(_sites.Count > 1 ? $" - {c.SiteName}" : "")</span>
+                        <span><span class="cc-dot @CcFormat.Marker(c)"></span> @c.Who</span>
+                    </div>
+                    <div>@((MarkupString)Bold(c.Summary))</div>
+                    <div class="cc-tags">
+                        @if (c.RegressionCount > 0) { <span class="status-badge status-error">@CcFormat.Plural(c.RegressionCount, "security regression", "security regressions")</span> }
+                        @foreach (var tag in c.Tags.Where(ServiceTags.ClassD.Contains)) { <span class="status-badge status-info">@tag</span> }
+                        @if (c.IncidentsAfter > 0) { <span class="status-badge status-warning">@CcFormat.Plural(c.IncidentsAfter, "incident after", "incidents after")</span> }
+                        @if (c.HealthDrop is >= 5 and var drop) { <span class="status-badge status-error">Health -@drop.ToString("0") after</span> }
+                        @if (c.RolledBackByPlanId != null) { <span class="status-badge status-info">Rolled back</span> }
+                    </div>
+                </div>
+                <div class="expand-wrapper @(isOpen ? "expanded" : "")">
+                    <div class="expand-content">
+                        @if (shown)
+                        {
+                            <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="table-responsive hide-mobile">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th class="col-time">Time</th>
+                        @if (_sites.Count > 1)
+                        {
+                            <th class="hide-mobile">Site</th>
+                        }
+                        <th>Change</th>
+                        <th class="hide-mobile">Who</th>
+                        <th>Impact</th>
+                        <th class="hide-mobile">After</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in Paged())
+                    {
+                        var isOpen = _selected?.Id == c.Id && _selected.SiteSlug == c.SiteSlug;
+                        var shown = _shown?.Id == c.Id && _shown.SiteSlug == c.SiteSlug;
+                        <tr id="change-@c.SiteSlug-@c.Id" class="history-row-clickable @(isOpen ? "history-row-expanded" : "")" @onclick="() => SelectAsync(c)">
+                            <td class="col-time">@CcFormat.Time(c.OccurredAt)</td>
+                            @if (_sites.Count > 1)
+                            {
+                                <td class="hide-mobile">@c.SiteName</td>
+                            }
+                            <td>@((MarkupString)Bold(c.Summary))</td>
+                            <td class="hide-mobile"><span class="cc-dot @CcFormat.Marker(c)"></span> @c.Who</td>
+                            <td>
+                                <span class="cc-tags">
+                                    @if (c.RegressionCount > 0)
+                                    {
+                                        <span class="status-badge status-error">@CcFormat.Plural(c.RegressionCount, "security regression", "security regressions")</span>
+                                    }
+                                    else if (c.Tags.Any(ServiceTags.ClassD.Contains))
+                                    {
+                                        @foreach (var tag in c.Tags.Where(ServiceTags.ClassD.Contains))
+                                        {
+                                            <span class="status-badge status-info">@tag</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge badge-muted">None</span>
+                                    }
+                                </span>
+                            </td>
+                            <td class="hide-mobile">
+                                @if (c.IncidentsAfter > 0)
+                                {
+                                    <span class="status-badge status-warning">@CcFormat.Plural(c.IncidentsAfter, "incident", "incidents")</span>
+                                }
+                                @if (c.HealthDrop is >= 5 and var drop)
+                                {
+                                    <span class="status-badge status-error" data-tooltip="Site Health in the 3 hours after vs. the 3 hours before, ISP problems left out">Health -@drop.ToString("0")</span>
+                                }
+                                @if (c.RolledBackByPlanId != null)
+                                {
+                                    <span class="status-badge status-info" data-tooltip="A Roll Back of this change applied">Rolled back</span>
+                                }
+                            </td>
+                            <td class="expand-chevron">@(isOpen ? "▲" : "▼")</td>
+                        </tr>
+                        <tr class="history-details-row">
+                            <td colspan="@(_sites.Count > 1 ? 7 : 6)">
+                                <div class="expand-wrapper @(isOpen ? "expanded" : "")">
+                                    <div class="expand-content">
+                                        @if (shown)
+                                        {
+                                            <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
+                                        }
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (PageCount > 1)
+        {
+            <div class="pagination history-pagination">
+                <button class="btn btn-secondary btn-sm" disabled="@(_page == 0)" @onclick="() => _page--"><span class="pag-arrow">&#8249;</span> Previous</button>
+                <span class="pagination-info">Page @(_page + 1) of @PageCount</span>
+                <button class="btn btn-secondary btn-sm" disabled="@(_page >= PageCount - 1)" @onclick="() => _page++">Next <span class="pag-arrow">&#8250;</span></button>
+            </div>
+        }
+    }
+    @if (_error != null)
+    {
+        <div class="alert alert-danger" style="margin:0 16px 16px">@_error</div>
+    }
+</div>
+
+@code {
+    private static readonly (string Key, string Label)[] WhoFilters =
+        [("person", "Person"), ("unattributed", "No admin recorded"), ("firmware", "Firmware"), ("no", "Network Optimizer")];
+    private static readonly (string Key, string Label)[] Ranges =
+        [("24h", "24h"), ("7d", "7d"), ("30d", "30d"), ("90d", "90d"), ("custom", "Custom")];
+    private const int PageSize = 25;
+
+    private List<FleetSiteView> _sites = [];
+    private string SiteFilter { get; set; } = "";
+    // The app's pill pattern: nothing focused shows all, the first click focuses one, more clicks add.
+    // Network Optimizer's own changes are a separate on/off and never count as a focus.
+    private readonly HashSet<string> _who = [];
+    private bool _showOwn;
+    private string _range = "7d";
+
+    /// <summary>The range as a period ("7 days"), for "up 2 from the 7 days before".</summary>
+    private string RangeLabel() => _range switch
+    {
+        "24h" => "24 hours",
+        "7d" => "7 days",
+        "30d" => "30 days",
+        "90d" => "90 days",
+        _ => "same length of time",
+    };
+    private DateTime _customFrom = DateTime.Today.AddDays(-14);
+    private DateTime _customTo = DateTime.Today;
+    private DateTime _from;
+    private DateTime _to;
+    private List<TimelineSiteRow>? _timeline;
+    private List<ChangeRowView>? _changes;
+    private readonly HashSet<string> _expandedSites = [];
+    private readonly Dictionary<string, List<TimelineLane>> _lanes = [];
+    private ChangeRowView? _selected;
+    // Stays set after the row closes, so its detail is still there while the collapse animates.
+    private ChangeRowView? _shown;
+    private ChangeDetailView? _detail;
+    private bool _busy;
+    private string? _error;
+    private int _page;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sites = await Fleet.GetSitesAsync();
+        // Open on the site in context; All sites is a choice in the picker.
+        if (_sites.FirstOrDefault(s => string.Equals(s.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase)) is { } current)
+            SiteFilter = current.Slug;
+        var settings = await Site.GetSettingsAsync();
+        _showOwn = settings.ShowOwnChanges;
+        await ReloadAsync();
+        _live = new CcLiveRefresh(Registry,
+            slug => _range != "custom" && (string.IsNullOrEmpty(SiteFilter) || string.Equals(SiteFilter, slug, StringComparison.OrdinalIgnoreCase)),
+            InvokeAsync, RefreshAsync, Logger);
+        // Open with the site in context expanded into its lanes; the busiest site when it is not listed.
+        if ((_timeline?.FirstOrDefault(r => string.Equals(r.Site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
+             ?? _timeline?.OrderByDescending(r => r.ChangeCount).FirstOrDefault()) is { } open)
+            await ToggleSiteAsync(open.Site.Slug);
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        if (query.TryGetValue("change", out var id) && int.TryParse(id, out var changeId))
+        {
+            var row = _changes?.FirstOrDefault(c => c.Id == changeId && c.SiteSlug == SiteCtx.Slug);
+            if (row == null)
+            {
+                // An alert link can point past the range shown; widen to 90 days to find it.
+                _range = "90d";
+                await ReloadAsync();
+                row = _changes?.FirstOrDefault(c => c.Id == changeId && c.SiteSlug == SiteCtx.Slug);
+            }
+            if (row != null)
+            {
+                await SelectAsync(row);
+                _page = Math.Max(0, (_changes!.Where(Visible).ToList().IndexOf(row)) / PageSize);
+                if (query.ContainsKey("rollback")) await RollBackAsync(row);
+            }
+        }
+    }
+
+    private bool WhoShown(string key) => key == "no" ? _showOwn : _who.Count == 0 || _who.Contains(key);
+
+    private bool Visible(ChangeRowView c) => WhoShown(CcFormat.Marker(c));
+
+    private IEnumerable<ChangeRowView> Paged() => _changes!.Where(Visible).Skip(_page * PageSize).Take(PageSize);
+
+    private int PageCount => _changes == null ? 0 : (int)Math.Ceiling(_changes.Count(Visible) / (double)PageSize);
+
+    private void ToggleWho(string key)
+    {
+        if (key == "no")
+        {
+            _showOwn = !_showOwn;
+        }
+        else
+        {
+            if (!_who.Remove(key)) _who.Add(key);
+            // Every pill focused is the same as none: back to showing all.
+            if (_who.Count == WhoFilters.Count(f => f.Key != "no")) _who.Clear();
+        }
+        _page = 0;
+    }
+
+    private async Task SetRangeAsync(string key)
+    {
+        _range = key;
+        if (key != "custom") await ReloadAsync();
+    }
+
+    private (DateTime From, DateTime To) Range()
+    {
+        var now = DateTime.UtcNow;
+        return _range switch
+        {
+            "24h" => (now.AddHours(-24), now),
+            "30d" => (now.AddDays(-30), now),
+            "90d" => (now.AddDays(-90), now),
+            "custom" => (DateTime.SpecifyKind(_customFrom, DateTimeKind.Local).ToUniversalTime(),
+                Min(DateTime.SpecifyKind(_customTo.AddDays(1), DateTimeKind.Local).ToUniversalTime(), now)),
+            _ => (now.AddDays(-7), now),
+        };
+    }
+
+    private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
+
+    private async Task ReloadAsync()
+    {
+        (_from, _to) = Range();
+        if (_to - _from > SiteMetricsReader.MaxRange) _from = _to - SiteMetricsReader.MaxRange;
+        _timeline = null;
+        _changes = null;
+        _lanes.Clear();
+        _page = 0;
+        StateHasChanged();
+        try
+        {
+            var filter = string.IsNullOrEmpty(SiteFilter) ? null : new[] { SiteFilter };
+            _changes = await Fleet.GetChangesAsync(_from, _to, filter);
+            _timeline = await Fleet.GetTimelineAsync(_from, _to, filter);
+            foreach (var slug in _expandedSites.Where(s => _timeline.Any(r => r.Site.Slug == s)).ToList())
+                _lanes[slug] = await Fleet.GetLanesAsync(slug, _from, _to);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Change Control timeline failed");
+            _timeline ??= [];
+            _changes ??= [];
+        }
+    }
+
+    private CcLiveRefresh? _live;
+
+    /// <summary>Reloads the current range without clearing the page: the open row, page, and expanded sites stay.</summary>
+    private async Task RefreshAsync()
+    {
+        if (_changes == null) return;
+        (_from, _to) = Range();
+        if (_to - _from > SiteMetricsReader.MaxRange) _from = _to - SiteMetricsReader.MaxRange;
+        var filter = string.IsNullOrEmpty(SiteFilter) ? null : new[] { SiteFilter };
+        var changes = await Fleet.GetChangesAsync(_from, _to, filter);
+        var timeline = await Fleet.GetTimelineAsync(_from, _to, filter);
+        foreach (var slug in _expandedSites.Where(s => timeline.Any(r => r.Site.Slug == s)).ToList())
+            _lanes[slug] = await Fleet.GetLanesAsync(slug, _from, _to);
+        _changes = changes;
+        _timeline = timeline;
+        if (_selected != null)
+            _selected = _changes.FirstOrDefault(c => c.Id == _selected.Id && c.SiteSlug == _selected.SiteSlug) ?? _selected;
+        _page = Math.Min(_page, Math.Max(0, PageCount - 1));
+        StateHasChanged();
+    }
+
+    public void Dispose() => _live?.Dispose();
+
+    /// <summary>A single-site filter opens that site into its lanes, as the busiest site is on first load.</summary>
+    private async Task SiteFilterChangedAsync()
+    {
+        if (!string.IsNullOrEmpty(SiteFilter)) _expandedSites.Add(SiteFilter);
+        await ReloadAsync();
+    }
+
+    private async Task ToggleSiteAsync(string slug)
+    {
+        if (!_expandedSites.Remove(slug))
+        {
+            _expandedSites.Add(slug);
+            if (!_lanes.ContainsKey(slug))
+            {
+                StateHasChanged();
+                _lanes[slug] = await Fleet.GetLanesAsync(slug, _from, _to);
+            }
+        }
+    }
+
+    private async Task SelectAsync(ChangeRowView c)
+    {
+        if (_selected?.Id == c.Id && _selected.SiteSlug == c.SiteSlug)
+        {
+            _selected = null;
+            return;
+        }
+        _selected = c;
+        _shown = c;
+        _detail = null;
+        _error = null;
+        var index = _changes?.Where(Visible).ToList().IndexOf(c) ?? -1;
+        if (index >= 0) _page = index / PageSize;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval", $"setTimeout(() => document.getElementById('change-{c.SiteSlug}-{c.Id}')?.scrollIntoView({{behavior:'smooth', block:'center'}}), 260)");
+        _detail = await Fleet.GetChangeDetailAsync(c.SiteSlug, c.Id);
+    }
+
+    private async Task RollBackAsync(ChangeRowView c)
+    {
+        if (!string.Equals(c.SiteSlug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
+        {
+            await Navigator.RollBackChangeAsync(c.SiteSlug, c.Id);
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var planId = await Site.BuildRollbackOfChangeAsync(c.Id);
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        var sb = new StringBuilder("Time,Site,Change,Who,Regressions,Incidents after\n");
+        foreach (var c in _changes?.Where(Visible) ?? [])
+            sb.Append(Csv(CcFormat.Local(c.OccurredAt).ToString("yyyy-MM-dd HH:mm"))).Append(',').Append(Csv(c.SiteName)).Append(',')
+              .Append(Csv(c.Summary)).Append(',').Append(Csv(c.Who)).Append(',').Append(c.RegressionCount).Append(',').Append(c.IncidentsAfter).Append('\n');
+        await JS.InvokeVoidAsync("downloadFile", $"changes-{DateTime.Now:yyyyMMdd}.csv", "text/csv", Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    private static string Csv(string s) => s.Contains(',') || s.Contains('"') ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
+
+    /// <summary>Bolds the object name in a summary ("WLAN <b>Home</b>: security ...").</summary>
+    private static string Bold(string summary)
+    {
+        var enc = System.Net.WebUtility.HtmlEncode(summary);
+        var colon = enc.IndexOf(": ", StringComparison.Ordinal);
+        if (colon < 0) return enc;
+        var head = enc[..colon];
+        foreach (var def in ConfigCollections.All.OrderByDescending(d => d.Noun.Length))
+            if (head.StartsWith(def.Noun + " ", StringComparison.Ordinal))
+                return $"{def.Noun} <b>{head[(def.Noun.Length + 1)..]}</b>{enc[colon..]}";
+        return enc;
+    }
+
+    /// <summary>Axis ticks on local day boundaries (hours for a 24h range), at most eight.</summary>
+    private IEnumerable<DateTime> Ticks()
+    {
+        var span = _to - _from;
+        var tz = TimeZoneInfo.Local;
+        if (span <= TimeSpan.FromDays(2))
+        {
+            var start = CcFormat.Local(_from);
+            var first = start.Date.AddHours(Math.Ceiling(start.Hour / 4.0) * 4);
+            for (var t = first; t <= CcFormat.Local(_to); t = t.AddHours(4))
+                yield return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(t, DateTimeKind.Unspecified), tz);
+            yield break;
+        }
+        var days = (int)Math.Ceiling(span.TotalDays);
+        var step = Math.Max(1, (int)Math.Ceiling(days / 8.0));
+        for (var d = CcFormat.Local(_from).Date.AddDays(1); d <= CcFormat.Local(_to); d = d.AddDays(step))
+            yield return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(d, DateTimeKind.Unspecified), tz);
+    }
+
+    // Latency and loss take the WAN live chart's colors (wan-live-chart.js COLOR_RTT, COLOR_LOSS).
+    private static string LaneColorA(string key) => key switch
+    {
+        "throughput" => "var(--speed-download-color)", "cpu" => "#a78bfa", "clients" => "#3b82f6",
+        "latency" => "#d946ef", "loss" => "#ef4444", _ => "#2ba89a",
+    };
+    private static string LaneColorB(string key) => key switch { "throughput" => "var(--speed-upload-color)", _ => "#f59e0b" };
+    private static string LaneClassA(string key) => key switch { "throughput" => "down", "cpu" => "cpu", "latency" => "rtt", "loss" => "loss", "health" => "health", _ => "a" };
+    private static string HealthLevel(double? h) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(h);
+    private static string LaneClassB(string key) => key switch { "throughput" => "up", "health" => "muted-text", _ => "b" };
+    private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+}

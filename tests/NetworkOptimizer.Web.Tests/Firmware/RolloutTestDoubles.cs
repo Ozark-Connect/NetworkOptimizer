@@ -595,6 +595,27 @@ internal sealed class CapturingAuditLogger : NetworkOptimizer.Web.Services.Audit
     public void Log(NetworkOptimizer.Storage.Models.Identity.AuditEvent auditEvent) => Events.Add(auditEvent);
 }
 
+/// <summary>Change Control's rollout hooks, scripted.</summary>
+internal sealed class FakeConfigGuard : IRolloutConfigGuard
+{
+    public int? PinnedSnapshotId { get; set; } = 42;
+    public string? HoldReason { get; set; }
+    public int Pins { get; private set; }
+    public int Checks { get; private set; }
+
+    public Task<int?> PinBeforeRolloutAsync(string siteSlug, int planId, CancellationToken cancellationToken)
+    {
+        Pins++;
+        return Task.FromResult(PinnedSnapshotId);
+    }
+
+    public Task<string?> CheckAfterNetworkAppAsync(string siteSlug, DateTime rolloutStartedUtc, CancellationToken cancellationToken)
+    {
+        Checks++;
+        return Task.FromResult(HoldReason);
+    }
+}
+
 internal sealed class RolloutHarness : IDisposable
 {
     public static readonly DateTime Start = new(2026, 8, 14, 3, 0, 0, DateTimeKind.Utc);
@@ -615,6 +636,7 @@ internal sealed class RolloutHarness : IDisposable
     public FakeRolloutPlanningSource Planning { get; } = new();
     public FakeReleaseMetadataSource Releases { get; } = new();
     public ScriptedRebootWitness Reboots { get; } = new();
+    public FakeConfigGuard ConfigGuard { get; } = new();
     public AuditContext Audit { get; } = new();
     public CapturingAuditLogger AuditLog { get; } = new();
     public CallerContext Caller { get; } = new();
@@ -691,7 +713,8 @@ internal sealed class RolloutHarness : IDisposable
         NullLogger<FirmwareRolloutOrchestrator>.Instance,
         rebootWitness: Reboots,
         observerLocator: Locator,
-        audit: AuditLog)
+        audit: AuditLog,
+        configGuard: ConfigGuard)
     {
         // The settle wait runs on the wall clock; tests decide the device state up front.
         SshDropSettleWindow = TimeSpan.Zero,

@@ -23,6 +23,8 @@ public static class RolloutAlerts
 
     /// <summary>A rollout has begun.</summary>
     public const string Started = "rollout.started";
+    /// <summary>The post-upgrade config check found a regression or an unattributed change and paused the rollout.</summary>
+    public const string ConfigHeld = "rollout.config_held";
 
     /// <summary>A scheduled rollout was cancelled because everything in it was updated out of band.</summary>
     public const string NothingLeft = "rollout.nothing_left";

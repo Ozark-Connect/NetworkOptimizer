@@ -1,0 +1,12 @@
+@page "/change-control/plans/{PlanId:int}"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@using NetworkOptimizer.Web.Components.Shared.ChangeControl
+
+<CcReviewPlan PlanId="PlanId" />
+
+@code {
+    [Parameter] public int PlanId { get; set; }
+}

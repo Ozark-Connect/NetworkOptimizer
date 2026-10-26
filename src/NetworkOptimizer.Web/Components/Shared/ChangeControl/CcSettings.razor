@@ -1,0 +1,249 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+@inject IChangeControlService Site
+@inject IChangeControlFleetService Fleet
+@inject ILogger<CcSettings> Logger
+
+<div class="card">
+    <div class="cc-toolbar">
+        <span class="cc-toolbar-label">Site</span>
+        <CcSitePicker Sites="_sites" />
+        <span class="cc-toolbar-label">Settings apply to this site. Site Admin only.</span>
+    </div>
+</div>
+
+@if (_s == null)
+{
+    <div class="loading-container"><div class="spinner"></div></div>
+}
+else
+{
+    <fieldset disabled="@(!_isAdmin)" style="border:none;padding:0;margin:0;min-width:0">
+        <div class="cc-settings-grid">
+            <div>
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">Snapshots and Retention</h3></div>
+                    <div class="card-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Keep every change for</label>
+                                <select class="form-control" @bind="_s.KeepEveryChangeDays">
+                                    @foreach (var d in new[] { 7, 14, 30, 60, 90 }) { <option value="@d">@d days</option> }
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Then one per day for</label>
+                                <select class="form-control" @bind="_s.KeepDailyDays">
+                                    <option value="90">90 days</option>
+                                    <option value="180">6 months</option>
+                                    <option value="365">1 year</option>
+                                    <option value="730">2 years</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Then one per month</label>
+                            <select class="form-control" @bind="MonthlyValue">
+                                <option value="12">12 months</option>
+                                <option value="24">24 months</option>
+                                <option value="60">5 years</option>
+                                <option value="0">Forever</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" checked disabled />
+                                <span>Pin a snapshot before every apply, rollback, Firmware Rollout, and Network app upgrade</span>
+                            </label>
+                            <small class="form-help">Pinned snapshots and the Baseline are never thinned. The change history is never thinned.</small>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">UniFi console backups (.unf) to keep</label>
+                                <select class="form-control" @bind="_s.ConsoleBackupsToKeep">
+                                    @foreach (var n in new[] { 0, 3, 7, 14, 30 }) { <option value="@n">@(n == 0 ? "None" : $"Last {n}")</option> }
+                                </select>
+                                <small class="form-help">Plus every backup Firmware Rollout makes. Stored encrypted.</small>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Storage used</label>
+                                <div>@CcFormat.Bytes(_storage.SnapshotBytes) snapshots, @CcFormat.Bytes(_storage.ConsoleBackupBytes) console backups</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">Change Detection</h3></div>
+                    <div class="card-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Check for changes every <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How often Network Optimizer reads the UniFi audit log and device provisioning. A full snapshot is taken only when either shows a change.">?</span></label>
+                                <select class="form-control" @bind="_s.PollIntervalSeconds">
+                                    <option value="30">30 seconds</option>
+                                    <option value="60">1 minute</option>
+                                    <option value="120">2 minutes</option>
+                                    <option value="300">5 minutes</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Daily full snapshot at</label>
+                                <input type="time" class="form-control" @bind="DailyTime" />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_s.ShowOwnChanges" />
+                                <span>Show Network Optimizer's own changes in the history</span>
+                            </label>
+                            <small class="form-help">Blocklist updates and other automatic writes are hidden by default.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">Apply Safety</h3></div>
+                    <div class="card-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Commit-confirmed window</label>
+                                <select class="form-control" @bind="_s.CommitWindowMinutes">
+                                    @foreach (var m in new[] { 2, 5, 10, 15 }) { <option value="@m">@m minutes</option> }
+                                </select>
+                                <small class="form-help">@_s.AgentCommitWindowMinutes minutes when the site is reached through an On-Site Agent.</small>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Schedule applies in</label>
+                                <select class="form-control" @bind="_s.ScheduleQuietestHour">
+                                    <option value="true">Quietest hour (suggested)</option>
+                                    <option value="false">A time I choose</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_s.WatchInternet" />
+                                <span>Watch internet reachability when a plan changes the WAN path</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">Approvals</h3></div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_s.ApprovalsEnabled" />
+                                <span>Operators submit plans for Site Admin approval</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_s.EmergencyRollbackWithoutApproval" />
+                                <span>Operators may roll back to a snapshot from the last 24 hours without approval</span>
+                            </label>
+                            <small class="form-help">For outages. Still audited and notified.</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Change Alerts</h3>
+                        <a class="card-action" href="/alerts?tab=rules">Edit in Alerts &amp; Schedule</a>
+                    </div>
+                    <div class="card-body" style="padding-top:0.25rem;padding-bottom:0.25rem">
+                        @foreach (var (name, _, enabled) in _rules)
+                        {
+                            <div class="cc-kv">
+                                <span>@name.Replace("Change Control: ", "")</span>
+                                <span class="status-badge @(enabled ? "status-connected" : "badge-muted")">@(enabled ? "On" : "Off")</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </fieldset>
+
+    <div class="card">
+        <div class="cc-card-footer">
+            @if (_message != null)
+            {
+                <span class="cc-remaining @(_ok ? "success-text" : "danger-text")">@_message</span>
+            }
+            <SiteAdminOnly>
+                <button class="btn btn-primary" disabled="@_busy" @onclick="SaveAsync">Save</button>
+            </SiteAdminOnly>
+        </div>
+    </div>
+}
+
+@code {
+    private List<FleetSiteView> _sites = [];
+    private ChangeControlSettings? _s;
+    private (long SnapshotBytes, long ConsoleBackupBytes) _storage;
+    private List<(string Name, string EventType, bool Enabled)> _rules = [];
+    private bool _isAdmin;
+    private bool _busy;
+    private bool _ok;
+    private string? _message;
+
+    private int MonthlyValue
+    {
+        get => _s?.KeepMonthlyMonths ?? 0;
+        set { if (_s != null) _s.KeepMonthlyMonths = value == 0 ? null : value; }
+    }
+
+    private TimeOnly DailyTime
+    {
+        get => new(_s?.DailySnapshotHour ?? 3, _s?.DailySnapshotMinute ?? 0);
+        set
+        {
+            if (_s == null) return;
+            _s.DailySnapshotHour = value.Hour;
+            _s.DailySnapshotMinute = value.Minute;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _sites = await Fleet.GetSitesAsync();
+            _s = await Site.GetSettingsAsync();
+            _storage = await Site.GetStorageAsync();
+            _rules = await Site.GetAlertRulesAsync();
+            _isAdmin = await Site.IsSiteAdminAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Change Control settings failed to load");
+            _message = ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_s == null) return;
+        _busy = true;
+        try
+        {
+            await Site.SaveSettingsAsync(_s);
+            _ok = true;
+            _message = "Saved.";
+        }
+        catch (Exception ex)
+        {
+            _ok = false;
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

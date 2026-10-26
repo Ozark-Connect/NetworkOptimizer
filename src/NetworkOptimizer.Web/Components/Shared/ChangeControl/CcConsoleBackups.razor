@@ -1,0 +1,77 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+@inject IChangeControlService Site
+@inject IJSRuntime JS
+@inject ILogger<CcConsoleBackups> Logger
+
+@* UniFi's own Network app backups, copied and kept encrypted. Restoring one stays UniFi's job: this hands over the file. *@
+<SiteAdminOnly>
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">UniFi Console Backups<span class="card-title-suffix">.unf copies, restore them in UniFi Network</span></h3>
+        </div>
+        @if (_backups == null)
+        {
+            <div class="loading-container"><div class="spinner"></div></div>
+        }
+        else if (_backups.Count == 0)
+        {
+            <div class="empty-state empty-state-small"><p>No console backups copied yet. Network Optimizer checks hourly for new autobackups.</p></div>
+        }
+        else
+        {
+            @foreach (var b in _backups)
+            {
+                <div class="cc-setting-row">
+                    <span>
+                        @CcFormat.Time(b.TakenAt)@(b.NetworkAppVersion != null ? $", Network {b.NetworkAppVersion}" : ""), @CcFormat.Bytes(b.SizeBytes)
+                        @if (b.FirmwareRollout) { <span class="status-badge badge-muted">Firmware Rollout</span> }
+                    </span>
+                    <button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="() => DownloadAsync(b)">Download</button>
+                </div>
+            }
+        }
+        @if (_error != null) { <div class="alert alert-danger" style="margin:0.75rem 1rem">@_error</div> }
+    </div>
+</SiteAdminOnly>
+
+@code {
+    private List<ConsoleBackupRecord>? _backups;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _backups = await Site.GetConsoleBackupsAsync();
+        }
+        catch (Exception ex)
+        {
+            // A Viewer or Operator has no access; the card is hidden for them anyway.
+            Logger.LogDebug(ex, "Console backups not loaded");
+            _backups = [];
+        }
+    }
+
+    private async Task DownloadAsync(ConsoleBackupRecord b)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (await Site.DownloadConsoleBackupAsync(b.Id) is { } file)
+                await JS.InvokeVoidAsync("downloadFile", file.FileName, "application/octet-stream", Convert.ToBase64String(file.Content));
+            else
+                _error = "That backup file is no longer stored.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
