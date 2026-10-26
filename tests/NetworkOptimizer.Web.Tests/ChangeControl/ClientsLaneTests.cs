@@ -33,6 +33,16 @@ public class ClientsLaneTests
         lane.Stack.Select(l => l.Latest).Should().Equal(2, 7);
     }
 
+    [Fact]
+    public void ClientsLane_FillsWindowsWithNoClientsAsZero()
+    {
+        var step = TimeSpan.FromMinutes(15);
+        var end = T.AddMinutes(60);
+        var lane = SiteMetricsReader.ClientsLane([(T, "5ghz", 4), (T.AddMinutes(30), "5ghz", 2)], end, step);
+        lane.SeriesA.Select(p => p.Value).Should().Equal(4.0, 0.0, 2.0, 0.0, 0.0);
+        lane.Stack.Single().Latest.Should().Be(0);
+    }
+
     [Theory]
     [InlineData(24.4, "24")]
     [InlineData(9.34, "9.3")]

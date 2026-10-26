@@ -167,7 +167,8 @@ public sealed class SiteMetricsReader
                     SeriesA = cpuTask.Result.Select(h => (h.Time, (double?)h.Value)).ToList(),
                 });
             }
-            lanes.Add(ClientsLane(clientsTask.Result, to));
+            // Past two days the counts are per day (QueryWifiClientCountsAsync).
+            lanes.Add(ClientsLane(clientsTask.Result, to, to - from > TimeSpan.FromDays(2) ? TimeSpan.FromDays(1) : window));
             lanes.Add(PhyLane(phyTask.Result));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -195,10 +196,17 @@ public sealed class SiteMetricsReader
         [("2.4ghz", "2.4 GHz", "var(--band-24-color)"), ("5ghz", "5 GHz", "var(--band-5-color)"), ("6ghz", "6 GHz", "var(--band-6-color)")];
 
     /// <summary>Wi-Fi clients stacked by band, 2.4 GHz at the bottom; series A is the total.</summary>
-    internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts, DateTime? end = null)
+    internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts, DateTime? end = null, TimeSpan? step = null)
     {
         var times = counts.Select(c => c.Time).Distinct().Order().ToList();
         var byKey = counts.GroupBy(c => (c.Time, c.Band)).ToDictionary(g => g.Key, g => g.Sum(c => c.Clients));
+        // A window with no clients returns no row: fill the grid from the first count on, so a drop to zero plots as zero.
+        if (step is { } s && s > TimeSpan.Zero && times.Count > 0)
+        {
+            var grid = new List<DateTime>();
+            for (var t = times[0]; end is { } e0 ? t < e0 : t <= times[^1]; t += s) grid.Add(t);
+            times = grid.Union(times).Order().ToList();
+        }
         // Counts are stamped at their window's start (a whole day past two days), so the last one holds to the end.
         if (end is { } e && times.Count > 0 && times[^1] < e)
         {
