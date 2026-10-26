@@ -153,6 +153,8 @@ public partial class AuditService
             return ConvertAuditResult(result, options);
         }
 
+        // Both runs probe the same live network, so the second reuses the first's DNS probes.
+        using var probes = Audit.Dns.ThirdPartyDnsDetector.ShareProbeResults();
         return (await Run(before), await Run(after));
     }
 }

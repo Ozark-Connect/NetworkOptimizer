@@ -136,7 +136,9 @@ public class DnsSecurityAnalyzer
         // Detect third-party LAN DNS (Pi-hole, AdGuard Home, etc.)
         if (networks?.Any() == true)
         {
-            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup, customDnsManagementUrl);
+            // A site with no UniFi gateway serves none of its networks' DHCP, so their gateway IPs have nothing to probe.
+            var probeGateway = switches == null || switches.Any(s => s.IsGateway);
+            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup, customDnsManagementUrl, probeGateway);
         }
 
         // Capture networks the user excluded from coverage checks up front, independent of NAT data, so the
@@ -2322,7 +2324,7 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Detect third-party LAN DNS servers (like Pi-hole, AdGuard Home) across networks
     /// </summary>
-    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null, string? customDnsManagementUrl = null)
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null, string? customDnsManagementUrl = null, bool probeGateway = true)
     {
         var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPort, customDnsManagementUrl);
 
@@ -2422,7 +2424,7 @@ public class DnsSecurityAnalyzer
         // These are manually installed via SSH, distinct from UniFi's built-in CyberSecure
         // DoH. Only probe when DoH is not configured, since these services handle encryption
         // themselves and their presence prevents false "DoH not configured" warnings.
-        if (!result.DohConfigured)
+        if (!result.DohConfigured && probeGateway)
         {
             var gatewayResults = await _thirdPartyDetector.ProbeGatewayDnsAsync(networks);
             if (gatewayResults.Any())

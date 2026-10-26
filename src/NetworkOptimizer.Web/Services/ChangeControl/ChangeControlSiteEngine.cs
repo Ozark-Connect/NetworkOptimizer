@@ -54,6 +54,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
     private readonly SemaphoreSlim _pollLock = new(1, 1);
+    private readonly SemaphoreSlim _evaluateLock = new(1, 1);
     private readonly ConcurrentQueue<UniFiWriteRecord> _journalQueue = new();
     private readonly Func<bool>? _isAgentSite;
 
@@ -467,14 +468,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             if (previous != null && diff != null && (recordable.Count > 0 || diff.PolicyOrder.Count > 0))
             {
                 changes = await RecordChangesAsync(snapshot, previousId, previous, live, recordable, diff, events, journal, inUpgradeWindow, ct);
-                if (Evaluator != null && changes.Count > 0)
-                {
-                    try { await Evaluator.EvaluateAsync(_slug, changes, previous, live, ct); }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        _logger.LogWarning(ex, "Change evaluation failed for site {Site}", _slug);
-                    }
-                }
+                if (Evaluator != null && changes.Count > 0) EvaluateInBackground(Evaluator, changes, previous, live);
             }
             Changed?.Invoke();
             return (true, snapshot, changes);
@@ -483,6 +477,31 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         {
             _snapshotLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Runs the Security Audit impact of recorded changes off the snapshot path: it takes two full audits,
+    /// and a plan apply waits on its snapshots. Evaluations run one at a time, in order.
+    /// </summary>
+    private void EvaluateInBackground(IChangeEvaluator evaluator, List<ConfigChange> changes, ConfigState previous, ConfigState live)
+    {
+        _ = Task.Run(async () =>
+        {
+            await _evaluateLock.WaitAsync();
+            try
+            {
+                await evaluator.EvaluateAsync(_slug, changes, previous, live, CancellationToken.None);
+                Changed?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Change evaluation failed for site {Site}", _slug);
+            }
+            finally
+            {
+                _evaluateLock.Release();
+            }
+        });
     }
 
     private static string? DescribeTrigger(IReadOnlyList<ObjectDiff> objects, IReadOnlyList<AuditLogEvent> events, IReadOnlyList<ConfigWriteJournalEntry> journal)

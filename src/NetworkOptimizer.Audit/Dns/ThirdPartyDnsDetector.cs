@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -22,6 +23,27 @@ public class ThirdPartyDnsDetector
         _logger = logger;
         _httpClient = httpClient;
     }
+
+    private static readonly AsyncLocal<ConcurrentDictionary<string, Task>?> SharedProbes = new();
+
+    /// <summary>
+    /// Shares probe results across every audit run inside the returned scope. For audits of the same live
+    /// network (Change Control's before/after comparison), whose probes would only repeat each other.
+    /// </summary>
+    public static IDisposable ShareProbeResults()
+    {
+        var previous = SharedProbes.Value;
+        SharedProbes.Value = new ConcurrentDictionary<string, Task>(StringComparer.OrdinalIgnoreCase);
+        return new ProbeScope(previous);
+    }
+
+    private sealed class ProbeScope(ConcurrentDictionary<string, Task>? previous) : IDisposable
+    {
+        public void Dispose() => SharedProbes.Value = previous;
+    }
+
+    private Task<T> Shared<T>(string key, Func<Task<T>> probe) =>
+        SharedProbes.Value is { } shared ? (Task<T>)shared.GetOrAdd(key, _ => probe()) : probe();
 
     /// <summary>
     /// Detection result for a third-party DNS server
@@ -122,7 +144,7 @@ public class ThirdPartyDnsDetector
                 // Only probe each IP once
                 if (!probed.TryGetValue(dnsServer, out var probe))
                 {
-                    probe = await ProbeResolverAsync(dnsServer, customPort, customUrl);
+                    probe = await Shared($"resolver|{dnsServer}|{customPort}|{customUrl}", () => ProbeResolverAsync(dnsServer, customPort, customUrl));
                     probed[dnsServer] = probe;
                 }
 
@@ -158,7 +180,7 @@ public class ThirdPartyDnsDetector
 
                 if (!probed.TryGetValue(dnsServer, out var probe))
                 {
-                    probe = await ProbeResolverAsync(dnsServer, customPort, customUrl);
+                    probe = await Shared($"resolver|{dnsServer}|{customPort}|{customUrl}", () => ProbeResolverAsync(dnsServer, customPort, customUrl));
                     probed[dnsServer] = probe;
                 }
 
@@ -690,7 +712,7 @@ public class ThirdPartyDnsDetector
 
             _logger.LogDebug("Probing gateway {Gateway} for on-gateway DNS services", gatewayIp);
 
-            var (isNextDns, nextDnsProfile) = await ProbeNextDnsAsync(gatewayIp);
+            var (isNextDns, nextDnsProfile) = await Shared($"nextdns|{gatewayIp}", () => ProbeNextDnsAsync(gatewayIp));
             if (isNextDns)
             {
                 _logger.LogInformation("Detected NextDNS CLI on gateway {Gateway} (profile: {Profile})", gatewayIp, nextDnsProfile ?? "unknown");
@@ -712,7 +734,7 @@ public class ThirdPartyDnsDetector
                 continue;
             }
 
-            var isControlD = await ProbeControlDAsync(gatewayIp);
+            var isControlD = await Shared($"controld|{gatewayIp}", () => ProbeControlDAsync(gatewayIp));
             if (isControlD)
             {
                 _logger.LogInformation("Detected ControlD (ctrld) on gateway {Gateway}", gatewayIp);
