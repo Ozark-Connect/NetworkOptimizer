@@ -47,6 +47,13 @@ public class AgentConnectionAlertMonitor : BackgroundService
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
     private readonly AgentOnGatewayDetector _onGateway;
     private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly IServiceScopeFactory? _scopes;
+
+    private const string OfflineEventType = "agent.offline";
+    private const string ReconnectedEventType = "agent.reconnected";
+
+    // Agents still offline before a restart, read once per site (alerts live in each site's database).
+    private readonly Dictionary<string, Monitoring.OpenAlertSeed> _openAtStart = new(StringComparer.OrdinalIgnoreCase);
 
     public AgentConnectionAlertMonitor(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
@@ -55,8 +62,10 @@ public class AgentConnectionAlertMonitor : BackgroundService
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         AgentOnGatewayDetector onGateway,
         SiteTunnelRouting tunnelRouting,
-        ILogger<AgentConnectionAlertMonitor> logger)
+        ILogger<AgentConnectionAlertMonitor> logger,
+        IServiceScopeFactory? scopes = null)
     {
+        _scopes = scopes;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _alertBus = alertBus;
@@ -115,6 +124,18 @@ public class AgentConnectionAlertMonitor : BackgroundService
             if (!_siteWorkGate.IsSiteOperational(entry.Slug))
                 continue;
 
+            // Still offline before a restart: start alerted, so its reconnect is published.
+            if (!_states.ContainsKey(agent.Id)
+                && (await OpenAtStart(entry.Slug).OpenAsync()).Take(OfflineEventType, agent.Id.ToString()) is { } stillOffline)
+            {
+                _states[agent.Id] = new AgentState
+                {
+                    OfflineSince = stillOffline.TriggeredAt,
+                    Alerted = true,
+                    Subject = AgentLabel(agent.Name)
+                };
+            }
+
             // A tunnel that reconnects inside the grace never reads as offline, so it needs its own alert.
             if (_tunnelRegistry.IsUnstable(agent.Id)
                 && (!_unstableAlertedAt.TryGetValue(agent.Id, out var lastUnstable) || now - lastUnstable >= UnstableRealert))
@@ -137,7 +158,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
             {
                 if (_states.Remove(agent.Id, out var prior) && prior.Alerted)
                 {
-                    await PublishAsync("agent.reconnected", AlertSeverity.Info,
+                    await PublishAsync(ReconnectedEventType, AlertSeverity.Info,
                         "On-Site Agent reconnected",
                         $"{prior.Subject ?? AgentLabel(agent.Name)} is back online.",
                         agent, entry.Slug, ct);
@@ -184,7 +205,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
                 var priorAlerts = RecordOfflineAlert(agent.Id, now);
                 var hint = ChronicHint(priorAlerts + 1, _tunnelRegistry.IsUnstable(agent.Id));
 
-                await PublishAsync("agent.offline", AlertSeverity.Warning,
+                await PublishAsync(OfflineEventType, AlertSeverity.Warning,
                     "On-Site Agent offline",
                     $"{message} {lastSeen}{hint}",
                     agent, entry.Slug, ct);
@@ -199,6 +220,19 @@ public class AgentConnectionAlertMonitor : BackgroundService
         foreach (var staleId in _unstableAlertedAt.Keys.Where(id => !seen.Contains(id)).ToList())
             _unstableAlertedAt.Remove(staleId);
     }
+
+    private Monitoring.OpenAlertSeed OpenAtStart(string siteSlug)
+    {
+        if (!_openAtStart.TryGetValue(siteSlug, out var seed))
+            _openAtStart[siteSlug] = seed = new Monitoring.OpenAlertSeed(_scopes, siteSlug, [OfflineEventType], SeedSubject, _logger);
+        return seed;
+    }
+
+    /// <summary>Which agent a stored alert is about: the id <see cref="PublishAsync"/> puts in its context.</summary>
+    internal static string? SeedSubject(NetworkOptimizer.Alerts.Models.AlertHistoryEntry alert) =>
+        Monitoring.OpenAlertSeed.Context(alert, AgentIdKey);
+
+    private const string AgentIdKey = "agent_id";
 
     private static readonly string ProxyHelp =
         $"See the Reverse proxy section of the agent README: {AgentTunnelRegistry.ReverseProxyHelpUrl} (more help: {AgentTunnelRegistry.AgentConnectionHelpUrl}).";
@@ -289,7 +323,9 @@ public class AgentConnectionAlertMonitor : BackgroundService
                 Message = message,
                 DeviceName = agent.Name,
                 DeviceIp = agent.LanIp,
-                SiteSlug = siteSlug == SiteManagementService.DefaultSiteSlug ? null : siteSlug
+                SiteSlug = siteSlug == SiteManagementService.DefaultSiteSlug ? null : siteSlug,
+                // Pairs an offline with its reconnect across a restart; names can repeat across a site's agents.
+                Context = new Dictionary<string, string> { [AgentIdKey] = agent.Id.ToString() }
             }, ct);
             _logger.LogInformation("Published {EventType} for agent {Name} (site {Site})",
                 eventType, agent.Name, siteSlug);

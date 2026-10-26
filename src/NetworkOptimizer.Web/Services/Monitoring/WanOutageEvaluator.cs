@@ -22,14 +22,19 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// categories). Evaluation is a throttled whole-site pass over the current target states, and a
 /// verdict must hold across consecutive passes to open - the per-target
 /// FailuresToDeclareOffline idea applied to the WAN - and to close, so a flapping WAN produces
-/// one alert and one recovery. State is in memory only, rebuilt from live probe results after a
-/// restart; an outage spanning a restart re-opens its alert once, which is the accepted cost of
-/// never persisting outage state that could go stale against a network that has recovered.
+/// one alert and one recovery. State is in memory only. At start-up the alerts still open are read
+/// back (<see cref="OpenAlertSeed"/>): an outage spanning a restart keeps its one alert, and one that
+/// ended during the restart is closed by the first confirmed recovery verdict rather than left open.
+/// Nothing new is persisted, so the seeded state cannot outlive what the live probes say.
 /// </summary>
 public class WanOutageEvaluator
 {
     /// <summary>AlertEvent.DeviceId of the site-level all-WANs rollup alert.</summary>
     internal const string RollupDeviceId = "all-wans";
+
+    private const string OutageEventType = "monitoring.wan_outage";
+    private const string PartialEventType = "monitoring.wan_outage_partial";
+    private const string RecoveredEventType = "monitoring.wan_recovered";
 
     // Tuned to beat the console's own WAN-down push (~60-120 s): a target counts as failing
     // for WAN verdicts after two failed probes (each probe is multi-ping, and no WAN verdict
@@ -64,17 +69,26 @@ public class WanOutageEvaluator
     private DateTime _lastPassUtc = DateTime.MinValue;
     private bool _rollupOpen;
     private DateTime? _rollupSince;
+    private readonly OpenAlertSeed _openAtStart;
+    private OpenAlerts _open = OpenAlerts.None;
+    private bool _seedApplied;
+    // The rollup was open before a restart, so WANs first seen now belong to it.
+    private bool _rollupFromSeed;
 
     /// <param name="siteSlug">
     /// Site this instance evaluates for (one instance per site, owned by
     /// <see cref="MonitoringAlertRegistry"/>, same pattern as <see cref="MonitoringAlertEvaluator"/>).
     /// </param>
+    /// <param name="scopeFactory">Reads WAN outages still open before a restart, so their recovery is published.</param>
     public WanOutageEvaluator(IAlertEventBus eventBus, ILogger<WanOutageEvaluator> logger,
         WanOutageContextSource contextSource,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         Firmware.RolloutSuppressionRegistry? rolloutWindows = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IServiceScopeFactory? scopeFactory = null)
     {
+        _openAtStart = new OpenAlertSeed(scopeFactory, string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug,
+            [OutageEventType, PartialEventType], a => WanSubject(a.DeviceId), logger);
         _eventBus = eventBus;
         _logger = logger;
         _contextSource = contextSource;
@@ -140,6 +154,17 @@ public class WanOutageEvaluator
 
     private async Task RunPassAsync(DateTime now, CancellationToken ct)
     {
+        if (!_seedApplied)
+        {
+            _open = await _openAtStart.OpenAsync();
+            if (_open.Get(OutageEventType, RollupDeviceId) is { } rollup)
+            {
+                _rollupOpen = _rollupFromSeed = true;
+                _rollupSince = OpenAlertSeed.ContextTime(rollup, "since");
+            }
+            _seedApplied = true;
+        }
+
         // Group fresh target states by WAN. A target with no recent result says nothing about
         // the WAN: when probing stops entirely (agent disconnected, monitoring off), every
         // target goes stale and no verdict is reached - a monitoring gap is not an outage,
@@ -262,7 +287,7 @@ public class WanOutageEvaluator
     {
         if (state.CoveredByRollup && _rollupOpen)
         {
-            _rollupOpen = false;
+            _rollupOpen = _rollupFromSeed = false;
             state.CoveredByRollup = false;
             await _eventBus.PublishAsync(BuildRecoveredEvent(info, state, now), ct);
             state.EpisodeStart = null;
@@ -341,9 +366,32 @@ public class WanOutageEvaluator
     private WanState GetWanState(string wanKey)
     {
         if (!_wanStates.TryGetValue(wanKey, out var state))
-            _wanStates[wanKey] = state = new WanState();
+            _wanStates[wanKey] = state = NewWanState(wanKey);
         return state;
     }
+
+    /// <summary>A WAN first seen by this process, carrying any outage open on it at start-up.</summary>
+    private WanState NewWanState(string wanKey)
+    {
+        var covered = _rollupFromSeed && _rollupOpen;
+        var state = new WanState { CoveredByRollup = covered, EpisodeStart = covered ? _rollupSince : null };
+        var key = WanSubject(wanKey);
+        if (_open.Take(OutageEventType, key) is { } total)
+        {
+            state.OpenKind = WanVerdictKind.Total;
+            state.EpisodeStart = OpenAlertSeed.ContextTime(total, "since");
+        }
+        else if (_open.Take(PartialEventType, key) is { } partial)
+        {
+            state.OpenKind = WanVerdictKind.Partial;
+            state.EpisodeStart = OpenAlertSeed.ContextTime(partial, "since");
+        }
+        return state;
+    }
+
+    // WAN keys are compared case-insensitively everywhere else in this class.
+    private static string? WanSubject(string? wanKey) =>
+        string.IsNullOrWhiteSpace(wanKey) ? null : wanKey.Trim().ToLowerInvariant();
 
     private WanOutageWanInfo WanInfo(string wanKey) =>
         _context.Wans.TryGetValue(wanKey, out var info)
@@ -386,7 +434,7 @@ public class WanOutageEvaluator
 
         return new AlertEvent
         {
-            EventType = total ? "monitoring.wan_outage" : "monitoring.wan_outage_partial",
+            EventType = total ? OutageEventType : PartialEventType,
             Source = "monitoring",
             // Severity tracks user impact, not which link failed: a WAN that is carrying traffic
             // (the primary, or any WAN on a load-balancing site) taking a total outage is a real
@@ -415,7 +463,7 @@ public class WanOutageEvaluator
         var duration = Humanize(now - (state.EpisodeStart ?? now));
         return new AlertEvent
         {
-            EventType = "monitoring.wan_recovered",
+            EventType = RecoveredEventType,
             Source = "monitoring",
             Severity = AlertSeverity.Info,
             Title = $"{info.Label} is back{_siteSuffix}",
@@ -444,7 +492,7 @@ public class WanOutageEvaluator
         var duration = Humanize(now - (_rollupSince ?? now));
         return new AlertEvent
         {
-            EventType = "monitoring.wan_outage",
+            EventType = OutageEventType,
             Source = "monitoring",
             Severity = AlertSeverity.Critical,
             Title = $"Internet down on all WANs{_siteSuffix}",

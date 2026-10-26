@@ -83,6 +83,26 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 60 // 1 minute - recoveries are paired with offline events
         },
+        // Answering on the network but not reporting to UniFi Network. The evaluator holds it 10
+        // minutes first, so a Network restart or inform address change never reaches this rule.
+        new AlertRule
+        {
+            Name = "Device Not Reporting",
+            IsEnabled = true,
+            EventTypePattern = "device.unmanaged",
+            Source = "device",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes - the evaluator fires once per episode
+        },
+        new AlertRule
+        {
+            Name = "Device Reporting Again",
+            IsEnabled = true,
+            EventTypePattern = "device.managed",
+            Source = "device",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - paired with device.unmanaged
+        },
         // Reboot reasons are published Info for a restart someone meant (commanded, firmware
         // upgrade) and Warning for one nobody did (power loss, hang, panic, watchdog). Seeded at
         // Warning so only the latter notify; drop it to Info to be told about every restart.
@@ -299,6 +319,25 @@ public static class DefaultAlertRules
             Source = "console",
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 60 // 1 minute - restores are paired with failure events
+        },
+        // Most of a site's devices not reporting at once: one alert for the console side.
+        new AlertRule
+        {
+            Name = "UniFi Network Not Hearing From Devices",
+            IsEnabled = true,
+            EventTypePattern = "console.devices_unmanaged",
+            Source = "console",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes - the evaluator fires once per episode
+        },
+        new AlertRule
+        {
+            Name = "UniFi Network Hearing From Devices Again",
+            IsEnabled = true,
+            EventTypePattern = "console.devices_managed",
+            Source = "console",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - paired with console.devices_unmanaged
         },
 
         // --- On-Site Agent (enabled by default - an offline agent takes its whole site dark) ---

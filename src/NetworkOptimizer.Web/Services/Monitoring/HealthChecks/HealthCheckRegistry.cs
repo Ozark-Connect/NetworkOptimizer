@@ -51,7 +51,8 @@ public class HealthCheckRegistry : BackgroundService, ISiteScopedRegistry
                 bus,
                 sp.GetRequiredService<RolloutSuppressionRegistry>(),
                 sp.GetRequiredService<IAuditLogger>(),
-                sp.GetRequiredService<ILogger<HealthCheckRunner>>());
+                sp.GetRequiredService<ILogger<HealthCheckRunner>>(),
+                sp.GetRequiredService<IServiceScopeFactory>());
         });
 
     /// <inheritdoc />

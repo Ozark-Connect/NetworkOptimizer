@@ -1215,12 +1215,15 @@ public class AgentProbeResultSink
         var stateObservedAt = DateTime.UtcNow;
         try
         {
+            var deviceState = _alertRegistry.GetFor(connection.SiteSlug).DeviceState;
             foreach (var device in deviceByMac.Values)
             {
                 _deviceTransitions.Record(connection.SiteSlug, device.Mac, device.State, stateObservedAt);
-                await _alertRegistry.GetFor(connection.SiteSlug).DeviceState.EvaluateAsync(
+                await deviceState.EvaluateAsync(
                     device.Mac, device.Name, device.Ip, device.DeviceType, device.State, stateObservedAt, ct);
             }
+            if (deviceByMac.Count > 0)
+                await deviceState.CompletePassAsync(stateObservedAt, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
