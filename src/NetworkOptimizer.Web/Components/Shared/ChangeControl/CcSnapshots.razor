@@ -32,7 +32,7 @@
             <CcObjectTable Objects="drift.Objects" PastTense="true" />
             <div class="cc-card-footer">
                 <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="AcceptBaselineAsync">Accept as Baseline</button></SiteAdminOnly>
-                <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReturnToBaselineAsync">Return to Baseline</button></SiteOperatorOnly>
+                <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReturnToBaselineAsync">@Spinner("baseline")Return to Baseline</button></SiteOperatorOnly>
             </div>
         }
     </div>
@@ -150,7 +150,7 @@
                                             <button class="cc-link-btn" @onclick="() => TogglePinAsync(s)">@(s.Pinned ? "Unpin" : "Pin")</button>
                                         }
                                         <button class="cc-link-btn" @onclick="() => DownloadYamlAsync(s.Id)">Download YAML</button>
-                                        <button class="cc-link-btn" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(s.Id)">Roll Back To</button>
+                                        <button class="cc-link-btn" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(s.Id)">@Spinner($"rollback:{s.Id}") Roll Back To</button>
                                     </SiteOperatorOnly>
                                 </div>
                             </td>
@@ -244,7 +244,7 @@ else if (_compare != null)
                     }
                     @if (_compare.FromSnapshotId is { } fromId && _compare.ToSnapshotId == null)
                     {
-                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
+                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">@Spinner($"rollback:{fromId}")Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
                     }
                 </div>
             }
@@ -422,13 +422,19 @@ else if (_compare != null)
     {
         var planId = await Site.BuildReturnToBaselineAsync();
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    });
+    }, "baseline");
 
     private async Task RollBackAsync(int snapshotId) => await RunAsync(async () =>
     {
         var planId = await Site.BuildRollbackToSnapshotAsync(snapshotId);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    });
+    }, $"rollback:{snapshotId}");
+
+    // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
+    private string? _running;
+
+    private RenderFragment? Spinner(string action) =>
+        _running == action ? @<span class="spinner-sm"></span> : null;
 
     private async Task DownloadYamlAsync(int? snapshotId)
     {
@@ -445,12 +451,18 @@ else if (_compare != null)
             Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
     }
 
-    private async Task RunAsync(Func<Task> work)
+    private async Task RunAsync(Func<Task> work, string? action = null)
     {
         _busy = true;
+        _running = action;
         _error = null;
-        try { await work(); }
+        try
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await work();
+        }
         catch (Exception ex) { _error = ex.Message; }
-        finally { _busy = false; }
+        finally { _busy = false; _running = null; }
     }
 }

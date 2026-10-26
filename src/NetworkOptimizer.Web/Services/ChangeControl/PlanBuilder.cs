@@ -593,7 +593,8 @@ public static class PlanBuilder
                 {
                     var oid = ConfigState.IdOf(o);
                     if (oid.Equals(del.ObjectId, StringComparison.OrdinalIgnoreCase) || deletedIds.Contains(oid)) continue;
-                    if (!References(o, del.ObjectId!)) continue;
+                    // A reference in a field UniFi manages (Etherlighting's network colors) is UniFi's to clean up.
+                    if (!References(WithoutReadOnly(def, o), del.ObjectId!)) continue;
                     // The referrer is fixed when the plan's update no longer carries the reference.
                     if (updatesById.TryGetValue(oid, out var upd) && upd.Body is JsonObject body && !References(MergeForCheck(o, body), del.ObjectId!))
                         continue;
@@ -605,6 +606,15 @@ public static class PlanBuilder
             if (still.Count > 0)
                 doc.Errors.Add($"{ConfigCollections.Get(del.Collection)?.Noun} {del.ObjectName} cannot be deleted while it is still referenced by: {string.Join(", ", still)}.");
         }
+    }
+
+    private static JsonObject WithoutReadOnly(ConfigCollectionDef? def, JsonObject o)
+    {
+        if (def == null || !o.Any(p => def.ReadOnlyFields.Contains(p.Key))) return o;
+        var copy = new JsonObject();
+        foreach (var (k, v) in o)
+            if (!def.ReadOnlyFields.Contains(k)) copy[k] = v?.DeepClone();
+        return copy;
     }
 
     private static JsonObject MergeForCheck(JsonObject live, JsonObject body)

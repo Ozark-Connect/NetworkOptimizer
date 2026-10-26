@@ -347,8 +347,8 @@ else if (_task == Restore)
                 </div>
                 <div class="cc-card-footer">
                     <span class="cc-remaining"></span>
-                    <button class="btn btn-contrast" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(true)">Write Device Config</button>
-                    <button class="btn btn-primary" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(false)">@Spinner(nameof(BuildRestoreAsync))Review Plan</button>
+                    <button class="btn btn-contrast" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(true)">@Spinner("devices")Write Device Config</button>
+                    <button class="btn btn-primary" disabled="@(SnapshotChoice == null || _busy || !ConsoleConnected)" @onclick="() => BuildRestoreAsync(false)">@Spinner("restore")Review Plan</button>
                 </div>
             </div>
         </ChildContent>
@@ -585,7 +585,7 @@ else
         if (SnapshotChoice is not int id) return;
         var planId = await Site.BuildRestoreAsync(_sourceSlug, id, _deleteMissing, devicesOnly);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    });
+    }, devicesOnly ? "devices" : "restore");
 
     private void ToggleAdopt(string mac)
     {

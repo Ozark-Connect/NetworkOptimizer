@@ -216,7 +216,7 @@
                     <div class="expand-content">
                         @if (shown)
                         {
-                            <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
+                            <CcChangeDetail Detail="_detail" Busy="_busy" RollingBack="_rollingBack" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
                         }
                     </div>
                 </div>
@@ -292,7 +292,7 @@
                                     <div class="expand-content">
                                         @if (shown)
                                         {
-                                            <CcChangeDetail Detail="_detail" Busy="_busy" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
+                                            <CcChangeDetail Detail="_detail" Busy="_busy" RollingBack="_rollingBack" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
                                         }
                                     </div>
                                 </div>
@@ -533,8 +533,11 @@
             return;
         }
         _busy = true;
+        _rollingBack = true;
         try
         {
+            StateHasChanged();
+            await Task.Yield();
             var planId = await Site.BuildRollbackOfChangeAsync(c.Id);
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
@@ -545,8 +548,11 @@
         finally
         {
             _busy = false;
+            _rollingBack = false;
         }
     }
+
+    private bool _rollingBack;
 
     private async Task ExportAsync()
     {

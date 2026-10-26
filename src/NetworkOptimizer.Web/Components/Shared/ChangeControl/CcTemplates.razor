@@ -79,7 +79,13 @@
                 </div>
                 <div class="cc-row-actions">
                     <SiteAdminOnly>
-                        <button class="btn btn-sm btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => ApplyAsync(t.Id)">Apply to This Site</button>
+                        <button class="btn btn-sm btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => ApplyAsync(t.Id)">
+                                @if (_running == $"apply:{t.Id}")
+                                {
+                                    <span class="spinner-sm"></span>
+                                }
+                                Apply to This Site
+                            </button>
                         @if (isBaseline)
                         {
                             <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(null)">Clear Baseline</button>
@@ -204,7 +210,10 @@
     {
         var planId = await Site.BuildApplyTemplateAsync(id);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    });
+    }, $"apply:{id}");
+
+    // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
+    private string? _running;
 
     private async Task SetBaselineAsync(int? id) => await RunAsync(() => SetBaselineCoreAsync(id));
 
@@ -214,12 +223,15 @@
         await OnBaselineChanged.InvokeAsync();
     }
 
-    private async Task RunAsync(Func<Task> action)
+    private async Task RunAsync(Func<Task> action, string? running = null)
     {
         _busy = true;
+        _running = running;
         _error = null;
         try
         {
+            StateHasChanged();
+            await Task.Yield();
             await action();
         }
         catch (Exception ex)
@@ -229,6 +241,7 @@
         finally
         {
             _busy = false;
+            _running = null;
         }
     }
 }

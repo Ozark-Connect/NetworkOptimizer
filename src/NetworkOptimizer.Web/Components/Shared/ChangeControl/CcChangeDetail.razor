@@ -102,7 +102,13 @@ else
                 @if (Detail.CanRollBack)
                 {
                     <SiteOperatorOnly>
-                        <button class="btn btn-primary" disabled="@Busy" @onclick="OnRollBack">Roll Back</button>
+                        <button class="btn btn-primary" disabled="@Busy" @onclick="OnRollBack">
+                            @if (RollingBack)
+                            {
+                                <span class="spinner-sm"></span>
+                            }
+                            Roll Back
+                        </button>
                     </SiteOperatorOnly>
                 }
                 @if (Detail.Row.PreviousSnapshotId != null && Detail.Row.SnapshotId != null)
@@ -117,6 +123,9 @@ else
 @code {
     [Parameter] public ChangeDetailView? Detail { get; set; }
     [Parameter] public bool Busy { get; set; }
+
+    /// <summary>The Roll Back plan is being built: its button shows a spinner.</summary>
+    [Parameter] public bool RollingBack { get; set; }
     [Parameter] public EventCallback OnRollBack { get; set; }
     [Parameter] public EventCallback OnViewDiff { get; set; }
 

@@ -156,7 +156,13 @@ else
             <div class="cc-card-footer">
                 <span class="cc-remaining"></span>
                 <SiteOperatorOnly>
-                    <button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => TranslateAsync(legacyId)">Translate Legacy Rules</button>
+                    <button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => TranslateAsync(legacyId)">
+                    @if (_translating)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    Translate Legacy Rules
+                </button>
                 </SiteOperatorOnly>
             </div>
         </div>
@@ -312,8 +318,11 @@ else
     private async Task TranslateAsync(int snapshotId)
     {
         _busy = true;
+        _translating = true;
         try
         {
+            StateHasChanged();
+            await Task.Yield();
             var planId = await Site.BuildLegacyTranslationAsync(snapshotId);
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
@@ -325,8 +334,11 @@ else
         finally
         {
             _busy = false;
+            _translating = false;
         }
     }
+
+    private bool _translating;
 
     private async Task ReviewPlanAsync()
     {

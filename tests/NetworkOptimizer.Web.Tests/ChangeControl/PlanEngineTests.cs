@@ -265,6 +265,20 @@ public class PlanEngineTests
         setting.Body!.ToJsonString().Should().Contain(PlanBuilder.RefPrefix + network.Key);
     }
 
+    [Fact]
+    public void DeletingANetwork_NamedOnlyInEtherlightingDefaults_IsNotBlocked()
+    {
+        var desired = State(("networkconf", Lan),
+            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"},{"key":"n2","raw_color_hex":"0544ff"}]}"""));
+        var live = State(("networkconf", Lan), ("networkconf", Iot),
+            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"},{"key":"n2","raw_color_hex":"0544ff"}]}"""));
+
+        var doc = Plan(desired, live);
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().ContainSingle(o => o.Action == PlanAction.Delete && o.ObjectId == "n2");
+    }
+
     [Theory]
     [InlineData("ok", true)]
     [InlineData("error", false)]
