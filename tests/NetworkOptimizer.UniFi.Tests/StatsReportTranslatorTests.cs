@@ -55,6 +55,36 @@ public class StatsReportTranslatorTests
     }
 
     [Fact]
+    public void Ap_RollsFiveMinutePointsUpToTheRequestedHour()
+    {
+        const long hour = 3_600_000;
+        var points = string.Join(",", Enumerable.Range(0, 12).Select(i =>
+            $$"""{"timestamp":{{hour * 10 + i * 300_000}},"duration":300000,"byRadioBand":[{"radioBand":"na","avgTotalCuPct":{{(i < 6 ? 10 : 30)}},"wifiTxRetryPackets":2.0,"maxWifiTxRetryPct":{{i}}}]}"""));
+        var stats = Parse($$"""[{"siteId":"{{Site}}","deviceMac":"aa:bb:cc:dd:ee:ff","series":[{{points}}]}]""");
+
+        var rows = StatsReportTranslator.ToLegacyRows(stats, StatsReportKind.Ap, Site,
+            ["time", "na-cu_total", "na-tx_retries"], StatsReportTranslator.Bucket("hourly"));
+
+        rows.GetArrayLength().Should().Be(1);
+        rows[0].GetProperty("time").GetInt64().Should().Be(hour * 10);
+        rows[0].GetProperty("na-cu_total").GetDouble().Should().Be(20.0, "a duration-weighted mean");
+        rows[0].GetProperty("na-tx_retries").GetDouble().Should().Be(24.0, "counts sum");
+    }
+
+    [Fact]
+    public void Ap_LeavesPointsAlone_WhenAlreadyAsCoarseAsRequested()
+    {
+        var stats = Parse($$"""
+            [{"siteId":"{{Site}}","deviceMac":"aa:bb:cc:dd:ee:ff","series":[
+              {"timestamp":0,"duration":3600000,"byRadioBand":[{"radioBand":"na","avgTotalCuPct":5.0}]},
+              {"timestamp":3600000,"duration":3600000,"byRadioBand":[{"radioBand":"na","avgTotalCuPct":7.0}]}]}]
+            """);
+
+        StatsReportTranslator.ToLegacyRows(stats, StatsReportKind.Ap, Site, ["time", "na-cu_total"], StatsReportTranslator.Bucket("hourly"))
+            .GetArrayLength().Should().Be(2);
+    }
+
+    [Fact]
     public void User_SwapsClientViewToApView_AndOrdersApsByTime()
     {
         var stats = Parse($$"""
