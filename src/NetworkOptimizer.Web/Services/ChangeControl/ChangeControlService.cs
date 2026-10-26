@@ -86,27 +86,27 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     internal static ChangeRowView Row(ConfigChange c, string slug, string siteName, int incidentsAfter,
         IReadOnlyDictionary<int, (int PlanId, DateTime? At)>? rollbacks = null) => new()
-    {
-        RolledBackByPlanId = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rb) ? rb.PlanId : null,
-        RolledBackAt = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rba) ? rba.At : null,
-        Id = c.Id,
-        SiteSlug = slug,
-        SiteName = siteName,
-        OccurredAt = c.OccurredAt,
-        Kind = c.Kind,
-        Summary = c.Summary,
-        ActorKind = c.ActorKind,
-        Who = Who(c),
-        RegressionCount = c.RegressionCount,
-        FixCount = c.FixCount,
-        Tags = string.IsNullOrEmpty(c.ServiceTagsJson) ? [] : JsonSerializer.Deserialize<List<string>>(c.ServiceTagsJson) ?? [],
-        IncidentsAfter = incidentsAfter,
-        ManagementPath = c.ManagementPath,
-        SnapshotId = c.SnapshotId,
-        PreviousSnapshotId = c.PreviousSnapshotId,
-        PlanId = c.PlanId,
-        HealthDrop = c.HealthBefore is >= 0 and var before && c.HealthAfter is >= 0 and var after ? Math.Round(before - after, 1) : null,
-    };
+        {
+            RolledBackByPlanId = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rb) ? rb.PlanId : null,
+            RolledBackAt = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rba) ? rba.At : null,
+            Id = c.Id,
+            SiteSlug = slug,
+            SiteName = siteName,
+            OccurredAt = c.OccurredAt,
+            Kind = c.Kind,
+            Summary = c.Summary,
+            ActorKind = c.ActorKind,
+            Who = Who(c),
+            RegressionCount = c.RegressionCount,
+            FixCount = c.FixCount,
+            Tags = string.IsNullOrEmpty(c.ServiceTagsJson) ? [] : JsonSerializer.Deserialize<List<string>>(c.ServiceTagsJson) ?? [],
+            IncidentsAfter = incidentsAfter,
+            ManagementPath = c.ManagementPath,
+            SnapshotId = c.SnapshotId,
+            PreviousSnapshotId = c.PreviousSnapshotId,
+            PlanId = c.PlanId,
+            HealthDrop = c.HealthBefore is >= 0 and var before && c.HealthAfter is >= 0 and var after ? Math.Round(before - after, 1) : null,
+        };
 
     public async Task<List<ChangeRowView>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, bool? includeOwn = null, CancellationToken cancellationToken = default)
     {
@@ -574,10 +574,15 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     public async Task<int> BuildEditPlanAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)
     {
-        var (desired, problems, touched) = await ParseEditsAsync(snapshotId, filesByCollection, cancellationToken);
+        var baseState = (await LoadSideAsync(snapshotId, cancellationToken)).State;
+        var (desired, problems, touched) = ParseEdits(baseState, filesByCollection);
         if (problems.Any(p => p.Level == "Error"))
             throw new InvalidOperationException("Fix the errors before Review Plan.");
-        var plan = await Plans.CreateAsync(ConfigPlanKind.Edit, $"Edit {await SiteNameAsync(cancellationToken)}: {string.Join(", ", touched.Select(t => ConfigCollections.Get(t)?.DisplayName ?? t))}",
+        // Name the collections the edit changes, not every collection the uploaded file carries.
+        var changed = PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched }).Operations
+            .Select(o => o.Collection).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var named = ConfigCollections.All.Where(d => changed.Contains(d.Key)).Select(d => d.DisplayName).ToList();
+        var plan = await Plans.CreateAsync(ConfigPlanKind.Edit, $"Edit {await SiteNameAsync(cancellationToken)}: {(named.Count > 0 ? string.Join(", ", named) : "no changes")}",
             snapshotId == null ? "YAML edit of the live config" : "YAML edit of a snapshot", snapshotId, null, desired,
             new PlanOptions { Collections = touched }, Actor, cancellationToken);
         return plan.Id;
