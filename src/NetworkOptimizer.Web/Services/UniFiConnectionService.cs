@@ -1411,6 +1411,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Re-reads the saved settings, skipping the cache, and reconnects: for a settings change made outside
+    /// this service (a re-address moving the console URL).
+    /// </summary>
+    public Task<bool> ReloadAndReconnectAsync()
+    {
+        _settings = null;
+        _cacheTime = DateTime.MinValue;
+        return ReconnectAsync();
+    }
+
+    /// <summary>
     /// Attempt to reconnect using saved configuration
     /// </summary>
     public async Task<bool> ReconnectAsync()

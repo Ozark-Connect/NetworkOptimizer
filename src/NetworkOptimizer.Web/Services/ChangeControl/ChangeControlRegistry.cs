@@ -91,7 +91,11 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(slug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
         var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        return await ReaddressSettings.RunAsync(db, moves, remote, apply, ct);
+        var moved = await ReaddressSettings.RunAsync(db, moves, remote, apply, ct);
+        // The live connection caches its settings: reconnect at the new console address now, not in five minutes.
+        if (apply && moved.Any(m => m.Setting == ReaddressSettings.ConsoleSetting))
+            _ = Connection(slug).ReloadAndReconnectAsync();
+        return moved;
     }
 
     /// <summary>Records one of NO's console writes against its site's journal.</summary>
