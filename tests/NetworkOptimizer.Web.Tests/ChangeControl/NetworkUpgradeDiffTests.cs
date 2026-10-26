@@ -182,6 +182,17 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void NestedEmptyFieldNetwork11Added_IsNotAChange_ButANestedValueIs()
+    {
+        var before = State(("wlanconf", """{"_id":"w1","name":"IoT","mdns_proxy_custom":[{"services_mode":"all","networkconf_ids":["n1"]}]}"""));
+        var quiet = State(("wlanconf", """{"_id":"w1","name":"IoT","mdns_proxy_custom":[{"services_mode":"all","networkconf_ids":["n1"],"isolation_enabled":false,"ap_macs":[],"custom_services":[]}]}"""));
+        var loud = State(("wlanconf", """{"_id":"w1","name":"IoT","mdns_proxy_custom":[{"services_mode":"specific","networkconf_ids":["n1"]}]}"""));
+
+        ConfigDiffEngine.Compare(before, quiet).IsEmpty.Should().BeTrue();
+        ConfigDiffEngine.Compare(before, loud).IsEmpty.Should().BeFalse();
+    }
+
+    [Fact]
     public void RestoreOfPreUpgradeSnapshot_DropsADanglingReferenceLiveNoLongerHas()
     {
         // 10.6 kept an override pointing at a network that no longer exists; Network 11 dropped the field.

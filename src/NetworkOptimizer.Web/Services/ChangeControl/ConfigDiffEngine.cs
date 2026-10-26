@@ -293,10 +293,13 @@ public static class ConfigDiffEngine
         }
     }
 
-    /// <summary>A copy with every set array nested anywhere inside sorted, so order inside a list of objects is not a change.</summary>
+    /// <summary>
+    /// A copy with every set array nested anywhere inside sorted and every empty nested field dropped, so
+    /// order or a false/empty field 10.6 left out, inside a list of objects, is not a change.
+    /// </summary>
     private static JsonNode? SetsSorted(ConfigCollectionDef def, JsonNode? node) => node switch
     {
-        JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key,
+        JsonObject o => new JsonObject(o.Where(p => !IsEmpty(p.Value)).Select(p => KeyValuePair.Create(p.Key,
             def.SetArrays.Contains(p.Key) && p.Value is JsonArray set
                 ? new JsonArray(set.Select(e => SetsSorted(def, e)).OrderBy(CanonicalJson.Serialize, StringComparer.Ordinal).ToArray())
                 : SetsSorted(def, p.Value)))),
