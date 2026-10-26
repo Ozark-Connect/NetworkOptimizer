@@ -287,6 +287,49 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void DeletedClientGroup_IsRecreated_AndItsClientsPointAtIt()
+    {
+        var before = Versioned("11.0.97",
+            ("network_members_group", """{"id":"2cb64e2c-eb5f-4af9-bb9f-44750f948594","name":"Gaming","type":"CLIENTS","members":["aa:bb:cc:dd:ee:01"]}"""),
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["2cb64e2c-eb5f-4af9-bb9f-44750f948594"]}"""));
+        var after = Versioned("11.0.97",
+            ("network_members_group", """{"id":"00000000-0000-0000-0000-000000000000","name":"Other","type":"CLIENTS","members":[]}"""),
+            ("user", """{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":[]}"""));
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions());
+
+        var create = doc.Operations.Single(o => o.Collection == "network_members_group" && o.Action == PlanAction.Create);
+        doc.Operations.Single(o => o.Collection == "user").Body!.ToJsonString().Should().Contain(PlanBuilder.RefPrefix + create.Key);
+    }
+
+    [Fact]
+    public void RadiusV2_WritesOnlyWhatV1Lacks_AndNeverCreates()
+    {
+        var before = State(
+            ("radiusprofile", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}]}"""),
+            ("radius_profile_v2", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}],"vlan_enabled":true}"""),
+            ("radius_profile_v2", """{"_id":"uid1","name":"UID","attr_no_edit":true,"attr_hidden_id":"Uid"}"""));
+        var after = State(
+            ("radiusprofile", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}]}"""),
+            ("radius_profile_v2", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}],"vlan_enabled":false}"""));
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions());
+
+        doc.Operations.Should().ContainSingle(o => o.Collection == "radius_profile_v2")
+            .Which.Fields.Select(f => f.Path).Should().Equal("vlan_enabled");
+        doc.Notes.Should().NotContain(n => n.Contains("RADIUS profiles (v2)"));
+    }
+
+    [Fact]
+    public void BuiltInWlanGroups_AddNoNote()
+    {
+        var before = Versioned("10.6.109", ("wlangroup", """{"_id":"g1","name":"Off","attr_hidden_id":"Off"}"""));
+        var after = Versioned("11.0.97", ("wlangroup", """{"_id":"000000000000000000000001","name":"Default","attr_hidden_id":"Default"}"""));
+        PlanBuilder.Build(before, after, new PlanOptions()).Notes.Should().NotContain(n => n.StartsWith("WLAN groups"));
+        ConfigDiffEngine.Compare(before, after).Objects.Should().OnlyContain(o => o.Generated);
+    }
+
+    [Fact]
     public void BeforeNames_FallBackToTheAfterSide()
     {
         var ctx = ConfigIdentityContext.ForBefore(Before(), After());

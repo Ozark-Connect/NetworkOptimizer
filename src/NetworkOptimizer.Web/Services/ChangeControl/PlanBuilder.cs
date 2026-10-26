@@ -174,7 +174,8 @@ public static class PlanBuilder
     }
 
     private static bool HasDifferences(ConfigCollectionDef def, MatchResult match, PlanOptions options) =>
-        match.Pairs.Any(p => p.Left == null || p.Right == null || ConfigDiffEngine.CompareObjects(def, p.Right, p.Left) != null);
+        match.Pairs.Where(p => def.IsGenerated?.Invoke(p.Left ?? p.Right!) != true)
+            .Any(p => p.Left == null || p.Right == null || ConfigDiffEngine.CompareObjects(def, p.Right, p.Left) != null);
 
     private static string OpKey(ConfigCollectionDef def, PlanAction action, string name, string id) =>
         $"{def.Key}:{action.ToString().ToLowerInvariant()}:{name}:{id}";
@@ -200,6 +201,9 @@ public static class PlanBuilder
                 doc.Notes.Add($"{def.Noun} {name}: managed by {owned}, which re-provisions it.");
             return null;
         }
+
+        // A second view of another collection's objects: that collection creates and deletes them.
+        if (write.CreatedThrough != null && (desired == null || live == null)) return null;
 
         // Delete.
         if (desired == null)
