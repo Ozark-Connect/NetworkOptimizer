@@ -187,10 +187,10 @@ public interface IChangeControlService
     [RequireRole(Roles.Admin)]
     Task<ReaddressView> GetReaddressAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
 
-    /// <summary>Builds the plan that shortens DHCP leases on the networks a re-address moves, ahead of it.</summary>
+    /// <summary>Shortens DHCP leases on the networks a re-address moves, ahead of it, applying at once.</summary>
     [RequireRole(Roles.Admin)]
-    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
-    Task<int> BuildReaddressPreparePlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
+    [AuditAction(AuditActions.ChangeControlPlanApplied, TargetType = "config_plan")]
+    Task<LeaseLowerResult> LowerLeaseTimesAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
 
     /// <summary>After a re-address: reconnects clients still on an old address so they ask DHCP again.</summary>
     [RequireRole(Roles.Admin)]

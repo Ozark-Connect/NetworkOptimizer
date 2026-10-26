@@ -43,6 +43,8 @@ public sealed class ReaddressView
     public List<SettingRewrite> Settings { get; init; } = [];
     /// <summary>DHCP leases lowered ahead of the move, when they are.</summary>
     public LeasePrepare? Prepare { get; init; }
+    /// <summary>The longest DHCP lease among the moving networks, in seconds; null when none moves with DHCP on.</summary>
+    public int? LongestLeaseSeconds { get; init; }
     /// <summary>When the last re-address applied, in the last week: Reconnect Clients is for after it.</summary>
     public DateTime? LastAppliedAt { get; init; }
     public bool Ready => Errors.Count == 0 && Moves.Any(m => m.OldCidr != m.NewCidr);
@@ -67,7 +69,7 @@ public sealed partial class ChangeControlService
         var lastApplied = (await Repo.UseAsync((r, c) => r.GetPlansAsync([ConfigPlanStatus.Applied, ConfigPlanStatus.Watching], 200, c), cancellationToken))
             .Where(p => p.Kind == ConfigPlanKind.Readdress && p.CompletedAt > DateTime.UtcNow.AddDays(-7)).Max(p => p.CompletedAt);
         if (active.Count == 0 || errors.Count > 0)
-            return new ReaddressView { Moves = moves, Errors = errors, Prepare = prepare, LastAppliedAt = lastApplied };
+            return new ReaddressView { Moves = moves, Errors = errors, Prepare = prepare, LastAppliedAt = lastApplied, LongestLeaseSeconds = LongestLease(live, active) };
 
         var result = Readdressing.Apply(live, active);
         var (statics, source) = await StaticClientsAsync(live, active, cancellationToken);
@@ -86,6 +88,7 @@ public sealed partial class ChangeControlService
             Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, RemoteCidrs(live), apply: false, cancellationToken),
             Prepare = prepare,
             LastAppliedAt = lastApplied,
+            LongestLeaseSeconds = LongestLease(live, active),
         };
     }
 
@@ -150,6 +153,13 @@ public sealed partial class ChangeControlService
             .Select(m => m.NetworkId).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>The longest DHCP lease among the moving networks with DHCP on (UniFi's default is a day); null when none.</summary>
+    private static int? LongestLease(ConfigState live, List<SubnetMove> active) =>
+        live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n))
+                && n["dhcpd_enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && on)
+            .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) && s > 0 ? s : 86400)
+            .Select(s => (int?)s).DefaultIfEmpty(null).Max();
+
     private static List<string> RemoteCidrs(ConfigState live) =>
         Readdressing.RemoteRanges(live).Select(r => r.Range.ToString()).Distinct().ToList();
 
@@ -194,6 +204,8 @@ public sealed partial class ChangeControlService
             .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) ? s : 86400).DefaultIfEmpty(86400).Max();
         warnings.Add(prepare switch
         {
+            null when lease <= PrepareLeaseSeconds => new("Leases are short",
+                $"{CcHours(TimeSpan.FromSeconds(lease))} or less on every moving network: clients move within minutes."),
             null => new("Clients move as leases renew",
                 $"Within {CcHours(TimeSpan.FromSeconds(lease / 2))} of the move. Lower Lease Times first, or Reconnect Clients after, makes it minutes."),
             { } p when p.ReadyAt > DateTime.UtcNow => new("Leases lowered, not everywhere yet",

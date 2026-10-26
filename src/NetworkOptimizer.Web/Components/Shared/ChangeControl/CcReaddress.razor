@@ -77,7 +77,7 @@
                 <div>Before the move: lower lease times</div>
                 <div class="cc-item-detail">@PrepareStatus(steps)</div>
             </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || (_subnets.Count == 0 && !steps.Moves.Any(m => m.OldCidr != m.NewCidr)))" @onclick="PrepareAsync">Lower Lease Times</button>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.Prepare != null || steps.LongestLeaseSeconds == null || LeasesShort(steps))" @onclick="PrepareAsync">Lower Lease Times</button>
         </div>
         <div class="cc-setting-row cc-step-row">
             <div>
@@ -261,7 +261,13 @@
 
 @if (_error != null)
 {
-    <div class="alert alert-danger">@_error</div>
+    <div class="alert alert-danger">
+        @_error
+        @if (_leasePlanId is { } leasePlan)
+        {
+            <a href="@SiteContextService.WithSiteParam($"/change-control/plans/{leasePlan}", SiteCtx.Slug)">Open the plan</a>
+        }
+    </div>
 }
 
 @code {
@@ -278,18 +284,33 @@
     private bool _powerCycle;
     private ReconnectResult? _reconnect;
 
+    private int? _leasePlanId;
+
+    // Applies at once (a lease time is harmless and the re-address puts it back); only a plan that needs a
+    // person stops, with a link to it.
     private async Task PrepareAsync() => await RunAsync(async () =>
     {
-        var planId = await Site.BuildReaddressPreparePlanAsync(Choices());
-        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        var result = await Site.LowerLeaseTimesAsync(Choices());
+        _leasePlanId = result.Error == null ? null : result.PlanId;
+        if (result.Error != null) _error = result.Error;
+        await LoadAsync(preview: _previewed);
     });
 
-    private static string PrepareStatus(ReaddressView v) => v.Prepare switch
+    private static bool LeasesShort(ReaddressView v) => v.LongestLeaseSeconds is <= ChangeControlService.PrepareLeaseSeconds;
+
+    private static string PrepareStatus(ReaddressView v)
     {
-        null => "Optional, one full lease ahead (a day with UniFi's default): clients then move within minutes. The re-address puts each lease time back.",
-        { } p when p.ReadyAt > DateTime.UtcNow => $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease by {CcFormat.Local(p.ReadyAt):MMM d, h:mm tt}.",
-        { } p => $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease: ready to move.",
-    };
+        if (v.Prepare is { } p)
+            return p.ReadyAt > DateTime.UtcNow
+                ? $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease by {CcFormat.Local(p.ReadyAt):MMM d, h:mm tt}."
+                : $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease: ready to move.";
+        if (v.LongestLeaseSeconds is not { } lease) return "Give at least one network a new subnet first.";
+        if (lease <= ChangeControlService.PrepareLeaseSeconds) return $"Leases on the moving networks are already {Hours(lease)} or less: nothing to lower.";
+        return $"Leases are up to {Hours(lease)}. Lowered now, every DHCP client is on a {ChangeControlService.PrepareLeaseSeconds / 60}-minute lease by "
+            + $"{CcFormat.Local(DateTime.UtcNow.AddSeconds(lease)):MMM d, h:mm tt}. The re-address puts each lease time back.";
+    }
+
+    private static string Hours(int seconds) => seconds >= 3600 ? $"{seconds / 3600.0:0.#} hours" : $"{seconds / 60} minutes";
 
     private async Task ReconnectAsync() => await RunAsync(async () => _reconnect = await Site.ReconnectClientsAsync(_powerCycle));
 
@@ -308,7 +329,23 @@
     private bool _busy;
     private string? _error;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync(preview: false);
+    protected override async Task OnInitializedAsync()
+    {
+        // The choices live in the URL, so Back from Review Plan returns them.
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        if (query.TryGetValue("pattern", out var pattern)) _pattern = pattern.ToString();
+        if (query.TryGetValue("subnets", out var subnets))
+            foreach (var pair in subnets.ToString().Split('|', StringSplitOptions.RemoveEmptyEntries))
+                if (pair.Split('=', 2) is [var id, var cidr] && id.Length > 0) _subnets[id] = cidr;
+        await LoadAsync(preview: false);
+    }
+
+    private void SyncUrl() => Nav.NavigateTo(Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
+    {
+        ["task"] = "readdress",
+        ["pattern"] = string.IsNullOrWhiteSpace(_pattern) ? null : _pattern,
+        ["subnets"] = _subnets.Count == 0 ? null : string.Join("|", _subnets.Select(kv => $"{kv.Key}={kv.Value}")),
+    }), replace: true);
 
     private ReaddressChoices Choices() => new() { Pattern = _pattern, NewSubnets = new Dictionary<string, string>(_subnets) };
 
@@ -319,11 +356,13 @@
         if (string.IsNullOrWhiteSpace(value)) _subnets.Remove(networkId);
         else _subnets[networkId] = value.Trim();
         _previewed = false;
+        SyncUrl();
     }
 
     private async Task ApplyPatternAsync()
     {
         _subnets.Clear();
+        SyncUrl();
         await LoadAsync(preview: false);
     }
 

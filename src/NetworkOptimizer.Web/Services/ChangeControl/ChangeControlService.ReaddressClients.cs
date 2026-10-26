@@ -11,6 +11,9 @@ namespace NetworkOptimizer.Web.Services.ChangeControl;
 /// </summary>
 public sealed record LeasePrepare(int PlanId, DateTime LoweredAt, DateTime ReadyAt, Dictionary<string, int> Originals);
 
+/// <summary>Lower Lease Times: the plan it ran, and why it stopped (null when it applied).</summary>
+public sealed record LeaseLowerResult(int PlanId, string? Error);
+
 /// <summary>What Reconnect Clients did after a re-address.</summary>
 public sealed class ReconnectResult
 {
@@ -45,7 +48,7 @@ public sealed partial class ChangeControlService
         return new LeasePrepare(latest.Id, at, at.AddSeconds(originals.Values.Max()), originals);
     }
 
-    public async Task<int> BuildReaddressPreparePlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
+    private async Task<int> BuildReaddressPreparePlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
     {
         var live = await Engine.ReadLiveAsync(cancellationToken);
         var moving = Moves(live, choices).Where(m => m.OldCidr != m.NewCidr).Select(m => m.NetworkId).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -74,6 +77,25 @@ public sealed partial class ChangeControlService
                     + "Apply the re-address after that, and it puts each network's lease time back.");
             });
         return plan.Id;
+    }
+
+    /// <summary>
+    /// Lowers the moving networks' DHCP leases now: a lease time is harmless and the re-address puts it
+    /// back, so it skips Review Plan. It still runs as a plan, for the pinned snapshot, attribution, and
+    /// audit. Anything that would need a person (a lockout, an approval) stops it with the plan to review.
+    /// </summary>
+    public async Task<LeaseLowerResult> LowerLeaseTimesAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
+    {
+        var planId = await BuildReaddressPreparePlanAsync(choices, cancellationToken);
+        if (await Plans.LoadAsync(planId, cancellationToken) is not { } loaded) return new(planId, "The plan could not be loaded.");
+        if (loaded.Doc.HighestTier >= PlanTiers.Lockout || loaded.Doc.Errors.Count > 0)
+            return new(planId, "This change needs review: open the plan.");
+        await Plans.SaveAcknowledgementsAsync(planId, new PlanAcknowledgements
+        {
+            Items = loaded.Doc.Operations.Select(o => o.Key).ToHashSet(),
+            TypedConfirmation = PlanReadiness.ConfirmationText(loaded.Doc),
+        }, cancellationToken);
+        return new(planId, await Plans.ApplyAsync(planId, new PlanActor(Actor, IsSiteAdmin: true), requireApproval: false, automatic: false, cancellationToken));
     }
 
     private static string CcHours(TimeSpan t) => t.TotalHours >= 1 ? $"{t.TotalHours:0.#} hours" : $"{t.TotalMinutes:0} minutes";
