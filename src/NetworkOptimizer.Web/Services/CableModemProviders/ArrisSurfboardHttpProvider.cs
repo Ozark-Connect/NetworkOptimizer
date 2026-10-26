@@ -5,7 +5,6 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.Monitoring;
@@ -790,7 +789,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
     /// the numeric parsers would otherwise reject.
     /// </summary>
     private static string CleanText(string text) =>
-        Regex.Replace(HtmlEntity.DeEntitize(text).Replace(' ', ' '), @"\s+", " ").Trim();
+        Regex.Replace(HtmlEntity.DeEntitize(text).Replace('\u00A0', ' '), @"\s+", " ").Trim();
 
     private void ParseDownstreamTable(HtmlNode table, CableModemStats stats)
     {
