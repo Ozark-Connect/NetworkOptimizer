@@ -24,12 +24,14 @@ public class XfinityGatewayProviderTests
     private static CmPollContext Context(
         string siteSlug = "default",
         int id = 1,
-        string? statusPagePath = null) => new()
+        string? statusPagePath = null,
+        int port = 0) => new()
         {
             Id = id,
             SiteSlug = siteSlug,
             Name = "CM1",
             Host = "192.0.2.10",
+            Port = port,
             StatusPagePath = statusPagePath,
         };
 
@@ -148,9 +150,73 @@ public class XfinityGatewayProviderTests
         ofdm.Uncorrectables.Should().Be(0);
     }
 
+    [Fact]
+    public void ParseNetworkSetup_Xb7_ReadsDownstreamChannels()
+    {
+        var stats = CreateProvider()
+            .ParseNetworkSetup(Fixture("xfinity-xb7-cgm4331-network-setup.html"), Context());
+
+        stats.DownstreamChannels.Should().HaveCount(34);
+
+        var primary = stats.DownstreamChannels[0];
+        primary.ChannelId.Should().Be(18);
+        primary.LockStatus.Should().Be("Locked");
+        primary.Frequency.Should().Be(663_000_000);
+        primary.Snr.Should().Be(39.5);
+        primary.Power.Should().Be(-11.7);
+        primary.Modulation.Should().Be("256 QAM");
+
+        stats.DownstreamChannels.Where(ch => ch.Modulation == "OFDM")
+            .Select(ch => ch.Frequency)
+            .Should().Equal(350_000_000, 920_000_000);
+    }
+
+    [Fact]
+    public void ParseNetworkSetup_Xb7_ReadsUpstreamIncludingOfdma()
+    {
+        var stats = CreateProvider()
+            .ParseNetworkSetup(Fixture("xfinity-xb7-cgm4331-network-setup.html"), Context());
+
+        stats.UpstreamChannels.Should().HaveCount(5);
+
+        var scqam = stats.UpstreamChannels[0];
+        scqam.ChannelId.Should().Be(1);
+        scqam.Frequency.Should().Be(21_000_000);
+        scqam.SymbolRate.Should().Be(2560);
+        scqam.Power.Should().Be(49.3);
+        scqam.ChannelType.Should().Be("TDMA_AND_ATDMA");
+
+        // The firmware's Channel Type row reads "TDMA" on this column; Modulation says OFDMA.
+        var ofdma = stats.UpstreamChannels[4];
+        ofdma.ChannelId.Should().Be(10);
+        ofdma.Frequency.Should().Be(42_000_000);
+        ofdma.SymbolRate.Should().Be(0);
+        ofdma.Power.Should().Be(47.7);
+        ofdma.ChannelType.Should().Be("OFDMA");
+    }
+
+    [Fact]
+    public void ParseNetworkSetup_Xb7_MergesCodewordsByChannelIdAndClearsThePrimaryEcho()
+    {
+        var stats = CreateProvider()
+            .ParseNetworkSetup(Fixture("xfinity-xb7-cgm4331-network-setup.html"), Context());
+
+        var ch24 = stats.DownstreamChannels.Single(ch => ch.ChannelId == 24);
+        ch24.Correctables.Should().Be(18856);
+        ch24.Uncorrectables.Should().Be(30224);
+
+        // Channel 18 is the primary; its column repeats OFDM channel 34's counters.
+        stats.DownstreamChannels[0].Correctables.Should().Be(0);
+        stats.DownstreamChannels[0].Uncorrectables.Should().Be(0);
+        var ofdm = stats.DownstreamChannels.Single(ch => ch.ChannelId == 34);
+        ofdm.Correctables.Should().Be(3870117303);
+        ofdm.Uncorrectables.Should().Be(4183);
+    }
+
     [Theory]
     [InlineData("comcast-business-cga4332.html", "CBR (CGA4332COM)")]
     [InlineData("xfinity-xb10-network-setup.html", "XB10 (SG417DBCT)")]
+    [InlineData("xfinity-xb7-cgm4331-network-setup.html", "XB7 (CGM4331COM)")]
     public void ParseNetworkSetup_PairsProductTypeWithTheModelNumber(string fixture, string expected)
     {
         var stats = CreateProvider().ParseNetworkSetup(Fixture(fixture), Context());
@@ -202,5 +268,15 @@ public class XfinityGatewayProviderTests
 
         provider.CandidatePaths(Context(statusPagePath: "/custom.jst"))
             .Should().Equal("/custom.jst", "/network_setup.jst", "/comcast_network.jst");
+    }
+
+    [Theory]
+    [InlineData(0, "http://192.0.2.10")]
+    [InlineData(80, "http://192.0.2.10")]
+    [InlineData(8080, "http://192.0.2.10:8080")]
+    [InlineData(443, "https://192.0.2.10")]
+    public void BuildBaseUrl_Port443MeansHttps(int port, string expected)
+    {
+        XfinityGatewayProvider.BuildBaseUrl(Context(port: port)).Should().Be(expected);
     }
 }
