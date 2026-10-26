@@ -20774,14 +20774,29 @@ body.kiosk-mode .status-indicators {
 }
 
 .shp-row {
+    position: relative;
     color: var(--text-primary);
     border-bottom: 1px solid var(--bg-tertiary);
-    text-decoration: none;
 }
 
 .shp-row:hover {
     background: var(--bg-hover-subtle);
-    color: var(--text-primary);
+}
+
+.shp-row-link {
+    position: absolute;
+    inset: 0;
+}
+
+.shp-count-link {
+    position: relative;
+    z-index: 1;
+    text-decoration: none;
+}
+
+.shp-count-link:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
 }
 
 .shp-head-row .num,
@@ -20835,6 +20850,10 @@ body.kiosk-mode .status-indicators {
 
 .shp-count {
     color: var(--text-secondary);
+}
+
+.shp-count.danger-text {
+    color: var(--danger-color);
 }
 
 .shp-tiles {

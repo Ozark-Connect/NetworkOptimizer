@@ -74,7 +74,8 @@
             @foreach (var s in shown)
             {
                 var now = Now(s);
-                <a class="shp-row" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug">
+                <div class="shp-row">
+                    <a class="shp-row-link" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug" aria-label="@s.Name"></a>
                     <span class="status-dot @(s.Online ? "online" : "offline")"></span>
                     <span class="shp-name">
                         <span class="shp-site">@s.Name</span>
@@ -85,9 +86,11 @@
                     </svg>
                     <span class="shp-now num health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>
                     <span class="shp-issue @(Issue(s) == null ? "muted" : "")">@(Issue(s) ?? "No issues")</span>
-                    <span class="num shp-count @(s.Incidents24h > 0 ? "danger-text" : "")">@s.Incidents24h</span>
-                    <span class="num shp-count">@s.Changes24h</span>
-                </a>
+                    <a class="num shp-count shp-count-link @(s.Incidents24h > 0 ? "danger-text" : "")" href="@SiteContextService.WithSiteParam("/alerts?tab=incidents", s.Slug)" data-site-switch="@s.Slug"
+                       data-tooltip="Open Alerts & Schedule - Incidents">@s.Incidents24h</a>
+                    <a class="num shp-count shp-count-link" href="@SiteContextService.WithSiteParam("/change-control/changes", s.Slug)" data-site-switch="@s.Slug"
+                       data-tooltip="Open Change Control - Changes">@s.Changes24h</a>
+                </div>
             }
         }
         else
