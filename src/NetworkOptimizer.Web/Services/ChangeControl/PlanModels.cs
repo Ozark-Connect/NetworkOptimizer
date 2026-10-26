@@ -133,6 +133,12 @@ public sealed class PlanDocument
 
     /// <summary>Per-site generated values a plan onto another site kept from the target, in plain words.</summary>
     public List<string> KeptValues { get; set; } = [];
+
+    /// <summary>
+    /// Fields kept at their live value because the source, from another Network version, references objects it
+    /// never captured: collection display name to field labels.
+    /// </summary>
+    public Dictionary<string, List<string>> KeptReferences { get; set; } = [];
     public List<WriteStep> WriteOrder { get; set; } = [];
 
     /// <summary>Plan touches the management path: commit-confirmed watches devices.</summary>

@@ -170,7 +170,7 @@ public class NetworkUpgradeDiffTests
 
         doc.Errors.Should().BeEmpty();
         doc.Operations.Should().BeEmpty();
-        doc.Notes.Should().Contain(n => n.Contains("did not capture"));
+        doc.KeptReferences.Should().ContainKey("Clients");
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public class NetworkUpgradeDiffTests
         var doc = PlanBuilder.Build(before, after, new PlanOptions());
 
         doc.Operations.Should().ContainSingle(o => o.Collection == "user" && o.Action == PlanAction.Update);
-        doc.Notes.Should().NotContain(n => n.Contains("did not capture"));
+        doc.KeptReferences.Should().BeEmpty();
     }
 
     [Fact]

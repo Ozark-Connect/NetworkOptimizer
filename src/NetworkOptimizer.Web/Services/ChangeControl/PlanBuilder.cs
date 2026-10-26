@@ -248,8 +248,8 @@ public static class PlanBuilder
                 if (!keep && otherVersion && UnresolvedIds(desired[field], idMap, liveById, creates).Any())
                 {
                     keep = true;
-                    var note = $"{def.DisplayName}: references to objects the snapshot did not capture are kept as they are ({FieldLabel(field)}).";
-                    if (!doc.Notes.Contains(note)) doc.Notes.Add(note);
+                    if (!doc.KeptReferences.TryGetValue(def.DisplayName, out var labels)) doc.KeptReferences[def.DisplayName] = labels = [];
+                    if (!labels.Contains(FieldLabel(field))) labels.Add(FieldLabel(field));
                 }
                 if (!keep) continue;
                 if (liveValue == null) remapped.Remove(field);

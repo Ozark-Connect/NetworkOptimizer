@@ -293,10 +293,26 @@ else
                 <span></span>
             </div>
         }
-        @if (doc.Notes.Count > 0)
+        @if (doc.KeptReferences.Count > 0)
         {
-            <div class="cc-inset-note" style="padding-top:0.75rem">
-                @foreach (var n in doc.Notes) { <div>@n</div> }
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge status-info">Kept</span></div>
+                <div>
+                    <div class="cc-item-title">References the snapshot never captured, left as they are</div>
+                    @foreach (var (collection, fields) in doc.KeptReferences)
+                    {
+                        <div class="cc-item-detail">@collection: @string.Join(", ", fields)</div>
+                    }
+                </div>
+                <span></span>
+            </div>
+        }
+        @foreach (var n in doc.Notes)
+        {
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge badge-muted">Note</span></div>
+                <div class="cc-item-detail">@n</div>
+                <span></span>
             </div>
         }
         @if (doc.FirmwareAlign.Count > 0)
