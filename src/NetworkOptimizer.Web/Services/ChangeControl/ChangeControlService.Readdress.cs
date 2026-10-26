@@ -246,7 +246,7 @@ public sealed partial class ChangeControlService
         var first = affected[0];
         var moved = Readdressing.Format(Readdressing.MapIp(first.Old, map)!.Value);
         var hosts = string.Join(", ", affected.Select(x => x.Host).Distinct());
-        return new(affected.Count == 1 ? "A device informs to a moving address" : $"{affected.Count} devices inform to a moving address",
+        return new(affected.Count == 1 ? "A device needs a new inform address" : $"{affected.Count} devices need a new inform address",
             $"{string.Join(", ", affected.Take(3).Select(x => x.Device))}{(affected.Count > 3 ? $" and {affected.Count - 3} more" : "")} inform to {hosts}. "
             + $"Point the Inform Host at {moved} first (UniFi Network's Inform Host override, or system_ip on a self-hosted UniFi OS Server), or they disconnect until re-pointed.");
     }
