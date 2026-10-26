@@ -17,7 +17,7 @@
     </select>
 </div>
 
-<div class="cc-action-cards hide-mobile">
+<div class="cc-action-cards hide-mobile" data-tour="cc-migrate-tasks">
     <button class="cc-action-card @(_task == Restore ? "active" : "")" @onclick="() => SelectTaskAsync(Restore)">
         <h3>Restore a Snapshot</h3>
         <p>Onto this site, another site, or a blank UniFi Console.</p>

@@ -38,9 +38,9 @@
     </div>
 }
 
-<div class="card">
+<div class="card" data-tour="cc-snapshots">
     <div class="card-header">
-        <h3 class="card-title">Snapshots <span class="card-title-suffix">@_siteName, @_list?.Count kept, @CcFormat.Bytes(_list?.StoredBytes ?? 0)</span></h3>
+        <h3 class="card-title">Snapshots<span class="card-title-suffix">@_siteName, @_list?.Count kept, @CcFormat.Bytes(_list?.StoredBytes ?? 0)</span></h3>
         <div class="cc-row-actions hide-mobile">
             <span class="cc-toolbar-label">@_selected.Count selected</span>
             <button class="btn btn-primary btn-sm" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>

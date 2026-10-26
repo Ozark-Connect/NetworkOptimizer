@@ -6,9 +6,9 @@
 @inject ILogger<CcTemplates> Logger
 
 @* Templates: site-wide config shared across sites. Instance Admins create and edit them; a Site Admin applies one or uses it as the Baseline. *@
-<div class="card">
+<div class="card" data-tour="cc-templates">
     <div class="card-header">
-        <h3 class="card-title">Templates <span class="card-title-suffix">shared across sites</span></h3>
+        <h3 class="card-title">Templates<span class="card-title-suffix">shared across sites</span></h3>
         <AdminOnly>
             <button class="btn btn-contrast btn-sm" @onclick="() => _creating = !_creating">@(_creating ? "Cancel" : "New Template")</button>
         </AdminOnly>

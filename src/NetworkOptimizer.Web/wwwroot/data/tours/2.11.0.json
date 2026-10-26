@@ -1,0 +1,74 @@
+{
+  "id": "2.11.0",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.0",
+  "summary": "Change Control: see who changed what and what it did, roll any change back, and roll out the config you got right to your other sites.",
+  "steps": [
+    {
+      "id": "change-control",
+      "level": "major",
+      "url": "/change-control/changes",
+      "selector": "[data-tour=\"cc-timeline\"]",
+      "title": "Change Control",
+      "listLabel": "See every config change, who made it, and whether it made things worse",
+      "body": "Every change on your sites is recorded as it happens: who made it (an admin, Network Optimizer, or UniFi on its own), which fields moved, and what it did to your Security Audit and Site Health. Open one to **Roll Back**.\n\nSite Health before and after a change is compared with what's usual for those hours, with your ISP's part left out, so a drop points at the change and raises an alert.",
+      "placement": "bottom"
+    },
+    {
+      "id": "snapshots",
+      "level": "major",
+      "url": "/change-control/snapshots",
+      "selector": "[data-tour=\"cc-snapshots\"]",
+      "title": "Snapshots",
+      "listLabel": "Backups of your UniFi Network config, kept off the Console",
+      "body": "A snapshot is taken on every change and once a day, and kept outside your UniFi Console. **Compare** two, or one against live, to see the Security Audit impact first and then every field that differs. Copies of UniFi's own .unf backups are kept here too.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "templates",
+      "level": "major",
+      "url": "/change-control/snapshots",
+      "selector": "[data-tour=\"cc-templates\"]",
+      "title": "Templates",
+      "listLabel": "Get a site's networks, Wi-Fi, and firewall right once, then roll them out to the rest",
+      "body": "Save part of a site's config (networks, Wi-Fi, firewall) as a template. Apply it to another site or a brand new one, or make it a site's **Baseline** so drift from it is flagged. Applying a template creates and updates, never deletes.",
+      "placement": "top",
+      "optional": true
+    },
+    {
+      "id": "config-editor",
+      "level": "major",
+      "url": "/change-control/edit",
+      "selector": "[data-tour=\"cc-editor\"]",
+      "title": "Config Editor",
+      "listLabel": "Edit any site's config in one place, and see the Security Audit impact before it's applied",
+      "body": "Edit every config collection in UniFi's own field names, with completion from this site's networks and zones and problems shown as you type. **Review Plan** shows the Security Audit impact first, and a change that knocks a device offline reverts on its own.",
+      "placement": "right",
+      "optional": true
+    },
+    {
+      "id": "migrate",
+      "level": "major",
+      "url": "/change-control/migrate",
+      "selector": "[data-tour=\"cc-migrate-tasks\"]",
+      "title": "Migrate",
+      "listLabel": "Replace a device with a different model, re-address your networks, or move to firewall zones",
+      "body": "**Replace Device** moves a device's config to new hardware, a different model included: it maps each port with its config (uplink and LAG first), fits AP radio settings to the new model, and gives you a **Re-cabling Sheet** to work from. Once the plan is confirmed, **Forget Old Device** removes the old one.\n\n**Re-address Networks** moves networks to new subnets along with every address in them, and **Set Up Zones** groups them into firewall zones by trust.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "site-health",
+      "level": "major",
+      "url": "/",
+      "selector": "[data-tour=\"dashboard-sites\"]",
+      "requires": ["multi-site"],
+      "title": "Site Health",
+      "listLabel": "One score per site for how good service was, and what hurt it",
+      "body": "Site Health is the share of user-time with good service across internet, devices, Wi-Fi, and LAN. Each site shows it here worst first, with its top issue. **More** adds the last 24 hours, and each site's Incidents and Changes counts open its list.",
+      "placement": "bottom",
+      "optional": true
+    }
+  ]
+}
