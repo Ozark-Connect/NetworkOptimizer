@@ -52,14 +52,22 @@ else
 
     <div class="cc-mobile-order">
         <div class="card cc-attention-card">
+            @{
+                var open = _view.Attention.Where(a => a.DismissedAt == null).ToList();
+                var dismissedCount = _view.Attention.Count - open.Count;
+            }
             <div class="card-header">
-                <h3 class="card-title">Needs Attention<span class="card-title-suffix">@CcFormat.Plural(_view.Attention.Count, "item", "items")</span></h3>
+                <h3 class="card-title">Needs Attention<span class="card-title-suffix">@CcFormat.Plural(open.Count, "item", "items")</span></h3>
+                @if (dismissedCount > 0)
+                {
+                    <label class="checkbox-label"><input type="checkbox" checked="@_showDismissed" @onchange="() => _showDismissed = !_showDismissed" /><span>Show dismissed (@dismissedCount)</span></label>
+                }
             </div>
-            @if (_view.Attention.Count == 0)
+            @if (open.Count == 0 && !_showDismissed)
             {
                 <div class="empty-state empty-state-small"><p>Nothing needs attention.</p></div>
             }
-            @foreach (var item in _view.Attention)
+            @foreach (var item in _showDismissed ? _view.Attention : open)
             {
                 <div class="cc-item">
                     <div class="cc-badge-col">
@@ -77,9 +85,26 @@ else
                             }
                             <span>@item.Title</span>
                         </div>
-                        <div class="cc-item-detail">@item.Detail</div>
+                        <div class="cc-item-detail">@CcFormat.Time(item.At). @item.Detail</div>
+                        @if (item.DismissedAt is { } dismissedAt)
+                        {
+                            <div class="cc-item-detail">Dismissed by @item.DismissedBy, @CcFormat.Time(dismissedAt).</div>
+                        }
                     </div>
                     <div class="cc-item-actions">
+                        @if (item.Key != null)
+                        {
+                            <SiteOperatorOnly>
+                                @if (item.DismissedAt == null)
+                                {
+                                    <button class="btn btn-secondary" disabled="@_busy" @onclick="() => DismissAsync(item)">Dismiss</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-secondary" disabled="@_busy" @onclick="() => RestoreAsync(item)">Restore</button>
+                                }
+                            </SiteOperatorOnly>
+                        }
                         @switch (item.Kind)
                         {
                             case "Regression" when item.FromSnapshotId != null:
@@ -239,6 +264,31 @@ else
             _view = await Fleet.GetOverviewAsync();
             StateHasChanged();
         }, Logger);
+    }
+
+    private bool _showDismissed;
+    private bool _busy;
+
+    private Task DismissAsync(AttentionItem item) => RunAsync(() => Fleet.DismissAttentionAsync(item.SiteSlug, item.Key!, item.Title));
+
+    private Task RestoreAsync(AttentionItem item) => RunAsync(() => Fleet.RestoreAttentionAsync(item.SiteSlug, item.Key!));
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+            _view = await Fleet.GetOverviewAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Needs Attention update failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     public void Dispose() => _live?.Dispose();

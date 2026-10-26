@@ -41,6 +41,13 @@ public sealed class AttentionItem
     public int? FromSnapshotId { get; init; }
     public int? ToSnapshotId { get; init; }
     public DateTime At { get; init; }
+
+    /// <summary>Stable key for Dismiss: "regression:{audit issue key}" or "plan:{id}". Null when it cannot be dismissed.</summary>
+    public string? Key { get; init; }
+
+    /// <summary>Who dismissed it and when; null while it shows.</summary>
+    public string? DismissedBy { get; init; }
+    public DateTime? DismissedAt { get; init; }
 }
 
 /// <summary>A Last Network App Upgrade row.</summary>
@@ -106,6 +113,16 @@ public interface IChangeControlFleetService
     /// <summary>Each visible site's last 24 hours of Site Health and what needs attention, worst first (Dashboard, Sites page).</summary>
     [RequireRole(Roles.Viewer)]
     Task<List<SiteHealth.SiteHealthSummary>> GetSiteHealthAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Hides a Needs Attention item on a site until it is restored.</summary>
+    [RequireSiteRole(SiteRole.SiteOperator)]
+    [AuditAction(AuditActions.ChangeControlAttentionDismissed, TargetType = "attention_item")]
+    Task DismissAttentionAsync([SiteSlug] string siteSlug, string itemKey, string title, CancellationToken cancellationToken = default);
+
+    /// <summary>Shows a dismissed Needs Attention item again.</summary>
+    [RequireSiteRole(SiteRole.SiteOperator)]
+    [AuditAction(AuditActions.ChangeControlAttentionRestored, TargetType = "attention_item")]
+    Task RestoreAttentionAsync([SiteSlug] string siteSlug, string itemKey, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The fleet service.</summary>
@@ -118,12 +135,14 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     private readonly IspHealthRegistry _isp;
     private readonly ILogger<ChangeControlFleetService> _logger;
     private readonly IServiceScopeFactory _scopes;
+    private readonly Identity.ICallerContext _caller;
 
     public ChangeControlFleetService(ChangeControlRegistry registry, IDbContextFactory<NetworkOptimizerDbContext> mainDb,
         ISiteAccessFilter access, MonitoringInfluxRegistry influx, IspHealthRegistry isp, IServiceScopeFactory scopes,
-        ILogger<ChangeControlFleetService> logger)
+        Identity.ICallerContext caller, ILogger<ChangeControlFleetService> logger)
     {
         _scopes = scopes;
+        _caller = caller;
         _registry = registry;
         _mainDb = mainDb;
         _access = access;
@@ -219,15 +238,32 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             var siteView = await SiteViewAsync(site, withDrift: true, cancellationToken);
             view.Sites.Add(siteView);
 
-            var (changes, plans, gaps) = await engine.Repositories.UseAsync(async (r, c) =>
+            var (changes, plans, gaps, snapshots, dismissedList) = await engine.Repositories.UseAsync(async (r, c) =>
                 (await r.GetChangesAsync(now.AddDays(-30), now, 2000, c),
                  await r.GetPlansAsync(null, 50, c),
-                 await r.GetGapsAsync(now.AddDays(-7), now, c)), cancellationToken);
+                 await r.GetGapsAsync(now.AddDays(-7), now, c),
+                 await r.GetSnapshotsAsync(null, null, 200, c),
+                 await r.GetDismissalsAsync(c)), cancellationToken);
+            var dismissed = dismissedList.ToDictionary(d => d.ItemKey, StringComparer.Ordinal);
+            void Add(AttentionItem item) => view.Attention.Add(item.Key != null && dismissed.TryGetValue(item.Key, out var d)
+                ? new AttentionItem
+                {
+                    Kind = item.Kind, SiteSlug = item.SiteSlug, SiteName = item.SiteName, Title = item.Title, Detail = item.Detail,
+                    ChangeId = item.ChangeId, PlanId = item.PlanId, FromSnapshotId = item.FromSnapshotId, ToSnapshotId = item.ToSnapshotId,
+                    At = item.At, Key = item.Key, DismissedBy = d.DismissedBy, DismissedAt = d.DismissedAt,
+                }
+                : item);
 
-            foreach (var ch in changes.Where(c => c.Kind == ConfigChangeKind.Config && c.RegressionCount > 0 && c.OccurredAt > now.AddDays(-7)).Take(5))
+            // A regression shows once, from its newest change, and only while the newest audited snapshot still has it.
+            var current = CurrentIssueKeys(snapshots);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var ch in changes.Where(c => c.Kind == ConfigChangeKind.Config && c.RegressionCount > 0 && c.OccurredAt > now.AddDays(-7)))
             {
                 var upgrade = ch.ActorKind == ConfigChangeActorKind.LikelyUniFi && ch.Summary.Contains("Network app upgrade", StringComparison.Ordinal);
-                view.Attention.Add(new AttentionItem
+                var lines = Regressions(ch).Where(l => (current == null || current.Contains(l.Key)) && !seen.Contains(l.Key)).ToList();
+                if (lines.Count == 0) continue;
+                seen.UnionWith(lines.Select(l => l.Key));
+                Add(new AttentionItem
                 {
                     Kind = "Regression",
                     SiteSlug = site.Slug,
@@ -236,12 +272,13 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     ChangeId = ch.Id,
                     FromSnapshotId = upgrade ? ch.PreviousSnapshotId : null,
                     ToSnapshotId = upgrade ? ch.SnapshotId : null,
-                    Title = upgrade ? $"{ch.RegressionCount} regression{(ch.RegressionCount == 1 ? "" : "s")} from the Network app upgrade" : FirstImpact(ch) ?? ch.Summary,
+                    Title = upgrade ? $"{lines.Count} regression{(lines.Count == 1 ? "" : "s")} from the Network app upgrade" : string.Join("; ", lines.Select(l => l.Title)),
                     Detail = upgrade ? ch.Summary : $"{ch.Summary}. {ChangeControlService.Who(ch)}.",
+                    Key = $"regression:{string.Join("|", lines.Select(l => l.Key).Order(StringComparer.Ordinal))}",
                 });
             }
             foreach (var p in plans.Where(p => p.Status == ConfigPlanStatus.PendingApproval))
-                view.Attention.Add(new AttentionItem
+                Add(new AttentionItem
                 {
                     Kind = "Approval",
                     SiteSlug = site.Slug,
@@ -252,8 +289,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     Detail = $"Submitted by {p.SubmittedBy}." + (p.ScheduledFor is { } s ? $" Scheduled {Local(s):MMM d, h:mm tt} once approved." : "")
                              + (p.HighestTier >= PlanTiers.Lockout ? " Possible lockout." : ""),
                 });
-            foreach (var p in plans.Where(p => p.Status == ConfigPlanStatus.Reverted && p.CompletedAt > now.AddDays(-2)))
-                view.Attention.Add(new AttentionItem
+            // Only automatic reverts: one someone pressed is in the plan history already. A Roll Back's revert plan says "Roll Back".
+            var manual = plans.Where(p => p.RevertOfPlanId != null && p.CreatedBy == "Roll Back").Select(p => p.RevertOfPlanId!.Value).ToHashSet();
+            foreach (var p in plans.Where(p => p.Status == ConfigPlanStatus.Reverted && p.CompletedAt > now.AddDays(-2) && !manual.Contains(p.Id)))
+                Add(new AttentionItem
                 {
                     Kind = "Reverted",
                     SiteSlug = site.Slug,
@@ -262,9 +301,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     PlanId = p.Id,
                     Title = $"Plan reverted: {p.Name}",
                     Detail = p.Message ?? "",
+                    Key = $"plan:{p.Id}",
                 });
             foreach (var g in gaps.Where(g => g.EndedAt == null))
-                view.Attention.Add(new AttentionItem
+                Add(new AttentionItem
                 {
                     Kind = "Gap",
                     SiteSlug = site.Slug,
@@ -274,7 +314,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     Detail = "Change detection is paused. Network Optimizer catches up from the UniFi audit log when it reconnects.",
                 });
             if (siteView.DriftObjects is > 0)
-                view.Attention.Add(new AttentionItem
+                Add(new AttentionItem
                 {
                     Kind = "Drift",
                     SiteSlug = site.Slug,
@@ -301,12 +341,30 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         return view;
     }
 
-    private static string? FirstImpact(ConfigChange c)
+    private static List<ImpactLine> Regressions(ConfigChange c) =>
+        string.IsNullOrEmpty(c.ImpactJson) ? []
+            : (System.Text.Json.JsonSerializer.Deserialize<List<ImpactLine>>(c.ImpactJson) ?? []).Where(l => l.Kind == "Regression").ToList();
+
+    /// <summary>Audit issue keys in the newest snapshot the Security Audit ran on; null when none has.</summary>
+    internal static HashSet<string>? CurrentIssueKeys(IEnumerable<ConfigSnapshot> newestFirst)
     {
-        if (string.IsNullOrEmpty(c.ImpactJson)) return null;
-        var lines = System.Text.Json.JsonSerializer.Deserialize<List<ImpactLine>>(c.ImpactJson);
-        return lines?.FirstOrDefault(l => l.Kind == "Regression")?.Title;
+        var json = newestFirst.FirstOrDefault(s => s.AuditIssuesJson != null)?.AuditIssuesJson;
+        if (json == null) return null;
+        var issues = System.Text.Json.JsonSerializer.Deserialize<List<ImpactLine>>(json) ?? [];
+        return issues.Select(i => i.Key).ToHashSet(StringComparer.Ordinal);
     }
+
+    public async Task DismissAttentionAsync(string siteSlug, string itemKey, string title, CancellationToken cancellationToken = default)
+    {
+        var by = _caller.Current?.ActorName is { Length: > 0 } n ? n : "unknown";
+        await _registry.GetFor(siteSlug).Repositories.UseAsync((r, c) => r.AddDismissalAsync(new AttentionDismissal
+        {
+            ItemKey = itemKey, Title = title.Length > 300 ? title[..300] : title, DismissedBy = by, DismissedAt = DateTime.UtcNow,
+        }, c), cancellationToken);
+    }
+
+    public Task RestoreAttentionAsync(string siteSlug, string itemKey, CancellationToken cancellationToken = default) =>
+        _registry.GetFor(siteSlug).Repositories.UseAsync((r, c) => r.RemoveDismissalAsync(itemKey, c), cancellationToken);
 
     private static DateTime Local(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
 

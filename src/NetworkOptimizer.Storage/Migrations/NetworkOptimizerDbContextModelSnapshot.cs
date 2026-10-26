@@ -832,6 +832,38 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("ApRoamRecords", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.AttentionDismissal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("DismissedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DismissedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ItemKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemKey")
+                        .IsUnique();
+
+                    b.ToTable("AttentionDismissals", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.AuditResult", b =>
                 {
                     b.Property<int>("Id")

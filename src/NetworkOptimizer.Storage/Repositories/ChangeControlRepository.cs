@@ -413,6 +413,23 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
         ExecuteAsync(() => _context.ConsoleBackups.AsNoTracking().OrderByDescending(b => b.TakenAt).ToListAsync(cancellationToken),
             nameof(GetConsoleBackupsAsync));
 
+    public Task<List<AttentionDismissal>> GetDismissalsAsync(CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.AttentionDismissals.AsNoTracking().OrderByDescending(d => d.DismissedAt).ToListAsync(cancellationToken),
+            nameof(GetDismissalsAsync));
+
+    public Task AddDismissalAsync(AttentionDismissal dismissal, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(async () =>
+        {
+            if (await _context.AttentionDismissals.AnyAsync(d => d.ItemKey == dismissal.ItemKey, cancellationToken)) return;
+            _context.AttentionDismissals.Add(dismissal);
+            await _context.SaveChangesAsync(cancellationToken);
+            _context.Entry(dismissal).State = EntityState.Detached;
+        }, nameof(AddDismissalAsync));
+
+    public Task RemoveDismissalAsync(string itemKey, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.AttentionDismissals.Where(d => d.ItemKey == itemKey).ExecuteDeleteAsync(cancellationToken),
+            nameof(RemoveDismissalAsync));
+
     public Task AddConsoleBackupAsync(ConsoleBackupRecord record, CancellationToken cancellationToken = default) =>
         ExecuteAsync(async () =>
         {

@@ -89,6 +89,27 @@ public class ChangeDetectionState
     public DateTime? LastRetentionAt { get; set; }
 }
 
+/// <summary>A Needs Attention item someone dismissed (Change Control Overview).</summary>
+public class AttentionDismissal
+{
+    [Key]
+    public int Id { get; set; }
+
+    /// <summary>The item's stable key: "regression:{audit issue key}" or "plan:{plan id}".</summary>
+    [MaxLength(300)]
+    public string ItemKey { get; set; } = string.Empty;
+
+    /// <summary>The item's title when dismissed, for the dismissed list.</summary>
+    [MaxLength(300)]
+    public string Title { get; set; } = string.Empty;
+
+    [MaxLength(200)]
+    public string DismissedBy { get; set; } = string.Empty;
+
+    /// <summary>UTC time it was dismissed.</summary>
+    public DateTime DismissedAt { get; set; }
+}
+
 /// <summary>A UniFi console backup (.unf) kept by Network Optimizer, encrypted on disk.</summary>
 public class ConsoleBackupRecord
 {

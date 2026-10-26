@@ -137,6 +137,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ChangeControlSettings> ChangeControlSettings { get; set; }
     public DbSet<ChangeDetectionState> ChangeDetectionStates { get; set; }
     public DbSet<ConsoleBackupRecord> ConsoleBackups { get; set; }
+    public DbSet<AttentionDismissal> AttentionDismissals { get; set; }
     public DbSet<SiteHealthHour> SiteHealthHours { get; set; }
 
     /// <summary>Instance-wide config templates. Meaningful only in the MAIN database.</summary>
@@ -880,6 +881,12 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("ConsoleBackups");
             entity.HasIndex(e => e.FileName).IsUnique();
+        });
+
+        modelBuilder.Entity<AttentionDismissal>(entity =>
+        {
+            entity.ToTable("AttentionDismissals");
+            entity.HasIndex(e => e.ItemKey).IsUnique();
         });
 
         modelBuilder.Entity<ConfigTemplate>(entity => entity.ToTable("ConfigTemplates"));

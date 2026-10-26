@@ -148,4 +148,13 @@ public interface IChangeControlRepository
 
     /// <summary>Deletes console backup records.</summary>
     Task DeleteConsoleBackupsAsync(IReadOnlyCollection<int> ids, CancellationToken cancellationToken = default);
+
+    /// <summary>Dismissed Needs Attention items.</summary>
+    Task<List<AttentionDismissal>> GetDismissalsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Records a dismissal; an item already dismissed is left as it is.</summary>
+    Task AddDismissalAsync(AttentionDismissal dismissal, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes a dismissal, so the item shows again.</summary>
+    Task RemoveDismissalAsync(string itemKey, CancellationToken cancellationToken = default);
 }
