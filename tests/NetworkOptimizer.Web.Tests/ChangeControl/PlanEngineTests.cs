@@ -197,4 +197,35 @@ public class PlanEngineTests
         LockoutChecker.InSubnet("192.168.30.5", "192.168.30.1/24").Should().BeTrue();
         LockoutChecker.InSubnet("192.168.31.5", "192.168.30.1/24").Should().BeFalse();
     }
+
+    [Fact]
+    public void Verify_ReferenceListToACreatedObject_ComparesItsNewId()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", """{"_id":"p0","name":"Other"}"""),
+            ("portconf", """{"_id":"p1","name":"Trunk","forward":"customize","excluded_networkconf_ids":["n2"]}"""));
+        var live = State(("networkconf", Lan), ("portconf", """{"_id":"p0","name":"Other"}"""));
+        var doc = Plan(desired, live);
+        doc.Operations.Single(o => o.Collection == "networkconf").ObjectId = "real-n2";
+        doc.Operations.Single(o => o.Collection == "portconf").ObjectId = "real-p1";
+        var after = State(("networkconf", Lan), ("networkconf", Iot.Replace("\"n2\"", "\"real-n2\"")),
+            ("portconf", """{"_id":"p0","name":"Other"}"""),
+            ("portconf", """{"_id":"real-p1","name":"Trunk","forward":"customize","excluded_networkconf_ids":["real-n2"]}"""));
+
+        PlanCoordinator.VerifyAgainst(doc, live, after).Should().BeEmpty();
+
+        after.Collections["portconf"][1]["excluded_networkconf_ids"] = new JsonArray("n-other");
+        PlanCoordinator.VerifyAgainst(doc, live, after).Should().ContainSingle(d => d.Contains("Trunk"));
+    }
+
+    [Fact]
+    public void Verify_SkipsAWriteThatIsWaiting()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot));
+        var live = State(("networkconf", Lan));
+        var doc = Plan(desired, live);
+        var key = doc.Operations.Single().Key;
+
+        PlanCoordinator.VerifyAgainst(doc, live, live).Should().ContainSingle(d => d.Contains("not on the console"));
+        PlanCoordinator.VerifyAgainst(doc, live, live, new HashSet<string> { key }).Should().BeEmpty();
+    }
 }

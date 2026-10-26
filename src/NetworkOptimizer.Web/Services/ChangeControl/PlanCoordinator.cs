@@ -276,7 +276,8 @@ public sealed class PlanCoordinator
             plan.PostApplySnapshotId = post?.Id;
             var after = post == null ? null : await _engine.LoadSnapshotStateAsync(post.Id, ct);
             if (after != null)
-                result.VerifyDifferences = VerifyAgainst(doc, live, after);
+                result.VerifyDifferences = VerifyAgainst(doc, live, after,
+                    result.Operations.Where(o => o.Outcome == "Waiting").Select(o => o.Key).ToHashSet(StringComparer.Ordinal));
 
             // A re-address that moves the console's own network writes it last; its reply can be lost with
             // the old address. Only those writes failing is the expected end, not a failure.
@@ -304,7 +305,7 @@ public sealed class PlanCoordinator
             plan.CompletedAt = DateTime.UtcNow;
             var waiting = result.Operations.Count(o => o.Outcome == "Waiting");
             if (waiting > 0)
-                plan.Message = $"{waiting} write{(waiting == 1 ? "" : "s")} need the gateway adopted first. Run the restore again once it is.";
+                plan.Message = $"{waiting} write{(waiting == 1 ? "" : "s")} need the gateway adopted first. Run the plan again once it is.";
             if (watch)
             {
                 plan.Status = ConfigPlanStatus.Watching;
@@ -341,12 +342,27 @@ public sealed class PlanCoordinator
                                     && d["adopted"]?.GetValueKind() != System.Text.Json.JsonValueKind.False);
 
     /// <summary>Differences left between the plan's intent and the console after it applied (class F).</summary>
-    internal static List<string> VerifyAgainst(PlanDocument doc, ConfigState before, ConfigState after)
+    internal static List<string> VerifyAgainst(PlanDocument doc, ConfigState before, ConfigState after, IReadOnlySet<string>? waiting = null)
     {
         var intended = PlanBuilder.PlannedState(before, doc);
         var diffs = new List<string>();
+        // A reference to an object this plan created compares as the ID the console gave it.
+        var createdIds = doc.Operations.Where(o => o.Action == PlanAction.Create && o.ObjectId != null)
+            .ToDictionary(o => PlanBuilder.RefPrefix + o.Key, o => o.ObjectId!, StringComparer.Ordinal);
+        var unresolved = false;
+        JsonNode? ResolveRefs(JsonNode? node) => node switch
+        {
+            JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key, ResolveRefs(p.Value)))),
+            JsonArray a => new JsonArray(a.Select(ResolveRefs).ToArray()),
+            JsonValue v when v.TryGetValue<string>(out var s) && s.StartsWith(PlanBuilder.RefPrefix, StringComparison.Ordinal) =>
+                createdIds.TryGetValue(s, out var id) ? JsonValue.Create(id) : MarkUnresolved(v),
+            _ => node?.DeepClone(),
+        };
+        JsonNode MarkUnresolved(JsonValue v) { unresolved = true; return v.DeepClone(); }
+
         foreach (var op in doc.Operations.Where(o => o.Action is PlanAction.Update or PlanAction.Create))
         {
+            if (waiting?.Contains(op.Key) == true) continue;
             var def = ConfigCollections.Get(op.Collection);
             if (def == null) continue;
             var want = intended.Get(op.Collection).FirstOrDefault(o => ConfigState.IdOf(o) == op.ObjectId || ConfigState.IdOf(o) == PlanBuilder.RefPrefix + op.Key);
@@ -357,8 +373,9 @@ public sealed class PlanCoordinator
             foreach (var field in op.WriteFields)
             {
                 if (ConfigCollections.IsSecretField(def, field)) continue;
-                var w = want[field];
-                if (w is JsonValue wv && wv.TryGetValue<string>(out var ws) && ws.StartsWith(PlanBuilder.RefPrefix, StringComparison.Ordinal)) continue;
+                unresolved = false;
+                var w = ResolveRefs(want[field]);
+                if (unresolved) continue;
                 if (PlanExecutor.NormalizedFields.GetValueOrDefault(op.Collection, []).Contains(field)) continue;
                 var single = ConfigDiffEngine.CompareObjects(def, new JsonObject { [field] = w?.DeepClone() }, new JsonObject { [field] = got[field]?.DeepClone() });
                 if (single != null) diffs.Add($"{def.Noun} {op.ObjectName}: {ChangeDescriber.LabelFor(field)} did not land");
