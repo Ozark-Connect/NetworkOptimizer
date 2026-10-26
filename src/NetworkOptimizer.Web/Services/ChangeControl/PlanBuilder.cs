@@ -78,10 +78,16 @@ public static class PlanBuilder
         }
 
         if (!options.SameSite)
-            foreach (var def in ConfigCollections.All.Where(d => d.KeepTargetValues != null && matches.ContainsKey(d.Key)))
+            foreach (var def in ConfigCollections.All.Where(d => matches.ContainsKey(d.Key)))
                 foreach (var p in matches[def.Key].Pairs.Where(p => p.Left != null && p.Right != null))
-                    if (def.KeepTargetValues!(p.Left!, p.Right!) is { } what)
+                {
+                    // A field the source never carried (an older Network version, a setting never saved there)
+                    // is unspecified, not unset: the target keeps its own.
+                    foreach (var (k, v) in p.Right!)
+                        if (!p.Left!.ContainsKey(k)) p.Left[k] = v?.DeepClone();
+                    if (def.KeepTargetValues?.Invoke(p.Left!, p.Right!) is { } what)
                         doc.KeptValues.Add(what);
+                }
 
         var mgmtNetworks = ConfigDiffEngine.ManagementNetworkIds(live);
 

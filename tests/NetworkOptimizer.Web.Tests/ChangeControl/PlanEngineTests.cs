@@ -240,6 +240,16 @@ public class PlanEngineTests
     }
 
     [Fact]
+    public void OtherSite_AFieldTheSourceNeverCarried_KeepsTheTargets()
+    {
+        var source = State(("setting", """{"_id":"s1","key":"igmp_snooping","enabled":false}"""));
+        var target = State(("setting", """{"_id":"s9","key":"igmp_snooping","enabled":false,"auto_unknown_traffic_handling":true}"""));
+
+        Plan(source, target, new PlanOptions { SameSite = false }).Operations.Should().BeEmpty();
+        Plan(source, target).Operations.Should().ContainSingle("a same-site Roll Back puts the snapshot back whole");
+    }
+
+    [Fact]
     public void SameSite_RestoresTheGeneratedValues()
     {
         var doc = Plan(MgmtSite("old-key", "pw", "old-secret"), MgmtSite("new-key", "pw", "new-secret"));
