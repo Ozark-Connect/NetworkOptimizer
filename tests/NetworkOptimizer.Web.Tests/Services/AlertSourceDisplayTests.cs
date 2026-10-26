@@ -10,6 +10,7 @@ public class AlertSourceDisplayTests
     [InlineData("rollout", "Firmware Rollout")]
     [InlineData("console", "UniFi Console")]
     [InlineData("cable_modem", "Cable Modem")]
+    [InlineData("change_control", "Change Control")]
     [InlineData("speedtest", "Speed Test")]
     [InlineData("wifi", "Wi-Fi")]
     public void KnownSource_ShowsItsDisplayName(string source, string expected)
