@@ -290,6 +290,17 @@ public static class ConfigDiffEngine
         }
     }
 
+    /// <summary>A copy of <paramref name="before"/> with every ID and reference replaced by its match in <paramref name="after"/>.</summary>
+    public static ConfigState InAfterIds(ConfigState before, ConfigState after)
+    {
+        var (_, idMap) = ObjectMatcher.MatchAll(before, after, new ConfigIdentityContext(before.NamesById()),
+            new ConfigIdentityContext(after.NamesById()), matchById: true, (d, o) => Relevant(d, o));
+        var copy = before.Clone();
+        foreach (var key in copy.Collections.Keys.ToList())
+            copy.Collections[key] = copy.Collections[key].Select(o => (JsonObject)Remap(o, idMap)!).ToList();
+        return copy;
+    }
+
     /// <summary>A copy of <paramref name="node"/> with every ID in <paramref name="idMap"/> replaced by its match.</summary>
     private static JsonNode? Remap(JsonNode? node, IReadOnlyDictionary<string, string>? idMap)
     {

@@ -169,6 +169,10 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             var connection = sp.GetRequiredService<UniFiConnectionService>();
             var liveDevices = connection.Client == null ? null : await connection.Client.GetDevicesRawJsonAsync(ct);
             if (string.IsNullOrEmpty(liveDevices)) return null;
+            // Across a Network version the before state's IDs can predate live telemetry's (Network 11's UUIDs),
+            // and an audit joining the two would lose every port-to-network link on the before side.
+            if (!string.Equals(before.NetworkAppVersion, after.NetworkAppVersion, StringComparison.OrdinalIgnoreCase))
+                before = ConfigDiffEngine.InAfterIds(before, after);
             var result = await audit.RunConfigComparisonAsync(
                 ImpactAnalyzer.BuildInputs(before, liveDevices), ImpactAnalyzer.BuildInputs(after, liveDevices), after.NetworkAppVersion);
             return result == null ? null : ImpactAnalyzer.Compare(result.Value.Before, result.Value.After);

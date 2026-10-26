@@ -110,6 +110,15 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void BeforeStateInAfterIds_ReferencesTheUpgradedObjects()
+    {
+        var mapped = ConfigDiffEngine.InAfterIds(Before(), After());
+        mapped.Get("networkconf")[0]["_id"]!.ToString().Should().Be("u-n1");
+        mapped.Get("networkconf")[0]["firewall_zone_id"]!.ToString().Should().Be("u-z1");
+        mapped.Get("routing")[0]["_id"]!.ToString().Should().Be("r1");
+    }
+
+    [Fact]
     public void RestoreOfPreUpgradeSnapshot_RecreatesOnlyTheDeletedRoute()
     {
         var doc = PlanBuilder.Build(Before(), After(), new PlanOptions());
