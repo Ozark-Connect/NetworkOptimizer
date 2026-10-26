@@ -87,11 +87,12 @@ public static class LockoutChecker
             });
         }
 
-        // 3. Inform host override and the console's local DNS name.
-        var liveHost = Setting(live, "super_identity", "hostname");
-        var plannedHost = Setting(planned, "super_identity", "hostname");
+        // 3. Inform host override and the console's local DNS name. The host is super_mgmt's
+        // override_inform_host_location; super_identity.hostname is the console's OS hostname.
+        var liveHost = Setting(live, "super_mgmt", "override_inform_host_location");
+        var plannedHost = Setting(planned, "super_mgmt", "override_inform_host_location");
         var overrideOn = Setting(planned, "super_mgmt", "override_inform_host") == "true";
-        var settingKey = doc.Operations.FirstOrDefault(o => o.Collection == "setting" && o.ObjectName is "super_identity" or "super_mgmt")?.Key;
+        var settingKey = doc.Operations.FirstOrDefault(o => o.Collection == "setting" && o.ObjectName == "super_mgmt")?.Key;
         if (overrideOn && (liveHost != plannedHost || Setting(live, "super_mgmt", "override_inform_host") != "true"))
             findings.Add(new LockoutFinding
             {

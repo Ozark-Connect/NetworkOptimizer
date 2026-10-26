@@ -63,4 +63,33 @@ public class LockoutCoverageTests
 
         Plan(desired, agent: true).Lockouts.Should().Contain(l => l.Kind == "certain" && l.Title.Contains("On-Site Agent's network"));
     }
+
+    private static ConfigState WithSettings(string informHost, string osHostname)
+    {
+        var s = Site();
+        s.Collections["setting"] =
+        [
+            new JsonObject { ["_id"] = "s-mgmt", ["key"] = "super_mgmt", ["override_inform_host"] = true, ["override_inform_host_location"] = informHost },
+            new JsonObject { ["_id"] = "s-id", ["key"] = "super_identity", ["name"] = "Console", ["hostname"] = osHostname },
+        ];
+        return s;
+    }
+
+    [Fact]
+    public void InformHostOverrideChange_IsFlagged()
+    {
+        var doc = PlanBuilder.Build(WithSettings("inform.example.net", "uos"), WithSettings("inform.example.com", "uos"), new PlanOptions());
+
+        doc.Lockouts.Should().ContainSingle(l => l.Title == "Inform Host Override changes" && l.Detail.Contains("inform.example.net"));
+    }
+
+    [Fact]
+    public void OsHostnameChange_IsNotAChange()
+    {
+        var before = WithSettings("inform.example.com", "9f6b864b64a5");
+        var after = WithSettings("inform.example.com", "984ffa9ff8f2");
+
+        ConfigDiffEngine.Compare(before, after).IsEmpty.Should().BeTrue("super_identity.hostname is the console's OS hostname");
+        PlanBuilder.Build(after, before, new PlanOptions()).Lockouts.Should().BeEmpty();
+    }
 }

@@ -289,7 +289,8 @@ public static class ConfigCollections
                 Key = "setting", DisplayName = "Settings", Noun = "Setting", Group = "Settings",
                 SectionFieldOrder = ConfigFieldOrder.SettingSections,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/setting", NameField = "key", Order = 1,
-                ReadOnlyFields = Set("site_id", "last_alert_id", "available_controller_channels", "available_firmware_channels", "layout_preference", "widgets"),
+                // hostname (super_identity) is the console's OS hostname, which UniFi fills in; a container recreate changes it.
+                ReadOnlyFields = Set("site_id", "last_alert_id", "available_controller_channels", "available_firmware_channels", "layout_preference", "widgets", "hostname"),
                 ExtraSecretFields = Set("psk", "utm_token", "fingerbank_key"),
                 SetArrays = Set("enabled_networks", "excluded_network_ids", "enabled_categories", "geo_ip_filtering_countries"),
                 EnforcedKey = (o, _) => Str(o, "key"), KeyIsUnique = true,
@@ -304,7 +305,7 @@ public static class ConfigCollections
                     "global_switch" => Tags(f, ("mcast", ServiceTags.Mdns), ("multicast", ServiceTags.Mdns), ("igmp", ServiceTags.Mdns), ("dhcp", ServiceTags.Dhcp)),
                     _ => Tags(f, ("mdns", ServiceTags.Mdns), ("igmp", ServiceTags.Mdns)),
                 },
-                IsManagementField = (o, f) => (Str(o, "key"), f) is ("super_mgmt", "override_inform_host") or ("super_identity", "hostname"),
+                IsManagementField = (o, f) => (Str(o, "key"), f) is ("super_mgmt", "override_inform_host") or ("super_mgmt", "override_inform_host_location"),
                 IsWanPath = o => Str(o, "key") is "doh" or "global_nat",
             },
             new()
