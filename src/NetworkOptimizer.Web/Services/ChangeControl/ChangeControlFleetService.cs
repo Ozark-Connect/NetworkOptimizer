@@ -248,9 +248,19 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             void Add(AttentionItem item) => view.Attention.Add(item.Key != null && dismissed.TryGetValue(item.Key, out var d)
                 ? new AttentionItem
                 {
-                    Kind = item.Kind, SiteSlug = item.SiteSlug, SiteName = item.SiteName, Title = item.Title, Detail = item.Detail,
-                    ChangeId = item.ChangeId, PlanId = item.PlanId, FromSnapshotId = item.FromSnapshotId, ToSnapshotId = item.ToSnapshotId,
-                    At = item.At, Key = item.Key, DismissedBy = d.DismissedBy, DismissedAt = d.DismissedAt,
+                    Kind = item.Kind,
+                    SiteSlug = item.SiteSlug,
+                    SiteName = item.SiteName,
+                    Title = item.Title,
+                    Detail = item.Detail,
+                    ChangeId = item.ChangeId,
+                    PlanId = item.PlanId,
+                    FromSnapshotId = item.FromSnapshotId,
+                    ToSnapshotId = item.ToSnapshotId,
+                    At = item.At,
+                    Key = item.Key,
+                    DismissedBy = d.DismissedBy,
+                    DismissedAt = d.DismissedAt,
                 }
                 : item);
 
@@ -325,7 +335,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     Detail = "Return to Baseline opens a plan; Accept as Baseline keeps them.",
                 });
 
-            view.Plans.AddRange(plans.Where(p => ConfigPlanStatuses.InProgress.Contains(p.Status)).Select(p => ChangeControlService.Summary(p, site.Slug, site.Name)));
+            // Drafts too: Save Draft is how a plan is kept for later, and this is where it is found again.
+            view.Plans.AddRange(plans.Where(p => p.Status == ConfigPlanStatus.Draft || ConfigPlanStatuses.InProgress.Contains(p.Status))
+                .Select(p => ChangeControlService.Summary(p, site.Slug, site.Name)));
 
             var upgradeRow = changes.Where(c => c.Kind == ConfigChangeKind.NetworkAppUpgrade).OrderByDescending(c => c.OccurredAt).FirstOrDefault();
             if (upgradeRow != null)
@@ -360,7 +372,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var by = _caller.Current?.ActorName is { Length: > 0 } n ? n : "unknown";
         await _registry.GetFor(siteSlug).Repositories.UseAsync((r, c) => r.AddDismissalAsync(new AttentionDismissal
         {
-            ItemKey = itemKey, Title = title.Length > 300 ? title[..300] : title, DismissedBy = by, DismissedAt = DateTime.UtcNow,
+            ItemKey = itemKey,
+            Title = title.Length > 300 ? title[..300] : title,
+            DismissedBy = by,
+            DismissedAt = DateTime.UtcNow,
         }, c), cancellationToken);
     }
 
@@ -477,7 +492,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             .Select(a => $"{a.Name} {a.Points.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}").ToList();
         return new TimelineLane
         {
-            Key = "health", Title = "Site Health", Subtitle = "Points lost, by area", SeriesAName = "now",
+            Key = "health",
+            Title = "Site Health",
+            Subtitle = "Points lost, by area",
+            SeriesAName = "now",
             SeriesA = series.Points.Select(p => (p.Start, (double?)(100 - (p.Health ?? 100)))).ToList(),
             Stack = stack,
             LatestA = series.Latest is { } h ? h.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) : null,
