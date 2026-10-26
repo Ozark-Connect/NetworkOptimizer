@@ -12,6 +12,8 @@
 @inject IJSRuntime JS
 @inject ILogger<CcEdit> Logger
 
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="@HasUnsavedEdits" />
+
 <SiteOperatorOnly>
     <NotAuthorized>
         <div class="card"><div class="card-body">Editing needs the Site Operator role on this site.</div></div>
@@ -493,6 +495,7 @@
             StateHasChanged();
             await Task.Yield();
             var planId = await Site.BuildEditPlanAsync(SnapshotId, Files());
+            _leavingForPlan = true;
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
         catch (Exception ex)
@@ -504,6 +507,19 @@
             _busy = false;
             _reviewing = false;
         }
+    }
+
+    // Review Plan carries the edit to the plan page, so leaving for it loses nothing.
+    private bool _leavingForPlan;
+
+    private bool HasUnsavedEdits => _edited.Count > 0 && !_leavingForPlan;
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (!HasUnsavedEdits) return;
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "You have unsaved edits. If you leave now, they will be lost.\n\nAre you sure you want to leave?");
+        if (!confirmed) context.PreventNavigation();
     }
 
     private async Task SaveTemplateAsync()
