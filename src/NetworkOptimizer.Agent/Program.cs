@@ -110,13 +110,10 @@ var lanIp = !string.IsNullOrWhiteSpace(lanIpOverride)
 // single choice cannot do on a gateway - see LocalUnicastAddresses.
 var localIps = NetworkOptimizer.Core.Helpers.NetworkUtilities.LocalUnicastAddresses();
 
-var handler = new HttpClientHandler();
-if (config.IgnoreSslErrors)
-    handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
 // Short timeout: this client only carries enrollment and heartbeats. The
 // default 100s meant a heartbeat against an offline server host (SYN black
 // hole, e.g. host down for maintenance) hung for the full 100s per attempt.
-using var http = new HttpClient(handler)
+using var http = new HttpClient(ServerHttpHandler.Create(config.IgnoreSslErrors))
 {
     BaseAddress = new Uri(config.ServerUrl.TrimEnd('/') + "/"),
     Timeout = TimeSpan.FromSeconds(15)
@@ -132,8 +129,27 @@ if (string.IsNullOrEmpty(config.AgentKey))
     }
 
     Console.WriteLine("Enrolling with central server...");
-    var response = await http.PostAsJsonAsync("api/public/agents/enrollments",
-        new { token = config.EnrollmentToken, version, lanIp }, AgentJson.Options);
+    // Network errors and server-side failures retry: exiting instead crash-looped the
+    // service under systemd. Any other 4xx (bad or spent token) will not fix itself.
+    HttpResponseMessage response;
+    while (true)
+    {
+        try
+        {
+            response = await http.PostAsJsonAsync("api/public/agents/enrollments",
+                new { token = config.EnrollmentToken, version, lanIp }, AgentJson.Options);
+            if ((int)response.StatusCode < 500
+                && response.StatusCode is not (System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.TooManyRequests))
+                break;
+            Console.Error.WriteLine($"Enrollment failed: {response.StatusCode}, retrying in 30s");
+            response.Dispose();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            Console.Error.WriteLine($"Enrollment error: {ex.Message} Retrying in 30s");
+        }
+        await Task.Delay(TimeSpan.FromSeconds(30));
+    }
     if (!response.IsSuccessStatusCode)
     {
         Console.Error.WriteLine($"Enrollment failed: {response.StatusCode} {await response.Content.ReadAsStringAsync()}");
