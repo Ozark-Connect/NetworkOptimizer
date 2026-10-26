@@ -78,15 +78,10 @@ public static class PlanBuilder
         }
 
         if (!options.SameSite)
-        {
-            var kept = new List<string>();
             foreach (var def in ConfigCollections.All.Where(d => d.KeepTargetValues != null && matches.ContainsKey(d.Key)))
                 foreach (var p in matches[def.Key].Pairs.Where(p => p.Left != null && p.Right != null))
-                    if (def.KeepTargetValues!(p.Left!, p.Right!) is { Count: > 0 } fields)
-                        kept.Add($"{ConfigState.DisplayName(def, p.Right!)} ({string.Join(", ", fields.Select(ChangeDescriber.LabelFor))})");
-            if (kept.Count > 0)
-                doc.Notes.Add($"Kept this site's own values that UniFi generates for each site, not the source's: {string.Join("; ", kept)}.");
-        }
+                    if (def.KeepTargetValues!(p.Left!, p.Right!) is { } what)
+                        doc.KeptValues.Add(what);
 
         var mgmtNetworks = ConfigDiffEngine.ManagementNetworkIds(live);
 
@@ -703,7 +698,6 @@ public static class PlanBuilder
 
     private static WriteStep Step(List<PlanOperation> ops, string group)
     {
-        var names = string.Join(", ", ops.Take(4).Select(o => o.ObjectName)) + (ops.Count > 4 ? $", and {ops.Count - 4} more" : "");
         var gateway = ops.Any(o => o.NeedsGateway) ? "One gateway provision" : null;
         var detail = group switch
         {
@@ -714,6 +708,15 @@ public static class PlanBuilder
             "base" => ops.Any(o => o.NeedsGateway) ? "One gateway provision" : "No dependencies",
             _ => gateway ?? "",
         };
-        return new WriteStep { Title = names, Detail = detail, OperationKeys = ops.Select(o => o.Key).ToList() };
+        var groups = ops.GroupBy(o => o.Collection)
+            .Select(g => new WriteStepGroup { Collection = ConfigCollections.Get(g.Key)?.DisplayName ?? g.Key, Names = g.Select(o => o.ObjectName).ToList() })
+            .ToList();
+        return new WriteStep
+        {
+            Title = string.Join(", ", groups.Select(g => g.Collection)),
+            Detail = detail,
+            OperationKeys = ops.Select(o => o.Key).ToList(),
+            Groups = groups,
+        };
     }
 }

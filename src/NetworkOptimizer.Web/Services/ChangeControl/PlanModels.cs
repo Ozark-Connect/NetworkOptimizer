@@ -104,6 +104,16 @@ public sealed class WriteStep
     public string Title { get; set; } = "";
     public string Detail { get; set; } = "";
     public List<string> OperationKeys { get; set; } = [];
+
+    /// <summary>The step's objects by collection ("Networks": CC IoT, CC Cameras). Empty on plans built before it.</summary>
+    public List<WriteStepGroup> Groups { get; set; } = [];
+}
+
+/// <summary>One collection's objects within a Write Order step.</summary>
+public sealed class WriteStepGroup
+{
+    public string Collection { get; set; } = "";
+    public List<string> Names { get; set; } = [];
 }
 
 /// <summary>The serialized plan (stored encrypted in <c>ConfigPlan.OperationsEncrypted</c>).</summary>
@@ -120,6 +130,9 @@ public sealed class PlanDocument
 
     /// <summary>What the plan does not write and why (NO-owned, generated, read-only collections).</summary>
     public List<string> Notes { get; set; } = [];
+
+    /// <summary>Per-site generated values a plan onto another site kept from the target, in plain words.</summary>
+    public List<string> KeptValues { get; set; } = [];
     public List<WriteStep> WriteOrder { get; set; } = [];
 
     /// <summary>Plan touches the management path: commit-confirmed watches devices.</summary>

@@ -274,10 +274,22 @@ else
                 </table>
             </div>
         }
+        @if (doc.KeptValues.Count > 0)
+        {
+            <div class="cc-inset-note cc-plan-kept">
+                <div class="cc-plan-kept-title">Kept this site's own values</div>
+                <div>UniFi generates these for each site, so the source's are not copied.</div>
+                <ul class="cc-plan-notes">
+                    @foreach (var k in doc.KeptValues) { <li>@k</li> }
+                </ul>
+            </div>
+        }
         @if (doc.Notes.Count > 0)
         {
             <div class="cc-inset-note" style="padding-top:0.75rem">
-                @foreach (var n in doc.Notes) { <div>@n</div> }
+                <ul class="cc-plan-notes">
+                    @foreach (var n in doc.Notes) { <li>@n</li> }
+                </ul>
             </div>
         }
         @if (doc.FirmwareAlign.Count > 0)
@@ -302,8 +314,21 @@ else
                     <div class="cc-write-step">
                         <span class="cc-step-num">@(i + 1)</span>
                         <div>
-                            <div>@step.Title</div>
-                            <div class="cc-item-detail">@step.Detail</div>
+                            @if (step.Groups.Count > 0)
+                            {
+                                @foreach (var g in step.Groups)
+                                {
+                                    <div class="cc-write-group"><span class="cc-write-group-name">@g.Collection</span> @string.Join(", ", g.Names)</div>
+                                }
+                            }
+                            else
+                            {
+                                <div>@step.Title</div>
+                            }
+                            @if (!string.IsNullOrEmpty(step.Detail))
+                            {
+                                <div class="cc-item-detail">@step.Detail</div>
+                            }
                         </div>
                     </div>
                 }
