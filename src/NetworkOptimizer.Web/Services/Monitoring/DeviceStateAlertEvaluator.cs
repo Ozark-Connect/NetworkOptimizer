@@ -360,12 +360,17 @@ public class DeviceStateAlertEvaluator
     private DeviceReach? ReadReach(DeviceAlertState state, DateTime now)
     {
         if (_fabric?.FabricReachable(state.Mac, FabricFreshness, now) is { } up)
-            return up ? DeviceReach.Answered : DeviceReach.Silent;
+        {
+            var fabric = up ? DeviceReach.Answered : DeviceReach.Silent;
+            _logger.LogDebug("{Device} ({Mac}) reachability from its fabric target: {Reach}", state.Label, state.Mac, fabric);
+            return fabric;
+        }
 
         if (state.Probe is { IsCompleted: true } done)
         {
             state.Probe = null;
             var result = done.IsCompletedSuccessfully ? done.Result : DeviceReach.CouldNotRun;
+            _logger.LogDebug("{Device} ({Mac}) reachability from a ping of {Ip}: {Reach}", state.Label, state.Mac, state.Ip, result);
             StartProbe(state);
             return result;
         }
