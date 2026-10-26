@@ -13,7 +13,7 @@
 
 <div class="page-header">
     <PageBackButton />
-    <h1>Review Plan @if (_view != null) { <span class="page-header-suffix">@_view.Plan.Name</span> }</h1>
+    <h1>Review Plan @if (_view != null) { <span class="page-header-suffix @PlanNameSize(_view.Plan.Name)">@_view.Plan.Name</span> }</h1>
     <p class="page-description">Nothing is written until you apply. Every item below is what Network Optimizer will change on the UniFi Console.</p>
 </div>
 
@@ -473,6 +473,15 @@ else
 
 @code {
     [Parameter] public int PlanId { get; set; }
+
+    /// <summary>A long plan name (an edit names every collection it touched) steps its font down.</summary>
+    private static string PlanNameSize(string name) => name.Length switch
+    {
+        > 400 => "cc-plan-name-xl",
+        > 160 => "cc-plan-name-l",
+        > 60 => "cc-plan-name-m",
+        _ => "",
+    };
 
     private static readonly (string Label, ConfigPlanStatus[] Statuses)[] Track =
     [

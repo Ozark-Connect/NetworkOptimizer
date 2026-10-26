@@ -23412,6 +23412,21 @@ body:has(.top-bar-hidden) .btn-fit {
     --cc-badge-col: 110px;
 }
 
+/* Review Plan: a long plan name steps down so it does not crowd the page. */
+.page-header-suffix.cc-plan-name-m {
+    font-size: 1rem;
+}
+
+.page-header-suffix.cc-plan-name-l {
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.page-header-suffix.cc-plan-name-xl {
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
 .change-control .cc-toolbar {
     display: flex;
     align-items: center;
