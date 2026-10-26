@@ -71,7 +71,7 @@
                             <b>@CcFormat.Time(s.TakenAt)</b>
                             <span class="cc-tags">
                                 @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
-                                @if (s.Pinned) { <span class="status-badge status-info">Pinned</span> }
+                                @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@PinTooltip(s.PinReason)">Pinned</span> }
                                 @if (!s.IsBaseline && !s.Pinned) { @IssueBadge(s.IssueCount, s.RegressionCount) }
                             </span>
                         </div>
@@ -131,7 +131,7 @@
                                 @s.Trigger
                                 <span class="cc-phone-inline">
                                     @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
-                                    @if (s.Pinned) { <span class="status-badge status-info">Pinned</span> }
+                                    @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@PinTooltip(s.PinReason)">Pinned</span> }
                                 </span>
                             </td>
                             <td class="hide-mobile">@(s.ChangedObjects == 0 ? "-" : CcFormat.Plural(s.ChangedObjects, "object", "objects"))</td>
@@ -139,7 +139,7 @@
                             <td class="hide-mobile">
                                 <span class="cc-tags">
                                     @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
-                                    @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@s.PinReason">Pinned</span> }
+                                    @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@PinTooltip(s.PinReason)">Pinned</span> }
                                 </span>
                             </td>
                             <td class="hide-mobile">
@@ -421,6 +421,10 @@ else if (_compare != null)
         else await Site.PinSnapshotAsync(s.Id);
         await LoadAsync();
     });
+
+    /// <summary>The Pinned badge's tooltip: what pinned means, then why this one is.</summary>
+    private static string PinTooltip(string? reason) =>
+        "Kept forever: retention never removes it." + (string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}.");
 
     private async Task SetBaselineAsync(int id) => await RunAsync(async () =>
     {
