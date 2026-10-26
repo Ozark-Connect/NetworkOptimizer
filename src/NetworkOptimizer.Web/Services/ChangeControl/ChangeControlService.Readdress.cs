@@ -47,6 +47,8 @@ public sealed class ReaddressView
     public int? LongestLeaseSeconds { get; init; }
     /// <summary>When the last re-address applied, in the last week: Reconnect Clients is for after it.</summary>
     public DateTime? LastAppliedAt { get; init; }
+    /// <summary>The networks that last re-address moved.</summary>
+    public List<SubnetMove> LastMoves { get; init; } = [];
     public bool Ready => Errors.Count == 0 && Moves.Any(m => m.OldCidr != m.NewCidr);
 }
 
@@ -66,10 +68,11 @@ public sealed partial class ChangeControlService
         var errors = Readdressing.Validate(live, moves);
         var active = moves.Where(m => m.OldCidr != m.NewCidr).ToList();
         var prepare = await LeasePrepareAsync(cancellationToken);
-        var lastApplied = (await Repo.UseAsync((r, c) => r.GetPlansAsync([ConfigPlanStatus.Applied, ConfigPlanStatus.Watching], 200, c), cancellationToken))
-            .Where(p => p.Kind == ConfigPlanKind.Readdress && p.CompletedAt > DateTime.UtcNow.AddDays(-7)).Max(p => p.CompletedAt);
+        var last = await LastReaddressAsync(cancellationToken);
+        var lastApplied = last?.Plan.CompletedAt;
+        var lastMoves = last?.Moves.Where(m => m.OldCidr != m.NewCidr).ToList() ?? [];
         if (active.Count == 0 || errors.Count > 0)
-            return new ReaddressView { Moves = moves, Errors = errors, Prepare = prepare, LastAppliedAt = lastApplied, LongestLeaseSeconds = LongestLease(live, active) };
+            return new ReaddressView { Moves = moves, Errors = errors, Prepare = prepare, LastAppliedAt = lastApplied, LastMoves = lastMoves, LongestLeaseSeconds = LongestLease(live, active) };
 
         var result = Readdressing.Apply(live, active);
         var (statics, source) = await StaticClientsAsync(live, active, cancellationToken);
@@ -88,6 +91,7 @@ public sealed partial class ChangeControlService
             Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, RemoteCidrs(live), apply: false, cancellationToken),
             Prepare = prepare,
             LastAppliedAt = lastApplied,
+            LastMoves = lastMoves,
             LongestLeaseSeconds = LongestLease(live, active),
         };
     }

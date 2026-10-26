@@ -137,13 +137,8 @@ public sealed partial class ChangeControlService
     public async Task<ReconnectResult> ReconnectClientsAsync(bool powerCycle, CancellationToken cancellationToken = default)
     {
         var result = new ReconnectResult();
-        var plans = await Repo.UseAsync((r, c) => r.GetPlansAsync([ConfigPlanStatus.Applied, ConfigPlanStatus.Watching], 200, c), cancellationToken);
-        var last = plans.Where(p => p.Kind == ConfigPlanKind.Readdress && p.CompletedAt > DateTime.UtcNow.AddDays(-7)).OrderByDescending(p => p.CompletedAt).FirstOrDefault()
-            ?? throw new InvalidOperationException("No re-address applied in the last week.");
-        if (await Plans.LoadAsync(last.Id, cancellationToken) is not { } loaded
-            || !loaded.Doc.Context.TryGetValue(PlanCoordinator.ReaddressContext, out var json)
-            || JsonSerializer.Deserialize<List<SubnetMove>>(json) is not { Count: > 0 } moves)
-            throw new InvalidOperationException("That re-address plan has no moves recorded.");
+        var (_, moves) = await LastReaddressAsync(cancellationToken) ?? throw new InvalidOperationException("No re-address applied in the last week.");
+        if (moves.Count == 0) throw new InvalidOperationException("That re-address plan has no moves recorded.");
         var map = Readdressing.Map(moves);
         var moved = moves.Select(m => Readdressing.ParseSubnet(m.NewCidr)).OfType<Readdressing.Subnet>().ToList();
 
@@ -191,6 +186,17 @@ public sealed partial class ChangeControlService
             else result.Waiting.Add($"{name} ({ip})");
         }
         return result;
+    }
+
+    /// <summary>The last re-address applied in the last week, with the moves it recorded: what Reconnect Clients is for.</summary>
+    private async Task<(ConfigPlan Plan, List<SubnetMove> Moves)?> LastReaddressAsync(CancellationToken ct)
+    {
+        var plans = await Repo.UseAsync((r, c) => r.GetPlansAsync([ConfigPlanStatus.Applied, ConfigPlanStatus.Watching], 200, c), ct);
+        var last = plans.Where(p => p.Kind == ConfigPlanKind.Readdress && p.CompletedAt > DateTime.UtcNow.AddDays(-7)).OrderByDescending(p => p.CompletedAt).FirstOrDefault();
+        if (last == null) return null;
+        var moves = await Plans.LoadAsync(last.Id, ct) is { } loaded && loaded.Doc.Context.TryGetValue(PlanCoordinator.ReaddressContext, out var json)
+            ? JsonSerializer.Deserialize<List<SubnetMove>>(json) ?? [] : [];
+        return (last, moves);
     }
 
     /// <summary>Switch ports supplying PoE power now, by switch MAC and port index.</summary>

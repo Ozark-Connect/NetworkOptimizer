@@ -109,9 +109,10 @@
             <div>
                 <div>After the move: reconnect clients</div>
                 <div class="cc-item-detail">Wireless clients still on an old address rejoin. Wired clients move at their next renewal, or now if their port powers them over PoE and you allow a power-cycle.</div>
+                <div class="cc-item-detail">@LastMoveStatus(steps)</div>
                 <label class="checkbox-label cc-reconnect-poe"><input type="checkbox" @bind="_powerCycle" /><span>Power-cycle PoE ports of wired clients</span></label>
             </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastAppliedAt == null)" @onclick="ReconnectAsync">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastMoves.Count == 0)" @onclick="ReconnectAsync">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
         </div>
         @if (_reconnect is { } rc)
         {
@@ -336,6 +337,11 @@
         return $"Leases are up to {Hours(lease)}. Lowered now, every DHCP client is on a {ChangeControlService.PrepareLeaseSeconds / 60}-minute lease by "
             + $"{CcFormat.Local(DateTime.UtcNow.AddSeconds(lease)):MMM d, h:mm tt}. The re-address puts each lease time back.";
     }
+
+    private static string LastMoveStatus(ReaddressView v) => v.LastMoves.Count == 0 || v.LastAppliedAt is not { } at
+        ? "No re-address applied in the last week."
+        : $"For the re-address applied {CcFormat.Local(at):MMM d, h:mm tt}: "
+          + string.Join("; ", v.LastMoves.Select(m => $"{m.NetworkName} {m.OldCidr} to {m.NewCidr}")) + ".";
 
     private static string Hours(int seconds) => seconds >= 3600 ? $"{seconds / 3600.0:0.#} hours" : $"{seconds / 60} minutes";
 
