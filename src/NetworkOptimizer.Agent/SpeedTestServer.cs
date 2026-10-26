@@ -60,10 +60,7 @@ public sealed class SpeedTestServer : IAsyncDisposable
     /// <summary>Binds the results relay on loopback (<see cref="RelayPort"/>).</summary>
     public static SpeedTestServer Create(string serverUrl, string siteSlug, bool ignoreSslErrors)
     {
-        var handler = new HttpClientHandler();
-        if (ignoreSslErrors)
-            handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
-        var relay = new HttpClient(handler) { BaseAddress = new Uri(serverUrl.TrimEnd('/') + "/") };
+        var relay = new HttpClient(ServerHttpHandler.Create(ignoreSslErrors)) { BaseAddress = new Uri(serverUrl.TrimEnd('/') + "/") };
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
