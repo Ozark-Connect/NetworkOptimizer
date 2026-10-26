@@ -283,7 +283,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             Title = $"Network app {from} to {to}: {(objects == 0 ? "no config changes" : $"{objects} objects changed")}"
                     + (regressions > 0 ? $", {regressions} security regression{(regressions == 1 ? "" : "s")}" : ""),
             Message = objects == 0 ? "The upgrade left the site's config as it was."
-                : "Objects changed during the upgrade are on the Changes tab, labeled No admin recorded, likely UniFi.",
+                : "Objects changed during the upgrade are on the Changes tab, labeled \"No admin recorded, likely UniFi\".",
             SourceUrl = changes.Count > 0 ? ChangeAlerts.ChangeUrl(changes[0].Id) : "/change-control/changes",
             SiteSlug = slug,
         }, ct);
