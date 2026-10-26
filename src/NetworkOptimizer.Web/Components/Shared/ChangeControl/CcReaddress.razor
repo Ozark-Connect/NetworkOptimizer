@@ -69,7 +69,7 @@
             <span class="cc-remaining warning-text">@warning</span>
             @if (!LeasesShort(lv))
             {
-                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">Lower Lease Times</button>
+                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
             }
         }
         else
@@ -96,7 +96,7 @@
                 <div>Before the move: lower lease times</div>
                 <div class="cc-item-detail">@PrepareStatus(steps)</div>
             </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null || LeasesShort(steps))" @onclick="PrepareAsync">Lower Lease Times</button>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null || LeasesShort(steps))" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
         </div>
         <div class="cc-setting-row cc-step-row">
             <div>
@@ -104,7 +104,7 @@
                 <div class="cc-item-detail">Wireless clients still on an old address rejoin. Wired clients move at their next renewal, or now if their port powers them over PoE and you allow a power-cycle.</div>
                 <label class="checkbox-label cc-reconnect-poe"><input type="checkbox" @bind="_powerCycle" /><span>Power-cycle PoE ports of wired clients</span></label>
             </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastAppliedAt == null)" @onclick="ReconnectAsync">Reconnect Clients</button>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastAppliedAt == null)" @onclick="ReconnectAsync">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
         </div>
         @if (_reconnect is { } rc)
         {
@@ -334,17 +334,32 @@
 
     private async Task ReconnectAsync() => await RunAsync(async () => _reconnect = await Site.ReconnectClientsAsync(_powerCycle));
 
-    private async Task RunAsync(Func<Task> action)
+    private string? _running;
+
+    private RenderFragment? Spinner(string action) =>
+        _running == action ? @<span class="spinner-sm"></span> : null;
+
+    private async Task RunAsync(Func<Task> action, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         _busy = true;
+        _running = caller;
         _error = null;
-        try { await action(); }
+        try
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await action();
+        }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Re-address step failed");
             _error = ex.Message;
         }
-        finally { _busy = false; }
+        finally
+        {
+            _busy = false;
+            _running = null;
+        }
     }
     private bool _busy;
     private bool _building;
