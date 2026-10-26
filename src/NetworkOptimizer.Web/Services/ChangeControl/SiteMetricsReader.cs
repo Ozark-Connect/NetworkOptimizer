@@ -168,8 +168,8 @@ public sealed class SiteMetricsReader
                 });
             }
             // Past two days the counts are per day (QueryWifiClientCountsAsync).
-            lanes.Add(ClientsLane(clientsTask.Result, to, to - from > TimeSpan.FromDays(2) ? TimeSpan.FromDays(1) : window));
-            lanes.Add(PhyLane(phyTask.Result));
+            lanes.Add(ClientsLane(clientsTask.Result, to, to - from > TimeSpan.FromDays(2) ? TimeSpan.FromDays(1) : window, from));
+            lanes.Add(PhyLane(phyTask.Result, window));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -196,15 +196,17 @@ public sealed class SiteMetricsReader
         [("2.4ghz", "2.4 GHz", "var(--band-24-color)"), ("5ghz", "5 GHz", "var(--band-5-color)"), ("6ghz", "6 GHz", "var(--band-6-color)")];
 
     /// <summary>Wi-Fi clients stacked by band, 2.4 GHz at the bottom; series A is the total.</summary>
-    internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts, DateTime? end = null, TimeSpan? step = null)
+    internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts, DateTime? end = null, TimeSpan? step = null, DateTime? start = null)
     {
         var times = counts.Select(c => c.Time).Distinct().Order().ToList();
         var byKey = counts.GroupBy(c => (c.Time, c.Band)).ToDictionary(g => g.Key, g => g.Sum(c => c.Clients));
-        // A window with no clients returns no row: fill the grid from the first count on, so a drop to zero plots as zero.
+        // A window with no clients returns no row: fill the grid from the window holding the range start, so zero plots as zero.
         if (step is { } s && s > TimeSpan.Zero && times.Count > 0)
         {
+            var first = times[0];
+            if (start is { } b) while (first > b) first -= s;
             var grid = new List<DateTime>();
-            for (var t = times[0]; end is { } e0 ? t < e0 : t <= times[^1]; t += s) grid.Add(t);
+            for (var t = first; end is { } e0 ? t < e0 : t <= times[^1]; t += s) grid.Add(t);
             times = grid.Union(times).Order().ToList();
         }
         // Counts are stamped at their window's start (a whole day past two days), so the last one holds to the end.
@@ -240,16 +242,29 @@ public sealed class SiteMetricsReader
     }
 
     /// <summary>Mean TX PHY rate per band in Mbps, one line per band that has clients.</summary>
-    internal static TimelineLane PhyLane(IReadOnlyList<(DateTime Time, string Band, double Kbps)> rates) => new()
+    internal static TimelineLane PhyLane(IReadOnlyList<(DateTime Time, string Band, double Kbps)> rates, TimeSpan? step = null) => new()
     {
         Key = "phy",
         Title = "Wi-Fi PHY",
         Subtitle = "TX rate by band, Mbps",
-        Lines = Bands.Select(b => (b, Series: rates.Where(r => r.Band == b.Band).Select(r => (r.Time, (double?)(r.Kbps / 1000))).ToList()))
+        Lines = Bands.Select(b => (b, Series: WithGaps(rates.Where(r => r.Band == b.Band).Select(r => (r.Time, (double?)(r.Kbps / 1000))).ToList(), step)))
             .Where(x => x.Series.Count > 0)
             .Select(x => new LaneLine(x.b.Name, x.b.Color, x.Series, x.Series[^1].Item2?.ToString("0")))
             .ToList(),
     };
+
+    /// <summary>A null at each missing window, so the line breaks where a band had no clients instead of bridging the gap.</summary>
+    private static List<(DateTime, double?)> WithGaps(List<(DateTime Time, double? Value)> series, TimeSpan? step)
+    {
+        if (step is not { } s || s <= TimeSpan.Zero || series.Count < 2) return series;
+        var result = new List<(DateTime, double?)>();
+        for (var i = 0; i < series.Count; i++)
+        {
+            if (i > 0 && series[i].Time - series[i - 1].Time > s) result.Add((series[i - 1].Time + s, null));
+            result.Add(series[i]);
+        }
+        return result;
+    }
 
     private async Task<Dictionary<DateTime, LoadWindow>> ClassifyAsync(IReadOnlyList<MonitoringInfluxClient.WanRatePoint> rates, CancellationToken ct)
     {

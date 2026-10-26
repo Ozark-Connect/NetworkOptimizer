@@ -43,6 +43,23 @@ public class ClientsLaneTests
         lane.Stack.Single().Latest.Should().Be(0);
     }
 
+    [Fact]
+    public void ClientsLane_FillsLeadingWindowsBackToTheRangeStart()
+    {
+        var day = TimeSpan.FromDays(1);
+        var lane = SiteMetricsReader.ClientsLane([(T.AddDays(3), "5ghz", 5)], T.AddDays(4), day, T.AddHours(-6));
+        lane.SeriesA.Select(p => p.Time).Should().Equal(T.AddDays(-1), T, T.AddDays(1), T.AddDays(2), T.AddDays(3), T.AddDays(4));
+        lane.SeriesA.Select(p => p.Value).Should().Equal(0.0, 0.0, 0.0, 0.0, 5.0, 5.0);
+    }
+
+    [Fact]
+    public void PhyLane_BreaksTheLineWhereABandHadNoClients()
+    {
+        var step = TimeSpan.FromMinutes(15);
+        var lane = SiteMetricsReader.PhyLane([(T, "5ghz", 800_000), (T.AddMinutes(15), "5ghz", 900_000), (T.AddMinutes(60), "5ghz", 1_200_000)], step);
+        lane.Lines.Single().Series.Should().Equal((T, 800.0), (T.AddMinutes(15), 900.0), (T.AddMinutes(30), null), (T.AddMinutes(60), 1200.0));
+    }
+
     [Theory]
     [InlineData(24.4, "24")]
     [InlineData(9.34, "9.3")]
