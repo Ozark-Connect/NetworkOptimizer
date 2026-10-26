@@ -83,7 +83,7 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 60 // 1 minute - recoveries are paired with offline events
         },
-        // Answering on the network but not reporting to UniFi Network. The evaluator holds it 10
+        // Answering on the network but not reporting to UniFi Network. The evaluator holds it 5
         // minutes first, so a Network restart or inform address change never reaches this rule.
         new AlertRule
         {

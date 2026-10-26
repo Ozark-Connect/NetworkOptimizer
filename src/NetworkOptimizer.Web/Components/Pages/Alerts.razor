@@ -1918,7 +1918,7 @@
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("device.offline")'><code>device.offline</code> <span>Device went offline</span></div>
                         <div @onclick='() => SelectEventType("device.recovered")'><code>device.recovered</code> <span>Device came back online</span></div>
-                        <div @onclick='() => SelectEventType("device.unmanaged")'><code>device.unmanaged</code> <span>Device stopped reporting to UniFi Network for 10 minutes but still passes traffic</span></div>
+                        <div @onclick='() => SelectEventType("device.unmanaged")'><code>device.unmanaged</code> <span>Device stopped reporting to UniFi Network for 5 minutes but still passes traffic</span></div>
                         <div @onclick='() => SelectEventType("device.managed")'><code>device.managed</code> <span>Device is reporting to UniFi Network again</span></div>
                         <div @onclick='() => SelectEventType("device.rebooted")'><code>device.rebooted</code> <span>Device restarted</span></div>
                         <div @onclick='() => SelectEventType("device.high_temperature")'><code>device.high_temperature</code> <span>Device (switch, gateway, or AP) temperature above threshold</span></div>

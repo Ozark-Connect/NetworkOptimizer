@@ -51,7 +51,7 @@ public class DeviceStateAlertEvaluator
     /// alerted on. Nothing is down in that state, so speed does not matter; a Network restart or an
     /// inform address change clears well inside it.
     /// </summary>
-    public static readonly TimeSpan UnmanagedHold = TimeSpan.FromMinutes(10);
+    public static readonly TimeSpan UnmanagedHold = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Consecutive offline observations before announcing it. UniFi can report a single offline
@@ -64,8 +64,9 @@ public class DeviceStateAlertEvaluator
     private static readonly TimeSpan FabricFreshness = TimeSpan.FromSeconds(30);
     // The ping normally finished a poll ago; this bounds the wait when it has not.
     private static readonly TimeSpan ProbeWait = TimeSpan.FromSeconds(5);
-    // Devices seen this recently make up the site for the collapse share.
-    private static readonly TimeSpan ActiveWindow = TimeSpan.FromMinutes(5);
+    // Devices seen this recently make up the site. Well under the hold, so a device removed from the
+    // console while held drops out before its hold expires.
+    private static readonly TimeSpan ActiveWindow = TimeSpan.FromMinutes(2);
     private const int CollapseMinimum = 3;
 
     private readonly IAlertEventBus _eventBus;
