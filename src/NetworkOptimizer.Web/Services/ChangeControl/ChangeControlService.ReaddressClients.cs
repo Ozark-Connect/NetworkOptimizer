@@ -127,10 +127,15 @@ public sealed partial class ChangeControlService
             }
             var mac = c["mac"]?.ToString()?.ToLowerInvariant() ?? "";
             var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
-            // Set on the device: a reconnect cannot change it. Network Optimizer's own host: never cut.
-            if (own.Contains(ip) || (leased != null && !leased.Contains(mac))) continue;
+            // Network Optimizer's own host: never cut. No lease and no reservation: set on the device, nothing to gain.
+            // No lease with a reservation is either static or a lease that lapsed while the client slept (a TV in
+            // standby): a wireless rejoin settles it, but a power-cycle is only for clients known to be on DHCP.
+            var reserved = c["use_fixedip"] is JsonValue fx && fx.TryGetValue<bool>(out var isReserved) && isReserved;
+            var noLease = leased != null && !leased.Contains(mac);
+            if (own.Contains(ip) || (noLease && !reserved)) continue;
 
             var wired = c["is_wired"] is JsonValue w && w.TryGetValue<bool>(out var isWired) && isWired;
+            if (wired && noLease) { result.Waiting.Add($"{name} ({ip})"); continue; }
             if (!wired)
             {
                 var kick = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Post, "cmd/stamgr",

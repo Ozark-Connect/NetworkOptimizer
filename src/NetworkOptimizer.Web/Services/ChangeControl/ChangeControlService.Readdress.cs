@@ -120,7 +120,7 @@ public sealed partial class ChangeControlService
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 foreach (var w in warnings) doc.Notes.Add($"{w.Title}: {w.Detail}");
                 if (statics.Where(s => s.LastSeen == null).ToList() is { Count: > 0 } set)
-                    doc.Notes.Add($"Set on the device itself, so this plan cannot move them: {string.Join(", ", set.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp})"))}.");
+                    doc.Notes.Add($"No DHCP lease, so this plan cannot move them unless they ask DHCP again: {string.Join(", ", set.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp}{(s.Reserved ? ", reserved" : "")})"))}.");
                 if (statics.Count(s => s.LastSeen != null) is > 0 and var offline)
                     doc.Notes.Add($"{offline} offline clients were likely set on the device (no reservation, last address outside the DHCP range): change them when they are back. The dry run lists them.");
                 foreach (var m in result.Mentions)

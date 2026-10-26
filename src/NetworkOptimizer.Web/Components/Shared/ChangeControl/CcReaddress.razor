@@ -155,14 +155,14 @@
     }
 
     <div class="card">
-        <div class="card-header"><h3 class="card-title">Set on the Device <span class="card-title-suffix">@v.StaticSource</span></h3></div>
+        <div class="card-header"><h3 class="card-title">No DHCP Lease <span class="card-title-suffix">@v.StaticSource</span></h3></div>
         @if (v.StaticClients.Count == 0)
         {
-            <div class="empty-state empty-state-small"><p>No connected client in these networks has its address set on the device.</p></div>
+            <div class="empty-state empty-state-small"><p>Every connected client in these networks holds a DHCP lease.</p></div>
         }
         else
         {
-            <p class="cc-card-intro">Connected without a DHCP lease, so the plan cannot reach these: change each one on the device after the move.@(v.StaticClients.Any(s => s.Reserved) ? " Reserved ones have their reservation moved too." : "")</p>
+            <p class="cc-card-intro">Connected without a lease. With no reservation, the address is set on the device: change it after the move.@(v.StaticClients.Any(s => s.Reserved) ? " Reserved ones are set on the device, or kept their address after the lease lapsed while they slept (a TV in standby); Reconnect Clients makes the wireless ones ask DHCP again." : "")</p>
             <div class="cc-phone-only">
                 @foreach (var s in v.StaticClients)
                 {
