@@ -40,6 +40,14 @@ public interface IChangeControlService
     [RequireRole(Roles.Viewer)]
     Task<List<TimelineLane>> GetLanesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Rebuilds a recorded change from its two snapshots with the current diff engine, replacing the rows an
+    /// older build recorded. Refused for a person's change, whose attribution came from the AUDIT log.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.ChangeControlChangeRecomputed, TargetType = "config_change")]
+    Task<int> RecomputeChangeAsync(int changeId, CancellationToken cancellationToken = default);
+
     /// <summary>Takes a snapshot now.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.ChangeControlSnapshotTaken, TargetType = "config_snapshot")]

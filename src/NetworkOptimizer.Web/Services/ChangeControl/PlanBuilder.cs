@@ -244,6 +244,13 @@ public static class PlanBuilder
                 // Identical before mapping: the live object still points at an old ID UniFi renumbered (Network 11's
                 // Default WLAN group), and writing the mapped ID would change what nothing asked to change.
                 var keep = CanonicalJson.DeepEquals(desired[field], liveValue);
+                // A secret from another Network version: 11's stored form of a 10.6 secret is unproven, and a
+                // wrong one breaks the WAN or VPN using it. The live secret stays.
+                if (!keep && otherVersion && liveValue != null && ConfigCollections.IsSecretField(def, field))
+                {
+                    keep = true;
+                    doc.KeptSecrets.Add($"{def.Noun} {name}: {FieldLabel(field)}");
+                }
                 // A snapshot from another Network version can reference objects it never captured (client groups
                 // before 11): those IDs mean nothing here, and writing them would drop the live references.
                 if (!keep && otherVersion && UnresolvedIds(desired[field], idMap, liveById, creates).Any())

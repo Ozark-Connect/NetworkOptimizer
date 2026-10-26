@@ -274,14 +274,13 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     public async Task NetworkAppUpgradeSummaryAsync(string slug, string? from, string? to, IReadOnlyList<ConfigChange> changes, CancellationToken ct)
     {
         var objects = changes.Sum(c => c.ObjectCount);
-        var regressions = changes.Sum(c => c.RegressionCount);
         await Publish(new AlertEvent
         {
             EventType = ChangeAlerts.NetworkAppUpgrade,
             Source = ChangeAlerts.Source,
             Severity = AlertSeverity.Info,
-            Title = $"Network app {from} to {to}: {(objects == 0 ? "no config changes" : $"{objects} objects changed")}"
-                    + (regressions > 0 ? $", {regressions} security regression{(regressions == 1 ? "" : "s")}" : ""),
+            // No regression count: the upgrade's audit waits for devices to reconnect and alerts on its own.
+            Title = $"Network app {from} to {to}: {(objects == 0 ? "no config changes" : $"{objects} objects changed")}",
             Message = objects == 0 ? "The upgrade left the site's config as it was."
                 : "Objects changed during the upgrade are on the Changes tab, labeled \"No admin recorded, likely UniFi\".",
             SourceUrl = changes.Count > 0 ? ChangeAlerts.ChangeUrl(changes[0].Id) : "/change-control/changes",

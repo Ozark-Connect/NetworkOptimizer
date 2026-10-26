@@ -412,6 +412,50 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         return result.Snapshot;
     }
 
+    /// <summary>
+    /// Re-records the changes of one snapshot from it and its previous snapshot with the current diff engine,
+    /// keeping their time. Only for changes no person made: a person's attribution came from the AUDIT log
+    /// at detection and cannot be read again.
+    /// </summary>
+    public async Task<List<ConfigChange>> RecomputeAsync(int changeId, CancellationToken ct)
+    {
+        await _snapshotLock.WaitAsync(ct);
+        try
+        {
+            var change = await _repos.UseAsync((r, c) => r.GetChangeAsync(changeId, c), ct) ?? throw new InvalidOperationException("Change not found.");
+            if (change.SnapshotId is not int snapshotId || change.PreviousSnapshotId is not int previousId)
+                throw new InvalidOperationException("This change has no snapshots to recompute from.");
+            var siblings = (await _repos.UseAsync((r, c) => r.GetChangesAsync(change.OccurredAt.AddMinutes(-5), change.OccurredAt.AddMinutes(5), 1000, c), ct))
+                .Where(c => c.SnapshotId == snapshotId && c.Kind == ConfigChangeKind.Config).ToList();
+            if (siblings.Any(c => c.ActorKind == ConfigChangeActorKind.Person))
+                throw new InvalidOperationException("A change made by a person cannot be recomputed: who made it came from the UniFi audit log at the time.");
+
+            var previous = await LoadSnapshotStateAsync(previousId, ct) ?? throw new InvalidOperationException("The earlier snapshot is gone.");
+            var current = await LoadSnapshotStateAsync(snapshotId, ct) ?? throw new InvalidOperationException("The snapshot is gone.");
+            var snapshot = await _repos.UseAsync((r, c) => r.GetSnapshotAsync(snapshotId, c), ct) ?? throw new InvalidOperationException("The snapshot is gone.");
+            var upgrade = siblings.Any(c => c.Summary.Contains("Network app upgrade", StringComparison.Ordinal));
+
+            var diff = ConfigDiffEngine.Compare(previous, current);
+            var recordable = diff.Objects.Where(o => !o.Generated).ToList();
+            await _repos.UseAsync((r, c) => r.DeleteChangesAsync(siblings.Select(s => s.Id).ToList(), c), ct);
+            var changes = recordable.Count > 0 || diff.PolicyOrder.Count > 0
+                ? await RecordChangesAsync(snapshot, previousId, previous, current, recordable, diff, [], [], upgrade, ct)
+                : [];
+            foreach (var c in changes)
+            {
+                c.OccurredAt = change.OccurredAt;
+                await _repos.UseAsync((r, t) => r.UpdateChangeAsync(c, t), ct);
+            }
+            if (Evaluator != null && changes.Count > 0) EvaluateInBackground(Evaluator, changes, previous, current, afterUpgrade: false);
+            Changed?.Invoke();
+            return changes;
+        }
+        finally
+        {
+            _snapshotLock.Release();
+        }
+    }
+
     /// <summary>Reads the live config without storing it (plan building, Compare against Now).</summary>
     public Task<ConfigState> ReadLiveAsync(CancellationToken ct) => _reader.ReadAsync(_api, ct);
 

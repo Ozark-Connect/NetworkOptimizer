@@ -221,7 +221,8 @@
                     <div class="expand-content">
                         @if (shown)
                         {
-                            <CcChangeDetail Detail="_detail" Busy="_busy" RollingBack="_rollingBack" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
+                            <CcChangeDetail Detail="_detail" Busy="_busy" RollingBack="_rollingBack" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)"
+                                            Recomputing="_recomputing" OnRecompute="() => RecomputeAsync(c)" />
                         }
                     </div>
                 </div>
@@ -297,7 +298,8 @@
                                     <div class="expand-content">
                                         @if (shown)
                                         {
-                                            <CcChangeDetail Detail="_detail" Busy="_busy" RollingBack="_rollingBack" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)" />
+                                            <CcChangeDetail Detail="_detail" Busy="_busy" RollingBack="_rollingBack" OnRollBack="() => RollBackAsync(c)" OnViewDiff="() => Navigator.CompareAsync(c.SiteSlug, c.PreviousSnapshotId, c.SnapshotId)"
+                                            Recomputing="_recomputing" OnRecompute="() => RecomputeAsync(c)" />
                                         }
                                     </div>
                                 </div>
@@ -606,6 +608,35 @@
     }
 
     private bool _rollingBack;
+
+    private async Task RecomputeAsync(ChangeRowView c)
+    {
+        if (!string.Equals(c.SiteSlug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
+        {
+            _error = $"Open {c.SiteName} to recompute its changes.";
+            return;
+        }
+        _busy = true;
+        _recomputing = true;
+        try
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await Site.RecomputeChangeAsync(c.Id);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            _recomputing = false;
+        }
+    }
+
+    private bool _recomputing;
 
     private async Task ExportAsync()
     {

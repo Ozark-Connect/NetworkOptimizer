@@ -388,6 +388,10 @@ public sealed partial class ChangeControlService : IChangeControlService
     public async Task<List<TimelineLane>> GetLanesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
         await new SiteMetricsReader(_influx, _isp, _logger).LanesAsync(fromUtc, toUtc, cancellationToken);
 
+    /// <returns>The first rebuilt change's ID, or 0 when the current engine finds nothing changed.</returns>
+    public async Task<int> RecomputeChangeAsync(int changeId, CancellationToken cancellationToken = default) =>
+        (await Engine.RecomputeAsync(changeId, cancellationToken)).FirstOrDefault()?.Id ?? 0;
+
     public async Task<int?> TakeSnapshotAsync(CancellationToken cancellationToken = default) =>
         (await Engine.TakeSnapshotAsync(ConfigSnapshotTrigger.Manual, Actor, null, cancellationToken))?.Id;
 

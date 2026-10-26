@@ -114,6 +114,19 @@ else
                 @if (Detail.Row.PreviousSnapshotId != null && Detail.Row.SnapshotId != null)
                 {
                     <button class="btn btn-contrast" @onclick="OnViewDiff">View Diff</button>
+                    @if (Detail.Row.ActorKind != ConfigChangeActorKind.Person && OnRecompute.HasDelegate)
+                    {
+                        <SiteAdminOnly>
+                            <button class="btn btn-contrast" disabled="@Busy" @onclick="OnRecompute"
+                                    data-tooltip="Rebuild this change from its two snapshots with the current version of Change Control">
+                                @if (Recomputing)
+                                {
+                                    <span class="spinner-sm"></span>
+                                }
+                                Recompute
+                            </button>
+                        </SiteAdminOnly>
+                    }
                 }
             </div>
         </div>
@@ -128,6 +141,10 @@ else
     [Parameter] public bool RollingBack { get; set; }
     [Parameter] public EventCallback OnRollBack { get; set; }
     [Parameter] public EventCallback OnViewDiff { get; set; }
+
+    /// <summary>Recompute is running: its button shows a spinner.</summary>
+    [Parameter] public bool Recomputing { get; set; }
+    [Parameter] public EventCallback OnRecompute { get; set; }
 
     private string MinutesAfter(DateTime t)
     {

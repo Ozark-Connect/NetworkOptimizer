@@ -241,7 +241,7 @@ public sealed class PlanExecutor
                 ? ConfigDiffEngine.HashOf(sentValue) == ConfigDiffEngine.HashOf(got)
                 : Equivalent(def, field, sentValue, got);
             if (same) continue;
-            if (normalized.Contains(field)) r.Normalized.Add(field);
+            if (normalized.Contains(field) || IsNormalizedHere(def.Key, field, current)) r.Normalized.Add(field);
             else r.NotApplied.Add(field);
         }
 
@@ -254,9 +254,16 @@ public sealed class PlanExecutor
         {
             r.Outcome = "Applied";
             if (refusal != null) r.Message = $"Applied, although UniFi answered {refusal}";
-            if (r.Normalized.Count > 0) r.Message = $"Normalized by UniFi: {string.Join(", ", r.Normalized)}";
+            if (r.Normalized.Count > 0) r.Message = $"Normalized by UniFi: {string.Join(", ", r.Normalized.Select(ChangeDescriber.LabelFor))}";
         }
     }
+
+    /// <summary>
+    /// A field UniFi drops only in some shapes: Network 11 keeps no voice network on a native port profile
+    /// (one untagged network; grounding.md, phase 2).
+    /// </summary>
+    internal static bool IsNormalizedHere(string collection, string field, JsonObject current) =>
+        collection == "portconf" && field == "voice_networkconf_id" && current["forward"]?.ToString() == "native";
 
     /// <summary>Sent and read-back values match, with sets compared as sets and only the sent part of radio entries.</summary>
     private static bool Equivalent(ConfigCollectionDef def, string field, JsonNode? sent, JsonNode? got)

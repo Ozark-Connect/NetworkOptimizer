@@ -385,7 +385,8 @@ public sealed class PlanCoordinator
                 unresolved = false;
                 var w = ResolveRefs(want[field]);
                 if (unresolved) continue;
-                if (PlanExecutor.NormalizedFields.GetValueOrDefault(op.Collection, []).Contains(field)) continue;
+                if (PlanExecutor.NormalizedFields.GetValueOrDefault(op.Collection, []).Contains(field)
+                    || PlanExecutor.IsNormalizedHere(op.Collection, field, got)) continue;
                 var single = ConfigDiffEngine.CompareObjects(def, new JsonObject { [field] = w?.DeepClone() }, new JsonObject { [field] = got[field]?.DeepClone() });
                 if (single != null) diffs.Add($"{def.Noun} {op.ObjectName}: {ChangeDescriber.LabelFor(field)} did not land");
             }

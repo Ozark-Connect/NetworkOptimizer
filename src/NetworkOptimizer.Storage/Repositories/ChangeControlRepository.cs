@@ -232,6 +232,15 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
             return row == null ? null : (row.c, row.o);
         }, nameof(GetLatestObjectChangeAsync));
 
+    public Task DeleteChangesAsync(IReadOnlyCollection<int> changeIds, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(async () =>
+        {
+            await using var tx = await _context.Database.BeginTransactionAsync(cancellationToken);
+            await _context.ConfigChangeObjects.Where(o => changeIds.Contains(o.ChangeId)).ExecuteDeleteAsync(cancellationToken);
+            await _context.ConfigChanges.Where(c => changeIds.Contains(c.Id)).ExecuteDeleteAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }, nameof(DeleteChangesAsync));
+
     public Task UpdateChangeAsync(ConfigChange change, CancellationToken cancellationToken = default) =>
         ExecuteAsync(async () =>
         {

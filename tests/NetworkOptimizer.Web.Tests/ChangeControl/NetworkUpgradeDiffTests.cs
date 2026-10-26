@@ -265,6 +265,28 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void SecretFromAnotherVersion_KeepsTheLiveValue_SameVersionWritesIt()
+    {
+        static ConfigState Wan(string version, string secret) => Versioned(version,
+            ("networkconf", "{\"_id\":\"n1\",\"name\":\"LTE\",\"purpose\":\"wan\",\"x_uplink_password\":\"" + secret + "\"}"));
+
+        var cross = PlanBuilder.Build(Wan("10.6.109", "old"), Wan("11.0.97", "new"), new PlanOptions());
+        cross.Operations.Should().BeEmpty();
+        cross.KeptSecrets.Should().ContainSingle(s => s.Contains("LTE"));
+
+        var same = PlanBuilder.Build(Wan("11.0.97", "old"), Wan("11.0.97", "new"), new PlanOptions());
+        same.Operations.Should().ContainSingle();
+        same.KeptSecrets.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void VoiceNetworkOnANativeProfile_IsUniFisToDrop()
+    {
+        PlanExecutor.IsNormalizedHere("portconf", "voice_networkconf_id", new JsonObject { ["forward"] = "native" }).Should().BeTrue();
+        PlanExecutor.IsNormalizedHere("portconf", "voice_networkconf_id", new JsonObject { ["forward"] = "customize" }).Should().BeFalse();
+    }
+
+    [Fact]
     public void BeforeNames_FallBackToTheAfterSide()
     {
         var ctx = ConfigIdentityContext.ForBefore(Before(), After());

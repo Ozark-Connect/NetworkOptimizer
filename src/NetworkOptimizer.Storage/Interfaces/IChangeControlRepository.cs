@@ -77,6 +77,9 @@ public interface IChangeControlRepository
     /// <summary>The latest change to one object strictly after a time, for the "When, who" column.</summary>
     Task<(ConfigChange Change, ConfigChangeObject Object)?> GetLatestObjectChangeAsync(string collection, string objectId, DateTime afterUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>Deletes changes and their objects (a recompute replaces them).</summary>
+    Task DeleteChangesAsync(IReadOnlyCollection<int> changeIds, CancellationToken cancellationToken = default);
+
     /// <summary>Writes a change's mutable fields (impact, evaluation flag, actor).</summary>
     Task UpdateChangeAsync(ConfigChange change, CancellationToken cancellationToken = default);
 

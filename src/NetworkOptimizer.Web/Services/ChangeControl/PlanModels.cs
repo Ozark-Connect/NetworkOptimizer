@@ -139,6 +139,12 @@ public sealed class PlanDocument
     /// never captured: collection display name to field labels.
     /// </summary>
     public Dictionary<string, List<string>> KeptReferences { get; set; } = [];
+
+    /// <summary>
+    /// Secrets kept at their live value because the source is from another Network version, whose stored form
+    /// is unproven on this one: "Network AT&amp;T 5G: X uplink password".
+    /// </summary>
+    public List<string> KeptSecrets { get; set; } = [];
     public List<WriteStep> WriteOrder { get; set; } = [];
 
     /// <summary>Plan touches the management path: commit-confirmed watches devices.</summary>

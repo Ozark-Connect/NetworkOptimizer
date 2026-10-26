@@ -318,6 +318,20 @@ else
                 <span></span>
             </div>
         }
+        @if (doc.KeptSecrets.Count > 0)
+        {
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge status-info">Kept</span></div>
+                <div>
+                    <div class="cc-plan-row-head">Secrets from another Network version, left as they are</div>
+                    @foreach (var s in doc.KeptSecrets)
+                    {
+                        <div class="cc-item-detail">@s</div>
+                    }
+                </div>
+                <span></span>
+            </div>
+        }
         @if (doc.KeptReferences.Count > 0)
         {
             <div class="cc-item">

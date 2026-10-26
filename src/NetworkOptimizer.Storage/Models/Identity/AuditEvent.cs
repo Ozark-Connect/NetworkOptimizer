@@ -249,6 +249,7 @@ public static class AuditActions
     public const string ChangeControlConsoleBackupDownloaded = "change_control.console_backup.downloaded";
     public const string ChangeControlAttentionDismissed = "change_control.attention.dismissed";
     public const string ChangeControlAttentionRestored = "change_control.attention.restored";
+    public const string ChangeControlChangeRecomputed = "change_control.change.recomputed";
     public const string MigrationPerformed = "audit.migration";
     public const string Pruned = "audit.pruned";
 }
