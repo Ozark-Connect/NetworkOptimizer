@@ -72,7 +72,7 @@ public static class PlanReadiness
         var copy = (JsonObject)o.DeepClone();
         copy.Remove(ConfigCollections.DeviceMetaField);
         foreach (var key in copy.Select(p => p.Key).ToList())
-            if (ConfigDiffEngine.IsChurnField(key) || (def?.ReadOnlyFields.Contains(key) ?? false))
+            if (ConfigDiffEngine.IsChurnField(key) || (def?.IsReadOnly(o, key) ?? false))
                 copy.Remove(key);
         return copy;
     }

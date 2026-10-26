@@ -453,7 +453,7 @@ public static class PlanBuilder
         foreach (var (k, v) in desired)
         {
             if (k is "_id" or "id" or "site_id" || k == ConfigCollections.DeviceMetaField) continue;
-            if (def.ReadOnlyFields.Contains(k) && !(def.Write!.Allowlist?.Contains(k) ?? false)) continue;
+            if (def.IsReadOnly(desired, k) && !(def.Write!.Allowlist?.Contains(k) ?? false)) continue;
             if (def.Write!.Allowlist != null && !def.Write.Allowlist.Contains(k)) continue;
             if (ConfigCollections.IsSecretField(def, k) && v is JsonValue sv && sv.TryGetValue<string>(out var s) && s == KeepSecret)
             {
@@ -610,10 +610,10 @@ public static class PlanBuilder
 
     private static JsonObject WithoutReadOnly(ConfigCollectionDef? def, JsonObject o)
     {
-        if (def == null || !o.Any(p => def.ReadOnlyFields.Contains(p.Key))) return o;
+        if (def == null || !o.Any(p => def.IsReadOnly(o, p.Key))) return o;
         var copy = new JsonObject();
         foreach (var (k, v) in o)
-            if (!def.ReadOnlyFields.Contains(k)) copy[k] = v?.DeepClone();
+            if (!def.IsReadOnly(o, k)) copy[k] = v?.DeepClone();
         return copy;
     }
 

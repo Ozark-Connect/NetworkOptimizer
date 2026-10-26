@@ -293,6 +293,19 @@ public class PlanEngineTests
         create.Body!["wlan_bands"]!.AsArray().Should().HaveCount(3);
     }
 
+    [Fact]
+    public void PpskWlan_PassphraseIsUniFis_NotComparedOrWritten()
+    {
+        const string ppsk = """{"_id":"w1","name":"Home","networkconf_id":"n1","x_passphrase":"PASS","private_preshared_keys_enabled":true,"private_preshared_keys":[{"networkconf_id":"n1","password":"key-1"}]}""";
+        var live = State(("networkconf", Lan), ("wlanconf", ppsk.Replace("PASS", "generated-by-unifi")));
+        var desired = State(("networkconf", Lan), ("wlanconf", ppsk.Replace("PASS", "from-another-site")));
+
+        Plan(desired, live).Operations.Should().BeEmpty("UniFi ignores a PPSK WLAN's passphrase");
+
+        var plain = State(("networkconf", Lan), ("wlanconf", ppsk.Replace("true", "false").Replace("PASS", "from-another-site")));
+        Plan(plain, live).Operations.Should().ContainSingle("turning PPSK off makes the passphrase the WLAN's key again");
+    }
+
     [Theory]
     [InlineData("ok", true)]
     [InlineData("error", false)]

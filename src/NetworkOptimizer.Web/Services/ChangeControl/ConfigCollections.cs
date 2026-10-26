@@ -171,6 +171,16 @@ public sealed class ConfigCollectionDef
     /// </summary>
     public Func<JsonObject, JsonObject, string?>? KeepTargetValues { get; init; }
 
+    /// <summary>
+    /// A top-level field UniFi manages on some objects only (a PPSK WLAN's passphrase): read-only for
+    /// that object, like <see cref="ReadOnlyFields"/> for all of them.
+    /// </summary>
+    public Func<JsonObject, string, bool>? ManagedField { get; init; }
+
+    /// <summary>Whether a top-level field is never compared or written, on this object.</summary>
+    public bool IsReadOnly(JsonObject? o, string key) =>
+        ReadOnlyFields.Contains(key) || (o != null && ManagedField?.Invoke(o, key) == true);
+
     /// <summary>Service tags for a changed field path on an object of this collection.</summary>
     public Func<JsonObject, string, IEnumerable<string>>? TagsForField { get; init; }
 
@@ -470,6 +480,8 @@ public static class ConfigCollections
                 // "both" drops 6 GHz (main, 10.6.109). The WLAN's bands are wlan_bands.
                 // short_id is an index UniFi assigns per site; a create gets the next free one.
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlanconf", Order = 5, ReadOnlyFields = Set([.. CommonReadOnly, "wlan_band", "short_id"]),
+                // With private PSKs on, UniFi generates x_passphrase and ignores any write of it; the keys are the PSK entries.
+                ManagedField = (o, f) => f == "x_passphrase" && o["private_preshared_keys_enabled"] is JsonValue v && v.TryGetValue<bool>(out var on) && on,
                 // Inside private_preshared_keys and sae_psk entries. PlanBuilder.RestoreKeptSecrets keeps them per entry.
                 ExtraSecretFields = Set("password", "psk"),
                 SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration"),

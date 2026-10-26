@@ -95,7 +95,7 @@ public static partial class YamlConverter
         {
             foreach (var (_, key, value) in Ordered(def, o, top))
             {
-                if (top && (key is "_id" or "id" or "site_id" || key == ConfigCollections.DeviceMetaField || def.ReadOnlyFields.Contains(key) && key is not "key")) continue;
+                if (top && (key is "_id" or "id" or "site_id" || key == ConfigCollections.DeviceMetaField || def.IsReadOnly(o, key) && key is not "key")) continue;
                 if (ConfigDiffEngine.IsChurnField(key)) continue;
                 var outKey = key;
                 string? target = null;

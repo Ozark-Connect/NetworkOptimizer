@@ -203,7 +203,7 @@ public static class ConfigDiffEngine
         foreach (var key in keys)
         {
             var isTop = path.Length == 0;
-            if (isTop && (key is "_id" or "id" or "site_id" || def.ReadOnlyFields.Contains(key))) continue;
+            if (isTop && (key is "_id" or "id" or "site_id" || def.IsReadOnly(after, key))) continue;
             if (IsChurnField(key)) continue;
             if (isTop && noOwned && ConfigCollections.NoOwnedContentFields.Contains(key)) continue;
 

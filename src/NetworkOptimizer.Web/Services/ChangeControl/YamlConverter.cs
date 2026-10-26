@@ -193,7 +193,7 @@ public static partial class YamlConverter
         {
             // A group's heading survives its skipped fields and prints before its first written one.
             pending = heading ?? pending;
-            if (top && (key is "_id" or "id" or "site_id" || key == ConfigCollections.DeviceMetaField || def.ReadOnlyFields.Contains(key) && key is not "key")) continue;
+            if (top && (key is "_id" or "id" or "site_id" || key == ConfigCollections.DeviceMetaField || def.IsReadOnly(o, key) && key is not "key")) continue;
             if (top && def.HiddenInYaml?.Invoke(o, key) == true) continue;
             if (ConfigDiffEngine.IsChurnField(key)) continue;
             // Never above the object's first field (the id: line of an ambiguous object does not count).
