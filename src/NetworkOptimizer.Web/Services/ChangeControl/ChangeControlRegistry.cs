@@ -131,6 +131,8 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             isAgentSite: () => connection.IsViaAgent || connection.IsAwaitingAgent);
         engine.Evaluator = _sp.GetService<IChangeEvaluator>();
         engine.Changed += () => Changed?.Invoke(slug);
+        // Online and agent-offline on the Overview follow the connection itself, not the next detection pass.
+        connection.OnConnectionChanged += () => Changed?.Invoke(slug);
         var history = new FirmwareHistoryImport(rollout, () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControl[{slug}]"));
         engine.ImportHistory = (names, ct) => history.RunAsync(engine, names, ct);
