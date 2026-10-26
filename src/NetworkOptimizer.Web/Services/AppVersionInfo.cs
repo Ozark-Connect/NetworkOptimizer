@@ -61,9 +61,12 @@ public static class AppVersionInfo
     /// --release; null leaves them on their default, the latest stable release. Set only for a
     /// prerelease build: GitHub's "latest" skips prereleases, so a preview server would otherwise
     /// hand out a stable agent. A stable server is the latest release (or older, where the latest
-    /// agent is still right), and a source build has no release to pin to.
+    /// agent is still right). A 0.0.0 source build has no release of its own, so it pins to
+    /// <see cref="LatestAgentVersion"/> only when that is a prerelease (a release/X.Y line).
     /// </summary>
     public static string? AgentReleaseTag { get; }
+
+    private static readonly bool IsPreviewRelease;
 
     static AppVersionInfo()
     {
@@ -72,7 +75,9 @@ public static class AppVersionInfo
         Informational = info ?? "";
         var baseVersion = info is not null ? Regex.Match(info, @"^\d+\.\d+\.\d+").Value : "";
         ReleaseVersion = baseVersion.Length > 0 && !baseVersion.StartsWith("0.0.0") ? baseVersion : null;
-        AgentReleaseTag = PrereleaseTagOf(info);
+        var ownTag = PrereleaseTagOf(info);
+        IsPreviewRelease = ownTag != null;
+        AgentReleaseTag = ownTag ?? SourceBuildTagOf(info, LatestAgentVersion);
     }
 
     /// <summary>
@@ -80,7 +85,7 @@ public static class AppVersionInfo
     /// that is the build the upgrade installs, and as X.Y.Z on a stable one ("2.9.0"), where the
     /// preview it last changed in is not a release the reader would recognise.
     /// </summary>
-    public static string AgentVersionForDisplay(string version) => AgentVersionForDisplay(version, AgentReleaseTag != null);
+    public static string AgentVersionForDisplay(string version) => AgentVersionForDisplay(version, IsPreviewRelease);
 
     internal static string AgentVersionForDisplay(string version, bool previewInstall) =>
         (previewInstall
@@ -97,4 +102,11 @@ public static class AppVersionInfo
         var match = Regex.Match(informational ?? "", @"^(\d+\.\d+\.\d+-[0-9A-Za-z]+)(\+.*)?$");
         return match.Success && !match.Groups[1].Value.StartsWith("0.0.0") ? "v" + match.Groups[1].Value : null;
     }
+
+    /// <summary>
+    /// For a 0.0.0 source build only: the tag of <paramref name="latestAgentVersion"/> when it is a
+    /// prerelease, so a server built from release/X.Y offers that line's agent. Null otherwise.
+    /// </summary>
+    internal static string? SourceBuildTagOf(string? informational, string latestAgentVersion) =>
+        informational?.StartsWith("0.0.0") == true ? PrereleaseTagOf(latestAgentVersion) : null;
 }

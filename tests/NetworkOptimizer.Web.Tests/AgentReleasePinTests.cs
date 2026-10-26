@@ -26,6 +26,18 @@ public class AgentReleasePinTests
     }
 
     [Theory]
+    [InlineData("0.0.0-alpha.0", "2.11.0-preview1", "v2.11.0-preview1")]
+    [InlineData("0.0.0-alpha.0.12", "2.11.0-preview1", "v2.11.0-preview1")]
+    [InlineData("0.0.0-alpha.0", "2.10.1", null)]
+    [InlineData("2.10.1", "2.11.0-preview1", null)]
+    [InlineData("2.11.0-preview1.3", "2.11.0-preview1", null)]
+    [InlineData(null, "2.11.0-preview1", null)]
+    public void SourceBuildTag_OnlyFor000BuildsOnAPrereleaseLine(string? informational, string latest, string? expected)
+    {
+        AppVersionInfo.SourceBuildTagOf(informational, latest).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("2.9.0-preview8", true, "2.9.0-preview8")]
     [InlineData("2.9.0-preview8", false, "2.9.0")]
     [InlineData("2.9.0", true, "2.9.0")]
