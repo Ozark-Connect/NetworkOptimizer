@@ -23924,7 +23924,7 @@ body:has(.top-bar-hidden) .btn-fit {
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-secondary);
-    background: var(--bg-primary);
+    background: var(--bg-tertiary);
 }
 
 .change-control .cc-compare-sides {
