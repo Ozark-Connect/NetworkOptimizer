@@ -202,9 +202,6 @@ public static class PlanBuilder
             return null;
         }
 
-        // A second view of another collection's objects: that collection creates and deletes them.
-        if (write.CreatedThrough != null && (desired == null || live == null)) return null;
-
         // Delete.
         if (desired == null)
         {

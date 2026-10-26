@@ -310,20 +310,19 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
-    public void RadiusV2_WritesOnlyWhatV1Lacks_AndNeverCreates()
+    public void RadiusV2_IsAMirror_V1RecordsAndWritesTheChange()
     {
         var before = State(
-            ("radiusprofile", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}]}"""),
-            ("radius_profile_v2", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}],"vlan_enabled":true}"""),
+            ("radiusprofile", """{"_id":"r1","name":"Corp","vlan_enabled":true}"""),
+            ("radius_profile_v2", """{"_id":"r1","name":"Corp","vlan_enabled":true}"""),
             ("radius_profile_v2", """{"_id":"uid1","name":"UID","attr_no_edit":true,"attr_hidden_id":"Uid"}"""));
         var after = State(
-            ("radiusprofile", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}]}"""),
-            ("radius_profile_v2", """{"_id":"r1","name":"Corp","auth_servers":[{"ip":"192.0.2.10","x_secret":"a"}],"vlan_enabled":false}"""));
+            ("radiusprofile", """{"_id":"r1","name":"Corp","vlan_enabled":false}"""),
+            ("radius_profile_v2", """{"_id":"r1","name":"Corp","vlan_enabled":false}"""));
 
+        ConfigDiffEngine.Compare(before, after).Objects.Where(o => !o.Generated).Should().ContainSingle(o => o.Collection == "radiusprofile");
         var doc = PlanBuilder.Build(before, after, new PlanOptions());
-
-        doc.Operations.Should().ContainSingle(o => o.Collection == "radius_profile_v2")
-            .Which.Fields.Select(f => f.Path).Should().Equal("vlan_enabled");
+        doc.Operations.Should().ContainSingle(o => o.Collection == "radiusprofile");
         doc.Notes.Should().NotContain(n => n.Contains("RADIUS profiles (v2)"));
     }
 

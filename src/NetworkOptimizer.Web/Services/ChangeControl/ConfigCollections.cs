@@ -36,13 +36,6 @@ public sealed class CollectionWrite
 {
     /// <summary>Path to POST a new object to, or null when objects cannot be created.</summary>
     public string? CreatePath { get; init; }
-
-    /// <summary>
-    /// Another collection that creates and deletes these objects (a second view of the same ones): a create or
-    /// delete here is that collection's, so this one plans neither and says nothing about them.
-    /// </summary>
-    public string? CreatedThrough { get; init; }
-
     /// <summary>Path template to update one object; <c>{id}</c> and <c>{key}</c> are replaced.</summary>
     public string? UpdatePath { get; init; }
 
@@ -678,12 +671,10 @@ public static class ConfigCollections
                 Key = "radius_profile_v2", DisplayName = "RADIUS profiles (v2)", Noun = "RADIUS profile", Group = "RADIUS and VPN",
                 FieldGroups = ConfigFieldOrder.RadiusProfileFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "radius/profiles", Order = 8,
-                // The same profiles as rest/radiusprofile (same IDs), plus UniFi's own UID profile. v1 creates, deletes,
-                // and writes the shared fields; this view only adds what v1 lacks (vlan_enabled, grounding.md 2026-10-26).
-                ReadOnlyFields = Set([.. CommonReadOnly, "name", "accounting_enabled", "acct_servers", "auth_servers", "interim_update_enabled",
-                    "tls_enabled", "use_usg_acct_server", "use_usg_auth_server", "vlan_wlan_mode"]),
-                IsGenerated = o => Bool(o, "attr_no_edit"),
-                Write = new CollectionWrite { UpdatePath = "radius/profiles/{id}", Proven = true, CreatedThrough = "radiusprofile" },
+                // A mirror of rest/radiusprofile (same IDs, same fields, vlan_enabled included once set) plus UniFi's
+                // own UID profile (grounding.md 2026-10-26). v1 records and writes every profile; counted here, every
+                // change would show twice.
+                IsGenerated = _ => true,
             },
             new()
             {
