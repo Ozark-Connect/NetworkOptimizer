@@ -442,6 +442,11 @@ else if (_compare != null)
     private async Task ReturnToBaselineAsync() => await RunAsync(async () =>
     {
         var planId = await Site.BuildReturnToBaselineAsync();
+        // One click when there is nothing to review: every write direct, nothing to acknowledge or accept,
+        // no lockout, no approval. Otherwise Review Plan, which is the only place a write is confirmed.
+        if (await Site.GetPlanAsync(planId) is { } view && view.Doc.Errors.Count == 0 && view.Doc.Lockouts.Count == 0
+            && view.Doc.HighestTier <= PlanTiers.Direct && view.Remaining.Count == 0 && !view.ApprovalRequired)
+            await Site.ApplyPlanAsync(planId);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
     }, "baseline");
 
