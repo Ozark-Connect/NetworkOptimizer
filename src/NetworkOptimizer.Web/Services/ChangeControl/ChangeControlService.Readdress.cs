@@ -187,12 +187,13 @@ public sealed partial class ChangeControlService
             var byIp = Readdressing.ParseIp(uri.Host) is { } ip ? ip : (uint?)null;
             var addresses = byIp is { } direct ? [direct]
                 : (await SafeResolveAsync(uri.Host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().ToList();
-            if (addresses.FirstOrDefault(a => Readdressing.MapIp(a, map) != null) is var a && a != 0)
+            if (addresses.FirstOrDefault(a => Readdressing.MapIp(a, map) != null) is var a && a != 0
+                && (byIp != null || !MovedByLocalDns(live, uri.Host, map)))
             {
                 var moved = Readdressing.Format(Readdressing.MapIp(a, map)!.Value);
                 warnings.Add(new("The console moves", byIp != null
                     ? $"{uri.Host} to {moved}. Network Optimizer reconnects at the new address."
-                    : $"{uri.Host} resolves to {Readdressing.Format(a)}: point it at {moved}, unless it is a Local DNS record this plan moves."));
+                    : $"{uri.Host} resolves to {Readdressing.Format(a)}: point its DNS record at {moved}."));
             }
         }
 
@@ -224,7 +225,6 @@ public sealed partial class ChangeControlService
         var devices = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
         if (!devices.IsSuccess || ConfigSnapshotReader.ExtractList(devices.Body) is not { } list) return null;
 
-        var localDns = live.Get("static_dns").Select(r => r["key"]?.ToString()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var resolved = new Dictionary<string, uint?>(StringComparer.OrdinalIgnoreCase);
         var affected = new List<(string Device, string Host, uint Old)>();
         foreach (var d in list.OfType<JsonObject>())
@@ -234,7 +234,7 @@ public sealed partial class ChangeControlService
             if (!resolved.TryGetValue(host, out var ip))
             {
                 ip = Readdressing.ParseIp(host)
-                    ?? (localDns.Contains(host) ? null
+                    ?? (MovedByLocalDns(live, host, map) ? null
                         : (await SafeResolveAsync(host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().Cast<uint?>().FirstOrDefault());
                 resolved[host] = ip;
             }
@@ -250,6 +250,11 @@ public sealed partial class ChangeControlService
             $"{string.Join(", ", affected.Take(3).Select(x => x.Device))}{(affected.Count > 3 ? $" and {affected.Count - 3} more" : "")} inform to {hosts}. "
             + $"Point the Inform Host at {moved} first (UniFi Network's Inform Host override, or system_ip on a self-hosted UniFi OS Server), or they disconnect until re-pointed.");
     }
+
+    /// <summary>A Local DNS record for the name points into a moved subnet, so the plan rewrites it with the rest.</summary>
+    private static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map) =>
+        live.Get("static_dns").Any(r => string.Equals(r["key"]?.ToString(), host, StringComparison.OrdinalIgnoreCase)
+            && Readdressing.ParseIp(r["value"]?.ToString() ?? "") is { } ip && Readdressing.MapIp(ip, map) != null);
 
     private static async Task<IPAddress[]> SafeResolveAsync(string host, CancellationToken ct)
     {
