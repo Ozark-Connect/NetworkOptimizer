@@ -374,12 +374,13 @@
 
     private string NewFor(SubnetMove m) => _subnets.TryGetValue(m.NetworkId, out var s) ? s : m.NewCidr == m.OldCidr ? "" : m.NewCidr;
 
-    private void SetSubnet(string networkId, string? value)
+    private async Task SetSubnet(string networkId, string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) _subnets.Remove(networkId);
         else _subnets[networkId] = value.Trim();
-        _previewed = false;
         SyncUrl();
+        // Recompute now: the address lists and Review Plan follow the choices, with no Preview step.
+        await LoadAsync(preview: false);
     }
 
     private async Task ApplyPatternAsync()
