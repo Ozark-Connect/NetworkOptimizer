@@ -444,22 +444,22 @@ else
                     <button class="btn btn-secondary" disabled="@_busy" @onclick="CancelAsync">Discard</button>
                     @if (plan.Status == ConfigPlanStatus.PendingApproval && _view.CallerIsSiteAdmin)
                     {
-                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0)" @onclick="ApproveAsync">Approve</button>
+                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0)" @onclick="ApproveAsync">@Spinner(nameof(ApproveAsync))Approve</button>
                     }
                     else if (_view.ApprovalRequired && plan.Status == ConfigPlanStatus.Draft)
                     {
-                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0)" @onclick="SubmitAsync">Submit for Approval</button>
+                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0)" @onclick="SubmitAsync">@Spinner(nameof(SubmitAsync))Submit for Approval</button>
                     }
                     else if (!_view.ApprovalRequired || plan.Status is ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled)
                     {
-                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0 || !ConnectionService.IsConnected)" @onclick="ApplyAsync">@(_schedule ? "Schedule" : "Apply")</button>
+                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0 || !ConnectionService.IsConnected)" @onclick="ApplyAsync">@Spinner(nameof(ApplyAsync))@(_schedule ? "Schedule" : "Apply")</button>
                     }
                 </SiteOperatorOnly>
             }
             @if (plan.Status is ConfigPlanStatus.Watching or ConfigPlanStatus.Applied && plan.Kind != ConfigPlanKind.Revert)
             {
                 <SiteOperatorOnly>
-                    <button class="btn btn-danger" disabled="@(_busy || !ConnectionService.IsConnected)" @onclick="RevertAsync">Revert</button>
+                    <button class="btn btn-danger" disabled="@(_busy || !ConnectionService.IsConnected)" @onclick="RevertAsync">@Spinner(nameof(RevertAsync))Revert</button>
                 </SiteOperatorOnly>
             }
             @if (!editable && plan.Status != ConfigPlanStatus.Applying)
@@ -582,12 +582,21 @@ else
     private DateTime? ScheduledUtc() =>
         _schedule ? TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(_date.Date + _time.ToTimeSpan(), DateTimeKind.Unspecified), TimeZoneInfo.Local) : null;
 
-    private async Task RunAsync(Func<Task<string?>> work, string? success = null)
+    // The action RunAsync is running, so its button shows a spinner: an apply or revert can take a while.
+    private string? _running;
+
+    private RenderFragment? Spinner(string action) =>
+        _running == action ? @<span class="spinner-sm"></span> : null;
+
+    private async Task RunAsync(Func<Task<string?>> work, string? success = null, [System.Runtime.CompilerServices.CallerMemberName] string action = "")
     {
         _busy = true;
+        _running = action;
         _message = null;
         try
         {
+            StateHasChanged();
+            await Task.Yield();
             var why = await work();
             _ok = why == null;
             _message = why ?? success;
@@ -601,6 +610,7 @@ else
         finally
         {
             _busy = false;
+            _running = null;
         }
     }
 
