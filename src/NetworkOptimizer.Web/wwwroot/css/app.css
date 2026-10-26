@@ -24085,6 +24085,10 @@ body:has(.top-bar-hidden) .btn-fit {
     border-bottom: none;
 }
 
+.change-control .cc-write-group {
+    font-size: 0.875rem;
+}
+
 .change-control .cc-write-group + .cc-write-group {
     margin-top: 0.2rem;
 }
