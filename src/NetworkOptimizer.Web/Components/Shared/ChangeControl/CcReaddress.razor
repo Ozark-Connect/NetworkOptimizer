@@ -61,9 +61,9 @@
         </div>
     }
     <div class="cc-card-footer">
-        <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Preview lists every address that moves before anything is planned.")</span>
+        <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Preview lists every address that moves. Review Plan shows every write before anything is applied.")</span>
         <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected || _view == null)" @onclick="PreviewAsync">Preview</button>
-        <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
+        <button class="btn btn-primary" disabled="@(_busy || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
             @if (_building)
             {
                 <span class="spinner-sm"></span>
