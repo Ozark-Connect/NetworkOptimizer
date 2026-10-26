@@ -423,14 +423,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         OnConnectionChanged?.Invoke();
     }
 
-    /// <summary>
-    /// The client proved the console stopped answering mid-session. Marks it down so pages render
-    /// the banner instead of paying a timeout per call; the background reconnect clears it.
-    /// </summary>
     /// <summary>Hands every config write to Change Control's write journal for this site.</summary>
     private void HandleWriteSent(NetworkOptimizer.UniFi.UniFiWriteRecord record) =>
         _serviceProvider.GetService<ChangeControl.ChangeControlRegistry>()?.Journal(SiteSlug, record);
 
+    /// <summary>
+    /// The client proved the console stopped answering mid-session. Marks it down so pages render
+    /// the banner instead of paying a timeout per call; the background reconnect clears it.
+    /// </summary>
     private void HandleConsoleWentSilent(UniFiApiClient client)
     {
         // Only the live client may report this. A disposed one's request can fault seconds after a
