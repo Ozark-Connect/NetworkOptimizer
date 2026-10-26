@@ -14,7 +14,11 @@ public sealed class ReaddressChoices
 }
 
 /// <summary>A client whose address may be set on the device; <c>LastSeen</c> is set for an offline one, which cannot be told apart.</summary>
-public sealed record StaticClient(string Name, string Mac, string Ip, string NewIp, string Network, bool Reserved, DateTime? LastSeen = null);
+public sealed record StaticClient(string Name, string Mac, string Ip, string NewIp, string Network, bool Reserved, DateTime? LastSeen = null)
+{
+    /// <summary>Reserved, no lease, and idle: most likely a lease that lapsed while it slept, so taken as DHCP.</summary>
+    public bool Idle { get; init; }
+}
 
 /// <summary>Something to know before applying: a short title and one line of detail.</summary>
 public sealed record ReaddressWarning(string Title, string Detail);
@@ -32,6 +36,8 @@ public sealed class ReaddressView
     public List<StaticClient> StaticClients { get; init; } = [];
     /// <summary>Known clients last seen in a moved subnet but offline now: no lease proves nothing for them.</summary>
     public List<StaticClient> OfflineClients { get; init; } = [];
+    /// <summary>Reserved, connected, no lease, and idle: taken as DHCP whose lease lapsed while asleep.</summary>
+    public List<StaticClient> IdleClients { get; init; } = [];
     /// <summary>Where the static clients came from: UniFi's IP Table, or DHCP ranges when it was not readable.</summary>
     public string StaticSource { get; init; } = "";
     public List<SettingRewrite> Settings { get; init; } = [];
@@ -73,7 +79,8 @@ public sealed partial class ChangeControlService
             Rewrites = result.Rewrites,
             Mentions = result.Mentions,
             Remote = result.Remote,
-            StaticClients = statics.Where(s => s.LastSeen == null).ToList(),
+            StaticClients = statics.Where(s => s.LastSeen == null && !s.Idle).ToList(),
+            IdleClients = statics.Where(s => s.LastSeen == null && s.Idle).ToList(),
             OfflineClients = statics.Where(s => s.LastSeen != null).ToList(),
             StaticSource = source,
             Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, RemoteCidrs(live), apply: false, cancellationToken),
@@ -119,7 +126,7 @@ public sealed partial class ChangeControlService
                 foreach (var m in result.Remote)
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 foreach (var w in warnings) doc.Notes.Add($"{w.Title}: {w.Detail}");
-                if (statics.Where(s => s.LastSeen == null).ToList() is { Count: > 0 } set)
+                if (statics.Where(s => s.LastSeen == null && !s.Idle).ToList() is { Count: > 0 } set)
                     doc.Notes.Add($"No DHCP lease, so this plan cannot move them unless they ask DHCP again: {string.Join(", ", set.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp}{(s.Reserved ? ", reserved" : "")})"))}.");
                 if (statics.Count(s => s.LastSeen != null) is > 0 and var offline)
                     doc.Notes.Add($"{offline} offline clients were likely set on the device (no reservation, last address outside the DHCP range): change them when they are back. The dry run lists them.");
@@ -242,7 +249,11 @@ public sealed partial class ChangeControlService
                 : !reserved && (ipTable != null ? !ipTable.Contains(mac) : network != null && !InDhcpRange(network, ip));
             if (!isStatic) continue;
             var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
-            result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? "", reserved));
+            // A reserved client with no lease that is idle most likely let its lease lapse while asleep (a TV in
+            // standby); one passing traffic would have renewed, so its address is set on the device (a NAS).
+            var idle = reserved && gateway != null && Rate(c) < ActiveBytesPerSecond;
+            result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(Readdressing.MapIp(ip, map)!.Value), network?["name"]?.ToString() ?? "", reserved)
+                { Idle = idle });
         }
         result.AddRange(await OfflineClientsAsync(list, networks, map, ct));
         var source = gateway != null ? "from the gateway's DHCP leases"
@@ -281,6 +292,16 @@ public sealed partial class ChangeControlService
             result.Add(new StaticClient(name, mac, ipText!, Readdressing.Format(moved), network, reserved, seen));
         }
         return result.OrderByDescending(c => c.LastSeen).ToList();
+    }
+
+    /// <summary>Traffic under this (about 8 kbit/s) counts as idle: a sleeping TV's multicast chatter, not a working host.</summary>
+    private const double ActiveBytesPerSecond = 1000;
+
+    /// <summary>A connected client's current traffic, both directions, bytes per second (stat/sta rates).</summary>
+    private static double Rate(JsonObject c)
+    {
+        static double Get(JsonObject o, string k) => double.TryParse(o[k]?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+        return Math.Max(Get(c, "tx_bytes-r") + Get(c, "rx_bytes-r"), Get(c, "wired-tx_bytes-r") + Get(c, "wired-rx_bytes-r"));
     }
 
     private static bool InDhcpRange(JsonObject network, uint ip) =>

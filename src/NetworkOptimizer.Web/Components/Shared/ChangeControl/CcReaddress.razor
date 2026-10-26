@@ -158,11 +158,11 @@
         <div class="card-header"><h3 class="card-title">No DHCP Lease <span class="card-title-suffix">@v.StaticSource</span></h3></div>
         @if (v.StaticClients.Count == 0)
         {
-            <div class="empty-state empty-state-small"><p>Every connected client in these networks holds a DHCP lease.</p></div>
+            <div class="empty-state empty-state-small"><p>No connected client in these networks is working without a DHCP lease.</p></div>
         }
         else
         {
-            <p class="cc-card-intro">Connected without a lease. With no reservation, the address is set on the device: change it after the move.@(v.StaticClients.Any(s => s.Reserved) ? " Reserved ones are set on the device, or kept their address after the lease lapsed while they slept (a TV in standby); Reconnect Clients makes the wireless ones ask DHCP again." : "")</p>
+            <p class="cc-card-intro">Connected and passing traffic without a lease: a DHCP client would have renewed, so the address is set on the device. Change each one after the move.</p>
             <div class="cc-phone-only">
                 @foreach (var s in v.StaticClients)
                 {
@@ -182,6 +182,19 @@
                         }
                     </tbody>
                 </table>
+            </div>
+        }
+        @if (v.IdleClients.Count > 0)
+        {
+            <button class="cc-link-btn cc-more" @onclick="() => _showIdle = !_showIdle">@(_showIdle ? "Hide" : "Show") @CcFormat.Plural(v.IdleClients.Count, "idle reserved client", "idle reserved clients") taken as DHCP</button>
+            <div class="expand-wrapper @(_showIdle ? "expanded" : "")">
+                <div class="expand-content">
+                    <p class="cc-card-intro">Reserved and idle with no lease: most likely the lease lapsed while they slept (a TV in standby). They take the new address when they next ask DHCP; Reconnect Clients makes the wireless ones ask at once.</p>
+                    @foreach (var s in v.IdleClients)
+                    {
+                        <div class="cc-setting-row"><span>@s.Name</span><span><code>@s.Ip</code> to <code>@s.NewIp</code></span></div>
+                    }
+                </div>
             </div>
         }
         @if (v.OfflineClients.Count > 0)
@@ -261,6 +274,7 @@
     private bool _previewed;
     private bool _showAll;
     private bool _showOffline;
+    private bool _showIdle;
     private bool _powerCycle;
     private ReconnectResult? _reconnect;
 
