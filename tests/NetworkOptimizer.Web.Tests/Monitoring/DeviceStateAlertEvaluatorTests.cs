@@ -1,5 +1,9 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Alerts.Interfaces;
+using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Web.Services.Monitoring;
 using Xunit;
@@ -49,6 +53,29 @@ public class DeviceStateAlertEvaluatorTests
     private static ValueTask Feed(DeviceStateAlertEvaluator e, int state, DateTime at) =>
         e.EvaluateAsync(Mac, "Switch 1", "192.0.2.10", DeviceType.Switch, state, at);
 
+    private sealed class NoopSiteScope : IAlertSiteScope
+    {
+        public void UseSite(string? siteSlug) { }
+    }
+
+    /// <summary>An evaluator starting up with these alerts unresolved in the site's history.</summary>
+    private static (DeviceStateAlertEvaluator Evaluator, CapturingBus Bus) BuildAfterRestart(params AlertHistoryEntry[] unresolved)
+    {
+        var repo = new Mock<IAlertRepository>();
+        repo.Setup(r => r.GetUnresolvedAlertsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(unresolved.ToList());
+        var services = new ServiceCollection();
+        services.AddScoped<IAlertSiteScope, NoopSiteScope>();
+        services.AddScoped(_ => repo.Object);
+        var bus = new CapturingBus();
+        var evaluator = new DeviceStateAlertEvaluator(bus, new DeviceTransitionTracker(), new DeviceOfflineDeduplicator(),
+            NullLogger<DeviceStateAlertEvaluator>.Instance,
+            scopeFactory: services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>());
+        return (evaluator, bus);
+    }
+
+    private static AlertHistoryEntry Stored(string eventType, DateTime at) =>
+        new() { EventType = eventType, DeviceId = "aa:bb:cc:dd:ee:ff", TriggeredAt = at };
+
     [Fact]
     public async Task SustainedOffline_PublishesOffline()
     {
@@ -80,6 +107,39 @@ public class DeviceStateAlertEvaluatorTests
         Assert.Equal("device.offline", bus.Published[0].EventType);
         Assert.Equal("device.recovered", bus.Published[1].EventType);
         Assert.Equal(AlertSeverity.Info, bus.Published[1].Severity);
+    }
+
+    [Fact]
+    public async Task OfflineBeforeRestart_RecoversWhenBack()
+    {
+        var (evaluator, bus) = BuildAfterRestart(Stored("device.offline", Now.AddMinutes(-5)));
+
+        await Feed(evaluator, Connected, Now);
+
+        Assert.Equal("device.recovered", bus.Published.Single().EventType);
+    }
+
+    [Fact]
+    public async Task OfflineBeforeRestart_StillOffline_IsNotAnnouncedAgain()
+    {
+        var (evaluator, bus) = BuildAfterRestart(Stored("device.offline", Now.AddMinutes(-5)));
+
+        await Feed(evaluator, Disconnected, Now);
+        await Feed(evaluator, Disconnected, Now.AddSeconds(30));
+        await Feed(evaluator, Connected, Now.AddSeconds(60));
+
+        Assert.Equal("device.recovered", bus.Published.Single().EventType);
+    }
+
+    [Fact]
+    public async Task OfflineAlreadyRecoveredBeforeRestart_StaysQuiet()
+    {
+        var (evaluator, bus) = BuildAfterRestart(
+            Stored("device.offline", Now.AddMinutes(-10)), Stored("device.recovered", Now.AddMinutes(-8)));
+
+        await Feed(evaluator, Connected, Now);
+
+        Assert.Empty(bus.Published);
     }
 
     [Fact]

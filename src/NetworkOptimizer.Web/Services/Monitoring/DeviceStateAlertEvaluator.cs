@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
@@ -40,6 +41,11 @@ public class DeviceStateAlertEvaluator
     private readonly ConcurrentDictionary<string, DeviceAlertState> _states = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _siteSlug;
     private readonly string _siteSuffix;
+    private readonly IServiceScopeFactory? _scopeFactory;
+    // Devices whose device.offline was still open when this process started, by normalized MAC.
+    private readonly HashSet<string> _openAtStart = new(StringComparer.Ordinal);
+    private readonly object _seedLock = new();
+    private Task? _seed;
 
     /// <param name="eventBus">Site-stamped alert bus.</param>
     /// <param name="transitions">Which devices UniFi reports as mid-transition.</param>
@@ -51,14 +57,20 @@ public class DeviceStateAlertEvaluator
     /// because UniFi flips a device to plain Offline partway through some upgrades, which is exactly
     /// the window where its own report cannot be relied on.
     /// </param>
+    /// <param name="scopeFactory">
+    /// Reads the site's open device.offline alerts once, so a device that went dark before a restart
+    /// still gets its device.recovered. Without it, announced state starts empty.
+    /// </param>
     public DeviceStateAlertEvaluator(
         IAlertEventBus eventBus,
         DeviceTransitionTracker transitions,
         DeviceOfflineDeduplicator dedup,
         ILogger<DeviceStateAlertEvaluator> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        Firmware.RolloutSuppressionRegistry? rolloutWindows = null)
+        Firmware.RolloutSuppressionRegistry? rolloutWindows = null,
+        IServiceScopeFactory? scopeFactory = null)
     {
+        _scopeFactory = scopeFactory;
         _eventBus = eventBus;
         _transitions = transitions;
         _dedup = dedup;
@@ -96,8 +108,9 @@ public class DeviceStateAlertEvaluator
     {
         if (string.IsNullOrWhiteSpace(deviceMac)) return;
 
+        await EnsureSeededAsync();
         var status = UniFiDeviceStateMap.ToStatus(unifiState);
-        var state = _states.GetOrAdd(deviceMac, _ => new DeviceAlertState());
+        var state = _states.GetOrAdd(deviceMac, mac => new DeviceAlertState { Announced = _openAtStart.Contains(Normalize(mac)) });
         var label = string.IsNullOrWhiteSpace(deviceName) ? deviceMac : deviceName;
 
         // Upgrading, provisioning, adopting: someone or something asked for this. Never announce,
@@ -185,6 +198,45 @@ public class DeviceStateAlertEvaluator
                 $"{label} is reporting to UniFi Network again.", ct);
         }
     }
+
+    private Task EnsureSeededAsync()
+    {
+        if (_scopeFactory == null) return Task.CompletedTask;
+        lock (_seedLock) return _seed ??= SeedAsync();
+    }
+
+    /// <summary>
+    /// Marks each device with an unresolved device.offline and no device.recovered after it as
+    /// announced, so its recovery is published and a still-dark device is not announced twice.
+    /// </summary>
+    private async Task SeedAsync()
+    {
+        try
+        {
+            using var scope = _scopeFactory!.CreateScope();
+            scope.ServiceProvider.GetRequiredService<IAlertSiteScope>().UseSite(_siteSlug);
+            var alerts = await scope.ServiceProvider.GetRequiredService<IAlertRepository>().GetUnresolvedAlertsAsync();
+            var recoveredAt = alerts
+                .Where(a => a.EventType == RecoveredEventType && !string.IsNullOrWhiteSpace(a.DeviceId))
+                .GroupBy(a => Normalize(a.DeviceId!))
+                .ToDictionary(g => g.Key, g => g.Max(a => a.TriggeredAt));
+            foreach (var offline in alerts.Where(a => a.EventType == OfflineEventType && !string.IsNullOrWhiteSpace(a.DeviceId)))
+            {
+                var mac = Normalize(offline.DeviceId!);
+                if (!recoveredAt.TryGetValue(mac, out var at) || at < offline.TriggeredAt)
+                    _openAtStart.Add(mac);
+            }
+            if (_openAtStart.Count > 0)
+                _logger.LogInformation("{Count} device(s) were announced offline before start-up{Site}; their recovery will be published",
+                    _openAtStart.Count, _siteSuffix);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read open device offline alerts{Site}; devices offline before start-up will not recover", _siteSuffix);
+        }
+    }
+
+    private static string Normalize(string mac) => mac.Replace(":", "").Replace("-", "").ToLowerInvariant();
 
     private async ValueTask PublishRecoveredAsync(
         string deviceMac, string label, string? deviceIp, DeviceType deviceType, string message, CancellationToken ct)
