@@ -53,6 +53,20 @@ public class ClientsLaneTests
     }
 
     [Fact]
+    public void ClientsLane_UnalignedRangeStart_FillsNoZeroBetweenWindows()
+    {
+        // Flux stamps the first window at the range start; later windows sit on the epoch grid.
+        var step = TimeSpan.FromSeconds(288);
+        var start = T.AddSeconds(100);
+        var end = T.AddSeconds(100 + 288 * 3);
+        var lane = SiteMetricsReader.ClientsLane(
+            [(start, "5ghz", 8), (T.AddSeconds(288), "5ghz", 8), (T.AddSeconds(576), "5ghz", 9), (T.AddSeconds(864), "5ghz", 9)],
+            end, step, start);
+        lane.SeriesA.Select(p => p.Time).Should().Equal(T, T.AddSeconds(288), T.AddSeconds(576), T.AddSeconds(864), end);
+        lane.SeriesA.Select(p => p.Value).Should().Equal(8.0, 8.0, 9.0, 9.0, 9.0);
+    }
+
+    [Fact]
     public void PhyLane_BreaksTheLineWhereABandHadNoClients()
     {
         var step = TimeSpan.FromMinutes(15);

@@ -198,6 +198,9 @@ public sealed class SiteMetricsReader
     /// <summary>Wi-Fi clients stacked by band, 2.4 GHz at the bottom; series A is the total.</summary>
     internal static TimelineLane ClientsLane(IReadOnlyList<(DateTime Time, string Band, int Clients)> counts, DateTime? end = null, TimeSpan? step = null, DateTime? start = null)
     {
+        // Flux clamps the first window's start to the range start; snap to its epoch grid so the zero-fill lands on the same slots.
+        if (step is { } g && g > TimeSpan.Zero)
+            counts = counts.Select(c => (FloorEpoch(c.Time, g), c.Band, c.Clients)).ToList();
         var times = counts.Select(c => c.Time).Distinct().Order().ToList();
         var byKey = counts.GroupBy(c => (c.Time, c.Band)).ToDictionary(g => g.Key, g => g.Sum(c => c.Clients));
         // A window with no clients returns no row: fill the grid from the window holding the range start, so zero plots as zero.
@@ -275,6 +278,10 @@ public sealed class SiteMetricsReader
 
     private static DateTime Floor(DateTime t, TimeSpan window) =>
         new(t.Ticks - t.Ticks % window.Ticks, DateTimeKind.Utc);
+
+    /// <summary>The start of the window holding t, on Flux's grid (aligned to the Unix epoch).</summary>
+    private static DateTime FloorEpoch(DateTime t, TimeSpan window) =>
+        DateTime.UnixEpoch + TimeSpan.FromTicks((t - DateTime.UnixEpoch).Ticks / window.Ticks * window.Ticks);
 
     private static string? Format(string key, double? v) => v == null ? null : key switch
     {
