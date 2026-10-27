@@ -11,6 +11,13 @@ else
         <div class="cc-panel">
             <div class="cc-panel-title">What changed</div>
             <table class="cc-field-table">
+                @foreach (var line in Detail.Impact.Where(l => l.Kind == "Regression"))
+                {
+                    <tr>
+                        <td class="label">@line.Kind</td>
+                        <td style="text-align:right" class="danger-text">@line.Title@(line.Device is { Length: > 0 } device ? $" ({device})" : "")</td>
+                    </tr>
+                }
                 @foreach (var (label, value) in Detail.Facts)
                 {
                     <tr><td class="label">@label</td><td style="text-align:right">@value</td></tr>
@@ -33,11 +40,11 @@ else
                 {
                     <tr><td class="label">Source</td><td style="text-align:right">@Detail.Source</td></tr>
                 }
-                @foreach (var line in Detail.Impact)
+                @foreach (var line in Detail.Impact.Where(l => l.Kind != "Regression"))
                 {
                     <tr>
                         <td class="label">@line.Kind</td>
-                        <td style="text-align:right" class="@(line.Kind == "Regression" ? "danger-text" : "success-text")">@line.Title@(line.Device is { Length: > 0 } device ? $" ({device})" : "")</td>
+                        <td style="text-align:right" class="success-text">@line.Title@(line.Device is { Length: > 0 } device ? $" ({device})" : "")</td>
                     </tr>
                 }
             </table>
