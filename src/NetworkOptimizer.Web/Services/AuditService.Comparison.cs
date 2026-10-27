@@ -61,6 +61,12 @@ public sealed class AuditConfigInputs
     [AuditInputCollection("setting")]
     public bool? UpnpEnabled { get; init; }
 
+    /// <summary>
+    /// A client address as this config would have it (null: unchanged). Set when the config moves subnets:
+    /// clients renew into the new one, so live addresses would read as mismatched.
+    /// </summary>
+    public Func<string?, string?>? MapClientIp { get; init; }
+
     /// <summary>Collections whose change can move an audit result.</summary>
     public static IReadOnlySet<string> TriggerCollections { get; } = typeof(AuditConfigInputs)
         .GetProperties()
@@ -127,8 +133,8 @@ public partial class AuditService
             var result = await _auditEngine.RunAuditAsync(new Audit.Models.AuditRequest
             {
                 DeviceDataJson = config.DeviceDataJson,
-                Clients = clients,
-                ClientHistory = history,
+                Clients = config.MapClientIp is { } map ? clients?.Select(c => MovedClient(c, map)).ToList() : clients,
+                ClientHistory = config.MapClientIp is { } historyMap ? history?.Select(c => MovedClient(c, historyMap)).ToList() : history,
                 FingerprintDb = fingerprints,
                 SettingsData = config.SettingsData,
                 FirewallRules = rules,
@@ -156,5 +162,25 @@ public partial class AuditService
         // Both runs probe the same live network, so the second reuses the first's DNS probes.
         using var probes = Audit.Dns.ThirdPartyDnsDetector.ShareProbeResults();
         return (await Run(before), await Run(after));
+    }
+
+    // A copy, as both runs share one read of the clients.
+    private static T MovedClient<T>(T client, Func<string?, string?> map) where T : class
+    {
+        var copy = JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(client))!;
+        switch (copy)
+        {
+            case UniFiClientResponse c:
+                c.Ip = map(c.Ip) ?? c.Ip;
+                c.LastIp = map(c.LastIp) ?? c.LastIp;
+                c.FixedIp = map(c.FixedIp) ?? c.FixedIp;
+                break;
+            case UniFiClientDetailResponse d:
+                d.Ip = map(d.Ip) ?? d.Ip;
+                d.LastIp = map(d.LastIp) ?? d.LastIp;
+                d.FixedIp = map(d.FixedIp) ?? d.FixedIp;
+                break;
+        }
+        return copy;
     }
 }

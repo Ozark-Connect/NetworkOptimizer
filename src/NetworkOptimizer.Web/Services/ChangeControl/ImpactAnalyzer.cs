@@ -52,15 +52,22 @@ public static class ImpactAnalyzer
     /// Config inputs for one state. <paramref name="liveDevicesJson"/> is stat/device as read now;
     /// <paramref name="liveGroups"/> is rest/firewallgroup as read now, for the members of Network Optimizer's own groups.
     /// </summary>
-    public static AuditConfigInputs BuildInputs(ConfigState state, string liveDevicesJson, IReadOnlyList<UniFiFirewallGroup>? liveGroups = null)
+    /// <param name="moves">
+    /// Subnets this state moves from live (<see cref="SubnetMoves"/>). What live or UniFi still holds at the old
+    /// addresses (client and device IPs, generated policies, Network Optimizer's own groups) is audited at the new ones.
+    /// </param>
+    public static AuditConfigInputs BuildInputs(ConfigState state, string liveDevicesJson, IReadOnlyList<UniFiFirewallGroup>? liveGroups = null,
+        IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)>? moves = null)
     {
+        if (moves is { Count: > 0 }) state = MoveGenerated(state, moves);
         return new AuditConfigInputs
         {
-            DeviceDataJson = OverlayDevices(state, liveDevicesJson),
+            DeviceDataJson = OverlayDevices(state, liveDevicesJson, moves),
+            MapClientIp = moves is { Count: > 0 } ? ip => MapAddress(ip, moves) : null,
             SettingsData = Element(new JsonObject { ["meta"] = new JsonObject { ["rc"] = "ok" }, ["data"] = Array(state.Get("setting")) }),
             FirewallPoliciesData = state.Collections.ContainsKey("firewall_policy") ? Element(Array(state.Get("firewall_policy"))) : null,
             LegacyFirewallRulesData = state.Collections.ContainsKey("firewallrule") ? Element(Array(state.Get("firewallrule"))) : null,
-            FirewallGroups = FirewallGroups(state, liveGroups),
+            FirewallGroups = FirewallGroups(state, liveGroups, moves),
             NatRulesData = state.Collections.ContainsKey("nat") ? Element(Array(state.Get("nat"))) : null,
             PortProfiles = Typed<UniFiPortProfile>(state, "portconf"),
             NetworkConfigs = Typed<UniFiNetworkConfig>(state, "networkconf"),
@@ -69,6 +76,56 @@ public static class ImpactAnalyzer
             UpnpEnabled = state.Get("setting").FirstOrDefault(s => s["key"]?.ToString() == "usg")?["upnp_enabled"] is JsonValue v
                           && v.TryGetValue<bool>(out var b) ? b : null,
         };
+    }
+
+    /// <summary>Networks whose subnet differs between two states, matched by ID, as (old, new) pairs.</summary>
+    public static List<(Readdressing.Subnet Old, Readdressing.Subnet New)> SubnetMoves(ConfigState from, ConfigState to)
+    {
+        var old = from.Get("networkconf").Where(n => n["_id"] != null)
+            .GroupBy(ConfigState.IdOf).ToDictionary(g => g.Key, g => g.First()["ip_subnet"]?.ToString());
+        var moves = new List<(Readdressing.Subnet, Readdressing.Subnet)>();
+        foreach (var n in to.Get("networkconf"))
+        {
+            if (!old.TryGetValue(ConfigState.IdOf(n), out var was)) continue;
+            if (Readdressing.ParseSubnet(was) is { } o && Readdressing.ParseSubnet(n["ip_subnet"]?.ToString()) is { } m && o != m)
+                moves.Add((o, m));
+        }
+        return moves;
+    }
+
+    private static string? MapAddress(string? ip, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> moves) =>
+        Readdressing.ParseIp(ip) is { } a && Readdressing.MapIp(a, moves) is { } m ? Readdressing.Format(m) : null;
+
+    /// <summary>
+    /// UniFi regenerates its own objects from the network (the policy a network with Internet Access off gets), so a
+    /// plan leaves them at the old addresses. They are audited as UniFi will regenerate them.
+    /// </summary>
+    private static ConfigState MoveGenerated(ConfigState state, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> moves)
+    {
+        var moved = state.Clone();
+        foreach (var (key, list) in moved.Collections)
+        {
+            if (ConfigCollections.Get(key)?.IsGenerated is not { } generated) continue;
+            foreach (var obj in list.Where(o => generated(o))) RewriteStrings(obj, moves);
+        }
+        return moved;
+    }
+
+    private static void RewriteStrings(JsonNode? node, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> moves)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (var (k, v) in o.ToList())
+                    if (v is JsonValue jv && jv.TryGetValue<string>(out var s)) { if (Readdressing.Rewrite(s, moves) is { } r) o[k] = r; }
+                    else RewriteStrings(v, moves);
+                break;
+            case JsonArray a:
+                for (var i = 0; i < a.Count; i++)
+                    if (a[i] is JsonValue jv && jv.TryGetValue<string>(out var s)) { if (Readdressing.Rewrite(s, moves) is { } r) a[i] = r; }
+                    else RewriteStrings(a[i], moves);
+                break;
+        }
     }
 
     private static JsonArray Array(IEnumerable<JsonObject> objects) =>
@@ -98,7 +155,8 @@ public static class ImpactAnalyzer
     /// The state's firewall groups. A snapshot keeps Network Optimizer's own groups as shells (their members are
     /// generated), so those take their members from live: without them, every rule using one reads as any-to-any.
     /// </summary>
-    private static List<UniFiFirewallGroup>? FirewallGroups(ConfigState state, IReadOnlyList<UniFiFirewallGroup>? liveGroups)
+    private static List<UniFiFirewallGroup>? FirewallGroups(ConfigState state, IReadOnlyList<UniFiFirewallGroup>? liveGroups,
+        IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)>? moves = null)
     {
         var groups = Typed<UniFiFirewallGroup>(state, "firewallgroup");
         if (groups == null || liveGroups == null) return groups;
@@ -107,15 +165,21 @@ public static class ImpactAnalyzer
         foreach (var group in groups.Where(g => g.Name.StartsWith(ConfigCollections.NoOwnedPrefix, StringComparison.Ordinal)))
         {
             if ((byId.GetValueOrDefault(group.Id) ?? byName.GetValueOrDefault(group.Name)) is { } live)
-                group.GroupMembers = [.. live.GroupMembers];
+                group.GroupMembers = moves is { Count: > 0 }
+                    ? [.. live.GroupMembers.Select(m => Readdressing.Rewrite(m, moves) ?? m)]
+                    : [.. live.GroupMembers];
         }
         return groups;
     }
 
     /// <summary>Live stat/device with each device's config fields replaced by the state's.</summary>
-    public static string OverlayDevices(ConfigState state, string liveDevicesJson)
+    public static string OverlayDevices(ConfigState state, string liveDevicesJson,
+        IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)>? moves = null)
     {
         var live = ConfigSnapshotReader.ExtractList(liveDevicesJson) ?? [];
+        if (moves is { Count: > 0 })
+            foreach (var device in live)
+                if (MapAddress(device["ip"]?.ToString(), moves) is { } ip) device["ip"] = ip;
         var byMac = state.Get("device")
             .Where(d => d["mac"] != null)
             .GroupBy(d => d["mac"]!.ToString().ToLowerInvariant())

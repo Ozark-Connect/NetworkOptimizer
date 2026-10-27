@@ -72,6 +72,29 @@ public class ImpactAnalyzerTests
         table[1]!["ip_subnet"]!.GetValue<string>().Should().Be("198.51.100.1/24");
     }
 
+    [Fact]
+    public void Moves_AuditGeneratedObjectsClientsAndDevicesAtTheNewAddresses()
+    {
+        var before = State(("networkconf", """{"_id":"n1","name":"IoT","ip_subnet":"192.0.2.1/24"}"""));
+        var after = State(
+            ("networkconf", """{"_id":"n1","name":"IoT","ip_subnet":"203.0.113.1/24"}"""),
+            ("firewall_policy", """
+                {"_id":"p1","name":"Block 192.0.2.0/24 Internet Access","origin_type":"network","source":{"ips":["192.0.2.0/24"]}}
+                """),
+            ("device", """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01"}"""));
+        var live = """{"meta":{"rc":"ok"},"data":[{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","ip":"192.0.2.20"}]}""";
+
+        var moves = ImpactAnalyzer.SubnetMoves(before, after);
+        moves.Should().ContainSingle();
+        var inputs = ImpactAnalyzer.BuildInputs(after, live, moves: moves);
+
+        inputs.FirewallPoliciesData!.Value[0].GetProperty("source").GetProperty("ips")[0].GetString().Should().Be("203.0.113.0/24");
+        (JsonNode.Parse(inputs.DeviceDataJson)!["data"] as JsonArray)![0]!["ip"]!.GetValue<string>().Should().Be("203.0.113.20");
+        inputs.MapClientIp!("192.0.2.31").Should().Be("203.0.113.31");
+        inputs.MapClientIp!("198.51.100.7").Should().BeNull();
+        ImpactAnalyzer.BuildInputs(before, live).MapClientIp.Should().BeNull();
+    }
+
     private static AuditIssue Issue(string title, AuditSeverity severity, string? network = null) => new()
     {
         Title = title, Severity = severity, Category = "Firewall", Description = "d", CurrentNetwork = network,

@@ -209,7 +209,8 @@ public sealed class ChangeEvaluator : IChangeEvaluator
                 _logger.LogDebug(ex, "Change Control impact diff: live firewall groups unavailable");
             }
             var result = await audit.RunConfigComparisonAsync(
-                ImpactAnalyzer.BuildInputs(before, liveDevices, liveGroups), ImpactAnalyzer.BuildInputs(after, liveDevices, liveGroups),
+                ImpactAnalyzer.BuildInputs(before, liveDevices, liveGroups),
+                ImpactAnalyzer.BuildInputs(after, liveDevices, liveGroups, ImpactAnalyzer.SubnetMoves(before, after)),
                 after.NetworkAppVersion);
             return result == null ? null : ImpactAnalyzer.Compare(result.Value.Before, result.Value.After);
         }
