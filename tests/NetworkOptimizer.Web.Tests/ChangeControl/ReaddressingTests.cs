@@ -20,6 +20,20 @@ public class ReaddressingTests
     private static List<SubnetMove> Pattern(ConfigState s) => Readdressing.Proposal(s, "10.42.{vlan}.0/24");
 
     [Fact]
+    public void BuiltInRadiusProfile_IsLeftAlone()
+    {
+        var live = Site();
+        live.Collections["radiusprofile"] = [
+            System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"r1","name":"Default","attr_hidden_id":"Default","use_usg_auth_server":true,"auth_servers":[{"ip":"192.168.1.1","port":1812}]}""")!.AsObject(),
+            System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"r2","name":"Corp","auth_servers":[{"ip":"192.168.1.5","port":1812}]}""")!.AsObject()];
+
+        var desired = Readdressing.Apply(live, Pattern(live)).Desired;
+
+        desired.Get("radiusprofile").Single(r => ConfigState.IdOf(r) == "r1")["auth_servers"]![0]!["ip"]!.ToString().Should().Be("192.168.1.1");
+        desired.Get("radiusprofile").Single(r => ConfigState.IdOf(r) == "r2")["auth_servers"]![0]!["ip"]!.ToString().Should().Be("10.42.1.5");
+    }
+
+    [Fact]
     public void Honeypots_WriteAfterEveryNetwork_ConsolePathNetworkLast()
     {
         var live = Site();

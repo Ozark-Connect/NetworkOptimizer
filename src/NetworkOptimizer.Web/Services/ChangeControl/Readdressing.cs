@@ -282,6 +282,9 @@ public static partial class Readdressing
             {
                 // UniFi regenerates these from the network itself, and plans never write them.
                 if (def?.IsGenerated?.Invoke(obj) == true) continue;
+                // The built-in RADIUS profile follows the gateway's own address, and the console refuses any write to
+                // it (api.err.CannotModifyDefaultRadiusProfile).
+                if (key == "radiusprofile" && obj["attr_hidden_id"]?.ToString() == "Default") continue;
                 var ctx = new WalkContext(map, remote, key, ConfigState.DisplayName(def, obj), result);
                 // Whole objects the far side sets: a VPN client or server, a VPN connection.
                 if ((key == "networkconf" && !IsLan(obj) && !IsWan(obj)) || key is "vpn_connections" or "wan_defaults")
