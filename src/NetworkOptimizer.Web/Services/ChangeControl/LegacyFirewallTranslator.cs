@@ -315,7 +315,7 @@ public static class LegacyFirewallTranslator
         {
             if (!c.Groups.TryGetValue(id, out var g)) return (null, "It names a firewall group the snapshot does not have.");
             if (Str(g, "group_type") is "address-group" or "ipv6-address-group") addressGroups.Add(g);
-            else if (Str(g, "group_type") != "port-group") return (null, $"Firewall group {Str(g, "name")} is a {Str(g, "group_type")}.");
+            else if (Str(g, "group_type") != "port-group") return (null, $"Firewall Group {Str(g, "name")} is a {Str(g, "group_type")}.");
         }
         var members = addressGroups.SelectMany(g => Strs(g, "group_members")).ToList();
         if (single is { Length: > 0 }) members.Add(single);

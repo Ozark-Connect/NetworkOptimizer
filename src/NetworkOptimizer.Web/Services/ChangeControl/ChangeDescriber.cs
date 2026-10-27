@@ -315,7 +315,7 @@ public static partial class ChangeDescriber
         return string.Join(", ", labels);
     }
 
-    /// <summary>One summary line: "WLAN Home: security WPA2 to WPA2/WPA3", "Firewall policy Block IoT created".</summary>
+    /// <summary>One summary line: "WLAN Home: security WPA2 to WPA2/WPA3", "Firewall Policy Block IoT created".</summary>
     public static string Summary(ObjectDiff diff, ConfigIdentityContext? beforeNames = null, ConfigIdentityContext? afterNames = null)
     {
         var def = ConfigCollections.Get(diff.Collection);
@@ -338,7 +338,7 @@ public static partial class ChangeDescriber
         if (objects.Count == 1) return Summary(objects[0], beforeNames, afterNames);
         var collections = objects.Select(o => o.Collection).Distinct().ToList();
         var what = collections.Count == 1
-            ? $"{objects.Count} {Plural(ConfigCollections.Get(collections[0])?.Noun ?? collections[0]).ToLowerInvariant()} changed"
+            ? $"{objects.Count} {Plural(ConfigCollections.Get(collections[0])?.Noun ?? collections[0])} changed"
             : $"{objects.Count} objects changed";
         return context == null ? what : $"{what} {context}";
     }

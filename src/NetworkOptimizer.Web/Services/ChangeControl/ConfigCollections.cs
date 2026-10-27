@@ -84,7 +84,7 @@ public sealed class ConfigCollectionDef
     /// <summary>Name shown in the UI.</summary>
     public required string DisplayName { get; init; }
 
-    /// <summary>Singular noun for summaries ("Port profile Trunk-Core").</summary>
+    /// <summary>Singular noun for summaries ("Port Profile Trunk-Core"), Title Case as a UniFi object name.</summary>
     public required string Noun { get; init; }
 
     /// <summary>The Edit tab group this collection is listed under.</summary>
@@ -423,7 +423,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "usergroup", DisplayName = "User groups", Noun = "User group", Group = "QoS and Traffic Rules",
+                Key = "usergroup", DisplayName = "User groups", Noun = "User Group", Group = "QoS and Traffic Rules",
                 FieldGroups = ConfigFieldOrder.UserGroupFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/usergroup", Order = 2, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/usergroup", UpdatePath = "rest/usergroup/{id}", DeletePath = "rest/usergroup/{id}", Proven = true },
@@ -431,7 +431,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "radiusprofile", DisplayName = "RADIUS profiles", Noun = "RADIUS profile", Group = "RADIUS and VPN",
+                Key = "radiusprofile", DisplayName = "RADIUS profiles", Noun = "RADIUS Profile", Group = "RADIUS and VPN",
                 FieldGroups = ConfigFieldOrder.RadiusProfileFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/radiusprofile", Order = 2, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/radiusprofile", UpdatePath = "rest/radiusprofile/{id}", DeletePath = "rest/radiusprofile/{id}" },
@@ -443,7 +443,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "firewall_zone", DisplayName = "Firewall zones", Noun = "Firewall zone", Group = "Firewall Zones",
+                Key = "firewall_zone", DisplayName = "Firewall zones", Noun = "Firewall Zone", Group = "Firewall Zones",
                 FieldGroups = ConfigFieldOrder.FirewallZoneFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "firewall/zone", Order = 3,
                 ReadOnlyFields = Set("attr_no_edit", "cloud_template", "default_zone", "external_id", "zone_key"),
@@ -461,7 +461,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "firewallgroup", DisplayName = "Firewall groups", Noun = "Firewall group", Group = "Firewall Groups",
+                Key = "firewallgroup", DisplayName = "Firewall groups", Noun = "Firewall Group", Group = "Firewall Groups",
                 FieldGroups = ConfigFieldOrder.FirewallGroupFields,
                 // short_id: UniFi's per-site index, added to every group by Network 11, like a WLAN's.
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/firewallgroup", Order = 3, ReadOnlyFields = Set([.. CommonReadOnly, "short_id"]),
@@ -477,7 +477,7 @@ public static class ConfigCollections
             {
                 // Clients' network_members_group_ids (and speed limits, mDNS) reference these. Writes grounded on a
                 // scratch site 2026-10-26: POST and PUT/DELETE on the singular path; an update needs its type.
-                Key = "network_members_group", DisplayName = "Client groups", Noun = "Client group", Group = "Clients",
+                Key = "network_members_group", DisplayName = "Client groups", Noun = "Client Group", Group = "Clients",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "network-members-groups", Order = 3, ReadOnlyFields = CommonReadOnly,
                 SetArrays = Set("members"),
                 EnforcedKey = (o, _) => $"{Str(o, "type")}|{Str(o, "name")}", KeyIsUnique = true,
@@ -488,7 +488,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "portconf", DisplayName = "Port profiles", Noun = "Port profile", Group = "Port Profiles",
+                Key = "portconf", DisplayName = "Port profiles", Noun = "Port Profile", Group = "Port Profiles",
                 FieldGroups = ConfigFieldOrder.PortProfileFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/portconf", Order = 4, ReadOnlyFields = CommonReadOnly,
                 SetArrays = Set("excluded_networkconf_ids", "multicast_router_networkconf_ids", "tagged_networkconf_ids"),
@@ -499,7 +499,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "apgroups", DisplayName = "AP groups", Noun = "AP group", Group = "WLANs",
+                Key = "apgroups", DisplayName = "AP groups", Noun = "AP Group", Group = "WLANs",
                 FieldGroups = ConfigFieldOrder.ApGroupFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "apgroups", Order = 4, ReadOnlyFields = CommonReadOnly,
                 SetArrays = Set("device_macs"),
@@ -512,7 +512,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "wlangroup", DisplayName = "WLAN groups", Noun = "WLAN group", Group = "WLANs",
+                Key = "wlangroup", DisplayName = "WLAN groups", Noun = "WLAN Group", Group = "WLANs",
                 FieldGroups = ConfigFieldOrder.WlanGroupFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlangroup", Order = 4, ReadOnlyFields = CommonReadOnly,
                 // Default and Off are UniFi's own (attr_hidden_id); Network 11 keeps only Default, renumbered.
@@ -542,7 +542,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "firewall_policy", DisplayName = "Firewall policies", Noun = "Firewall policy", Group = "Firewall Policies",
+                Key = "firewall_policy", DisplayName = "Firewall policies", Noun = "Firewall Policy", Group = "Firewall Policies",
                 FieldGroups = ConfigFieldOrder.FirewallPolicyFields, NestedFieldOrder = ConfigFieldOrder.FirewallPolicyNested,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "firewall-policies", Order = 6,
                 ReadOnlyFields = Set("hits", "last_hit", "index", "origin_id", "origin_type", "cloud_template", "external_id"),
@@ -573,7 +573,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "routing", DisplayName = "Static routes", Noun = "Static route", Group = "Routes and Traffic Routes",
+                Key = "routing", DisplayName = "Static routes", Noun = "Static Route", Group = "Routes and Traffic Routes",
                 FieldGroups = ConfigFieldOrder.StaticRouteFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/routing", Order = 8, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/routing", UpdatePath = "rest/routing/{id}", DeletePath = "rest/routing/{id}", NeedsGateway = true },
@@ -582,7 +582,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "trafficroute", DisplayName = "Traffic routes", Noun = "Traffic route", Group = "Routes and Traffic Routes",
+                Key = "trafficroute", DisplayName = "Traffic routes", Noun = "Traffic Route", Group = "Routes and Traffic Routes",
                 FieldGroups = ConfigFieldOrder.TrafficRouteFields, NestedFieldOrder = ConfigFieldOrder.TrafficRouteNested,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "trafficroutes", NameField = "description", Order = 8,
                 SetArrays = Set("domains", "ip_addresses", "ip_ranges", "regions", "target_devices"),
@@ -597,7 +597,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "qos_rule", DisplayName = "QoS rules", Noun = "QoS rule", Group = "QoS and Traffic Rules",
+                Key = "qos_rule", DisplayName = "QoS rules", Noun = "QoS Rule", Group = "QoS and Traffic Rules",
                 FieldGroups = ConfigFieldOrder.QosRuleFields, NestedFieldOrder = ConfigFieldOrder.FirewallPolicyNested,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "qos-rules", Order = 8,
                 ReadOnlyFields = Set("index", "cloud_template", "origin_id", "origin_type"),
@@ -614,7 +614,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "nat", DisplayName = "NAT", Noun = "NAT rule", Group = "NAT and Port Forwards",
+                Key = "nat", DisplayName = "NAT", Noun = "NAT Rule", Group = "NAT and Port Forwards",
                 FieldGroups = ConfigFieldOrder.NatFields, NestedFieldOrder = ConfigFieldOrder.NatNested,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "nat", NameField = "description", Order = 8,
                 ReadOnlyFields = Set("rule_index"),
@@ -630,7 +630,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "portforward", DisplayName = "Port forwards", Noun = "Port forward", Group = "NAT and Port Forwards",
+                Key = "portforward", DisplayName = "Port forwards", Noun = "Port Forward", Group = "NAT and Port Forwards",
                 FieldGroups = ConfigFieldOrder.PortForwardFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/portforward", Order = 8, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/portforward", UpdatePath = "rest/portforward/{id}", DeletePath = "rest/portforward/{id}", NeedsGateway = true },
@@ -639,7 +639,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "oon_config", DisplayName = "Object-oriented configs", Noun = "Object config", Group = "QoS and Traffic Rules",
+                Key = "oon_config", DisplayName = "Object-oriented configs", Noun = "Object Config", Group = "QoS and Traffic Rules",
                 FieldGroups = ConfigFieldOrder.ObjectConfigFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "object-oriented-network-configs", Order = 8,
                 Write = new CollectionWrite
@@ -659,7 +659,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "wireguard_user", DisplayName = "WireGuard VPN users", Noun = "WireGuard user", Group = "RADIUS and VPN",
+                Key = "wireguard_user", DisplayName = "WireGuard VPN users", Noun = "WireGuard User", Group = "RADIUS and VPN",
                 FieldGroups = ConfigFieldOrder.WireGuardUserFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "wireguard/users", Order = 8,
                 // Network 11 stores and serves these without the x_ prefix (its schema: wireguard_user.pre_shared_key).
@@ -668,7 +668,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "radius_profile_v2", DisplayName = "RADIUS profiles (v2)", Noun = "RADIUS profile", Group = "RADIUS and VPN",
+                Key = "radius_profile_v2", DisplayName = "RADIUS profiles (v2)", Noun = "RADIUS Profile", Group = "RADIUS and VPN",
                 FieldGroups = ConfigFieldOrder.RadiusProfileFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "radius/profiles", Order = 8,
                 // A mirror of rest/radiusprofile (same IDs, same fields, vlan_enabled included once set) plus UniFi's
@@ -678,7 +678,7 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "vpn_connections", DisplayName = "VPN connections", Noun = "VPN connections", Group = "RADIUS and VPN",
+                Key = "vpn_connections", DisplayName = "VPN connections", Noun = "VPN Connections", Group = "RADIUS and VPN",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "vpn/connections", Shape = CollectionShape.Single, Order = 8,
                 // Live tunnel state (status, assoc_time, rates, IPs) per networkconf id: a reconnect is not a config
                 // change. The VPN's config is its networkconf object, compared there.
@@ -686,18 +686,18 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "wan_defaults", DisplayName = "WAN defaults", Noun = "WAN defaults", Group = "Networks",
+                Key = "wan_defaults", DisplayName = "WAN defaults", Noun = "WAN Defaults", Group = "Networks",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "wan/defaults", Shape = CollectionShape.Single, Order = 8,
             },
             new()
             {
-                Key = "scheduletask", DisplayName = "Scheduled tasks", Noun = "Scheduled task", Group = "Other",
+                Key = "scheduletask", DisplayName = "Scheduled tasks", Noun = "Scheduled Task", Group = "Other",
                 FieldGroups = ConfigFieldOrder.ScheduledTaskFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/scheduletask", Order = 8, ReadOnlyFields = CommonReadOnly,
             },
             new()
             {
-                Key = "dhcpoption", DisplayName = "DHCP options", Noun = "DHCP option", Group = "Networks",
+                Key = "dhcpoption", DisplayName = "DHCP options", Noun = "DHCP Option", Group = "Networks",
                 FieldGroups = ConfigFieldOrder.DhcpOptionFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/dhcpoption", Order = 2, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/dhcpoption", UpdatePath = "rest/dhcpoption/{id}", DeletePath = "rest/dhcpoption/{id}" },
@@ -705,51 +705,51 @@ public static class ConfigCollections
             },
             new()
             {
-                Key = "account", DisplayName = "RADIUS accounts", Noun = "RADIUS account", Group = "RADIUS and VPN",
+                Key = "account", DisplayName = "RADIUS accounts", Noun = "RADIUS Account", Group = "RADIUS and VPN",
                 FieldGroups = ConfigFieldOrder.RadiusAccountFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/account", Order = 2, ReadOnlyFields = CommonReadOnly,
                 Write = new CollectionWrite { CreatePath = "rest/account", UpdatePath = "rest/account/{id}", DeletePath = "rest/account/{id}" },
             },
             new()
             {
-                Key = "hotspotop", DisplayName = "Hotspot operators", Noun = "Hotspot operator", Group = "Other",
+                Key = "hotspotop", DisplayName = "Hotspot operators", Noun = "Hotspot Operator", Group = "Other",
                 FieldGroups = ConfigFieldOrder.HotspotOperatorFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/hotspotop", Order = 8, ReadOnlyFields = CommonReadOnly,
             },
             new()
             {
-                Key = "hotspotpackage", DisplayName = "Hotspot packages", Noun = "Hotspot package", Group = "Other",
+                Key = "hotspotpackage", DisplayName = "Hotspot packages", Noun = "Hotspot Package", Group = "Other",
                 FieldGroups = ConfigFieldOrder.HotspotPackageFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/hotspotpackage", Order = 8, ReadOnlyFields = CommonReadOnly,
             },
             new()
             {
-                Key = "trafficrule", DisplayName = "Traffic rules", Noun = "Traffic rule", Group = "QoS and Traffic Rules",
+                Key = "trafficrule", DisplayName = "Traffic rules", Noun = "Traffic Rule", Group = "QoS and Traffic Rules",
                 Scope = UniFiApiScope.SiteV2, ReadPath = "trafficrules", NameField = "description", Order = 8,
             },
             new()
             {
-                Key = "content_filtering", DisplayName = "Content filtering", Noun = "Content filter", Group = "Firewall Policies",
+                Key = "content_filtering", DisplayName = "Content filtering", Noun = "Content Filter", Group = "Firewall Policies",
                 FieldGroups = ConfigFieldOrder.ContentFilteringFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "content-filtering", Order = 8,
                 TagsForField = (_, _) => [ServiceTags.DnsPolicy],
             },
             new()
             {
-                Key = "acl_rule", DisplayName = "ACL rules", Noun = "ACL rule", Group = "Firewall Policies",
+                Key = "acl_rule", DisplayName = "ACL rules", Noun = "ACL Rule", Group = "Firewall Policies",
                 FieldGroups = ConfigFieldOrder.AclRuleFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "acl-rules", Order = 8,
             },
             new()
             {
-                Key = "firewallrule", DisplayName = "Legacy firewall rules", Noun = "Legacy firewall rule", Group = "Firewall Policies",
+                Key = "firewallrule", DisplayName = "Legacy firewall rules", Noun = "Legacy Firewall Rule", Group = "Firewall Policies",
                 FieldGroups = ConfigFieldOrder.LegacyFirewallRuleFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/firewallrule", Order = 6, ReadOnlyFields = CommonReadOnly,
                 AuditInput = true,
             },
             new()
             {
-                Key = "channelplan", DisplayName = "Channel plans", Noun = "Channel plan", Group = "Devices",
+                Key = "channelplan", DisplayName = "Channel plans", Noun = "Channel Plan", Group = "Devices",
                 FieldGroups = ConfigFieldOrder.ChannelPlanFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/channelplan", Order = 99, Churn = true, ReadOnlyFields = CommonReadOnly,
                 // A plan's creation time survives the Network 11 UUID migration; its ID does not.

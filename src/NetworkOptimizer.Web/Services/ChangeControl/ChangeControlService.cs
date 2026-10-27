@@ -85,8 +85,8 @@ public sealed partial class ChangeControlService : IChangeControlService
         rows.GroupBy(r => r.ChangeId).ToDictionary(g => g.Key, g => (g.First().PlanId, g.First().CompletedAt));
 
     /// <summary>
-    /// Today's summary for each single-object config edit, rebuilt from its stored rows the way the change detail
-    /// shows them (labels, values, port-profile collapse), so changes recorded earlier read the same. Others keep theirs.
+    /// Today's summary for each single-object config change, rebuilt from its stored rows the way the change detail
+    /// shows them (nouns, labels, values, port-profile collapse), so changes recorded earlier read the same. Others keep theirs.
     /// </summary>
     internal static async Task<Dictionary<int, string>> SummariesAsync(Storage.Interfaces.IChangeControlRepository r,
         IEnumerable<ConfigChange> changes, CancellationToken ct)
@@ -95,13 +95,15 @@ public sealed partial class ChangeControlService : IChangeControlService
         if (ids.Count == 0) return [];
         return (await r.GetChangeObjectsAsync(ids, ct))
             .GroupBy(o => o.ChangeId)
-            .Where(g => g.Count() == 1 && g.First().Action == ConfigChangeAction.Updated)
+            .Where(g => g.Count() == 1)
             .ToDictionary(g => g.Key, g =>
             {
                 var o = g.First();
+                var noun = ConfigCollections.Get(o.Collection)?.Noun ?? o.Collection;
+                if (o.Action == ConfigChangeAction.Created) return $"{noun} {o.ObjectName} created";
+                if (o.Action == ConfigChangeAction.Deleted) return $"{noun} {o.ObjectName} deleted";
                 var view = ObjectView(o);
-                return view.Fields.Count == 0 ? "" : ChangeDescriber.SummaryLine(ConfigCollections.Get(o.Collection)?.Noun ?? o.Collection,
-                    o.ObjectName, ChangeDescriber.ChangeText(view.Fields));
+                return view.Fields.Count == 0 ? "" : ChangeDescriber.SummaryLine(noun, o.ObjectName, ChangeDescriber.ChangeText(view.Fields));
             });
     }
 

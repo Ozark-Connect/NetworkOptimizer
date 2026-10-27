@@ -297,6 +297,6 @@ public class ChangeDetectionTests
     {
         var diff = ConfigDiffEngine.CompareObjects(ConfigCollections.Get("firewall_policy")!,
             Obj("""{"_id":"p","name":"Block IoT","enabled":true}"""), Obj("""{"_id":"p","name":"Block IoT","enabled":false}"""))!;
-        ChangeDescriber.Summary(diff).Should().Be("Firewall policy Block IoT: disabled");
+        ChangeDescriber.Summary(diff).Should().Be("Firewall Policy Block IoT: disabled");
     }
 }

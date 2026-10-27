@@ -189,7 +189,7 @@ public static class LockoutChecker
                 findings.Add(new LockoutFinding
                 {
                     Kind = fromNo || fromNoZone ? (options.AgentSite ? "certain" : "possible") : "possible",
-                    Title = $"Firewall policy {op.ObjectName} blocks traffic to the gateway",
+                    Title = $"Firewall Policy {op.ObjectName} blocks traffic to the gateway",
                     Detail = fromNo || fromNoZone
                         ? "It matches where Network Optimizer reaches the site from, so Network Optimizer can lose the gateway and the UniFi Console."
                         : "It matches any source, so it can block Network Optimizer and the UniFi Console from the gateway.",
