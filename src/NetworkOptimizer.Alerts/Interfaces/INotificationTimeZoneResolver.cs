@@ -4,7 +4,9 @@ namespace NetworkOptimizer.Alerts.Interfaces;
 /// The clock for text written with no one viewing it: delivered alerts, digests, and the stored
 /// reports and notices the web layer writes in the background. The alert pipeline lives below the
 /// web layer and cannot read settings or the console, so it depends on this seam; the web layer
-/// implements it, and a host may decorate it to put its own zone first.
+/// implements it, and a host may decorate it to put its own zone first. A host's per-site or
+/// per-tenant notification zone belongs here: this call carries the site and has no caller, so a
+/// layer keyed on the caller (as in ITimeZonePreferenceSource) cannot see it.
 /// </summary>
 public interface INotificationTimeZoneResolver
 {

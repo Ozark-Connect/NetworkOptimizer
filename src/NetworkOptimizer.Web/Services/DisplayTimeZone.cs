@@ -82,7 +82,7 @@ public interface IDisplayTimeZone
     /// <summary>"CDT" for the viewer's zone at an instant.</summary>
     string Abbreviation(DateTime instantUtc);
 
-    /// <summary>Re-reads the preference layers. Call after a preference changes.</summary>
+    /// <summary>Re-reads the preference layers. Never throws: a failed read leaves the server zone.</summary>
     Task ResolveAsync();
 }
 
@@ -143,9 +143,18 @@ public sealed class DisplayTimeZone : IDisplayTimeZone
     /// <inheritdoc />
     public async Task ResolveAsync()
     {
-        _zone = ResolveLayer(await _source.GetOwnAsync())
-            ?? ResolveLayer(await _source.GetInheritedAsync())
-            ?? TimeZoneInfo.Local;
+        try
+        {
+            _zone = ResolveLayer(await _source.GetOwnAsync())
+                ?? ResolveLayer(await _source.GetInheritedAsync())
+                ?? TimeZoneInfo.Local;
+        }
+        catch (Exception ex)
+        {
+            // A settings read failing must not fail a page or a download; the server zone still reads right.
+            _logger.LogWarning(ex, "Could not resolve the display time zone; using the server zone");
+            _zone = TimeZoneInfo.Local;
+        }
     }
 
     private TimeZoneInfo? ResolveLayer(string? id)

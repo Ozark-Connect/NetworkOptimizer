@@ -95,6 +95,38 @@ public class NotificationTimeZoneResolverTests
     }
 
     [Fact]
+    public async Task A_burst_of_alerts_shares_one_console_read()
+    {
+        var release = new TaskCompletionSource<string?>();
+        var resolver = Build(null, (_, _) => release.Task);
+
+        var burst = Enumerable.Range(0, 20).Select(_ => resolver.ResolveAsync("branch")).ToList();
+        release.SetResult(Chicago);
+
+        (await Task.WhenAll(burst)).Should().OnlyContain(z => z.Id == Chicago);
+        _consoleReads.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_read_that_ignores_its_token_is_still_bounded()
+    {
+        // The client's retry delays do not observe the token, so the bound cannot rely on it alone.
+        var resolver = Build(null, (_, _) => new TaskCompletionSource<string?>().Task);
+
+        (await resolver.ResolveAsync("branch").WaitAsync(TimeSpan.FromSeconds(15))).Should().Be(TimeZoneInfo.Local);
+    }
+
+    [Fact]
+    public void Api_key_and_legacy_connections_are_never_asked()
+    {
+        using var apiKey = new UniFi.UniFiApiClient(NullLogger<UniFi.UniFiApiClient>.Instance, "192.0.2.1", "", "", apiKey: "key");
+        using var local = new UniFi.UniFiApiClient(NullLogger<UniFi.UniFiApiClient>.Instance, "192.0.2.1", "admin", "secret");
+
+        NotificationTimeZoneResolver.ConsoleCanGiveZone(apiKey).Should().BeFalse();
+        NotificationTimeZoneResolver.ConsoleCanGiveZone(local).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_console_that_throws_falls_back_and_is_not_asked_again_at_once()
     {
         var resolver = Build(null, (_, _) => throw new HttpRequestException("console down"));
