@@ -191,9 +191,12 @@ public static class DeviceReplacement
         foreach (var row in proposal.Ports)
         {
             if (row.Target is not { Count: > 0 } target) continue;
-            // A run keeps its in-use ports when it is cut short: in-use ports come first in OldPorts order.
-            for (var i = 0; i < Math.Min(row.OldPorts.Count, target.Count); i++)
-                map[row.OldPorts[i]] = target[i];
+            // A run cut short keeps its in-use ports (first in OldPorts); the kept ports then pair with the
+            // targets in ascending order, so port 4 never lands on 5 while 5 lands on 4.
+            var kept = row.OldPorts.Take(target.Count).OrderBy(i => i).ToList();
+            var to = target.OrderBy(i => i).ToList();
+            for (var i = 0; i < kept.Count; i++)
+                map[kept[i]] = to[i];
         }
         return map;
     }
@@ -477,6 +480,10 @@ public static class DeviceReplacement
                 row.Target = row.Target.Concat(extra).OrderBy(i => i).ToList();
                 used.UnionWith(extra);
             }
+
+        // Targets are kept ascending, as the dropdown's options are; PortMap pairs them with the old ports in order.
+        foreach (var row in rows.Where(r => r.Target != null))
+            row.Target = row.Target!.OrderBy(i => i).ToList();
 
         foreach (var row in rows)
             Describe(row, oldByIdx, newByIdx, newPorts, used, acks);

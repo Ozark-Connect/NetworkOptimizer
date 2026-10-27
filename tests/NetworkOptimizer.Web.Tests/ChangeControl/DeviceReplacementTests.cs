@@ -11,6 +11,24 @@ public class DeviceReplacementTests
     private const string NewMac = "aa:bb:cc:00:00:02";
     private const string ApMac = "aa:bb:cc:00:00:10";
 
+    [Fact]
+    public void RecablingSheet_RendersAPdf()
+    {
+        var proposal = new ReplacementProposal
+        {
+            OldName = "Switch 1", OldModel = "USW-Lite-8-PoE", NewModel = "USW-Pro-Max-16-PoE",
+            Recabling =
+            [
+                new RecablingRow { OldPort = "Port 1", NewPort = "Port 1", Connected = "AP 1 (8 W)" },
+                new RecablingRow { OldPort = "Port 2", NewPort = "?", Connected = "In use: choose a port or drop its config", Unresolved = true },
+            ],
+        };
+
+        var pdf = new RecablingPdfGenerator().GenerateBytes(proposal, "Site 1");
+
+        System.Text.Encoding.ASCII.GetString(pdf, 0, 4).Should().Be("%PDF");
+    }
+
     private static JsonObject PortMeta(int idx, string media, bool poe = false, double watts = 0, bool up = false, bool uplink = false) => new()
     {
         ["port_idx"] = idx, ["media"] = media, ["port_poe"] = poe, ["poe_enable"] = watts > 0, ["poe_power"] = watts.ToString("0.00"),
@@ -106,6 +124,25 @@ public class DeviceReplacementTests
 
         map[7].Should().Be(map[8] - 1, "LAG members land on consecutive ports");
         p.Settings.Should().Contain(s => s.Label.StartsWith("LAG 1") && s.Status.StartsWith("Remapped"));
+    }
+
+    [Theory]
+    [InlineData("USL8", "USL8")]
+    [InlineData("USL8", "USL16")]
+    public void RunWithLaterPortInUse_KeepsPortOrder(string oldModel, string newModel)
+    {
+        // Port 5 in use, port 4 idle: in-use ports come first in the run, which must not swap the pair.
+        var oldPorts = Enumerable.Range(1, 8).Select(i => PortMeta(i, "GE", up: i == 5)).ToList();
+        var newPorts = Enumerable.Range(1, newModel == oldModel ? 8 : 16).Select(i => PortMeta(i, "GE")).ToList();
+        var old = Switch(OldMac, oldModel, oldPorts, new JsonArray(Override(4, "net-iot"), Override(5, "net-iot")));
+
+        var p = DeviceReplacement.Propose(old, Switch(NewMac, newModel, newPorts), Context());
+        var row = p.Ports.Single(r => r.OldPorts.Contains(4));
+        var map = DeviceReplacement.PortMap(p);
+
+        row.Target.Should().BeInAscendingOrder();
+        row.TargetLabel.Should().MatchRegex(@"^Ports \d+-\d+$");
+        map[4].Should().Be(map[5] - 1, "port 4 stays below port 5");
     }
 
     [Fact]

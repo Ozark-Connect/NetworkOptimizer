@@ -3,9 +3,6 @@ using System.Text.Json.Nodes;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
-using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
 
@@ -193,46 +190,7 @@ public sealed partial class ChangeControlService
         IReadOnlyCollection<string>? acks, CancellationToken cancellationToken = default)
     {
         var (p, _, _, _) = await ProposeAsync(oldMac, newMac, choices, acks, cancellationToken);
-        var site = await SiteNameAsync(cancellationToken);
-        return Document.Create(container => container.Page(page =>
-        {
-            page.Size(PageSizes.Letter);
-            page.Margin(36);
-            page.DefaultTextStyle(t => t.FontSize(10));
-            page.Header().Column(col =>
-            {
-                col.Item().Text("Re-cabling Sheet").FontSize(18).SemiBold();
-                col.Item().Text($"{site}: {p.OldName} ({p.OldModel}) to {p.NewModel}").FontSize(11);
-                col.Item().Text($"Prepared {DateTime.Now:MMM d, yyyy h:mm tt}").FontColor(Colors.Grey.Darken1);
-            });
-            page.Content().PaddingTop(12).Table(table =>
-            {
-                table.ColumnsDefinition(c =>
-                {
-                    c.ConstantColumn(140);
-                    c.RelativeColumn();
-                    c.ConstantColumn(60);
-                });
-                table.Header(h =>
-                {
-                    h.Cell().BorderBottom(1).PaddingBottom(4).Text("Old to new port").SemiBold();
-                    h.Cell().BorderBottom(1).PaddingBottom(4).Text("What").SemiBold();
-                    h.Cell().BorderBottom(1).PaddingBottom(4).Text("Done").SemiBold();
-                });
-                foreach (var r in p.Recabling)
-                {
-                    table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).PaddingVertical(5).Text($"{r.OldPort} to {r.NewPort}");
-                    table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).PaddingVertical(5)
-                        .Text(r.Connected).FontColor(r.Unresolved ? Colors.Red.Darken2 : Colors.Black);
-                    table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).PaddingVertical(5).Text("[  ]");
-                }
-            });
-            page.Footer().AlignRight().Text(t =>
-            {
-                t.Span("Network Optimizer, Change Control - page ");
-                t.CurrentPageNumber();
-            });
-        })).GeneratePdf();
+        return new RecablingPdfGenerator().GenerateBytes(p, await SiteNameAsync(cancellationToken));
     }
 
     public async Task<List<MigrateDeviceView>> GetPendingAdoptionsAsync(string? sourceSiteSlug, int? snapshotId, CancellationToken cancellationToken = default)
