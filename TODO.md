@@ -1448,3 +1448,16 @@ The Threat Intelligence noise filters no longer apply to WAF events (`ThreatRepo
 they describe IPS flows, and a WAF event's port 443 is a placeholder, so "my phone, port 443" hid
 every WAF event from that phone. If the WAF page needs a hide-this-source control, give it filters of
 its own (source, host, rule) rather than reusing the IPS ones. False positives belong in exclusions.
+
+## Change Control: auto-revert for changes made in UniFi Network
+
+The auto-revert covers plans applied through Change Control: if a plan cuts the site or a device off
+from Network Optimizer, it rolls itself back (the On-Site Agent does it on an agent site). A change
+made directly in UniFi Network (the console UI, the mobile app, another integration) has no such
+safety net, though Change Control records it within a poll.
+
+Offer the same trigger for those: when a recorded change is followed by the site or its devices
+dropping off, roll that change back automatically, or offer the Roll Back in the alert. Open
+questions: opt-in per site, since the operator made the change on purpose and may be mid-work; how
+long to wait after the change before treating a drop as caused by it; and telling a change-caused
+drop from an unrelated outage (ISP Health already separates ISP from local).
