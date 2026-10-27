@@ -140,6 +140,11 @@ public sealed class FirmwareHistoryImportTests
     }
 
     [Fact]
+    public void CreditedPlan_ADeviceThatFinishesWhileThePlanIsPaused() =>
+        FirmwareHistoryImport.CreditedPlan([Plan(7, FirmwareRolloutStatus.Paused, null, steps: Step(Mac, "7.6.7"))], Mac, "7.6.7", T)
+            .Should().Be(7);
+
+    [Fact]
     public void CreditedPlan_NotAPlanThatEndedOverAnHourAgo() =>
         FirmwareHistoryImport.CreditedPlan([Plan(7, FirmwareRolloutStatus.SoakWait, T.AddMinutes(-61), UniFiOs)], Mac, "5.1.28", T)
             .Should().BeNull();

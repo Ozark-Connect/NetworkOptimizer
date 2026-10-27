@@ -141,7 +141,7 @@ public sealed class FirmwareHistoryImport
     }
 
     /// <summary>
-    /// A plan running or ended within <see cref="RolloutTail"/> that took this device to this version: a step
+    /// A plan running, paused, or ended within <see cref="RolloutTail"/> that took this device to this version: a step
     /// for it, or the UniFi OS update (a Cloud Gateway's firmware is UniFi OS). Matching both keeps a UniFi
     /// auto-update of another device, soon after a rollout, from being credited to the rollout.
     /// </summary>
@@ -151,7 +151,8 @@ public sealed class FirmwareHistoryImport
         foreach (var (plan, steps) in plans)
         {
             if (plan.StartedAt == null) continue;
-            if (plan.Status != FirmwareRolloutStatus.Running && !(plan.CompletedAt > now - RolloutTail)) continue;
+            // Paused still counts: devices already in flight finish their cycle after a pause.
+            if (plan.Status is not (FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused) && !(plan.CompletedAt > now - RolloutTail)) continue;
             if (steps.Any(s => Mac(s.DeviceMac) == Mac(mac) && s.ToVersion != null && SameVersion(s.ToVersion, version)))
                 return plan.Id;
             if (UniFiOsTarget(plan) is { } os && SameVersion(os, version))
