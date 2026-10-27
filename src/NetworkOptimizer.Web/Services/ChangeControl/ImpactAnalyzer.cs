@@ -143,7 +143,32 @@ public static class ImpactAnalyzer
             if (config["port_overrides"] is JsonArray overrides && device["port_table"] is JsonArray ports)
                 OverlayPorts(overrides, ports);
         }
+        if (state.Collections.ContainsKey("networkconf"))
+            OverlayNetworkTables(state, live);
         return new JsonObject { ["meta"] = new JsonObject { ["rc"] = "ok" }, ["data"] = Array(live) }.ToJsonString();
+    }
+
+    /// <summary>
+    /// The audit reads its networks from the gateway's network_table, which shows them as configured now.
+    /// Each entry takes the state's networkconf fields, or a re-addressed plan is audited against the old subnets and DNS.
+    /// </summary>
+    private static void OverlayNetworkTables(ConfigState state, IEnumerable<JsonObject> live)
+    {
+        var byId = state.Get("networkconf")
+            .Where(n => n["_id"] != null)
+            .GroupBy(n => n["_id"]!.ToString())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        foreach (var device in live)
+        {
+            if (device["network_table"] is not JsonArray table) continue;
+            foreach (var entry in table.OfType<JsonObject>())
+            {
+                if (entry["_id"]?.ToString() is not { } id || !byId.TryGetValue(id, out var config)) continue;
+                foreach (var (key, value) in config)
+                    if (key != ConfigCollections.DeviceMetaField) entry[key] = value?.DeepClone();
+            }
+        }
     }
 
     // Port settings the port rules read. An override that leaves one out takes the port profile's or the

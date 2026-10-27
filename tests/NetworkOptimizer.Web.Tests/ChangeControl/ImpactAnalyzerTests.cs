@@ -51,6 +51,27 @@ public class ImpactAnalyzerTests
         ports[1]!["forward"]!.GetValue<string>().Should().Be("native");
     }
 
+    [Fact]
+    public void Overlay_NetworkTableTakesTheStatesNetworkconf()
+    {
+        // A re-addressed state: the gateway's network_table still shows the live subnet and DHCP DNS.
+        var state = State(
+            ("device", """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"Gateway"}"""),
+            ("networkconf", """
+                {"_id":"n1","name":"IoT","ip_subnet":"203.0.113.1/24","dhcpd_dns_enabled":true,"dhcpd_dns_1":"203.0.113.53"}
+                """));
+        var live = """
+            {"meta":{"rc":"ok"},"data":[{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","type":"udm",
+             "network_table":[{"_id":"n1","name":"IoT","ip_subnet":"192.0.2.1/24","dhcpd_dns_enabled":true,"dhcpd_dns_1":"192.0.2.53","num_sta":7},
+                              {"_id":"n2","name":"Default","ip_subnet":"198.51.100.1/24"}]}]}
+            """;
+        var table = (JsonNode.Parse(ImpactAnalyzer.OverlayDevices(state, live))!["data"] as JsonArray)![0]!["network_table"]!.AsArray();
+        table[0]!["ip_subnet"]!.GetValue<string>().Should().Be("203.0.113.1/24");
+        table[0]!["dhcpd_dns_1"]!.GetValue<string>().Should().Be("203.0.113.53");
+        table[0]!["num_sta"]!.GetValue<int>().Should().Be(7);
+        table[1]!["ip_subnet"]!.GetValue<string>().Should().Be("198.51.100.1/24");
+    }
+
     private static AuditIssue Issue(string title, AuditSeverity severity, string? network = null) => new()
     {
         Title = title, Severity = severity, Category = "Firewall", Description = "d", CurrentNetwork = network,
