@@ -130,9 +130,9 @@ public class ChangeDetectionTests
         shown[1].New.Should().Be("None");
 
         ChangeDescriber.SummaryLine("Device", "Desk Switch", ChangeDescriber.ChangeText(shown))
-            .Should().Be("Device Desk Switch: port 5 port profile, port 6 auto-negotiation");
+            .Should().Be("Device Desk Switch: Port 5 Port Profile, Port 6 Auto-Negotiation");
         ChangeDescriber.SummaryLine("Device", "Desk Switch", ChangeDescriber.ChangeText(shown.Take(1).ToList()))
-            .Should().Be("Device Desk Switch: port 5 port profile: None to [Access] Main Network");
+            .Should().Be("Device Desk Switch: Port 5 Port Profile: None to [Access] Main Network");
     }
 
     [Fact]

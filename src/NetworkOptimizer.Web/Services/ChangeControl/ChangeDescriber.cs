@@ -178,13 +178,6 @@ public static partial class ChangeDescriber
 
     private static bool IsNone(string? v) => string.IsNullOrEmpty(v) || string.Equals(v, "none", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>A label for a sentence: Title Case words lowercased, acronyms and UniFi's own names kept.</summary>
-    private static string Sentence(string label, bool keepFirst) =>
-        string.Join(' ', label.Split(' ').Select((w, i) =>
-            (i > 0 || !keepFirst) && w != "Wi-Fi" && w.Split('-').All(p => p.Length > 1 && char.IsUpper(p[0]) && p[1..].All(char.IsLower))
-                ? w.ToLowerInvariant()
-                : w));
-
     /// <summary>WLAN security as UniFi Network names it: Open, WPA2, WPA3, WPA2/WPA3, WPA2 Enterprise.</summary>
     public static string WlanSecurity(JsonObject? w)
     {
@@ -276,14 +269,14 @@ public static partial class ChangeDescriber
             return $"security {security.Old} to {security.New}";
         if (rows.Count == 1)
         {
+            // Labels keep UniFi Network's Title Case in a summary too ("Port 5 Port Profile").
             var r = rows[0];
-            var label = Sentence(r.Label, keepFirst: true);
-            if (r.Secret) return $"{label} changed";
+            if (r.Secret) return $"{r.Label} changed";
             if (r.Label == "Enabled") return string.Equals(r.New, "off", StringComparison.OrdinalIgnoreCase) ? "disabled" : "enabled";
-            if (r.Old.Length + r.New.Length > 50) return $"{label} changed";
-            return $"{label}: {r.Old} to {r.New}";
+            if (r.Old.Length + r.New.Length > 50) return $"{r.Label} changed";
+            return $"{r.Label}: {r.Old} to {r.New}";
         }
-        var labels = rows.Select(r => r.Label).Distinct().Select((l, i) => Sentence(l, keepFirst: i == 0)).ToList();
+        var labels = rows.Select(r => r.Label).Distinct().ToList();
         if (labels.Count > 4) return $"{string.Join(", ", labels.Take(3))}, and {labels.Count - 3} more";
         return string.Join(", ", labels);
     }
@@ -301,8 +294,8 @@ public static partial class ChangeDescriber
         };
     }
 
-    /// <summary>"Device Desk Switch: port 5 auto-negotiation, ..." for one updated object.</summary>
-    public static string SummaryLine(string noun, string name, string changeText) => $"{noun} {name}: {LowerFirst(changeText)}";
+    /// <summary>"Device Desk Switch: Port 5 Auto-Negotiation, ..." for one updated object.</summary>
+    public static string SummaryLine(string noun, string name, string changeText) => $"{noun} {name}: {changeText}";
 
     /// <summary>A group summary: the object's line for one, "N objects changed" for several.</summary>
     public static string GroupSummary(IReadOnlyList<ObjectDiff> objects, string? context = null,
@@ -319,12 +312,4 @@ public static partial class ChangeDescriber
     private static string Plural(string noun) =>
         noun.EndsWith("y", StringComparison.Ordinal) && !noun.EndsWith("ey", StringComparison.Ordinal) ? noun[..^1] + "ies"
         : noun.EndsWith("s", StringComparison.Ordinal) ? noun : noun + "s";
-
-    private static string LowerFirst(string s)
-    {
-        if (s.Length == 0) return s;
-        // Keep acronyms (PMF, VLAN, MLO) as they are.
-        var firstWord = s.Split(' ', ':')[0];
-        return firstWord.Length > 1 && firstWord.All(char.IsUpper) ? s : char.ToLowerInvariant(s[0]) + s[1..];
-    }
 }
