@@ -19,11 +19,11 @@ Genuinely, thank you so much to everybody for taking the time to use Network Opt
 
 ## Coming Soon: Change Control
 
-Available on Preview Now: track all changes to your UniFi Network configuration made from all sources. Revert entire change sets if performance didn't improve, save a baseline to return back to before major changes, save a template that can be applied - all or just some configuration pieces - to existing or new sites. See how changes affected performance directly on a visualization of Site Health, WAN stats, Gateway CPU usage, Wi-Fi Client-band split and PHY, and more. Alerts are sent automatically if there are regressions, and if a change takes down your site's WAN, it automatically reverts.
+Available on Preview Now: track all changes to your UniFi Network configuration made from all sources, with all differences recorded with each change. Revert entire change sets if performance didn't improve without having to remember to take backups, save a baseline to return back to before major changes, save a template that can be applied - all or just some configuration pieces - to existing or new sites. See how changes affected performance directly on a visualization of Site Health, WAN stats, Gateway CPU usage, Wi-Fi Client-band split and PHY, and more. Alerts are sent automatically if there are regressions, and if a change takes down your site's WAN, it automatically reverts.
 
 Migrate device configuration to entirely new device models while maintaining Wi-Fi band and full port configurations. Sick of the default 192.168.0.0/24 subnet, or ending up with subnet collisions among your managed sites? Change up your whole IP addressing scheme with a few clicks, with helpful pre-staging steps as well. Create, regroup, or split up Zones for Zone-Based Firewall configuration as well. Mass-adopt devices pending adoption, either on the bench or in the field. And more to come.
 
-Also bonus feature: edit configurations quickly in a YAML format with an auto-complete-enabled editor.
+Also bonus feature: edit configurations quickly in a YAML format with an auto-complete-enabled editor. Export and import and share YAML configurations among all of your managed sites.
 
 Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
 
