@@ -92,10 +92,12 @@ public class ChangeDetectionTests
     [Fact]
     public void Labels_PortShorthand_IsTitleCaseWithRealNames()
     {
-        ChangeDescriber.LabelFor("port_overrides[port_idx=5].autoneg").Should().Be("Port 5 Auto-Negotiation");
-        ChangeDescriber.LabelFor("port_overrides[port_idx=5].dot1x_ctrl").Should().Be("Port 5 802.1X Control");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].autoneg").Should().Be("Port 5 Auto Negotiate Link Speed");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].dot1x_ctrl").Should().Be("Port 5 Client Authentication (802.1X)");
         ChangeDescriber.LabelFor("port_overrides[port_idx=5].lldpmed_enabled").Should().Be("Port 5 LLDP-MED");
-        ChangeDescriber.LabelFor("port_overrides[port_idx=5].stp_port_mode").Should().Be("Port 5 STP Port Mode");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].stp_port_mode").Should().Be("Port 5 STP");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].op_mode").Should().Be("Port 5 Operation");
+        ChangeDescriber.DisplayValue("aggregate", "port_overrides[port_idx=5].op_mode").Should().Be("Aggregating");
         ChangeDescriber.LabelFor("port_overrides[port_idx=5].flow_control_enabled").Should().Be("Port 5 Flow Control");
         ChangeDescriber.LabelFor("port_overrides[port_idx=5].dot1x_idle_timeout").Should().Be("Port 5 802.1X Idle Timeout");
     }

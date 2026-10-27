@@ -22,7 +22,7 @@ public static partial class ChangeDescriber
         ["enabled"] = "Enabled", ["name"] = "Name", ["action"] = "Action", ["description"] = "Description",
         ["security"] = "Security", ["wpa_mode"] = "Security", ["wpa3_support"] = "Security", ["wpa3_transition"] = "Security",
         ["wpa_enc"] = "Security", ["pmf_mode"] = "PMF", ["x_passphrase"] = "Passphrase", ["x_iapp_key"] = "Fast Roaming Key",
-        ["native_networkconf_id"] = "Native Network", ["tagged_networkconf_ids"] = "Tagged Networks",
+        ["native_networkconf_id"] = "Native VLAN / Network", ["tagged_networkconf_ids"] = "Tagged Networks",
         ["excluded_networkconf_ids"] = "Tagged Networks", ["tagged_vlan_mgmt"] = "Tagged VLAN Management",
         ["networkconf_id"] = "Network", ["network_id"] = "Network", ["network_ids"] = "Networks",
         ["ip_subnet"] = "Subnet", ["vlan"] = "VLAN", ["vlan_enabled"] = "VLAN", ["mdns_enabled"] = "mDNS",
@@ -30,7 +30,7 @@ public static partial class ChangeDescriber
         ["wlan_bands"] = "Bands", ["mlo_enabled"] = "MLO", ["hide_ssid"] = "Hidden", ["ap_group_ids"] = "AP Groups",
         ["group_members"] = "Members", ["fixed_ip"] = "Fixed IP", ["use_fixedip"] = "Fixed IP", ["note"] = "Note",
         ["mgmt_network_id"] = "Management Network", ["config_network"] = "IP Settings", ["led_override"] = "LED",
-        ["stp_priority"] = "STP Priority", ["poe_mode"] = "PoE", ["op_mode"] = "Port Mode", ["forward"] = "Port Mode",
+        ["stp_priority"] = "STP Priority", ["poe_mode"] = "PoE", ["op_mode"] = "Operation", ["forward"] = "Port Mode",
         ["portconf_id"] = "Port Profile", ["value"] = "Value", ["record_type"] = "Type", ["key"] = "Hostname",
         ["source"] = "Source", ["destination"] = "Destination", ["schedule"] = "Schedule", ["logging"] = "Logging",
         ["protocol"] = "Protocol", ["ip_version"] = "IP Version", ["channel"] = "Channel", ["ht"] = "Channel Width",
@@ -38,6 +38,19 @@ public static partial class ChangeDescriber
         ["dhcpd_dns_1"] = "DNS Server", ["dhcpd_dns_2"] = "DNS Server", ["wan_dns1"] = "DNS Server", ["wan_dns2"] = "DNS Server",
         ["port_security_enabled"] = "Port Security", ["port_security_mac_address"] = "MAC Address Filter",
         ["trusted_port_mac"] = "Lock Port to UniFi Device",
+        // A switch port's settings, as UniFi Network's port panel names them.
+        ["autoneg"] = "Auto Negotiate Link Speed", ["dot1x_ctrl"] = "Client Authentication (802.1X)",
+        ["isolation"] = "Port Isolation", ["eee_enabled"] = "Energy Efficient Ethernet (EEE)", ["stp_port_mode"] = "STP",
+        ["stp_bpdu_guard_enabled"] = "BPDU Guard", ["stp_uplink"] = "STP Uplink", ["link_debounce"] = "Link Debounce",
+        ["link_debounce_auto"] = "Link Debounce", ["voice_networkconf_id"] = "Voice VLAN",
+        ["sd_wan_underlay_port"] = "SD-WAN Underlay Port", ["multicast_router_mode"] = "Multicast Router Port",
+        ["egress_rate_limit_kbps_enabled"] = "Egress Rate Limit", ["precision_time_protocol_enabled"] = "Precision Time Protocol (PTP)",
+    };
+
+    // A field's values as UniFi Network's options name them, keyed by field then stored value.
+    private static readonly Dictionary<string, Dictionary<string, string>> FieldValues = new(StringComparer.Ordinal)
+    {
+        ["op_mode"] = new(StringComparer.Ordinal) { ["switch"] = "Switching", ["mirror"] = "Mirroring", ["aggregate"] = "Aggregating" },
     };
 
     // UniFi field shorthand and acronyms, as a title shows them. Every other word is capitalized.
@@ -151,6 +164,8 @@ public static partial class ChangeDescriber
     public static string? DisplayValue(string? value, string? path = null)
     {
         if (string.IsNullOrEmpty(value)) return value;
+        if (path != null && FieldValues.TryGetValue(path.Split('.')[^1], out var options) && options.TryGetValue(value, out var option))
+            return option;
         // Text a person typed (a port's name, a note) is shown exactly as written; only an empty one reads None.
         if (path != null && FreeText.Contains(path.Split('.')[^1]))
             return string.Equals(value, "none", StringComparison.Ordinal) ? "None" : value;
