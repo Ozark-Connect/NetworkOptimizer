@@ -139,6 +139,8 @@ public class ChangeDetectionTests
     [Theory]
     [InlineData("WEB", "Web")]
     [InlineData("MOBILE", "Mobile")]
+    [InlineData("IOS", "iOS")]
+    [InlineData("ANDROID", "Android")]
     [InlineData("API", "API")]
     [InlineData("SSH", "SSH")]
     [InlineData("Web", "Web")]
