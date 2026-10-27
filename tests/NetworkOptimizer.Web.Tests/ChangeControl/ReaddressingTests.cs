@@ -25,13 +25,18 @@ public class ReaddressingTests
         var live = Site();
         live.Collections["setting"].Add(System.Text.Json.Nodes.JsonNode.Parse(
             """{"_id":"s2","key":"ips","honeypot_enabled":true,"honeypot":[{"ip_address":"192.168.30.250","network_id":"n2"}]}""")!.AsObject());
+        live.Collections["device"] = [
+            System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"gw","mac":"aa:bb:cc:dd:ee:10","name":"Gateway","config_network":{"type":"static","ip":"192.168.1.1"}}""")!.AsObject(),
+            System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"ap","mac":"aa:bb:cc:dd:ee:11","name":"AP","config_network":{"type":"static","ip":"192.168.1.20"}}""")!.AsObject()];
         var desired = Readdressing.Apply(live, Pattern(live)).Desired;
         var doc = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
 
-        ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n1" });
+        ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n1" }, new HashSet<string> { "gw" });
 
         var order = doc.Operations.Select(o => o.ObjectId).ToList();
         order.IndexOf("n1").Should().BeGreaterThan(order.IndexOf("n2"));
+        order.IndexOf("gw").Should().BeGreaterThan(order.IndexOf("ap"));
+        order.IndexOf("n1").Should().BeGreaterThan(order.IndexOf("gw"));
         order.IndexOf("s2").Should().BeGreaterThan(order.IndexOf("n1"));
         order.IndexOf("u1").Should().BeGreaterThan(order.IndexOf("n1"));
         doc.Context[PlanCoordinator.ReaddressPathContext].Split(',').Should().HaveCount(3);

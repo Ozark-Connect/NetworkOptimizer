@@ -118,7 +118,7 @@ public sealed partial class ChangeControlService
             result.Desired, new PlanOptions { Collections = result.Collections, DeleteMissing = false }, Actor, cancellationToken,
             doc =>
             {
-                OrderReaddressWrites(doc, pathNetworks);
+                OrderReaddressWrites(doc, pathNetworks, GatewayIds(live));
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 foreach (var m in result.Remote)
@@ -141,8 +141,9 @@ public sealed partial class ChangeControlService
     /// The network holding the console, or Network Optimizer's path to it, is written last: once it moves, the old
     /// address every later write goes to is gone. Addresses the console checks against their network's current
     /// subnet follow every network: honeypots (api.err.HoneypotIpNotWithinSelectedNetwork) and client reservations.
+    /// The gateway is the last device write: Network Optimizer may reach the other devices through it.
     /// </summary>
-    internal static void OrderReaddressWrites(PlanDocument doc, IReadOnlySet<string> pathNetworks)
+    internal static void OrderReaddressWrites(PlanDocument doc, IReadOnlySet<string> pathNetworks, IReadOnlySet<string>? gateways = null)
     {
         var path = doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)).ToList();
         foreach (var op in path)
@@ -157,10 +158,20 @@ public sealed partial class ChangeControlService
             op.Order = 101;
             op.ManagementPath = true;
         }
+        foreach (var op in doc.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && gateways?.Contains(o.ObjectId) == true))
+        {
+            op.Order = 11;
+            op.ManagementPath = true;
+        }
         PlanBuilder.Reorder(doc);
         // A write after a path network can lose its reply with the old address, so its failure is expected too.
         doc.Context[PlanCoordinator.ReaddressPathContext] = path.Count == 0 ? "" : string.Join(",", path.Concat(afterNetworks).Select(o => o.Key));
     }
+
+    /// <summary>The site's gateways by ID (ugw, udm, uxg).</summary>
+    private static HashSet<string> GatewayIds(ConfigState live) =>
+        live.Get("device").Where(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg")
+            .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One settings move for the plan note; a setting named by its own address is not named twice.</summary>
     internal static string SettingText(SettingRewrite s) =>
