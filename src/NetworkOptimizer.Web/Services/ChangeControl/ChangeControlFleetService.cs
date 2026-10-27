@@ -167,9 +167,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var engine = _registry.GetFor(site.Slug);
         var connection = _registry.Connection(site.Slug);
         var now = DateTime.UtcNow;
-        var (latest, changes, state, last, hours) = await engine.Repositories.UseAsync(async (r, c) =>
+        var (latest, changes, state, last, hours, snapshots, dismissed) = await engine.Repositories.UseAsync(async (r, c) =>
             (await r.GetLatestSnapshotAsync(c), await r.GetChangesAsync(now.AddDays(-7), now, 2000, c), await r.GetDetectionStateAsync(c),
-             await r.GetLastConfigChangeAsync(c), await r.GetHealthHoursAsync(now.AddHours(-24), now, c)), ct);
+             await r.GetLastConfigChangeAsync(c), await r.GetHealthHoursAsync(now.AddHours(-24), now, c), await r.GetSnapshotsAsync(null, null, 200, c),
+             (await r.GetDismissalsAsync(c)).Select(d => d.ItemKey).ToHashSet(StringComparer.Ordinal)), ct);
         var health = SiteHealth.SiteHealthSeriesBuilder.Build(_registry.WithProvisionalHealth(site.Slug, hours), now.AddHours(-24), now);
         var config = changes.Where(x => x.Kind == ConfigChangeKind.Config && x.ActorKind != ConfigChangeActorKind.NetworkOptimizer).ToList();
         var counted = changes.Where(x => x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
@@ -201,7 +202,8 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             // Counted as the timeline counts: config and firmware alike, NO's own only when a plan applied them.
             Changes7d = counted.Count,
             Changes24h = counted.Count(c => c.OccurredAt > now.AddDays(-1)),
-            Regressions = config.Sum(c => c.RegressionCount),
+            // Fixed or dismissed regressions drop out, as in Needs Attention.
+            Regressions = OpenRegressions(config, snapshots).Where(r => !dismissed.Contains(r.Key)).Sum(r => r.Lines.Count),
             Unattributed = config.Count(c => c.ActorKind is ConfigChangeActorKind.NoAdminRecorded or ConfigChangeActorKind.LikelyUniFi),
             DriftObjects = drift,
             NetworkAppVersion = state.NetworkAppVersion,
