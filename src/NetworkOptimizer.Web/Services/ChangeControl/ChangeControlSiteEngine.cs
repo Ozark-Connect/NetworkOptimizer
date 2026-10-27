@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using NetworkOptimizer.Core.Helpers;
-using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Storage.Services;
@@ -151,8 +150,14 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 var (collection, id) = MapJournalPath(r.Scope, r.Path);
                 await repo.AddJournalEntryAsync(new ConfigWriteJournalEntry
                 {
-                    At = r.At, Method = r.Method, Path = Truncate(r.Path, 300), Collection = collection,
-                    ObjectId = id ?? r.ResponseId, FieldsJson = JsonSerializer.Serialize(r.Fields), Source = r.Source, Status = r.Status,
+                    At = r.At,
+                    Method = r.Method,
+                    Path = Truncate(r.Path, 300),
+                    Collection = collection,
+                    ObjectId = id ?? r.ResponseId,
+                    FieldsJson = JsonSerializer.Serialize(r.Fields),
+                    Source = r.Source,
+                    Status = r.Status,
                 }, c);
             }
         }, ct);
@@ -237,8 +242,11 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         var foreign = changeEvents.Where(e => !ChangeAttributor.IsOwnEvent(e, journal)).ToList();
         var ownOnUserObjects = changeEvents.Where(e => ChangeAttributor.IsOwnEvent(e, journal)
             && !(e.ObjectName ?? "").StartsWith(ConfigCollections.NoOwnedPrefix, StringComparison.Ordinal)).ToList();
-        var recentJournal = journal.Any(x => now - x.At < UnexplainedCfgQuiet);
+        // Only our config writes explain a device's config moving; a read sent as POST (roaming topology) is journaled too.
+        var recentJournal = journal.Any(x => x.Collection != null && now - x.At < UnexplainedCfgQuiet);
         var unexplainedCfg = cfgChanged && changeEvents.Count == 0 && !recentJournal;
+        // Held, not dropped: the stored versions stay put so the next quiet poll still sees the move.
+        var cfgDeferred = cfgChanged && changeEvents.Count == 0 && recentJournal;
 
         if (!_historyImported && devices != null && ImportHistory != null)
         {
@@ -309,7 +317,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
         if (devices != null && snapshotOk)
         {
-            state.CfgVersionsJson = JsonSerializer.Serialize(devices.ToDictionary(d => d.Mac, d => d.CfgVersion));
+            if (!cfgDeferred || trigger != null)
+                state.CfgVersionsJson = JsonSerializer.Serialize(devices.ToDictionary(d => d.Mac, d => d.CfgVersion));
             state.DeviceVersionsJson = JsonSerializer.Serialize(devices.ToDictionary(d => d.Mac, d => d.Version));
         }
         if (!string.IsNullOrEmpty(appVersion)) state.NetworkAppVersion = appVersion;
