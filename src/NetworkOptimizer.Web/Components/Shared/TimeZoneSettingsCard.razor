@@ -1,6 +1,6 @@
 @inject ITimeZonePreferenceSource TimeZonePreferences
 @inject ISystemSettingsAdmin SettingsAdmin
-@inject IDisplayTimeZone DisplayTime
+@inject NavigationManager Navigation
 
 @* Settings - Application: the viewer's clock. Each user's own zone, then the zone everyone without
    one reads in. The default is instance-wide, so only a global Admin is offered it. *@
@@ -10,7 +10,7 @@
         <h2 class="card-title">Time Zone</h2>
     </div>
     <div class="card-body">
-        <PersonalTimeZoneField Version="@_version" />
+        <PersonalTimeZoneField />
 
         <AuthorizeView Policy="@Policies.RequireAdmin" Context="globalAdmin">
             @if (_loaded)
@@ -28,7 +28,6 @@
 @code {
     private bool _loaded;
     private string? _default;
-    private int _version;
     private string _serverLabel = "";
 
     protected override async Task OnInitializedAsync()
@@ -42,8 +41,7 @@
     {
         _default = value;
         await SettingsAdmin.SetGlobalAsync(TimeZonePreferenceSource.Key, value);
-        await DisplayTime.ResolveAsync();
-        // The personal field names the default it inherits.
-        _version++;
+        // Reloads so the page, and the personal field's "Default - ..." label, read the new default.
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
     }
 }
