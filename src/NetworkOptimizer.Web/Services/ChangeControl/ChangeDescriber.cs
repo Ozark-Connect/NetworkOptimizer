@@ -181,9 +181,9 @@ public static partial class ChangeDescriber
     /// <summary>A label for a sentence: Title Case words lowercased, acronyms and UniFi's own names kept.</summary>
     private static string Sentence(string label, bool keepFirst) =>
         string.Join(' ', label.Split(' ').Select((w, i) =>
-            (i == 0 && keepFirst) || Words.ContainsValue(w) || w.Length < 2 || !char.IsUpper(w[0]) || w[1..].Any(char.IsUpper)
-                ? w
-                : w.ToLowerInvariant()));
+            (i > 0 || !keepFirst) && w != "Wi-Fi" && w.Split('-').All(p => p.Length > 1 && char.IsUpper(p[0]) && p[1..].All(char.IsLower))
+                ? w.ToLowerInvariant()
+                : w));
 
     /// <summary>WLAN security as UniFi Network names it: Open, WPA2, WPA3, WPA2/WPA3, WPA2 Enterprise.</summary>
     public static string WlanSecurity(JsonObject? w)
@@ -262,7 +262,15 @@ public static partial class ChangeDescriber
             case ConfigChangeAction.Deleted:
                 return "Deleted";
         }
-        var rows = Rows(diff, beforeNames, afterNames);
+        return ChangeText(Rows(diff, beforeNames, afterNames));
+    }
+
+    /// <summary>The same text from rows as displayed (<see cref="ForDisplay"/>), for changes already stored.</summary>
+    public static string ChangeText(IReadOnlyList<StoredField> fields) =>
+        ChangeText(fields.Select(f => new FieldRow(f.Label, f.Old ?? "", f.New ?? "", f.Secret)).ToList());
+
+    private static string ChangeText(List<FieldRow> rows)
+    {
         // A WLAN security change is the headline; PMF and the rest show in the detail.
         if (rows.FirstOrDefault(r => r.Label == SecurityProtocol) is { } security && security.Old != security.New)
             return $"security {security.Old} to {security.New}";
@@ -271,7 +279,7 @@ public static partial class ChangeDescriber
             var r = rows[0];
             var label = Sentence(r.Label, keepFirst: true);
             if (r.Secret) return $"{label} changed";
-            if (r.Label == "Enabled") return r.New == "off" ? "disabled" : "enabled";
+            if (r.Label == "Enabled") return string.Equals(r.New, "off", StringComparison.OrdinalIgnoreCase) ? "disabled" : "enabled";
             if (r.Old.Length + r.New.Length > 50) return $"{label} changed";
             return $"{label}: {r.Old} to {r.New}";
         }
@@ -289,9 +297,12 @@ public static partial class ChangeDescriber
         {
             ConfigChangeAction.Created => $"{noun} {diff.Name} created",
             ConfigChangeAction.Deleted => $"{noun} {diff.Name} deleted",
-            _ => $"{noun} {diff.Name}: {LowerFirst(ChangeText(diff, beforeNames, afterNames))}",
+            _ => SummaryLine(noun, diff.Name, ChangeText(diff, beforeNames, afterNames)),
         };
     }
+
+    /// <summary>"Device Desk Switch: port 5 auto-negotiation, ..." for one updated object.</summary>
+    public static string SummaryLine(string noun, string name, string changeText) => $"{noun} {name}: {LowerFirst(changeText)}";
 
     /// <summary>A group summary: the object's line for one, "N objects changed" for several.</summary>
     public static string GroupSummary(IReadOnlyList<ObjectDiff> objects, string? context = null,

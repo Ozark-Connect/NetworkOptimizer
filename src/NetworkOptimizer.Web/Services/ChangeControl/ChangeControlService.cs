@@ -84,8 +84,29 @@ public sealed partial class ChangeControlService : IChangeControlService
     internal static Dictionary<int, (int PlanId, DateTime? At)> RollbacksByChange(List<(int ChangeId, int PlanId, DateTime? CompletedAt)> rows) =>
         rows.GroupBy(r => r.ChangeId).ToDictionary(g => g.Key, g => (g.First().PlanId, g.First().CompletedAt));
 
+    /// <summary>
+    /// Today's summary for each single-object config edit, rebuilt from its stored rows the way the change detail
+    /// shows them (labels, values, port-profile collapse), so changes recorded earlier read the same. Others keep theirs.
+    /// </summary>
+    internal static async Task<Dictionary<int, string>> SummariesAsync(Storage.Interfaces.IChangeControlRepository r,
+        IEnumerable<ConfigChange> changes, CancellationToken ct)
+    {
+        var ids = changes.Where(c => c.Kind == ConfigChangeKind.Config).Select(c => c.Id).ToList();
+        if (ids.Count == 0) return [];
+        return (await r.GetChangeObjectsAsync(ids, ct))
+            .GroupBy(o => o.ChangeId)
+            .Where(g => g.Count() == 1 && g.First().Action == ConfigChangeAction.Updated)
+            .ToDictionary(g => g.Key, g =>
+            {
+                var o = g.First();
+                var view = ObjectView(o);
+                return view.Fields.Count == 0 ? "" : ChangeDescriber.SummaryLine(ConfigCollections.Get(o.Collection)?.Noun ?? o.Collection,
+                    o.ObjectName, ChangeDescriber.ChangeText(view.Fields));
+            });
+    }
+
     internal static ChangeRowView Row(ConfigChange c, string slug, string siteName, int incidentsAfter,
-        IReadOnlyDictionary<int, (int PlanId, DateTime? At)>? rollbacks = null) => new()
+        IReadOnlyDictionary<int, (int PlanId, DateTime? At)>? rollbacks = null, IReadOnlyDictionary<int, string>? summaries = null) => new()
         {
             RolledBackByPlanId = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rb) ? rb.PlanId : null,
             RolledBackAt = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rba) ? rba.At : null,
@@ -94,7 +115,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             SiteName = siteName,
             OccurredAt = c.OccurredAt,
             Kind = c.Kind,
-            Summary = c.Summary,
+            Summary = summaries != null && summaries.TryGetValue(c.Id, out var s) && s.Length > 0 ? s : c.Summary,
             ActorKind = c.ActorKind,
             Who = Who(c),
             RegressionCount = c.RegressionCount,
@@ -119,7 +140,8 @@ public sealed partial class ChangeControlService : IChangeControlService
                 .Where(x => own || x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
             var incidents = await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c);
             var rollbacks = RollbacksByChange(await r.GetChangeRollbacksAsync(c));
-            return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents), rollbacks)).ToList();
+            var summaries = await SummariesAsync(r, changes, c);
+            return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents), rollbacks, summaries)).ToList();
         }, cancellationToken);
     }
 

@@ -128,6 +128,11 @@ public class ChangeDetectionTests
         shown.Select(f => f.Label).Should().Equal("Port 5 Port Profile", "Port 6 Auto-Negotiation");
         shown[0].Old.Should().Be("None");
         shown[1].New.Should().Be("None");
+
+        ChangeDescriber.SummaryLine("Device", "Desk Switch", ChangeDescriber.ChangeText(shown))
+            .Should().Be("Device Desk Switch: port 5 port profile, port 6 auto-negotiation");
+        ChangeDescriber.SummaryLine("Device", "Desk Switch", ChangeDescriber.ChangeText(shown.Take(1).ToList()))
+            .Should().Be("Device Desk Switch: port 5 port profile: None to [Access] Main Network");
     }
 
     [Fact]
