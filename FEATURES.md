@@ -581,7 +581,7 @@ Requires Gateway SSH.
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
 - **Security & Alerts** - audit allow-lists, alert channels, threat collection, MaxMind GeoIP, CrowdSec CTI
 - **Application** - admin password, licensing, pre-release update notices, guided tours, kiosk mode, satellite imagery (Mapbox)
-  - **Time Zone** - show times on your own clock; set the default for everyone else (global Admin)
+  - **Time Zone** - show times on your own clock; set the default for everyone else and for alerts (global Admin)
   - Back up and restore all settings or a full export (`.nopt`); clear cached data
 - **Identity** and **Audit Log** - see [Accounts and Access](#accounts-and-access)
 - **Multi-Site** - see [Multi-Site](#multi-site)
