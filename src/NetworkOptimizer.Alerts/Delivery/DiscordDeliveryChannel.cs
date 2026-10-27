@@ -23,7 +23,7 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
         _httpClient = httpClient;
     }
 
-    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<DiscordChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.WebhookUrl)) return false;
@@ -65,7 +65,7 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
         return await PostAsync(config.WebhookUrl, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<DiscordChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.WebhookUrl)) return false;
@@ -80,7 +80,7 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
 
         foreach (var alert in alerts.OrderByDescending(a => a.Severity).Take(10))
         {
-            description.AppendLine($"- **{alert.Title}** ({alert.Source}) - {TimestampFormatter.FormatLocalShort(alert.TriggeredAt)}");
+            description.AppendLine($"- **{alert.Title}** ({alert.Source}) - {TimestampFormatter.FormatLocalShort(alert.TriggeredAt, timeZone)}");
         }
 
         if (alerts.Count > 10)

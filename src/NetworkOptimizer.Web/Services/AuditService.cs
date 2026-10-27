@@ -55,6 +55,7 @@ public partial class AuditService : IAuditScanService
     private readonly Audit.Analyzers.FirewallRuleParser _firewallParser;
     private readonly IAlertEventBus? _alertEventBus;
     private readonly IThreatRepository? _threatRepository;
+    private readonly Alerts.Interfaces.INotificationTimeZoneResolver? _timeZones;
     private readonly SiteContextService _siteContext;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly SiteTunnelRouting? _tunnelRouting;
@@ -73,8 +74,10 @@ public partial class AuditService : IAuditScanService
         Licensing.LicenseStateService licenseState,
         IAlertEventBus? alertEventBus = null,
         IThreatRepository? threatRepository = null,
-        SiteTunnelRouting? tunnelRouting = null)
+        SiteTunnelRouting? tunnelRouting = null,
+        Alerts.Interfaces.INotificationTimeZoneResolver? timeZones = null)
     {
+        _timeZones = timeZones;
         _siteContext = siteContext;
         _tunnelRouting = tunnelRouting;
         _licenseState = licenseState;
@@ -622,7 +625,7 @@ public partial class AuditService : IAuditScanService
             try
             {
                 var threatSummary = await BuildThreatSummaryAsync();
-                var pdfReportData = BuildReportData(result, threatSummary: threatSummary);
+                var pdfReportData = BuildReportData(result, threatSummary: threatSummary, timeZone: await ReportTimeZoneAsync());
                 await _pdfStorageService.SavePdfAsync(auditId, pdfReportData);
             }
             catch (Exception pdfEx)
@@ -878,7 +881,16 @@ public partial class AuditService : IAuditScanService
         }
     }
 
-    public Reports.ReportData BuildReportData(AuditResult result, string? clientName = null, Reports.ThreatSummaryData? threatSummary = null)
+    /// <summary>
+    /// The clock a stored report is written on. It is generated with no one viewing it and
+    /// downloaded later by anyone, so it takes the notification clock, not a viewer's.
+    /// </summary>
+    private async Task<TimeZoneInfo> ReportTimeZoneAsync() =>
+        _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteContext.Slug);
+
+    /// <param name="timeZone">The clock the generated time is printed on, labeled; UTC with no label when null.</param>
+    public Reports.ReportData BuildReportData(AuditResult result, string? clientName = null, Reports.ThreatSummaryData? threatSummary = null,
+        TimeZoneInfo? timeZone = null)
     {
         // Derive client name from gateway device if not provided
         if (string.IsNullOrEmpty(clientName))
@@ -893,7 +905,8 @@ public partial class AuditService : IAuditScanService
         {
             ThreatSummary = threatSummary,
             ClientName = clientName,
-            GeneratedAt = result.CompletedAt,
+            GeneratedAt = timeZone == null ? result.CompletedAt : DateTimeUtilities.ToZone(result.CompletedAt, timeZone),
+            TimeZoneLabel = timeZone == null ? null : DateTimeUtilities.ZoneAbbreviation(timeZone, result.CompletedAt),
 
             // Security score
             SecurityScore = new Reports.SecurityScore
@@ -1252,7 +1265,7 @@ public partial class AuditService : IAuditScanService
             var threatSummaryForPdf = rows == null
                 ? await BuildThreatSummaryAsync()
                 : await BuildThreatSummaryAsync(rows.TopSources, rows.CategoryRows);
-            var reportData = BuildReportData(result, threatSummary: threatSummaryForPdf);
+            var reportData = BuildReportData(result, threatSummary: threatSummaryForPdf, timeZone: await ReportTimeZoneAsync());
             var generator = new Reports.PdfReportGenerator();
             var pdfBytes = generator.GenerateReportBytes(reportData);
 

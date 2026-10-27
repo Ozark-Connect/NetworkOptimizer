@@ -111,6 +111,17 @@ public class RolloutScopeCopyTests
         RolloutScopeCopy.SiteAside("America/Phoenix", january, Zone("America/Denver")).Should().BeEmpty();
     }
 
+    [Fact]
+    public void AnAlertStart_IsLabeledWithItsZone_AndTheSiteAside()
+    {
+        var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+
+        RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/Chicago"))
+            .Should().Be("Sun Oct 11, 6:00 AM CDT (7:00 AM at-site)");
+        RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/New_York"))
+            .Should().Be("Sun Oct 11, 7:00 AM EDT");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

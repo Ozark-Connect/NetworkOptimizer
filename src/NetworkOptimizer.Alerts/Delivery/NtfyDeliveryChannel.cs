@@ -27,7 +27,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
         _secretDecryptor = secretDecryptor;
     }
 
-    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<NtfyChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Topic)) return false;
@@ -47,7 +47,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
         return await PostAsync(config, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<NtfyChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Topic)) return false;
@@ -63,7 +63,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
 
         foreach (var alert in alerts.OrderByDescending(a => a.Severity).Take(10))
         {
-            sb.AppendLine($"- **{alert.Title}** - {alert.Source} ({TimestampFormatter.FormatLocalShort(alert.TriggeredAt)})");
+            sb.AppendLine($"- **{alert.Title}** - {alert.Source} ({TimestampFormatter.FormatLocalShort(alert.TriggeredAt, timeZone)})");
         }
 
         if (alerts.Count > 10)

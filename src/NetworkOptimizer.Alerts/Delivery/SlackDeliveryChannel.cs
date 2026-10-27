@@ -23,7 +23,7 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
         _httpClient = httpClient;
     }
 
-    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<SlackChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.WebhookUrl)) return false;
@@ -61,7 +61,7 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
         return await PostAsync(config.WebhookUrl, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<SlackChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.WebhookUrl)) return false;
@@ -85,7 +85,7 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
             blocks.Add(new
             {
                 type = "section",
-                text = new { type = "mrkdwn", text = $"{emoji} *{alert.Title}*\n_{alert.Source}_ - {TimestampFormatter.FormatLocalShort(alert.TriggeredAt)}" }
+                text = new { type = "mrkdwn", text = $"{emoji} *{alert.Title}*\n_{alert.Source}_ - {TimestampFormatter.FormatLocalShort(alert.TriggeredAt, timeZone)}" }
             });
         }
 

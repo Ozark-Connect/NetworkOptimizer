@@ -30,15 +30,16 @@ public interface IAlertDeliveryChannel
     DeliveryChannelType ChannelType { get; }
 
     /// <summary>
-    /// Send a single alert notification.
+    /// Send a single alert notification. Times in the text are shown on <paramref name="timeZone"/>.
     /// </summary>
-    Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, CancellationToken cancellationToken = default);
+    Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Send a digest summary of multiple alerts.
-    /// <paramref name="summary"/> contains pre-collapse counts for accurate totals.
+    /// <paramref name="summary"/> contains pre-collapse counts for accurate totals. Times in the
+    /// text are shown on <paramref name="timeZone"/>.
     /// </summary>
-    Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default);
+    Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Send a test notification to verify channel configuration.
