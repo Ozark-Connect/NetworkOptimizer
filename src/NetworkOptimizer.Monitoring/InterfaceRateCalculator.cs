@@ -156,8 +156,12 @@ public static class InterfaceRateCalculator
             // value would make the next clean poll snap back to a terabit/sec
             // spike. Hold the last good baseline and remember this as a reset
             // candidate; only a second below-baseline poll confirms a real reset.
+            // An all-zero confirming read is the corrupt poll the seed path distrusts, so it seeds
+            // provisionally too; a zero baseline makes the next real read a near-line-rate phantom.
             if (prev.CandidateTimestamp is not null)
-                return new Result(null, null, fresh, Outcome.ResetConfirmed);
+                return new Result(null, null,
+                    useHcCounters && inOctets == 0 && outOctets == 0 ? fresh with { ProvisionalSeed = true } : fresh,
+                    Outcome.ResetConfirmed);
 
             var holding = prev with
             {
