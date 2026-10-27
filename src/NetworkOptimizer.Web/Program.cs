@@ -290,6 +290,9 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(s
     sp.GetRequiredService<SiteContextService>());
 // Resolves a site's display name so delivered alerts name their originating site.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IAlertSiteNameResolver, AlertSiteNameResolver>();
+// The clock for text written with no viewer (alerts, digests, stored reports). A host decorates it
+// to put its own zone first.
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver, NotificationTimeZoneResolver>();
 builder.Services.AddSingleton<AgentEnrollmentService>();
 // Which of a site's agents hosts the LAN speed test - one pick shared by the client target, the
 // Settings hint, and path analysis.

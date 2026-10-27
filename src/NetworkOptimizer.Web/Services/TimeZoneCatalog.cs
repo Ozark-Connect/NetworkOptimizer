@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -45,9 +46,7 @@ public static class TimeZoneCatalog
     /// An instant on <paramref name="zone"/>'s clock. Unspecified kind is read as UTC, which is what EF
     /// returns from SQLite and what <see cref="DateTime.ToLocalTime"/> assumed.
     /// </summary>
-    public static DateTime ToZone(DateTime utc, TimeZoneInfo zone) => utc.Kind == DateTimeKind.Local
-        ? TimeZoneInfo.ConvertTime(utc, zone)
-        : TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
+    public static DateTime ToZone(DateTime utc, TimeZoneInfo zone) => DateTimeUtilities.ToZone(utc, zone);
 
     /// <summary>"America/Chicago (UTC-05:00)", with the offset in force at <paramref name="nowUtc"/>.</summary>
     public static string Describe(string id, DateTime nowUtc) =>
@@ -64,15 +63,8 @@ public static class TimeZoneCatalog
     /// Short name of a zone at an instant: "CDT" where the platform has one (Linux), else the
     /// initials of the long name ("Central Daylight Time" on Windows).
     /// </summary>
-    public static string Abbreviation(TimeZoneInfo zone, DateTime instantUtc)
-    {
-        if (zone.BaseUtcOffset == TimeSpan.Zero && !zone.SupportsDaylightSavingTime) return "UTC";
-        var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(instantUtc, DateTimeKind.Utc), zone);
-        var name = zone.IsDaylightSavingTime(at) ? zone.DaylightName : zone.StandardName;
-        if (name.Length <= 5) return name;
-        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
-    }
+    public static string Abbreviation(TimeZoneInfo zone, DateTime instantUtc) =>
+        DateTimeUtilities.ZoneAbbreviation(zone, instantUtc);
 
     private static IReadOnlyList<TimeZoneOption> Build()
     {

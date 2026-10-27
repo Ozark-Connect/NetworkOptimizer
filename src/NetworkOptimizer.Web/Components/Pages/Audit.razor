@@ -1146,6 +1146,7 @@
             {
                 ClientName = networkName,
                 GeneratedAt = DisplayTime.Now,
+                TimeZoneLabel = DisplayTime.Abbreviation(DateTime.UtcNow),
                 SecurityScore = new NetworkOptimizer.Reports.SecurityScore
                 {
                     Rating = securityScore >= 90 ? NetworkOptimizer.Reports.SecurityRating.Excellent
