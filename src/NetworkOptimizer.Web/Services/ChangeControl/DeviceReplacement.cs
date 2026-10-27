@@ -288,8 +288,8 @@ public static class DeviceReplacement
             var parts = new List<string>();
             if (Str(o, "portconf_id") is { } pc && names.TryGetValue(pc, out var profile)) parts.Add(profile);
             else if (Str(o, "native_networkconf_id") is { } nn && names.TryGetValue(nn, out var net)) parts.Add(net);
-            if (Str(o, "forward") is "disabled") parts.Add("disabled");
-            if (o["isolation"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) parts.Add("port isolation");
+            if (Str(o, "forward") is "disabled") parts.Add("Disabled");
+            if (o["isolation"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) parts.Add("Port Isolation");
             if (byIdx.TryGetValue(idx, out var p) && p.Powering) parts.Add("PoE");
             return parts.Count > 0 ? string.Join(", ", parts) : "Custom";
         }
@@ -556,8 +556,8 @@ public static class DeviceReplacement
         if (row.Config.StartsWith("LAG", StringComparison.Ordinal)) parts.Add("LAG");
         if (powering) parts.Add(targets.All(t => t.Poe) ? "PoE" : "No PoE");
         if (template?.Uplink == true) parts.Add(SpeedLabel(targets.Min(t => t.SpeedMbps)));
-        else if (faster) parts.Add("faster");
-        else if (slower) parts.Add("slower");
+        else if (faster) parts.Add("Faster");
+        else if (slower) parts.Add("Slower");
         row.Fit = parts.Count > 0 ? string.Join(", ", parts) : "Fits";
         row.FitLevel = powering && !targets.All(t => t.Poe) ? "error" : slower ? "warn" : "ok";
 
@@ -577,7 +577,7 @@ public static class DeviceReplacement
         Dictionary<string, string> names, ReplacementProposal proposal)
     {
         var s = proposal.Settings;
-        if (Str(device, "stp_priority") is { } stp) s.Add(new($"STP priority {stp}", "Copied", "ok"));
+        if (Str(device, "stp_priority") is { } stp) s.Add(new($"STP Priority {stp}", "Copied", "ok"));
 
         var map = PortMap(proposal);
         var lagNo = 0;
@@ -595,16 +595,13 @@ public static class DeviceReplacement
             s.Add(new($"{lagNo} LAGs", $"New model supports {maxLags}", "warn"));
 
         var extras = new List<string>();
-        if (device["jumboframe_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) extras.Add("jumbo frames");
-        if (device["flowctrl_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) extras.Add("flow control");
+        if (device["jumboframe_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) extras.Add("Jumbo Frames");
+        if (device["flowctrl_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) extras.Add("Flow Control");
         if (device["dot1x_portctrl_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) extras.Add("802.1X");
         if ((device["port_overrides"] as JsonArray ?? []).OfType<JsonObject>().Any(o => o["stormctrl_bcast_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True))
-            extras.Add("storm control");
+            extras.Add("Storm Control");
         if (extras.Count > 0)
-        {
-            var label = string.Join(", ", extras);
-            s.Add(new(char.ToUpperInvariant(label[0]) + label[1..], "Copied", "ok"));
-        }
+            s.Add(new(string.Join(", ", extras), "Copied", "ok"));
 
         var used = Dbl(oldMeta, "total_used_power");
         var budget = Dbl(newMeta, "total_max_power");
@@ -616,7 +613,7 @@ public static class DeviceReplacement
         var mgmt = Str(device, "mgmt_network_id") is { } m && names.TryGetValue(m, out var mn) ? mn : null;
         var staticIp = device["config_network"] is JsonObject cn && Str(cn, "type") == "static" ? Str(cn, "ip") : null;
         if (mgmt != null || staticIp != null)
-            s.Add(new(string.Join(", ", new[] { mgmt != null ? $"Management network: {mgmt}" : null, staticIp != null ? $"static {staticIp}" : null }.OfType<string>()), "Copied", "ok"));
+            s.Add(new(string.Join(", ", new[] { mgmt != null ? $"Management Network: {mgmt}" : null, staticIp != null ? $"Static IP {staticIp}" : null }.OfType<string>()), "Copied", "ok"));
 
         var oldLight = (oldMeta["switch_caps"] as JsonObject) is { } oc ? Int(oc, "etherlight_caps") ?? 0 : 0;
         var newLight = (newMeta["switch_caps"] as JsonObject) is { } nc ? Int(nc, "etherlight_caps") ?? 0 : 0;
@@ -710,20 +707,22 @@ public static class DeviceReplacement
             proposal.Radios.Add(new(BandName(band), "-", "Site defaults", "New band", "muted"));
 
         if (Str(oldDevice, "mesh_uplink_1") is { Length: > 0 })
-            proposal.Settings.Add(new("Mesh uplink", "Copied", "ok"));
+            proposal.Settings.Add(new("Mesh Uplink", "Copied", "ok"));
         var oldMac = Str(oldDevice, "mac")?.ToLowerInvariant();
         foreach (var child in context.Get("device").Where(d => oldMac != null
             && (Str(d, "mesh_uplink_1")?.ToLowerInvariant() == oldMac || Str(d, "mesh_uplink_2")?.ToLowerInvariant() == oldMac)))
             proposal.Settings.Add(new($"{ConfigState.DisplayName(ConfigCollections.Get("device"), child)} meshes through this AP", "Uplink MAC rewritten", "ok"));
         if (oldDevice["outdoor_mode_override"] != null || oldDevice["led_override"] != null)
-            proposal.Settings.Add(new("LED and outdoor mode", "Copied", "ok"));
+            proposal.Settings.Add(new("LED and Outdoor Mode", "Copied", "ok"));
     }
 
     private static string RadioText(JsonObject r)
     {
-        var channel = Str(r, "channel") is { } c && c != "0" ? $"ch {c}" : "auto";
+        var channel = Str(r, "channel") is { } c && c is not ("0" or "auto") ? $"Channel {c}" : "Auto Channel";
         var width = Int(r, "ht") is { } w ? $"{w} MHz" : "";
-        var power = Str(r, "tx_power_mode") is "custom" ? $"{Str(r, "tx_power")} dBm" : Str(r, "tx_power_mode") ?? "";
+        // UniFi Network's Transmit Power modes, Auto to Low, then Custom in dBm.
+        var power = Str(r, "tx_power_mode") is "custom" ? $"{Str(r, "tx_power")} dBm"
+            : Str(r, "tx_power_mode") is { Length: > 0 } mode ? $"{ChangeDescriber.Title(mode)} Power" : "";
         return string.Join(", ", new[] { channel, width, power }.Where(s => s.Length > 0));
     }
 
@@ -736,12 +735,12 @@ public static class DeviceReplacement
         if (Int(r, "ht") is { } ht && ht > MaxWidth(caps, band))
         {
             r["ht"] = MaxWidth(caps, band);
-            notes.Add($"width {ht} to {MaxWidth(caps, band)} MHz");
+            notes.Add($"Width {ht} to {MaxWidth(caps, band)} MHz");
         }
         if (band == "na" && Int(r, "channel") is { } ch && ch is >= 52 and <= 144 && caps["has_dfs"]?.GetValueKind() != System.Text.Json.JsonValueKind.True)
         {
             r["channel"] = "auto";
-            notes.Add("DFS channel to auto");
+            notes.Add("DFS Channel to Auto Channel");
         }
         if (Str(r, "tx_power_mode") == "custom" && Int(r, "tx_power") is { } p)
         {
@@ -751,7 +750,7 @@ public static class DeviceReplacement
             if (clamped != p)
             {
                 r["tx_power"] = clamped;
-                notes.Add($"power {p} to {clamped} dBm");
+                notes.Add($"Power {p} to {clamped} dBm");
             }
         }
         if (r["antenna_id"] != null && caps["builtin_antenna"]?.GetValueKind() == System.Text.Json.JsonValueKind.True)

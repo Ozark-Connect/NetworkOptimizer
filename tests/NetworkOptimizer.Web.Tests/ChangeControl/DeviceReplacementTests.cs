@@ -170,7 +170,7 @@ public class DeviceReplacementTests
         var p = DeviceReplacement.Propose(old, @new, Context());
 
         p.Kind.Should().Be("ap");
-        p.Radios.Should().Contain(r => r.Band == "5 GHz" && r.Note.Contains("width 160 to 80") && r.Note.Contains("DFS") && r.Note.Contains("power 29 to 23"));
+        p.Radios.Should().Contain(r => r.Band == "5 GHz" && r.Note.Contains("Width 160 to 80") && r.Note.Contains("DFS") && r.Note.Contains("Power 29 to 23"));
         p.Radios.Should().Contain(r => r.Band == "6 GHz" && r.Note.Contains("Home"));
         var radios = DeviceReplacement.Adapt(p, old, @new)["radio_table"]!.AsArray();
         radios.Should().ContainSingle();
