@@ -24024,6 +24024,19 @@ body:has(.top-bar-hidden) .btn-fit {
     color: var(--text-primary);
 }
 
+.change-control .cc-action-spacer {
+    display: inline-block;
+    visibility: hidden;
+}
+
+/* The Baseline's pin: shown filled, but it is a state, not a control. */
+.change-control .cc-pin-locked,
+.change-control .cc-pin-locked:hover {
+    display: inline-block;
+    cursor: default;
+    color: var(--text-secondary);
+}
+
 .change-control .cc-tags {
     display: inline-flex;
     gap: 0.35rem;

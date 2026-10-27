@@ -114,7 +114,12 @@
                         <td class="hide-mobile"></td>
                         <td class="hide-mobile">
                             <div class="cc-row-actions">
-                                <SiteOperatorOnly><button class="cc-link-btn" @onclick="() => DownloadYamlAsync(null)">Download YAML</button></SiteOperatorOnly>
+                                <SiteOperatorOnly>
+                                    @YamlButton(null, "The live config as a YAML file, secrets redacted")
+                                    @* Hold the snapshot rows' later actions, so YAML lines up with theirs. *@
+                                    <span class="cc-link-btn cc-action-spacer" aria-hidden="true">Roll Back To</span>
+                                </SiteOperatorOnly>
+                                <SiteAdminOnly><span class="cc-link-btn cc-action-spacer" aria-hidden="true">Set as Baseline</span></SiteAdminOnly>
                             </div>
                         </td>
                     </tr>
@@ -145,27 +150,28 @@
                             <td class="hide-mobile">
                                 <div class="cc-row-actions">
                                     <SiteOperatorOnly>
-                                        @if (!s.IsBaseline)
+                                        @if (s.IsBaseline)
+                                        {
+                                            <span class="cc-link-btn cc-pin-locked" aria-label="Kept as the Baseline"
+                                                  data-tooltip="The Baseline is always kept. Setting another Baseline releases it.">@PinIcon(true)</span>
+                                        }
+                                        else
                                         {
                                             <button class="cc-link-btn" @onclick="() => TogglePinAsync(s)"
                                                     aria-label="@(s.Pinned ? "Unpin" : "Pin")"
-                                                    data-tooltip="@(s.Pinned ? "Pinned: kept forever. Unpin to let retention remove it on schedule." : "Pin to keep this snapshot forever, out of retention.")">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="@(s.Pinned ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
-                                                    <line x1="12" y1="17" x2="12" y2="22" />
-                                                    <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
-                                                </svg>
+                                                    data-tooltip="@(s.Pinned ? "Pinned: kept forever. Unpin to let retention remove it on schedule." : "Pin to keep this snapshot forever, out of retention pruning.")">
+                                                @PinIcon(s.Pinned)
                                             </button>
                                         }
-                                        <button class="cc-link-btn" data-tooltip="This snapshot's config as a YAML file, secrets redacted" aria-label="Download YAML" @onclick="() => DownloadYamlAsync(s.Id)">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
-                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                                <polyline points="7 10 12 15 17 10" />
-                                                <line x1="12" y1="15" x2="12" y2="3" />
-                                            </svg> YAML
-                                        </button>
+                                        @YamlButton(s.Id, "This snapshot's config as a YAML file, secrets redacted")
                                         <button class="cc-link-btn" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(s.Id)">@Spinner($"rollback:{s.Id}") Roll Back To</button>
                                     </SiteOperatorOnly>
-                                    @if (!s.IsBaseline)
+                                    @if (s.IsBaseline)
+                                    {
+                                        @* Holds the button's width, so this row's actions line up with the rows that have it. *@
+                                        <SiteAdminOnly><span class="cc-link-btn cc-action-spacer" aria-hidden="true">Set as Baseline</span></SiteAdminOnly>
+                                    }
+                                    else
                                     {
                                         <SiteAdminOnly><button class="cc-link-btn" disabled="@_busy" @onclick="() => SetBaselineAsync(s.Id)" data-tooltip="The reference config: Drift from Baseline and drift alerts compare against it, and Return to Baseline restores it." data-tooltip-hover-only>Set as Baseline</button></SiteAdminOnly>
                                     }
@@ -457,6 +463,22 @@ else if (_compare != null)
 
     // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
     private string? _running;
+
+    /// <summary>The download icon plus "YAML"; a null id is the live config.</summary>
+    private RenderFragment YamlButton(int? snapshotId, string tooltip) =>
+        @<button class="cc-link-btn" data-tooltip="@tooltip" aria-label="Download YAML" @onclick="() => DownloadYamlAsync(snapshotId)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+            </svg> YAML
+        </button>;
+
+    private static RenderFragment PinIcon(bool filled) =>
+        @<svg width="14" height="14" viewBox="0 0 24 24" fill="@(filled ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
+            <line x1="12" y1="17" x2="12" y2="22" />
+            <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+        </svg>;
 
     private RenderFragment? Spinner(string action) =>
         _running == action ? @<span class="spinner-sm"></span> : null;
