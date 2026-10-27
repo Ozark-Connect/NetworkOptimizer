@@ -297,7 +297,7 @@ public class RicherlinkOntProviderTests
     // --- End to end against a stub device ---
 
     [Fact]
-    public async Task PollAsync_Gb2312Pages_ReturnsStats()
+    public async Task PollAsync_OpenSession_ReadsPagesWithoutSigningInOrOut()
     {
         using var server = new StubOnt(new()
         {
@@ -317,6 +317,8 @@ public class RicherlinkOntProviderTests
         stats.VendorSn.Should().Be("RLGM00000000");
         stats.VendorPn.Should().Be("V2.0");
         stats.OperationalStatus.Should().Be("Up");
+        // A session someone else opened from the gateway's address must stay open.
+        server.Paths.Should().NotContain([SignIn, SignOut]);
     }
 
     [Fact]
@@ -336,36 +338,137 @@ public class RicherlinkOntProviderTests
     }
 
     [Fact]
-    public async Task PollAsync_SignInPage_FailsWithPendingLoginMessage()
+    public async Task PollAsync_SignInRequired_SignsInReadsAndSignsOut()
+    {
+        using var server = SignInOnt("User1", "p@ss&wd");
+
+        var result = await NewProvider().PollAsync(server.Context("User1", "p@ss&wd"));
+
+        result.FailureReason.Should().BeNull();
+        result.Stats!.RxPowerDbm.Should().Be(-22.37);
+        result.Stats.VendorSn.Should().Be("RLGM00000000");
+        server.Requests.Select(r => $"{r.Method} {r.Path}").Should().Equal(
+            "GET /cgi-bin/sta-network.asp", $"GET {SignIn}", $"POST {SignIn}", "GET /cgi-bin/sta-network.asp",
+            "GET /cgi-bin/sta-device.asp", "GET /cgi-bin/content.asp", $"GET {SignOut}");
+        server.SignedIn.Should().BeFalse("the ONT allows one session, so the poll frees it");
+    }
+
+    [Fact]
+    public async Task PollAsync_SignIn_SendsTheLoginPageFieldsAndCookies()
+    {
+        using var server = SignInOnt("User1", "p@ss&wd");
+
+        await NewProvider().PollAsync(server.Context("User1", "p@ss&wd"));
+
+        var post = server.Requests.Single(r => r.Method == "POST");
+        post.Body.Should().Be(RicherlinkOntProvider.BuildSignInForm("User1", "p@ss&wd"));
+        post.Cookie.Should().Contain($"SESSIONID={StubOnt.SessionId}")
+            .And.Contain("UID=User1").And.Contain("PSW=p@ss&wd").And.Contain("LoginTimes=1");
+    }
+
+    [Fact]
+    public void BuildSignInForm_MatchesTheLoginPageForm() =>
+        RicherlinkOntProvider.BuildSignInForm("User1", "a b&c").Should().Be(
+            "Username=User1&Logoff=0&hLoginTimes=1&hLoginTimes_Zero=0&value_one=1&Password1=a%20b%26c" +
+            "&Password2=a%20b%26c&logintype=usr&LoginFailTime=1&hLoginFailTime=1&Password=a%20b%26c");
+
+    [Fact]
+    public async Task PollAsync_SignInRequiredWithoutCredentials_AsksForThem()
+    {
+        using var server = SignInOnt("User1", "pw");
+
+        var result = await NewProvider().PollAsync(server.Context());
+
+        result.FailureReason.Should().Be(RicherlinkOntProvider.CredentialsNeededMessage("127.0.0.1"));
+        server.Paths.Should().NotContain([SignIn, SignOut]);
+    }
+
+    [Fact]
+    public async Task PollAsync_SignInPageWithoutCredentials_AsksForThem()
     {
         using var server = new StubOnt(new() { ["/cgi-bin/sta-network.asp"] = (200, SignInPage) });
 
         var result = await NewProvider().PollAsync(server.Context());
 
-        result.Stats.Should().BeNull();
-        result.FailureReason.Should().Be(RicherlinkOntProvider.SignInPendingMessage("127.0.0.1"));
-        result.FailureReason.Should().Contain("requires sign-in").And.Contain("pending");
+        result.FailureReason.Should().Be(RicherlinkOntProvider.CredentialsNeededMessage("127.0.0.1"));
     }
 
     [Fact]
-    public async Task PollAsync_Unauthorized_FailsWithPendingLoginMessage()
+    public async Task PollAsync_RejectedSignIn_HoldsTheNextTry()
     {
-        using var server = new StubOnt(new() { ["/cgi-bin/sta-network.asp"] = (401, "") });
+        // Three failed sign-ins lock the ONT's web page, so a rejected password is not resent each poll.
+        using var server = SignInOnt("User1", "right");
+        var provider = NewProvider();
+
+        var first = await provider.PollAsync(server.Context("User1", "wrong"));
+        first.FailureReason.Should().Be(RicherlinkOntProvider.SignInRejectedMessage("127.0.0.1"));
+        server.Paths.Should().EndWith(SignOut);
+
+        var second = await provider.PollAsync(server.Context("User1", "wrong"));
+        second.FailureReason.Should().StartWith(RicherlinkOntProvider.SignInRejectedMessage("127.0.0.1"))
+            .And.Contain("The next sign-in is in 5 min");
+
+        server.Requests.Count(r => r.Method == "POST").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PollAsync_ChangedPassword_IsTriedDuringTheHold()
+    {
+        using var server = SignInOnt("User1", "right");
+        var provider = NewProvider();
+        await provider.PollAsync(server.Context("User1", "wrong"));
+
+        var result = await provider.PollAsync(server.Context("User1", "right"));
+
+        result.FailureReason.Should().BeNull();
+        result.Stats!.RxPowerDbm.Should().Be(-22.37);
+    }
+
+    [Fact]
+    public async Task PollAsync_MissingPage_SaysTheAddressIsWrong()
+    {
+        using var server = new StubOnt(new());
 
         var result = await NewProvider().PollAsync(server.Context());
 
-        result.FailureReason.Should().Be(RicherlinkOntProvider.SignInPendingMessage("127.0.0.1"));
+        result.FailureReason.Should().Contain("not on the address this model is polled at");
     }
 
     [Fact]
-    public async Task TestConnectionAsync_SignInPage_ReportsPendingLogin()
+    public async Task PollAsync_NothingListening_SaysTheConnectionWasRefused()
     {
-        using var server = new StubOnt(new() { ["/cgi-bin/sta-network.asp"] = (200, SignInPage) });
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
 
-        var (success, message) = await NewProvider().TestConnectionAsync(server.Context());
+        var result = await NewProvider().PollAsync(new OntPollContext { Id = 1, Name = "Richerlink", Host = "127.0.0.1", Port = port });
+
+        result.FailureReason.Should().Contain("refused the connection");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_SignInRequired_SignsInAndOut()
+    {
+        using var server = SignInOnt("User1", "pw");
+
+        var (success, message) = await NewProvider().TestConnectionAsync(server.Context("User1", "pw"));
+
+        success.Should().BeTrue();
+        message.Should().Be("Connected (HTTP) - RX: -22.37 dBm, TX: 2.74 dBm");
+        server.Paths.Should().EndWith(SignOut);
+        server.SignedIn.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_RejectedSignIn_ReportsIt()
+    {
+        using var server = SignInOnt("User1", "right");
+
+        var (success, message) = await NewProvider().TestConnectionAsync(server.Context("User1", "wrong"));
 
         success.Should().BeFalse();
-        message.Should().Be(RicherlinkOntProvider.SignInPendingMessage("127.0.0.1"));
+        message.Should().Be(RicherlinkOntProvider.SignInRejectedMessage("127.0.0.1"));
     }
 
     [Fact]
@@ -388,30 +491,59 @@ public class RicherlinkOntProviderTests
         provider.DisplayName.Should().Be("Richerlink RL821GWV-D (HTTP)");
     }
 
+    private const string SignIn = RicherlinkOntProvider.SignInPath;
+    private const string SignOut = RicherlinkOntProvider.SignOutPath;
+
     private static RicherlinkOntProvider NewProvider() => new(NullLogger<RicherlinkOntProvider>.Instance);
 
+    private static StubOnt SignInOnt(string username, string password) => new(new()
+    {
+        ["/cgi-bin/sta-network.asp"] = (200, NetworkPage),
+        ["/cgi-bin/sta-device.asp"] = (200, DevicePage),
+        ["/cgi-bin/content.asp"] = (200, ContentPage),
+    }, (username, password));
+
     /// <summary>
-    /// Serves fixed pages with the device's own <c>charset=GB2312</c> header, which .NET cannot
-    /// decode, so the provider's byte-level read is exercised. Unknown paths answer 404.
+    /// Serves fixed pages with the device's own <c>charset=GB2312</c> header. Unknown paths answer
+    /// 404. With <c>login</c> set it acts like the ONT's session: data pages answer 401 until a
+    /// POST to index2.asp carries the SESSIONID it issued, the UID/PSW cookies, and the matching
+    /// form fields, and logout.cgi ends the session.
     /// </summary>
     private sealed class StubOnt : IDisposable
     {
+        public const string SessionId = "0123abcd";
+
         private readonly TcpListener _listener;
         private readonly CancellationTokenSource _cts = new();
         private readonly Dictionary<string, (int Status, string Body)> _pages;
+        private readonly (string Username, string Password)? _login;
+        private readonly List<(string Method, string Path, string Cookie, string Body)> _requests = [];
 
         public int Port { get; }
 
-        public StubOnt(Dictionary<string, (int Status, string Body)> pages)
+        public bool SignedIn { get; private set; }
+
+        public IReadOnlyList<(string Method, string Path, string Cookie, string Body)> Requests
+        {
+            get { lock (_requests) return _requests.ToList(); }
+        }
+
+        public IReadOnlyList<string> Paths => Requests.Select(r => r.Path).ToList();
+
+        public StubOnt(Dictionary<string, (int Status, string Body)> pages, (string Username, string Password)? login = null)
         {
             _pages = pages;
+            _login = login;
             _listener = new TcpListener(IPAddress.Loopback, 0);
             _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             _ = AcceptLoopAsync();
         }
 
-        public OntPollContext Context() => new() { Id = 1, Name = "Richerlink", Host = "127.0.0.1", Port = Port };
+        public OntPollContext Context(string? username = null, string? password = null) => new()
+        {
+            Id = 1, Name = "Richerlink", Host = "127.0.0.1", Port = Port, Username = username, Password = password,
+        };
 
         private async Task AcceptLoopAsync()
         {
@@ -432,23 +564,71 @@ public class RicherlinkOntProviderTests
         {
             var stream = client.GetStream();
             var buffer = new byte[8192];
-            var request = new StringBuilder();
-            while (!request.ToString().Contains("\r\n\r\n"))
+            var received = new StringBuilder();
+            int headerEnd;
+            while ((headerEnd = received.ToString().IndexOf("\r\n\r\n", StringComparison.Ordinal)) < 0)
             {
                 var read = await stream.ReadAsync(buffer, _cts.Token);
                 if (read == 0)
                     return;
-                request.Append(Encoding.ASCII.GetString(buffer, 0, read));
+                received.Append(Encoding.ASCII.GetString(buffer, 0, read));
             }
 
-            var target = request.ToString().Split("\r\n")[0].Split(' ')[1];
-            var (status, body) = _pages.TryGetValue(target, out var page) ? page : (404, "");
-            var bodyBytes = Encoding.UTF8.GetBytes(body);
+            var lines = received.ToString()[..headerEnd].Split("\r\n");
+            string Header(string name) => lines.Skip(1)
+                .FirstOrDefault(l => l.StartsWith(name + ":", StringComparison.OrdinalIgnoreCase))?[(name.Length + 1)..].Trim() ?? "";
+            var length = int.TryParse(Header("Content-Length"), out var n) ? n : 0;
+            while (received.Length < headerEnd + 4 + length)
+            {
+                var read = await stream.ReadAsync(buffer, _cts.Token);
+                if (read == 0)
+                    break;
+                received.Append(Encoding.ASCII.GetString(buffer, 0, read));
+            }
+
+            var method = lines[0].Split(' ')[0];
+            var path = lines[0].Split(' ')[1];
+            var cookie = Header("Cookie");
+            var body = received.ToString()[(headerEnd + 4)..];
+            lock (_requests) _requests.Add((method, path, cookie, body));
+
+            var (status, page, setCookie) = Respond(method, path, cookie, body);
+            var bodyBytes = Encoding.UTF8.GetBytes(page);
             var reason = status switch { 200 => "OK", 401 => "Unauthorized", _ => "Not Found" };
             var head = $"HTTP/1.1 {status} {reason}\r\nContent-type: text/html;charset=GB2312\r\n" +
+                       (setCookie != null ? $"Set-Cookie: {setCookie}; path=/\r\n" : "") +
                        $"Content-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n";
             await stream.WriteAsync(Encoding.ASCII.GetBytes(head), _cts.Token);
             await stream.WriteAsync(bodyBytes, _cts.Token);
+        }
+
+        private (int Status, string Body, string? SetCookie) Respond(string method, string path, string cookie, string body)
+        {
+            if (_login is { } login && path == SignIn)
+            {
+                if (method == "GET")
+                    return (200, SignInPage, $"SESSIONID={SessionId}");
+
+                var form = body.Split('&').Select(p => p.Split('=', 2))
+                    .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
+                var cookies = cookie.Split("; ").Select(p => p.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
+                SignedIn = cookies.GetValueOrDefault("SESSIONID") == SessionId
+                    && cookies.GetValueOrDefault("UID") == login.Username && cookies.GetValueOrDefault("PSW") == login.Password
+                    && form.GetValueOrDefault("Username") == login.Username && form.GetValueOrDefault("Password") == login.Password;
+                return (200, "<frameset></frameset>", null);
+            }
+
+            if (_login != null && path == SignOut)
+            {
+                SignedIn = false;
+                return (200, "", null);
+            }
+
+            if (!_pages.TryGetValue(path, out var page))
+                return (404, "", null);
+            if (_login != null && !SignedIn)
+                return (401, "<script>top.location='https://127.0.0.1/cgi-bin/index2.asp';</script>", null);
+            return (page.Status, page.Body, null);
         }
 
         public void Dispose()
