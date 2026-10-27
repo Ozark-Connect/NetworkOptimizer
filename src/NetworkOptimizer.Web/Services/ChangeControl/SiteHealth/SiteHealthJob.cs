@@ -159,6 +159,8 @@ public sealed class SiteHealthJob
 
         // A day past the batch, so a recovery just after it still ends an outage that began inside it.
         var alerts = await _repos.UseAsync((r, c) => r.GetAlertsActiveAsync(from, to.AddDays(1), AlertTypes, c), ct);
+        var rollout = await _repos.UseAsync((r, c) => r.GetRolloutDowntimeAsync(from, to, c), ct);
+        var fabricDevices = await _repos.UseAsync((r, c) => r.GetFabricTargetDevicesAsync(c), ct);
         List<DiscoveredDevice> devices;
         try { devices = await _connection().GetDiscoveredDevicesAsync(ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -176,7 +178,7 @@ public sealed class SiteHealthJob
         {
             var end = hour.AddHours(1);
             var inputs = BuildInputs(hour, end, hourly, firstHopFine, load, loadWindow, satisfactionTask.Result, wirelessTask.Result,
-                wiredTask.Result, fabricTask.Result, portsTask.Result, cpuTask.Result, alerts, topology, gatewayMacs, primaryKey,
+                wiredTask.Result, fabricTask.Result, portsTask.Result, cpuTask.Result, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
                 Baseline(history.Concat(result), hour));
             result.Add(SiteHealthScorer.Score(inputs, profile, DateTime.UtcNow));
         }
@@ -194,7 +196,8 @@ public sealed class SiteHealthJob
         IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> fabric,
         IReadOnlyList<(DateTime Hour, string DeviceMac, string IfName, double Errors, double Packets)> ports,
         IReadOnlyList<(DateTime Time, double Value)> cpu,
-        List<AlertHistoryEntry> alerts, Topology topology, HashSet<string> gatewayMacs, string primaryKey, double? baseline)
+        List<AlertHistoryEntry> alerts, List<FirmwareRolloutStep> rollout, Dictionary<string, string> fabricDevices,
+        Topology topology, HashSet<string> gatewayMacs, string primaryKey, double? baseline)
     {
         bool In(DateTime t) => t >= hour && t < end;
 
@@ -257,10 +260,25 @@ public sealed class SiteHealthJob
             offline[mac] = Math.Min(1, offline.GetValueOrDefault(mac) + fraction);
             offlineNames[mac] = a.DeviceName ?? topology.Name(mac);
         }
+        // Firmware Rollout suppresses the offline alerts of the devices it upgrades; the downtime still counts.
+        foreach (var s in rollout)
+        {
+            var mac = Mac(s.DeviceMac);
+            if (mac.Length == 0 || s.WentDownAt is not { } wentDown) continue;
+            var down = Max(wentDown, hour);
+            var back = Min(s.BackAt ?? Min(end, DateTime.UtcNow), end);
+            if (back <= down) continue;
+            offline[mac] = Math.Min(1, offline.GetValueOrDefault(mac) + (back - down).TotalHours * scale);
+            offlineNames.TryAdd(mac, s.DeviceName is { Length: > 0 } name ? name : topology.Name(mac));
+        }
         var (availability, availabilityText) = topology.Availability(offline, offlineNames, clientsByDevice);
 
-        // LAN
-        var fabricLoss = fabric.Where(p => In(p.Time) && p.LossPercent != null).Select(p => p.LossPercent!.Value).ToList();
+        // LAN. A device that is down is Availability's, weighted by the clients behind it, so the pings it
+        // (or anything behind it) missed are not LAN loss as well.
+        var fabricLoss = fabric
+            .Where(p => In(p.Time) && p.LossPercent != null
+                && !(fabricDevices.TryGetValue(p.TargetId, out var dev) && topology.IsOut(Mac(dev), offline)))
+            .Select(p => p.LossPercent!.Value).ToList();
         var hourPorts = ports.Where(p => In(p.Hour) && !gatewayMacs.Contains(Mac(p.DeviceMac)) && topology.IsWiredPort(p.DeviceMac, p.IfName)).ToList();
         var (link, linkText) = topology.LinkErrors(hourPorts, clientsByDevice);
 
@@ -493,6 +511,10 @@ public sealed class SiteHealthJob
             var worst = offline.OrderByDescending(kv => kv.Value * (total > 0 ? SubtreeClients(kv.Key, clients) : 1)).First();
             return (Math.Clamp(impaired, 0, 1), $"{names.GetValueOrDefault(worst.Key, Name(worst.Key))} offline {worst.Value * 60:0} min");
         }
+
+        /// <summary>True when the device or anything on its uplink path was offline during the hour.</summary>
+        public bool IsOut(string mac, Dictionary<string, double> offline) =>
+            mac.Length > 0 && SelfAndAncestors(mac).Any(m => offline.GetValueOrDefault(m) > 0);
 
         private int SubtreeClients(string mac, Dictionary<string, int> clients) =>
             SelfAndDescendants(mac).Sum(m => clients.GetValueOrDefault(m));

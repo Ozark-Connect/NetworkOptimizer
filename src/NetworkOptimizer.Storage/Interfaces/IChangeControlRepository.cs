@@ -114,6 +114,12 @@ public interface IChangeControlRepository
     Task<List<NetworkOptimizer.Alerts.Models.AlertHistoryEntry>> GetAlertsActiveAsync(
         DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> eventTypes, CancellationToken cancellationToken = default);
 
+    /// <summary>Firmware Rollout steps whose device went down before <paramref name="toUtc"/> and was not back before <paramref name="fromUtc"/>.</summary>
+    Task<List<FirmwareRolloutStep>> GetRolloutDowntimeAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Fabric monitoring targets that ping a device: target ID to device MAC.</summary>
+    Task<Dictionary<string, string>> GetFabricTargetDevicesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Changes since a time whose health after has not been scored yet, oldest first.</summary>
     Task<List<ConfigChange>> GetChangesAwaitingHealthAsync(DateTime sinceUtc, DateTime occurredBeforeUtc, CancellationToken cancellationToken = default);
 

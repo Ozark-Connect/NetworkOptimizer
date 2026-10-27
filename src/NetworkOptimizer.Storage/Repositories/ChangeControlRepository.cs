@@ -337,6 +337,19 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
                 .OrderBy(a => a.TriggeredAt).Take(5000).ToListAsync(cancellationToken);
         }, nameof(GetAlertsActiveAsync));
 
+    public Task<List<FirmwareRolloutStep>> GetRolloutDowntimeAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(() => _context.FirmwareRolloutSteps.AsNoTracking()
+            .Where(s => s.WentDownAt != null && s.WentDownAt < toUtc && (s.BackAt == null || s.BackAt >= fromUtc))
+            .ToListAsync(cancellationToken), nameof(GetRolloutDowntimeAsync));
+
+    public Task<Dictionary<string, string>> GetFabricTargetDevicesAsync(CancellationToken cancellationToken = default) =>
+        ExecuteAsync(async () => (await _context.MonitoringTargets.AsNoTracking()
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.DeviceMac != null)
+                .Select(t => new { t.TargetId, t.DeviceMac })
+                .ToListAsync(cancellationToken))
+            .GroupBy(t => t.TargetId)
+            .ToDictionary(g => g.Key, g => g.First().DeviceMac!), nameof(GetFabricTargetDevicesAsync));
+
     public Task<List<ConfigChange>> GetChangesAwaitingHealthAsync(DateTime sinceUtc, DateTime occurredBeforeUtc, CancellationToken cancellationToken = default) =>
         ExecuteAsync(() => _context.ConfigChanges.AsNoTracking()
             .Where(c => c.HealthAfter == null && c.OccurredAt >= sinceUtc && c.OccurredAt < occurredBeforeUtc)
