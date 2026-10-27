@@ -802,6 +802,94 @@ public class FirmwareRolloutOrchestratorTests
         (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedSku);
     }
 
+    /// <summary>Runs one AP to Down, then aborts the rollout under it.</summary>
+    private static async Task<FirmwareRolloutPlan> AbortWhileDownAsync(RolloutHarness harness)
+    {
+        var plan = await harness.SeedRunningPlanAsync(Document(Wave(1, PlanStep(ApMac))), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Upgrading, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Down);
+
+        await harness.Orchestrator.AbortAsync("the operator stopped it");
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Aborted);
+        return plan;
+    }
+
+    [Fact]
+    public async Task AbortMidUpgrade_DeviceBackWithinItsBudget_SettlesWithItsDowntime()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await AbortWhileDownAsync(harness);
+
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.AbortedInFlight);
+        step.BackAt.Should().NotBeNull();
+        step.DowntimeSeconds.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task AbortMidUpgrade_DeviceStillDownWithinItsBudget_KeepsWaiting()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await AbortWhileDownAsync(harness);
+
+        await harness.TickAsync(TimeSpan.FromMinutes(1));
+
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.Down);
+        step.BackAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AbortMidUpgrade_DeviceFirstSeenAfterItsBudget_SettlesWithNoDowntime()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await AbortWhileDownAsync(harness);
+
+        // A restart hours later, with the device long since back (a later plan may have cycled it):
+        // that gap is not this upgrade's downtime.
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        harness.Time.Advance(TimeSpan.FromHours(3));
+        await harness.NewOrchestrator().TickAsync();
+
+        var step = await harness.StepAsync(plan.Id, ApMac);
+        step.State.Should().Be(FirmwareRolloutStepState.AbortedInFlight);
+        step.BackAt.Should().BeNull();
+        step.DowntimeSeconds.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ACompletedRollout_LeavesItsStepsAsTheyFinished()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(Document(Wave(1, PlanStep(ApMac))), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Upgrading, FromVersion, upgradeTo: ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        await harness.TickAsync(FirmwareRolloutOrchestrator.CoolDown);
+        var settled = await harness.StepAsync(plan.Id, ApMac);
+        settled.State.Should().Be(FirmwareRolloutStepState.LitmusPassed);
+
+        // Through the soak and beyond: nothing is stranded, so nothing is rewritten.
+        for (var i = 0; i < 6; i++)
+            await harness.TickAsync(TimeSpan.FromHours(1));
+
+        var after = await harness.StepAsync(plan.Id, ApMac);
+        after.State.Should().Be(FirmwareRolloutStepState.LitmusPassed);
+        after.BackAt.Should().Be(settled.BackAt);
+        after.DowntimeSeconds.Should().Be(settled.DowntimeSeconds);
+        (await harness.Repository.GetStrandedStepsAsync()).Should().BeEmpty();
+    }
+
     [Fact]
     public async Task ARolloutThatDiedWithTheChannelChanged_IsPutBackOnTheNextPass()
     {

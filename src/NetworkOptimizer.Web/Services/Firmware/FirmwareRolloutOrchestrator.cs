@@ -184,6 +184,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private DateTime _darkSetsRetryAt = DateTime.MinValue;
     private bool _restoreSweepDone;
     private bool _resumeGapCharged;
+    // Set at start-up and by an abort that leaves a device mid-cycle; cleared once none are left.
+    private bool _strandedCheckDue = true;
 
     // This pass's copy of the plan's visibility record, so the deadline helpers do not each have to
     // be handed the document.
@@ -277,7 +279,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         or FirmwareRolloutStepState.RegressionFlagged
         or FirmwareRolloutStepState.Failed
         or FirmwareRolloutStepState.SkippedExcluded
-        or FirmwareRolloutStepState.AbortedSku;
+        or FirmwareRolloutStepState.AbortedSku
+        or FirmwareRolloutStepState.AbortedInFlight;
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -320,6 +323,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (plan == null)
             {
                 _suppression.ClearSite(_siteSlug);
+                await SettleStrandedStepsAsync(cancellationToken);
                 return;
             }
 
@@ -597,10 +601,82 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             _darkOfStep.Clear();
         }
         else
+        {
             foreach (var step in steps.Where(s => IsSettled(s)))
                 CloseStepWindows(step);
+            _strandedCheckDue = true;
+        }
 
         _logger.LogWarning("Firmware rollout {Id} on site {Site} aborted: {Reason}", plan.Id, _siteSlug, reason);
+    }
+
+    /// <summary>
+    /// Settles the steps an abort left mid-cycle, which no tick watches once their plan has ended.
+    /// Runs only while the site has no plan, so it never touches a live rollout. A device seen back
+    /// after its offline budget settles with no BackAt: a later plan may have cycled it since, and
+    /// the time between is not this upgrade's downtime.
+    /// </summary>
+    private async Task SettleStrandedStepsAsync(CancellationToken cancellationToken)
+    {
+        if (!_strandedCheckDue) return;
+        var stranded = await _repositories.UseAsync((r, c) => r.GetStrandedStepsAsync(c), cancellationToken);
+        if (stranded.Count == 0)
+        {
+            _strandedCheckDue = false;
+            return;
+        }
+
+        var documents = new Dictionary<int, RolloutPlanDocument>();
+        foreach (var planId in stranded.Select(s => s.PlanId).Distinct())
+        {
+            var owner = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
+            documents[planId] = owner == null ? new RolloutPlanDocument() : ParseDocument(owner);
+        }
+        bool WithinBudget(FirmwareRolloutStep step) =>
+            (step.WentDownAt ?? step.CommandedAt) is DateTime since
+            && Now - since <= TimeSpan.FromSeconds(OfflineBudgetSecondsFor(documents[step.PlanId], step));
+
+        // The console is asked only while some device could still be counted back.
+        var waiting = stranded.Where(s => s.State is FirmwareRolloutStepState.Commanded or FirmwareRolloutStepState.Down
+            && WithinBudget(s)).ToList();
+        var byMac = waiting.Count == 0
+            ? new Dictionary<string, RolloutDeviceObservation>(StringComparer.OrdinalIgnoreCase)
+            : (await _observer.ObserveAsync(cancellationToken)).ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var step in stranded)
+        {
+            if (waiting.Contains(step))
+            {
+                if (!byMac.TryGetValue(step.DeviceMac, out var seen)) continue;
+                var kind = UniFiDeviceStateMap.ToStatus(seen.State).Kind;
+                if (step.State == FirmwareRolloutStepState.Commanded)
+                {
+                    if (kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline)
+                    {
+                        step.State = FirmwareRolloutStepState.Down;
+                        step.WentDownAt = Now;
+                        await PersistStepAsync(step, cancellationToken);
+                        continue;
+                    }
+                    // Back on the target with no down seen: a short cycle between two passes.
+                    if (!(VersionsMatch(seen.Firmware, step.ToVersion) && !VersionsMatch(step.FromVersion, step.ToVersion)))
+                        continue;
+                    step.WentDownAt ??= step.CommandedAt;
+                }
+                else if (kind != DeviceStatusKind.Online)
+                    continue;
+
+                step.BackAt = Now;
+                if (step.WentDownAt is DateTime down)
+                    step.DowntimeSeconds = (int)Math.Max(0, (Now - down).TotalSeconds);
+            }
+
+            step.State = FirmwareRolloutStepState.AbortedInFlight;
+            step.Error ??= "The rollout was aborted while this device was mid-upgrade.";
+            await PersistStepAsync(step, cancellationToken);
+            _logger.LogInformation("{Device} on site {Site}, mid-upgrade when rollout {Id} was aborted, settled {Outcome}",
+                step.DeviceName, _siteSlug, step.PlanId, step.BackAt != null ? "on its return" : "with no return seen");
+        }
     }
 
     /// <summary>

@@ -309,6 +309,28 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
         }
     }
 
+    public async Task<List<FirmwareRolloutStep>> GetStrandedStepsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var inFlight = new[]
+            {
+                FirmwareRolloutStepState.Commanded, FirmwareRolloutStepState.Down,
+                FirmwareRolloutStepState.BackOnline, FirmwareRolloutStepState.CoolDown
+            };
+            return await (from s in _context.FirmwareRolloutSteps.AsNoTracking()
+                          join p in _context.FirmwareRolloutPlans.AsNoTracking() on s.PlanId equals p.Id
+                          where FirmwareRolloutStatuses.Terminal.Contains(p.Status) && inFlight.Contains(s.State)
+                          orderby s.Id
+                          select s).ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get stranded firmware rollout steps");
+            throw;
+        }
+    }
+
     public async Task<FirmwareModelTiming> RecordModelTimingAsync(string model, int downtimeSeconds, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(model))

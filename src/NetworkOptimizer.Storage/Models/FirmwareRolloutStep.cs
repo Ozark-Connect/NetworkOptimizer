@@ -29,7 +29,9 @@ public enum FirmwareRolloutStepState
     /// <summary>Never attempted: excluded by MAC, SKU, or device type.</summary>
     SkippedExcluded = 9,
     /// <summary>Never attempted: this SKU's canary failed, so the rest of the SKU was dropped.</summary>
-    AbortedSku = 10
+    AbortedSku = 10,
+    /// <summary>Mid-upgrade when its rollout was aborted; settled once the device returned or its offline budget ran out.</summary>
+    AbortedInFlight = 11
 }
 
 /// <summary>
