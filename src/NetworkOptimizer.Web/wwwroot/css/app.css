@@ -23758,7 +23758,8 @@ body:has(.top-bar-hidden) .btn-fit {
     pointer-events: none;
 }
 
-.change-control .cc-after .status-badge {
+.change-control .cc-after .status-badge,
+.change-control .cc-who {
     white-space: nowrap;
 }
 
