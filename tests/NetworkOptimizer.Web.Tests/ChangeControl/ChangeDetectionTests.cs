@@ -86,7 +86,48 @@ public class ChangeDetectionTests
         ChangeDescriber.LabelFor("port_overrides[port_idx=2].trusted_port_mac").Should().Be("Port 2 Lock Port to UniFi Device");
         ChangeDescriber.LabelFor("port_overrides[port_idx=2].port_security_mac_address").Should().Be("Port 2 MAC Address Filter");
         ChangeDescriber.LabelFor("port_overrides[port_idx=2].port_security_enabled").Should().Be("Port 2 Port Security");
-        ChangeDescriber.LabelFor("port_overrides[port_idx=2].name").Should().Be("Port 2 name");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=2].name").Should().Be("Port 2 Name");
+    }
+
+    [Fact]
+    public void Labels_PortShorthand_IsTitleCaseWithRealNames()
+    {
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].autoneg").Should().Be("Port 5 Auto-Negotiation");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].dot1x_ctrl").Should().Be("Port 5 802.1X Control");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].lldpmed_enabled").Should().Be("Port 5 LLDP-MED");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].stp_port_mode").Should().Be("Port 5 STP Port Mode");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].flow_control_enabled").Should().Be("Port 5 Flow Control");
+        ChangeDescriber.LabelFor("port_overrides[port_idx=5].dot1x_idle_timeout").Should().Be("Port 5 802.1X Idle Timeout");
+    }
+
+    [Theory]
+    [InlineData("on", "On")]
+    [InlineData("none", "None")]
+    [InlineData("NONE", "None")]
+    [InlineData("force_authorized", "Force Authorized")]
+    [InlineData("Main Network", "Main Network")]
+    [InlineData("[Access] Main Network", "[Access] Main Network")]
+    [InlineData("300", "300")]
+    [InlineData("guest", "guest")]
+    public void DisplayValue_TitleCasesEnumsOnly(string stored, string shown) =>
+        ChangeDescriber.DisplayValue(stored).Should().Be(shown);
+
+    [Fact]
+    public void ForDisplay_ManualPortToProfile_KeepsOnlyTheProfileRow()
+    {
+        var fields = new List<StoredField>
+        {
+            new() { Path = "port_overrides[port_idx=5].autoneg", Label = "Port 5 Auto-Negotiation", Old = "on", New = "none" },
+            new() { Path = "port_overrides[port_idx=5].native_networkconf_id", Label = "Port 5 Native Network", Old = "Main Network", New = "none" },
+            new() { Path = "port_overrides[port_idx=5].portconf_id", Label = "Port 5 Port Profile", Old = "none", New = "[Access] Main Network" },
+            new() { Path = "port_overrides[port_idx=6].autoneg", Label = "Port 6 Auto-Negotiation", Old = "on", New = "none" },
+        };
+
+        var shown = ChangeDescriber.ForDisplay(fields);
+
+        shown.Select(f => f.Label).Should().Equal("Port 5 Port Profile", "Port 6 Auto-Negotiation");
+        shown[0].Old.Should().Be("None");
+        shown[1].New.Should().Be("None");
     }
 
     [Fact]
@@ -180,7 +221,7 @@ public class ChangeDetectionTests
         var after = Obj("""{"_id":"w1","name":"Home","security":"wpapsk","wpa_mode":"wpa2","wpa3_support":true,"wpa3_transition":true,"pmf_mode":"optional"}""");
         var diff = ConfigDiffEngine.CompareObjects(ConfigCollections.Get("wlanconf")!, before, after)!;
         var rows = ChangeDescriber.Rows(diff);
-        rows.Should().Contain(r => r.Label == "Security protocol" && r.Old == "WPA2" && r.New == "WPA2/WPA3");
+        rows.Should().Contain(r => r.Label == "Security Protocol" && r.Old == "WPA2" && r.New == "WPA2/WPA3");
         rows.Should().Contain(r => r.Label == "PMF" && r.Old == "Disabled" && r.New == "Optional");
         ChangeDescriber.Summary(diff).Should().Be("WLAN Home: security WPA2 to WPA2/WPA3");
     }

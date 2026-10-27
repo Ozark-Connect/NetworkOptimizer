@@ -192,7 +192,7 @@ public class NetworkUpgradeDiffTests
         ConfigDiffEngine.Compare(before, quiet).IsEmpty.Should().BeTrue();
         ConfigDiffEngine.Compare(before, loud).Objects.Single().Fields
             .Should().ContainSingle(f => f.Path == "mdns_proxy_custom[entry=1].services_mode");
-        ChangeDescriber.LabelFor("mdns_proxy_custom[entry=1].services_mode").Should().StartWith("Mdns proxy custom 1");
+        ChangeDescriber.LabelFor("mdns_proxy_custom[entry=1].services_mode").Should().StartWith("mDNS Proxy Custom 1");
     }
 
     [Fact]

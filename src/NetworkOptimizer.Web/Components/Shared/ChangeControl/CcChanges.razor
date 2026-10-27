@@ -107,7 +107,7 @@
                 var markers = row.Markers.Where(Visible).ToList();
                 <div class="cc-tl-row cc-tl-site" @onclick="() => ToggleSiteAsync(row.Site.Slug)">
                     @{ var joined = expanded && _lanes.ContainsKey(row.Site.Slug); }
-                    @RowLayer(row, joined ? markers : [], joined ? "from-marker" : "")
+                    @RowLayer(row, markers, joined ? "from-marker" : "", lines: joined)
                     <span class="expand-chevron cc-tl-chev">@(expanded ? "▲" : "▼")</span>
                     <div class="cc-tl-label">
                         <div class="cc-tl-name">@row.Site.Name</div>
@@ -400,16 +400,23 @@
     /// patterns). "from-marker" starts the lines at the site row's marker and bridges to the first lane;
     /// "to-marker" ends them at the Events row's. The bands' hover stays on the tracks.
     /// </summary>
-    private RenderFragment RowLayer(TimelineSiteRow row, IReadOnlyList<ChangeRowView> markers, string span) =>
+    private RenderFragment RowLayer(TimelineSiteRow row, IReadOnlyList<ChangeRowView> markers, string span, bool lines = true) =>
         @<div class="cc-tl-lines @span" aria-hidden="true">
             @foreach (var band in row.Bands)
             {
                 var left = CcFormat.Pct(band.Start, _from, _to);
                 <div class="cc-row-band @band.Kind" style="left:@F(left)%;width:@F(Math.Max(0.4, CcFormat.Pct(band.End, _from, _to) - left))%"></div>
             }
-            @foreach (var m in markers)
+            @if (lines)
             {
-                <div class="cc-marker-line" style="left:@F(CcFormat.Pct(m.OccurredAt, _from, _to))%"></div>
+                @foreach (var m in markers)
+                {
+                    <div class="cc-marker-line" style="left:@F(CcFormat.Pct(m.OccurredAt, _from, _to))%"></div>
+                }
+            }
+            @if (_selected is { } sel && markers.FirstOrDefault(m => m.Id == sel.Id && m.SiteSlug == sel.SiteSlug) is { } selected)
+            {
+                <div class="cc-select-line" style="left:@F(CcFormat.Pct(selected.OccurredAt, _from, _to))%"></div>
             }
         </div>;
 

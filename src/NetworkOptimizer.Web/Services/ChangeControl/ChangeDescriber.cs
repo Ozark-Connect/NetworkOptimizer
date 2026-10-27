@@ -14,33 +14,59 @@ public sealed record FieldRow(string Label, string Old, string New, bool Secret)
 /// </summary>
 public static partial class ChangeDescriber
 {
+    /// <summary>The synthetic WLAN row that stands for wpa_mode, wpa3_support, wpa3_transition, and wpa_enc.</summary>
+    public const string SecurityProtocol = "Security Protocol";
+
     private static readonly Dictionary<string, string> Labels = new(StringComparer.Ordinal)
     {
         ["enabled"] = "Enabled", ["name"] = "Name", ["action"] = "Action", ["description"] = "Description",
         ["security"] = "Security", ["wpa_mode"] = "Security", ["wpa3_support"] = "Security", ["wpa3_transition"] = "Security",
-        ["wpa_enc"] = "Security", ["pmf_mode"] = "PMF", ["x_passphrase"] = "Passphrase", ["x_iapp_key"] = "Fast roaming key",
-        ["native_networkconf_id"] = "Native network", ["tagged_networkconf_ids"] = "Tagged networks",
-        ["excluded_networkconf_ids"] = "Tagged networks", ["tagged_vlan_mgmt"] = "Tagged VLAN management",
+        ["wpa_enc"] = "Security", ["pmf_mode"] = "PMF", ["x_passphrase"] = "Passphrase", ["x_iapp_key"] = "Fast Roaming Key",
+        ["native_networkconf_id"] = "Native Network", ["tagged_networkconf_ids"] = "Tagged Networks",
+        ["excluded_networkconf_ids"] = "Tagged Networks", ["tagged_vlan_mgmt"] = "Tagged VLAN Management",
         ["networkconf_id"] = "Network", ["network_id"] = "Network", ["network_ids"] = "Networks",
         ["ip_subnet"] = "Subnet", ["vlan"] = "VLAN", ["vlan_enabled"] = "VLAN", ["mdns_enabled"] = "mDNS",
-        ["igmp_snooping"] = "IGMP snooping", ["dhcpd_enabled"] = "DHCP", ["dhcpd_dns_enabled"] = "DHCP DNS",
-        ["wlan_bands"] = "Bands", ["mlo_enabled"] = "MLO", ["hide_ssid"] = "Hidden", ["ap_group_ids"] = "AP groups",
+        ["igmp_snooping"] = "IGMP Snooping", ["dhcpd_enabled"] = "DHCP", ["dhcpd_dns_enabled"] = "DHCP DNS",
+        ["wlan_bands"] = "Bands", ["mlo_enabled"] = "MLO", ["hide_ssid"] = "Hidden", ["ap_group_ids"] = "AP Groups",
         ["group_members"] = "Members", ["fixed_ip"] = "Fixed IP", ["use_fixedip"] = "Fixed IP", ["note"] = "Note",
-        ["mgmt_network_id"] = "Management network", ["config_network"] = "IP settings", ["led_override"] = "LED",
-        ["stp_priority"] = "STP priority", ["poe_mode"] = "PoE", ["op_mode"] = "Port mode", ["forward"] = "Port mode",
-        ["portconf_id"] = "Port profile", ["value"] = "Value", ["record_type"] = "Type", ["key"] = "Hostname",
+        ["mgmt_network_id"] = "Management Network", ["config_network"] = "IP Settings", ["led_override"] = "LED",
+        ["stp_priority"] = "STP Priority", ["poe_mode"] = "PoE", ["op_mode"] = "Port Mode", ["forward"] = "Port Mode",
+        ["portconf_id"] = "Port Profile", ["value"] = "Value", ["record_type"] = "Type", ["key"] = "Hostname",
         ["source"] = "Source", ["destination"] = "Destination", ["schedule"] = "Schedule", ["logging"] = "Logging",
-        ["protocol"] = "Protocol", ["ip_version"] = "IP version", ["channel"] = "channel", ["ht"] = "channel width",
-        ["tx_power_mode"] = "TX power", ["tx_power"] = "TX power", ["min_rssi"] = "Min RSSI", ["min_rssi_enabled"] = "Min RSSI",
-        ["dhcpd_dns_1"] = "DNS server", ["dhcpd_dns_2"] = "DNS server", ["wan_dns1"] = "DNS server", ["wan_dns2"] = "DNS server",
+        ["protocol"] = "Protocol", ["ip_version"] = "IP Version", ["channel"] = "Channel", ["ht"] = "Channel Width",
+        ["tx_power_mode"] = "TX Power", ["tx_power"] = "TX Power", ["min_rssi"] = "Min RSSI", ["min_rssi_enabled"] = "Min RSSI",
+        ["dhcpd_dns_1"] = "DNS Server", ["dhcpd_dns_2"] = "DNS Server", ["wan_dns1"] = "DNS Server", ["wan_dns2"] = "DNS Server",
         ["port_security_enabled"] = "Port Security", ["port_security_mac_address"] = "MAC Address Filter",
         ["trusted_port_mac"] = "Lock Port to UniFi Device",
     };
 
-    // UniFi Network's own setting names: kept as written after a port or radio prefix, not lowercased.
-    private static readonly HashSet<string> UniFiNames = new(StringComparer.Ordinal)
+    // UniFi field shorthand and acronyms, as a title shows them. Every other word is capitalized.
+    private static readonly Dictionary<string, string> Words = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Port Security", "MAC Address Filter", "Lock Port to UniFi Device",
+        ["autoneg"] = "Auto-Negotiation", ["dot1x"] = "802.1X", ["ctrl"] = "Control", ["mgmt"] = "Management",
+        ["lldpmed"] = "LLDP-MED", ["lldp"] = "LLDP", ["stp"] = "STP", ["poe"] = "PoE", ["sfp"] = "SFP", ["lacp"] = "LACP",
+        ["fec"] = "FEC", ["mtu"] = "MTU", ["led"] = "LED", ["vlan"] = "VLAN", ["igmp"] = "IGMP", ["mdns"] = "mDNS",
+        ["ip"] = "IP", ["ipv4"] = "IPv4", ["ipv6"] = "IPv6", ["mac"] = "MAC", ["dhcp"] = "DHCP", ["dhcpd"] = "DHCP",
+        ["dns"] = "DNS", ["ntp"] = "NTP", ["snmp"] = "SNMP", ["ssh"] = "SSH", ["http"] = "HTTP", ["https"] = "HTTPS",
+        ["tcp"] = "TCP", ["udp"] = "UDP", ["icmp"] = "ICMP", ["nat"] = "NAT", ["upnp"] = "UPnP", ["vpn"] = "VPN",
+        ["ipsec"] = "IPsec", ["l2tp"] = "L2TP", ["gre"] = "GRE", ["bgp"] = "BGP", ["ospf"] = "OSPF", ["qos"] = "QoS",
+        ["ttl"] = "TTL", ["url"] = "URL", ["cidr"] = "CIDR", ["wan"] = "WAN", ["lan"] = "LAN", ["ssid"] = "SSID",
+        ["ap"] = "AP", ["wlan"] = "WLAN", ["rssi"] = "RSSI", ["tx"] = "TX", ["rx"] = "RX", ["pmf"] = "PMF", ["mlo"] = "MLO",
+        ["wpa"] = "WPA", ["radius"] = "RADIUS", ["dpi"] = "DPI", ["ips"] = "IPS", ["id"] = "ID", ["wifi"] = "Wi-Fi",
+        ["unifi"] = "UniFi",
+    };
+
+    // Kept lowercase inside a title ("Lock Port to UniFi Device").
+    private static readonly HashSet<string> MinorWords = new(StringComparer.Ordinal)
+    {
+        "a", "an", "and", "by", "for", "in", "of", "or", "per", "the", "to", "via",
+    };
+
+    // UniFi enum values shown title-cased (On, None, Force Authorized). Any other value, names included, is left as is.
+    private static readonly HashSet<string> EnumValues = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "on", "off", "none", "all", "auto", "enabled", "disabled", "native", "customize", "block", "allow", "reject",
+        "optional", "required", "true", "false", "manual",
     };
 
     private static readonly Dictionary<string, string> Bands = new(StringComparer.Ordinal)
@@ -68,14 +94,12 @@ public static partial class ChangeDescriber
                 "ethernet_overrides" => value,
                 _ => $"{Humanize(array)} {value}",
             };
-            if (rest.Length == 0) return element;
-            var inner = LabelFor(rest);
-            return $"{element} {(UniFiNames.Contains(inner) ? inner : inner.ToLowerInvariant())}";
+            return rest.Length == 0 ? element : $"{element} {LabelFor(rest)}";
         }
         var leaf = path.Split('.')[^1];
         var head = path.Split('.')[0];
         if (Labels.TryGetValue(leaf, out var label)) return label;
-        if (head != leaf && Labels.TryGetValue(head, out var headLabel)) return $"{headLabel} {Humanize(leaf).ToLowerInvariant()}";
+        if (head != leaf && Labels.TryGetValue(head, out var headLabel)) return $"{headLabel} {Humanize(leaf)}";
         return Humanize(leaf);
     }
 
@@ -95,8 +119,71 @@ public static partial class ChangeDescriber
         var s = field.Replace("_", " ").Trim();
         s = s.EndsWith(" id", StringComparison.Ordinal) ? s[..^3] : s.EndsWith(" ids", StringComparison.Ordinal) ? s[..^4] + "s" : s;
         s = s.Replace("networkconf", "network").Replace("portconf", "port profile");
-        return s.Length == 0 ? field : char.ToUpper(s[0], CultureInfo.InvariantCulture) + s[1..];
+        // The value already says on or off, so a trailing "enabled" adds nothing ("Flow Control", not "Flow control enabled").
+        if (s.EndsWith(" enabled", StringComparison.Ordinal)) s = s[..^8];
+        return s.Length == 0 ? field : Title(s);
     }
+
+    /// <summary>Title Case with UniFi's shorthand spelled out and acronyms kept ("dot1x ctrl" becomes "802.1X Control").</summary>
+    internal static string Title(string words)
+    {
+        var parts = words.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var w = parts[i];
+            parts[i] = Words.TryGetValue(w, out var known) ? known
+                : i > 0 && MinorWords.Contains(w) ? w
+                : char.ToUpper(w[0], CultureInfo.InvariantCulture) + w[1..];
+        }
+        return string.Join(' ', parts);
+    }
+
+    /// <summary>
+    /// A stored value as shown: UniFi's enum strings title-cased ("on" to "On", "force_authorized" to "Force Authorized").
+    /// Names, addresses, and numbers are left exactly as stored.
+    /// </summary>
+    public static string? DisplayValue(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+        var token = value.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
+                    && (value.All(c => !char.IsUpper(c)) || value.All(c => !char.IsLower(c)));
+        return token && (EnumValues.Contains(value) || (value.Contains('_') && char.IsAsciiLetter(value[0])))
+            ? Title(value.Replace('_', ' ').ToLowerInvariant())
+            : value;
+    }
+
+    /// <summary>
+    /// Rows to show for a change, simplified: when a port moves from manual settings to a port profile, every
+    /// override it cleared now comes from the profile, so only the Port Profile row is kept for that port.
+    /// </summary>
+    public static List<StoredField> ForDisplay(IEnumerable<StoredField> fields)
+    {
+        var list = fields.ToList();
+        var profiled = list
+            .Where(f => f.Path.EndsWith(".portconf_id", StringComparison.Ordinal) && IsNone(f.Old) && !IsNone(f.New))
+            .Select(f => f.Path[..^".portconf_id".Length])
+            .ToHashSet(StringComparer.Ordinal);
+        return list
+            .Where(f => !(IsNone(f.New) && !f.Secret && profiled.Any(p => f.Path.StartsWith(p + ".", StringComparison.Ordinal))))
+            .Select(f => new StoredField
+            {
+                Path = f.Path,
+                Label = f.Path.StartsWith('_') ? Title(f.Label) : f.Label,
+                Old = DisplayValue(f.Old),
+                New = DisplayValue(f.New),
+                Secret = f.Secret,
+            })
+            .ToList();
+    }
+
+    private static bool IsNone(string? v) => string.IsNullOrEmpty(v) || string.Equals(v, "none", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A label for a sentence: Title Case words lowercased, acronyms and UniFi's own names kept.</summary>
+    private static string Sentence(string label, bool keepFirst) =>
+        string.Join(' ', label.Split(' ').Select((w, i) =>
+            (i == 0 && keepFirst) || Words.ContainsValue(w) || w.Length < 2 || !char.IsUpper(w[0]) || w[1..].Any(char.IsUpper)
+                ? w
+                : w.ToLowerInvariant()));
 
     /// <summary>WLAN security as UniFi Network names it: Open, WPA2, WPA3, WPA2/WPA3, WPA2 Enterprise.</summary>
     public static string WlanSecurity(JsonObject? w)
@@ -157,7 +244,7 @@ public static partial class ChangeDescriber
             {
                 if (securityDone) continue;
                 securityDone = true;
-                rows.Add(new FieldRow("Security protocol", WlanSecurity(diff.Before), WlanSecurity(diff.After), false));
+                rows.Add(new FieldRow(SecurityProtocol, WlanSecurity(diff.Before), WlanSecurity(diff.After), false));
                 continue;
             }
             rows.Add(new FieldRow(label, Value(f.Old, beforeNames), Value(f.New, afterNames), false));
@@ -177,19 +264,20 @@ public static partial class ChangeDescriber
         }
         var rows = Rows(diff, beforeNames, afterNames);
         // A WLAN security change is the headline; PMF and the rest show in the detail.
-        if (rows.FirstOrDefault(r => r.Label == "Security protocol") is { } security && security.Old != security.New)
+        if (rows.FirstOrDefault(r => r.Label == SecurityProtocol) is { } security && security.Old != security.New)
             return $"security {security.Old} to {security.New}";
         if (rows.Count == 1)
         {
             var r = rows[0];
-            if (r.Secret) return $"{r.Label} changed";
+            var label = Sentence(r.Label, keepFirst: true);
+            if (r.Secret) return $"{label} changed";
             if (r.Label == "Enabled") return r.New == "off" ? "disabled" : "enabled";
-            if (r.Old.Length + r.New.Length > 50) return $"{r.Label} changed";
-            return $"{r.Label}: {r.Old} to {r.New}";
+            if (r.Old.Length + r.New.Length > 50) return $"{label} changed";
+            return $"{label}: {r.Old} to {r.New}";
         }
-        var labels = rows.Select(r => r.Secret ? r.Label.ToLowerInvariant() : r.Label).Distinct().ToList();
+        var labels = rows.Select(r => r.Label).Distinct().Select((l, i) => Sentence(l, keepFirst: i == 0)).ToList();
         if (labels.Count > 4) return $"{string.Join(", ", labels.Take(3))}, and {labels.Count - 3} more";
-        return string.Join(", ", labels.Select((l, i) => i == 0 ? l : l.ToLowerInvariant()));
+        return string.Join(", ", labels);
     }
 
     /// <summary>One summary line: "WLAN Home: security WPA2 to WPA2/WPA3", "Firewall policy Block IoT created".</summary>

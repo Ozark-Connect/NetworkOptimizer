@@ -344,11 +344,13 @@ public static class PlanBuilder
             New = f.Secret ? null : ChangeDescriber.Value(f.New, liveCtx),
             Secret = f.Secret,
         }).ToList();
-        if (def.Key == "wlanconf" && ChangeDescriber.Rows(diff).FirstOrDefault(r => r.Label == "Security protocol") is { } sec)
+        if (def.Key == "wlanconf" && ChangeDescriber.Rows(diff).FirstOrDefault(r => r.Label == ChangeDescriber.SecurityProtocol) is { } sec)
         {
             update.Fields.RemoveAll(f => ChangeDescriber.LabelFor(f.Path) == "Security");
-            update.Fields.Insert(0, new StoredField { Path = "_security", Label = "Security protocol", Old = sec.Old, New = sec.New });
+            update.Fields.Insert(0, new StoredField { Path = "_security", Label = ChangeDescriber.SecurityProtocol, Old = sec.Old, New = sec.New });
         }
+        // Display rows only; the write uses Body.
+        update.Fields = ChangeDescriber.ForDisplay(update.Fields);
         update.ChangeText = ChangeDescriber.ChangeText(diff, liveCtx, liveCtx);
         ApplyTags(update, diff);
         update.ManagementPath = diff.ManagementPath;

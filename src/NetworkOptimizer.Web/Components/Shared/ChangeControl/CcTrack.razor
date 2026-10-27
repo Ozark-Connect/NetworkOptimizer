@@ -51,10 +51,6 @@
             <polyline points="@line" fill="none" style="stroke:@ColorB" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
         }
     </svg>
-    @if (SelectedId is { } sel && Markers.FirstOrDefault(m => m.Id == sel) is { } selected)
-    {
-        <div class="cc-select-line" style="left:@F(CcFormat.Pct(selected.OccurredAt, From, To))%"></div>
-    }
     @if (ShowMarkers)
     {
         @foreach (var m in Markers)

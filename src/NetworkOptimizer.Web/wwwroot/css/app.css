@@ -23749,8 +23749,8 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-select-line {
     position: absolute;
-    top: -4px;
-    bottom: -4px;
+    top: 0;
+    bottom: 0;
     width: 2px;
     background: var(--text-primary);
     opacity: 0.85;
@@ -23804,11 +23804,13 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 /* Lines start at the site row's marker (mid-row) and stop at the Events row's; bands span the whole row. */
-.change-control .cc-tl-lines.from-marker .cc-marker-line {
+.change-control .cc-tl-lines.from-marker .cc-marker-line,
+.change-control .cc-tl-lines.from-marker .cc-select-line {
     clip-path: inset(calc(50% - (1px + 0.5rem) / 2) 0 0 0);
 }
 
-.change-control .cc-tl-lines.to-marker .cc-marker-line {
+.change-control .cc-tl-lines.to-marker .cc-marker-line,
+.change-control .cc-tl-lines.to-marker .cc-select-line {
     clip-path: inset(0 0 50% 0);
 }
 
@@ -24648,11 +24650,13 @@ body:has(.top-bar-hidden) .btn-fit {
     }
 
     /* The marker sits mid-track at the bottom of the row: padding plus half the 36px track. */
-    .change-control .cc-tl-lines.from-marker .cc-marker-line {
+    .change-control .cc-tl-lines.from-marker .cc-marker-line,
+    .change-control .cc-tl-lines.from-marker .cc-select-line {
         clip-path: inset(calc(100% - 1px - 1rem - 18px) 0 0 0);
     }
 
-    .change-control .cc-tl-lines.to-marker .cc-marker-line {
+    .change-control .cc-tl-lines.to-marker .cc-marker-line,
+    .change-control .cc-tl-lines.to-marker .cc-select-line {
         clip-path: inset(0 0 calc(0.5rem + 18px) 0);
     }
 

@@ -227,13 +227,23 @@ public sealed partial class ChangeControlService : IChangeControlService
         return facts;
     }
 
+    // "Port 2 (Desk)" at the start of a saved label; group 1 is the bare "Port 2".
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(Port \d+) \([^)]*\)")]
+    private static partial System.Text.RegularExpressions.Regex PortNamePrefix();
+
     internal static ChangeObjectView ObjectView(ConfigChangeObject o)
     {
-        var fields = JsonSerializer.Deserialize<List<StoredField>>(o.FieldsJson) ?? [];
+        var stored = JsonSerializer.Deserialize<List<StoredField>>(o.FieldsJson) ?? [];
         // Labels are saved at detection; relabel from the path so rows recorded earlier get today's names.
-        // A label carrying a port's given name, or a synthetic row (_security), is kept as saved.
-        foreach (var f in fields.Where(f => !f.Path.StartsWith('_') && !f.Label.Contains('(')))
-            f.Label = ChangeDescriber.LabelFor(f.Path);
+        // A port's given name ("Port 2 (Desk)") is kept from the saved label; a synthetic row (_security) keeps its own.
+        foreach (var f in stored.Where(f => !f.Path.StartsWith('_')))
+        {
+            var label = ChangeDescriber.LabelFor(f.Path);
+            if (PortNamePrefix().Match(f.Label) is { Success: true } named && label.StartsWith(named.Groups[1].Value + " ", StringComparison.Ordinal))
+                label = named.Value + label[named.Groups[1].Value.Length..];
+            f.Label = label;
+        }
+        var fields = ChangeDescriber.ForDisplay(stored);
         return new ChangeObjectView
         {
             Collection = o.Collection,
