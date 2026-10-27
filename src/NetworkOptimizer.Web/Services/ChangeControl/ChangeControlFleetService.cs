@@ -170,7 +170,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var (latest, changes, state, last, hours) = await engine.Repositories.UseAsync(async (r, c) =>
             (await r.GetLatestSnapshotAsync(c), await r.GetChangesAsync(now.AddDays(-7), now, 2000, c), await r.GetDetectionStateAsync(c),
              await r.GetLastConfigChangeAsync(c), await r.GetHealthHoursAsync(now.AddHours(-24), now, c)), ct);
-        var health = SiteHealth.SiteHealthSeriesBuilder.Build(hours, now.AddHours(-24), now);
+        var health = SiteHealth.SiteHealthSeriesBuilder.Build(_registry.WithProvisionalHealth(site.Slug, hours), now.AddHours(-24), now);
         var config = changes.Where(x => x.Kind == ConfigChangeKind.Config && x.ActorKind != ConfigChangeActorKind.NetworkOptimizer).ToList();
         var counted = changes.Where(x => x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
         int? drift = null;
@@ -451,6 +451,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             var (gaps, incidents, hours) = await engine.Repositories.UseAsync(async (r, c) =>
                 (await r.GetGapsAsync(fromUtc, toUtc, c), await ChangeIncidents.StartedAsync(r, fromUtc, toUtc, c),
                  await r.GetHealthHoursAsync(SiteHealth.SiteHealthJob.FloorHour(fromUtc - span), toUtc, c)), cancellationToken);
+            hours = _registry.WithProvisionalHealth(site.Slug, hours);
             var health = SiteHealth.SiteHealthSeriesBuilder.Build(hours, SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc,
                 hours.Where(h => h.HourStart < fromUtc && h.HourStart >= fromUtc - span).ToList());
             var bands = gaps.Where(g => g.EndedAt is not { } end || end - g.StartedAt >= ShortGap).Select(g => new TimelineBand(g.StartedAt, g.EndedAt ?? DateTime.UtcNow, "gap", g.Reason))
@@ -480,7 +481,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var hours = await _registry.GetFor(siteSlug).Repositories.UseAsync((r, c) =>
             r.GetHealthHoursAsync(SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc, c), cancellationToken);
         var lanes = await Reader(siteSlug).LanesAsync(fromUtc, toUtc, cancellationToken);
-        lanes.Insert(0, HealthLane(SiteHealth.SiteHealthSeriesBuilder.Build(hours, SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc)));
+        lanes.Insert(0, HealthLane(SiteHealth.SiteHealthSeriesBuilder.Build(_registry.WithProvisionalHealth(siteSlug, hours), SiteHealth.SiteHealthJob.FloorHour(fromUtc), toUtc)));
         return lanes;
     }
 
@@ -541,6 +542,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 (await r.GetHealthHoursAsync(now.AddHours(-48), now, c), await r.GetChangesAsync(now.AddDays(-1), now, 500, c),
                  await ChangeIncidents.StartedAsync(r, now.AddDays(-1), now, c), await r.GetPlansAsync(null, 50, c),
                  await r.GetGapsAsync(now.AddDays(-7), now, c)), cancellationToken);
+            hours = _registry.WithProvisionalHealth(site.Slug, hours);
             var counted = changes.Where(x => x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
             result.Add(new SiteHealth.SiteHealthSummary
             {

@@ -23715,6 +23715,12 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 36px;
 }
 
+/* Placed, not auto-placed: the row's .cc-tl-lines already holds this cell, so auto-placement would skip past it. */
+.change-control .cc-tl-row > .cc-track {
+    grid-column: 3;
+    grid-row: 1;
+}
+
 .change-control .cc-track.cc-lane-track {
     height: 64px;
 }
@@ -23750,6 +23756,29 @@ body:has(.top-bar-hidden) .btn-fit {
     opacity: 0.85;
     transform: translateX(-1px);
     pointer-events: none;
+}
+
+.change-control .cc-after .status-badge {
+    white-space: nowrap;
+}
+
+/* Event lines span the whole row in the track's column, so the site row, lanes, and Events row join into one line. */
+.change-control .cc-tl-lines {
+    grid-column: 3;
+    grid-row: 1 / -1;
+    align-self: stretch;
+    position: relative;
+    pointer-events: none;
+}
+
+/* The site row's line starts at its marker and bridges the border, margin, and padding down to the first lane. */
+.change-control .cc-tl-lines.from-marker .cc-marker-line {
+    top: 50%;
+    bottom: calc(-1px - 0.5rem);
+}
+
+.change-control .cc-tl-lines.to-marker .cc-marker-line {
+    bottom: 50%;
 }
 
 .change-control .cc-marker-line {
@@ -24576,6 +24605,21 @@ body:has(.top-bar-hidden) .btn-fit {
     .change-control .cc-tl-chev { grid-area: chev; }
     .change-control .cc-tl-label { grid-area: label; }
     .change-control .cc-tl-row > .cc-track { grid-area: track; }
+
+    /* The track spans every column under the label, and the row's padding is covered so rows still join. */
+    .change-control .cc-tl-lines {
+        grid-column: 1 / -1;
+        margin: -0.5rem 0;
+    }
+
+    /* The marker sits mid-track at the bottom of the row: padding plus half the 36px track. */
+    .change-control .cc-tl-lines.from-marker .cc-marker-line {
+        top: calc(100% - 0.5rem - 18px);
+    }
+
+    .change-control .cc-tl-lines.to-marker .cc-marker-line {
+        bottom: calc(0.5rem + 18px);
+    }
 
     .change-control .cc-tl-counts,
     .change-control .cc-lane-latest {

@@ -53,6 +53,21 @@ public sealed class SiteHealthJob
         _logger = logger;
     }
 
+    /// <summary>
+    /// The current hour (and, for five minutes after the hour, the one before it), scored on partial data
+    /// each run so health lines reach now. Never stored.
+    /// </summary>
+    public IReadOnlyList<SiteHealthHour> Provisional { get; private set; } = [];
+
+    /// <summary>Stored hours plus any provisional hour not stored yet, ordered by hour.</summary>
+    public static List<SiteHealthHour> WithProvisional(IEnumerable<SiteHealthHour> stored, IReadOnlyList<SiteHealthHour> provisional)
+    {
+        var hours = stored.ToList();
+        var have = hours.Select(h => h.HourStart).ToHashSet();
+        hours.AddRange(provisional.Where(p => !have.Contains(p.HourStart)));
+        return hours.OrderBy(h => h.HourStart).ToList();
+    }
+
     /// <summary>Runs from the site engine's tick; returns at once unless a run is due.</summary>
     public async Task TickAsync(CancellationToken ct)
     {
@@ -89,6 +104,12 @@ public sealed class SiteHealthJob
             }
 
             await CheckChangesAsync(stored, latest.AddHours(1), ct);
+
+            // The hours after the newest settled one, scored on what has landed so far. Kept in memory and
+            // never saved, so change checks and the stored history only ever see finished hours.
+            var sw2 = Stopwatch.StartNew();
+            Provisional = await ComputeAsync(latest.AddHours(1), FloorHour(now).AddHours(1), stored, ct);
+            if (sw2.Elapsed > SlowRun) _next = DateTime.UtcNow + SlowPause;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -187,6 +208,10 @@ public sealed class SiteHealthJob
             if (load.TryGetValue(key, out var w) && (w.IsLoadedDown || w.IsLoadedUp)) loaded.Add(p.RttAvgMs!.Value);
             else if (load.Count == 0 || (load.TryGetValue(key, out var w2) && w2.IsIdle)) idle.Add(p.RttAvgMs!.Value);
         }
+        // The provisional hour has not ended: outage and offline time count against the part that has elapsed.
+        var elapsed = Min(end, DateTime.UtcNow) - hour;
+        var scale = elapsed > TimeSpan.Zero && elapsed < end - hour ? (end - hour) / elapsed : 1;
+
         var windows = load.Keys.Count(In);
         var loadedShare = windows > 0 ? (double)load.Count(kv => In(kv.Key) && (kv.Value.IsLoadedDown || kv.Value.IsLoadedUp)) / windows : 0;
 
@@ -195,7 +220,7 @@ public sealed class SiteHealthJob
         {
             if (!string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(Context(a, "wan") ?? a.DeviceId ?? ""), primaryKey,
                     StringComparison.OrdinalIgnoreCase)) continue;
-            var minutes = Overlap(a, alerts, hour, end).TotalMinutes;
+            var minutes = Overlap(a, alerts, hour, end).TotalMinutes * scale;
             if (a.EventType == "monitoring.wan_outage_partial")
                 minutes *= double.TryParse(Context(a, "targets_failing"), out var f) && double.TryParse(Context(a, "targets_total"), out var t) && t > 0 ? f / t : 0.5;
             outageMinutes += minutes;
@@ -227,7 +252,7 @@ public sealed class SiteHealthJob
         {
             var mac = Mac(a.DeviceId);
             if (mac.Length == 0) continue;
-            var fraction = Overlap(a, alerts, hour, end).TotalHours;
+            var fraction = Overlap(a, alerts, hour, end).TotalHours * scale;
             if (fraction <= 0) continue;
             offline[mac] = Math.Min(1, offline.GetValueOrDefault(mac) + fraction);
             offlineNames[mac] = a.DeviceName ?? topology.Name(mac);
@@ -346,6 +371,8 @@ public sealed class SiteHealthJob
     internal static DateTime FloorHour(DateTime t) => new(t.Year, t.Month, t.Day, t.Hour, 0, 0, DateTimeKind.Utc);
 
     private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
+
+    private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
 
     internal static double Median(IEnumerable<double> values)
     {

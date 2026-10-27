@@ -23,6 +23,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     private readonly ILogger<ChangeControlRegistry> _logger;
     private readonly ConcurrentDictionary<string, ChangeControlSiteEngine> _engines = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, PlanCoordinator> _coordinators = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, SiteHealth.SiteHealthJob> _health = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _running = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
 
@@ -40,6 +41,13 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
 
     /// <summary>The engine for a site, created on first use (not started until reconcile).</summary>
     public ChangeControlSiteEngine GetFor(string slug) => _engines.GetOrAdd(slug, Build);
+
+    /// <summary>A site's stored health hours plus its provisional current hour, for drawing (never for change checks).</summary>
+    public List<SiteHealthHour> WithProvisionalHealth(string slug, IEnumerable<SiteHealthHour> stored)
+    {
+        GetFor(slug);
+        return SiteHealth.SiteHealthJob.WithProvisional(stored, _health.TryGetValue(slug, out var job) ? job.Provisional : []);
+    }
 
     /// <summary>The console connection of a site.</summary>
     public UniFiConnectionService Connection(string slug) => _sp.GetRequiredService<SiteConnectionRegistry>().GetFor(slug);
@@ -162,6 +170,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             () => _sp.GetRequiredService<Monitoring.IspHealth.IspHealthRegistry>().GetFor(slug, null),
             () => connection, _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"SiteHealth[{slug}]"));
+        _health[slug] = health;
         engine.OnTick = async ct =>
         {
             await coordinator.TickAsync(ct);
@@ -180,6 +189,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         await StopAsync(slug, ct);
         _engines.TryRemove(slug, out _);
         _coordinators.TryRemove(slug, out _);
+        _health.TryRemove(slug, out _);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

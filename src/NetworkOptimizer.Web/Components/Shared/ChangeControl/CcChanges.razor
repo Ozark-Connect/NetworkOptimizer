@@ -15,7 +15,7 @@
 
 <div class="card">
     <div class="cc-toolbar">
-        <span class="cc-toolbar-label">Sites</span>
+        <span class="cc-toolbar-label">Site</span>
         <select class="form-control" @bind="SiteFilter" @bind:after="SiteFilterChangedAsync">
             <option value="">All sites (@_sites.Count)</option>
             @foreach (var s in _sites)
@@ -35,22 +35,38 @@
             <NetworkOptimizer.Web.Components.Shared.Monitoring.WanFilterResetButton OnReset="ResetWhoAsync" Label="Clear source filter" />
         }
         <span class="cc-toolbar-spacer"></span>
-        <div class="time-range-selector">
+        @if (_showCustomPopover)
+        {
+            <div class="isp-popover-backdrop" @onclick="() => _showCustomPopover = false"></div>
+        }
+        <div class="time-range-selector @(_showCustomPopover ? "isp-filter-raised" : "")" style="position: relative;">
             @foreach (var (key, label) in Ranges)
             {
                 <button class="time-btn @(_range == key ? "active" : "")" @onclick="() => SetRangeAsync(key)">@label</button>
             }
+            <button class="time-btn custom-range-btn @(_range == "custom" ? "active" : "")" @onclick="ToggleCustomPopover"
+                    data-tooltip="@(_range == "custom" ? $"{_customFrom:MMM d h:mm tt} - {_customTo:MMM d h:mm tt}" : "Custom date range")" data-tooltip-hover-only>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+            </button>
+            <div class="custom-range-popover @(_showCustomPopover ? "open" : "")">
+                <div class="custom-range-form">
+                    <div class="custom-range-title">Custom Range</div>
+                    <div class="custom-range-field">
+                        <label>From</label>
+                        <input type="datetime-local" class="custom-range-input" @bind="_pickFrom" />
+                    </div>
+                    <div class="custom-range-field">
+                        <label>To</label>
+                        <input type="datetime-local" class="custom-range-input" @bind="_pickTo" />
+                    </div>
+                    <div class="custom-range-actions">
+                        <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomPopover = false">Cancel</button>
+                        <button class="btn btn-sm btn-primary" @onclick="ApplyCustomAsync">Apply</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-    @if (_range == "custom")
-    {
-        <div class="cc-toolbar">
-            <span class="cc-toolbar-label">From</span>
-            <input type="date" class="form-control" @bind="_customFrom" @bind:after="CustomRangeChangedAsync" />
-            <span class="cc-toolbar-label">To</span>
-            <input type="date" class="form-control" @bind="_customTo" @bind:after="CustomRangeChangedAsync" />
-        </div>
-    }
 </div>
 
 <div class="card" data-tour="cc-timeline">
@@ -89,7 +105,11 @@
                 var expanded = _expandedSites.Contains(row.Site.Slug);
                 var markers = row.Markers.Where(Visible).ToList();
                 <div class="cc-tl-row cc-tl-site" @onclick="() => ToggleSiteAsync(row.Site.Slug)">
-                    <span class="expand-chevron cc-tl-chev">@(expanded ? "▾" : "▸")</span>
+                    @if (expanded && _lanes.ContainsKey(row.Site.Slug))
+                    {
+                        @EventLines(markers, "from-marker")
+                    }
+                    <span class="expand-chevron cc-tl-chev">@(expanded ? "▲" : "▼")</span>
                     <div class="cc-tl-label">
                         <div class="cc-tl-name">@row.Site.Name</div>
                         <div class="cc-tl-sub">@row.Site.Detail</div>
@@ -128,6 +148,7 @@
                                     @foreach (var lane in lanes)
                                     {
                                         <div class="cc-tl-row cc-lane-row">
+                                            @EventLines(markers, "")
                                             <span class="cc-tl-chev"></span>
                                             <div class="cc-tl-label">
                                                 <div class="cc-tl-name">@lane.Title</div>
@@ -162,6 +183,7 @@
                                         </div>
                                     }
                                     <div class="cc-tl-row cc-lane-row">
+                                        @EventLines(markers, "to-marker")
                                         <span class="cc-tl-chev"></span>
                                         <div class="cc-tl-label">
                                             <div class="cc-tl-name">Events</div>
@@ -276,7 +298,7 @@
                                     }
                                 </span>
                             </td>
-                            <td class="hide-mobile">
+                            <td class="hide-mobile cc-after">
                                 @if (c.IncidentsAfter > 0)
                                 {
                                     <span class="status-badge status-warning">@CcFormat.Plural(c.IncidentsAfter, "incident", "incidents")</span>
@@ -328,7 +350,7 @@
     private static readonly (string Key, string Label)[] WhoFilters =
         [("person", "Person"), ("unattributed", "No admin recorded"), ("firmware", "Firmware"), ("no", "Network Optimizer")];
     private static readonly (string Key, string Label)[] Ranges =
-        [("24h", "24h"), ("7d", "7d"), ("30d", "30d"), ("90d", "90d"), ("custom", "Custom")];
+        [("24h", "24h"), ("7d", "7d"), ("30d", "30d"), ("90d", "90d")];
     private const int PageSize = 25;
 
     private List<FleetSiteView> _sites = [];
@@ -350,7 +372,7 @@
             var f = System.Text.Json.JsonSerializer.Deserialize<FilterState>(json);
             if (f == null) return;
             _who.UnionWith(f.Who.Where(w => WhoFilters.Any(p => p.Key == w)));
-            if (Ranges.Any(r => r.Key == f.Range)) _range = f.Range;
+            if (f.Range == "custom" || Ranges.Any(r => r.Key == f.Range)) _range = f.Range;
             if (f.From is { } from) _customFrom = from;
             if (f.To is { } to) _customTo = to;
         }
@@ -373,8 +395,34 @@
         }
     }
 
-    private async Task CustomRangeChangedAsync()
+    /// <summary>
+    /// A change's dashed line across one row's track column, full height so stacked rows join into one line.
+    /// "from-marker" starts at the site row's marker; "to-marker" ends at the Events row's.
+    /// </summary>
+    private RenderFragment EventLines(IReadOnlyList<ChangeRowView> markers, string span) =>
+        @<div class="cc-tl-lines @span" aria-hidden="true">
+            @foreach (var m in markers)
+            {
+                <div class="cc-marker-line" style="left:@F(CcFormat.Pct(m.OccurredAt, _from, _to))%"></div>
+            }
+        </div>;
+
+    private void ToggleCustomPopover()
     {
+        _showCustomPopover = !_showCustomPopover;
+        // Seed the fields from the range on screen, so a custom range starts from what is shown.
+        if (_showCustomPopover)
+        {
+            _pickFrom = CcFormat.Local(_from);
+            _pickTo = CcFormat.Local(_to);
+        }
+    }
+
+    private async Task ApplyCustomAsync()
+    {
+        _showCustomPopover = false;
+        (_customFrom, _customTo) = _pickFrom <= _pickTo ? (_pickFrom, _pickTo) : (_pickTo, _pickFrom);
+        _range = "custom";
         await ReloadAsync();
         await SaveFiltersAsync();
     }
@@ -388,8 +436,12 @@
         "90d" => "90 days",
         _ => "same length of time",
     };
+    // Local wall-clock times. The pick fields are the popover's edits until Apply copies them over.
     private DateTime _customFrom = DateTime.Today.AddDays(-14);
-    private DateTime _customTo = DateTime.Today;
+    private DateTime _customTo = DateTime.Now;
+    private DateTime _pickFrom;
+    private DateTime _pickTo;
+    private bool _showCustomPopover;
     private DateTime _from;
     private DateTime _to;
     private List<TimelineSiteRow>? _timeline;
@@ -474,7 +526,8 @@
     private async Task SetRangeAsync(string key)
     {
         _range = key;
-        if (key != "custom") await ReloadAsync();
+        _showCustomPopover = false;
+        await ReloadAsync();
         await SaveFiltersAsync();
     }
 
@@ -487,7 +540,7 @@
             "30d" => (now.AddDays(-30), now),
             "90d" => (now.AddDays(-90), now),
             "custom" => (DateTime.SpecifyKind(_customFrom, DateTimeKind.Local).ToUniversalTime(),
-                Min(DateTime.SpecifyKind(_customTo.AddDays(1), DateTimeKind.Local).ToUniversalTime(), now)),
+                Min(DateTime.SpecifyKind(_customTo, DateTimeKind.Local).ToUniversalTime(), now)),
             _ => (now.AddDays(-7), now),
         };
     }

@@ -58,7 +58,10 @@ public static class SiteHealthSeriesBuilder
             var list = bucket.ToList();
             var start = from.AddHours(bucket.Key * span);
             var worst = list.Where(h => h.Health != null).OrderBy(h => h.Health).FirstOrDefault();
-            points.Add(new HealthPoint(start, start.AddHours(span), Mean(list.Select(h => h.Health)),
+            // Clamped to the range end: the provisional current hour ends at now, not at the top of the next hour.
+            var full = start.AddHours(span);
+            var end = full > to ? to : full;
+            points.Add(new HealthPoint(start, end, Mean(list.Select(h => h.Health)),
                 Mean(list.Select(h => (double?)Isp(h))) ?? 0, Mean(list.Select(h => (double?)Local(h))) ?? 0,
                 Mean(list.Select(h => (double?)WifiWeighted(h))) ?? 0, Mean(list.Select(h => h.Availability)) ?? 0,
                 Mean(list.Select(h => h.Lan)) ?? 0, worst == null ? null : Tip(worst)));

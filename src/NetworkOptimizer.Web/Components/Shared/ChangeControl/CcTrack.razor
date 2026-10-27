@@ -17,13 +17,6 @@
         var width = Math.Max(0.4, CcFormat.Pct(band.End, From, To) - left);
         <div class="cc-band @band.Kind" style="left:@F(left)%;width:@F(width)%" data-tooltip="@BandTip(band)"></div>
     }
-    @if (Lane)
-    {
-        @foreach (var m in Markers)
-        {
-            <div class="cc-marker-line" style="left:@F(CcFormat.Pct(m.OccurredAt, From, To))%"></div>
-        }
-    }
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         @if (!Lane)
         {
@@ -98,7 +91,8 @@
         {
             if (points[i - 1].Health is not { } a || points[i].Health is not { } b || points[i].Start != points[i - 1].End) continue;
             var x1 = CcFormat.Pct(points[i - 1].Start + (points[i - 1].End - points[i - 1].Start) / 2, From, To);
-            var x2 = CcFormat.Pct(points[i].Start + (points[i].End - points[i].Start) / 2, From, To);
+            // The newest bucket is drawn at its end, so the line reaches the range end (now) instead of stopping mid-hour.
+            var x2 = CcFormat.Pct(i == points.Count - 1 ? points[i].End : points[i].Start + (points[i].End - points[i].Start) / 2, From, To);
             yield return ($"{F(x1)},{F(HealthY(a))} {F(x2)},{F(HealthY(b))}",
                 NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(Math.Min(a, b)));
         }
