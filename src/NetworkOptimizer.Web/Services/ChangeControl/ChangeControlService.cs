@@ -348,11 +348,12 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     // ---------- Snapshots ----------
 
-    internal static (string Text, string Dot) TriggerLabel(ConfigSnapshot s) => s.Trigger switch
+    /// <param name="shown">Display names by username, for the person who took a manual snapshot; the username otherwise.</param>
+    internal static (string Text, string Dot) TriggerLabel(ConfigSnapshot s, IReadOnlyDictionary<string, string>? shown = null) => s.Trigger switch
     {
         ConfigSnapshotTrigger.Daily => ("Daily", ""),
         ConfigSnapshotTrigger.Initial => ("First snapshot", ""),
-        ConfigSnapshotTrigger.Manual => ($"Taken by {s.TriggerDetail}", "person"),
+        ConfigSnapshotTrigger.Manual => ($"Taken by {(s.TriggerDetail != null && shown?.GetValueOrDefault(s.TriggerDetail) is { Length: > 0 } name ? name : s.TriggerDetail)}", "person"),
         ConfigSnapshotTrigger.BeforeApply => ($"Before {s.TriggerDetail}", "no"),
         ConfigSnapshotTrigger.AfterApply => ($"After {s.TriggerDetail}", "no"),
         ConfigSnapshotTrigger.BeforeFirmwareRollout => ("Before Firmware Rollout", "firmware"),
@@ -370,9 +371,12 @@ public sealed partial class ChangeControlService : IChangeControlService
             var (count, _) = await r.GetSnapshotTotalsAsync(c);
             var settings = await r.GetSettingsAsync(c);
             var stored = _registry.BlobBytes(_site.Slug);
+            var takers = snaps.Where(s => s.Trigger == ConfigSnapshotTrigger.Manual && !string.IsNullOrEmpty(s.TriggerDetail))
+                .Select(s => s.TriggerDetail!).Distinct();
+            var shown = await Identity.UserDisplayNames.ResolveAsync(_scopes, takers, c);
             var rows = snaps.Select(s =>
             {
-                var (text, dot) = TriggerLabel(s);
+                var (text, dot) = TriggerLabel(s, shown);
                 // A pinned snapshot that sits right before a Network app upgrade reads as such.
                 if (s.Pinned && s.PinReason == "Before Network app upgrade") (text, dot) = ("Before Network app upgrade", "firmware");
                 return new SnapshotRowView
@@ -400,11 +404,16 @@ public sealed partial class ChangeControlService : IChangeControlService
         var state = await Engine.LoadSnapshotStateAsync(snap.Id, ct) ?? throw new InvalidOperationException("Snapshot content not found.");
         var tags = new List<string>();
         if (snap.IsBaseline) tags.Add("Baseline");
-        var (text, dot) = TriggerLabel(snap);
+        var shown = snap.Trigger == ConfigSnapshotTrigger.Manual && !string.IsNullOrEmpty(snap.TriggerDetail)
+            ? await Identity.UserDisplayNames.ResolveAsync(_scopes, [snap.TriggerDetail], ct) : null;
+        var (text, dot) = TriggerLabel(snap, shown);
         // A change snapshot is labeled with who made the change; a name keeps its own casing.
-        tags.Add(snap.Trigger == ConfigSnapshotTrigger.Change
-            ? dot == "unattributed" ? "after an unattributed change" : $"after a change by {text}"
-            : text.ToLowerInvariant() + " snapshot");
+        tags.Add(snap.Trigger switch
+        {
+            ConfigSnapshotTrigger.Change => dot == "unattributed" ? "after an unattributed change" : $"after a change by {text}",
+            ConfigSnapshotTrigger.Manual => char.ToLowerInvariant(text[0]) + text[1..] + " snapshot",
+            _ => text.ToLowerInvariant() + " snapshot",
+        });
         var detail = string.Join(", ", tags);
         return (state, Local(snap.TakenAt).ToString("MMM d, h:mm tt"), char.ToUpperInvariant(detail[0]) + detail[1..]);
     }
