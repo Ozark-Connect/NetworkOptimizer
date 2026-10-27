@@ -245,8 +245,13 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         // Only our config writes explain a device's config moving; a read sent as POST (roaming topology) is journaled too.
         var recentJournal = journal.Any(x => x.Collection != null && now - x.At < UnexplainedCfgQuiet);
         var unexplainedCfg = cfgChanged && changeEvents.Count == 0 && !recentJournal;
-        // Held, not dropped: the stored versions stay put so the next quiet poll still sees the move.
-        var cfgDeferred = cfgChanged && changeEvents.Count == 0 && recentJournal;
+        // A moved config hash means a device's own settings changed. Only our device writes explain that: a firewall
+        // group write moves the gateway's cfgversion but never its hash. One we cannot rule out is held, not dropped,
+        // so the stored versions stay put and the next quiet poll still sees it.
+        var hashMoved = devices != null && devices.Any(d => oldCfg.TryGetValue(d.Mac, out var v) && HashDiffers(v, d.CfgVersion));
+        var recentDeviceWrite = journal.Any(x => x.Collection == "device" && now - x.At < UnexplainedCfgQuiet);
+        var unexplainedHash = hashMoved && !recentDeviceWrite;
+        var hashDeferred = hashMoved && recentDeviceWrite;
 
         if (!_historyImported && devices != null && ImportHistory != null)
         {
@@ -279,7 +284,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         ConfigSnapshotTrigger? trigger =
             !hasAny ? ConfigSnapshotTrigger.Initial
             : appChanged ? ConfigSnapshotTrigger.NetworkAppUpgrade
-            : foreign.Count > 0 || ownOnUserObjects.Count > 0 || unexplainedCfg || firmwareChanged.Count > 0 || _snapshotRequested
+            : foreign.Count > 0 || ownOnUserObjects.Count > 0 || unexplainedCfg || unexplainedHash || firmwareChanged.Count > 0 || _snapshotRequested
                 ? ConfigSnapshotTrigger.Change
             : dailyDue ? ConfigSnapshotTrigger.Daily
             : null;
@@ -317,7 +322,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
         if (devices != null && snapshotOk)
         {
-            if (!cfgDeferred || trigger != null)
+            if (!hashDeferred || trigger != null)
                 state.CfgVersionsJson = JsonSerializer.Serialize(devices.ToDictionary(d => d.Mac, d => d.CfgVersion));
             state.DeviceVersionsJson = JsonSerializer.Serialize(devices.ToDictionary(d => d.Mac, d => d.Version));
         }
@@ -379,6 +384,10 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Whether a device's config moved. A value saved before the hash was added compares on cfgversion alone.</summary>
     internal static bool CfgDiffers(string stored, string current) =>
         stored.Contains('|') ? stored != current : stored != current.Split('|')[0];
+
+    /// <summary>Whether the config hash part moved; false for a value saved before the hash was added.</summary>
+    internal static bool HashDiffers(string stored, string current) =>
+        stored.Split('|') is [_, var a] && current.Split('|') is [_, var b] && a != b;
 
     private async Task<List<DeviceVersion>?> ReadDeviceVersionsAsync(CancellationToken ct)
     {

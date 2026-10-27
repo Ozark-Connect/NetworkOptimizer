@@ -137,6 +137,13 @@ public class ChangeDetectionTests
         ChangeControlSiteEngine.CfgDiffers(stored, current).Should().Be(differs);
 
     [Theory]
+    [InlineData("abc", "abd|111", false)]
+    [InlineData("abc|111", "abd|111", false)]
+    [InlineData("abc|111", "abc|222", true)]
+    public void HashDiffers_OnlyTheConfigHashCounts(string stored, string current, bool differs) =>
+        ChangeControlSiteEngine.HashDiffers(stored, current).Should().Be(differs);
+
+    [Theory]
     [InlineData("on", "On")]
     [InlineData("none", "None")]
     [InlineData("NONE", "None")]
