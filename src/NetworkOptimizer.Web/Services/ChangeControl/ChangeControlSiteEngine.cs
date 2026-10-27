@@ -76,6 +76,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Runs once per start, after the first device read, with device names by MAC (the firmware history import).</summary>
     public Func<IReadOnlyDictionary<string, string>, CancellationToken, Task>? ImportHistory { get; set; }
 
+    /// <summary>The recent Firmware Rollout plan that took a device (MAC) to a version, or null.</summary>
+    public Func<string, string, CancellationToken, Task<int?>>? RolloutFor { get; set; }
+
     private bool _historyImported;
 
     public ChangeControlSiteEngine(
@@ -271,9 +274,13 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
         // Firmware rows: one per device that moved version, and one for a Network app version change.
         var rolloutActive = _isRolloutActive != null && await _isRolloutActive(ct);
+        // A device row also credits a rollout that just ended, but only one that took this device to this version.
         foreach (var d in firmwareChanged)
+        {
+            var planId = RolloutFor != null ? await RolloutFor(d.Mac, d.Version, ct) : null;
             await RecordFirmwareRowAsync(ConfigChangeKind.DeviceFirmware, $"{d.Name}: firmware {FirmwareVersionFormat.Short(oldVersions[d.Mac])} to {FirmwareVersionFormat.Short(d.Version)}",
-                oldVersions[d.Mac], d.Version, rolloutActive, ct);
+                oldVersions[d.Mac], d.Version, rolloutActive || planId != null, ct, planId);
+        }
         if (appChanged)
         {
             var byRollout = rolloutActive || (_wasRolloutRecent != null && await _wasRolloutRecent(ct));
@@ -408,7 +415,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             .ToList();
     }
 
-    private async Task RecordFirmwareRowAsync(ConfigChangeKind kind, string summary, string? from, string? to, bool rolloutActive, CancellationToken ct)
+    private async Task RecordFirmwareRowAsync(ConfigChangeKind kind, string summary, string? from, string? to, bool rolloutActive, CancellationToken ct,
+        int? rolloutPlanId = null)
     {
         var change = new ConfigChange
         {
@@ -417,6 +425,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             DetectedAt = DateTime.UtcNow,
             ActorKind = rolloutActive ? ConfigChangeActorKind.Firmware : ConfigChangeActorKind.LikelyUniFi,
             ActorName = rolloutActive ? "Firmware Rollout" : null,
+            FirmwareRolloutPlanId = rolloutPlanId,
             Summary = summary,
             VersionFrom = from,
             VersionTo = to,

@@ -114,6 +114,65 @@ public sealed class FirmwareHistoryImport
         }
     }
 
+    /// <summary>
+    /// How long after a rollout ends a device's new version is still credited to it. A Cloud Gateway's
+    /// UniFi OS update is the plan's last step, and the plan completes as the console comes back.
+    /// </summary>
+    internal static readonly TimeSpan RolloutTail = TimeSpan.FromHours(1);
+
+    /// <summary>The recent rollout that put a device on a version, or null. Live detection credits its firmware rows with it.</summary>
+    public async Task<int?> RolloutForAsync(string mac, string version, CancellationToken ct)
+    {
+        try
+        {
+            return await _rollout.UseAsync(async (r, c) =>
+            {
+                var plans = new List<(FirmwareRolloutPlan, IReadOnlyList<FirmwareRolloutStep>)>();
+                foreach (var plan in await r.GetPlanHistoryAsync(5, c))
+                    plans.Add((plan, await r.GetStepsAsync(plan.Id, c)));
+                return CreditedPlan(plans, mac, version, DateTime.UtcNow);
+            }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Firmware Rollout history could not be read to credit a firmware change");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A plan running or ended within <see cref="RolloutTail"/> that took this device to this version: a step
+    /// for it, or the UniFi OS update (a Cloud Gateway's firmware is UniFi OS). Matching both keeps a UniFi
+    /// auto-update of another device, soon after a rollout, from being credited to the rollout.
+    /// </summary>
+    internal static int? CreditedPlan(IEnumerable<(FirmwareRolloutPlan Plan, IReadOnlyList<FirmwareRolloutStep> Steps)> plans,
+        string mac, string version, DateTime now)
+    {
+        foreach (var (plan, steps) in plans)
+        {
+            if (plan.StartedAt == null) continue;
+            if (plan.Status != FirmwareRolloutStatus.Running && !(plan.CompletedAt > now - RolloutTail)) continue;
+            if (steps.Any(s => Mac(s.DeviceMac) == Mac(mac) && s.ToVersion != null && SameVersion(s.ToVersion, version)))
+                return plan.Id;
+            if (UniFiOsTarget(plan) is { } os && SameVersion(os, version))
+                return plan.Id;
+        }
+        return null;
+    }
+
+    private static string? UniFiOsTarget(FirmwareRolloutPlan plan)
+    {
+        try
+        {
+            var document = System.Text.Json.JsonSerializer.Deserialize<RolloutPlanDocument>(plan.PlanJson);
+            return document?.UniFiOsUpdate is { Triggered: true } os ? os.TargetVersion : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task<List<Upgrade>> RebootUpgradesAsync(IReadOnlyDictionary<string, string> namesByMac, CancellationToken ct)
     {
         IReadOnlyList<MonitoringInfluxClient.DeviceRebootPoint> boots;

@@ -111,4 +111,42 @@ public sealed class FirmwareHistoryImportTests
     [Fact]
     public void Summary_DropsTheBuild() =>
         FirmwareHistoryImport.Summary(new(T, Mac, "AP", "6.0.11.36269", "6.0.15.36489", null)).Should().Be("AP: firmware 6.0.11 to 6.0.15");
+
+    private static (FirmwareRolloutPlan, IReadOnlyList<FirmwareRolloutStep>) Plan(int id, FirmwareRolloutStatus status, DateTime? completed,
+        string planJson = "{}", params FirmwareRolloutStep[] steps) =>
+        (new FirmwareRolloutPlan { Id = id, Status = status, StartedAt = T.AddHours(-2), CompletedAt = completed, PlanJson = planJson }, steps);
+
+    private static FirmwareRolloutStep Step(string mac, string to) => new() { DeviceMac = mac, ToVersion = to };
+
+    private const string UniFiOs = """{"UniFiOsUpdate":{"Triggered":true,"Settled":true,"TargetVersion":"v5.1.28+baa7152"}}""";
+
+    [Fact]
+    public void CreditedPlan_TheConsolesOwnUpdate_AfterThePlanCompleted() =>
+        FirmwareHistoryImport.CreditedPlan([Plan(7, FirmwareRolloutStatus.SoakWait, T.AddMinutes(-2), UniFiOs)], Mac, "5.1.28.12345", T)
+            .Should().Be(7);
+
+    [Fact]
+    public void CreditedPlan_ADeviceStepToThatVersion() =>
+        FirmwareHistoryImport.CreditedPlan([Plan(7, FirmwareRolloutStatus.SoakWait, T.AddMinutes(-5), steps: Step("AABBCC000001", "7.6.7.17255"))], Mac, "7.6.7", T)
+            .Should().Be(7);
+
+    [Fact]
+    public void CreditedPlan_NotAnotherDeviceOrVersion()
+    {
+        var plan = Plan(7, FirmwareRolloutStatus.SoakWait, T.AddMinutes(-5), steps: Step("aa:bb:cc:00:00:02", "7.6.7"));
+        FirmwareHistoryImport.CreditedPlan([plan], Mac, "7.6.7", T).Should().BeNull();
+        FirmwareHistoryImport.CreditedPlan([Plan(7, FirmwareRolloutStatus.SoakWait, T.AddMinutes(-5), steps: Step(Mac, "7.6.7"))], Mac, "7.6.9", T)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void CreditedPlan_NotAPlanThatEndedOverAnHourAgo() =>
+        FirmwareHistoryImport.CreditedPlan([Plan(7, FirmwareRolloutStatus.SoakWait, T.AddMinutes(-61), UniFiOs)], Mac, "5.1.28", T)
+            .Should().BeNull();
+
+    [Fact]
+    public void CreditedPlan_NotAUniFiOsUpdateThatWasNeverTriggered() =>
+        FirmwareHistoryImport.CreditedPlan([Plan(7, FirmwareRolloutStatus.SoakWait, T.AddMinutes(-2),
+                """{"UniFiOsUpdate":{"Triggered":false,"TargetVersion":"5.1.28"}}""")], Mac, "5.1.28", T)
+            .Should().BeNull();
 }

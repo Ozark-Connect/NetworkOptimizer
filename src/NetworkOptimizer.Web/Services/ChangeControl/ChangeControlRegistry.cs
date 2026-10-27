@@ -148,6 +148,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         var history = new FirmwareHistoryImport(rollout, () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControl[{slug}]"));
         engine.ImportHistory = (names, ct) => history.RunAsync(engine, names, ct);
+        engine.RolloutFor = history.RolloutForAsync;
 
         var litmus = ActivatorUtilities.CreateInstance<LitmusService>(_sp, slug);
         var coordinator = new PlanCoordinator(engine, _sp.GetRequiredService<ICredentialProtectionService>(),
