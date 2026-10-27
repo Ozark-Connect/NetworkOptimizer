@@ -337,6 +337,11 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     internal static async Task<string> SaveIfChangedAsync(UniFiApiClient client, IReadOnlyList<UniFiFirewallGroup> groups,
         UniFiFirewallGroupWrite group, CancellationToken ct)
     {
+        // Network 11 re-keyed every group to a UUID on upgrade and still accepts writes to the old id, so a stale id
+        // would skip this check and rewrite (reprovisioning the gateway) on every sync. Adopt our group by name instead.
+        if (group.Id != null && groups.All(g => g.Id != group.Id)
+            && groups.FirstOrDefault(g => g.Name == group.Name && g.GroupType == group.GroupType) is { } renamed)
+            group = group with { Id = renamed.Id };
         if (group.Id != null && groups.FirstOrDefault(g => g.Id == group.Id) is { } current
             && current.Name == group.Name && current.Description == group.Description
             && SameMembers(current.GroupMembers, group.GroupMembers))
