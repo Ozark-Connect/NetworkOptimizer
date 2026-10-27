@@ -137,6 +137,25 @@ public class ChangeDetectionTests
         ChangeControlSiteEngine.CfgDiffers(stored, current).Should().Be(differs);
 
     [Fact]
+    public void CarriesDevice_OnlyTheUplinkAndPortsWithADeviceBelow()
+    {
+        var device = new JsonObject
+        {
+            ["mac"] = "aa:bb:cc:dd:ee:ff",
+            [ConfigCollections.DeviceMetaField] = JsonNode.Parse("""
+                {"ports":[{"port_idx":1,"is_uplink":true},{"port_idx":4,"is_uplink":false},{"port_idx":6,"is_uplink":false}],
+                 "lldp":[{"local_port_idx":6,"chassis_id":"11:22:33:44:55:66"}]}
+                """),
+        };
+
+        ConfigDiffEngine.CarriesDevice(device, 1).Should().BeTrue("the uplink");
+        ConfigDiffEngine.CarriesDevice(device, 6).Should().BeTrue("an AP below it");
+        ConfigDiffEngine.CarriesDevice(device, 4).Should().BeFalse("a client port");
+        ConfigDiffEngine.CarriesDevice((JsonObject)JsonNode.Parse("""{"mac":"aa:bb:cc:dd:ee:ff"}""")!, 4)
+            .Should().BeTrue("no port facts in an older snapshot keeps the old rule");
+    }
+
+    [Fact]
     public void Row_PlanChange_ShowsThePersonWhoAppliedIt()
     {
         var change = new ConfigChange { Id = 1, Kind = ConfigChangeKind.Config, ActorKind = ConfigChangeActorKind.NetworkOptimizer, ActorName = "Network Optimizer", PlanId = 7, Summary = "s" };

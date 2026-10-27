@@ -15,6 +15,9 @@ public static class CcFormat
     /// <summary>"Oct 20".</summary>
     public static string Day(DateTime utc) => Local(utc).ToString("MMM d");
 
+    /// <summary>What "Unattributed" means, for its tooltip.</summary>
+    public const string UnattributedTip = "UniFi Network's audit log names no admin for this change.";
+
     /// <summary>The actor dot class for a change.</summary>
     public static string Dot(ConfigChangeActorKind kind) => kind switch
     {

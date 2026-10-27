@@ -75,9 +75,9 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         ConfigChangeActorKind.Person => c.ActorName ?? "Admin",
         ConfigChangeActorKind.NetworkOptimizer => c.ActorName is { Length: > 0 } n && n != "Network Optimizer" ? $"Network Optimizer ({n})" : "Network Optimizer",
-        ConfigChangeActorKind.LikelyUniFi => c.Kind == ConfigChangeKind.Config ? "No admin recorded, likely UniFi" : "UniFi",
+        ConfigChangeActorKind.LikelyUniFi => c.Kind == ConfigChangeKind.Config ? "UniFi (likely)" : "UniFi",
         ConfigChangeActorKind.Firmware => c.ActorName ?? "Firmware Rollout",
-        _ => "No admin recorded",
+        _ => "Unattributed",
     };
 
     /// <summary>The newest applied Roll Back of each change, by change ID.</summary>
@@ -129,6 +129,8 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         var appliedBy = c.ActorKind == ConfigChangeActorKind.NetworkOptimizer && c.PlanId is int plan
             && appliers != null && appliers.TryGetValue(plan, out var by) ? by : null;
+        // Device writes recorded before 831f13802 carry the console account's name as a person; they are Network Optimizer's.
+        var ours = c.ActorKind == ConfigChangeActorKind.Person && c.ActorName == "Network Optimizer";
         return new()
         {
             RolledBackByPlanId = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rb) ? rb.PlanId : null,
@@ -139,8 +141,8 @@ public sealed partial class ChangeControlService : IChangeControlService
             OccurredAt = c.OccurredAt,
             Kind = c.Kind,
             Summary = summaries != null && summaries.TryGetValue(c.Id, out var s) && s.Length > 0 ? s : c.Summary,
-            ActorKind = appliedBy != null ? ConfigChangeActorKind.Person : c.ActorKind,
-            Who = appliedBy != null ? $"{appliedBy} (plan)" : Who(c),
+            ActorKind = appliedBy != null ? ConfigChangeActorKind.Person : ours ? ConfigChangeActorKind.NetworkOptimizer : c.ActorKind,
+            Who = appliedBy != null ? $"{appliedBy} (plan)" : ours ? "Network Optimizer" : Who(c),
             RegressionCount = c.RegressionCount,
             FixCount = c.FixCount,
             Tags = string.IsNullOrEmpty(c.ServiceTagsJson) ? [] : JsonSerializer.Deserialize<List<string>>(c.ServiceTagsJson) ?? [],
@@ -198,16 +200,17 @@ public sealed partial class ChangeControlService : IChangeControlService
             return (change, objects, incidents, health, RollbacksByChange(await r.GetChangeRollbacksAsync(c)));
         }, cancellationToken);
         if (loaded is not { } l) return null;
+        var appliers = await Repo.UseAsync((r, c) => PlanAppliersAsync(r, [l.change], c), cancellationToken);
 
         var metrics = HealthDeltas(l.health, l.change.OccurredAt)
             .Concat(await new SiteMetricsReader(_influx, _isp, _logger).BeforeAfterAsync(l.change.OccurredAt, cancellationToken)).ToList();
         var impact = string.IsNullOrEmpty(l.change.ImpactJson) ? [] : JsonSerializer.Deserialize<List<ImpactLine>>(l.change.ImpactJson) ?? [];
-        var source = l.change.ActorKind == ConfigChangeActorKind.Person
+        var source = l.change.ActorKind == ConfigChangeActorKind.Person && l.change.ActorName != "Network Optimizer"
             ? string.Join(", ", new[] { l.change.ActorName, l.change.ActorIp, Platform(l.change.ActorPlatform) }.Where(s => !string.IsNullOrEmpty(s)))
             : null;
         return new ChangeDetailView
         {
-            Row = Row(l.change, _site.Slug, name, LinkedAfter(l.change, l.incidents), l.rollbacks),
+            Row = Row(l.change, _site.Slug, name, LinkedAfter(l.change, l.incidents), l.rollbacks, appliers: appliers),
             Objects = l.objects.Select(ObjectView).ToList(),
             Impact = impact,
             IncidentsAfter = l.incidents.Select(Incident).ToList(),
@@ -337,7 +340,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         ConfigSnapshotTrigger.BeforeFirmwareRollout => ("Before Firmware Rollout", "firmware"),
         ConfigSnapshotTrigger.NetworkAppUpgrade => ("After Network app upgrade", "firmware"),
         _ when s.TriggerDetail == "Network Optimizer" => ("Network Optimizer", "no"),
-        _ when string.IsNullOrEmpty(s.TriggerDetail) => ("No admin recorded", "unattributed"),
+        _ when string.IsNullOrEmpty(s.TriggerDetail) => ("Unattributed", "unattributed"),
         _ => (s.TriggerDetail!, "person"),
     };
 
@@ -382,7 +385,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var (text, dot) = TriggerLabel(snap);
         // A change snapshot is labeled with who made the change; a name keeps its own casing.
         tags.Add(snap.Trigger == ConfigSnapshotTrigger.Change
-            ? dot == "unattributed" ? "after a change, no admin recorded" : $"after a change by {text}"
+            ? dot == "unattributed" ? "after an unattributed change" : $"after a change by {text}"
             : text.ToLowerInvariant() + " snapshot");
         var detail = string.Join(", ", tags);
         return (state, Local(snap.TakenAt).ToString("MMM d, h:mm tt"), char.ToUpperInvariant(detail[0]) + detail[1..]);

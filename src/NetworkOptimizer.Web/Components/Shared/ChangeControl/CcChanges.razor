@@ -27,7 +27,8 @@
         <span class="cc-toolbar-label">Source</span>
         @foreach (var (key, label) in WhoFilters)
         {
-            <button class="cc-chip @(WhoShown(key) ? "" : "off")" @onclick="e => ToggleWho(key, e)">
+            <button class="cc-chip @(WhoShown(key) ? "" : "off")" @onclick="e => ToggleWho(key, e)"
+                    data-tooltip="@(key == "unattributed" ? CcFormat.UnattributedTip : null)" data-tooltip-hover-only>
                 <span class="cc-dot @key"></span>@label
             </button>
         }
@@ -75,7 +76,7 @@
         <h3 class="card-title">Timeline<span class="card-title-suffix">@CcFormat.Local(_from).ToString("MMM d") - @CcFormat.Local(_to).ToString("MMM d")</span></h3>
         <div class="cc-legend">
             <span><span class="cc-dot person"></span>Person</span>
-            <span><span class="cc-dot unattributed"></span>No admin recorded</span>
+            <span data-tooltip="@CcFormat.UnattributedTip"><span class="cc-dot unattributed"></span>Unattributed</span>
             <span><span class="cc-dot firmware" style="border-radius:2px;transform:rotate(45deg)"></span>Firmware</span>
             <span><span class="cc-band-key"></span>Incident</span>
         </div>
@@ -347,7 +348,7 @@
 
 @code {
     private static readonly (string Key, string Label)[] WhoFilters =
-        [("person", "Person"), ("unattributed", "No admin recorded"), ("firmware", "Firmware"), ("no", "Network Optimizer")];
+        [("person", "Person"), ("unattributed", "Unattributed"), ("firmware", "Firmware"), ("no", "Network Optimizer")];
     private static readonly (string Key, string Label)[] Ranges =
         [("24h", "24h"), ("7d", "7d"), ("30d", "30d"), ("90d", "90d")];
     private const int PageSize = 25;

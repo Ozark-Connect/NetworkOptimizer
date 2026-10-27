@@ -199,8 +199,8 @@ public sealed class ChangeEvaluator : IChangeEvaluator
         {
             ConfigChangeActorKind.Person => change.ActorName ?? "An admin",
             ConfigChangeActorKind.NetworkOptimizer => "Network Optimizer",
-            ConfigChangeActorKind.LikelyUniFi => "No admin recorded, likely UniFi",
-            _ => "No admin recorded",
+            ConfigChangeActorKind.LikelyUniFi => "UniFi (likely)",
+            _ => "Unattributed",
         };
         var context = new Dictionary<string, string>
         {
@@ -230,20 +230,29 @@ public sealed class ChangeEvaluator : IChangeEvaluator
         {
             var tags = string.IsNullOrEmpty(change.ServiceTagsJson) ? [] : JsonSerializer.Deserialize<List<string>>(change.ServiceTagsJson) ?? [];
             var classD = tags.Where(ServiceTags.ClassD.Contains).ToList();
+            // Each reason: the title's headline, and the sentence the message adds when it is not the headline.
             AlertSeverity? severity = null;
-            var reasons = new List<string>();
-            if (impact is { Regressions.Count: > 0 }) { severity = ToAlertSeverity(impact.WorstRegression); reasons.Add("adds a Security Audit issue"); }
-            if (change.ManagementPath) { severity = AlertSeverity.Critical; reasons.Add("touches the management path"); }
-            if (classD.Count > 0) { severity ??= AlertSeverity.Warning; reasons.Add($"touches {string.Join(", ", classD)}"); }
+            var reasons = new List<(string Headline, string Also)>();
+            if (change.ManagementPath) { severity = AlertSeverity.Critical; reasons.Add(("Management path changed", "It also changes the management path.")); }
+            if (impact is { Regressions.Count: > 0 })
+            {
+                severity ??= ToAlertSeverity(impact.WorstRegression);
+                reasons.Add(("Security Audit issue added", "It also adds a Security Audit issue."));
+            }
+            if (classD.Count > 0)
+            {
+                severity ??= AlertSeverity.Warning;
+                reasons.Add(($"{string.Join(", ", classD)} changed", $"It also changes {string.Join(", ", classD)}."));
+            }
             if (severity != null)
                 await Publish(new AlertEvent
                 {
                     EventType = ChangeAlerts.Unattributed,
                     Source = ChangeAlerts.Source,
                     Severity = severity.Value,
-                    Title = $"{who}: {change.Summary}",
-                    Message = $"A config change with no admin in the UniFi audit log {string.Join(" and ", reasons)}. "
-                              + "It may come from UniFi itself, a change outside the Network app (SSH), or a missed audit event.",
+                    Title = $"{reasons[0].Headline}: {change.Summary}",
+                    Message = string.Join(" ", new[] { "UniFi Network recorded no admin for this change. It may be UniFi's own, a device setting UniFi applied without logging it, or an edit over SSH." }
+                        .Concat(reasons.Skip(1).Select(r => r.Also))),
                     Context = context,
                     SourceUrl = ChangeAlerts.ChangeUrl(change.Id),
                     SiteSlug = slug,
@@ -282,7 +291,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             // No regression count: the upgrade's audit waits for devices to reconnect and alerts on its own.
             Title = $"Network app {from} to {to}: {(objects == 0 ? "no config changes" : $"{objects} objects changed")}",
             Message = objects == 0 ? "The upgrade left the site's config as it was."
-                : "Objects changed during the upgrade are on the Changes tab, labeled \"No admin recorded, likely UniFi\".",
+                : "Objects changed during the upgrade are on the Changes tab, labeled \"UniFi (likely)\".",
             SourceUrl = changes.Count > 0 ? ChangeAlerts.ChangeUrl(changes[0].Id) : "/change-control/changes",
             SiteSlug = slug,
         }, ct);
@@ -347,7 +356,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             {
                 ConfigChangeActorKind.Person => c.ActorName ?? "Admin",
                 ConfigChangeActorKind.NetworkOptimizer => "Network Optimizer",
-                _ => "No admin recorded",
+                _ => "Unattributed",
             })
             .Select(g => $"{g.Key} {g.Count()}");
         await Publish(new AlertEvent

@@ -34,7 +34,7 @@ else
             <div class="cc-tile-sub">On @CcFormat.Plural(regressionSites, "site", "sites")</div>
         </div>
         <div class="cc-tile cc-tile-unattributed">
-            <div class="cc-tile-label">No admin recorded</div>
+            <div class="cc-tile-label" data-tooltip="@CcFormat.UnattributedTip">Unattributed</div>
             <div class="cc-tile-value @(sites.Sum(s => s.Unattributed) > 0 ? "warning" : "")">@sites.Sum(s => s.Unattributed)</div>
             <div class="cc-tile-sub">Last 7 days</div>
         </div>

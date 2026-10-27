@@ -1030,7 +1030,7 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
-            Name = "Change Control: No Admin Recorded, With Impact",
+            Name = "Change Control: Unattributed Change, With Impact",
             IsEnabled = true,
             EventTypePattern = "change.unattributed",
             Source = "change_control",

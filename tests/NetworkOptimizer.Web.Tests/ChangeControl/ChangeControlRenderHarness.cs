@@ -149,11 +149,11 @@ public class ChangeControlRenderHarness
 
     private static List<ChangeRowView> Changes() =>
     [
-        new() { Id = 7, SiteSlug = "client-a", SiteName = "Client A", OccurredAt = Now.AddHours(-25), Kind = ConfigChangeKind.Config, Summary = "Port profile Cameras: native network changed", ActorKind = ConfigChangeActorKind.NoAdminRecorded, Who = "No admin recorded", RegressionCount = 1, IncidentsAfter = 1, PreviousSnapshotId = 5, SnapshotId = 6 },
+        new() { Id = 7, SiteSlug = "client-a", SiteName = "Client A", OccurredAt = Now.AddHours(-25), Kind = ConfigChangeKind.Config, Summary = "Port profile Cameras: native network changed", ActorKind = ConfigChangeActorKind.NoAdminRecorded, Who = "Unattributed", RegressionCount = 1, IncidentsAfter = 1, PreviousSnapshotId = 5, SnapshotId = 6 },
         new() { Id = 6, SiteSlug = "main", SiteName = "HQ", OccurredAt = Now.AddHours(-39), Kind = ConfigChangeKind.DeviceFirmware, Summary = "Firmware Rollout: 4 switches, 7.1.26 to 7.1.30", ActorKind = ConfigChangeActorKind.Firmware, Who = "Firmware Rollout" },
         new() { Id = 5, SiteSlug = "main", SiteName = "HQ", OccurredAt = Now.AddHours(-56), Kind = ConfigChangeKind.Config, Summary = "WLAN Home: security WPA2 to WPA2/WPA3", ActorKind = ConfigChangeActorKind.Person, Who = "Alex", Tags = ["WLAN security"], IncidentsAfter = 1, PreviousSnapshotId = 3, SnapshotId = 4 },
         new() { Id = 4, SiteSlug = "branch-2", SiteName = "Branch 2", OccurredAt = Now.AddHours(-88), Kind = ConfigChangeKind.NetworkAppUpgrade, Summary = "Network app 10.6.106 to 11.0.21", ActorKind = ConfigChangeActorKind.Firmware, Who = "Firmware Rollout" },
-        new() { Id = 3, SiteSlug = "main", SiteName = "HQ", OccurredAt = Now.AddHours(-136), Kind = ConfigChangeKind.Config, Summary = "14 objects changed during Network app upgrade", ActorKind = ConfigChangeActorKind.LikelyUniFi, Who = "No admin recorded, likely UniFi", RegressionCount = 2, PreviousSnapshotId = 1, SnapshotId = 2 },
+        new() { Id = 3, SiteSlug = "main", SiteName = "HQ", OccurredAt = Now.AddHours(-136), Kind = ConfigChangeKind.Config, Summary = "14 objects changed during Network app upgrade", ActorKind = ConfigChangeActorKind.LikelyUniFi, Who = "UniFi (likely)", RegressionCount = 2, PreviousSnapshotId = 1, SnapshotId = 2 },
         new() { Id = 2, SiteSlug = "main", SiteName = "HQ", OccurredAt = Now.AddHours(-136.2), Kind = ConfigChangeKind.NetworkAppUpgrade, Summary = "Network app 10.6.106 to 11.0.21", ActorKind = ConfigChangeActorKind.Firmware, Who = "Firmware Rollout" },
         new() { Id = 1, SiteSlug = "main", SiteName = "HQ", OccurredAt = Now.AddHours(-153), Kind = ConfigChangeKind.Config, Summary = "Port profile Trunk-Core: tagged networks changed", ActorKind = ConfigChangeActorKind.Person, Who = "Alex", PreviousSnapshotId = 1, SnapshotId = 1 },
     ];
@@ -190,7 +190,7 @@ public class ChangeControlRenderHarness
             Sites = Sites.ToList(),
             Attention =
             [
-                new() { Kind = "Regression", SiteSlug = "client-a", SiteName = "Client A", Title = "Cameras reach Internal", Detail = "Port profile Cameras changed Oct 20, 4:42 PM. No admin recorded. 1 incident after.", ChangeId = 7 },
+                new() { Kind = "Regression", SiteSlug = "client-a", SiteName = "Client A", Title = "Cameras reach Internal", Detail = "Port profile Cameras changed Oct 20, 4:42 PM. Unattributed. 1 incident after.", ChangeId = 7 },
                 new() { Kind = "Approval", SiteSlug = "main", SiteName = "HQ", Title = "Roll Back HQ to Oct 15, 9:00 AM", Detail = "Submitted by Alex. Scheduled Oct 24, 2:00 AM once approved. Possible lockout.", PlanId = 7 },
                 new() { Kind = "Regression", SiteSlug = "main", SiteName = "HQ", Title = "2 regressions from the Network app upgrade", Detail = "14 objects changed during Network app upgrade", ChangeId = 3, FromSnapshotId = 1, ToSnapshotId = 2 },
                 new() { Kind = "Gap", SiteSlug = "branch-2", SiteName = "Branch 2", Title = "Agent offline for 2 hours", Detail = "Change detection is paused. Network Optimizer catches up from the UniFi audit log when it reconnects." },
@@ -417,18 +417,18 @@ public class ChangeControlRenderHarness
         [
             ("Change Control: Security Regression", "change.security_regression", true),
             ("Change Control: Management Path Change, Devices Offline", "change.management_path", true),
-            ("Change Control: No Admin Recorded, With Impact", "change.unattributed", true),
+            ("Change Control: Unattributed Change, With Impact", "change.unattributed", true),
             ("Change Control: Drift With a Security Regression", "change.drift_regression", true),
             ("Change Control: Every Change", "change.any", false),
             ("Change Control: Daily Digest", "change.digest", false),
         ]);
         var rows = new List<SnapshotRowView>
         {
-            new() { Id = 8, TakenAt = Now.AddHours(-25), Trigger = "No admin recorded", TriggerDot = "unattributed", ChangedObjects = 1, IssueCount = 2 },
+            new() { Id = 8, TakenAt = Now.AddHours(-25), Trigger = "Unattributed", TriggerDot = "unattributed", ChangedObjects = 1, IssueCount = 2 },
             new() { Id = 7, TakenAt = Now.AddHours(-39), Trigger = "Before Firmware Rollout", TriggerDot = "firmware", IssueCount = 2, Pinned = true },
             new() { Id = 6, TakenAt = Now.AddHours(-56), Trigger = "Alex", TriggerDot = "person", ChangedObjects = 1, IssueCount = 2 },
             new() { Id = 5, TakenAt = Now.AddHours(-99), Trigger = "Alex", TriggerDot = "person", ChangedObjects = 1, IssueCount = 2 },
-            new() { Id = 4, TakenAt = Now.AddHours(-136), Trigger = "No admin recorded, likely UniFi", TriggerDot = "unattributed", ChangedObjects = 14, IssueCount = 3, RegressionCount = 2 },
+            new() { Id = 4, TakenAt = Now.AddHours(-136), Trigger = "UniFi (likely)", TriggerDot = "unattributed", ChangedObjects = 14, IssueCount = 3, RegressionCount = 2 },
             new() { Id = 3, TakenAt = Now.AddHours(-136.3), Trigger = "Before Network app upgrade", TriggerDot = "firmware", IssueCount = 1, Pinned = true },
             new() { Id = 1, TakenAt = Now.AddHours(-153), Trigger = "Daily", IssueCount = 1, Pinned = true, IsBaseline = true },
         };

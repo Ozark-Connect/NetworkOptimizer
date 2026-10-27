@@ -62,7 +62,7 @@ public sealed class ConfigDiff
 /// Compares two config states per diff-engine.md: canonical JSON per object, read-only and churn
 /// fields dropped, set arrays as sets, keyed arrays element by element, secrets by hash only.
 /// </summary>
-public static class ConfigDiffEngine
+public static partial class ConfigDiffEngine
 {
     /// <summary>Compares two states of the same site (IDs are meaningful on both sides).</summary>
     public static ConfigDiff Compare(ConfigState before, ConfigState after, bool sameSite = true)
@@ -228,14 +228,36 @@ public static class ConfigDiffEngine
                     diff.Tags.Add(tag);
             if (def.IsManagementField?.Invoke(obj, path) == true)
             {
-                // A network edit only reaches the management path when devices are managed on it.
-                diff.ManagementPath |= def.Key != "networkconf" || mgmtNetworks == null || mgmtNetworks.Contains(diff.ObjectId);
+                // A network edit only reaches the management path when devices are managed on it, and a
+                // switch port's only when the port carries a device: its uplink, or an AP or switch below it.
+                diff.ManagementPath |= def.Key switch
+                {
+                    "networkconf" => mgmtNetworks == null || mgmtNetworks.Contains(diff.ObjectId),
+                    "device" when PortOverrideIndex().Match(path) is { Success: true } m => CarriesDevice(obj, int.Parse(m.Groups[1].Value)),
+                    _ => true,
+                };
             }
         }
         // Deleting a network or profile devices are managed through is a management-path change.
         if (diff.Action == ConfigChangeAction.Deleted && def.Key is "networkconf" && mgmtNetworks?.Contains(diff.ObjectId) == true)
             diff.ManagementPath = true;
         diff.WanPath = def.IsWanPath?.Invoke(obj) == true;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^port_overrides\[port_idx=(\d+)\]")]
+    private static partial System.Text.RegularExpressions.Regex PortOverrideIndex();
+
+    /// <summary>
+    /// Whether a switch port carries a device: the switch's own uplink, or a port with an LLDP neighbor.
+    /// Without the port facts (an older snapshot), every port counts, as it did before.
+    /// </summary>
+    internal static bool CarriesDevice(JsonObject device, int portIdx)
+    {
+        if (device[ConfigCollections.DeviceMetaField] is not JsonObject meta || meta["ports"] is not JsonArray ports) return true;
+        static int? Idx(JsonNode? n) => n is JsonValue v && v.TryGetValue<int>(out var i) ? i : int.TryParse(n?.ToString(), out var j) ? j : null;
+        var uplink = ports.OfType<JsonObject>().Any(p => Idx(p["port_idx"]) == portIdx && p["is_uplink"]?.GetValueKind() == System.Text.Json.JsonValueKind.True);
+        var neighbor = (meta["lldp"] as JsonArray ?? []).OfType<JsonObject>().Any(l => Idx(l["local_port_idx"]) == portIdx);
+        return uplink || neighbor;
     }
 
     /// <summary>Fields that change on their own anywhere: timestamps and last-seen values.</summary>

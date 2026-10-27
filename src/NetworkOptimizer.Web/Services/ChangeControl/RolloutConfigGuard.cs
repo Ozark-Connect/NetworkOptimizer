@@ -54,7 +54,7 @@ public sealed class RolloutConfigGuard : IRolloutConfigGuard
                 return $"the UniFi Network update left {regressions} security {(regressions == 1 ? "regression" : "regressions")} in the config. Review it in Change Control before resuming.";
             var unattributed = config.Count(c => c.ActorKind == ConfigChangeActorKind.NoAdminRecorded);
             if (unattributed > 0)
-                return $"{unattributed} config {(unattributed == 1 ? "change" : "changes")} with no admin recorded appeared during the rollout. Review in Change Control before resuming.";
+                return $"{unattributed} unattributed config {(unattributed == 1 ? "change" : "changes")} appeared during the rollout. Review in Change Control before resuming.";
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
