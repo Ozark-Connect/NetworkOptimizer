@@ -37,4 +37,24 @@ public static class AlertSourceDisplay
         || string.Equals(deviceName.Trim(), GetName(source), StringComparison.OrdinalIgnoreCase)
             ? null
             : deviceName;
+
+    /// <summary>
+    /// The label and value an incident's correlation key shows as: "source:rollout" is Source,
+    /// Firmware Rollout; "device:192.0.2.1" is Device, 192.0.2.1. Any other key shows as stored.
+    /// </summary>
+    public static (string Label, string Value) DescribeCorrelationKey(string? key)
+    {
+        if (string.IsNullOrEmpty(key)) return ("Grouped By", string.Empty);
+        var colon = key.IndexOf(':');
+        if (colon > 0 && colon < key.Length - 1)
+        {
+            var value = key[(colon + 1)..];
+            switch (key[..colon])
+            {
+                case "source": return ("Source", GetName(value));
+                case "device": return ("Device", value);
+            }
+        }
+        return ("Grouped By", key);
+    }
 }
