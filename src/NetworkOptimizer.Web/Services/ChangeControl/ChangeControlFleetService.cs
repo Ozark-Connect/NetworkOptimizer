@@ -264,15 +264,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 }
                 : item);
 
-            // A regression shows once, from its newest change, and only while the newest audited snapshot still has it.
-            var current = CurrentIssueKeys(snapshots);
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var ch in changes.Where(c => c.Kind == ConfigChangeKind.Config && c.RegressionCount > 0 && c.OccurredAt > now.AddDays(-7)))
+            foreach (var (ch, lines, key) in OpenRegressions(changes.Where(c => c.OccurredAt > now.AddDays(-7)), snapshots))
             {
                 var upgrade = ch.ActorKind == ConfigChangeActorKind.LikelyUniFi && ch.Summary.Contains("Network app upgrade", StringComparison.Ordinal);
-                var lines = Regressions(ch).Where(l => (current == null || current.Contains(l.Key)) && !seen.Contains(l.Key)).ToList();
-                if (lines.Count == 0) continue;
-                seen.UnionWith(lines.Select(l => l.Key));
                 Add(new AttentionItem
                 {
                     Kind = "Regression",
@@ -284,7 +278,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     ToSnapshotId = upgrade ? ch.SnapshotId : null,
                     Title = upgrade ? $"{lines.Count} regression{(lines.Count == 1 ? "" : "s")} from the Network app upgrade" : string.Join("; ", lines.Select(l => l.Title)),
                     Detail = upgrade ? ch.Summary : $"{ch.Summary}. {ChangeControlService.Who(ch)}.",
-                    Key = $"regression:{string.Join("|", lines.Select(l => l.Key).Order(StringComparer.Ordinal))}",
+                    Key = key,
                 });
             }
             // What a Network app upgrade deleted: recorded in a change of hundreds of rewrites, where nobody would find it.
@@ -383,6 +377,23 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     private static List<ImpactLine> Regressions(ConfigChange c) =>
         string.IsNullOrEmpty(c.ImpactJson) ? []
             : (System.Text.Json.JsonSerializer.Deserialize<List<ImpactLine>>(c.ImpactJson) ?? []).Where(l => l.Kind == "Regression").ToList();
+
+    /// <summary>
+    /// Regressions still open, newest change first: each shows once, from its newest change, and only
+    /// while the newest audited snapshot still has it. Key is the Needs Attention dismissal key.
+    /// </summary>
+    private static IEnumerable<(ConfigChange Change, List<ImpactLine> Lines, string Key)> OpenRegressions(IEnumerable<ConfigChange> changes, IEnumerable<ConfigSnapshot> newestFirst)
+    {
+        var current = CurrentIssueKeys(newestFirst);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var ch in changes.Where(c => c.Kind == ConfigChangeKind.Config && c.RegressionCount > 0))
+        {
+            var lines = Regressions(ch).Where(l => (current == null || current.Contains(l.Key)) && !seen.Contains(l.Key)).ToList();
+            if (lines.Count == 0) continue;
+            seen.UnionWith(lines.Select(l => l.Key));
+            yield return (ch, lines, $"regression:{string.Join("|", lines.Select(l => l.Key).Order(StringComparer.Ordinal))}");
+        }
+    }
 
     /// <summary>Audit issue keys in the newest snapshot the Security Audit ran on; null when none has.</summary>
     internal static HashSet<string>? CurrentIssueKeys(IEnumerable<ConfigSnapshot> newestFirst)
@@ -543,10 +554,11 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         {
             var engine = _registry.GetFor(site.Slug);
             var connection = _registry.Connection(site.Slug);
-            var (hours, changes, incidents, plans, gaps) = await engine.Repositories.UseAsync(async (r, c) =>
+            var (hours, changes, incidents, plans, gaps, snapshots, dismissed) = await engine.Repositories.UseAsync(async (r, c) =>
                 (await r.GetHealthHoursAsync(now.AddHours(-48), now, c), await r.GetChangesAsync(now.AddDays(-1), now, 500, c),
                  await ChangeIncidents.StartedAsync(r, now.AddDays(-1), now, c), await r.GetPlansAsync(null, 50, c),
-                 await r.GetGapsAsync(now.AddDays(-7), now, c)), cancellationToken);
+                 await r.GetGapsAsync(now.AddDays(-7), now, c), await r.GetSnapshotsAsync(null, null, 200, c),
+                 (await r.GetDismissalsAsync(c)).Select(d => d.ItemKey).ToHashSet(StringComparer.Ordinal)), cancellationToken);
             hours = _registry.WithProvisionalHealth(site.Slug, hours);
             var counted = changes.Where(x => x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
             result.Add(new SiteHealth.SiteHealthSummary
@@ -563,7 +575,8 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     hours.Where(h => h.HourStart < SiteHealth.SiteHealthJob.FloorHour(now.AddHours(-24))).ToList()),
                 Incidents24h = incidents.Count,
                 Changes24h = counted.Count,
-                Regressions24h = changes.Where(x => x.Kind == ConfigChangeKind.Config).Sum(x => x.RegressionCount),
+                // Counted as Needs Attention shows them: fixed or dismissed regressions drop out.
+                Regressions24h = OpenRegressions(changes, snapshots).Where(r => !dismissed.Contains(r.Key)).Sum(r => r.Lines.Count),
                 PendingApprovals = plans.Count(p => p.Status == ConfigPlanStatus.PendingApproval),
             });
         }
