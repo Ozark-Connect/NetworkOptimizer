@@ -127,6 +127,34 @@ public class InterfaceRateCalculatorTests
         r.NewState.CandidateInOctets.Should().BeNull();
     }
 
+    [Fact]
+    public void CounterReset_ConfirmedOnZeroReads_StaysProvisional_NoSpikeOnRecovery()
+    {
+        // Two all-zero HC reads confirm a "reset"; the next real read must not be
+        // differenced against zero (it computed 2.3 Gbps on a 2.5G WAN).
+        var prev = Seed(6_771_000_000, 2_000_000_000, T0) with
+        {
+            CandidateInOctets = 0,
+            CandidateOutOctets = 0,
+            CandidateTimestamp = T0.AddSeconds(5),
+        };
+        var confirmed = InterfaceRateCalculator.Compute(
+            prev, inOctets: 0, outOctets: 0, now: T0.AddSeconds(10),
+            useHcCounters: true, linkSpeedBps: TwoPointFiveGbps);
+
+        confirmed.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetConfirmed);
+        confirmed.NewState.ProvisionalSeed.Should().BeTrue();
+
+        var recovered = InterfaceRateCalculator.Compute(
+            confirmed.NewState, inOctets: 6_771_219_346, outOctets: 2_000_500_000, now: T0.AddSeconds(34),
+            useHcCounters: true, linkSpeedBps: TwoPointFiveGbps);
+
+        recovered.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        recovered.RateInBps.Should().BeNull();
+        recovered.NewState.ProvisionalSeed.Should().BeFalse();
+        recovered.NewState.InOctets.Should().Be(6_771_219_346);
+    }
+
     // ─── Single-sample glitch (corrupt read, then snap-back) ───
 
     [Fact]
