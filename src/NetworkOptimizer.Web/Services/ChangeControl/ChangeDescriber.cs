@@ -30,7 +30,7 @@ public static partial class ChangeDescriber
         ["wlan_bands"] = "Bands", ["mlo_enabled"] = "MLO", ["hide_ssid"] = "Hidden", ["ap_group_ids"] = "AP Groups",
         ["group_members"] = "Members", ["fixed_ip"] = "Fixed IP", ["use_fixedip"] = "Fixed IP", ["note"] = "Note",
         ["mgmt_network_id"] = "Management Network", ["config_network"] = "IP Settings", ["led_override"] = "LED",
-        ["stp_priority"] = "STP Priority", ["poe_mode"] = "PoE", ["op_mode"] = "Operation", ["forward"] = "Port Mode",
+        ["stp_priority"] = "STP Priority", ["poe_mode"] = "PoE", ["op_mode"] = "Operation", ["forward"] = "Tagged VLAN Management",
         ["portconf_id"] = "Port Profile", ["value"] = "Value", ["record_type"] = "Type", ["key"] = "Hostname",
         ["source"] = "Source", ["destination"] = "Destination", ["schedule"] = "Schedule", ["logging"] = "Logging",
         ["protocol"] = "Protocol", ["ip_version"] = "IP Version", ["channel"] = "Channel", ["ht"] = "Channel Width",
@@ -45,12 +45,18 @@ public static partial class ChangeDescriber
         ["link_debounce_auto"] = "Link Debounce", ["voice_networkconf_id"] = "Voice VLAN",
         ["sd_wan_underlay_port"] = "SD-WAN Underlay Port", ["multicast_router_mode"] = "Multicast Router Port",
         ["egress_rate_limit_kbps_enabled"] = "Egress Rate Limit", ["precision_time_protocol_enabled"] = "Precision Time Protocol (PTP)",
+        ["stp_edge_state"] = "Port Mode",
     };
 
     // A field's values as UniFi Network's options name them, keyed by field then stored value.
+    // Stored values are matched ignoring case: older rows hold "Disabled" where newer hold "disabled".
     private static readonly Dictionary<string, Dictionary<string, string>> FieldValues = new(StringComparer.Ordinal)
     {
-        ["op_mode"] = new(StringComparer.Ordinal) { ["switch"] = "Switching", ["mirror"] = "Mirroring", ["aggregate"] = "Aggregating" },
+        ["op_mode"] = new(StringComparer.OrdinalIgnoreCase) { ["switch"] = "Switching", ["mirror"] = "Mirroring", ["aggregate"] = "Aggregating" },
+        ["stp_edge_state"] = new(StringComparer.OrdinalIgnoreCase) { ["enabled"] = "Edge", ["disabled"] = "Infrastructure" },
+        ["tagged_vlan_mgmt"] = new(StringComparer.OrdinalIgnoreCase) { ["auto"] = "Allow All", ["block_all"] = "Block All", ["custom"] = "Custom" },
+        // forward is the older field UniFi still writes alongside tagged_vlan_mgmt.
+        ["forward"] = new(StringComparer.OrdinalIgnoreCase) { ["all"] = "Allow All", ["native"] = "Block All", ["customize"] = "Custom" },
     };
 
     // UniFi field shorthand and acronyms, as a title shows them. Every other word is capitalized.
@@ -187,8 +193,12 @@ public static partial class ChangeDescriber
             .Where(f => f.Path.EndsWith(".portconf_id", StringComparison.Ordinal) && IsNone(f.Old) && !IsNone(f.New))
             .Select(f => f.Path[..^".portconf_id".Length])
             .ToHashSet(StringComparer.Ordinal);
+        // forward repeats tagged_vlan_mgmt; show it only when that row is absent.
+        var tagged = list.Where(f => f.Path.EndsWith(".tagged_vlan_mgmt", StringComparison.Ordinal))
+            .Select(f => f.Path[..^".tagged_vlan_mgmt".Length]).ToHashSet(StringComparer.Ordinal);
         return list
             .Where(f => !(IsNone(f.New) && !f.Secret && profiled.Any(p => f.Path.StartsWith(p + ".", StringComparison.Ordinal))))
+            .Where(f => !(f.Path.EndsWith(".forward", StringComparison.Ordinal) && tagged.Contains(f.Path[..^".forward".Length])))
             .Select(f => new StoredField
             {
                 Path = f.Path,

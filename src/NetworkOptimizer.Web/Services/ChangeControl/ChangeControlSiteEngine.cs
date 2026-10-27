@@ -229,7 +229,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
         var oldCfg = Deserialize(state.CfgVersionsJson);
         var oldVersions = Deserialize(state.DeviceVersionsJson);
-        var cfgChanged = devices != null && devices.Any(d => oldCfg.TryGetValue(d.Mac, out var v) && v != d.CfgVersion);
+        var cfgChanged = devices != null && devices.Any(d => oldCfg.TryGetValue(d.Mac, out var v) && CfgDiffers(v, d.CfgVersion));
         var firmwareChanged = devices?.Where(d => oldVersions.TryGetValue(d.Mac, out var v) && !string.IsNullOrEmpty(v) && v != d.Version).ToList() ?? [];
         var appChanged = !string.IsNullOrEmpty(appVersion) && !string.IsNullOrEmpty(state.NetworkAppVersion) && appVersion != state.NetworkAppVersion;
 
@@ -348,7 +348,28 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         string.IsNullOrEmpty(json) ? new(StringComparer.OrdinalIgnoreCase)
         : new Dictionary<string, string>(JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? [], StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A device's "cfgversion|config hash". cfgversion alone misses edits: UniFi Network 11 can change a port
+    /// (Port Mode, Tagged VLAN Management) without moving it or writing an audit entry.
+    /// </summary>
     private sealed record DeviceVersion(string Mac, string Name, string CfgVersion, string Version);
+
+    // The config a snapshot keeps from stat/device, less identity and firmware (firmware has its own rows).
+    private static readonly string[] HashedDeviceFields = ConfigCollections.DeviceConfigFields
+        .Except(["_id", "mac", "model", "type", "version", "adopted", ConfigCollections.DeviceMetaField])
+        .Order(StringComparer.Ordinal).ToArray();
+
+    internal static string DeviceConfigHash(JsonObject device)
+    {
+        var kept = new JsonObject();
+        foreach (var f in HashedDeviceFields)
+            if (device[f] is { } v) kept[f] = v.DeepClone();
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(kept.ToJsonString())))[..16];
+    }
+
+    /// <summary>Whether a device's config moved. A value saved before the hash was added compares on cfgversion alone.</summary>
+    internal static bool CfgDiffers(string stored, string current) =>
+        stored.Contains('|') ? stored != current : stored != current.Split('|')[0];
 
     private async Task<List<DeviceVersion>?> ReadDeviceVersionsAsync(CancellationToken ct)
     {
@@ -358,7 +379,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         return list?.Select(d => new DeviceVersion(
                 d["mac"]?.ToString()?.ToLowerInvariant() ?? "",
                 d["name"]?.ToString() is { Length: > 0 } n ? n : d["model"]?.ToString() ?? "",
-                d["cfgversion"]?.ToString() ?? "",
+                $"{d["cfgversion"]?.ToString() ?? ""}|{DeviceConfigHash(d)}",
                 d["version"]?.ToString() ?? ""))
             .Where(d => d.Mac.Length > 0)
             .GroupBy(d => d.Mac).Select(g => g.First())

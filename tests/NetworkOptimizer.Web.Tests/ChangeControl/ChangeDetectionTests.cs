@@ -102,6 +102,40 @@ public class ChangeDetectionTests
         ChangeDescriber.LabelFor("port_overrides[port_idx=5].dot1x_idle_timeout").Should().Be("Port 5 802.1X Idle Timeout");
     }
 
+    [Fact]
+    public void ForDisplay_PortModeAndTaggedVlans_UseUniFiOptionNames()
+    {
+        var shown = ChangeDescriber.ForDisplay(
+        [
+            new() { Path = "port_overrides[port_idx=4].forward", Label = "Port 4 Tagged VLAN Management", Old = "all", New = "native" },
+            new() { Path = "port_overrides[port_idx=4].stp_edge_state", Label = "Port 4 Port Mode", Old = "Disabled", New = "enabled" },
+            new() { Path = "port_overrides[port_idx=4].tagged_vlan_mgmt", Label = "Port 4 Tagged VLAN Management", Old = "auto", New = "block_all" },
+        ]);
+
+        shown.Select(f => $"{f.Label}: {f.Old} to {f.New}").Should().Equal(
+            "Port 4 Port Mode: Infrastructure to Edge",
+            "Port 4 Tagged VLAN Management: Allow All to Block All");
+    }
+
+    [Fact]
+    public void DeviceConfigHash_MovesWithAPortSetting_NotWithStats()
+    {
+        var before = (JsonObject)JsonNode.Parse("""{"mac":"aa:bb:cc:dd:ee:ff","uptime":10,"port_overrides":[{"port_idx":4,"stp_edge_state":"disabled"}]}""")!;
+        var laterStats = (JsonObject)JsonNode.Parse("""{"mac":"aa:bb:cc:dd:ee:ff","uptime":70,"port_overrides":[{"port_idx":4,"stp_edge_state":"disabled"}]}""")!;
+        var edited = (JsonObject)JsonNode.Parse("""{"mac":"aa:bb:cc:dd:ee:ff","uptime":70,"port_overrides":[{"port_idx":4,"stp_edge_state":"enabled"}]}""")!;
+
+        ChangeControlSiteEngine.DeviceConfigHash(laterStats).Should().Be(ChangeControlSiteEngine.DeviceConfigHash(before));
+        ChangeControlSiteEngine.DeviceConfigHash(edited).Should().NotBe(ChangeControlSiteEngine.DeviceConfigHash(before));
+    }
+
+    [Theory]
+    [InlineData("abc", "abc|111", false)]
+    [InlineData("abc", "abd|111", true)]
+    [InlineData("abc|111", "abc|111", false)]
+    [InlineData("abc|111", "abc|222", true)]
+    public void CfgDiffers_ValueSavedBeforeTheHash_ComparesCfgversionOnly(string stored, string current, bool differs) =>
+        ChangeControlSiteEngine.CfgDiffers(stored, current).Should().Be(differs);
+
     [Theory]
     [InlineData("on", "On")]
     [InlineData("none", "None")]
