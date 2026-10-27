@@ -204,7 +204,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         why.Should().BeNull();
         var applied = (await PlanAsync(plan.Id))!;
         applied.Status.Should().Be(ConfigPlanStatus.Watching);
-        applied.Message.Should().Contain("Refused by the console: AP");
+        applied.Message.Should().Contain("Refused by the Console: AP");
         _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p2");
     }
 
@@ -252,7 +252,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         why.Should().BeNull();
         var applied = (await PlanAsync(plan.Id))!;
-        applied.Message.Should().Contain("No reply for: Main").And.MatchRegex("Not sent once the console stopped answering: [^.]*Switch");
+        applied.Message.Should().Contain("No reply for: Main").And.MatchRegex("Not sent once the Console stopped answering: [^.]*Switch");
     }
 
     [Fact]

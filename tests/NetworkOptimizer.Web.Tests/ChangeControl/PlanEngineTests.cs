@@ -333,7 +333,7 @@ public class PlanEngineTests
         var doc = Plan(desired, live);
         var key = doc.Operations.Single().Key;
 
-        PlanCoordinator.VerifyAgainst(doc, live, live).Should().ContainSingle(d => d.Contains("not on the console"));
+        PlanCoordinator.VerifyAgainst(doc, live, live).Should().ContainSingle(d => d.Contains("not on the Console"));
         PlanCoordinator.VerifyAgainst(doc, live, live, new HashSet<string> { key }).Should().BeEmpty();
     }
 }

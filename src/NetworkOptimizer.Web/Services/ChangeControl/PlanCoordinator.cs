@@ -304,14 +304,14 @@ public sealed class PlanCoordinator
                 var parts = new List<string>();
                 if (lost.Count > 0)
                 {
-                    parts.Add("The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one.");
+                    parts.Add("The Console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one.");
                     parts.Add($"No reply for: {NameList(lost.Select(o => Name(o.Key)))}; check these landed.");
                     var answered = result.Operations.Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
                     if (doc.Operations.Where(o => !answered.Contains(o.Key)).Select(o => o.ObjectName).ToList() is { Count: > 0 } unsent)
-                        parts.Add($"Not sent once the console stopped answering: {NameList(unsent)}.");
+                        parts.Add($"Not sent once the Console stopped answering: {NameList(unsent)}.");
                 }
                 if (refused.Count > 0)
-                    parts.Add($"Refused by the console: {NameList(refused.Select(o => $"{Name(o.Key)} ({o.Message})"))}; set these by hand.");
+                    parts.Add($"Refused by the Console: {NameList(refused.Select(o => $"{Name(o.Key)} ({o.Message})"))}; set these by hand.");
                 plan.Message = string.Join(" ", parts);
             }
             plan.ResultJson = JsonSerializer.Serialize(result);
@@ -397,7 +397,7 @@ public sealed class PlanCoordinator
             var got = after.Get(op.Collection).FirstOrDefault(o => op.ObjectId != null && ConfigState.IdOf(o) == op.ObjectId)
                       ?? after.Get(op.Collection).FirstOrDefault(o => ConfigState.DisplayName(def, o) == op.ObjectName);
             if (want == null) continue;
-            if (got == null) { diffs.Add($"{def.Noun} {op.ObjectName}: not on the console"); continue; }
+            if (got == null) { diffs.Add($"{def.Noun} {op.ObjectName}: not on the Console"); continue; }
             foreach (var field in op.WriteFields)
             {
                 if (ConfigCollections.IsSecretField(def, field)) continue;
@@ -509,7 +509,7 @@ public sealed class PlanCoordinator
             if (_misses.AddOrUpdate(plan.Id, 1, (_, n) => n + 1) == MissesToRevert)
                 await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Critical, $"UniFi Console unreachable after: {plan.Name}",
                     $"Network Optimizer lost the UniFi Console after applying this plan, so it cannot revert it. Watched: {string.Join(", ", expected)}. "
-                    + "If the change cut the path, restore the snapshot taken before the apply from the UniFi Console's own backup, or SSH to an affected device and run set-inform with the console's inform URL.",
+                    + "If the change cut the path, restore the snapshot taken before the apply from the UniFi Console's own backup, or SSH to an affected device and run set-inform with the Console's inform URL.",
                     plan.Id, ct);
             return;
         }
@@ -545,8 +545,8 @@ public sealed class PlanCoordinator
         {
             if (misses == MissesToRevert)
                 await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Devices offline after: {plan.Name}",
-                    $"{reason} after a re-address that moved the UniFi Console's network. Devices reach the console at its old address until it moves too, "
-                    + "so Network Optimizer does not revert this plan. Move the console to its new address; Roll Back in Review Plan puts the old addresses back.",
+                    $"{reason} after a re-address that moved the UniFi Console's network. Devices reach the Console at its old address until it moves too, "
+                    + "so Network Optimizer does not revert this plan. Move the Console to its new address; Roll Back in Review Plan puts the old addresses back.",
                     plan.Id, ct);
             return;
         }
@@ -749,13 +749,12 @@ public sealed class PlanCoordinator
         var pathKeys = original.Context.GetValueOrDefault(ReaddressPathContext, "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
         var pathNetworks = original.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathKeys.Contains(o.Key))
             .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var gateways = original.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && o.Order == 11)
-            .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var gateways = ChangeControlService.GatewayIds(before);
         var reversed = Readdressing.Reverse(JsonSerializer.Deserialize<List<SubnetMove>>(movesJson) ?? []);
         return d =>
         {
             ChangeControlService.CarryReservations(d, before);
-            ChangeControlService.OrderReaddressWrites(d, pathNetworks, gateways, reversed);
+            ChangeControlService.OrderReaddressWrites(d, pathNetworks, gateways, reversed, ChangeControlService.DeviceDepths(before));
             d.Context[ReaddressContext] = JsonSerializer.Serialize(reversed);
             if (original.Context.TryGetValue(ReaddressRemoteContext, out var remote)) d.Context[ReaddressRemoteContext] = remote;
         };

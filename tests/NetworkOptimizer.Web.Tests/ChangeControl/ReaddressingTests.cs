@@ -152,6 +152,39 @@ public class ReaddressingTests
     }
 
     [Fact]
+    public void DeviceWrites_GoLeavesFirst_GatewayLast()
+    {
+        var live = Site();
+        static System.Text.Json.Nodes.JsonObject Device(string id, string mac, string type, string? uplink, string ip)
+        {
+            var meta = new System.Text.Json.Nodes.JsonObject { ["type"] = type };
+            if (uplink != null) meta["uplink"] = new System.Text.Json.Nodes.JsonObject { ["uplink_mac"] = uplink };
+            return new System.Text.Json.Nodes.JsonObject
+            {
+                ["_id"] = id, ["mac"] = mac, ["name"] = id,
+                ["config_network"] = new System.Text.Json.Nodes.JsonObject { ["type"] = "static", ["ip"] = ip },
+                [ConfigCollections.DeviceMetaField] = meta,
+            };
+        }
+        // Names sort against the topology, so only depth can put them in this order.
+        live.Collections["device"] = [
+            Device("gw", "aa:bb:cc:dd:ee:10", "ugw", null, "192.168.1.1"),
+            Device("a-core", "aa:bb:cc:dd:ee:11", "usw", "aa:bb:cc:dd:ee:10", "192.168.1.2"),
+            Device("b-edge", "aa:bb:cc:dd:ee:12", "usw", "aa:bb:cc:dd:ee:11", "192.168.1.3"),
+            Device("c-ap", "aa:bb:cc:dd:ee:13", "uap", "aa:bb:cc:dd:ee:12", "192.168.1.4"),
+            Device("d-lost", "aa:bb:cc:dd:ee:14", "uap", null, "192.168.1.5")];
+        var desired = Readdressing.Apply(live, Pattern(live)).Desired;
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
+
+        ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n1" }, ChangeControlService.GatewayIds(live),
+            null, ChangeControlService.DeviceDepths(live));
+
+        doc.Operations.Where(o => o.Collection == "device").Select(o => o.ObjectId)
+            .Should().ContainInOrder("d-lost", "c-ap", "b-edge", "a-core", "gw");
+        doc.Operations.FindIndex(o => o.ObjectId == "n1").Should().BeGreaterThan(doc.Operations.FindIndex(o => o.ObjectId == "gw"));
+    }
+
+    [Fact]
     public void LeavingOutTheHoneypotRestore_LeavesOutHoneypotsOff()
     {
         var live = Site();

@@ -119,7 +119,7 @@ public sealed partial class ChangeControlService
             doc =>
             {
                 CarryReservations(doc, result.Desired);
-                OrderReaddressWrites(doc, pathNetworks, GatewayIds(live), active);
+                OrderReaddressWrites(doc, pathNetworks, GatewayIds(live), active, DeviceDepths(live));
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 foreach (var m in result.Remote)
@@ -142,13 +142,17 @@ public sealed partial class ChangeControlService
     /// The network holding the console, or Network Optimizer's path to it, is written last: once it moves, the old
     /// address every later write goes to is gone. Addresses the console checks against their network's current
     /// subnet follow every network: honeypots (api.err.HoneypotIpNotWithinSelectedNetwork) and client reservations.
-    /// The gateway is the last device write: Network Optimizer may reach the other devices through it.
+    /// Devices write leaves first, as Firmware Rollout upgrades, so a parent applying its config does not bounce a
+    /// child's uplink first; the gateway is the last device write: Network Optimizer may reach the others through it.
     /// A network holding a device's static address follows the devices: moved first, it strands the device on
     /// the old subnet, where it can no longer reach the console for its new address.
     /// </summary>
     internal static void OrderReaddressWrites(PlanDocument doc, IReadOnlySet<string> pathNetworks, IReadOnlySet<string>? gateways = null,
-        IReadOnlyList<SubnetMove>? moves = null)
+        IReadOnlyList<SubnetMove>? moves = null, IReadOnlyDictionary<string, int>? deviceDepths = null)
     {
+        if (deviceDepths != null)
+            foreach (var op in doc.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && deviceDepths.ContainsKey(o.ObjectId)))
+                op.Order = DeviceOrder(deviceDepths[op.ObjectId!]);
         var path = doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)).ToList();
         foreach (var op in path)
         {
@@ -174,7 +178,7 @@ public sealed partial class ChangeControlService
         }
         foreach (var op in doc.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && gateways?.Contains(o.ObjectId) == true))
         {
-            op.Order = 11;
+            op.Order = GatewayOrder;
             op.ManagementPath = true;
         }
         // The console also refuses a network's new subnet while one of its honeypots sits at the old address
@@ -200,6 +204,35 @@ public sealed partial class ChangeControlService
 
     /// <summary>Key suffix of the write that turns honeypots off before the networks move; it goes with its restore write.</summary>
     internal const string HoneypotsOffSuffix = ":honeypots-off";
+
+    /// <summary>A re-address's gateway write order: after every other device (10 to 39), before the networks (50, 100).</summary>
+    internal const int GatewayOrder = 45;
+
+    /// <summary>
+    /// A device write's order from its uplink depth, deepest first. Depths from 1000 are chains with no known path
+    /// to the gateway, which Firmware Rollout treats as deep leaves; they go first, their own children before them.
+    /// </summary>
+    private static int DeviceOrder(int depth)
+    {
+        var deep = depth >= 1000 ? 20 + Math.Min(depth - 1000, 9) : Math.Min(depth, 19);
+        return 10 + (29 - deep);
+    }
+
+    /// <summary>Each device's uplink depth from the gateway, by device ID, from the uplink the snapshot keeps.</summary>
+    internal static Dictionary<string, int> DeviceDepths(ConfigState site)
+    {
+        var devices = site.Get("device").Where(d => d["mac"] != null && d["_id"] != null).ToList();
+        string? Meta(JsonObject d, string key) => (d[ConfigCollections.DeviceMetaField] as JsonObject)?[key] is JsonValue v ? v.ToString() : null;
+        var planner = devices.Select(d => new Firmware.PlannerDevice
+        {
+            Mac = d["mac"]!.ToString().ToLowerInvariant(),
+            Type = Meta(d, "type") is "ugw" or "udm" or "uxg" ? NetworkOptimizer.Core.Enums.DeviceType.Gateway : NetworkOptimizer.Core.Enums.DeviceType.Unknown,
+            UplinkMac = ((d[ConfigCollections.DeviceMetaField] as JsonObject)?["uplink"] as JsonObject)?["uplink_mac"]?.ToString().ToLowerInvariant(),
+        }).ToList();
+        var depths = Firmware.RolloutPlanner.ComputeDepths(planner);
+        return devices.Where(d => depths.ContainsKey(d["mac"]!.ToString()))
+            .ToDictionary(ConfigState.IdOf, d => depths[d["mac"]!.ToString()], StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>The moving networks a device write gives a static address in.</summary>
     private static HashSet<string> StaticDeviceNetworks(PlanDocument doc, IReadOnlyList<SubnetMove> moves) =>
@@ -233,7 +266,7 @@ public sealed partial class ChangeControlService
     }
 
     /// <summary>The site's gateways by ID (ugw, udm, uxg).</summary>
-    private static HashSet<string> GatewayIds(ConfigState live) =>
+    internal static HashSet<string> GatewayIds(ConfigState live) =>
         live.Get("device").Where(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg")
             .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
