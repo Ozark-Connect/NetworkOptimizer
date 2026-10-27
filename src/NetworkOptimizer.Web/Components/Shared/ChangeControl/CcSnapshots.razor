@@ -167,7 +167,7 @@
                                     </SiteOperatorOnly>
                                     @if (!s.IsBaseline)
                                     {
-                                        <SiteAdminOnly><button class="cc-link-btn" disabled="@_busy" @onclick="() => SetBaselineAsync(s.Id)">Set as Baseline</button></SiteAdminOnly>
+                                        <SiteAdminOnly><button class="cc-link-btn" disabled="@_busy" @onclick="() => SetBaselineAsync(s.Id)" data-tooltip="The reference config: Drift from Baseline and drift alerts compare against it, and Return to Baseline restores it." data-tooltip-hover-only>Set as Baseline</button></SiteAdminOnly>
                                     }
                                 </div>
                             </td>
