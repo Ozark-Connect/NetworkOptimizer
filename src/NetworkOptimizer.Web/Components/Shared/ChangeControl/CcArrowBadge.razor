@@ -1,0 +1,12 @@
+@* The "from this, to that" arrow between two side-by-side panels (Snapshots compare, Migrate devices). *@
+<span class="cc-arrow @Class" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12" />
+        <polyline points="13 6 19 12 13 18" />
+    </svg>
+</span>
+
+@code {
+    /// <summary>Extra classes, such as hide-mobile.</summary>
+    [Parameter] public string? Class { get; set; }
+}

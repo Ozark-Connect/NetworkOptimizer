@@ -212,14 +212,14 @@ else if (_compare != null)
         else
         {
             <div class="cc-compare-sides">
-                <div class="cc-panel">
-                    <div class="cc-side-label">From</div>
+                <div class="cc-panel cc-side-from">
+                    <div class="cc-side-kicker">From</div>
                     <div class="cc-side-value">@_compare.FromLabel</div>
                     <div class="cc-side-label">@_compare.FromDetail</div>
                 </div>
-                <span class="cc-arrow muted-text">&rarr;</span>
-                <div class="cc-panel">
-                    <div class="cc-side-label">To</div>
+                <CcArrowBadge />
+                <div class="cc-panel cc-side-to">
+                    <div class="cc-side-kicker">To</div>
                     <div class="cc-side-value">@_compare.ToLabel</div>
                     <div class="cc-side-label">@_compare.ToDetail</div>
                 </div>

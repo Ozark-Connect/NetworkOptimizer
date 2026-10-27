@@ -110,7 +110,7 @@
                             <b>@p.OldName</b>
                             <div class="cc-item-detail">@p.OldModel@(p.OldSummary.Length > 0 ? $", {p.OldSummary}" : ""). @(OldDevice?.Online == true ? "Online." : "Offline.") Config from the latest snapshot.</div>
                         </div>
-                        <div class="cc-device-arrow hide-mobile">→</div>
+                        <CcArrowBadge Class="hide-mobile" />
                         <div class="cc-device-box">
                             <div class="muted-text">New</div>
                             <b>@p.NewModel</b>

@@ -23993,6 +23993,37 @@ body:has(.top-bar-hidden) .btn-fit {
     background: var(--bg-hover-subtle);
 }
 
+/* Old and new, in the diff tables' colors. */
+.change-control .cc-side-from {
+    border-left: 3px solid var(--danger-color);
+}
+
+.change-control .cc-side-to {
+    border-left: 3px solid var(--success-color);
+}
+
+.change-control .cc-side-kicker {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.change-control .cc-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--primary-hover);
+    flex-shrink: 0;
+}
+
 .change-control .cc-side-label {
     font-size: 0.8125rem;
     color: var(--text-secondary);
@@ -24953,10 +24984,6 @@ body:has(.top-bar-hidden) .btn-fit {
 .change-control .cc-device-box b {
     display: block;
     margin: 0.15rem 0;
-}
-
-.change-control .cc-device-arrow {
-    color: var(--text-muted);
 }
 
 .change-control .cc-migrate-form {
