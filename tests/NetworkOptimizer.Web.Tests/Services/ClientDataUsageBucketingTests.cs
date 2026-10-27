@@ -21,7 +21,7 @@ public class ClientDataUsageBucketingTests
     {
         var t = new DateTime(2026, 8, 30, 17, 30, 0, DateTimeKind.Utc);
         var rows = ClientDashboardService.BucketTrafficRate(
-            new[] { EndingAt(t, 1000, 10), EndingAt(t.AddMinutes(5), 2000, 20) }, TimeSpan.FromMinutes(5));
+            new[] { EndingAt(t, 1000, 10), EndingAt(t.AddMinutes(5), 2000, 20) }, TimeSpan.FromMinutes(5), TimeZoneInfo.Utc);
 
         Assert.Equal(2, rows.Count);
         Assert.Equal(t.AddMinutes(-5), rows[0].Time);
@@ -38,7 +38,7 @@ public class ClientDataUsageBucketingTests
         // Ends at 17:55, 18:00, 18:05: the first two are the 17:00 hour, only the last is 18:00.
         var rows = ClientDashboardService.BucketTrafficRate(
             new[] { EndingAt(hour.AddMinutes(55), 100, 1), EndingAt(hour.AddMinutes(60), 100, 1), EndingAt(hour.AddMinutes(65), 100, 1) },
-            TimeSpan.FromHours(1));
+            TimeSpan.FromHours(1), TimeZoneInfo.Utc);
 
         Assert.Equal(2, rows.Count);
         Assert.Equal(hour, rows[0].Time);
@@ -53,37 +53,38 @@ public class ClientDataUsageBucketingTests
     {
         var t = new DateTime(2026, 8, 30, 17, 0, 0, DateTimeKind.Utc);
         var rows = ClientDashboardService.BucketTrafficRate(
-            new[] { EndingAt(t.AddMinutes(15), 1, 1), EndingAt(t.AddMinutes(5), 1, 1), EndingAt(t.AddMinutes(10), 1, 1) }, TimeSpan.FromMinutes(5));
+            new[] { EndingAt(t.AddMinutes(15), 1, 1), EndingAt(t.AddMinutes(5), 1, 1), EndingAt(t.AddMinutes(10), 1, 1) }, TimeSpan.FromMinutes(5), TimeZoneInfo.Utc);
 
         Assert.Equal(new[] { t, t.AddMinutes(5), t.AddMinutes(10) }, rows.Select(r => r.Time));
     }
 
     [Fact]
-    public void DayBucketsStartAtLocalMidnight()
+    public void DayBucketsStartAtMidnightInTheGivenZone()
     {
-        // Any instant; the day edge must read 00:00 on the server's clock, not UTC's.
-        var t = new DateTime(2026, 8, 30, 17, 30, 0, DateTimeKind.Utc);
-        var start = ClientDashboardService.BucketStart(t, TimeSpan.FromDays(1));
+        // 03:30 UTC is still the previous day in Chicago, so the edge is 05:00 UTC of Aug 29.
+        var chicago = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        var t = new DateTime(2026, 8, 30, 3, 30, 0, DateTimeKind.Utc);
+        var start = ClientDashboardService.BucketStart(t, TimeSpan.FromDays(1), chicago);
 
         Assert.Equal(DateTimeKind.Utc, start.Kind);
-        Assert.True(start <= t && t - start < TimeSpan.FromHours(25));
-        Assert.Equal(TimeSpan.Zero, TimeZoneInfo.ConvertTimeFromUtc(start, TimeZoneInfo.Local).TimeOfDay);
+        Assert.Equal(new DateTime(2026, 8, 29, 5, 0, 0, DateTimeKind.Utc), start);
         // Every instant of that local day files under the same edge.
-        Assert.Equal(start, ClientDashboardService.BucketStart(start, TimeSpan.FromDays(1)));
-        Assert.Equal(start, ClientDashboardService.BucketStart(start.AddHours(23), TimeSpan.FromDays(1)));
+        Assert.Equal(start, ClientDashboardService.BucketStart(start, TimeSpan.FromDays(1), chicago));
+        Assert.Equal(start, ClientDashboardService.BucketStart(start.AddHours(23), TimeSpan.FromDays(1), chicago));
     }
 
     [Fact]
     public void SubDayBucketsTruncateOnTheUtcClock()
     {
+        var chicago = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
         var t = new DateTime(2026, 8, 30, 17, 37, 0, DateTimeKind.Utc);
-        Assert.Equal(t.AddMinutes(-2), ClientDashboardService.BucketStart(t, TimeSpan.FromMinutes(5)));
-        Assert.Equal(t.AddMinutes(-37), ClientDashboardService.BucketStart(t, TimeSpan.FromHours(1)));
+        Assert.Equal(t.AddMinutes(-2), ClientDashboardService.BucketStart(t, TimeSpan.FromMinutes(5), chicago));
+        Assert.Equal(t.AddMinutes(-37), ClientDashboardService.BucketStart(t, TimeSpan.FromHours(1), chicago));
     }
 
     [Fact]
     public void EmptyInputIsAnEmptyList()
     {
-        Assert.Empty(ClientDashboardService.BucketTrafficRate(Array.Empty<UniFiTrafficRateBucket>(), TimeSpan.FromHours(1)));
+        Assert.Empty(ClientDashboardService.BucketTrafficRate(Array.Empty<UniFiTrafficRateBucket>(), TimeSpan.FromHours(1), TimeZoneInfo.Utc));
     }
 }
