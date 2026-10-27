@@ -16,6 +16,13 @@ public interface IChangeEvaluator
     /// <summary>Evaluates newly recorded changes against the states before and after them.</summary>
     Task EvaluateAsync(string siteSlug, IReadOnlyList<ConfigChange> changes, ConfigState before, ConfigState after, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The Security Audit count of a snapshot no evaluation counts: the previous snapshot's when nothing the
+    /// audit reads changed, else an audit of <paramref name="before"/> against <paramref name="after"/>.
+    /// </summary>
+    Task CountSnapshotAsync(string siteSlug, int snapshotId, int? previousId, ConfigState before, ConfigState after,
+        bool auditInputsChanged, CancellationToken cancellationToken);
+
     /// <summary>One summary after a Network app upgrade.</summary>
     Task NetworkAppUpgradeSummaryAsync(string slug, string? from, string? to, IReadOnlyList<ConfigChange> changes, CancellationToken ct);
 
@@ -566,6 +573,16 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 changes = await RecordChangesAsync(snapshot, previousId, previous, live, recordable, diff, events, journal, inUpgradeWindow, ct);
                 if (Evaluator != null && changes.Count > 0) EvaluateInBackground(Evaluator, changes, previous, live, inUpgradeWindow);
             }
+
+            // Every snapshot gets a Security Audit count. Recorded audit-input changes get theirs from their
+            // evaluation (a failed one stays null); any other snapshot is counted here. Generated objects are
+            // never recorded but are audit input, so whether the audit must run again reads the full diff.
+            var evaluated = changes.Count > 0 && (diff!.PolicyOrder.Count > 0 || ImpactAnalyzer.Triggers(recordable.Select(o => o.Collection)));
+            if (Evaluator != null && !evaluated)
+            {
+                var auditInputsChanged = diff == null || diff.PolicyOrder.Count > 0 || ImpactAnalyzer.Triggers(diff.Objects.Select(o => o.Collection));
+                CountInBackground(Evaluator, snapshot.Id, previousId, previous ?? live, live, auditInputsChanged, inUpgradeWindow);
+            }
             Changed?.Invoke();
             return (true, snapshot, changes);
         }
@@ -595,6 +612,33 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Change evaluation failed for site {Site}", _slug);
+            }
+            finally
+            {
+                _evaluateLock.Release();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Counts a snapshot's Security Audit issues off the snapshot path. Queued behind the evaluations, so the
+    /// previous snapshot's count is final before this one inherits it.
+    /// </summary>
+    private void CountInBackground(IChangeEvaluator evaluator, int snapshotId, int? previousId, ConfigState before, ConfigState live,
+        bool auditInputsChanged, bool afterUpgrade)
+    {
+        _ = Task.Run(async () =>
+        {
+            await _evaluateLock.WaitAsync();
+            try
+            {
+                if (afterUpgrade) await WaitForDevicesAsync();
+                await evaluator.CountSnapshotAsync(_slug, snapshotId, previousId, before, live, auditInputsChanged, CancellationToken.None);
+                Changed?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Snapshot audit count failed for site {Site}", _slug);
             }
             finally
             {

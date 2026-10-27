@@ -46,9 +46,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
 
         if (impact != null && changes.FirstOrDefault()?.SnapshotId is { } snapshotId && await repo.GetSnapshotAsync(snapshotId, cancellationToken) is { } snap)
         {
-            snap.AuditIssueCount = impact.AfterIssueCount;
-            snap.AuditRegressionCount = impact.Regressions.Count;
-            snap.AuditIssuesJson = JsonSerializer.Serialize(impact.AfterIssues.Select(i => new { i.Key, i.Title, i.Severity }));
+            SetAuditCount(snap, impact);
             await repo.UpdateSnapshotAsync(snap, cancellationToken);
         }
 
@@ -69,6 +67,37 @@ public sealed class ChangeEvaluator : IChangeEvaluator
 
         if (impact != null)
             await CheckDriftRegressionAsync(scope.ServiceProvider, repo, siteSlug, after, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task CountSnapshotAsync(string siteSlug, int snapshotId, int? previousId, ConfigState before, ConfigState after,
+        bool auditInputsChanged, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopes.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+        using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
+        var repo = scope.ServiceProvider.GetRequiredService<Storage.Interfaces.IChangeControlRepository>();
+        if (await repo.GetSnapshotAsync(snapshotId, cancellationToken) is not { } snap) return;
+
+        var previous = previousId is { } id ? await repo.GetSnapshotAsync(id, cancellationToken) : null;
+        if (!auditInputsChanged && previous?.AuditIssueCount != null)
+        {
+            snap.AuditIssueCount = previous.AuditIssueCount;
+            snap.AuditIssuesJson = previous.AuditIssuesJson;
+            snap.AuditRegressionCount = 0;
+        }
+        else if (await RunImpactAsync(scope.ServiceProvider, before, after, cancellationToken) is { } impact)
+            SetAuditCount(snap, impact);
+        else
+            return;
+        await repo.UpdateSnapshotAsync(snap, cancellationToken);
+    }
+
+    private static void SetAuditCount(ConfigSnapshot snap, ImpactResult impact)
+    {
+        snap.AuditIssueCount = impact.AfterIssueCount;
+        snap.AuditRegressionCount = impact.Regressions.Count;
+        snap.AuditIssuesJson = JsonSerializer.Serialize(impact.AfterIssues.Select(i => new { i.Key, i.Title, i.Severity }));
     }
 
     // The regression set last alerted per site, so unchanged drift does not alert again on every change.

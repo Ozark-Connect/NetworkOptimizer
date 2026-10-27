@@ -389,7 +389,7 @@ public sealed partial class ChangeControlService : IChangeControlService
                     PinReason = s.PinReason,
                 };
             }).ToList();
-            return new SnapshotListView { Rows = rows, Count = count, StoredBytes = stored, Settings = settings, LiveIssueCount = rows.FirstOrDefault()?.IssueCount };
+            return new SnapshotListView { Rows = rows, Count = count, StoredBytes = stored, Settings = settings, LiveIssueCount = rows.FirstOrDefault(r => r.IssueCount != null)?.IssueCount };
         }, cancellationToken);
     }
 
