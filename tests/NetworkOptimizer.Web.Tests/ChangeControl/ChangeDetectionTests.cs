@@ -136,6 +136,24 @@ public class ChangeDetectionTests
     public void CfgDiffers_ValueSavedBeforeTheHash_ComparesCfgversionOnly(string stored, string current, bool differs) =>
         ChangeControlSiteEngine.CfgDiffers(stored, current).Should().Be(differs);
 
+    [Fact]
+    public void IsOwnEvent_DeviceEntryByMac_MatchesOurWriteByDeviceId()
+    {
+        var at = new DateTime(2026, 10, 27, 3, 27, 32, DateTimeKind.Utc);
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = at, Method = "PUT", Path = "rest/device/db7e2347-6983-4e50-b144-91edb5fc5c4b", Collection = "device", ObjectId = "db7e2347-6983-4e50-b144-91edb5fc5c4b" },
+        };
+        AuditLogEvent Event(string section, string? objectId) => new()
+        {
+            Key = "MADE_CHANGES_ONE_SETTING_OBJECT", Timestamp = new DateTimeOffset(at.AddSeconds(1)).ToUnixTimeMilliseconds(),
+            AdminName = "Network Optimizer", ObjectId = objectId, Section = section, SettingCollection = "device",
+        };
+
+        ChangeAttributor.IsOwnEvent(Event("DEVICE", "aa:bb:cc:dd:ee:ff"), journal).Should().BeTrue();
+        ChangeAttributor.IsOwnEvent(Event("NETWORK", "aa:bb:cc:dd:ee:ff"), journal).Should().BeFalse("another collection's object must match by id");
+    }
+
     [Theory]
     [InlineData("WEB", "Web")]
     [InlineData("MOBILE", "Mobile")]

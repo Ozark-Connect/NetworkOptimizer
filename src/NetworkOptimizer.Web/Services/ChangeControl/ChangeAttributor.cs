@@ -46,7 +46,9 @@ public static class ChangeAttributor
     /// <summary>True when the AUDIT event is one of NO's own writes (a journal entry on the same object near the same time).</summary>
     public static bool IsOwnEvent(AuditLogEvent e, IReadOnlyList<ConfigWriteJournalEntry> journal) =>
         journal.Any(j => Math.Abs((j.At - e.TimeUtc).TotalSeconds) <= JournalSlack.TotalSeconds
-            && (Matches(j.ObjectId, e.ObjectId) || (e.ObjectId == null && SameCollection(j.Collection, e))));
+            && (Matches(j.ObjectId, e.ObjectId)
+                // A device's AUDIT entry names it by MAC, our journal by its _id: match those on collection and time.
+                || ((e.ObjectId == null || e.Section == "DEVICE") && SameCollection(j.Collection, e))));
 
     private static bool Matches(string? a, string? b) =>
         !string.IsNullOrEmpty(a) && !string.IsNullOrEmpty(b) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
