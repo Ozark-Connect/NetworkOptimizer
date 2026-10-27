@@ -90,12 +90,12 @@ public sealed class PlanCoordinatorTests : IDisposable
     private void DeviceState(int s) => _console.State.Get("device")[0]["state"] = s;
 
     /// <summary>A management-path plan (moves a port to another profile), acknowledged and applied.</summary>
-    private async Task<int> ApplyManagementPlanAsync()
+    private async Task<int> ApplyManagementPlanAsync(Action<PlanDocument>? decorate = null)
     {
         var desired = _console.State.Clone();
         desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
         var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Move port 5", "test", null, null, desired,
-            new PlanOptions { Collections = new HashSet<string> { "device" } }, "Alex", CancellationToken.None);
+            new PlanOptions { Collections = new HashSet<string> { "device" } }, "Alex", CancellationToken.None, decorate);
         var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
         doc.WatchDevices.Should().BeTrue();
         await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements
@@ -145,6 +145,19 @@ public sealed class PlanCoordinatorTests : IDisposable
         plans.Single(p => p.Kind == ConfigPlanKind.Revert).Status.Should().Be(ConfigPlanStatus.Applied);
         _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p1");
         _bus.Published.Should().Contain(e => e.Title.StartsWith("Problem after revert"));
+    }
+
+    [Fact]
+    public async Task ConsolePathMove_OfflineDevice_AlertsOnce_NeverReverts()
+    {
+        var id = await ApplyManagementPlanAsync(doc => doc.Context[PlanCoordinator.ReaddressPathContext] = doc.Operations[0].Key);
+        DeviceState(0);
+
+        await TicksAsync(4);
+
+        (await PlanAsync(id))!.Status.Should().Be(ConfigPlanStatus.Watching);
+        _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p2");
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Devices offline after"));
     }
 
     [Fact]

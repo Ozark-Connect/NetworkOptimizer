@@ -272,7 +272,8 @@ public sealed class PlanCoordinator
             var settings = await _engine.Repositories.UseAsync((r, c) => r.GetSettingsAsync(c), ct);
             var window = TimeSpan.FromMinutes(IsAgentSite() ? settings.AgentCommitWindowMinutes : settings.CommitWindowMinutes);
             var watch = doc.WatchDevices || (doc.WatchInternet && settings.WatchInternet);
-            if (watch && AgentRevert != null && pre != null)
+            // The agent reaches the console at the address this plan moves, so it cannot revert a path move either.
+            if (watch && AgentRevert != null && pre != null && !MovesConsolePath(doc))
                 plan.AgentRevertArmed = await AgentRevert.ArmAsync(plan, doc, pre.Id, window, ct);
 
             bool ok;
@@ -290,8 +291,7 @@ public sealed class PlanCoordinator
 
             // A re-address that moves the console's own network writes it last; its reply can be lost with
             // the old address. Only those writes failing is the expected end, not a failure.
-            var pathMove = doc.Context.TryGetValue(ReaddressPathContext, out var pathKeys) && pathKeys.Length > 0;
-            if (!ok && pathMove && result.Operations.Where(o => o.Outcome == "Error").All(o => pathKeys!.Split(',').Contains(o.Key)))
+            if (!ok && MovesConsolePath(doc) && result.Operations.Where(o => o.Outcome == "Error").All(o => doc.Context[ReaddressPathContext].Split(',').Contains(o.Key)))
             {
                 ok = true;
                 plan.Message = "The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one.";
@@ -519,6 +519,18 @@ public sealed class PlanCoordinator
         }
         var misses = _misses.AddOrUpdate(plan.Id, 1, (_, n) => n + 1);
         if (misses < MissesToRevert) return;
+
+        // Never auto-revert a move of the console's network: devices inform to its old address until the
+        // console moves too, and a revert written meanwhile is what they would provision once it has.
+        if (MovesConsolePath(doc))
+        {
+            if (misses == MissesToRevert)
+                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Devices offline after: {plan.Name}",
+                    $"{reason} after a re-address that moved the UniFi Console's network. Devices reach the console at its old address until it moves too, "
+                    + "so Network Optimizer does not revert this plan. Move the console to its new address; Roll Back in Review Plan puts the old addresses back.",
+                    plan.Id, ct);
+            return;
+        }
         _misses.TryRemove(plan.Id, out _);
 
         // Never revert a revert: its "before" is the state after the original change.
@@ -690,6 +702,10 @@ public sealed class PlanCoordinator
 
     /// <summary>Plan context key carrying the operation keys of the networks that hold the console's path (comma-separated).</summary>
     public const string ReaddressPathContext = "readdress_path";
+
+    /// <summary>A re-address that moves the network holding the console, or Network Optimizer's path to it.</summary>
+    private static bool MovesConsolePath(PlanDocument doc) =>
+        doc.Context.TryGetValue(ReaddressPathContext, out var keys) && keys.Length > 0;
 
     /// <summary>
     /// A re-address moves Network Optimizer's own settings with the site once its writes land; a Revert of
