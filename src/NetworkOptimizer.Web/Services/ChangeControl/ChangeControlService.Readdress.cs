@@ -141,10 +141,14 @@ public sealed partial class ChangeControlService
                     doc.Notes.Add($"Not rewritten, holds an old address: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 if (settings.Count > 0)
                     doc.Notes.Add($"Network Optimizer moves its own settings with the site once this applies (and back on a revert): "
-                        + string.Join(", ", settings.Select(s => $"{s.Setting} {s.Name} {s.Old} to {s.New}")) + ".");
+                        + string.Join(", ", settings.Select(s => SettingText(s)).Distinct()) + ".");
             });
         return plan.Id;
     }
+
+    /// <summary>One settings move for the plan note; a setting named by its own address is not named twice.</summary>
+    internal static string SettingText(SettingRewrite s) =>
+        s.Name == s.Old ? $"{s.Setting} {s.Old} to {s.New}" : $"{s.Setting} {s.Name} {s.Old} to {s.New}";
 
     /// <summary>Moved networks that hold the console's address or the address Network Optimizer reaches the site from.</summary>
     private async Task<HashSet<string>> PathNetworksAsync(List<SubnetMove> active, CancellationToken ct)
@@ -177,7 +181,7 @@ public sealed partial class ChangeControlService
         var own = Plans.ManagementAddresses().Where(a => Readdressing.ParseIp(a) is { } ip && Readdressing.MapIp(ip, map) != null).Distinct().ToList();
         if (own.Count > 0)
             warnings.Add(new("Network Optimizer's host moves",
-                $"{own[0]}{(own.Count > 1 ? $" and {own.Count - 1} more" : "")}. Re-address it in the same window; no watch or revert runs until it is back."));
+                $"{own[0]}{(own.Count > 1 ? $" and {own.Count - 1} more" : "")}. Re-address it in the same window. Network Optimizer does not revert this plan."));
 
         var mgmt = ConfigDiffEngine.ManagementNetworkIds(live);
         var managed = active.Where(m => mgmt.Contains(m.NetworkId)).Select(m => m.NetworkName).ToList();

@@ -96,7 +96,8 @@ else
                 <div class="cc-badge-col"><span class="status-badge status-error">Lockout</span></div>
                 <div>
                     <div class="cc-item-title">@lockout.Title</div>
-                    <div class="cc-item-detail">@lockout.Detail @(doc.WatchDevices ? $"If it goes offline, Network Optimizer reverts the plan within {_view.WatchMinutes} minutes." : "")</div>
+                    <div class="cc-item-detail">@lockout.Detail @(PlanCoordinator.MovesConsolePath(doc) ? "Devices drop until the UniFi Console is at its new address. Network Optimizer alerts instead of reverting this plan."
+                        : doc.WatchDevices ? $"If it goes offline, Network Optimizer reverts the plan within {_view.WatchMinutes} minutes." : "")</div>
                     @if (lockout == doc.Lockouts.Last() && editable)
                     {
                         <div class="cc-confirm">
@@ -426,7 +427,14 @@ else
                     @if (doc.WatchDevices || doc.WatchInternet)
                     {
                         <b>Commit-confirmed: @_view.WatchMinutes minutes.</b>
-                        <span> Network Optimizer watches @(doc.WatchDevices ? "every device" : "")@(doc.WatchDevices && doc.WatchInternet ? " and " : "")@(doc.WatchInternet ? "internet reachability" : ""). If either fails, it reverts the plan and alerts.</span>
+                        @if (PlanCoordinator.MovesConsolePath(doc))
+                        {
+                            <span> Network Optimizer watches @(doc.WatchDevices ? "every device" : "")@(doc.WatchDevices && doc.WatchInternet ? " and " : "")@(doc.WatchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this plan: devices reach the console at its old address until the console moves too.</span>
+                        }
+                        else
+                        {
+                            <span> Network Optimizer watches @(doc.WatchDevices ? "every device" : "")@(doc.WatchDevices && doc.WatchInternet ? " and " : "")@(doc.WatchInternet ? "internet reachability" : ""). If either fails, it reverts the plan and alerts.</span>
+                        }
                     }
                     else
                     {

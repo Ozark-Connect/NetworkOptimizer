@@ -704,7 +704,7 @@ public sealed class PlanCoordinator
     public const string ReaddressPathContext = "readdress_path";
 
     /// <summary>A re-address that moves the network holding the console, or Network Optimizer's path to it.</summary>
-    private static bool MovesConsolePath(PlanDocument doc) =>
+    public static bool MovesConsolePath(PlanDocument doc) =>
         doc.Context.TryGetValue(ReaddressPathContext, out var keys) && keys.Length > 0;
 
     /// <summary>
