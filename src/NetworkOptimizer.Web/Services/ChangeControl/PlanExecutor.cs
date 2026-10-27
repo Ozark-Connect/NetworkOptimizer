@@ -46,6 +46,7 @@ public sealed class PlanExecutor
         var result = new PlanResult();
         var ops = doc.Operations;
         var i = 0;
+        var failed = false;
         while (i < ops.Count)
         {
             // A run: consecutive operations on one collection, verified together.
@@ -99,11 +100,12 @@ public sealed class PlanExecutor
                 if (r.Outcome == "Error")
                 {
                     _logger.LogWarning("Change Control write {Key} failed: {Message}", op.Key, r.Message);
-                    return (false, result);
+                    if (!op.ContinueOnError) return (false, result);
+                    failed = true;
                 }
             }
         }
-        return (true, result);
+        return (!failed, result);
     }
 
     private static void Record(PlanResult result, Action<OperationResult>? progress, OperationResult r)

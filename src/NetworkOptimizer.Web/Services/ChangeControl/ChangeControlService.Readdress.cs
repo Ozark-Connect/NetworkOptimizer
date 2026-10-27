@@ -154,10 +154,13 @@ public sealed partial class ChangeControlService
         }
         var afterNetworks = doc.Operations
             .Where(o => o.Collection == "user" || (o.Collection == "setting" && (o.Body?["key"]?.ToString() ?? o.ObjectName) == "ips")).ToList();
+        // One refused reservation (a DHCP client took its address from the new pool) must not strand the rest:
+        // the console dropped them all when the networks moved.
         foreach (var op in afterNetworks)
         {
             op.Order = 101;
             op.ManagementPath = true;
+            op.ContinueOnError = true;
         }
         foreach (var op in doc.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && gateways?.Contains(o.ObjectId) == true))
         {

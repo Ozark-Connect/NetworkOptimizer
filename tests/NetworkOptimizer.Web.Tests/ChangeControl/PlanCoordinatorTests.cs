@@ -184,6 +184,29 @@ public sealed class PlanCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task ContinueOnError_RefusalFailsThePlanButLaterWritesStillRun()
+    {
+        var desired = _console.State.Clone();
+        desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
+        var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Move port 5", "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "device" } }, "Alex", CancellationToken.None,
+            doc => { foreach (var op in doc.Operations) op.ContinueOnError = true; });
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        doc.Operations[0].ObjectId.Should().Be("d2", "the refused write must come first for this test");
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements
+        {
+            Items = doc.Operations.Select(o => o.Key).ToHashSet(), TypedConfirmation = PlanReadiness.ConfirmationText(doc),
+        }, CancellationToken.None);
+        _console.Refuse["rest/device/d2"] = 400;
+
+        var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), false, false, CancellationToken.None);
+
+        why.Should().NotBeNull();
+        (await PlanAsync(plan.Id))!.Status.Should().Be(ConfigPlanStatus.Failed);
+        _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p2");
+    }
+
+    [Fact]
     public async Task ConsoleUnreachable_AlertsAndKeepsWatching()
     {
         var id = await ApplyManagementPlanAsync();

@@ -295,7 +295,9 @@ public sealed class PlanCoordinator
                     .All(o => o.NoReply && doc.Context[ReaddressPathContext].Split(',').Contains(o.Key)))
             {
                 ok = true;
-                plan.Message = "The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one.";
+                var unanswered = result.Operations.Where(o => o.NoReply).Select(o => doc.Operations.FirstOrDefault(d => d.Key == o.Key)?.ObjectName ?? o.Key).Distinct().ToList();
+                plan.Message = "The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one."
+                    + (unanswered.Count > 0 ? $" No reply for: {string.Join(", ", unanswered.Take(10))}{(unanswered.Count > 10 ? $" and {unanswered.Count - 10} more" : "")}; check these landed." : "");
             }
             plan.ResultJson = JsonSerializer.Serialize(result);
             plan.OperationsEncrypted = Seal(doc);
@@ -608,7 +610,7 @@ public sealed class PlanCoordinator
         var touched = doc.Operations.Where(o => o.ObjectId != null).Select(o => (o.Collection, o.ObjectId!)).ToHashSet();
         var revert = await CreateAsync(ConfigPlanKind.Revert, $"Revert: {plan.Name}", $"Snapshot before {plan.Name}", snapId, null,
             before, new PlanOptions { OnlyObjects = touched, Collections = doc.Collections.ToHashSet() },
-            automatic ? "Network Optimizer" : "Roll Back", ct);
+            automatic ? "Network Optimizer" : "Roll Back", ct, ReaddressRevertOrder(doc, before));
         revert.RevertOfPlanId = plan.Id;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(revert, c), ct);
 
@@ -718,6 +720,29 @@ public sealed class PlanCoordinator
         var notMoved = networks.Where(o => !applied.Contains(o.Key)).Select(o => o.ObjectName).ToList();
         return moved.Count == 0 ? " No network moved."
             : $" Moved: {string.Join(", ", moved)}." + (notMoved.Count > 0 ? $" Not moved: {string.Join(", ", notMoved)}." : "");
+    }
+
+    /// <summary>
+    /// A re-address rolls back into the same refusals in reverse (honeypots and reservations checked against the
+    /// subnets in place), so its revert takes the same write order: networks holding the console's path last,
+    /// gateway last among devices, honeypots off before the networks, reservations carried after them.
+    /// </summary>
+    internal static Action<PlanDocument>? ReaddressRevertOrder(PlanDocument original, ConfigState before)
+    {
+        if (!original.Context.TryGetValue(ReaddressContext, out var movesJson)) return null;
+        var pathKeys = original.Context.GetValueOrDefault(ReaddressPathContext, "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+        var pathNetworks = original.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathKeys.Contains(o.Key))
+            .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var gateways = original.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && o.Order == 11)
+            .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var moves = JsonSerializer.Deserialize<List<SubnetMove>>(movesJson) ?? [];
+        return d =>
+        {
+            ChangeControlService.CarryReservations(d, before);
+            ChangeControlService.OrderReaddressWrites(d, pathNetworks, gateways);
+            d.Context[ReaddressContext] = JsonSerializer.Serialize(Readdressing.Reverse(moves));
+            if (original.Context.TryGetValue(ReaddressRemoteContext, out var remote)) d.Context[ReaddressRemoteContext] = remote;
+        };
     }
 
     public static bool MovesConsolePath(PlanDocument doc) =>

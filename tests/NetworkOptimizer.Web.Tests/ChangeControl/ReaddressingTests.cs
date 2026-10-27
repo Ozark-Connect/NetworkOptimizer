@@ -82,6 +82,34 @@ public class ReaddressingTests
     }
 
     [Fact]
+    public void RollBack_OfAReaddress_TakesTheSameWriteOrder()
+    {
+        var live = Site();
+        live.Collections["setting"].Add(System.Text.Json.Nodes.JsonNode.Parse(
+            """{"_id":"s2","key":"ips","honeypot_enabled":true,"honeypot":[{"ip_address":"192.168.30.250","network_id":"n2"}]}""")!.AsObject());
+        var moves = Pattern(live);
+        var after = Readdressing.Apply(live, moves).Desired;
+        var forward = PlanBuilder.Build(after, live, new PlanOptions { DeleteMissing = false });
+        ChangeControlService.OrderReaddressWrites(forward, new HashSet<string> { "n1" });
+        forward.Context[PlanCoordinator.ReaddressContext] = System.Text.Json.JsonSerializer.Serialize(moves.Where(m => m.OldCidr != m.NewCidr).ToList());
+
+        // The revert writes the pre-apply snapshot back over the moved site.
+        var revert = PlanBuilder.Build(live, after, new PlanOptions { DeleteMissing = false });
+        PlanCoordinator.ReaddressRevertOrder(forward, live)!(revert);
+
+        var keys = revert.Operations.Select(o => o.Key).ToList();
+        int At(string id) => revert.Operations.FindIndex(o => o.ObjectId == id && !o.Key.EndsWith(":honeypots-off"));
+        keys.FindIndex(k => k.EndsWith(":honeypots-off")).Should().BeLessThan(At("n2"));
+        At("n1").Should().BeGreaterThan(At("n2"));
+        At("u1").Should().BeGreaterThan(At("n1"));
+        At("s2").Should().BeGreaterThan(At("n1"));
+        revert.Operations[At("u1")].Body!["fixed_ip"]!.ToString().Should().Be("192.168.1.5");
+        revert.Operations[At("u1")].Body!["use_fixedip"]!.GetValue<bool>().Should().BeTrue();
+        revert.Context[PlanCoordinator.ReaddressContext].Should().Contain("\"OldCidr\":\"10.42.");
+        PlanCoordinator.ReaddressRevertOrder(new PlanDocument(), live).Should().BeNull();
+    }
+
+    [Fact]
     public void ClientWrites_CarryTheReservationAndLocalDnsFlags()
     {
         var live = Site();

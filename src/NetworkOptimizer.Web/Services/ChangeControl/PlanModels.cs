@@ -68,6 +68,9 @@ public sealed class PlanOperation
     /// <summary>The write can cut a device's (or NO's) management path: ordered last and watched.</summary>
     public bool ManagementPath { get; set; }
 
+    /// <summary>A refusal of this write fails the plan but does not stop the writes after it (a re-address's clients).</summary>
+    public bool ContinueOnError { get; set; }
+
     /// <summary>The write touches the WAN path: watched for internet reachability.</summary>
     public bool WanPath { get; set; }
 
