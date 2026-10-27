@@ -48,8 +48,11 @@ public static class ImpactAnalyzer
     public static bool Triggers(IEnumerable<string> collections) =>
         collections.Any(c => AuditConfigInputs.TriggerCollections.Contains(c));
 
-    /// <summary>Config inputs for one state. <paramref name="liveDevicesJson"/> is stat/device as read now.</summary>
-    public static AuditConfigInputs BuildInputs(ConfigState state, string liveDevicesJson)
+    /// <summary>
+    /// Config inputs for one state. <paramref name="liveDevicesJson"/> is stat/device as read now;
+    /// <paramref name="liveGroups"/> is rest/firewallgroup as read now, for the members of Network Optimizer's own groups.
+    /// </summary>
+    public static AuditConfigInputs BuildInputs(ConfigState state, string liveDevicesJson, IReadOnlyList<UniFiFirewallGroup>? liveGroups = null)
     {
         return new AuditConfigInputs
         {
@@ -57,7 +60,7 @@ public static class ImpactAnalyzer
             SettingsData = Element(new JsonObject { ["meta"] = new JsonObject { ["rc"] = "ok" }, ["data"] = Array(state.Get("setting")) }),
             FirewallPoliciesData = state.Collections.ContainsKey("firewall_policy") ? Element(Array(state.Get("firewall_policy"))) : null,
             LegacyFirewallRulesData = state.Collections.ContainsKey("firewallrule") ? Element(Array(state.Get("firewallrule"))) : null,
-            FirewallGroups = Typed<UniFiFirewallGroup>(state, "firewallgroup"),
+            FirewallGroups = FirewallGroups(state, liveGroups),
             NatRulesData = state.Collections.ContainsKey("nat") ? Element(Array(state.Get("nat"))) : null,
             PortProfiles = Typed<UniFiPortProfile>(state, "portconf"),
             NetworkConfigs = Typed<UniFiNetworkConfig>(state, "networkconf"),
@@ -89,6 +92,24 @@ public static class ImpactAnalyzer
             }
         }
         return list;
+    }
+
+    /// <summary>
+    /// The state's firewall groups. A snapshot keeps Network Optimizer's own groups as shells (their members are
+    /// generated), so those take their members from live: without them, every rule using one reads as any-to-any.
+    /// </summary>
+    private static List<UniFiFirewallGroup>? FirewallGroups(ConfigState state, IReadOnlyList<UniFiFirewallGroup>? liveGroups)
+    {
+        var groups = Typed<UniFiFirewallGroup>(state, "firewallgroup");
+        if (groups == null || liveGroups == null) return groups;
+        var byId = liveGroups.Where(g => g.Id.Length > 0).GroupBy(g => g.Id).ToDictionary(g => g.Key, g => g.First());
+        var byName = liveGroups.GroupBy(g => g.Name).ToDictionary(g => g.Key, g => g.First());
+        foreach (var group in groups.Where(g => g.Name.StartsWith(ConfigCollections.NoOwnedPrefix, StringComparison.Ordinal)))
+        {
+            if ((byId.GetValueOrDefault(group.Id) ?? byName.GetValueOrDefault(group.Name)) is { } live)
+                group.GroupMembers = [.. live.GroupMembers];
+        }
+        return groups;
     }
 
     /// <summary>Live stat/device with each device's config fields replaced by the state's.</summary>

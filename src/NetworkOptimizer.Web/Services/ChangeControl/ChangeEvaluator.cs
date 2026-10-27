@@ -173,8 +173,15 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             // and an audit joining the two would lose every port-to-network link on the before side.
             if (!string.Equals(before.NetworkAppVersion, after.NetworkAppVersion, StringComparison.OrdinalIgnoreCase))
                 before = ConfigDiffEngine.InAfterIds(before, after);
+            List<NetworkOptimizer.UniFi.Models.UniFiFirewallGroup>? liveGroups = null;
+            try { liveGroups = await connection.Client!.GetFirewallGroupsAsync(ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Change Control impact diff: live firewall groups unavailable");
+            }
             var result = await audit.RunConfigComparisonAsync(
-                ImpactAnalyzer.BuildInputs(before, liveDevices), ImpactAnalyzer.BuildInputs(after, liveDevices), after.NetworkAppVersion);
+                ImpactAnalyzer.BuildInputs(before, liveDevices, liveGroups), ImpactAnalyzer.BuildInputs(after, liveDevices, liveGroups),
+                after.NetworkAppVersion);
             return result == null ? null : ImpactAnalyzer.Compare(result.Value.Before, result.Value.After);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
