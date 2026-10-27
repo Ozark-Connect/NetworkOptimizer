@@ -20,6 +20,21 @@ public class ReaddressingTests
     private static List<SubnetMove> Pattern(ConfigState s) => Readdressing.Proposal(s, "10.42.{vlan}.0/24");
 
     [Fact]
+    public void NatUpdate_CarriesTheLiveRuleIndex()
+    {
+        var live = Site();
+        live.Collections["nat"] = [System.Text.Json.Nodes.JsonNode.Parse(
+            """{"_id":"nat1","description":"DNS DNAT","type":"DNAT","enabled":true,"ip_address":"192.168.1.5","rule_index":2,"in_interface":"n1"}""")!.AsObject()];
+        var desired = Readdressing.Apply(live, Pattern(live)).Desired;
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
+
+        var body = doc.Operations.Single(o => o.Collection == "nat").Body!;
+        body["ip_address"]!.ToString().Should().Be("10.42.1.5");
+        body["rule_index"]!.GetValue<int>().Should().Be(2);
+    }
+
+    [Fact]
     public void BuiltInRadiusProfile_IsLeftAlone()
     {
         var live = Site();

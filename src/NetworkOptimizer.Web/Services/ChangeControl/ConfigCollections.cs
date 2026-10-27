@@ -55,6 +55,12 @@ public sealed class CollectionWrite
     /// </summary>
     public IReadOnlySet<string>? Allowlist { get; init; }
 
+    /// <summary>
+    /// Fields an update carries from the live object although they are read-only (never written from the desired side).
+    /// NAT: an update without rule_index clears it, and every later NAT update is then refused (api.err.NatRuleInvalidParameters).
+    /// </summary>
+    public IReadOnlySet<string>? KeepOnUpdate { get; init; }
+
     /// <summary>The endpoint answers an unknown field with a 400 (zones, NAT, static DNS).</summary>
     public bool Strict { get; init; }
 
@@ -622,6 +628,7 @@ public static class ConfigCollections
                 Write = new CollectionWrite
                 {
                     CreatePath = "nat", UpdatePath = "nat/{id}", DeletePath = "nat/{id}", NeedsGateway = true, Strict = true,
+                    KeepOnUpdate = Set("rule_index"),
                     Allowlist = Set("_id", "enabled", "type", "description", "protocol", "in_interface", "out_interface", "pppoe_use_base_interface",
                         "ip_version", "ip_address", "port", "source_filter", "destination_filter", "logging", "exclude", "setting_preference"),
                 },

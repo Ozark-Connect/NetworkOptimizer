@@ -599,7 +599,7 @@ public static class PlanBuilder
         merged.Remove(ConfigCollections.DeviceMetaField);
         if (write.Allowlist != null)
             foreach (var key in merged.Select(p => p.Key).ToList())
-                if (!write.Allowlist.Contains(key)) merged.Remove(key);
+                if (!write.Allowlist.Contains(key) && write.KeepOnUpdate?.Contains(key) != true) merged.Remove(key);
         return merged;
     }
 
