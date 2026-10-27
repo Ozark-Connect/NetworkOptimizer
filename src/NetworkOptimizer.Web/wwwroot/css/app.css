@@ -5806,6 +5806,7 @@ tr:hover .snmp-row-chevron {
 /* Spinner small */
 .spinner-sm {
     display: inline-block;
+    flex-shrink: 0;
     width: 14px;
     height: 14px;
     border: 2px solid var(--text-muted);
