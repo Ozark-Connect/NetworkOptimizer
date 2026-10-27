@@ -119,7 +119,7 @@ public sealed partial class ChangeControlService
             doc =>
             {
                 CarryReservations(doc, result.Desired);
-                OrderReaddressWrites(doc, pathNetworks, GatewayIds(live));
+                OrderReaddressWrites(doc, pathNetworks, GatewayIds(live), active);
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 foreach (var m in result.Remote)
@@ -143,8 +143,11 @@ public sealed partial class ChangeControlService
     /// address every later write goes to is gone. Addresses the console checks against their network's current
     /// subnet follow every network: honeypots (api.err.HoneypotIpNotWithinSelectedNetwork) and client reservations.
     /// The gateway is the last device write: Network Optimizer may reach the other devices through it.
+    /// A network holding a device's static address follows the devices: moved first, it strands the device on
+    /// the old subnet, where it can no longer reach the console for its new address.
     /// </summary>
-    internal static void OrderReaddressWrites(PlanDocument doc, IReadOnlySet<string> pathNetworks, IReadOnlySet<string>? gateways = null)
+    internal static void OrderReaddressWrites(PlanDocument doc, IReadOnlySet<string> pathNetworks, IReadOnlySet<string>? gateways = null,
+        IReadOnlyList<SubnetMove>? moves = null)
     {
         var path = doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)).ToList();
         foreach (var op in path)
@@ -152,13 +155,20 @@ public sealed partial class ChangeControlService
             op.Order = 100;
             op.ManagementPath = true;
         }
+        var staticHomes = StaticDeviceNetworks(doc, moves ?? []);
+        foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null
+                     && staticHomes.Contains(o.ObjectId) && !pathNetworks.Contains(o.ObjectId)))
+        {
+            op.Order = 50;
+            op.ManagementPath = true;
+        }
         var afterNetworks = doc.Operations
             .Where(o => o.Collection == "user" || (o.Collection == "setting" && (o.Body?["key"]?.ToString() ?? o.ObjectName) == "ips")).ToList();
         // One refused reservation (a DHCP client took its address from the new pool) must not strand the rest:
-        // the console dropped them all when the networks moved.
+        // the console dropped them all when the networks moved. Honeypots follow the reservations.
         foreach (var op in afterNetworks)
         {
-            op.Order = 101;
+            op.Order = op.Collection == "user" ? 101 : 102;
             op.ManagementPath = true;
             op.ContinueOnError = true;
         }
@@ -176,7 +186,7 @@ public sealed partial class ChangeControlService
             off["honeypot_enabled"] = false;
             doc.Operations.Add(new PlanOperation
             {
-                Key = op.Key + ":honeypots-off", Collection = op.Collection, Action = PlanAction.Update,
+                Key = op.Key + HoneypotsOffSuffix, Collection = op.Collection, Action = PlanAction.Update,
                 ObjectId = op.ObjectId, ObjectName = op.ObjectName, Body = off,
                 WriteFields = ["honeypot", "honeypot_enabled"], ChangeText = "Honeypots off until the networks move",
                 Tier = PlanTiers.Direct, Order = 1, NeedsGateway = op.NeedsGateway,
@@ -187,6 +197,18 @@ public sealed partial class ChangeControlService
         // A write after a path network can lose its reply with the old address, so its failure is expected too.
         doc.Context[PlanCoordinator.ReaddressPathContext] = path.Count == 0 ? "" : string.Join(",", path.Concat(afterNetworks).Select(o => o.Key));
     }
+
+    /// <summary>Key suffix of the write that turns honeypots off before the networks move; it goes with its restore write.</summary>
+    internal const string HoneypotsOffSuffix = ":honeypots-off";
+
+    /// <summary>The moving networks a device write gives a static address in.</summary>
+    private static HashSet<string> StaticDeviceNetworks(PlanDocument doc, IReadOnlyList<SubnetMove> moves) =>
+        doc.Operations
+            .Where(o => o.Collection == "device" && o.Body?["config_network"] is JsonObject cn && cn["type"]?.ToString() == "static")
+            .Select(o => Readdressing.ParseIp(o.Body!["config_network"]!["ip"]?.ToString()))
+            .OfType<uint>()
+            .SelectMany(ip => moves.Where(m => Readdressing.ParseSubnet(m.NewCidr)?.Contains(ip) == true).Select(m => m.NetworkId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// When a network's subnet changes the console drops its clients' reservations (use_fixedip off, fixed_ip
@@ -200,8 +222,13 @@ public sealed partial class ChangeControlService
         foreach (var op in doc.Operations.Where(o => o.Collection == "user" && o.ObjectId != null && o.Body is JsonObject))
         {
             if (!byId.TryGetValue(op.ObjectId!, out var want)) continue;
+            // Verify checks only the write's fields, so a carried field joins them or a dropped reservation passes.
             foreach (var field in new[] { "use_fixedip", "fixed_ip", "local_dns_record_enabled", "local_dns_record" })
-                if (want[field] is { } v) op.Body![field] = v.DeepClone();
+                if (want[field] is { } v)
+                {
+                    op.Body![field] = v.DeepClone();
+                    if (!op.WriteFields.Contains(field)) op.WriteFields.Add(field);
+                }
         }
     }
 

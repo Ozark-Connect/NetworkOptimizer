@@ -290,14 +290,29 @@ public sealed class PlanCoordinator
                     result.Operations.Where(o => o.Outcome == "Waiting").Select(o => o.Key).ToHashSet(StringComparer.Ordinal));
 
             // A re-address that moves the console's own network writes it last; its reply can be lost with
-            // the old address. Only those writes going unanswered is the expected end: a console refusal is a failure.
-            if (!ok && MovesConsolePath(doc) && result.Operations.Where(o => o.Outcome == "Error")
-                    .All(o => o.NoReply && doc.Context[ReaddressPathContext].Split(',').Contains(o.Key)))
+            // the old address. Only those writes going unanswered is the expected end: a console refusal is a failure,
+            // except on a write marked ContinueOnError, whose refusal is reported and does not undo the rest.
+            var pathKeys = MovesConsolePath(doc) ? doc.Context[ReaddressPathContext].Split(',').ToHashSet(StringComparer.Ordinal) : [];
+            var errors = result.Operations.Where(o => o.Outcome == "Error").ToList();
+            var lost = errors.Where(o => o.NoReply && pathKeys.Contains(o.Key)).ToList();
+            var refused = errors.Except(lost).Where(o => doc.Operations.FirstOrDefault(d => d.Key == o.Key)?.ContinueOnError == true).ToList();
+            var accepted = !ok && errors.Count > 0 && lost.Count + refused.Count == errors.Count;
+            if (accepted)
             {
                 ok = true;
-                var unanswered = result.Operations.Where(o => o.NoReply).Select(o => doc.Operations.FirstOrDefault(d => d.Key == o.Key)?.ObjectName ?? o.Key).Distinct().ToList();
-                plan.Message = "The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one."
-                    + (unanswered.Count > 0 ? $" No reply for: {string.Join(", ", unanswered.Take(10))}{(unanswered.Count > 10 ? $" and {unanswered.Count - 10} more" : "")}; check these landed." : "");
+                string Name(string key) => doc.Operations.FirstOrDefault(d => d.Key == key)?.ObjectName ?? key;
+                var parts = new List<string>();
+                if (lost.Count > 0)
+                {
+                    parts.Add("The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one.");
+                    parts.Add($"No reply for: {NameList(lost.Select(o => Name(o.Key)))}; check these landed.");
+                    var answered = result.Operations.Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+                    if (doc.Operations.Where(o => !answered.Contains(o.Key)).Select(o => o.ObjectName).ToList() is { Count: > 0 } unsent)
+                        parts.Add($"Not sent once the console stopped answering: {NameList(unsent)}.");
+                }
+                if (refused.Count > 0)
+                    parts.Add($"Refused by the console: {NameList(refused.Select(o => $"{Name(o.Key)} ({o.Message})"))}; set these by hand.");
+                plan.Message = string.Join(" ", parts);
             }
             plan.ResultJson = JsonSerializer.Serialize(result);
             plan.OperationsEncrypted = Seal(doc);
@@ -317,7 +332,7 @@ public sealed class PlanCoordinator
             plan.CompletedAt = DateTime.UtcNow;
             var waiting = result.Operations.Count(o => o.Outcome == "Waiting");
             if (waiting > 0)
-                plan.Message = $"{waiting} write{(waiting == 1 ? "" : "s")} need the gateway adopted first. Run the plan again once it is.";
+                plan.Message = (accepted ? plan.Message + " " : "") + $"{waiting} write{(waiting == 1 ? "" : "s")} need the gateway adopted first. Run the plan again once it is.";
             if (watch)
             {
                 plan.Status = ConfigPlanStatus.Watching;
@@ -335,7 +350,8 @@ public sealed class PlanCoordinator
             if (automatic) Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Success, new { scheduled = true });
             await Publish(ChangeAlerts.PlanApplied, AlertSeverity.Info, $"Plan applied: {plan.Name}",
                 $"{doc.Operations.Count} writes by {actor.Name}." + (watch ? $" Watching for {window.TotalMinutes:0} minutes." : "")
-                + (result.VerifyDifferences.Count > 0 ? $" {result.VerifyDifferences.Count} differences remain after verify." : ""), plan.Id, ct);
+                + (result.VerifyDifferences.Count > 0 ? $" {result.VerifyDifferences.Count} differences remain after verify." : "")
+                + (refused.Count > 0 ? $" {plan.Message}" : ""), plan.Id, ct);
             _engine.PollSoon();
             return null;
         }
@@ -735,14 +751,21 @@ public sealed class PlanCoordinator
             .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var gateways = original.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && o.Order == 11)
             .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var moves = JsonSerializer.Deserialize<List<SubnetMove>>(movesJson) ?? [];
+        var reversed = Readdressing.Reverse(JsonSerializer.Deserialize<List<SubnetMove>>(movesJson) ?? []);
         return d =>
         {
             ChangeControlService.CarryReservations(d, before);
-            ChangeControlService.OrderReaddressWrites(d, pathNetworks, gateways);
-            d.Context[ReaddressContext] = JsonSerializer.Serialize(Readdressing.Reverse(moves));
+            ChangeControlService.OrderReaddressWrites(d, pathNetworks, gateways, reversed);
+            d.Context[ReaddressContext] = JsonSerializer.Serialize(reversed);
             if (original.Context.TryGetValue(ReaddressRemoteContext, out var remote)) d.Context[ReaddressRemoteContext] = remote;
         };
+    }
+
+    /// <summary>Names for a plan message, the first ten and a count of the rest.</summary>
+    private static string NameList(IEnumerable<string> names)
+    {
+        var list = names.Distinct().ToList();
+        return string.Join(", ", list.Take(10)) + (list.Count > 10 ? $" and {list.Count - 10} more" : "");
     }
 
     public static bool MovesConsolePath(PlanDocument doc) =>

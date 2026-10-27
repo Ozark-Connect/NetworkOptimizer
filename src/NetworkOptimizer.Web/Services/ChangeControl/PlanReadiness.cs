@@ -27,7 +27,11 @@ public static class PlanReadiness
     /// </summary>
     public static HashSet<string> LeftOut(PlanDocument doc, IReadOnlySet<string> excluded)
     {
-        var left = doc.Operations.Where(o => excluded.Contains(o.Key)).Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+        // A write that only prepares another (honeypots off before a re-address) leaves with it.
+        var left = doc.Operations.Where(o => excluded.Contains(o.Key)
+                || (o.Key.EndsWith(ChangeControlService.HoneypotsOffSuffix, StringComparison.Ordinal)
+                    && excluded.Contains(o.Key[..^ChangeControlService.HoneypotsOffSuffix.Length])))
+            .Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
         bool grew;
         do
         {

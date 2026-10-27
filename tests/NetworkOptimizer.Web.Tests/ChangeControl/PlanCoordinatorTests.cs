@@ -184,7 +184,7 @@ public sealed class PlanCoordinatorTests : IDisposable
     }
 
     [Fact]
-    public async Task ContinueOnError_RefusalFailsThePlanButLaterWritesStillRun()
+    public async Task ContinueOnError_RefusalIsReported_LaterWritesRun_PlanApplies()
     {
         var desired = _console.State.Clone();
         desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
@@ -201,9 +201,58 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), false, false, CancellationToken.None);
 
+        why.Should().BeNull();
+        var applied = (await PlanAsync(plan.Id))!;
+        applied.Status.Should().Be(ConfigPlanStatus.Watching);
+        applied.Message.Should().Contain("Refused by the console: AP");
+        _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p2");
+    }
+
+    [Fact]
+    public async Task RefusalWithoutContinueOnError_StillFailsThePlan()
+    {
+        var desired = _console.State.Clone();
+        desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
+        desired.Collections["device"][1]["name"] = "AP 2";
+        var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Move port 5", "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "device" } }, "Alex", CancellationToken.None,
+            doc => doc.Operations.Single(o => o.ObjectId == "d1").ContinueOnError = true);
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements
+        {
+            Items = doc.Operations.Select(o => o.Key).ToHashSet(), TypedConfirmation = PlanReadiness.ConfirmationText(doc),
+        }, CancellationToken.None);
+        _console.Refuse["rest/device/d1"] = 400;
+        _console.Refuse["rest/device/d2"] = 400;
+
+        var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), false, false, CancellationToken.None);
+
         why.Should().NotBeNull();
         (await PlanAsync(plan.Id))!.Status.Should().Be(ConfigPlanStatus.Failed);
-        _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p2");
+    }
+
+    [Fact]
+    public async Task ConsolePathNoReply_NamesTheWritesNeverSent()
+    {
+        var desired = _console.State.Clone();
+        desired.Collections["networkconf"][0]["name"] = "Main";
+        desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
+        var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Move", "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "networkconf", "device" } }, "Alex", CancellationToken.None,
+            doc => doc.Context[PlanCoordinator.ReaddressPathContext] = doc.Operations.Single(o => o.ObjectId == "n1").Key);
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        doc.Operations.FindIndex(o => o.ObjectId == "n1").Should().BeLessThan(doc.Operations.FindIndex(o => o.ObjectId == "d1"));
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements
+        {
+            Items = doc.Operations.Select(o => o.Key).ToHashSet(), TypedConfirmation = PlanReadiness.ConfirmationText(doc),
+        }, CancellationToken.None);
+        _console.Refuse["rest/networkconf/n1"] = 0;
+
+        var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), false, false, CancellationToken.None);
+
+        why.Should().BeNull();
+        var applied = (await PlanAsync(plan.Id))!;
+        applied.Message.Should().Contain("No reply for: Main").And.MatchRegex("Not sent once the console stopped answering: [^.]*Switch");
     }
 
     [Fact]

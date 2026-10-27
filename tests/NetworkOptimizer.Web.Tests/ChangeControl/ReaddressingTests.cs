@@ -69,6 +69,7 @@ public class ReaddressingTests
         At("n1").Should().BeGreaterThan(At("gw"));
         At("s2").Should().BeGreaterThan(At("n1"));
         At("u1").Should().BeGreaterThan(At("n1"));
+        At("s2").Should().BeGreaterThan(At("u1"));
         doc.Context[PlanCoordinator.ReaddressPathContext].Split(',').Should().HaveCount(3);
 
         // Honeypots go off before any network moves, and the restore turns them back on.
@@ -125,6 +126,45 @@ public class ReaddressingTests
         body["use_fixedip"]!.GetValue<bool>().Should().BeTrue();
         body["local_dns_record_enabled"]!.GetValue<bool>().Should().BeTrue();
         body["local_dns_record"]!.ToString().Should().Be("nas.lan");
+        // Verify checks the carried fields too, so a reservation the console dropped shows.
+        doc.Operations.Single(o => o.Collection == "user").WriteFields.Should()
+            .Contain(["use_fixedip", "fixed_ip", "local_dns_record_enabled", "local_dns_record"]).And.OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void NetworkHoldingAStaticDevice_MovesAfterTheDevice()
+    {
+        var live = Site();
+        live.Collections["device"] = [
+            System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"gw","mac":"aa:bb:cc:dd:ee:10","name":"Gateway","config_network":{"type":"dhcp"}}""")!.AsObject(),
+            System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"cam","mac":"aa:bb:cc:dd:ee:12","name":"Switch","config_network":{"type":"static","ip":"192.168.30.20"}}""")!.AsObject()];
+        var moves = Pattern(live).Where(m => m.OldCidr != m.NewCidr).ToList();
+        var desired = Readdressing.Apply(live, moves).Desired;
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
+
+        ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n1" }, new HashSet<string> { "gw" }, moves);
+
+        int At(string id) => doc.Operations.FindIndex(o => o.ObjectId == id && !o.Key.EndsWith(ChangeControlService.HoneypotsOffSuffix));
+        At("n2").Should().BeGreaterThan(At("cam"));
+        At("n1").Should().BeGreaterThan(At("n2"));
+        // Not the console's path: its lost reply is not an expected end.
+        doc.Context[PlanCoordinator.ReaddressPathContext].Should().NotContain(doc.Operations[At("n2")].Key);
+    }
+
+    [Fact]
+    public void LeavingOutTheHoneypotRestore_LeavesOutHoneypotsOff()
+    {
+        var live = Site();
+        live.Collections["setting"].Add(System.Text.Json.Nodes.JsonNode.Parse(
+            """{"_id":"s2","key":"ips","honeypot_enabled":true,"honeypot":[{"ip_address":"192.168.30.250","network_id":"n2"}]}""")!.AsObject());
+        var doc = PlanBuilder.Build(Readdressing.Apply(live, Pattern(live)).Desired, live, new PlanOptions { DeleteMissing = false });
+        ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n1" });
+        var restore = doc.Operations.Single(o => o.ObjectId == "s2" && !o.Key.EndsWith(ChangeControlService.HoneypotsOffSuffix)).Key;
+
+        PlanReadiness.Exclude(doc, new HashSet<string> { restore });
+
+        doc.Operations.Should().NotContain(o => o.ObjectId == "s2");
+        doc.Operations.Should().Contain(o => o.ObjectId == "n2");
     }
 
     [Theory]
