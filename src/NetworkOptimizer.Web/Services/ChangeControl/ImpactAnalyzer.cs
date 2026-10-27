@@ -140,8 +140,42 @@ public static class ImpactAnalyzer
                 }
                 device[key] = value?.DeepClone();
             }
+            if (config["port_overrides"] is JsonArray overrides && device["port_table"] is JsonArray ports)
+                OverlayPorts(overrides, ports);
         }
         return new JsonObject { ["meta"] = new JsonObject { ["rc"] = "ok" }, ["data"] = Array(live) }.ToJsonString();
+    }
+
+    // Port settings the port rules read. An override that leaves one out takes the port profile's or the
+    // default, so the live value is dropped; the copy-only ones carry device capability when absent.
+    private static readonly string[] PortConfigFields =
+    [
+        "forward", "tagged_vlan_mgmt", "portconf_id", "native_networkconf_id", "excluded_networkconf_ids",
+        "port_security_enabled", "port_security_mac_address", "isolation", "enable",
+    ];
+    private static readonly string[] PortCopyOnlyFields = ["name", "poe_mode", "op_mode"];
+
+    /// <summary>
+    /// The port rules read port_table, which shows the port as configured now. Each port the state overrides
+    /// takes the state's settings, or a before/after audit sees the live port on both sides.
+    /// </summary>
+    private static void OverlayPorts(JsonArray overrides, JsonArray ports)
+    {
+        var byIdx = overrides.OfType<JsonObject>()
+            .Where(o => o["port_idx"] is JsonValue)
+            .GroupBy(o => o["port_idx"]!.ToString())
+            .ToDictionary(g => g.Key, g => g.First());
+        foreach (var port in ports.OfType<JsonObject>())
+        {
+            if (port["port_idx"]?.ToString() is not { } idx || !byIdx.TryGetValue(idx, out var o)) continue;
+            foreach (var field in PortConfigFields)
+            {
+                if (o[field] is { } v) port[field] = v.DeepClone();
+                else port.Remove(field);
+            }
+            foreach (var field in PortCopyOnlyFields)
+                if (o[field] is { } v) port[field] = v.DeepClone();
+        }
     }
 
     /// <summary>Issue identity across two runs: title and what it is about.</summary>
