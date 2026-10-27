@@ -72,7 +72,7 @@ public static partial class ChangeDescriber
         ["ttl"] = "TTL", ["url"] = "URL", ["cidr"] = "CIDR", ["wan"] = "WAN", ["lan"] = "LAN", ["ssid"] = "SSID",
         ["ap"] = "AP", ["wlan"] = "WLAN", ["rssi"] = "RSSI", ["tx"] = "TX", ["rx"] = "RX", ["pmf"] = "PMF", ["mlo"] = "MLO",
         ["wpa"] = "WPA", ["radius"] = "RADIUS", ["dpi"] = "DPI", ["ips"] = "IPS", ["id"] = "ID", ["wifi"] = "Wi-Fi",
-        ["unifi"] = "UniFi",
+        ["unifi"] = "UniFi", ["api"] = "API",
     };
 
     // Kept lowercase inside a title ("Lock Port to UniFi Device").

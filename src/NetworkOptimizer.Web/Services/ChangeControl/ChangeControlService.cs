@@ -180,7 +180,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             .Concat(await new SiteMetricsReader(_influx, _isp, _logger).BeforeAfterAsync(l.change.OccurredAt, cancellationToken)).ToList();
         var impact = string.IsNullOrEmpty(l.change.ImpactJson) ? [] : JsonSerializer.Deserialize<List<ImpactLine>>(l.change.ImpactJson) ?? [];
         var source = l.change.ActorKind == ConfigChangeActorKind.Person
-            ? string.Join(", ", new[] { l.change.ActorName, l.change.ActorIp, l.change.ActorPlatform }.Where(s => !string.IsNullOrEmpty(s)))
+            ? string.Join(", ", new[] { l.change.ActorName, l.change.ActorIp, Platform(l.change.ActorPlatform) }.Where(s => !string.IsNullOrEmpty(s)))
             : null;
         return new ChangeDetailView
         {
@@ -248,6 +248,10 @@ public sealed partial class ChangeControlService : IChangeControlService
             facts.Add(("Recorded", c.FirmwareRolloutPlanId != null ? "From Firmware Rollout history" : "From reboot history"));
         return facts;
     }
+
+    /// <summary>UniFi's audit access method as shown: "WEB" reads Web, "MOBILE" Mobile; acronyms (API, SSH) stay.</summary>
+    internal static string? Platform(string? accessMethod) =>
+        accessMethod is { Length: > 0 } m && m.All(c => !char.IsLower(c)) ? ChangeDescriber.Title(m.ToLowerInvariant().Replace('_', ' ')) : accessMethod;
 
     // "Port 2 (Desk)" at the start of a saved label; group 1 is the bare "Port 2".
     [System.Text.RegularExpressions.GeneratedRegex(@"^(Port \d+) \([^)]*\)")]
