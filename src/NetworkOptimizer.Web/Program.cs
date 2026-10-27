@@ -272,6 +272,11 @@ builder.Services.AddScoped<IScopeBadgeText, InstanceScopeBadgeText>();
 // Registered twice so pages can subscribe to the same instance the circuit calls.
 builder.Services.AddScoped<CircuitReconnectNotifier>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(sp => sp.GetRequiredService<CircuitReconnectNotifier>());
+// The viewer's clock. The preference source is the seam a host decorates to add a layer between
+// the user's own choice and the install default.
+builder.Services.AddScoped<ITimeZonePreferenceSource, TimeZonePreferenceSource>();
+builder.Services.AddScoped<IDisplayTimeZone, DisplayTimeZone>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, DisplayTimeZoneCircuitHandler>();
 
 // In-app search. Not a mutating service: it holds no state and returns only navigation metadata
 // compiled into the app. Each provider filters its own entries against the caller, so adding an

@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Threats.Blocking
 @using NetworkOptimizer.Threats.Models
 @inject IThreatBlockingAdmin Blocking
+@inject IDisplayTimeZone DisplayTime
 
 @* Threat Intelligence - Blocking: devices whose connections to a public block list address the
    gateway dropped, each with Allow to open an exception filled in from it. *@
@@ -49,7 +50,7 @@
                                     <td class="hide-mobile"><code>@PortText(d)</code></td>
                                     <td class="hide-mobile">@d.List</td>
                                     <td class="hide-mobile">@d.Drops.ToString("N0")</td>
-                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(d.LastSeen)</td>
+                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(d.LastSeen, DisplayTime.Zone)</td>
                                     <td>
                                         @if (covering != null)
                                         {
@@ -70,7 +71,7 @@
                                             <div class="expand-wrapper expanded">
                                                 <div class="expand-content">
                                                     <BlockingExceptionForm Initial="_prefill" List="@d.List" DeviceName="DeviceName"
-                                                                           Intro="@($"Filled in from these drops, last at {d.LastSeen.ToLocalTime():MMM d HH:mm}. Widen or narrow any field before you add it.")"
+                                                                           Intro="@($"Filled in from these drops, last at {d.LastSeen.ToLocalTime(DisplayTime):MMM d HH:mm}. Widen or narrow any field before you add it.")"
                                                                            OnSaved="Saved" OnCancel="() => _open = null" />
                                                 </div>
                                             </div>

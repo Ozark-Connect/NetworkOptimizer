@@ -22,6 +22,7 @@
 @inject MonitoringReadinessService Readiness
 @inject SiteSpeedTestTargetResolver SiteTarget
 @inject IApMapAdminService ApMapAdmin
+@inject IDisplayTimeZone DisplayTime
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -280,7 +281,7 @@
                                 <tr id="result-@result.Id"
                                     class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
                                     @onclick="@(async () => await ToggleHistoryExpand(result.Id))">
-                                    <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                    <td>@result.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd HH:mm")</td>
                                     <td>
                                         @{
                                             var isLan = result.IsLocalLanClient();

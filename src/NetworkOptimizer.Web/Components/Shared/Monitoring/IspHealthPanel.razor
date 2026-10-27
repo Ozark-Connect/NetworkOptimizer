@@ -18,6 +18,7 @@
 @inject ILogger<IspHealthPanel> Logger
 @using NetworkOptimizer.Web.Services.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@inject IDisplayTimeZone DisplayTime
 
 @* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
    auto-fallback may have reduced below the configured target) is the only state where Refresh is
@@ -312,7 +313,7 @@ else
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip isp-health-profile-chip-selectable"
                      data-tooltip="@(_canOperate ? "Thresholds are tuned per access technology; change it to re-score." : "Thresholds are tuned per access technology. A Site Operator or Admin can change it.")" data-tooltip-hover-only>
-                    Scored as @r.Profile.DisplayName@PppoeSuffix(r) &middot; @ScoredWindowLabel(r)
+                    Scored as @r.Profile.DisplayName@PppoeSuffix(r) &middot; @ScoredWindowLabel(r, DisplayTime.Zone)
                     <span class="isp-profile-chip-caret"></span>
                     <select class="isp-profile-chip-select" aria-label="Access technology" disabled="@(!_canOperate)"
                             value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
@@ -434,7 +435,7 @@ else
                                                 <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
                                                    data-tooltip="Exclude this event from ISP Health scoring"
                                                    data-tooltip-hover-only
-                                                   @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start)})" : "")</a>
+                                                   @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start, DisplayTime.Zone)})" : "")</a>
                                             }
                                         }
                                     </div>
@@ -749,7 +750,7 @@ else
                             <div class="isp-outage-head">
                                 <span class="isp-event-badge @OutageBadgeClass(outage)" data-tooltip="@OutageScoreTooltip(outage)">@OutageBadgeText(outage)</span>
                                 <span class="isp-outage-duration">@FormatDuration(outage.Duration)</span>
-                                <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime().ToString("HH:mm:ss")</span>
+                                <span class="isp-outage-window">@outage.Start.ToLocalTime(DisplayTime).ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</span>
                                 <span class="isp-outage-scope" data-tooltip="@OutageScoreTooltip(outage)">@OutageScopeLabel(outage)</span>
                                 @if (outage.IsPartial)
                                 {
@@ -791,7 +792,7 @@ else
                                             <div class="isp-outage-hop-track">
                                                 <div class="isp-outage-hop-dark" style="width: @(OutageHopDarkPercent(outage, tier).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
                                             </div>
-                                            <span class="isp-outage-hop-status @(tier.WentDark ? "" : "isp-outage-hop-up")">@OutageHopStatus(tier)</span>
+                                            <span class="isp-outage-hop-status @(tier.WentDark ? "" : "isp-outage-hop-up")">@OutageHopStatus(tier, DisplayTime.Zone)</span>
                                         </div>;
                                 }
                                 else
@@ -891,7 +892,7 @@ else
                            of the key because records compare by value and duplicate keys throw. *@
                         <div class="isp-event-item" @key="(entry, i)">
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
-                            <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
+                            <span class="isp-event-time">@EventTimeLabel(entry.Time, DisplayTime.Zone)</span>
                             <span class="isp-event-text">
                                 @entry.Text
                                 @if (entry.Members is { Count: > 0 })
@@ -1078,8 +1079,9 @@ else
     // Last report the absolved-jitter tooltips were refreshed against; a new report means their
     // data-tooltip changed and the cached Tippy content needs rebuilding.
     private IspHealthReport? _lastTooltipReport;
-    private DateTime _customFrom = DateTime.Now.AddDays(-2);
-    private DateTime _customTo = DateTime.Now;
+    // Seeded from the active window each time the popover opens.
+    private DateTime _customFrom;
+    private DateTime _customTo;
 
     private bool IsLiveWindow => !_isCustom && _followLive;
 
@@ -1946,8 +1948,8 @@ else
         if (_showCustomPopover)
         {
             // Seed both pickers from the active window so they reflect the current filter.
-            _customTo = (_windowEnd ?? DateTime.UtcNow).ToLocalTime();
-            _customFrom = (_windowStart ?? DateTime.UtcNow.AddHours(-LiveWindowHours)).ToLocalTime();
+            _customTo = (_windowEnd ?? DateTime.UtcNow).ToLocalTime(DisplayTime);
+            _customFrom = (_windowStart ?? DateTime.UtcNow.AddHours(-LiveWindowHours)).ToLocalTime(DisplayTime);
         }
     }
 
@@ -1972,8 +1974,8 @@ else
     {
         _showCustomPopover = false;
         // datetime-local binds local wall-clock (Kind=Unspecified); treat it as local -> UTC.
-        var startUtc = _customFrom.ToUniversalTime();
-        var endUtc = _customTo.ToUniversalTime();
+        var startUtc = DisplayTime.ToUtc(_customFrom);
+        var endUtc = DisplayTime.ToUtc(_customTo);
         // A start after the end is a typo, not a request for nothing. Collapsing it onto the end
         // lets the minimum-window rule below open it back up, so the user gets the shortest real
         // window instead of a popover that closes and leaves the previous one on screen with no
@@ -2065,7 +2067,7 @@ else
 
     private string EventsWindowLabel(IspHealthReport r) =>
         IsZoomed
-            ? $"zoomed: {_zoomFrom!.Value.ToLocalTime():MMM d, HH:mm} to {_zoomTo!.Value.ToLocalTime():MMM d, HH:mm}"
+            ? $"zoomed: {_zoomFrom!.Value.ToLocalTime(DisplayTime):MMM d, HH:mm} to {_zoomTo!.Value.ToLocalTime(DisplayTime):MMM d, HH:mm}"
             : WindowLabel(r);
 
     private bool CategoryVisible(TimelineEntry e) => _visibleEventCats.Contains(e.Category);

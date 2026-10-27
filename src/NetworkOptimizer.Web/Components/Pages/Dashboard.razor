@@ -20,6 +20,7 @@
 @inject IDashboardLayoutAdminService LayoutAdmin
 @implements IDisposable
 @rendermode InteractiveServer
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Dashboard - Network Optimizer</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="_editMode" />
@@ -651,7 +652,7 @@
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
-                                    <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</span>
                                 </div>
                             }
                         </div>
@@ -699,7 +700,7 @@
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
-                                    <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</span>
                                 </div>
                             }
                         </div>

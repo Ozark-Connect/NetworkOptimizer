@@ -31,6 +31,7 @@
 @inject MonitoringReadinessService Readiness
 @inject MonitoringLiveStatsRegistry LiveStatsRegistry
 @inject CircuitReconnectNotifier CircuitReconnect
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -557,7 +558,7 @@
                                 }
                             </div>
                             <div class="speed-hero-meta">
-                                <span>@_latestSpeedResult.TestTime.ToLocalTime().ToString("g")</span>
+                                <span>@_latestSpeedResult.TestTime.ToLocalTime(DisplayTime).ToString("g")</span>
                                 <span>@_latestSpeedResult.DurationSeconds s test</span>
                             </div>
                         </div>
@@ -847,7 +848,7 @@
                                                     @if (row.IsRange)
                                                     {
                                                         @FormatSignalTime(entry.Timestamp)
-                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
+                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime(DisplayTime).Date == row.EndTime.ToLocalTime(DisplayTime).Date ? row.EndTime.ToLocalTime(DisplayTime).ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
                                                         <span class="row-count">(@row.Count)</span>
                                                     }
                                                     else
@@ -941,7 +942,7 @@
                                         @foreach (var evt in GetPagedConnectionEvents())
                                         {
                                             <tr class="@GetEventRowClass(evt.Type)">
-                                                <td>@evt.Timestamp.ToLocalTime().ToString("g")</td>
+                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString("g")</td>
                                                 <td>
                                                     <span class="event-badge @GetEventBadgeClass(evt.Type)">
                                                         @FormatEventType(evt.Type)
@@ -3905,18 +3906,18 @@
         _ => proto ?? "—"
     };
 
-    private static string FormatSignalTime(DateTime utcTimestamp)
+    private string FormatSignalTime(DateTime utcTimestamp)
     {
-        var local = utcTimestamp.ToLocalTime();
-        return local.Date == DateTime.Now.Date
+        var local = utcTimestamp.ToLocalTime(DisplayTime);
+        return local.Date == DisplayTime.Now.Date
             ? local.ToString("HH:mm:ss")
             : local.ToString("MMM dd HH:mm:ss");
     }
 
-    private static string FormatTimeShort(DateTime utcTimestamp)
+    private string FormatTimeShort(DateTime utcTimestamp)
     {
-        var local = utcTimestamp.ToLocalTime();
-        return local.Date == DateTime.Now.Date
+        var local = utcTimestamp.ToLocalTime(DisplayTime);
+        return local.Date == DisplayTime.Now.Date
             ? local.ToString("HH:mm")
             : local.ToString("MMM dd HH:mm");
     }

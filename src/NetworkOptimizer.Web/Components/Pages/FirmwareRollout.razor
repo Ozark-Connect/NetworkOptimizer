@@ -16,6 +16,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Firmware
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Firmware Rollout - Network Optimizer</PageTitle>
 
@@ -2127,13 +2128,13 @@ else
 
     /// <summary>
     /// The site's own reading of an instant, for the two places the decision is site-local: picking
-    /// the start and watching a schedule. Times are shown in the server's zone everywhere, because
+    /// the start and watching a schedule. Times are shown in the viewer's zone everywhere, because
     /// an operator reads any timestamp in their own clock whether it is labelled or not, and one
     /// clock is the only way rollouts across sites can be compared. Empty when the site keeps the
-    /// same hours, which is every single-site install.
+    /// same hours as the viewer.
     /// </summary>
     private string SiteAside(DateTime utc) => RolloutScopeCopy.SiteAside(
-        _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId, utc);
+        _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId, utc, DisplayTime.Zone);
 
     // ---- Active plan controls ----
 
@@ -2179,17 +2180,17 @@ else
     /// <summary>The picked start, in this server's clock like every time shown on the page.</summary>
     private DateTime _setTimeLocal;
 
-    private string MinSetTime => DateTime.Now.ToString("yyyy-MM-ddTHH:mm");
+    private string MinSetTime => DisplayTime.Now.ToString("yyyy-MM-ddTHH:mm");
 
-    private bool SetTimeValid => _setTimeLocal > DateTime.Now;
+    private bool SetTimeValid => _setTimeLocal > DisplayTime.Now;
 
-    private DateTime PickedSetTimeUtc => DateTime.SpecifyKind(_setTimeLocal, DateTimeKind.Local).ToUniversalTime();
+    private DateTime PickedSetTimeUtc => DisplayTime.ToUtc(_setTimeLocal);
 
     private void ToggleSetTime()
     {
         _showSetTime = !_showSetTime;
         if (_showSetTime && _active?.ScheduledStartAt is { } at)
-            _setTimeLocal = DateTime.SpecifyKind(at, DateTimeKind.Utc).ToLocalTime();
+            _setTimeLocal = DateTime.SpecifyKind(at, DateTimeKind.Utc).ToLocalTime(DisplayTime);
     }
 
     private Task ApplySetTimeAsync()
@@ -2348,7 +2349,7 @@ else
                 var excluded = _preview.Steps.Where(s => s.State == FirmwareRolloutStepState.SkippedExcluded).Select(s => s.Mac).ToList();
                 var startMs = new DateTimeOffset(DateTime.SpecifyKind(SelectedStartUtc, DateTimeKind.Utc))
                     .ToUnixTimeMilliseconds();
-                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs, TimeZoneInfo.Local.Id);
+                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs, DisplayTime.ZoneId);
                 _vizMode = "planned";
             }
             else if (_active != null && _vizMode != "live")
@@ -2430,8 +2431,8 @@ else
 
     private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
-    private static string LocalTime(DateTime? utc) =>
-        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime().ToString("ddd MMM d, h:mm tt") : "-";
+    private string LocalTime(DateTime? utc) =>
+        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString("ddd MMM d, h:mm tt") : "-";
 
     private static string Duration(int seconds)
     {

@@ -1,0 +1,60 @@
+@* A select of IANA time zones grouped by region. The first option stores nothing and inherits; its
+   label names what it inherits, so the effective zone is always visible. *@
+
+<select id="@Id" class="form-control" data-autosave value="@(Value ?? "")" @onchange="OnChangedAsync" disabled="@Disabled">
+    <option value="">@InheritLabel</option>
+    @if (_unlisted is { } unlisted)
+    {
+        <option value="@unlisted">@unlisted</option>
+    }
+    @foreach (var group in _groups)
+    {
+        <optgroup label="@group.Key">
+            @foreach (var (id, label) in group)
+            {
+                <option value="@id">@label</option>
+            }
+        </optgroup>
+    }
+</select>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    /// <summary>The stored IANA id, or null to inherit.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Label of the inherit option, e.g. "Default - America/Chicago (UTC-05:00)".</summary>
+    [Parameter] public string InheritLabel { get; set; } = "Default";
+
+    [Parameter] public bool Disabled { get; set; }
+
+    private List<IGrouping<string, (string Id, string Label)>> _groups = [];
+
+    /// <summary>A stored id the catalog does not list (a legacy alias), kept selectable.</summary>
+    private string? _unlisted;
+
+    protected override void OnInitialized()
+    {
+        var now = DateTime.UtcNow;
+        _groups = TimeZoneCatalog.Options
+            .Select(o => (o.Id, o.Region, Label: TimeZoneCatalog.TryResolve(o.Id, out var zone)
+                ? $"{o.Name} ({TimeZoneCatalog.OffsetLabel(zone, now)})"
+                : o.Name))
+            .GroupBy(o => o.Region, o => (o.Id, o.Label))
+            .ToList();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _unlisted = !string.IsNullOrEmpty(Value) && TimeZoneCatalog.Options.All(o => o.Id != Value) ? Value : null;
+    }
+
+    private Task OnChangedAsync(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        return ValueChanged.InvokeAsync(string.IsNullOrEmpty(value) ? null : value);
+    }
+}

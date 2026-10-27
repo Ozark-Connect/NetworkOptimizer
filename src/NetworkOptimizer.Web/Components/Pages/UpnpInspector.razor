@@ -14,6 +14,7 @@
 @inject NetworkOptimizerDbContext Db
 @inject IUpnpNoteService UpnpNotes
 @inject PullToRefreshState PtrState
+@inject IDisplayTimeZone DisplayTime
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -521,7 +522,7 @@
             }
 
             hasData = true;
-            lastRefreshTime = DateTime.Now;
+            lastRefreshTime = DisplayTime.Now;
         }
         catch (Exception ex)
         {

@@ -71,6 +71,7 @@
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject IDisplayTimeZone DisplayTime
 
 <NavigationLock OnBeforeInternalNavigation="ConfirmLeaveAsync" />
 
@@ -361,6 +362,12 @@
         </div>
     </div>
 
+    @if (SiteContext.IsDefault)
+    {
+    <!-- Time Zone -->
+    <TimeZoneSettingsCard />
+    }
+
     @* Admin login is instance-wide, so the password is only managed on the main site - and only by a
        global Admin. IsDefault alone answers "are we on the main site", not "may you do this": a Site
        Admin of the main site reaches Settings here, and would have been shown a control that sets the
@@ -601,7 +608,7 @@
             @if (gatewaySettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @gatewaySettings.LastTestedAt?.ToLocalTime().ToString("g") - @gatewaySettings.LastTestResult
+                    Last tested: @gatewaySettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString("g") - @gatewaySettings.LastTestResult
                 </div>
             }
 
@@ -720,7 +727,7 @@
             @if (sshSettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @sshSettings.LastTestedAt?.ToLocalTime().ToString("g") - @sshSettings.LastTestResult
+                    Last tested: @sshSettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString("g") - @sshSettings.LastTestResult
                 </div>
             }
 
@@ -1349,7 +1356,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(modem.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(modem.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditModem(modem)">Edit</button>
@@ -1660,7 +1667,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(cm.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(cm.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditCm(cm)">Edit</button>
@@ -1946,7 +1953,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(ont.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(ont.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditOnt(ont)">Edit</button>
@@ -2199,7 +2206,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(terminal.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(terminal.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditStarlink(terminal)">Edit</button>
@@ -3025,7 +3032,7 @@
                             </div>
                         }
                         <div class="form-group">
-                            <label class="form-label">Time (@_serverTzAbbrev)</label>
+                            <label class="form-label">Time (@_displayTzAbbrev)</label>
                             <input type="time" class="form-control" @bind="channelDigestTime" />
                         </div>
                     }
@@ -3492,7 +3499,7 @@
                                     <span class="text-muted">Export type:</span>
                                     <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
                                     <span class="text-muted">Export date:</span>
-                                    <span>@importPreview.ExportDate.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</span>
+                                    <span>@importPreview.ExportDate.ToLocalTime(DisplayTime).ToString("MMM d, yyyy h:mm tt")</span>
                                     <span class="text-muted">App version:</span>
                                     <span>@importPreview.AppVersion</span>
                                     @if (importPreview.TableCounts.Count > 0)
@@ -3759,7 +3766,7 @@
                                             }
                                         </td>
                                         <td><code>@site.Slug</code></td>
-                                        <td class="hide-mobile">@(site.IsDefault ? "" : site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy"))</td>
+                                        <td class="hide-mobile">@(site.IsDefault ? "" : site.CreatedAt.ToLocalTime(DisplayTime).ToString("MMM d, yyyy"))</td>
                                         <td>
                                             @if (site.IsDefault)
                                             {
@@ -3896,7 +3903,7 @@
                                                                         }
                                                                         else
                                                                         {
-                                                                            <text>Last seen @agent.LastSeenAt?.ToLocalTime().ToString("MMM d, h:mm tt")</text>
+                                                                            <text>Last seen @agent.LastSeenAt?.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</text>
                                                                         }
                                                                     </span>
                                                                     <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(site, agent)">
@@ -4228,6 +4235,7 @@
         ["wan-flood-protection"] = "security",
         ["trusted-sources"] = "security",
         ["trusted-sources-matrix"] = "multisite",
+        ["time-zone"] = "application",
         ["admin-password"] = "application",
         ["licensing"] = "application",
         ["application-settings"] = "application",
@@ -5480,7 +5488,7 @@
     private string channelDigestFrequency = "daily";
     private string channelDigestDay = "monday";
     private TimeOnly channelDigestTime = new(8, 0);
-    private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
+    private string _displayTzAbbrev => DisplayTime.Abbreviation(DateTime.UtcNow);
     private bool savingAlertChannel = false;
     private bool testingAlertChannel = false;
     private int testingAlertChannelId = 0;
@@ -8735,14 +8743,14 @@
             channelDigestFrequency = "weekly";
             channelDigestDay = parts[1].ToLowerInvariant();
             var utcDt = DateTime.UtcNow.Date.AddHours(wh).AddMinutes(wm);
-            var localDt = utcDt.ToLocalTime();
+            var localDt = utcDt.ToLocalTime(DisplayTime);
             channelDigestTime = new TimeOnly(localDt.Hour, localDt.Minute);
         }
         else if (parts.Length >= 3 && int.TryParse(parts[1], out var dh) && int.TryParse(parts[2], out var dm))
         {
             channelDigestFrequency = "daily";
             var utcDt = DateTime.UtcNow.Date.AddHours(dh).AddMinutes(dm);
-            var localDt = utcDt.ToLocalTime();
+            var localDt = utcDt.ToLocalTime(DisplayTime);
             channelDigestTime = new TimeOnly(localDt.Hour, localDt.Minute);
         }
         else
@@ -8757,23 +8765,14 @@
     /// </summary>
     private string BuildDigestScheduleUtc()
     {
-        var localDt = DateTime.Today.Add(channelDigestTime.ToTimeSpan());
-        var utcDt = localDt.ToUniversalTime();
+        var localDt = DisplayTime.Now.Date.Add(channelDigestTime.ToTimeSpan());
+        var utcDt = DisplayTime.ToUtc(localDt);
         var hh = utcDt.Hour.ToString("D2");
         var mm = utcDt.Minute.ToString("D2");
 
         return channelDigestFrequency == "weekly"
             ? $"weekly:{channelDigestDay}:{hh}:{mm}"
             : $"daily:{hh}:{mm}";
-    }
-
-    private static string GetServerTimezoneAbbrev()
-    {
-        var tz = TimeZoneInfo.Local;
-        var now = DateTime.Now;
-        var name = tz.IsDaylightSavingTime(now) ? tz.DaylightName : tz.StandardName;
-        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
     }
 
     private async Task SaveAlertChannel()

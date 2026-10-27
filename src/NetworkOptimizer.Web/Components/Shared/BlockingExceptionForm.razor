@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Threats.Blocking
 @inject IThreatBlockingAdmin Blocking
 @inject AuthenticationStateProvider AuthState
+@inject IDisplayTimeZone DisplayTime
 
 @* Add or edit one exception to the public block lists, filled in from wherever it was opened. *@
 
@@ -88,7 +89,7 @@
                     <option value="30">In 30 days</option>
                     @if (_keepExpiry != null)
                     {
-                        <option value="-1">@($"On {_keepExpiry.Value.ToLocalTime():MMM d HH:mm}")</option>
+                        <option value="-1">@($"On {_keepExpiry.Value.ToLocalTime(DisplayTime):MMM d HH:mm}")</option>
                     }
                 </select>
             </div>
