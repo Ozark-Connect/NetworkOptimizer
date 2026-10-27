@@ -35,6 +35,7 @@ public static class IspHealthEndpoints
             SiteManagementService siteManagement,
             NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService pathEpisodes,
             ILoggerFactory loggerFactory,
+            IDisplayTimeZone displayTime,
             CancellationToken ct) =>
         {
             // wan (a UniFi wan key) exports a non-primary WAN's report; absent = primary,
@@ -71,10 +72,11 @@ public static class IspHealthEndpoints
                 loggerFactory.CreateLogger("IspHealthPdf").LogDebug(ex, "ISP Health PDF: could not load path episodes");
             }
 
-            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options)
+            await displayTime.ResolveAsync();
+            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options, timeZone: displayTime.Zone)
                 .GenerateReportBytes(report, siteName, episodes);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
-            var fileName = $"ISPHealth{sitePart}_{report.WindowEnd.ToLocalTime():yyyyMMdd-HHmm}.pdf";
+            var fileName = $"ISPHealth{sitePart}_{displayTime.ToLocal(report.WindowEnd):yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);
         });
 

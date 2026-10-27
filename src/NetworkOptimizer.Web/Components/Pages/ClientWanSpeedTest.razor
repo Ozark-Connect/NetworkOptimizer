@@ -19,6 +19,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Client WAN Speed Test - Network Optimizer</PageTitle>
 
@@ -305,7 +306,7 @@
                                     <tr id="result-@result.Id"
                                         class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
                                         @onclick="@(() => ToggleExpand(result.Id))">
-                                        <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                        <td>@result.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd HH:mm")</td>
                                         <td>
                                             @{
                                                 var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);

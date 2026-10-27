@@ -11,6 +11,7 @@
 @inject IOntMonitorService ExternalOntService
 @inject IErrorCounterWindowService ErrorWindow
 @inject ISfpModulePollService SfpPoller
+@inject IDisplayTimeZone DisplayTime
 
 @if (_isLoading)
 {
@@ -29,7 +30,7 @@ else if (IsShowingExternal && _externalOntStats != null)
         @if (_externalOntStats.Timestamp.Year > 1)
         {
             <div class="tc-timestamp">
-                <small>Updated: @_externalOntStats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                <small>Updated: @_externalOntStats.Timestamp.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</small>
             </div>
         }
     </div>
@@ -234,7 +235,7 @@ else
         @if (stats?.LastUpdate.Year > 1)
         {
             <div class="tc-timestamp">
-                <small>Updated: @stats.LastUpdate.ToLocalTime().ToString("HH:mm:ss")</small>
+                <small>Updated: @stats.LastUpdate.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</small>
             </div>
         }
     </div>

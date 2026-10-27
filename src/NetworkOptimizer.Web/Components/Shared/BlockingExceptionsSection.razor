@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Threats.Blocking
 @inject IThreatBlockingAdmin Blocking
+@inject IDisplayTimeZone DisplayTime
 
 @* Settings - Security & Alerts - Automatic Blocking: the site's exceptions to the public block lists.
    Saves on its own, apart from the card's Save. *@
@@ -73,7 +74,7 @@
                                 }
                             </td>
                             <td class="hide-mobile"><code>@(BlockingExceptions.ProtocolText(e) is { Length: > 0 } p ? p : "Any")</code></td>
-                            <td class="hide-mobile">@e.Note<span class="exc-detail">Added by @e.CreatedBy, @TimeFormatHelper.FormatRelativeTime(e.CreatedAt)</span></td>
+                            <td class="hide-mobile">@e.Note<span class="exc-detail">Added by @e.CreatedBy, @TimeFormatHelper.FormatRelativeTime(e.CreatedAt, DisplayTime.Zone)</span></td>
                             <td>@(e.ExpiresAt is { } at ? $"in {TimeFormatHelper.FormatDurationCompact(at - DateTime.UtcNow)}" : "Never")</td>
                             <td>
                                 <div class="exc-actions">

@@ -13,6 +13,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Web Application Firewall - Network Optimizer</PageTitle>
 
@@ -231,7 +232,7 @@ else if (_tab == "events")
                             @foreach (var e in _events)
                             {
                                 <tr>
-                                    <td>@e.Timestamp.ToLocalTime().ToString("MMM d HH:mm")</td>
+                                    <td>@e.Timestamp.ToLocalTime(DisplayTime).ToString("MMM d HH:mm")</td>
                                     <td><a href="/threats?tab=drilldown&ip=@Uri.EscapeDataString(e.SourceIp)"><code>@e.SourceIp</code></a></td>
                                     <td class="text-truncate-300">@e.Domain</td>
                                     <td class="text-truncate-300"><code>@e.Service</code></td>
@@ -355,7 +356,7 @@ else if (_tab == "exclusions")
                                     <td>@(x.Method ?? "Any")</td>
                                     <td class="text-truncate-300">@if (x.Path != null) { <code>@x.Path</code> } else { <text>Any</text> }</td>
                                     <td class="text-truncate-300">@x.Note</td>
-                                    <td>@x.CreatedAt.ToLocalTime().ToString("MMM d")@(x.CreatedBy != null ? $" by {x.CreatedBy}" : "")</td>
+                                    <td>@x.CreatedAt.ToLocalTime(DisplayTime).ToString("MMM d")@(x.CreatedBy != null ? $" by {x.CreatedBy}" : "")</td>
                                     <td>
                                         <SiteAdminOnly>
                                             <button class="btn btn-sm btn-contrast" disabled="@_exBusy" @onclick="() => RemoveExclusion(x.Id)">Remove</button>

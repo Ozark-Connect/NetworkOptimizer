@@ -20,6 +20,7 @@
 @inject SiteRegistryChangeNotifier ChangeNotifier
 @inject NetworkOptimizer.Web.Services.ChangeControl.IChangeControlFleetService Fleet
 @inject ILogger<Sites> Logger
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Sites - Network Optimizer</PageTitle>
 
@@ -113,7 +114,7 @@ else
                 <div class="site-card-footer">
                     @if (!site.IsDefault)
                     {
-                        <span class="site-card-created">Added @site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                        <span class="site-card-created">Added @site.CreatedAt.ToLocalTime(DisplayTime).ToString("MMM d, yyyy")</span>
                     }
                     @if (AgentCount(site.Id) > 0)
                     {

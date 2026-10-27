@@ -29,6 +29,7 @@
 @inject PullToRefreshState PtrState
 @inject IspHealthService IspHealthService
 @inject NavigationManager NavigationManager
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>WAN Speed Test - Network Optimizer</PageTitle>
 
@@ -569,7 +570,7 @@
                                 <tr id="result-@result.Id"
                                     class="@(result.Success ? "history-row-clickable" : "error-row") @(isExpanded ? "history-row-expanded" : "")"
                                     @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
-                                    <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                    <td>@result.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd HH:mm")</td>
                                     @if (_wanSeries.Count > 1)
                                     {
                                         <td>

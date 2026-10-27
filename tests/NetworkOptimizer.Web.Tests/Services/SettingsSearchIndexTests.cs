@@ -78,6 +78,8 @@ public class SettingsSearchIndexTests
     [InlineData("cable modem", "cable-modem")]
     [InlineData("starlink", "starlink")]
     [InlineData("guided tours", "guided-tours")]
+    [InlineData("time zone", "time-zone")]
+    [InlineData("timezone", "time-zone")]
     [InlineData("audit log", "auditlog")]
     [InlineData("multi site", "multi-site")]
     [InlineData("licensing", "licensing")]

@@ -24,6 +24,7 @@
 @inject IWiFiIssueAcknowledgmentService IssueAcknowledgments
 @implements IDisposable
 @rendermode InteractiveServer
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Wi-Fi Optimizer - Network Optimizer</PageTitle>
 
@@ -391,7 +392,7 @@
                             </div>
                             <div class="score-label">@GetScoreLabel(_healthScore.OverallScore)</div>
                             <div class="health-score-timestamp">
-                                Last updated: @_healthScore.Timestamp.ToLocalTime().ToString("h:mm tt")
+                                Last updated: @_healthScore.Timestamp.ToLocalTime(DisplayTime).ToString("h:mm tt")
                             </div>
                         </div>
 

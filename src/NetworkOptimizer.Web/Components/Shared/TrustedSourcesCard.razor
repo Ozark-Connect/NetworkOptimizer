@@ -3,6 +3,7 @@
 @inject IThreatBlockingSiteAdmin SiteBlocking
 @inject ISiteManagementService SiteManagement
 @inject SiteContextService SiteContext
+@inject IDisplayTimeZone DisplayTime
 
 @* Settings - Security & Alerts: the site in context's Trusted Sources. *@
 
@@ -63,11 +64,11 @@
                                                 <td>
                                                     @if (a.ReplacedAt is { } replaced)
                                                     {
-                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen), dropped in @TimeFormatHelper.FormatDurationCompact(replaced + TrustedAddressBook.ReplacedRetention - DateTime.UtcNow)</span>
+                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen, DisplayTime.Zone), dropped in @TimeFormatHelper.FormatDurationCompact(replaced + TrustedAddressBook.ReplacedRetention - DateTime.UtcNow)</span>
                                                     }
                                                     else
                                                     {
-                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen)</span>
+                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen, DisplayTime.Zone)</span>
                                                     }
                                                 </td>
                                                 <td class="trusted-action">
@@ -109,7 +110,7 @@
                 @if (_uniFiGroup && _overview.UniFiStatus is { } status)
                 {
                     <small class="@(status.Ok ? "form-help ab-status" : "form-error")">
-                        @(status.Ok ? $"{status.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(status.At)}." : status.Error)
+                        @(status.Ok ? $"{status.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(status.At, DisplayTime.Zone)}." : status.Error)
                     </small>
                 }
             </div>
@@ -138,7 +139,7 @@
                         takes only these addresses and LAN sources; other routes are not affected.
                     </small>
                     <small class="@(waf.Ok ? "form-help ab-status" : "form-error")">
-                        @(waf.Ok ? $"{waf.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(waf.At)}." : waf.Error)
+                        @(waf.Ok ? $"{waf.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(waf.At, DisplayTime.Zone)}." : waf.Error)
                     </small>
                 </div>
             }

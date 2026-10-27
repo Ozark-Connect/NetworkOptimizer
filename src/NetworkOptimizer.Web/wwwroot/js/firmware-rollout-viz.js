@@ -56,7 +56,7 @@ let _liveStartMs = null;
 let _apiBase = '/api/monitoring/lan-flow-map';
 let _windowStartMs = null;   // wall clock the preview plays back from
 let _plannedStartMs = null;  // when the rollout would actually run
-let _timeZoneId = null;      // the server's zone: one clock across every site, as everywhere else
+let _timeZoneId = null;      // the viewer's zone: one clock across every site, as everywhere else
 let _historicGen = 0;
 let _lastHistoricMs = 0;
 
@@ -533,7 +533,7 @@ function positionPlayhead() {
     if (clock) clock.textContent = plannedClock(sec);
 }
 
-/// Wall-clock time of a point in the plan, in the site's own timezone.
+/// Wall-clock time of a point in the plan, on the viewer's clock.
 function plannedClock(sec) {
     if (_mode !== 'planned' || !_plannedStartMs) return '';
     const at = new Date(_plannedStartMs + sec * 1000);

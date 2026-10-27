@@ -34,6 +34,7 @@
 @inject IApMapAdminService ApMapAdmin
 @inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @using NetworkOptimizer.Web.Components.Shared
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
 
@@ -244,7 +245,7 @@
                                 <span class="tooltip-icon" data-tooltip="↓ From gateway ↑ To gateway">?</span>
                             </span>
                             <span class="result-box-right">
-                                <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("MMM dd, HH:mm")</span>
+                                <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd, HH:mm")</span>
                                 <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
                             </span>
                         </div>
@@ -983,7 +984,7 @@
                             <tr id="result-@result.Id"
                                 class="@(result.Success ? "" : "error-row") @(result.Success ? "history-row-clickable" : "") @(isExpanded ? "history-row-expanded" : "")"
                                 @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
-                                <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                <td>@result.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd HH:mm")</td>
                                 <td>
                                     @{
                                         var showDashLink = result.IsLocalLanClient();

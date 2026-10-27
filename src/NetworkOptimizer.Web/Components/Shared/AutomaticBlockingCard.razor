@@ -2,6 +2,7 @@
 @inject IThreatBlockingAdmin Blocking
 @inject ISiteManagementService SiteManagement
 @inject SiteContextService SiteContext
+@inject IDisplayTimeZone DisplayTime
 
 @* Settings - Security & Alerts: Automatic Blocking for the site in context. *@
 
@@ -157,7 +158,7 @@
                             <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
                             {
-                                <span>@($" {view.Status.Count:N0} entries, updated {TimeFormatHelper.FormatRelativeTime(fetched)}.")</span>
+                                <span>@($" {view.Status.Count:N0} entries, updated {TimeFormatHelper.FormatRelativeTime(fetched, DisplayTime.Zone)}.")</span>
                             }
                             <span> Source: <a href="@view.List.InfoUrl" target="_blank" rel="noopener">@view.List.Attribution</a>.</span>
                         </small>

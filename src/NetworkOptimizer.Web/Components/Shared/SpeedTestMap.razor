@@ -17,6 +17,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IIperf3SpeedTestService SpeedTestService
 @inject SystemSettingsService SystemSettings
+@inject IDisplayTimeZone DisplayTime
 
 @if (HasAnyMapData)
 {
@@ -1357,7 +1358,7 @@
             html += "<div class='ap-popup-recent-header'>Recent LAN Speed Tests</div>";
             foreach (var test in recentTests)
             {
-                var testTime = test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+                var testTime = test.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt");
                 var (down, up) = Pair(test);
                 var dlColor = GetSpeedColor(down);
                 var ulColor = GetSpeedColor(up);
@@ -1576,7 +1577,7 @@
     private string BuildPopup(Iperf3Result result, bool isExternal)
     {
         var deviceName = result.DeviceName ?? result.DeviceHost;
-        var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+        var time = result.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt");
 
         // Determine badge based on VPN detection
         string badge;

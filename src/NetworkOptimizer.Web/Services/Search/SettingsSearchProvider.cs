@@ -323,6 +323,12 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "network list", "address group", "net. opt. trusted sources", "trusted sources + cloudflare", "last seen", "stale address", "remove",
              "web application firewall", "waf allow list", "waf-trusted", "only your sites"]),
 
+        Entry("application", "Application", "time-zone",
+            "Time Zone",
+            ["timezone", "time zone", "tz"],
+            ["your time zone", "default time zone", "server time zone", "local time", "clock", "utc",
+             "daylight saving", "dst", "timestamps", "dates and times"], Reach.InstanceWide),
+
         Entry("application", "Application", "admin-password",
             "Admin Password",
             ["app password", "application password", "passwords", "change password"],

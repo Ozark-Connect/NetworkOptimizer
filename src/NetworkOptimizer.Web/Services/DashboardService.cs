@@ -23,6 +23,7 @@ public class DashboardService : IDashboardService
     private readonly WiFiOptimizerService _wifiOptimizerService;
     private readonly MonitoringLiveStats _liveStats;
     private readonly Monitoring.RebootReason.DeviceRebootTracker _rebootTracker;
+    private readonly IDisplayTimeZone _displayTime;
 
     public DashboardService(
         ILogger<DashboardService> logger,
@@ -34,8 +35,10 @@ public class DashboardService : IDashboardService
         SiteContextService siteContext,
         WiFiOptimizerService wifiOptimizerService,
         MonitoringLiveStats liveStats,
-        Monitoring.RebootReason.DeviceRebootTracker rebootTracker)
+        Monitoring.RebootReason.DeviceRebootTracker rebootTracker,
+        IDisplayTimeZone displayTime)
     {
+        _displayTime = displayTime;
         _logger = logger;
         _connectionService = connectionService;
         _auditService = auditService;
@@ -223,8 +226,8 @@ public class DashboardService : IDashboardService
         return data;
     }
 
-    private static string FormatRelativeTime(DateTime utcTime) =>
-        TimeFormatHelper.FormatRelativeTime(utcTime);
+    private string FormatRelativeTime(DateTime utcTime) =>
+        TimeFormatHelper.FormatRelativeTime(utcTime, _displayTime.Zone);
 
     private static string FormatUptime(long? uptimeSeconds)
     {

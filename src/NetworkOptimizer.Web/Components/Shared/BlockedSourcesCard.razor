@@ -3,6 +3,7 @@
 @inject IThreatBlockingAdmin Blocking
 @inject ISiteManagementService SiteManagement
 @inject AuthenticationStateProvider AuthState
+@inject IDisplayTimeZone DisplayTime
 
 @if (_overview != null && (ShowWhenOff || _overview.Settings.Mode != BlockingMode.Off || _overview.Active.Count > 0 || _overview.Shared.Count > 0))
 {
@@ -60,7 +61,7 @@
                                 <tr>
                                     <td><a href="@DrilldownUrl(b.SourceIp)"><code>@b.SourceIp</code></a>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
                                     <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
-                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt)</td>
+                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt, DisplayTime.Zone)</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
                                     <td>
                                         <SiteAdminOnly>

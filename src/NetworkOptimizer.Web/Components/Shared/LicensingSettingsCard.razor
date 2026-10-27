@@ -7,6 +7,7 @@
 @inject LicensePhoneHomeService PhoneHome
 @inject ISiteManagementService SiteManagement
 @inject IJSRuntime JS
+@inject IDisplayTimeZone DisplayTime
 
 <div class="card settings-tab-application" id="licensing">
     <div class="card-header">
@@ -20,7 +21,7 @@
         @if (LicenseState.AnyKeysActive)
         {
             <p class="section-description">
-                @UsedSlots of @LicenseState.TotalAllowance licensed site slots used &middot; @FreeSlots free@(SoonestTermExpiry is { } expiry ? $" · earliest term expires {expiry.ToLocalTime():MMM d, yyyy}" : "")
+                @UsedSlots of @LicenseState.TotalAllowance licensed site slots used &middot; @FreeSlots free@(SoonestTermExpiry is { } expiry ? $" · earliest term expires {expiry.ToLocalTime(DisplayTime):MMM d, yyyy}" : "")
             </p>
         }
         else
@@ -90,7 +91,7 @@
                                 </td>
                                 <td>@AssignedCount(key.Id) / @key.SiteAllowance</td>
                                 <td><span class="status-badge @GetStatusBadgeClass(key)">@GetStatusLabel(key)</span></td>
-                                <td>@(key.Model == LicenseKeyModels.Perpetual || key.PaidThrough == null ? "-" : key.PaidThrough.Value.ToLocalTime().ToString("MMM d, yyyy"))</td>
+                                <td>@(key.Model == LicenseKeyModels.Perpetual || key.PaidThrough == null ? "-" : key.PaidThrough.Value.ToLocalTime(DisplayTime).ToString("MMM d, yyyy"))</td>
                                 <td>
                                     <button class="btn btn-danger btn-sm" @onclick="() => RemoveKeyAsync(key)" disabled="@(_removingKeyId == key.Id)">
                                         @if (_removingKeyId == key.Id)
@@ -166,7 +167,7 @@
                 </button>
                 @if (NewestCheckAt is { } lastCheck)
                 {
-                    <span class="form-help">Last checked: @TimeFormatHelper.FormatRelativeTime(lastCheck)</span>
+                    <span class="form-help">Last checked: @TimeFormatHelper.FormatRelativeTime(lastCheck, DisplayTime.Zone)</span>
                 }
             </div>
         }

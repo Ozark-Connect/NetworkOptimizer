@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Web.Services.WanFlood
 @inject IWanFloodAdmin WanFlood
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 @* Threat Intelligence - Blocking: WAN Flood Protection's state, drops, and episodes. *@
 
@@ -133,7 +134,7 @@
                             @foreach (var i in _incidents)
                             {
                                 <tr>
-                                    <td>@TimeFormatHelper.FormatRelativeTime(i.StartedAt)</td>
+                                    <td>@TimeFormatHelper.FormatRelativeTime(i.StartedAt, DisplayTime.Zone)</td>
                                     <td>@KindLabel(i.Kind)</td>
                                     <td class="hide-mobile">@(i.Kind == "conntrack" ? $"{i.PeakConntrackPercent}% table" : $"{i.PeakUnsolicitedPps:N0}/s, CPU core {i.PeakSoftirqPercent}%")</td>
                                     <td class="hide-mobile">@(i.EndedAt is { } end ? TimeFormatHelper.FormatDurationCompact(end - i.StartedAt) : "ongoing")</td>
