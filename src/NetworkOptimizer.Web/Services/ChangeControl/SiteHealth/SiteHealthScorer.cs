@@ -51,7 +51,7 @@ public sealed record HealthContributor(string Area, double Impairment, string Te
 public static class SiteHealthScorer
 {
     /// <summary>Bump when the scoring changes; stored hours at an older version are recomputed.</summary>
-    public const int Version = 5;
+    public const int Version = 6;
 
     /// <summary>Loss below this is not felt, so it costs nothing.</summary>
     internal const double NoticeableLossPct = 0.25;

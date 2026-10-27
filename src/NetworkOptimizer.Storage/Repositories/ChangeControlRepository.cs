@@ -338,9 +338,18 @@ public class ChangeControlRepository : RepositoryBase, IChangeControlRepository
         }, nameof(GetAlertsActiveAsync));
 
     public Task<List<FirmwareRolloutStep>> GetRolloutDowntimeAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
-        ExecuteAsync(() => _context.FirmwareRolloutSteps.AsNoTracking()
-            .Where(s => s.WentDownAt != null && s.WentDownAt < toUtc && (s.BackAt == null || s.BackAt >= fromUtc))
-            .ToListAsync(cancellationToken), nameof(GetRolloutDowntimeAsync));
+        ExecuteAsync(async () =>
+        {
+            var rows = await (from s in _context.FirmwareRolloutSteps.AsNoTracking()
+                              join p in _context.FirmwareRolloutPlans.AsNoTracking() on s.PlanId equals p.Id
+                              where s.WentDownAt != null && s.WentDownAt < toUtc && (s.BackAt == null || s.BackAt >= fromUtc)
+                              select new { Step = s, p.Status, p.CompletedAt }).ToListAsync(cancellationToken);
+            // A step left down by an aborted or failed plan never gets a BackAt: its downtime ends with
+            // the plan, or it would count as down in every hour after it.
+            foreach (var r in rows.Where(r => r.Step.BackAt == null && FirmwareRolloutStatuses.Terminal.Contains(r.Status)))
+                r.Step.BackAt = r.CompletedAt > r.Step.WentDownAt ? r.CompletedAt : r.Step.WentDownAt;
+            return rows.Select(r => r.Step).Where(s => s.BackAt == null || s.BackAt >= fromUtc).ToList();
+        }, nameof(GetRolloutDowntimeAsync));
 
     public Task<Dictionary<string, string>> GetFabricTargetDevicesAsync(CancellationToken cancellationToken = default) =>
         ExecuteAsync(async () => (await _context.MonitoringTargets.AsNoTracking()
