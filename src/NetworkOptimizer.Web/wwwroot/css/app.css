@@ -23413,6 +23413,11 @@ body:has(.top-bar-hidden) .btn-fit {
     --cc-badge-col: 110px;
 }
 
+/* .card clips its content; the Custom Range popover opens below the toolbar, past the card's edge. */
+.change-control .cc-toolbar-card {
+    overflow: visible;
+}
+
 .change-control .cc-toolbar {
     display: flex;
     align-items: center;
@@ -23735,16 +23740,11 @@ body:has(.top-bar-hidden) .btn-fit {
     pointer-events: none;
 }
 
+/* Hover target for a band's tooltip only; the row layer (.cc-row-band) draws it across the full row. */
 .change-control .cc-band {
     position: absolute;
     top: 0;
     bottom: 0;
-    background: var(--cc-incident);
-    border-radius: 2px;
-}
-
-.change-control .cc-band.gap {
-    background: repeating-linear-gradient(45deg, rgba(160, 160, 168, 0.16) 0 4px, transparent 4px 8px);
 }
 
 .change-control .cc-select-line {
@@ -23762,7 +23762,11 @@ body:has(.top-bar-hidden) .btn-fit {
     white-space: nowrap;
 }
 
-/* Event lines span the whole row in the track's column, so the site row, lanes, and Events row join into one line. */
+/*
+ * Each row's slice of the bands and change lines, full row height in the track's column, so the site row,
+ * lanes, and Events row join into one. Every slice starts at the layer's top and offsets its pattern by
+ * --cc-y (its offset in the timeline, set by cc-timeline.js), so dashes and stripes run on across rows.
+ */
 .change-control .cc-tl-lines {
     grid-column: 3;
     grid-row: 1 / -1;
@@ -23771,23 +23775,41 @@ body:has(.top-bar-hidden) .btn-fit {
     pointer-events: none;
 }
 
-/* The site row's line starts at its marker and bridges the border, margin, and padding down to the first lane. */
-.change-control .cc-tl-lines.from-marker .cc-marker-line {
-    top: 50%;
-    bottom: calc(-1px - 0.5rem);
-}
-
-.change-control .cc-tl-lines.to-marker .cc-marker-line {
-    bottom: 50%;
-}
-
+.change-control .cc-row-band,
 .change-control .cc-marker-line {
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 0;
-    border-left: 1px dashed rgba(160, 160, 168, 0.45);
-    pointer-events: none;
+    background-position: 0 calc(-1 * var(--cc-y, 0px));
+}
+
+.change-control .cc-row-band.incident {
+    background-color: var(--cc-incident);
+}
+
+.change-control .cc-row-band.gap {
+    background-image: repeating-linear-gradient(45deg, rgba(160, 160, 168, 0.16) 0 4px, transparent 4px 8px);
+    background-size: 11.3137px 11.3137px;
+}
+
+.change-control .cc-marker-line {
+    width: 1px;
+    background-image: repeating-linear-gradient(to bottom, rgba(160, 160, 168, 0.45) 0 3px, transparent 3px 6px);
+    background-size: 1px 6px;
+}
+
+/* The site row bridges its border and the lanes' margin and padding down to the first lane. */
+.change-control .cc-tl-lines.from-marker > div {
+    bottom: calc(-1px - 0.5rem);
+}
+
+/* Lines start at the site row's marker (mid-row) and stop at the Events row's; bands span the whole row. */
+.change-control .cc-tl-lines.from-marker .cc-marker-line {
+    clip-path: inset(calc(50% - (1px + 0.5rem) / 2) 0 0 0);
+}
+
+.change-control .cc-tl-lines.to-marker .cc-marker-line {
+    clip-path: inset(0 0 50% 0);
 }
 
 .change-control .cc-marker {
@@ -24614,11 +24636,11 @@ body:has(.top-bar-hidden) .btn-fit {
 
     /* The marker sits mid-track at the bottom of the row: padding plus half the 36px track. */
     .change-control .cc-tl-lines.from-marker .cc-marker-line {
-        top: calc(100% - 0.5rem - 18px);
+        clip-path: inset(calc(100% - 1px - 1rem - 18px) 0 0 0);
     }
 
     .change-control .cc-tl-lines.to-marker .cc-marker-line {
-        bottom: calc(0.5rem + 18px);
+        clip-path: inset(0 0 calc(0.5rem + 18px) 0);
     }
 
     .change-control .cc-tl-counts,
@@ -24646,8 +24668,14 @@ body:has(.top-bar-hidden) .btn-fit {
         display: none;
     }
 
+    /* No side padding, so lane tracks line up with the site row's and the bands and lines run straight. */
     .change-control .cc-lanes {
-        padding: 0.25rem 0.5rem;
+        padding: 0.25rem 0;
+    }
+
+    .change-control .cc-lanes .cc-tl-label,
+    .change-control .cc-lanes .cc-lane-latest {
+        padding: 0 0.5rem;
     }
 
     .change-control .cc-lane-row .cc-tl-chev {

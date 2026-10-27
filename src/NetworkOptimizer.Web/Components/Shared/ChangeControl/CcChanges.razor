@@ -10,10 +10,11 @@
 @inject CcNavigator Navigator
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ILogger<CcChanges> Logger
 @inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 
-<div class="card">
+<div class="card cc-toolbar-card">
     <div class="cc-toolbar">
         <span class="cc-toolbar-label">Site</span>
         <select class="form-control" @bind="SiteFilter" @bind:after="SiteFilterChangedAsync">
@@ -89,7 +90,7 @@
     }
     else
     {
-        <div class="cc-timeline">
+        <div class="cc-timeline" @ref="_timelineEl">
             <div class="cc-tl-row cc-tl-axis">
                 <span></span><span></span>
                 <div class="cc-tl-axis-labels">
@@ -105,10 +106,8 @@
                 var expanded = _expandedSites.Contains(row.Site.Slug);
                 var markers = row.Markers.Where(Visible).ToList();
                 <div class="cc-tl-row cc-tl-site" @onclick="() => ToggleSiteAsync(row.Site.Slug)">
-                    @if (expanded && _lanes.ContainsKey(row.Site.Slug))
-                    {
-                        @EventLines(markers, "from-marker")
-                    }
+                    @{ var joined = expanded && _lanes.ContainsKey(row.Site.Slug); }
+                    @RowLayer(row, joined ? markers : [], joined ? "from-marker" : "")
                     <span class="expand-chevron cc-tl-chev">@(expanded ? "▲" : "▼")</span>
                     <div class="cc-tl-label">
                         <div class="cc-tl-name">@row.Site.Name</div>
@@ -148,7 +147,7 @@
                                     @foreach (var lane in lanes)
                                     {
                                         <div class="cc-tl-row cc-lane-row">
-                                            @EventLines(markers, "")
+                                            @RowLayer(row, markers, "")
                                             <span class="cc-tl-chev"></span>
                                             <div class="cc-tl-label">
                                                 <div class="cc-tl-name">@lane.Title</div>
@@ -183,7 +182,7 @@
                                         </div>
                                     }
                                     <div class="cc-tl-row cc-lane-row">
-                                        @EventLines(markers, "to-marker")
+                                        @RowLayer(row, markers, "to-marker")
                                         <span class="cc-tl-chev"></span>
                                         <div class="cc-tl-label">
                                             <div class="cc-tl-name">Events</div>
@@ -396,16 +395,41 @@
     }
 
     /// <summary>
-    /// A change's dashed line across one row's track column, full height so stacked rows join into one line.
-    /// "from-marker" starts at the site row's marker; "to-marker" ends at the Events row's.
+    /// One row's slice of the incident and gap bands and of each change's dashed line, across the track
+    /// column at full row height so stacked rows join into one band or line (cc-timeline.js aligns the
+    /// patterns). "from-marker" starts the lines at the site row's marker and bridges to the first lane;
+    /// "to-marker" ends them at the Events row's. The bands' hover stays on the tracks.
     /// </summary>
-    private RenderFragment EventLines(IReadOnlyList<ChangeRowView> markers, string span) =>
+    private RenderFragment RowLayer(TimelineSiteRow row, IReadOnlyList<ChangeRowView> markers, string span) =>
         @<div class="cc-tl-lines @span" aria-hidden="true">
+            @foreach (var band in row.Bands)
+            {
+                var left = CcFormat.Pct(band.Start, _from, _to);
+                <div class="cc-row-band @band.Kind" style="left:@F(left)%;width:@F(Math.Max(0.4, CcFormat.Pct(band.End, _from, _to) - left))%"></div>
+            }
             @foreach (var m in markers)
             {
                 <div class="cc-marker-line" style="left:@F(CcFormat.Pct(m.OccurredAt, _from, _to))%"></div>
             }
         </div>;
+
+    private ElementReference _timelineEl;
+    private IJSObjectReference? _timelineJs;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_timeline is not { Count: > 0 }) return;
+        try
+        {
+            _timelineJs ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/cc-timeline.js"));
+            // Idempotent per element; the timeline div is replaced on every reload, so each render re-checks.
+            await _timelineJs.InvokeVoidAsync("attach", _timelineEl);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+        {
+            Logger.LogDebug(ex, "Timeline pattern alignment unavailable");
+        }
+    }
 
     private void ToggleCustomPopover()
     {
