@@ -1328,9 +1328,10 @@
                         </div>
                         <div class="card-body">
                             <div style="display: flex; gap: 2rem; flex-wrap: wrap; font-size: 0.8125rem; color: var(--text-secondary);">
+                                @{ var (groupLabel, groupValue) = AlertSourceDisplay.DescribeCorrelationKey(incident.CorrelationKey); }
                                 <div>
-                                    <span class="detail-label">Correlation Key</span>
-                                    <span class="detail-value"><code>@incident.CorrelationKey</code></span>
+                                    <span class="detail-label">@groupLabel</span>
+                                    <span class="detail-value">@groupValue</span>
                                 </div>
                                 <div>
                                     <span class="detail-label">First Triggered</span>

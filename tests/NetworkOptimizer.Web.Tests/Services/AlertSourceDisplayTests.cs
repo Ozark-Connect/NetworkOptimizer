@@ -46,4 +46,17 @@ public class AlertSourceDisplayTests
     {
         AlertSourceDisplay.GetDeviceName(source, deviceName).Should().Be(deviceName);
     }
+
+    [Theory]
+    [InlineData("source:rollout", "Source", "Firmware Rollout")]
+    [InlineData("source:cable_modem", "Source", "Cable Modem")]
+    [InlineData("source:newsource", "Source", "newsource")]
+    [InlineData("device:192.0.2.1", "Device", "192.0.2.1")]
+    [InlineData("switch:192.0.2.10", "Grouped By", "switch:192.0.2.10")]
+    [InlineData("source:", "Grouped By", "source:")]
+    [InlineData("", "Grouped By", "")]
+    public void CorrelationKey_ShowsReadableLabelAndValue(string key, string label, string value)
+    {
+        AlertSourceDisplay.DescribeCorrelationKey(key).Should().Be((label, value));
+    }
 }
