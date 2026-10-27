@@ -62,13 +62,41 @@ public class ReaddressingTests
 
         ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n1" }, new HashSet<string> { "gw" });
 
-        var order = doc.Operations.Select(o => o.ObjectId).ToList();
-        order.IndexOf("n1").Should().BeGreaterThan(order.IndexOf("n2"));
-        order.IndexOf("gw").Should().BeGreaterThan(order.IndexOf("ap"));
-        order.IndexOf("n1").Should().BeGreaterThan(order.IndexOf("gw"));
-        order.IndexOf("s2").Should().BeGreaterThan(order.IndexOf("n1"));
-        order.IndexOf("u1").Should().BeGreaterThan(order.IndexOf("n1"));
+        var keys = doc.Operations.Select(o => o.Key).ToList();
+        int At(string id) => keys.FindIndex(k => doc.Operations[keys.IndexOf(k)].ObjectId == id && !k.EndsWith(":honeypots-off"));
+        At("n1").Should().BeGreaterThan(At("n2"));
+        At("gw").Should().BeGreaterThan(At("ap"));
+        At("n1").Should().BeGreaterThan(At("gw"));
+        At("s2").Should().BeGreaterThan(At("n1"));
+        At("u1").Should().BeGreaterThan(At("n1"));
         doc.Context[PlanCoordinator.ReaddressPathContext].Split(',').Should().HaveCount(3);
+
+        // Honeypots go off before any network moves, and the restore turns them back on.
+        var off = doc.Operations.Single(o => o.Key.EndsWith(":honeypots-off"));
+        keys.IndexOf(off.Key).Should().BeLessThan(At("n2"));
+        off.Body!["honeypot"]!.AsArray().Should().BeEmpty();
+        off.Body!["honeypot_enabled"]!.GetValue<bool>().Should().BeFalse();
+        var restore = doc.Operations[At("s2")];
+        restore.Body!["honeypot"]![0]!["ip_address"]!.ToString().Should().Be("10.42.30.250");
+        restore.Body!["honeypot_enabled"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
+    public void ClientWrites_CarryTheReservationAndLocalDnsFlags()
+    {
+        var live = Site();
+        live.Collections["user"][0]["local_dns_record"] = "nas.lan";
+        live.Collections["user"][0]["local_dns_record_enabled"] = true;
+        var desired = Readdressing.Apply(live, Pattern(live)).Desired;
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
+
+        ChangeControlService.CarryReservations(doc, desired);
+
+        var body = doc.Operations.Single(o => o.Collection == "user").Body!;
+        body["fixed_ip"]!.ToString().Should().Be("10.42.1.5");
+        body["use_fixedip"]!.GetValue<bool>().Should().BeTrue();
+        body["local_dns_record_enabled"]!.GetValue<bool>().Should().BeTrue();
+        body["local_dns_record"]!.ToString().Should().Be("nas.lan");
     }
 
     [Theory]

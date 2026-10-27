@@ -159,7 +159,7 @@ public sealed class PlanExecutor
         // Delete of something already gone counts as done.
         if (op.Action == PlanAction.Delete && (response.Status == 404 || (response.ErrorCode ?? "").Contains("IdInvalid", StringComparison.OrdinalIgnoreCase)))
             return new OperationResult { Key = op.Key, Outcome = "Applied", Message = "Already gone" };
-        return new OperationResult { Key = op.Key, Outcome = "Error", Message = Error(response) };
+        return new OperationResult { Key = op.Key, Outcome = "Error", Message = Error(response), NoReply = response.Status == 0 };
     }
 
     /// <summary>The created object's ID from a v1 envelope or a v2 object.</summary>

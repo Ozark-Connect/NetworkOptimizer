@@ -118,6 +118,7 @@ public sealed partial class ChangeControlService
             result.Desired, new PlanOptions { Collections = result.Collections, DeleteMissing = false }, Actor, cancellationToken,
             doc =>
             {
+                CarryReservations(doc, result.Desired);
                 OrderReaddressWrites(doc, pathNetworks, GatewayIds(live));
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
@@ -163,9 +164,42 @@ public sealed partial class ChangeControlService
             op.Order = 11;
             op.ManagementPath = true;
         }
+        // The console also refuses a network's new subnet while one of its honeypots sits at the old address
+        // (api.err.HoneypotIpOutOfRange), so honeypots go off before the networks and come back after them.
+        foreach (var op in afterNetworks.Where(o => o.Collection == "setting" && o.Body?["honeypot"] is JsonArray { Count: > 0 }).ToList())
+        {
+            var off = (JsonObject)op.Body!.DeepClone();
+            off["honeypot"] = new JsonArray();
+            off["honeypot_enabled"] = false;
+            doc.Operations.Add(new PlanOperation
+            {
+                Key = op.Key + ":honeypots-off", Collection = op.Collection, Action = PlanAction.Update,
+                ObjectId = op.ObjectId, ObjectName = op.ObjectName, Body = off,
+                WriteFields = ["honeypot", "honeypot_enabled"], ChangeText = "Honeypots off until the networks move",
+                Tier = PlanTiers.Direct, Order = 1, NeedsGateway = op.NeedsGateway,
+            });
+            if (op.Body is JsonObject body && !body.ContainsKey("honeypot_enabled")) body["honeypot_enabled"] = true;
+        }
         PlanBuilder.Reorder(doc);
         // A write after a path network can lose its reply with the old address, so its failure is expected too.
         doc.Context[PlanCoordinator.ReaddressPathContext] = path.Count == 0 ? "" : string.Join(",", path.Concat(afterNetworks).Select(o => o.Key));
+    }
+
+    /// <summary>
+    /// When a network's subnet changes the console drops its clients' reservations (use_fixedip off, fixed_ip
+    /// cleared) and their Local DNS flag. A client write carries those fields from the desired state as well,
+    /// or it only re-sends the address and the reservation stays off.
+    /// </summary>
+    internal static void CarryReservations(PlanDocument doc, ConfigState desired)
+    {
+        var byId = desired.Get("user").Where(u => u["_id"] != null)
+            .GroupBy(ConfigState.IdOf).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        foreach (var op in doc.Operations.Where(o => o.Collection == "user" && o.ObjectId != null && o.Body is JsonObject))
+        {
+            if (!byId.TryGetValue(op.ObjectId!, out var want)) continue;
+            foreach (var field in new[] { "use_fixedip", "fixed_ip", "local_dns_record_enabled", "local_dns_record" })
+                if (want[field] is { } v) op.Body![field] = v.DeepClone();
+        }
     }
 
     /// <summary>The site's gateways by ID (ugw, udm, uxg).</summary>

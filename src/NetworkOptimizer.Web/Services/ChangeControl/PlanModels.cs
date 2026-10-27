@@ -214,6 +214,9 @@ public sealed class OperationResult
     public string? Message { get; set; }
     public List<string> NotApplied { get; set; } = [];
     public List<string> Normalized { get; set; } = [];
+
+    /// <summary>The request never completed (no HTTP status), as opposed to the console refusing it.</summary>
+    public bool NoReply { get; set; }
 }
 
 /// <summary>An apply's result.</summary>

@@ -290,8 +290,9 @@ public sealed class PlanCoordinator
                     result.Operations.Where(o => o.Outcome == "Waiting").Select(o => o.Key).ToHashSet(StringComparer.Ordinal));
 
             // A re-address that moves the console's own network writes it last; its reply can be lost with
-            // the old address. Only those writes failing is the expected end, not a failure.
-            if (!ok && MovesConsolePath(doc) && result.Operations.Where(o => o.Outcome == "Error").All(o => doc.Context[ReaddressPathContext].Split(',').Contains(o.Key)))
+            // the old address. Only those writes going unanswered is the expected end: a console refusal is a failure.
+            if (!ok && MovesConsolePath(doc) && result.Operations.Where(o => o.Outcome == "Error")
+                    .All(o => o.NoReply && doc.Context[ReaddressPathContext].Split(',').Contains(o.Key)))
             {
                 ok = true;
                 plan.Message = "The console's network moved last, so its reply could not come back from the old address. Check the site once Network Optimizer reconnects at the new one.";
@@ -302,7 +303,7 @@ public sealed class PlanCoordinator
             {
                 plan.Status = ConfigPlanStatus.Failed;
                 plan.CompletedAt = DateTime.UtcNow;
-                plan.Message = result.Operations.LastOrDefault(o => o.Outcome == "Error")?.Message ?? "A write failed.";
+                plan.Message = (result.Operations.LastOrDefault(o => o.Outcome == "Error")?.Message ?? "A write failed.") + MovedNetworks(doc, result);
                 await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
                 if (plan.AgentRevertArmed && AgentRevert != null) await AgentRevert.CancelAsync(plan, ct);
                 await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Plan failed: {plan.Name}",
@@ -704,6 +705,21 @@ public sealed class PlanCoordinator
     public const string ReaddressPathContext = "readdress_path";
 
     /// <summary>A re-address that moves the network holding the console, or Network Optimizer's path to it.</summary>
+    /// <summary>
+    /// For a re-address that stopped part way: which networks moved and which did not, since a half-moved
+    /// gateway and its clients need the rest moved (or Roll Back) and the reader cannot tell from the error.
+    /// </summary>
+    internal static string MovedNetworks(PlanDocument doc, PlanResult result)
+    {
+        if (!doc.Context.ContainsKey(ReaddressContext)) return "";
+        var applied = result.Operations.Where(o => o.Outcome == "Applied").Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+        var networks = doc.Operations.Where(o => o.Collection == "networkconf").ToList();
+        var moved = networks.Where(o => applied.Contains(o.Key)).Select(o => o.ObjectName).ToList();
+        var notMoved = networks.Where(o => !applied.Contains(o.Key)).Select(o => o.ObjectName).ToList();
+        return moved.Count == 0 ? " No network moved."
+            : $" Moved: {string.Join(", ", moved)}." + (notMoved.Count > 0 ? $" Not moved: {string.Join(", ", notMoved)}." : "");
+    }
+
     public static bool MovesConsolePath(PlanDocument doc) =>
         doc.Context.TryGetValue(ReaddressPathContext, out var keys) && keys.Length > 0;
 
