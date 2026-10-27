@@ -367,7 +367,13 @@
     {
         try
         {
-            if (await UserPreferences.GetAsync(FilterPreference) is not { Length: > 0 } json) return;
+            if (await UserPreferences.GetAsync(FilterPreference) is not { Length: > 0 } json)
+            {
+                // No saved choice: the site's setting decides whether Network Optimizer's automatic writes start shown.
+                if (!(await Site.GetSettingsAsync()).ShowOwnChanges)
+                    _who.UnionWith(WhoFilters.Select(f => f.Key).Where(k => k != "no"));
+                return;
+            }
             var f = System.Text.Json.JsonSerializer.Deserialize<FilterState>(json);
             if (f == null) return;
             _who.UnionWith(f.Who.Where(w => WhoFilters.Any(p => p.Key == w)));

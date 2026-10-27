@@ -107,8 +107,29 @@ public sealed partial class ChangeControlService : IChangeControlService
             });
     }
 
+    /// <summary>
+    /// The person who applied each plan behind these changes, by plan ID. A plan's writes are recorded as Network
+    /// Optimizer's, but they were a person's decision, so Changes shows them under that person. A plan nobody
+    /// applied by hand (an automatic revert) stays Network Optimizer's.
+    /// </summary>
+    internal static async Task<Dictionary<int, string>> PlanAppliersAsync(Storage.Interfaces.IChangeControlRepository r,
+        IEnumerable<ConfigChange> changes, CancellationToken ct)
+    {
+        var result = new Dictionary<int, string>();
+        foreach (var id in changes.Where(c => c.ActorKind == ConfigChangeActorKind.NetworkOptimizer && c.PlanId != null)
+                     .Select(c => c.PlanId!.Value).Distinct())
+            if (await r.GetPlanAsync(id, ct) is { AppliedBy: { Length: > 0 } by } && by != "Network Optimizer")
+                result[id] = by;
+        return result;
+    }
+
     internal static ChangeRowView Row(ConfigChange c, string slug, string siteName, int incidentsAfter,
-        IReadOnlyDictionary<int, (int PlanId, DateTime? At)>? rollbacks = null, IReadOnlyDictionary<int, string>? summaries = null) => new()
+        IReadOnlyDictionary<int, (int PlanId, DateTime? At)>? rollbacks = null, IReadOnlyDictionary<int, string>? summaries = null,
+        IReadOnlyDictionary<int, string>? appliers = null)
+    {
+        var appliedBy = c.ActorKind == ConfigChangeActorKind.NetworkOptimizer && c.PlanId is int plan
+            && appliers != null && appliers.TryGetValue(plan, out var by) ? by : null;
+        return new()
         {
             RolledBackByPlanId = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rb) ? rb.PlanId : null,
             RolledBackAt = rollbacks != null && rollbacks.TryGetValue(c.Id, out var rba) ? rba.At : null,
@@ -118,8 +139,8 @@ public sealed partial class ChangeControlService : IChangeControlService
             OccurredAt = c.OccurredAt,
             Kind = c.Kind,
             Summary = summaries != null && summaries.TryGetValue(c.Id, out var s) && s.Length > 0 ? s : c.Summary,
-            ActorKind = c.ActorKind,
-            Who = Who(c),
+            ActorKind = appliedBy != null ? ConfigChangeActorKind.Person : c.ActorKind,
+            Who = appliedBy != null ? $"{appliedBy} (plan)" : Who(c),
             RegressionCount = c.RegressionCount,
             FixCount = c.FixCount,
             Tags = string.IsNullOrEmpty(c.ServiceTagsJson) ? [] : JsonSerializer.Deserialize<List<string>>(c.ServiceTagsJson) ?? [],
@@ -130,20 +151,20 @@ public sealed partial class ChangeControlService : IChangeControlService
             PlanId = c.PlanId,
             HealthDrop = c.HealthBefore is >= 0 and var before && c.HealthAfter is >= 0 and var after ? Math.Round(before - after, 1) : null,
         };
+    }
 
-    public async Task<List<ChangeRowView>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, bool? includeOwn = null, CancellationToken cancellationToken = default)
+    // Every change is returned: the Network Optimizer source filter on Changes decides whether automatic writes show.
+    public async Task<List<ChangeRowView>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default)
     {
-        var settings = await Repo.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
-        var own = includeOwn ?? settings.ShowOwnChanges;
         var name = await SiteNameAsync(cancellationToken);
         return await Repo.UseAsync(async (r, c) =>
         {
-            var changes = (await r.GetChangesAsync(fromUtc, toUtc, 2000, c))
-                .Where(x => own || x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null).ToList();
+            var changes = await r.GetChangesAsync(fromUtc, toUtc, 2000, c);
             var incidents = await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c);
             var rollbacks = RollbacksByChange(await r.GetChangeRollbacksAsync(c));
             var summaries = await SummariesAsync(r, changes, c);
-            return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents), rollbacks, summaries)).ToList();
+            var appliers = await PlanAppliersAsync(r, changes, c);
+            return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents), rollbacks, summaries, appliers)).ToList();
         }, cancellationToken);
     }
 

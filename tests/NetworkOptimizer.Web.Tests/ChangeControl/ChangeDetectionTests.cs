@@ -137,6 +137,21 @@ public class ChangeDetectionTests
         ChangeControlSiteEngine.CfgDiffers(stored, current).Should().Be(differs);
 
     [Fact]
+    public void Row_PlanChange_ShowsThePersonWhoAppliedIt()
+    {
+        var change = new ConfigChange { Id = 1, Kind = ConfigChangeKind.Config, ActorKind = ConfigChangeActorKind.NetworkOptimizer, ActorName = "Network Optimizer", PlanId = 7, Summary = "s" };
+        var automatic = new ConfigChange { Id = 2, Kind = ConfigChangeKind.Config, ActorKind = ConfigChangeActorKind.NetworkOptimizer, ActorName = "Network Optimizer", Summary = "s" };
+        var appliers = new Dictionary<int, string> { [7] = "TJ" };
+
+        var row = ChangeControlService.Row(change, "main", "Main", 0, appliers: appliers);
+        row.ActorKind.Should().Be(ConfigChangeActorKind.Person);
+        row.Who.Should().Be("TJ (plan)");
+
+        ChangeControlService.Row(automatic, "main", "Main", 0, appliers: appliers).ActorKind
+            .Should().Be(ConfigChangeActorKind.NetworkOptimizer, "an automatic write stays under the Network Optimizer filter");
+    }
+
+    [Fact]
     public void IsOwnEvent_DeviceEntryByMac_MatchesOurWriteByDeviceId()
     {
         var at = new DateTime(2026, 10, 27, 3, 27, 32, DateTimeKind.Utc);

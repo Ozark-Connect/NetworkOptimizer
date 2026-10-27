@@ -426,16 +426,16 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         foreach (var site in await SitesAsync(sites, cancellationToken))
         {
             var engine = _registry.GetFor(site.Slug);
-            var (changes, incidents, settings, rollbacks, summaries) = await engine.Repositories.UseAsync(async (r, c) =>
+            // Every change is returned: the Network Optimizer source filter on Changes decides whether automatic writes show.
+            var (changes, incidents, rollbacks, summaries, appliers) = await engine.Repositories.UseAsync(async (r, c) =>
             {
                 var all = await r.GetChangesAsync(fromUtc, toUtc, 2000, c);
                 return (all, await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c),
-                    await r.GetSettingsAsync(c), ChangeControlService.RollbacksByChange(await r.GetChangeRollbacksAsync(c)),
-                    await ChangeControlService.SummariesAsync(r, all, c));
+                    ChangeControlService.RollbacksByChange(await r.GetChangeRollbacksAsync(c)),
+                    await ChangeControlService.SummariesAsync(r, all, c), await ChangeControlService.PlanAppliersAsync(r, all, c));
             }, cancellationToken);
-            rows.AddRange(changes
-                .Where(x => settings.ShowOwnChanges || x.ActorKind != ConfigChangeActorKind.NetworkOptimizer || x.PlanId != null)
-                .Select(x => ChangeControlService.Row(x, site.Slug, site.Name, ChangeControlService.LinkedAfter(x, incidents), rollbacks, summaries)));
+            rows.AddRange(changes.Select(x => ChangeControlService.Row(x, site.Slug, site.Name, ChangeControlService.LinkedAfter(x, incidents),
+                rollbacks, summaries, appliers)));
         }
         return rows.OrderByDescending(r => r.OccurredAt).ToList();
     }

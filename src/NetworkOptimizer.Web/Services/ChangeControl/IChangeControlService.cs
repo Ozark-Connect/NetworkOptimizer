@@ -15,7 +15,7 @@ public interface IChangeControlService
 {
     /// <summary>Changes in a range, newest first. NO's own changes are left out unless the setting shows them.</summary>
     [RequireRole(Roles.Viewer)]
-    Task<List<ChangeRowView>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, bool? includeOwn = null, CancellationToken cancellationToken = default);
+    Task<List<ChangeRowView>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 
     /// <summary>A change's detail: field diffs, impact, before/after numbers, incidents after.</summary>
     [RequireRole(Roles.Viewer)]
