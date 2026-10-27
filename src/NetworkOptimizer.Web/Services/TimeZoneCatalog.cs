@@ -33,8 +33,14 @@ public static class TimeZoneCatalog
     public static bool TryResolve(string? id, [NotNullWhen(true)] out TimeZoneInfo? zone)
     {
         zone = null;
-        return !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id.Trim(), out zone);
+        // On Linux an id is a path under the zoneinfo directory; stored ids come from clients.
+        return !string.IsNullOrWhiteSpace(id) && IsWellFormedId(id = id.Trim())
+            && TimeZoneInfo.TryFindSystemTimeZoneById(id, out zone);
     }
+
+    private static bool IsWellFormedId(string id) =>
+        id.Length <= 64 && !id.Contains("..") && id[0] != '/'
+        && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '/' or '_' or '-' or '+');
 
     /// <summary>The IANA id of a zone, converting a Windows id where needed.</summary>
     public static string ToIana(TimeZoneInfo zone) =>

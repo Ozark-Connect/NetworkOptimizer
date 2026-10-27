@@ -14,20 +14,24 @@ public class NotificationTimeZoneResolverTests
 
     private int _consoleReads;
 
-    private NotificationTimeZoneResolver Build(string? installDefault, Func<string, string?> consoleZone)
+    private NotificationTimeZoneResolver Build(
+        string? installDefault, Func<string, CancellationToken, Task<string?>>? readConsoleZone)
     {
         var source = new Mock<ITimeZonePreferenceSource>();
         source.Setup(s => s.GetInheritedAsync()).ReturnsAsync(installDefault);
         var services = new ServiceCollection().AddScoped(_ => source.Object).BuildServiceProvider();
         return new NotificationTimeZoneResolver(
             services.GetRequiredService<IServiceScopeFactory>(),
-            (slug, _) =>
+            slug => readConsoleZone == null ? null : ct =>
             {
                 _consoleReads++;
-                return Task.FromResult(consoleZone(slug));
+                return readConsoleZone(slug, ct);
             },
             NullLogger<NotificationTimeZoneResolver>.Instance);
     }
+
+    private NotificationTimeZoneResolver Build(string? installDefault, Func<string, string?> consoleZone) =>
+        Build(installDefault, (slug, _) => Task.FromResult(consoleZone(slug)));
 
     [Fact]
     public async Task The_install_default_wins_without_asking_the_console()
@@ -69,9 +73,31 @@ public class NotificationTimeZoneResolverTests
     }
 
     [Fact]
+    public async Task A_site_with_no_console_yet_reads_the_server_zone_and_is_asked_again()
+    {
+        var resolver = Build(null, readConsoleZone: null);
+
+        (await resolver.ResolveAsync("branch")).Should().Be(TimeZoneInfo.Local);
+    }
+
+    [Fact]
+    public async Task A_console_that_hangs_falls_back_within_the_read_timeout()
+    {
+        var resolver = Build(null, async (_, ct) =>
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            return Chicago;
+        });
+
+        var resolve = resolver.ResolveAsync("branch");
+
+        (await resolve.WaitAsync(TimeSpan.FromSeconds(15))).Should().Be(TimeZoneInfo.Local);
+    }
+
+    [Fact]
     public async Task A_console_that_throws_falls_back_and_is_not_asked_again_at_once()
     {
-        var resolver = Build(null, _ => throw new HttpRequestException("console down"));
+        var resolver = Build(null, (_, _) => throw new HttpRequestException("console down"));
 
         (await resolver.ResolveAsync("branch")).Should().Be(TimeZoneInfo.Local);
         await resolver.ResolveAsync("branch");

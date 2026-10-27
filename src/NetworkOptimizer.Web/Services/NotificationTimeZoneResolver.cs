@@ -12,10 +12,14 @@ namespace NetworkOptimizer.Web.Services;
 public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
 {
     private static readonly TimeSpan ConsoleZoneCacheLife = TimeSpan.FromHours(6);
-    private static readonly TimeSpan ConsoleZoneRetryAfter = TimeSpan.FromMinutes(10);
+    // No zone covers a legacy UniFi Network Server (no /api/system, a warning per read) as well as
+    // an outage, so it is asked again hourly, not on every alert.
+    private static readonly TimeSpan ConsoleZoneRetryAfter = TimeSpan.FromHours(1);
+    // The read sits in front of alert delivery; a console that hangs must not hold an alert.
+    private static readonly TimeSpan ConsoleZoneReadTimeout = TimeSpan.FromSeconds(5);
 
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly Func<string, CancellationToken, Task<string?>> _readConsoleZone;
+    private readonly Func<string, Func<CancellationToken, Task<string?>>?> _consoleReaderFor;
     private readonly ILogger<NotificationTimeZoneResolver> _logger;
     private readonly ConcurrentDictionary<string, (TimeZoneInfo? Zone, DateTime CachedAt, bool Found)> _consoleZones = new();
 
@@ -23,21 +27,28 @@ public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
         IServiceScopeFactory scopeFactory,
         SiteConnectionRegistry siteConnections,
         ILogger<NotificationTimeZoneResolver> logger)
-        : this(scopeFactory, async (slug, ct) => siteConnections.GetFor(slug).Client is { } client
-            ? (await client.GetConsoleSystemInfoAsync(ct))?.TimeZone
-            : null, logger)
+        : this(scopeFactory, slug => ConsoleReader(siteConnections, slug), logger)
     {
     }
 
-    /// <param name="readConsoleZone">Reads a site's console timezone id; null when it has none.</param>
+    /// <param name="consoleReaderFor">
+    /// Reads a site's console timezone id, or null when the site has no console to ask yet.
+    /// </param>
     internal NotificationTimeZoneResolver(
         IServiceScopeFactory scopeFactory,
-        Func<string, CancellationToken, Task<string?>> readConsoleZone,
+        Func<string, Func<CancellationToken, Task<string?>>?> consoleReaderFor,
         ILogger<NotificationTimeZoneResolver> logger)
     {
         _scopeFactory = scopeFactory;
-        _readConsoleZone = readConsoleZone;
+        _consoleReaderFor = consoleReaderFor;
         _logger = logger;
+    }
+
+    // Never GetFor: that creates a connection, which would revive a removed or disabled site's.
+    private static Func<CancellationToken, Task<string?>>? ConsoleReader(SiteConnectionRegistry sites, string slug)
+    {
+        if (!sites.TryGetExisting(slug, out var connection) || connection.Client is not { } client) return null;
+        return async ct => (await client.GetConsoleSystemInfoAsync(ct))?.TimeZone;
     }
 
     /// <inheritdoc />
@@ -66,14 +77,18 @@ public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
             && DateTime.UtcNow - cached.CachedAt < (cached.Found ? ConsoleZoneCacheLife : ConsoleZoneRetryAfter))
             return cached.Zone;
 
+        // Not connected yet (just after startup): nothing to cache, ask again next time.
+        if (_consoleReaderFor(slug) is not { } read) return null;
+
         TimeZoneInfo? zone = null;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ConsoleZoneReadTimeout);
         try
         {
-            TimeZoneCatalog.TryResolve(await _readConsoleZone(slug, cancellationToken), out zone);
+            TimeZoneCatalog.TryResolve(await read(timeout.Token), out zone);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            // Cached as not found below, so a console that is down is retried, not hammered.
             _logger.LogDebug(ex, "Could not read the console time zone for site {Site}", slug);
         }
         _consoleZones[slug] = (zone, DateTime.UtcNow, zone != null);

@@ -109,6 +109,23 @@ public class DisplayTimeZoneTests
         TimeZoneCatalog.Options.Should().OnlyContain(o => o.Id.Contains('/'));
     }
 
+    [Fact]
+    public void Every_catalog_id_resolves()
+    {
+        TimeZoneCatalog.Options.Where(o => !TimeZoneCatalog.TryResolve(o.Id, out _)).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("../../etc/passwd")]
+    [InlineData("/etc/localtime")]
+    [InlineData("America/../America/Chicago")]
+    [InlineData("America/Chicago\0")]
+    [InlineData("America\\Chicago")]
+    public void A_path_shaped_id_is_rejected(string id)
+    {
+        TimeZoneCatalog.TryResolve(id, out _).Should().BeFalse();
+    }
+
     /// <summary>
     /// Razor renders for a person, so a time it shows is on that person's clock. The parameterless
     /// BCL conversions read the server's zone, which on a hosted install is nobody's.
