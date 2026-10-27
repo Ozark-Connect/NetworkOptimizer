@@ -47,7 +47,7 @@ public class ChangeControlSettings
     /// <summary>Local minute of the daily full snapshot.</summary>
     public int DailySnapshotMinute { get; set; }
 
-    /// <summary>Show Network Optimizer's own changes in the history.</summary>
+    /// <summary>The default for this site's users: show Network Optimizer's own changes on Changes.</summary>
     public bool ShowOwnChanges { get; set; }
 
     /// <summary>A template is the Baseline (instead of a snapshot marked Baseline).</summary>

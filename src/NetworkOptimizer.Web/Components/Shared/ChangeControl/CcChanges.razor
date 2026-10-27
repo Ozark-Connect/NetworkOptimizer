@@ -360,24 +360,29 @@
     private string _range = "7d";
 
     /// <summary>Per-user: the who pills and the range. The site picker follows the site in context instead.</summary>
-    private const string FilterPreference = "changecontrol.changes.filters";
+    // v2: v1 saved the pills on every range change, which pinned users off the site's default.
+    private const string FilterPreference = "changecontrol.changes.filters.v2";
 
-    private sealed record FilterState(string[] Who, string Range, DateTime? From, DateTime? To);
+    /// <summary>Who is null until the user picks a pill: the site's ShowOwnChanges setting decides until then.</summary>
+    private sealed record FilterState(string[]? Who, string Range, DateTime? From, DateTime? To);
+
+    private bool _whoChosen;
 
     private async Task LoadFiltersAsync()
     {
         try
         {
-            if (await UserPreferences.GetAsync(FilterPreference) is not { Length: > 0 } json)
+            var f = await UserPreferences.GetAsync(FilterPreference) is { Length: > 0 } json
+                ? System.Text.Json.JsonSerializer.Deserialize<FilterState>(json)
+                : null;
+            if (f?.Who is { } who)
             {
-                // No saved choice: the site's setting decides whether Network Optimizer's automatic writes start shown.
-                if (!(await Site.GetSettingsAsync()).ShowOwnChanges)
-                    _who.UnionWith(WhoFilters.Select(f => f.Key).Where(k => k != "no"));
-                return;
+                _whoChosen = true;
+                _who.UnionWith(who.Where(w => WhoFilters.Any(p => p.Key == w)));
             }
-            var f = System.Text.Json.JsonSerializer.Deserialize<FilterState>(json);
+            else if (!(await Site.GetSettingsAsync()).ShowOwnChanges)
+                _who.UnionWith(WhoFilters.Select(p => p.Key).Where(k => k != "no"));
             if (f == null) return;
-            _who.UnionWith(f.Who.Where(w => WhoFilters.Any(p => p.Key == w)));
             if (f.Range == "custom" || Ranges.Any(r => r.Key == f.Range)) _range = f.Range;
             if (f.From is { } from) _customFrom = from;
             if (f.To is { } to) _customTo = to;
@@ -392,7 +397,7 @@
     {
         try
         {
-            var f = new FilterState([.. _who], _range, _range == "custom" ? _customFrom : null, _range == "custom" ? _customTo : null);
+            var f = new FilterState(_whoChosen ? [.. _who] : null, _range, _range == "custom" ? _customFrom : null, _range == "custom" ? _customTo : null);
             await UserPreferences.SetAsync(FilterPreference, System.Text.Json.JsonSerializer.Serialize(f));
         }
         catch (Exception ex)
@@ -550,6 +555,7 @@
         }
         else if (!_who.Remove(key)) _who.Add(key);
         if (_who.Count == WhoFilters.Length) _who.Clear();
+        _whoChosen = true;
         _page = 0;
         await SaveFiltersAsync();
     }
@@ -557,6 +563,7 @@
     private async Task ResetWhoAsync()
     {
         _who.Clear();
+        _whoChosen = true;
         _page = 0;
         await SaveFiltersAsync();
     }
