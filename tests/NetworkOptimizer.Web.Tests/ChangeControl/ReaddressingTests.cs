@@ -19,6 +19,24 @@ public class ReaddressingTests
 
     private static List<SubnetMove> Pattern(ConfigState s) => Readdressing.Proposal(s, "10.42.{vlan}.0/24");
 
+    [Fact]
+    public void Honeypots_WriteAfterEveryNetwork_ConsolePathNetworkLast()
+    {
+        var live = Site();
+        live.Collections["setting"].Add(System.Text.Json.Nodes.JsonNode.Parse(
+            """{"_id":"s2","key":"ips","honeypot_enabled":true,"honeypot":[{"ip_address":"192.168.30.250","network_id":"n2"}]}""")!.AsObject());
+        var desired = Readdressing.Apply(live, Pattern(live)).Desired;
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
+
+        ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n1" });
+
+        var order = doc.Operations.Select(o => o.ObjectId).ToList();
+        order.IndexOf("n1").Should().BeGreaterThan(order.IndexOf("n2"));
+        order.IndexOf("s2").Should().BeGreaterThan(order.IndexOf("n1"));
+        order.IndexOf("u1").Should().BeGreaterThan(order.IndexOf("n1"));
+        doc.Context[PlanCoordinator.ReaddressPathContext].Split(',').Should().HaveCount(3);
+    }
+
     [Theory]
     [InlineData("nas.lan", true)]
     [InlineData("console.lan", true)]

@@ -118,16 +118,7 @@ public sealed partial class ChangeControlService
             result.Desired, new PlanOptions { Collections = result.Collections, DeleteMissing = false }, Actor, cancellationToken,
             doc =>
             {
-                // The network holding the console, or Network Optimizer's path to it, is the last write:
-                // once it moves, the old address every later write goes to is gone.
-                foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)))
-                {
-                    op.Order = 100;
-                    op.ManagementPath = true;
-                }
-                PlanBuilder.Reorder(doc);
-                doc.Context[PlanCoordinator.ReaddressPathContext] = string.Join(",", doc.Operations
-                    .Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)).Select(o => o.Key));
+                OrderReaddressWrites(doc, pathNetworks);
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 foreach (var m in result.Remote)
@@ -144,6 +135,31 @@ public sealed partial class ChangeControlService
                         + string.Join(", ", settings.Select(s => SettingText(s)).Distinct()) + ".");
             });
         return plan.Id;
+    }
+
+    /// <summary>
+    /// The network holding the console, or Network Optimizer's path to it, is written last: once it moves, the old
+    /// address every later write goes to is gone. Addresses the console checks against their network's current
+    /// subnet follow every network: honeypots (api.err.HoneypotIpNotWithinSelectedNetwork) and client reservations.
+    /// </summary>
+    internal static void OrderReaddressWrites(PlanDocument doc, IReadOnlySet<string> pathNetworks)
+    {
+        var path = doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)).ToList();
+        foreach (var op in path)
+        {
+            op.Order = 100;
+            op.ManagementPath = true;
+        }
+        var afterNetworks = doc.Operations
+            .Where(o => o.Collection == "user" || (o.Collection == "setting" && (o.Body?["key"]?.ToString() ?? o.ObjectName) == "ips")).ToList();
+        foreach (var op in afterNetworks)
+        {
+            op.Order = 101;
+            op.ManagementPath = true;
+        }
+        PlanBuilder.Reorder(doc);
+        // A write after a path network can lose its reply with the old address, so its failure is expected too.
+        doc.Context[PlanCoordinator.ReaddressPathContext] = path.Count == 0 ? "" : string.Join(",", path.Concat(afterNetworks).Select(o => o.Key));
     }
 
     /// <summary>One settings move for the plan note; a setting named by its own address is not named twice.</summary>
