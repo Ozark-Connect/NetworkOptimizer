@@ -50,6 +50,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     private readonly ConfigSnapshotReader _reader;
     private readonly IAuditLogger? _audit;
     private readonly Func<CancellationToken, Task<bool>>? _isRolloutActive;
+    // The Network app comes back on its new version after the rollout has finished, so its row looks back a while.
+    private readonly Func<CancellationToken, Task<bool>>? _wasRolloutRecent;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
     private readonly SemaphoreSlim _pollLock = new(1, 1);
@@ -79,8 +81,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     public ChangeControlSiteEngine(
         string slug, IUniFiConfigApi api, IChangeControlRepositoryAccessor repos, IConfigBlobStore blobs,
         ILogger logger, IAuditLogger? audit = null, Func<CancellationToken, Task<bool>>? isRolloutActive = null,
-        Func<bool>? isAgentSite = null)
+        Func<bool>? isAgentSite = null, Func<CancellationToken, Task<bool>>? wasRolloutRecent = null)
     {
+        _wasRolloutRecent = wasRolloutRecent;
         _slug = slug;
         _api = api;
         _repos = repos;
@@ -273,8 +276,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 oldVersions[d.Mac], d.Version, rolloutActive, ct);
         if (appChanged)
         {
+            var byRollout = rolloutActive || (_wasRolloutRecent != null && await _wasRolloutRecent(ct));
             await RecordFirmwareRowAsync(ConfigChangeKind.NetworkAppUpgrade, $"Network app {state.NetworkAppVersion} to {appVersion}",
-                state.NetworkAppVersion, appVersion, rolloutActive, ct);
+                state.NetworkAppVersion, appVersion, byRollout, ct);
             await PinLatestAsync("Before Network app upgrade", ct);
             state.NetworkAppVersionChangedAt = now;
         }

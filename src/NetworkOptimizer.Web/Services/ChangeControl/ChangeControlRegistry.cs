@@ -136,7 +136,11 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControl[{slug}]"),
             _sp.GetService<IAuditLogger>(),
             isRolloutActive: async ct => await rollout.UseAsync(async (r, c) => await r.GetActivePlanAsync(c) is { Status: FirmwareRolloutStatus.Running }, ct),
-            isAgentSite: () => connection.IsViaAgent || connection.IsAwaitingAgent);
+            isAgentSite: () => connection.IsViaAgent || connection.IsAwaitingAgent,
+            // A rollout running, or one that ran in the last hour: the Network app finishes its upgrade after the plan does.
+            wasRolloutRecent: async ct => await rollout.UseAsync(async (r, c) =>
+                (await r.GetPlanHistoryAsync(5, c)).Any(p => p.Status == FirmwareRolloutStatus.Running
+                    || (p.StartedAt != null && p.CompletedAt > DateTime.UtcNow.AddHours(-1))), ct));
         engine.Evaluator = _sp.GetService<IChangeEvaluator>();
         engine.Changed += () => Changed?.Invoke(slug);
         // Online and agent-offline on the Overview follow the connection itself, not the next detection pass.
