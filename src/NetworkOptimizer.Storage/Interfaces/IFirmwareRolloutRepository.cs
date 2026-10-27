@@ -53,6 +53,9 @@ public interface IFirmwareRolloutRepository
     /// <summary>A plan's steps in execution order (wave, then id).</summary>
     Task<List<FirmwareRolloutStep>> GetStepsAsync(int planId, CancellationToken cancellationToken = default);
 
+    /// <summary>Steps still mid-cycle on a plan that has ended (an abort leaves them watched by nothing).</summary>
+    Task<List<FirmwareRolloutStep>> GetStrandedStepsAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Folds one measured downtime into the model's learned timing, creating the row on
     /// first sight, and returns the updated aggregate.

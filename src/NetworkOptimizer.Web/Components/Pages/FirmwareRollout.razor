@@ -2458,6 +2458,7 @@ else
         FirmwareRolloutStepState.Failed => "Failed",
         FirmwareRolloutStepState.SkippedExcluded => "Excluded",
         FirmwareRolloutStepState.AbortedSku => "Skipped (model aborted)",
+        FirmwareRolloutStepState.AbortedInFlight => "Aborted mid-upgrade",
         _ => state.ToString(),
     };
 
