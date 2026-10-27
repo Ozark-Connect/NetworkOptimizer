@@ -23584,7 +23584,8 @@ body:has(.top-bar-hidden) .btn-fit {
     font-weight: 500;
 }
 
-.change-control .cc-badge-col .status-badge {
+.change-control .cc-badge-col .status-badge,
+.change-control .cc-sites-table .status-badge {
     white-space: nowrap;
 }
 
