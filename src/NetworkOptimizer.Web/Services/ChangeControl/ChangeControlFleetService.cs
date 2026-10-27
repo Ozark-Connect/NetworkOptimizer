@@ -434,6 +434,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     ChangeControlService.RollbacksByChange(await r.GetChangeRollbacksAsync(c)),
                     await ChangeControlService.SummariesAsync(r, all, c), await ChangeControlService.PlanAppliersAsync(r, all, c));
             }, cancellationToken);
+            appliers = await ChangeControlService.ShownAsync(appliers, _scopes, cancellationToken);
             rows.AddRange(changes.Select(x => ChangeControlService.Row(x, site.Slug, site.Name, ChangeControlService.LinkedAfter(x, incidents),
                 rollbacks, summaries, appliers)));
         }

@@ -27,12 +27,14 @@ public sealed partial class ChangeControlService : IChangeControlService
     private readonly ConfigTemplateStore _templates;
     private readonly NetworkOptimizer.Alerts.Interfaces.IAlertRepository _alerts;
     private readonly ILogger<ChangeControlService> _logger;
+    private readonly IServiceScopeFactory _scopes;
 
     public ChangeControlService(ChangeControlRegistry registry, SiteContextService site, Identity.ICallerContext caller,
         IEffectiveSiteRoleResolver roles, IDbContextFactory<NetworkOptimizerDbContext> mainDb, MonitoringInfluxClient influx,
         IspHealthService isp, ConfigTemplateStore templates, NetworkOptimizer.Alerts.Interfaces.IAlertRepository alerts,
-        ISiteAccessFilter access, Gates.IAuditContext audit, ILogger<ChangeControlService> logger)
+        ISiteAccessFilter access, Gates.IAuditContext audit, IServiceScopeFactory scopes, ILogger<ChangeControlService> logger)
     {
+        _scopes = scopes;
         _access = access;
         _audit = audit;
         _alerts = alerts;
@@ -123,6 +125,22 @@ public sealed partial class ChangeControlService : IChangeControlService
         return result;
     }
 
+    /// <summary>
+    /// Plan appliers as people are shown: the user's display name, else the username the plan stored.
+    /// A suffix such as " (scheduled)" is kept after the name.
+    /// </summary>
+    internal static async Task<Dictionary<int, string>> ShownAsync(Dictionary<int, string> appliers, IServiceScopeFactory scopes, CancellationToken ct)
+    {
+        static (string Name, string Suffix) Split(string by) =>
+            by.IndexOf(" (", StringComparison.Ordinal) is > 0 and var i ? (by[..i], by[i..]) : (by, "");
+        var names = await Identity.UserDisplayNames.ResolveAsync(scopes, appliers.Values.Select(v => Split(v).Name), ct);
+        return appliers.ToDictionary(kv => kv.Key, kv =>
+        {
+            var (name, suffix) = Split(kv.Value);
+            return names.GetValueOrDefault(name, name) + suffix;
+        });
+    }
+
     internal static ChangeRowView Row(ConfigChange c, string slug, string siteName, int incidentsAfter,
         IReadOnlyDictionary<int, (int PlanId, DateTime? At)>? rollbacks = null, IReadOnlyDictionary<int, string>? summaries = null,
         IReadOnlyDictionary<int, string>? appliers = null)
@@ -165,7 +183,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             var incidents = await ChangeIncidents.StartedAsync(r, fromUtc, toUtc + ChangeControlSiteEngine.IncidentWindow, c);
             var rollbacks = RollbacksByChange(await r.GetChangeRollbacksAsync(c));
             var summaries = await SummariesAsync(r, changes, c);
-            var appliers = await PlanAppliersAsync(r, changes, c);
+            var appliers = await ShownAsync(await PlanAppliersAsync(r, changes, c), _scopes, c);
             return changes.Select(x => Row(x, _site.Slug, name, LinkedAfter(x, incidents), rollbacks, summaries, appliers)).ToList();
         }, cancellationToken);
     }
@@ -200,7 +218,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             return (change, objects, incidents, health, RollbacksByChange(await r.GetChangeRollbacksAsync(c)));
         }, cancellationToken);
         if (loaded is not { } l) return null;
-        var appliers = await Repo.UseAsync((r, c) => PlanAppliersAsync(r, [l.change], c), cancellationToken);
+        var appliers = await ShownAsync(await Repo.UseAsync((r, c) => PlanAppliersAsync(r, [l.change], c), cancellationToken), _scopes, cancellationToken);
 
         var metrics = HealthDeltas(l.health, l.change.OccurredAt)
             .Concat(await new SiteMetricsReader(_influx, _isp, _logger).BeforeAfterAsync(l.change.OccurredAt, cancellationToken)).ToList();
