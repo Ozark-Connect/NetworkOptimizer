@@ -39,6 +39,7 @@
 
     private async Task SaveDefaultAsync(string? value)
     {
+        if (value != null && !TimeZoneCatalog.TryResolve(value, out _)) return;
         _default = value;
         await SettingsAdmin.SetGlobalAsync(TimeZonePreferenceSource.Key, value);
         // Reloads so the page, and the personal field's "Default - ..." label, read the new default.

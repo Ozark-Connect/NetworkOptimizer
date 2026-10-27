@@ -26,6 +26,10 @@ public class SiteConnectionRegistry : IDisposable, ISiteScopedRegistry
             ActivatorUtilities.CreateInstance<UniFiConnectionService>(_serviceProvider, s));
     }
 
+    /// <summary>A site's connection if one already exists, without creating one.</summary>
+    public bool TryGetExisting(string slug, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out UniFiConnectionService? connection) =>
+        _connections.TryGetValue(slug, out connection);
+
     /// <summary>The default site's connection.</summary>
     public UniFiConnectionService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 

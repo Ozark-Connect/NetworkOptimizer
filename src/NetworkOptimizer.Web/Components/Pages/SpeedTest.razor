@@ -2432,8 +2432,8 @@
     }
 
     /// <summary>A row's text, with the result's age when it carries one ("· 3 hours ago").</summary>
-    private static string RowText(RowMessage message) =>
-        message.Result is { } result ? $"{message.Text} · {TimeFormatHelper.FormatRelativeTime(result.TestTime)}" : message.Text;
+    private string RowText(RowMessage message) =>
+        message.Result is { } result ? $"{message.Text} · {TimeFormatHelper.FormatRelativeTime(result.TestTime, DisplayTime.Zone)}" : message.Text;
 
     private void RebuildLatestResults()
     {

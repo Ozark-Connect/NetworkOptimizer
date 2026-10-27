@@ -431,7 +431,7 @@ public class AlertProcessingService : BackgroundService
         await DeliverAsync(deliveryEvent, historyEntry, repository, cancellationToken);
     }
 
-    private async Task DeliverAsync(
+    internal async Task DeliverAsync(
         AlertEvent alertEvent,
         AlertHistoryEntry historyEntry,
         IAlertRepository repository,
@@ -451,9 +451,9 @@ public class AlertProcessingService : BackgroundService
 
         var deliveredTo = new List<int>();
         var errors = new List<string>();
-        var timeZone = _timeZones == null
-            ? TimeZoneInfo.Local
-            : await _timeZones.ResolveAsync(alertEvent.SiteSlug, cancellationToken);
+        // Resolved on the first channel that sends, inside its error handling: an alert no channel
+        // takes costs no lookup, and a failed one is recorded like any other delivery error.
+        TimeZoneInfo? timeZone = null;
 
         foreach (var channel in channels)
         {
@@ -473,6 +473,9 @@ public class AlertProcessingService : BackgroundService
 
             try
             {
+                timeZone ??= _timeZones == null
+                    ? TimeZoneInfo.Local
+                    : await _timeZones.ResolveAsync(alertEvent.SiteSlug, cancellationToken);
                 var success = await handler.SendAsync(alertEvent, historyEntry, channel, timeZone, cancellationToken);
                 if (success)
                 {

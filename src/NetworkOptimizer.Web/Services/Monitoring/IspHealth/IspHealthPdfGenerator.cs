@@ -28,7 +28,7 @@ public class IspHealthPdfGenerator
 
     /// <summary>The report's findings followed by the episodes', as the tab lists them.</summary>
     private List<IspHealthIssue> AllFindings(IspHealthReport report) => report.Issues
-        .Concat(PathLocalization.PathEpisodePresentation.Findings(_episodes.Select(e => e.Episode).ToList(), _options,
+        .Concat(PathLocalization.PathEpisodePresentation.Findings(_episodes.Select(e => e.Episode).ToList(), _options, _timeZone,
             PathLocalization.PathEpisodePresentation.PointsById(report)))
         .ToList();
 
@@ -179,10 +179,10 @@ public class IspHealthPdfGenerator
             foreach (var detail in _episodes.OrderByDescending(e => e.Episode.OpenedAt))
             {
                 var e = detail.Episode;
-                var end = e.ClosedAt is DateTime closed ? $" to {closed.ToLocalTime():HH:mm}" : " (tracing)";
+                var end = e.ClosedAt is DateTime closed ? $" to {TimeZoneCatalog.ToZone(closed, _timeZone):HH:mm}" : " (tracing)";
                 column.Item().PaddingTop(8).Text(text =>
                 {
-                    text.Span($"{IspHealthPresentation.EventTimeLabel(e.OpenedAt)}{end}  ").FontSize(10).Bold();
+                    text.Span($"{IspHealthPresentation.EventTimeLabel(e.OpenedAt, _timeZone)}{end}  ").FontSize(10).Bold();
                     text.Span(string.Join(", ", e.Degraded.Select(t => t.Name))).FontSize(10).Bold()
                         .FontColor(_branding.Colors.Primary);
                 });

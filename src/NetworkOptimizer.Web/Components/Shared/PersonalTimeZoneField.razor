@@ -35,6 +35,7 @@
 
     private async Task SaveAsync(string? value)
     {
+        if (value != null && !TimeZoneCatalog.TryResolve(value, out _)) return;
         _own = value;
         await UserPreferences.SetAsync(TimeZonePreferenceSource.Key, value);
         // Every time already on the page was rendered on the old clock; the new circuit resolves the new one.

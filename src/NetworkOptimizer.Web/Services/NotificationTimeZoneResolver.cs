@@ -12,33 +12,53 @@ namespace NetworkOptimizer.Web.Services;
 public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
 {
     private static readonly TimeSpan ConsoleZoneCacheLife = TimeSpan.FromHours(6);
-    private static readonly TimeSpan ConsoleZoneRetryAfter = TimeSpan.FromMinutes(10);
+    // No zone covers a legacy UniFi Network Server (no /api/system, a warning per read) as well as
+    // an outage, so it is asked again hourly, not on every alert.
+    private static readonly TimeSpan ConsoleZoneRetryAfter = TimeSpan.FromHours(1);
+    // The read sits in front of alert delivery; a console that hangs must not hold an alert.
+    private static readonly TimeSpan ConsoleZoneReadTimeout = TimeSpan.FromSeconds(5);
 
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly Func<string, CancellationToken, Task<string?>> _readConsoleZone;
+    private readonly Func<string, Func<CancellationToken, Task<string?>>?> _consoleReaderFor;
     private readonly ILogger<NotificationTimeZoneResolver> _logger;
     private readonly ConcurrentDictionary<string, (TimeZoneInfo? Zone, DateTime CachedAt, bool Found)> _consoleZones = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<TimeZoneInfo?>>> _reads = new();
 
     public NotificationTimeZoneResolver(
         IServiceScopeFactory scopeFactory,
         SiteConnectionRegistry siteConnections,
         ILogger<NotificationTimeZoneResolver> logger)
-        : this(scopeFactory, async (slug, ct) => siteConnections.GetFor(slug).Client is { } client
-            ? (await client.GetConsoleSystemInfoAsync(ct))?.TimeZone
-            : null, logger)
+        : this(scopeFactory, slug => ConsoleReader(siteConnections, slug), logger)
     {
     }
 
-    /// <param name="readConsoleZone">Reads a site's console timezone id; null when it has none.</param>
+    /// <param name="consoleReaderFor">
+    /// Reads a site's console timezone id, or null when the site has no console to ask yet.
+    /// </param>
     internal NotificationTimeZoneResolver(
         IServiceScopeFactory scopeFactory,
-        Func<string, CancellationToken, Task<string?>> readConsoleZone,
+        Func<string, Func<CancellationToken, Task<string?>>?> consoleReaderFor,
         ILogger<NotificationTimeZoneResolver> logger)
     {
         _scopeFactory = scopeFactory;
-        _readConsoleZone = readConsoleZone;
+        _consoleReaderFor = consoleReaderFor;
         _logger = logger;
     }
+
+    // Never GetFor: that creates a connection, which would revive a removed or disabled site's.
+    private static Func<CancellationToken, Task<string?>>? ConsoleReader(SiteConnectionRegistry sites, string slug)
+    {
+        if (!sites.TryGetExisting(slug, out var connection) || connection.Client is not { } client) return null;
+        if (!ConsoleCanGiveZone(client)) return _ => Task.FromResult<string?>(null);
+        return async ct => (await client.GetConsoleSystemInfoAsync(ct))?.TimeZone;
+    }
+
+    /// <summary>
+    /// An API-key connection never answers /api/system, and a legacy UniFi Network Server has no such
+    /// endpoint (its 401 forces a re-login): neither can give a zone, so neither is asked.
+    /// </summary>
+    internal static bool ConsoleCanGiveZone(UniFi.UniFiApiClient client) =>
+        !client.UseApiKey && !client.IsStandaloneNetworkController;
 
     /// <inheritdoc />
     public async Task<TimeZoneInfo> ResolveAsync(string? siteSlug, CancellationToken cancellationToken = default)
@@ -66,17 +86,30 @@ public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
             && DateTime.UtcNow - cached.CachedAt < (cached.Found ? ConsoleZoneCacheLife : ConsoleZoneRetryAfter))
             return cached.Zone;
 
+        // Not connected yet (just after startup): nothing to cache, ask again next time.
+        if (_consoleReaderFor(slug) is not { } read) return null;
+
+        // One read per site at a time: a burst of alerts shares it rather than each asking the console.
+        var inFlight = _reads.GetOrAdd(slug, _ => new Lazy<Task<TimeZoneInfo?>>(() => ReadAndCacheAsync(slug, read)));
+        return await inFlight.Value.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>Not tied to any one caller's cancellation, since every waiting caller shares it.</summary>
+    private async Task<TimeZoneInfo?> ReadAndCacheAsync(string slug, Func<CancellationToken, Task<string?>> read)
+    {
         TimeZoneInfo? zone = null;
+        using var timeout = new CancellationTokenSource(ConsoleZoneReadTimeout);
         try
         {
-            TimeZoneCatalog.TryResolve(await _readConsoleZone(slug, cancellationToken), out zone);
+            // WaitAsync as well as the token: the client's retry delays do not observe it.
+            TimeZoneCatalog.TryResolve(await read(timeout.Token).WaitAsync(ConsoleZoneReadTimeout), out zone);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            // Cached as not found below, so a console that is down is retried, not hammered.
             _logger.LogDebug(ex, "Could not read the console time zone for site {Site}", slug);
         }
         _consoleZones[slug] = (zone, DateTime.UtcNow, zone != null);
+        _reads.TryRemove(slug, out _);
         return zone;
     }
 }
