@@ -306,15 +306,15 @@ public sealed class SiteMetricsReader
             var afterTask = LanesAsync(at, Min(at + hour, DateTime.UtcNow), ct);
             var before = await beforeTask;
             var after = await afterTask;
-            void Add(string label, string key, bool b, string unit, string fmt, bool higherIsWorse = true)
+            void Add(string label, string key, bool b, string unit, string fmt)
             {
                 var x = Mean(before, key, b);
                 var y = Mean(after, key, b);
                 if (x == null && y == null) return;
-                var worse = x != null && y != null && (higherIsWorse ? y > x * 1.1 : y < x * 0.9);
+                var worse = x != null && y != null && y > x * 1.1;
                 result.Add(new MetricDelta(label, x?.ToString(fmt) ?? "-", (y?.ToString(fmt) ?? "-") + unit, worse));
             }
-            Add("Wi-Fi clients", "clients", false, "", "0", higherIsWorse: false);
+            // No Wi-Fi client count: it follows the time of day, and Site Health's Wi-Fi row already rates the Wi-Fi.
             Add("Loaded latency", "latency", true, " ms", "0");
             Add("Loaded loss", "loss", true, "%", "0.0");
             Add("Gateway CPU", "cpu", false, "%", "0");

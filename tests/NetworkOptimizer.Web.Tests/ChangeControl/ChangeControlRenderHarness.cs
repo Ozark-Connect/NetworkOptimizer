@@ -218,7 +218,7 @@ public class ChangeControlRenderHarness
                 Fields = [new() { Label = "Security protocol", Old = "WPA2", New = "WPA2/WPA3" }, new() { Label = "PMF", Old = "Disabled", New = "Optional" }] },
         ],
         Source = "Alex, 203.0.113.24, web",
-        BeforeAfter = [new("Wi-Fi clients", "58", "50", true), new("Loaded latency", "34", "35 ms", false), new("Loaded loss", "0.0", "0.0%", false), new("Gateway CPU", "18", "19%", false)],
+        BeforeAfter = [new("Loaded latency", "34", "35 ms", false), new("Loaded loss", "0.0", "0.0%", false), new("Gateway CPU", "18", "19%", false)],
         IncidentsAfter = [new() { Id = 1, Title = "8 Wi-Fi clients offline", StartedAt = Now.AddHours(-56).AddMinutes(15), ResolvedAt = Now.AddHours(-52) }],
         CanRollBack = true,
     };
