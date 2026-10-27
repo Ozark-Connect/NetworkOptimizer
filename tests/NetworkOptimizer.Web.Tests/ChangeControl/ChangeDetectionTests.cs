@@ -112,6 +112,13 @@ public class ChangeDetectionTests
     public void DisplayValue_TitleCasesEnumsOnly(string stored, string shown) =>
         ChangeDescriber.DisplayValue(stored).Should().Be(shown);
 
+    [Theory]
+    [InlineData("loft_ap")]
+    [InlineData("auto")]
+    [InlineData("desk")]
+    public void DisplayValue_TypedNames_AreNeverRecased(string typed) =>
+        ChangeDescriber.DisplayValue(typed, "port_overrides[port_idx=5].name").Should().Be(typed);
+
     [Fact]
     public void ForDisplay_ManualPortToProfile_KeepsOnlyTheProfileRow()
     {

@@ -62,6 +62,12 @@ public static partial class ChangeDescriber
         "a", "an", "and", "by", "for", "in", "of", "or", "per", "the", "to", "via",
     };
 
+    // Fields that hold text a person typed: their values are never re-cased.
+    private static readonly HashSet<string> FreeText = new(StringComparer.Ordinal)
+    {
+        "name", "description", "note", "hostname", "key", "value", "x_passphrase", "ssid", "alias", "domain_name", "comment",
+    };
+
     // UniFi enum values shown title-cased (On, None, Force Authorized). Any other value, names included, is left as is.
     private static readonly HashSet<string> EnumValues = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -142,9 +148,12 @@ public static partial class ChangeDescriber
     /// A stored value as shown: UniFi's enum strings title-cased ("on" to "On", "force_authorized" to "Force Authorized").
     /// Names, addresses, and numbers are left exactly as stored.
     /// </summary>
-    public static string? DisplayValue(string? value)
+    public static string? DisplayValue(string? value, string? path = null)
     {
         if (string.IsNullOrEmpty(value)) return value;
+        // Text a person typed (a port's name, a note) is shown exactly as written; only an empty one reads None.
+        if (path != null && FreeText.Contains(path.Split('.')[^1]))
+            return string.Equals(value, "none", StringComparison.Ordinal) ? "None" : value;
         var token = value.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
                     && (value.All(c => !char.IsUpper(c)) || value.All(c => !char.IsLower(c)));
         return token && (EnumValues.Contains(value) || (value.Contains('_') && char.IsAsciiLetter(value[0])))
@@ -169,8 +178,8 @@ public static partial class ChangeDescriber
             {
                 Path = f.Path,
                 Label = f.Path.StartsWith('_') ? Title(f.Label) : f.Label,
-                Old = DisplayValue(f.Old),
-                New = DisplayValue(f.New),
+                Old = DisplayValue(f.Old, f.Path),
+                New = DisplayValue(f.New, f.Path),
                 Secret = f.Secret,
             })
             .ToList();
