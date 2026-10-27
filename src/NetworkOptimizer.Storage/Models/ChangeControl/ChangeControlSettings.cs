@@ -48,7 +48,7 @@ public class ChangeControlSettings
     public int DailySnapshotMinute { get; set; }
 
     /// <summary>The default for this site's users: show Network Optimizer's own changes on Changes.</summary>
-    public bool ShowOwnChanges { get; set; }
+    public bool ShowOwnChanges { get; set; } = true;
 
     /// <summary>A template is the Baseline (instead of a snapshot marked Baseline).</summary>
     public int? BaselineTemplateId { get; set; }

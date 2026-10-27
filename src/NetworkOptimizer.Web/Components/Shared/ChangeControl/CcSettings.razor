@@ -2,7 +2,10 @@
 @using NetworkOptimizer.Storage.Models
 @inject IChangeControlService Site
 @inject IChangeControlFleetService Fleet
+@inject IJSRuntime JS
 @inject ILogger<CcSettings> Logger
+
+<NavigationLock OnBeforeInternalNavigation="ConfirmLeaveAsync" ConfirmExternalNavigation="@HasUnsavedChanges" />
 
 <div class="card">
     <div class="cc-toolbar">
@@ -191,6 +194,16 @@ else
     private bool _busy;
     private bool _ok;
     private string? _message;
+    private string? _savedJson;
+
+    private bool HasUnsavedChanges => _isAdmin && _s != null && System.Text.Json.JsonSerializer.Serialize(_s) != _savedJson;
+
+    private async Task ConfirmLeaveAsync(LocationChangingContext context)
+    {
+        if (!HasUnsavedChanges) return;
+        if (!await JS.InvokeAsync<bool>("confirm", "You have unsaved changes in Change Control Settings. Leave without saving?"))
+            context.PreventNavigation();
+    }
 
     private int MonthlyValue
     {
@@ -215,6 +228,7 @@ else
         {
             _sites = await Fleet.GetSitesAsync();
             _s = await Site.GetSettingsAsync();
+            _savedJson = System.Text.Json.JsonSerializer.Serialize(_s);
             _storage = await Site.GetStorageAsync();
             _rules = await Site.GetAlertRulesAsync();
             _isAdmin = await Site.IsSiteAdminAsync();
@@ -233,6 +247,7 @@ else
         try
         {
             await Site.SaveSettingsAsync(_s);
+            _savedJson = System.Text.Json.JsonSerializer.Serialize(_s);
             _ok = true;
             _message = "Saved.";
         }
