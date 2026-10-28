@@ -1436,6 +1436,30 @@ public class AccessIspFallbackTests
             ["203.0.113.224"] = 16.0,
         });
     }
+
+    [Theory]
+    [InlineData(ProbeMode.Udp, ProbeMode.Icmp, true)]    // managed fallback: UDP asked, ICMP returned
+    [InlineData(ProbeMode.Udp, ProbeMode.Udp, false)]    // native traceroute honors UDP
+    [InlineData(ProbeMode.Icmp, ProbeMode.Icmp, false)]  // an ICMP request alone proves nothing
+    public void SweepUsedManagedTraceroute_detects_a_udp_request_answered_as_icmp(ProbeMode requested, ProbeMode used, bool expected)
+    {
+        var traces = new[]
+        {
+            Trace(ProbeMode.Icmp, ProbeMode.Icmp),
+            Trace(requested, used),
+        };
+
+        UpstreamTracerService.SweepUsedManagedTraceroute(traces).Should().Be(expected);
+
+        static TracerouteResult Trace(ProbeMode requested, ProbeMode used) => new()
+        {
+            Target = new ProbeTarget("192.0.2.1", requested),
+            Vantage = new ProbeVantage("server", VantageKind.Server),
+            ModeUsed = used,
+            Hops = Array.Empty<TraceHop>(),
+            Timestamp = DateTime.UtcNow,
+        };
+    }
 }
 
 public class CarveOutBlockedByTier1AccessTests
