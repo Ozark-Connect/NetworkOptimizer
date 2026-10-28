@@ -49,20 +49,36 @@ internal static class LenientHttp
     /// (headers and body) read until the server closes the connection. No Accept-Encoding is sent,
     /// so the body comes back uncompressed and plain.
     /// </summary>
-    internal static async Task<byte[]> RawHttpGetAsync(
+    internal static Task<byte[]> RawHttpGetAsync(
         IDeviceDialer dialer, string host, int port, string pathAndQuery, string? authHeader, string? cookie,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        RawHttpRequestAsync(dialer, host, port, "GET", pathAndQuery, authHeader, cookie, formBody: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="RawHttpGetAsync"/> for any method. A non-null <paramref name="formBody"/> is sent
+    /// as an <c>application/x-www-form-urlencoded</c> body, already encoded by the caller.
+    /// </summary>
+    internal static async Task<byte[]> RawHttpRequestAsync(
+        IDeviceDialer dialer, string host, int port, string method, string pathAndQuery, string? authHeader,
+        string? cookie, string? formBody, CancellationToken cancellationToken)
     {
         var request = new StringBuilder();
-        request.Append("GET ").Append(pathAndQuery).Append(" HTTP/1.0\r\n");
+        request.Append(method).Append(' ').Append(pathAndQuery).Append(" HTTP/1.0\r\n");
         request.Append("Host: ").Append(host).Append("\r\n");
         if (authHeader != null)
             request.Append("Authorization: ").Append(authHeader).Append("\r\n");
         if (cookie != null)
             request.Append("Cookie: ").Append(cookie).Append("\r\n");
         request.Append("Accept: */*\r\n");
+        if (formBody != null)
+        {
+            request.Append("Content-Type: application/x-www-form-urlencoded\r\n");
+            request.Append("Content-Length: ").Append(Encoding.ASCII.GetByteCount(formBody)).Append("\r\n");
+        }
         request.Append("Connection: close\r\n");
         request.Append("\r\n");
+        if (formBody != null)
+            request.Append(formBody);
 
         await using var stream = await dialer.DialAsync(host, port, cancellationToken);
 
