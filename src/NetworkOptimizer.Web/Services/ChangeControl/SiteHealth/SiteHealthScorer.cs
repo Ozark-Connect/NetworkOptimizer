@@ -15,6 +15,8 @@ public sealed class HealthHourInputs
     public double? LoadedRttMs { get; init; }
     public double LoadedShare { get; init; }
     public double OutageMinutes { get; init; }
+    /// <summary>The outage label when the default "WAN outage, N min" would misdescribe it (a partial-only hour).</summary>
+    public string? OutageText { get; init; }
     public string? LocalCause { get; init; }
     public double? BaselineRttMs { get; init; }
 
@@ -88,7 +90,7 @@ public static class SiteHealthScorer
         double? internet = hasInternet ? Combine(isp, local) : null;
 
         var where = x.LocalCause is { } cause ? $" ({cause})" : " (ISP)";
-        if (outage > 0) contributors.Add(new("Internet", outage, $"WAN outage, {x.OutageMinutes:0} min{where}"));
+        if (outage > 0) contributors.Add(new("Internet", outage, $"{x.OutageText ?? $"WAN outage, {x.OutageMinutes:0} min"}{where}"));
         if (loss > 0) contributors.Add(new("Internet", loss, $"loss {x.LossPct:0.##}%{where}"));
         if (latency > 0)
             contributors.Add(new("Internet", latency, $"latency {x.IdleRttMs:0.#} ms{(x.BaselineRttMs is { } b ? $" vs {b:0.#} normal" : "")}{where}"));

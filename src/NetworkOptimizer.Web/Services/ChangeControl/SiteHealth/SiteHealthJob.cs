@@ -219,15 +219,33 @@ public sealed class SiteHealthJob
         var loadedShare = windows > 0 ? (double)load.Count(kv => In(kv.Key) && (kv.Value.IsLoadedDown || kv.Value.IsLoadedUp)) / windows : 0;
 
         double outageMinutes = 0;
+        var anyTotal = false;
+        double partialMinutes = 0;
+        string? partialShare = null;
         foreach (var a in alerts.Where(a => a.EventType is "monitoring.wan_outage" or "monitoring.wan_outage_partial"))
         {
             if (!string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(Context(a, "wan") ?? a.DeviceId ?? ""), primaryKey,
                     StringComparison.OrdinalIgnoreCase)) continue;
-            var minutes = Overlap(a, alerts, hour, end).TotalMinutes * scale;
+            var lasted = Overlap(a, alerts, hour, end).TotalMinutes;
+            if (lasted <= 0) continue;
+            var minutes = lasted * scale;
             if (a.EventType == "monitoring.wan_outage_partial")
-                minutes *= double.TryParse(Context(a, "targets_failing"), out var f) && double.TryParse(Context(a, "targets_total"), out var t) && t > 0 ? f / t : 0.5;
+            {
+                var hasFailing = double.TryParse(Context(a, "targets_failing"), out var f);
+                var hasTotal = double.TryParse(Context(a, "targets_total"), out var t);
+                var known = hasFailing && hasTotal && t > 0;
+                // The label states how long it lasted; the provisional hour's scale is for the score only.
+                partialMinutes += lasted;
+                partialShare ??= known ? $"{f:0} of {t:0} targets" : null;
+                minutes *= known ? f / t : 0.5;
+            }
+            else anyTotal = true;
             outageMinutes += minutes;
         }
+        // The weighted minutes read as a whole-WAN outage; a partial-only hour says what it was.
+        var outageText = !anyTotal && partialMinutes > 0
+            ? $"partial WAN outage{(partialShare is { } share ? $", {share}" : "")}, {partialMinutes:0} min"
+            : null;
 
         string? localCause = null;
         if (alerts.Any(a => a.EventType == "device.rebooted" && gatewayMacs.Contains(Mac(a.DeviceId)) && In(a.TriggeredAt)))
@@ -290,6 +308,7 @@ public sealed class SiteHealthJob
             LoadedRttMs = loaded.Count > 0 ? Median(loaded) : null,
             LoadedShare = loadedShare,
             OutageMinutes = outageMinutes,
+            OutageText = outageText,
             LocalCause = localCause,
             BaselineRttMs = baseline,
             WifiSamples = radios.Sum(r => r.Total),

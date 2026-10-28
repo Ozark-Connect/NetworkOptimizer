@@ -40,6 +40,17 @@ public class SiteHealthTests
     }
 
     [Fact]
+    public void PartialOutage_IsLabeledByWhatFailed_NotAsTheWan()
+    {
+        var h = Score(new HealthHourInputs
+        {
+            Hour = T, LossPct = 0, IdleRttMs = 2, OutageMinutes = 0.56,
+            OutageText = "partial WAN outage, 2 of 27 targets, 7 min",
+        });
+        h.Worst.Should().Be("Internet: partial WAN outage, 2 of 27 targets, 7 min (ISP)");
+    }
+
+    [Fact]
     public void LocalCause_MovesTheImpairmentOffTheIsp()
     {
         var h = Score(new HealthHourInputs { Hour = T, LossPct = 0, IdleRttMs = 2, OutageMinutes = 30, LocalCause = "gateway rebooted" });
