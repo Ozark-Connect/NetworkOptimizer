@@ -103,7 +103,11 @@
         {
             if (IsStackedChild(card.Id)) continue;
 
-            var hasStack = card.StackedCards.Count > 0;
+            var hostShown = IsCardShown(card.Id);
+            var shownChildren = card.StackedCards.Where(IsCardShown).ToList();
+            if (!hostShown && shownChildren.Count == 0) continue;
+
+            var hasStack = (hostShown ? 1 : 0) + shownChildren.Count > 1;
 
             <div class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
                 @if (_editMode)
@@ -114,8 +118,11 @@
                 @if (hasStack)
                 {
                     <div class="card-stack">
-                        @RenderCard(card.Id)
-                        @foreach (var childId in card.StackedCards)
+                        @if (hostShown)
+                        {
+                            @RenderCard(card.Id)
+                        }
+                        @foreach (var childId in shownChildren)
                         {
                             @if (_editMode)
                             {
@@ -132,7 +139,7 @@
                 }
                 else
                 {
-                    @RenderCard(card.Id)
+                    @RenderCard(hostShown ? card.Id : shownChildren[0])
                 }
 
                 @if (_editMode)
@@ -265,6 +272,33 @@
         StartDeviceRefreshTimer();
     }
 
+    // Cards and stat tiles that read the UniFi Console (its devices, the audit, the gateway). A site
+    // with no console hides them outside edit mode; the layout itself is left alone.
+    private static readonly HashSet<string> ConsoleCards =
+    [
+        DashboardCards.SecurityPosture, DashboardCards.SqmStatus, DashboardCards.CellularStats,
+        DashboardCards.WiFiOptimizer, DashboardCards.RecentAlerts, DashboardCards.DeviceStatus,
+        DashboardCards.LiveView,
+    ];
+
+    private static readonly HashSet<string> ConsoleStatItems =
+    [
+        DashboardStatItems.TotalDevices, DashboardStatItems.SecurityScore, DashboardStatItems.SqmStatus,
+        DashboardStatItems.ActiveAlerts, DashboardStatItems.WiFiHealth,
+    ];
+
+    private bool HidesConsoleCards => ConnectionService.HasNoConsole && !_editMode;
+
+    private IEnumerable<string> ShownStatItems =>
+        _layout?.StatItems.Where(s => !HidesConsoleCards || !ConsoleStatItems.Contains(s)) ?? [];
+
+    private bool IsCardShown(string cardId) => cardId switch
+    {
+        _ when !HidesConsoleCards => true,
+        DashboardCards.StatsRow => ShownStatItems.Any(),
+        _ => !ConsoleCards.Contains(cardId),
+    };
+
     private RenderFragment RenderCard(string cardId) => cardId switch
     {
         DashboardCards.StatsRow => RenderStatsRow,
@@ -293,7 +327,7 @@
         <div class="stats-row @(_editMode ? "stats-row-editing" : "")">
             @if (_layout != null)
             {
-                @foreach (var statId in _layout.StatItems)
+                @foreach (var statId in ShownStatItems)
                 {
                     <div class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
                         @if (_editMode)

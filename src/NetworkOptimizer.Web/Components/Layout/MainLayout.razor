@@ -46,7 +46,7 @@
                         <span>Console Connected</span>
                     </div>
                 }
-                else
+                else if (!ConnectionService.HasNoConsole)
                 {
                     <div class="status-item status-disconnected">
                         <span class="status-icon">●</span>
