@@ -3947,8 +3947,8 @@
                                                             <label class="checkbox-toggle">
                                                                 <input type="checkbox" @bind="_newAgentLanSpeedTest" />
                                                                 <span><strong>LAN speed test server</strong>
-                                                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients" @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
-                                                                    - lets the site's clients run speed tests against the agent.</span>
+                                                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients. On a gateway, a running test loads its CPU and caps results: up to 10 Gbps on the EFG and UDM-Beast, 2.5-5 Gbps on the UXG/UCG-Fiber class with IPS on, 1-2.5 Gbps on the UDR7 and other IPQ5332 gateways." @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
+                                                                    - lets the site's clients run speed tests against the agent. A separate box at the site is the recommended host; a high-end gateway (EFG, UDM-Beast, UXG/UCG-Fiber class) can host it too.</span>
                                                             </label>
                                                             <AgentInstallInstructions Token="@_newAgentToken" AgentId="@_newAgentId" TokenChanged="@(t => _newAgentToken = t)" LanSpeedTest="@_newAgentLanSpeedTest" SiteSlug="@site.Slug" />
                                                         }
