@@ -74,14 +74,21 @@ else
                data-site-switch="@site.Slug"
                data-site-current="@(isCurrent ? "" : null)">
                 <div class="site-card-header">
-                    <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")" data-tooltip="@(SiteConnections.GetFor(site.Slug).IsConnected ? "Console connected" : "Console not connected")"></span>
+                    @if (site.HasNoConsole)
+                    {
+                        <span class="status-dot empty"></span>
+                    }
+                    else
+                    {
+                        <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")" data-tooltip="@(SiteConnections.GetFor(site.Slug).IsConnected ? "Console connected" : "Console not connected")"></span>
+                    }
                     <h3 class="site-card-name">@site.Name</h3>
                     @if (isCurrent)
                     {
                         <span class="status-badge status-info">Current</span>
                     }
                 </div>
-                @if (ConsoleHost(site.Id) is { Length: > 0 } host)
+                @if (!site.HasNoConsole && ConsoleHost(site.Id) is { Length: > 0 } host)
                 {
                     <div class="site-card-console">@host</div>
                 }

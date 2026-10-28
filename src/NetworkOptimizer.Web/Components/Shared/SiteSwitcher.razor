@@ -37,7 +37,7 @@
                        data-site-switch="@site.Slug"
                        data-site-current="@(site.Slug == SiteContext.Slug ? "" : null)">
                         <span class="site-switcher-item-name">
-                            <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")"></span>
+                            <span class="status-dot @(site.HasNoConsole ? "empty" : SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")"></span>
                             @site.Name
                         </span>
                         <span class="site-switcher-item-slug">@site.Slug</span>

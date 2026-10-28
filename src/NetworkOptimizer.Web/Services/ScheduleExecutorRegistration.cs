@@ -27,6 +27,37 @@ public static class ScheduleExecutorRegistration
             ExecuteLanSpeedTestAsync(app.Services, siteKey, targetId, ct);
         scheduleService.SqmLearningExecutor = (siteKey, taskId, targetId, targetConfig, ct) =>
             ExecuteSqmLearningAsync(app.Services, siteKey, taskId, targetId, targetConfig, ct);
+
+        var connections = app.Services.GetRequiredService<SiteConnectionRegistry>();
+        scheduleService.SkipTask = (siteKey, task) =>
+            siteKey == SiteManagementService.DefaultSiteSlug
+            && connections.GetDefault().HasNoConsole
+            && NeedsConsole(task);
+    }
+
+    /// <summary>
+    /// Whether a scheduled task needs the site's UniFi Console (or the gateway it finds). The
+    /// server-side WAN speed test and LAN speed tests to configured devices run without one.
+    /// </summary>
+    internal static bool NeedsConsole(NetworkOptimizer.Alerts.Models.ScheduledTask task)
+    {
+        switch (task.TaskType)
+        {
+            case "audit":
+            case NetworkOptimizer.Alerts.ScheduleService.SqmLearningTaskType:
+                return true;
+            case "wan_speedtest":
+                try
+                {
+                    return ParseWanTestConfig(task.TargetConfig).TestType != "server";
+                }
+                catch (Exception)
+                {
+                    return true; // an unreadable config fails its run anyway
+                }
+            default:
+                return false;
+        }
     }
 
     /// <summary>

@@ -3696,6 +3696,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("HasNoConsole")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsDefault")
                         .HasColumnType("INTEGER");
 

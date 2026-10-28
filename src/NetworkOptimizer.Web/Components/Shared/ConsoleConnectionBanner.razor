@@ -1,11 +1,23 @@
-@* The site's UniFi Console connection state, for a page or panel that needs the Console: waiting
-   for the site's On-Site Agent, the Console not responding, or not connected. Renders nothing
-   while connected, and re-renders itself when the connection changes. *@
+@* The site's UniFi Console connection state, for a page or panel that needs the Console: no
+   Console at this site, waiting for the site's On-Site Agent, the Console not responding, or not
+   connected. Renders nothing while connected, and re-renders itself when the connection changes. *@
 
 @implements IDisposable
 @inject UniFiConnectionService ConnectionService
 
-@if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
+@if (ConnectionService.HasNoConsole)
+{
+    <div class="alert alert-info">
+        <div class="banner-content">
+            <span class="banner-icon banner-icon-info">i</span>
+            <div class="banner-text">
+                <strong>No UniFi Console at this site</strong>
+                <span>This install only hosts your other sites.</span>
+            </div>
+        </div>
+    </div>
+}
+else if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
 {
     @if (ConnectionService.IsAwaitingAgent)
     {

@@ -4012,6 +4012,14 @@
                                                                     a minute.
                                                                 </label>
                                                             }
+                                                            <AdminOnly>
+                                                                <label class="checkbox-toggle">
+                                                                    <input type="checkbox" checked="@site.HasNoConsole"
+                                                                           @onchange="e => ToggleHasNoConsole((bool)e.Value!)" />
+                                                                    No UniFi Console at this site - this install only hosts your other sites.
+                                                                    Leaves it out of Site Health and console checks.
+                                                                </label>
+                                                            </AdminOnly>
                                                         </div>
 
                                                         <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="blockingAdmin">
@@ -4626,6 +4634,21 @@
         _sites = await SiteManagement.GetSitesAsync();
         await LoadAgentsAsync();
         StateHasChanged();
+    }
+
+    private async Task ToggleHasNoConsole(bool value)
+    {
+        try
+        {
+            await SiteManagement.SetDefaultSiteHasNoConsoleAsync(value);
+        }
+        catch (Exception ex)
+        {
+            _multiSiteMessage = ex.Message;
+            _multiSiteMessageClass = "danger";
+            return;
+        }
+        await RefreshSites();
     }
 
     private async Task ToggleSiteEnabled(Site site)

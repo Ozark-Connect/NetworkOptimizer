@@ -269,7 +269,7 @@ public class TourPredicateResolverTests : IDisposable
             siteRoles: null!, tunnelRegistry: null!, _mainDbFactory, authDbFactory: null!, _paths,
             licenseState: null!, activation: null!, siteConnections: null!, siteRegistries: [],
             collectionRegistry: null!, changeNotifier: null!, access,
-            NullLogger<SiteManagementService>.Instance);
+            NullLogger<SiteManagementService>.Instance, new NetworkOptimizer.Web.Services.Gates.AuditContext());
         // Only GetAllAgentsAsync is called, and it touches the main database and the filter alone.
         var agents = new AgentEnrollmentService(_mainDbFactory, tunnelRegistry: null!, access,
             agentCoverage: null!, serviceProvider: null!, tunnelRouting: null!,

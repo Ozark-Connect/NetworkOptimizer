@@ -53,6 +53,14 @@ public interface ISiteManagementService
     [AuditAction(AuditActions.SiteChanged, Category = AuditCategories.Site, TargetType = "site")]
     Task SetSiteEnabledAsync(Site site, bool enabled);
 
+    /// <summary>
+    /// Marks the default site as having no UniFi Console, or clears it. Instance Admin, like the
+    /// rest of the site registry.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SiteChanged, Category = AuditCategories.Site, TargetType = "site")]
+    Task SetDefaultSiteHasNoConsoleAsync(bool hasNoConsole);
+
     /// <summary>Deletes a site and its database.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SiteChanged, Category = AuditCategories.Site, TargetType = "site")]
