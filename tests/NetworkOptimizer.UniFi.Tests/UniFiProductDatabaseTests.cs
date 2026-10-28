@@ -1048,6 +1048,21 @@ public class UniFiProductDatabaseTests
     }
 
     [Theory]
+    [InlineData("USLP48P", null)]
+    [InlineData(null, "USWPRO48POE")]
+    [InlineData(null, "US48PRO")]
+    public void CanRunIperf3_ProGen1_48PoE_AllModelCodes_ReturnFalse(string? model, string? shortname)
+    {
+        // Act
+        var byName = UniFiProductDatabase.CanRunIperf3("USW-Pro-48-PoE");
+        var byModel = UniFiProductDatabase.CanRunIperf3(model, shortname);
+
+        // Assert
+        byName.Should().BeFalse();
+        byModel.Should().BeFalse();
+    }
+
+    [Theory]
     [InlineData("US-8")]
     [InlineData("US-8-60W")]
     [InlineData("US-8-150W")]
@@ -1129,7 +1144,7 @@ public class UniFiProductDatabaseTests
     [InlineData("UDM-Pro")]
     [InlineData("UDM-SE")]
     [InlineData("USW-Pro-24")]
-    [InlineData("USW-Pro-48-PoE")]
+    [InlineData("USW-Pro-24-PoE")]
     [InlineData("U6-Pro")]
     [InlineData("U7-Pro")]
     public void CanRunIperf3_SupportedDevices_ReturnsTrue(string productName)

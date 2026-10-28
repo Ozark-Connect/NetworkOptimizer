@@ -68,6 +68,9 @@ public static class UniFiProductDatabase
         // Pro XG (MIPS-based)
         "USW-Pro-XG-8-PoE",
 
+        // Pro Series Gen1 (no iperf3)
+        "USW-Pro-48-PoE",
+
         // Pro Max Series (no iperf3)
         "USW-Pro-Max-16",
         "USW-Pro-Max-16-PoE",
