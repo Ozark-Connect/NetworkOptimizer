@@ -2404,16 +2404,25 @@
     private static string CompletedText(Iperf3Result result) =>
         $"Speed test completed: {result.DownloadMbps:F1} Mbps from / {result.UploadMbps:F1} Mbps to device";
 
+    /// <summary>A test result older than this no longer shows under its device's row.</summary>
+    private static readonly TimeSpan RowResultMaxAge = TimeSpan.FromHours(24);
+
     /// <summary>
     /// What a device's result row shows: this visit's message when there is one, else the newest stored
-    /// result for the host. Null renders no row.
+    /// result for the host. A result past <see cref="RowResultMaxAge"/> is dropped. Null renders no row.
     /// </summary>
     private RowMessage? RowResultFor(Dictionary<string, RowMessage> messages, string? host)
     {
         if (string.IsNullOrEmpty(host)) return null;
-        if (messages.TryGetValue(host, out var message)) return message;
-        return _latestResultByHost.TryGetValue(host, out var stored) ? MessageFor(stored) : null;
+        var cutoff = DateTime.UtcNow - RowResultMaxAge;
+        if (messages.TryGetValue(host, out var message) && (message.Result == null || message.Result.TestTime >= cutoff))
+            return message;
+        return _latestResultByHost.TryGetValue(host, out var stored) && stored.TestTime >= cutoff ? MessageFor(stored) : null;
     }
+
+    /// <summary>A row's text, with the result's age when it carries one ("· 3 hours ago").</summary>
+    private static string RowText(RowMessage message) =>
+        message.Result is { } result ? $"{message.Text} · {TimeFormatHelper.FormatRelativeTime(result.TestTime)}" : message.Text;
 
     private void RebuildLatestResults()
     {
@@ -2452,7 +2461,7 @@
                 else if (message is { Kind: "success", Result: { } succeeded })
                 {
                     <div class="alert alert-success alert-link" @onclick="() => OpenRowResult(succeeded)">
-                        <span>@message.Text</span>
+                        <span>@RowText(message)</span>
                         <span class="alert-link-hint">Click to view details →</span>
                     </div>
                 }
@@ -2461,12 +2470,12 @@
                     <div class="alert alert-@message.Kind alert-with-tooltip">
                         @if (message.Kind == "danger")
                         {
-                            <span class="alert-text">@message.Text</span>
+                            <span class="alert-text">@RowText(message)</span>
                             <SshTroubleshootingTooltip Context="devices" />
                         }
                         else
                         {
-                            @message.Text
+                            @RowText(message)
                         }
                     </div>
                     @if (failure?.RawOutput != null)
