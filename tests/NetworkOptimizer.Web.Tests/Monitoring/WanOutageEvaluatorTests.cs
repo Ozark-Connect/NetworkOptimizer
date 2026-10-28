@@ -138,6 +138,7 @@ public class WanOutageEvaluatorTests
             Target("wan-resolver-d", "resolver-d", "203.0.113.40", MonitoringTargetType.InternetService, "wan", 64531, "Delta Cloud"),
             Target("wan-resolver-e", "resolver-e", "203.0.113.50", MonitoringTargetType.InternetService, "wan", 64532, "Echo Cloud"),
             Target("wan-resolver-f", "resolver-f", "203.0.113.60", MonitoringTargetType.InternetService, "wan", 64533, "Foxtrot Cloud"),
+            Target("wan-resolver-g", "resolver-g", "203.0.113.70", MonitoringTargetType.InternetService, "wan", 64534, "Golf Cloud"),
         ];
 
         await RoundsAsync(RoundsToConfirm, failing: WanDestinations,

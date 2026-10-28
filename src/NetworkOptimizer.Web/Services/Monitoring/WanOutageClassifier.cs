@@ -128,15 +128,18 @@ internal static class WanOutageClassifier
         // destination sits behind is uncorroborated. One network with no path hop to anchor on
         // is that provider's problem, not the WAN's (two AWS regions dark at once, say), so it
         // gets the single-destination treatment.
-        var networks = degraded.Where(t => t.IsInternet).Select(NetworkKeyOf).Distinct().Count();
+        var degradedDestinations = degraded.Where(t => t.IsInternet).ToList();
+        var networks = degradedDestinations.Select(NetworkKeyOf).Distinct().Count();
         if (networks < 2)
             return WanVerdict.None;
 
+        // Breadth over destinations only, for the same reason: a rate-limited transit hop is no reach lost.
+        var destinations = targets.Count(t => t.IsInternet);
         return new WanVerdict(WanVerdictKind.Partial, false, null, null, null,
-            degraded.Count, targets.Count, Broad: degraded.Count * BroadShareDenominator >= targets.Count);
+            degraded.Count, targets.Count, Broad: degradedDestinations.Count * BroadShareDenominator >= destinations);
     }
 
-    /// <summary>A scattered partial is broad once at least 1/N of the WAN's targets are degraded.</summary>
+    /// <summary>A scattered partial is broad once at least 1/N of the WAN's monitored destinations are degraded.</summary>
     private const int BroadShareDenominator = 3;
 
     /// <summary>
