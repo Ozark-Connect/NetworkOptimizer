@@ -192,6 +192,25 @@ public sealed class DeviceSshRouter
         });
     }
 
+    /// <summary>
+    /// Why <see cref="GetConnectionAsync"/> returned null for the target, for the user. A disabled
+    /// Gateway SSH or an offline agent also yields null, and neither is missing credentials.
+    /// </summary>
+    public async Task<string> DescribeMissingConnectionAsync(DeviceSshTarget target, CancellationToken ct = default)
+    {
+        var route = await ResolveAsync(target, ct);
+        if (route == SshCredentialRoute.DeviceCredentials)
+            return "Device SSH credentials are not configured for this site.";
+
+        var gateway = await _gatewaySsh.GetSettingsAsync();
+        if (!gateway.Enabled)
+            return "Gateway SSH access is disabled";
+        if (route == SshCredentialRoute.Gateway && !string.IsNullOrEmpty(gateway.Host) && gateway.HasCredentials
+            && await _gatewaySsh.IsAwaitingAgentTunnelAsync())
+            return GatewaySshService.AwaitingAgentMessage;
+        return GatewayCredentialsMissing;
+    }
+
     /// <summary>A login the credentials could not make, as opposed to a host that could not be reached.</summary>
     internal static bool IsCredentialRefusal(string output) =>
         output.Contains("Authentication failed", StringComparison.OrdinalIgnoreCase) ||

@@ -793,9 +793,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var host = target.Host;
         var connection = await BuildConnectionAsync(target, ct);
         if (connection == null)
-            return ApAgentOperationResult.Fail(await Router.ResolveAsync(target, ct) == SshCredentialRoute.DeviceCredentials
-                ? "Device SSH credentials are not configured for this site."
-                : "Gateway SSH credentials are not configured for this site.");
+            return ApAgentOperationResult.Fail(await Router.DescribeMissingConnectionAsync(target, ct));
 
         var mkdir = await RunAsync(target, $"mkdir -p {ApAgentPaths.RemoteDir}", ct);
         if (!mkdir.success)
