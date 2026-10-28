@@ -58,6 +58,16 @@ public sealed class TunnelClient
     // side: worst case a frame is re-sent, never dropped.
     private volatile bool _ackless;
 
+    private long? _openedAtTicks;
+
+    /// <summary>
+    /// From the server hello to the last message the server sent: how long this tunnel carried
+    /// traffic. Null when it never opened. A silent tail (the watchdog's 150 s) does not count.
+    /// </summary>
+    public TimeSpan? HealthyFor => _openedAtTicks is { } openedAt
+        ? TimeSpan.FromMilliseconds(Volatile.Read(ref _lastInboundTicks) - openedAt)
+        : null;
+
     /// <summary>Invoked whenever the server pushes a new probe configuration.</summary>
     public Action<ProbeConfig>? OnProbeConfig { get; set; }
 
@@ -216,7 +226,9 @@ public sealed class TunnelClient
 
         Console.WriteLine($"Tunnel open for site '{siteSlug}' (heartbeat every {heartbeatInterval.TotalSeconds:0}s)");
 
-        Volatile.Write(ref _lastInboundTicks, Environment.TickCount64);
+        var openedAt = Environment.TickCount64;
+        Volatile.Write(ref _lastInboundTicks, openedAt);
+        _openedAtTicks = openedAt;
         var pumpTask = PumpOutboundAsync(call.RequestStream, linked.Token);
         var heartbeatTask = HeartbeatLoopAsync(heartbeatInterval, linked.Token);
         var watchdogTask = WatchInboundSilenceAsync(linked, linked.Token);
