@@ -703,7 +703,12 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         // re-pushing 10 MB to prove it would be the expensive way to learn nothing.
         var localMd5 = ComputeMd5(localPath);
         var binaryIsCurrent = string.Equals(localMd5, status.BinaryMd5, StringComparison.OrdinalIgnoreCase);
-        if (binaryIsCurrent && status.IsRunning && status.DeployedBinaryVersion >= ExpectedBinaryVersion)
+        // Never skip for a process that refused its last probe: it binds br0's address once at start,
+        // so after the AP is re-addressed it runs on but listens on an address the AP no longer has.
+        bool refusing;
+        lock (_lastAssessment)
+            refusing = _lastAssessment.TryGetValue(mac, out var last) && last.State == ApAgentState.NotListening;
+        if (binaryIsCurrent && status.IsRunning && !refusing && status.DeployedBinaryVersion >= ExpectedBinaryVersion)
         {
             _retry.RecordSuccess(mac);
             return ApAgentOperationResult.Ok();
