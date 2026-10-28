@@ -58,6 +58,13 @@ public class ScheduleService : BackgroundService
     /// </summary>
     public Func<string, int, string?, string?, CancellationToken, Task<ScheduleRunOutcome>>? SqmLearningExecutor { get; set; }
 
+    /// <summary>
+    /// Optional host check, given (siteKey, task). True skips a due task without running it or
+    /// alerting, and moves it to its next slot. The Web project uses it for a site with no UniFi
+    /// Console, whose console-dependent tasks could only fail.
+    /// </summary>
+    public Func<string, Models.ScheduledTask, bool>? SkipTask { get; set; }
+
     public ScheduleService(
         ILogger<ScheduleService> logger,
         IServiceScopeFactory scopeFactory,
@@ -184,6 +191,23 @@ public class ScheduleService : BackgroundService
             // Skip if already running
             if (IsTaskRunning(task.Id, siteKey))
                 continue;
+
+            if (SkipTask?.Invoke(siteKey, task) == true)
+            {
+                var nextRun = CalculateNextRun(task.FrequencyMinutes, task.CustomMorningHour,
+                    task.CustomMorningMinute, task.NextRunAt);
+                _logger.LogDebug("Skipping scheduled task {TaskId} ({TaskType}) for site {SiteKey}; next slot {NextRun}",
+                    task.Id, task.TaskType, siteKey, nextRun);
+                try
+                {
+                    await repo.UpdateNextRunAsync(task.Id, nextRun, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to advance skipped task {TaskId}", task.Id);
+                }
+                continue;
+            }
 
             // Execute in background (don't block the evaluation loop)
             var taskId = task.Id;
