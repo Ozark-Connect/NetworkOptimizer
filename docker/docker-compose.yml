@@ -44,7 +44,7 @@ services:
       start_period: 120s
 
   # Network Optimizer Speed Test - customized OpenSpeedTest that sends results to Network Optimizer
-  # Requires HOST_IP or HOST_NAME to be set in .env for result reporting
+  # Posts results to REVERSE_PROXIED_HOST_NAME, HOST_NAME, or HOST_IP from the same .env as the app
   network-optimizer-speedtest:
     build:
       context: ..

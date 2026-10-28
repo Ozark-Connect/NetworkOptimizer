@@ -17,6 +17,16 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
+## Coming Soon: Change Control
+
+Available on Preview Now: track all changes to your UniFi Network configuration made from all sources, with all differences recorded with each change. Revert entire change sets if performance didn't improve without having to remember to take backups, save a baseline to return back to before major changes, save a template that can be applied - all or just some configuration pieces - to existing or new sites. See how changes affected performance directly on a visualization of Site Health, WAN stats, Gateway CPU usage, Wi-Fi Client-band split and PHY, and more. Alerts are sent automatically if there are regressions, and if a change takes down your site's WAN, it automatically reverts.
+
+Migrate device configuration to entirely new device models while maintaining Wi-Fi band and full port configurations. Sick of the default 192.168.0.0/24 subnet, or ending up with subnet collisions among your managed sites? Change up your whole IP addressing scheme with a few clicks, with helpful pre-staging steps as well. Create, regroup, or split up Zones for Zone-Based Firewall configuration too. Mass-adopt devices pending adoption, either on the bench or in the field. And more to come.
+
+Also bonus feature: edit configurations quickly in a YAML format with an auto-complete-enabled editor. Export and import and share YAML configurations among all of your managed sites.
+
+Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
+
 ## New: Integrated WAF + Centralized Firewall Blocking + New Security Features
 
 Available on the latest release: the companion Traefik proxy repo is getting a custom wrapper around the Coraza Web Application Firewall (WAF) running the OWASP Core Rule Set, with a management plane implemented in Network Optimizer that pulls in free block lists (Spamhaus DROP by default, plus CINS Army, DShield, blocklist.de, IPsum, and more if you want them), IPS events, establishes an allow list based upon a matrix of your managed sites' public IPs, and more. WAF events land in Threat Intelligence and your alerts right alongside your IPS events, and you can clear a false positive straight from the event (no restart). It starts out in Detection Only, so you can let it run for a week before you flip it to blocking.
