@@ -1,0 +1,17 @@
+@using NetworkOptimizer.Core.Helpers
+@foreach (var (segment, isUrl) in StringUtilities.SplitLinks(Text))
+{
+    if (isUrl)
+    {
+        <a href="@segment" target="_blank" rel="noopener noreferrer" class="linkified-url" @onclick:stopPropagation>@segment</a>
+    }
+    else
+    {
+        @segment
+    }
+}
+
+@code {
+    /// <summary>Plain text to render, with its http(s) URLs as links that open in a new tab.</summary>
+    [Parameter] public string? Text { get; set; }
+}
