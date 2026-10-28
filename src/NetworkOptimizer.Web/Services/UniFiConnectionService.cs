@@ -283,7 +283,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     /// <summary>Returned to a console Save while the site is marked as having no UniFi Console.</summary>
     private const string NoConsoleConnectMessage =
-        "This site is set to No UniFi Console at this site. Clear that setting in Settings - Multi-Site to connect a console.";
+        "This site is set up without a Console. Change that in Settings - Multi-Site to connect one.";
 
     /// <summary>Per-site setting key: the UniFi Console's display name (system.name).</summary>
     public const string ConsoleNameKey = "console.name";

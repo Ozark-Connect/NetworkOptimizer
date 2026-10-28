@@ -131,7 +131,7 @@ public sealed class UniFiConnectionServiceNoConsoleTests
         });
 
         connected.Should().BeFalse();
-        service.LastError.Should().Contain("No UniFi Console at this site");
+        service.LastError.Should().Contain("Settings - Multi-Site");
         console.LoginAttempts.Should().Be(0);
     }
 

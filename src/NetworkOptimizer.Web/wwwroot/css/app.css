@@ -20572,6 +20572,11 @@ body.kiosk-mode .status-indicators {
     gap: 0.6rem;
 }
 
+.site-switcher-item-name .status-dot.empty,
+.site-card-header .status-dot.empty {
+    visibility: hidden;
+}
+
 .site-card-name {
     margin: 0;
     font-size: 1.05rem;
