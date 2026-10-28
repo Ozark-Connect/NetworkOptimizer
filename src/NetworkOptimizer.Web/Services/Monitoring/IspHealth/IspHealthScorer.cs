@@ -1457,7 +1457,8 @@ public class IspHealthScorer
     /// Two reach modes: <paramref name="accessBaselineRtt"/> + <paramref name="internetMedianDeltaMs"/>
     /// is the transit ceiling (distance normalized against the measured internet
     /// context); <paramref name="intraAsnFloorRttMs"/> is the ISP intra-ASN ceiling (a
-    /// soft penalty for hops sitting further out than this ISP's nearest hop). Quality
+    /// soft penalty for hops sitting further out than this ISP's nearest hop), eased past
+    /// <paramref name="egressRttMs"/> (the nearest transit cluster's median RTT). Quality
     /// deficits subtract below the ceiling, so congestion and jitter always count.
     /// </summary>
     private IspAsnHealth GradeAsn(
@@ -1468,7 +1469,8 @@ public class IspHealthScorer
         double? internetMedianDeltaMs,
         double? intraAsnFloorRttMs = null,
         double? jitterOverrideMs = null,
-        double? stabilityMadOverrideMs = null)
+        double? stabilityMadOverrideMs = null,
+        double? egressRttMs = null)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
@@ -1541,21 +1543,16 @@ public class IspHealthScorer
             // couple ms out is two sites a real distance apart - nominal, not a fault -
             // so it tops out short of perfect rather than getting dinged hard.
             reachDelta = Math.Max(0, medianRtt.Value - intraAsnFloorRttMs.Value);
-            var cIntra = ScoreCurve.Interpolate(reachDelta.Value,
-                (0, 100), (1, 93), (2, 85), (4, 70), (8, 50), (16, 35));
+            var ceiling = IntraAsnReachCeiling(medianRtt.Value, intraAsnFloorRttMs.Value, accessBaselineRtt, internetMedianDeltaMs);
 
-            // Item D: lift-only blend toward the internet-relative ceiling. Keeps the intra-ASN
-            // distance truth as the floor, but absolves a hop that's modest relative to where the
-            // internet actually sits, so a geographically large access network isn't punished for
-            // normal in-region distance. Never lowers; partial so genuine distance always shows.
-            var ceiling = cIntra;
-            if (accessBaselineRtt.HasValue && internetMedianDeltaMs is > 0)
+            // A hop farther out than where this ISP already hands traffic to transit is a second
+            // route, not the haul to the internet: charge it as if at the egress, plus a fraction of
+            // the rest. Lift-only, since the ceiling never rises with distance.
+            if (egressRttMs.HasValue && medianRtt.Value > egressRttMs.Value)
             {
-                var netDelta = Math.Max(0, medianRtt.Value - accessBaselineRtt.Value);
-                var ratio = netDelta / Math.Max(internetMedianDeltaMs.Value, 2.0);
-                var cNet = ScoreCurve.Interpolate(ratio,
-                    (0.5, 100), (1.0, 93), (1.5, 90), (2.0, 85), (3.0, 65), (5.0, 40));
-                ceiling = cIntra + _options.AccessReachInternetBlendAlpha * Math.Max(0, cNet - cIntra);
+                var atEgress = IntraAsnReachCeiling(Math.Max(egressRttMs.Value, intraAsnFloorRttMs.Value),
+                    intraAsnFloorRttMs.Value, accessBaselineRtt, internetMedianDeltaMs);
+                ceiling = Math.Max(ceiling, atEgress + _options.AccessReachBeyondEgressBeta * (ceiling - atEgress));
             }
             reachCeiling = (int)Math.Round(ceiling);
         }
@@ -1669,6 +1666,30 @@ public class IspHealthScorer
             JitterAssimilated = jitterAssimilated,
             RawJitterMs = nearJitter
         };
+    }
+
+    /// <summary>
+    /// The ISP intra-ASN reach ceiling for a hop at <paramref name="rttMs"/>: distance from this ISP's
+    /// nearest hop, lifted by the Item D internet-relative blend.
+    /// </summary>
+    private double IntraAsnReachCeiling(double rttMs, double intraAsnFloorRttMs, double? accessBaselineRtt, double? internetMedianDeltaMs)
+    {
+        // A second POP a couple ms out is two sites a real distance apart - nominal, not a
+        // fault - so it tops out short of perfect rather than getting dinged hard.
+        var cIntra = ScoreCurve.Interpolate(Math.Max(0, rttMs - intraAsnFloorRttMs),
+            (0, 100), (1, 93), (2, 85), (4, 70), (8, 50), (16, 35));
+        if (!accessBaselineRtt.HasValue || internetMedianDeltaMs is not > 0)
+            return cIntra;
+
+        // Item D: lift-only blend toward the internet-relative ceiling. Keeps the intra-ASN
+        // distance truth as the floor, but absolves a hop that's modest relative to where the
+        // internet actually sits, so a geographically large access network isn't punished for
+        // normal in-region distance. Never lowers; partial so genuine distance always shows.
+        var netDelta = Math.Max(0, rttMs - accessBaselineRtt.Value);
+        var ratio = netDelta / Math.Max(internetMedianDeltaMs.Value, 2.0);
+        var cNet = ScoreCurve.Interpolate(ratio,
+            (0.5, 100), (1.0, 93), (1.5, 90), (2.0, 85), (3.0, 65), (5.0, 40));
+        return cIntra + _options.AccessReachInternetBlendAlpha * Math.Max(0, cNet - cIntra);
     }
 
     /// <summary>The path jitter floor: the lowest scoring (P90) jitter across all ISP hops
@@ -2080,6 +2101,15 @@ public class IspHealthScorer
         // WAN's ISP, so it crossed the WAN's L2 neighbor first.
         var tracedIspHopIps = ispHopSeries.Where(s => !s.IsL2Neighbor).SelectMany(s => s.HopIps).ToList();
 
+        // Where this ISP hands traffic to transit: the nearest transit cluster's median RTT.
+        // Transit hops only - an on-net CDN cache would pass for an egress it is not.
+        var transitMedians = transitSeries
+            .Select(s => SeriesStats.Median(s.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList()))
+            .Where(m => m.HasValue)
+            .Select(m => m!.Value)
+            .ToList();
+        double? egressRtt = transitMedians.Count > 0 ? transitMedians.Min() : null;
+
         var grades = new List<IspAsnHealth>();
         foreach (var asnGroup in ispHopSeries.GroupBy(s => s.AsnNumber))
         {
@@ -2137,7 +2167,8 @@ public class IspHealthScorer
                 double? stabOverride = stabWitnesses.Count > 0 ? stabWitnesses.Min() : (double?)null;
 
                 var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
-                    intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective, stabilityMadOverrideMs: stabOverride);
+                    intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective, stabilityMadOverrideMs: stabOverride,
+                    egressRttMs: egressRtt);
                 // Log the graded effective (post sub-0.05 ms assimilation snap in GradeAsn), not the
                 // raw witness min, so the log matches what the hop is actually scored on. Stability is
                 // logged alongside jitter: its own measured RTT MAD, the witness-floor it was absolved
