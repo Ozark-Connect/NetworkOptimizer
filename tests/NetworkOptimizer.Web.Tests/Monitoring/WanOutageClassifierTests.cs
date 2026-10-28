@@ -245,6 +245,30 @@ public class WanOutageClassifierTests
     }
 
     /// <summary>
+    /// A rate-limited transit hop is no reach lost, so it does not widen a scattered partial.
+    /// </summary>
+    [Fact]
+    public void Classify_DarkTransitHop_DoesNotMakeAScatteredPartialBroad()
+    {
+        var verdict = WanOutageClassifier.Classify([
+            Access(),
+            Transit("transit-b", SecondTransitIp, 3, failing: true, asnLabel: "Delta Transit",
+                asnNumber: 64502, ancestors: [AccessIp]),
+            Internet("resolver-a", "203.0.113.10", failing: true, ancestors: [AccessIp]),
+            Internet("resolver-b", "203.0.113.20", failing: true, asnLabel: "Beta Cloud",
+                asnNumber: 64520, ancestors: [AccessIp]),
+            Internet("resolver-c", "203.0.113.30", asnLabel: "Gamma Cloud", asnNumber: 64530, ancestors: [AccessIp]),
+            Internet("resolver-d", "203.0.113.40", asnLabel: "Delta Cloud", asnNumber: 64531, ancestors: [AccessIp]),
+            Internet("resolver-e", "203.0.113.50", asnLabel: "Echo Cloud", asnNumber: 64532, ancestors: [AccessIp]),
+            Internet("resolver-f", "203.0.113.60", asnLabel: "Foxtrot Cloud", asnNumber: 64533, ancestors: [AccessIp]),
+            Internet("resolver-g", "203.0.113.70", asnLabel: "Golf Cloud", asnNumber: 64534, ancestors: [AccessIp])
+        ]);
+
+        verdict.Kind.Should().Be(WanVerdictKind.Partial);
+        verdict.Broad.Should().BeFalse();
+    }
+
+    /// <summary>
     /// One dark destination is nearly always the destination's own problem, and alerting on it
     /// would rebuild exactly the per-target noise this alert class exists to remove.
     /// </summary>
