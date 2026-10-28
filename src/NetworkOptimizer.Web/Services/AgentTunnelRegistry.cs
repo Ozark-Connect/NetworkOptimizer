@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Services;
 /// message channel that the tunnel handler drains to its gRPC response stream,
 /// so any server code can push a message to a connected agent without touching
 /// the stream directly. One connection per agent: a reconnect replaces (and
-/// completes) the previous connection's channel.
+/// drops) the previous connection.
 /// </summary>
 public class AgentTunnelRegistry
 {
@@ -63,11 +63,15 @@ public class AgentTunnelRegistry
     public AgentTunnelConnection Register(int agentId, string siteSlug, string agentName)
     {
         var connection = new AgentTunnelConnection(agentId, siteSlug, agentName);
+        AgentTunnelConnection? displaced = null;
         _connections.AddOrUpdate(agentId, connection, (_, old) =>
         {
-            old.Complete();
+            displaced = old;
             return connection;
         });
+        // The agent has abandoned the old stream, but a proxy may never pass that on to us.
+        // Left running, its watchdog flags it stale 45s later and takes the console off the new one.
+        displaced?.Drop();
         var now = DateTime.UtcNow;
         if (_lastTunnelActivity.ContainsKey(agentId))
         {
@@ -101,18 +105,28 @@ public class AgentTunnelRegistry
     /// Removes a connection if it is still the current one for its agent.
     /// A reconnect may already have replaced it; in that case this is a no-op.
     /// </summary>
-    public void Unregister(AgentTunnelConnection connection)
+    /// <returns>False when a newer connection had already replaced this one.</returns>
+    public bool Unregister(AgentTunnelConnection connection)
     {
         connection.Complete();
+        if (!IsCurrent(connection))
+            return false;
         // Stamp the drop time so the reconnect grace is measured from when the
         // tunnel actually went away, not from when it first connected.
         _lastTunnelActivity[connection.AgentId] = DateTime.UtcNow;
-        ((ICollection<KeyValuePair<int, AgentTunnelConnection>>)_connections)
+        return ((ICollection<KeyValuePair<int, AgentTunnelConnection>>)_connections)
             .Remove(new KeyValuePair<int, AgentTunnelConnection>(connection.AgentId, connection));
     }
 
     /// <summary>Whether the agent currently holds an open tunnel.</summary>
     public bool IsConnected(int agentId) => _connections.ContainsKey(agentId);
+
+    /// <summary>
+    /// Whether this is still the agent's registered connection. A superseded one speaks for nothing:
+    /// its silence or teardown says nothing about the tunnel that replaced it.
+    /// </summary>
+    public bool IsCurrent(AgentTunnelConnection connection) =>
+        _connections.TryGetValue(connection.AgentId, out var current) && ReferenceEquals(current, connection);
 
     /// <summary>
     /// Whether an agent counts as online for status displays. An open tunnel is

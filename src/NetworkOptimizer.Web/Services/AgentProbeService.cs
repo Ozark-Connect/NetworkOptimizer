@@ -59,7 +59,7 @@ public class AgentProbeService
 
         var id = Interlocked.Increment(ref _nextRequestId);
         request.RequestId = id;
-        var pending = new PendingProbe(agent.AgentId);
+        var pending = new PendingProbe(agent);
         _pending[id] = pending;
         try
         {
@@ -106,7 +106,7 @@ public class AgentProbeService
     /// <summary>Fails any probes waiting on an agent whose tunnel just dropped.</summary>
     public void OnAgentDisconnected(AgentTunnelConnection agent)
     {
-        foreach (var (_, pending) in _pending.Where(p => p.Value.AgentId == agent.AgentId))
+        foreach (var (_, pending) in _pending.Where(p => ReferenceEquals(p.Value.Connection, agent)))
         {
             pending.Completion.TrySetResult(new ProbeResponse
             {
@@ -118,9 +118,9 @@ public class AgentProbeService
 
     private sealed class PendingProbe
     {
-        public PendingProbe(int agentId) => AgentId = agentId;
+        public PendingProbe(AgentTunnelConnection connection) => Connection = connection;
 
-        public int AgentId { get; }
+        public AgentTunnelConnection Connection { get; }
 
         public TaskCompletionSource<ProbeResponse> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

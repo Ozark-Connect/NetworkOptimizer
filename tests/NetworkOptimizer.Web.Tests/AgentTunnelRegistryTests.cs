@@ -115,6 +115,47 @@ public class AgentTunnelRegistryTests
     }
 
     [Fact]
+    public void Register_SameAgent_DropsTheDisplacedConnection()
+    {
+        // A proxy may never tell us the agent abandoned the old stream; left running, its
+        // watchdog would flag it stale and take the console off the new tunnel.
+        var registry = Registry(tunnelEnabled: true);
+        var old = registry.Register(1, "branch-office", "Agent");
+        var fresh = registry.Register(1, "branch-office", "Agent");
+
+        old.DropToken.IsCancellationRequested.Should().BeTrue();
+        fresh.DropToken.IsCancellationRequested.Should().BeFalse();
+        registry.IsCurrent(old).Should().BeFalse();
+        registry.IsCurrent(fresh).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Unregister_SupersededConnection_KeepsTheNewOne()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        var old = registry.Register(1, "branch-office", "Agent");
+        var fresh = registry.Register(1, "branch-office", "Agent");
+
+        registry.Unregister(old).Should().BeFalse();
+
+        registry.GetForSite("branch-office").Should().ContainSingle().Which.Should().BeSameAs(fresh);
+        registry.Unregister(fresh).Should().BeTrue();
+        registry.IsConnected(1).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Register_DifferentAgents_DropsNeither()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        var first = registry.Register(1, "branch-office", "Agent");
+        var second = registry.Register(2, "branch-office", "Agent 2");
+
+        first.DropToken.IsCancellationRequested.Should().BeFalse();
+        registry.IsCurrent(first).Should().BeTrue();
+        registry.IsCurrent(second).Should().BeTrue();
+    }
+
+    [Fact]
     public void IsUnstable_CountsPerAgent()
     {
         var registry = Registry(tunnelEnabled: true);
