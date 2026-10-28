@@ -190,13 +190,17 @@ public class AgentTunnelRegistry
 
     /// <summary>
     /// The connection a site-local dial (console, SSH, device endpoints) goes through: the site's
-    /// first agent, as always, unless it has gone silent and another has not. A recovered agent
-    /// takes new dials back as soon as it is fresh again. Null when the site has no agent.
+    /// first agent, as always, unless it has gone silent (or <paramref name="usable"/> rejects it)
+    /// and another has not. A recovered agent takes new dials back as soon as it qualifies again.
+    /// With nothing better, the first agent, so its caller still sees why it cannot dial.
+    /// Null when the site has no agent.
     /// </summary>
-    public AgentTunnelConnection? PickForSite(string siteSlug)
+    public AgentTunnelConnection? PickForSite(string siteSlug, Func<AgentTunnelConnection, bool>? usable = null)
     {
         var connections = GetForSite(siteSlug);
-        return connections.FirstOrDefault(c => !c.IsStale) ?? connections.FirstOrDefault();
+        return connections.FirstOrDefault(c => !c.IsStale && (usable == null || usable(c)))
+            ?? connections.FirstOrDefault(c => !c.IsStale)
+            ?? connections.FirstOrDefault();
     }
 
     /// <summary>Whether another of this connection's site agents is registered and not silent.</summary>
