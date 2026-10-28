@@ -63,6 +63,19 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
             new SqliteParameter("@id", targetId),
             new SqliteParameter("@wan", (object?)wanInterface ?? DBNull.Value));
 
+    /// <summary>
+    /// Seeds a WAN context through raw SQL, for the same reason as the target seed: WanContexts
+    /// gains columns after the migration under test, and an EF insert would name them.
+    /// </summary>
+    private static void SeedWanContext(NetworkOptimizerDbContext context, int id, string name,
+        string? wanInterface, string? probeSourceIp) =>
+        context.Database.ExecuteSqlRaw(
+            "INSERT INTO WanContexts (Id, Name, WanInterface, ProbeSourceIp, CreatedAt) "
+            + "VALUES (@id, @name, @wan, @ip, datetime('now'))",
+            new SqliteParameter("@id", id),
+            new SqliteParameter("@name", name),
+            new SqliteParameter("@wan", (object?)wanInterface ?? DBNull.Value),
+            new SqliteParameter("@ip", (object?)probeSourceIp ?? DBNull.Value));
 
 
     [Fact]
@@ -75,7 +88,7 @@ public class LegacyWan1KeyNormalizationTests : IDisposable
             context.WanDiscoveryContexts.Add(new WanDiscoveryContext { WanInterface = "wan1", AccessTechnology = AccessTechnology.Gpon });
             SeedTarget(context, "access-legacy", "wan1");
             context.UpstreamDiscoveries.Add(new UpstreamDiscovery { HopIp = "192.0.2.30", HopNumber = 1, WanInterface = "wan1" });
-            context.WanContexts.Add(new WanContext { Id = 1, Name = "legacy-context", WanInterface = "wan1", ProbeSourceIp = "198.51.100.9" });
+            SeedWanContext(context, 1, "legacy-context", "wan1", "198.51.100.9");
             context.SaveChanges();
         }
 

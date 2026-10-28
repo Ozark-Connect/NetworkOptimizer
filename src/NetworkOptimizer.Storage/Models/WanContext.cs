@@ -66,6 +66,21 @@ public class WanContext
     [MaxLength(50)]
     public string? WanInterface { get; set; }
 
+    /// <summary>
+    /// The agent this context belonged to before it was moved to the gateway agent because that
+    /// agent went offline. When it reconnects, the context goes back to it with the binding below.
+    /// Null for a context that was never moved, or was moved for good because its agent was removed.
+    /// </summary>
+    public int? ReassignedFromAgentId { get; set; }
+
+    /// <summary><see cref="InterfaceName"/> as it was before the move, restored with the agent.</summary>
+    [MaxLength(50)]
+    public string? ReassignedFromInterfaceName { get; set; }
+
+    /// <summary><see cref="ProbeSourceIp"/> as it was before the move, restored with the agent.</summary>
+    [MaxLength(50)]
+    public string? ReassignedFromProbeSourceIp { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>

@@ -68,6 +68,19 @@ public class WanContextTargetWanBackfillTests : IDisposable
             new SqliteParameter("@ctx", (object?)contextId ?? DBNull.Value),
             new SqliteParameter("@wan", (object?)wanInterface ?? DBNull.Value));
 
+    /// <summary>
+    /// Seeds a WAN context through raw SQL, for the same reason as the target seed: WanContexts
+    /// gains columns after the migration under test, and an EF insert would name them.
+    /// </summary>
+    private static void SeedWanContext(NetworkOptimizerDbContext context, int id, string name,
+        string? wanInterface, string? probeSourceIp) =>
+        context.Database.ExecuteSqlRaw(
+            "INSERT INTO WanContexts (Id, Name, WanInterface, ProbeSourceIp, CreatedAt) "
+            + "VALUES (@id, @name, @wan, @ip, datetime('now'))",
+            new SqliteParameter("@id", id),
+            new SqliteParameter("@name", name),
+            new SqliteParameter("@wan", (object?)wanInterface ?? DBNull.Value),
+            new SqliteParameter("@ip", (object?)probeSourceIp ?? DBNull.Value));
 
 
     [Fact]
@@ -77,7 +90,7 @@ public class WanContextTargetWanBackfillTests : IDisposable
         {
             context.GetService<IMigrator>().Migrate(PreBackfillMigration);
 
-            context.WanContexts.Add(new WanContext { Id = 1, Name = "backup-wan", WanInterface = "wan2", ProbeSourceIp = "198.51.100.7" });
+            SeedWanContext(context, 1, "backup-wan", "wan2", "198.51.100.7");
             // Assigned to the context but never given a WAN, and assigned but stamped with the
             // primary's WAN by a discovery that predates per-WAN contexts.
             SeedTarget(context, "t-unstamped", "203.0.113.1", contextId: 1, wanInterface: null);
@@ -127,7 +140,7 @@ public class WanContextTargetWanBackfillTests : IDisposable
         {
             context.GetService<IMigrator>().Migrate(PreBackfillMigration);
 
-            context.WanContexts.Add(new WanContext { Id = 2, Name = "legacy", ProbeSourceIp = "198.51.100.8" });
+            SeedWanContext(context, 2, "legacy", null, "198.51.100.8");
             SeedTarget(context, "t-legacy", "203.0.113.5", contextId: 2, wanInterface: "wan");
             context.SaveChanges();
         }

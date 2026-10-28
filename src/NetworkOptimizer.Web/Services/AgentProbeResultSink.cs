@@ -120,8 +120,12 @@ public class AgentProbeResultSink
         Monitoring.IspHealth.IspHealthRegistry ispHealthRegistry,
         ClientUsageRollupRegistry usageRollupRegistry,
         CableModemProviders.Uci.UciInformService uciInforms,
+        IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
+        Auditing.IAuditLogger audit,
         ILogger<AgentProbeResultSink> logger)
     {
+        _mainDbFactory = mainDbFactory;
+        _audit = audit;
         _uciInforms = uciInforms;
         _usageRollupRegistry = usageRollupRegistry;
         _ispHealthRegistry = ispHealthRegistry;
@@ -147,6 +151,8 @@ public class AgentProbeResultSink
     private readonly IAgentEnrollmentService _enrollment;
     private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly CableModemProviders.Uci.UciInformService _uciInforms;
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
+    private readonly Auditing.IAuditLogger _audit;
 
     /// <summary>
     /// Called once per connection after the hello exchange, and again by the periodic refresh.
@@ -325,6 +331,10 @@ public class AgentProbeResultSink
                 .AsNoTracking()
                 .Where(t => t.Enabled && t.RetiredAt == null)
                 .ToListAsync(ct);
+            // Vantages change hands before the push reads them: back to this agent if it is the one
+            // that went offline, or onto it if it is the gateway agent and another stays gone.
+            var formerHolders = await RestoreReassignedVantagesAsync(db, connection, ct);
+            await ReassignStrandedVantagesAsync(db, connection, ct);
             // Before anything reads a context's binding, give one back to any context that lost the
             // chance to have one. Runs here because this is the push that follows an agent's hello,
             // which is exactly when an upgraded agent first reports it can bind.
@@ -440,6 +450,14 @@ public class AgentProbeResultSink
             _logger.LogDebug("Pushed {Count} probe target(s) to agent {Id} (site {Slug}){Skipped}",
                 config.Targets.Count, connection.AgentId, connection.SiteSlug,
                 skippedSelf > 0 ? $" - {skippedSelf} skipped: the agent runs on that target" : "");
+
+            // The agent that covered a returned vantage keeps probing its targets until told.
+            foreach (var holderId in formerHolders)
+            {
+                if (_tunnelRegistry.GetForSite(connection.SiteSlug).FirstOrDefault(c => c.AgentId == holderId)
+                    is { } holder)
+                    await PushProbeConfigAsync(holder, ct);
+            }
         }
         catch (Exception ex)
         {
@@ -590,6 +608,152 @@ public class AgentProbeResultSink
                 context.Name, dataPath, connection.AgentId, connection.SiteSlug);
         }
         return healed;
+    }
+
+    /// <summary>When this process started, the earliest point an agent's absence can be counted from.</summary>
+    private static readonly DateTime ServerStartedAt =
+        System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime();
+
+    /// <summary>A vantage that changed hands on this push: who it came from, who it went to, and why.</summary>
+    private sealed record VantageHandover(WanContext Context, int? FromAgentId, int ToAgentId, string Reason);
+
+    /// <summary>
+    /// Every agent registered on a site, enabled or not: a disabled agent is offline and waits out
+    /// the grace period like any other. Only a missing row reads as removed. Null when the site has
+    /// no registry row.
+    /// </summary>
+    private async Task<List<StrandedVantageReassignment.EnrolledAgent>?> LoadEnrolledAgentsAsync(
+        string siteSlug, CancellationToken ct)
+    {
+        await using var mainDb = await _mainDbFactory.CreateDbContextAsync(ct);
+        var siteId = await mainDb.Sites.AsNoTracking()
+            .Where(s => s.Slug == siteSlug)
+            .Select(s => (int?)s.Id)
+            .FirstOrDefaultAsync(ct);
+        if (siteId == null) return null;
+        return await mainDb.SiteAgents.AsNoTracking()
+            .Where(a => a.SiteId == siteId)
+            .Select(a => new StrandedVantageReassignment.EnrolledAgent(a.Id, a.LastSeenAt))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Hands this agent back the vantages the gateway agent covered while it was offline, and makes
+    /// the move permanent for any whose original agent has since been removed. Costs one query on a
+    /// site with nothing moved.
+    /// </summary>
+    /// <returns>The agents that held the returned vantages, which need a fresh push.</returns>
+    private async Task<List<int>> RestoreReassignedVantagesAsync(
+        NetworkOptimizerDbContext db, AgentTunnelConnection connection, CancellationToken ct)
+    {
+        var holders = new List<int>();
+        var moved = await db.WanContexts.Where(c => c.ReassignedFromAgentId != null).ToListAsync(ct);
+        if (moved.Count == 0) return holders;
+
+        var enrolled = await LoadEnrolledAgentsAsync(connection.SiteSlug, ct);
+        if (enrolled == null) return holders;
+        var forgot = StrandedVantageReassignment.ForgetRemovedOrigins(moved, enrolled);
+
+        var returned = new List<VantageHandover>();
+        foreach (var context in moved.Where(c => c.ReassignedFromAgentId == connection.AgentId))
+        {
+            var holder = StrandedVantageReassignment.Restore(context);
+            if (holder is int h && h != connection.AgentId) holders.Add(h);
+            returned.Add(new VantageHandover(context, holder, connection.AgentId, "agent back online"));
+        }
+
+        if (forgot || returned.Count > 0)
+            _ = await db.SaveChangesAsync(ct);
+        LogVantageHandovers(connection.SiteSlug, returned);
+        return holders.Distinct().ToList();
+    }
+
+    /// <summary>
+    /// Moves this site's stranded vantages onto this agent when it runs on the gateway and can
+    /// bind (see <see cref="StrandedVantageReassignment"/>). Runs on every push, so a removal is
+    /// picked up on the next refresh and an outage once it outlasts the grace period.
+    /// <para>
+    /// Only the lowest-id gateway agent acts, so two of them never trade a vantage back and forth.
+    /// A vantage whose WAN has no recorded data path stays where it is.
+    /// </para>
+    /// </summary>
+    private async Task ReassignStrandedVantagesAsync(
+        NetworkOptimizerDbContext db, AgentTunnelConnection connection, CancellationToken ct)
+    {
+        if (connection.SupportsSourceBind != true) return;
+
+        var connected = _tunnelRegistry.GetForSite(connection.SiteSlug);
+        if (connected.Any(c => c.AgentId < connection.AgentId && c.OnGateway == true && c.SupportsSourceBind == true))
+            return;
+
+        var contexts = await db.WanContexts
+            .Where(c => c.AgentId != null && c.AgentId != connection.AgentId)
+            .ToListAsync(ct);
+        if (contexts.Count == 0) return;
+
+        var enrolled = await LoadEnrolledAgentsAsync(connection.SiteSlug, ct);
+        if (enrolled == null) return;
+
+        var stranded = StrandedVantageReassignment.SelectStranded(
+            contexts, enrolled, connected.Select(c => c.AgentId).ToList(), connection.AgentId,
+            DateTime.UtcNow, ServerStartedAt);
+        if (stranded.Count == 0) return;
+
+        // Asked only when there is something to move: it can await a console round trip.
+        if (!await _onGatewayDetector.IsAgentOnGatewayAsync(
+                connection.SiteSlug, connection.AgentId, connection.HostAddresses, ct))
+            return;
+
+        var profiles = await db.WanProfiles.AsNoTracking().ToListAsync(ct);
+        var moved = new List<VantageHandover>();
+        foreach (var context in stranded)
+        {
+            var dataPath = StrandedVantageReassignment.DataPathFor(profiles, context.WanInterface);
+            if (dataPath == null)
+            {
+                _logger.LogDebug(
+                    "WAN vantage '{Name}' is stranded but {Wan} has no recorded data path; leaving it (site {Slug})",
+                    context.Name, context.WanInterface ?? "(no WAN)", connection.SiteSlug);
+                continue;
+            }
+
+            var fromAgentId = context.AgentId!.Value;
+            var removed = !enrolled.Any(a => a.AgentId == fromAgentId);
+            StrandedVantageReassignment.MoveToGateway(context, connection.AgentId, dataPath, removed);
+            moved.Add(new VantageHandover(context, fromAgentId, connection.AgentId,
+                removed ? "agent removed" : "agent offline"));
+        }
+
+        if (moved.Count == 0) return;
+        _ = await db.SaveChangesAsync(ct);
+        LogVantageHandovers(connection.SiteSlug, moved);
+    }
+
+    /// <summary>Logs and audits vantages that changed hands, after the save.</summary>
+    private void LogVantageHandovers(string siteSlug, List<VantageHandover> handovers)
+    {
+        foreach (var (context, fromAgentId, toAgentId, reason) in handovers)
+        {
+            _logger.LogInformation(
+                "WAN vantage '{Name}' moved from agent {From} to agent {To} on {Binding} ({Reason}, site {Slug})",
+                context.Name, fromAgentId, toAgentId,
+                context.InterfaceName ?? context.ProbeSourceIp ?? "its own route", reason, siteSlug);
+            _audit.Log(Auditing.AuditEventBuilder.FromSystem(
+                NetworkOptimizer.Storage.Models.Identity.AuditCategories.Settings,
+                NetworkOptimizer.Storage.Models.Identity.AuditActions.MonitoringSetupChanged,
+                targetType: "wan_vantage",
+                targetId: context.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                targetName: context.Name,
+                siteSlug: siteSlug,
+                details: new
+                {
+                    fromAgentId,
+                    toAgentId,
+                    @interface = context.InterfaceName,
+                    sourceIp = context.ProbeSourceIp,
+                    reason,
+                }));
+        }
     }
 
     private static async Task<string?> ResolvePersistedPrimaryWanKeyAsync(
