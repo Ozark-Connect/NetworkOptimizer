@@ -4630,6 +4630,17 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("ReassignedFromAgentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReassignedFromInterfaceName")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReassignedFromProbeSourceIp")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("WanInterface")
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");

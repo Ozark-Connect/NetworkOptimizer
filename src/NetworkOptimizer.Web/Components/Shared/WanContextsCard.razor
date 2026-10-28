@@ -1180,6 +1180,9 @@
                 row.AgentId = agentId;
                 row.WanInterface = wanInterface;
                 row.InterfaceName = string.IsNullOrEmpty(interfaceName) ? null : interfaceName;
+                // A saved edit is the user's choice, so a vantage covering for an offline agent stays
+                // where it was saved rather than returning when that agent does.
+                NetworkOptimizer.Web.Services.Monitoring.StrandedVantageReassignment.Forget(row);
                 // The context's targets say which WAN their data describes; a context re-pointed
                 // at another WAN takes its targets' stamp with it, or the per-WAN readers would
                 // keep attributing their data to the old WAN.

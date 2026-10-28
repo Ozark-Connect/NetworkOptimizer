@@ -142,6 +142,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - ICMP or TCP probes, per-WAN path, interval from 2 seconds to 5 minutes
 - **Multi-WAN Monitoring - Vantages** - give each WAN an [On-Site Agent](#on-site-agent) or a policy-routed source address
   - Edit, verify, and assign targets per vantage
+  - A vantage whose agent is removed, or offline for 15 minutes, moves to the gateway's agent on that WAN's interface, and returns when the agent reconnects
 
 ### Device Stats
 
