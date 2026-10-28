@@ -185,6 +185,11 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
             var settings = await _gatewaySsh.GetSettingsAsync();
             if (string.IsNullOrEmpty(settings.Host) || !settings.HasCredentials)
                 return (false, "Gateway SSH not configured");
+            if (!settings.Enabled)
+                return (false, "Gateway SSH access is disabled");
+            // An offline agent also makes GetConnectionInfoAsync return null; say so, not "not configured".
+            if (await _gatewaySsh.IsAwaitingAgentTunnelAsync())
+                return (false, GatewaySshService.AwaitingAgentMessage);
 
             // Connection info for the SFTP upload, with decrypted credentials and any
             // agent-tunnel routing applied by the site's gateway SSH service.
