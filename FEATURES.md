@@ -522,6 +522,9 @@ Requires Gateway SSH.
 
 - iperf3 tests from the gateway and to any UniFi device (Gateway SSH, Device SSH)
 - Auto-discovers UniFi devices; add custom devices with their own SSH credentials and iperf3 settings
+- **UniFi Device Speed Test** - search by name, model, or IP; filter by model family; **Online only**
+  - Select devices and test them one after another with **Run Selected**, with **Stop**
+- Each device's latest result shows under its row, with failures summarized and raw output collapsed
 - Path analysis - every hop, link speeds (LAG-aware), bottleneck, Wi-Fi signal, efficiency, inter-VLAN routing
 - Runs from the [On-Site Agent](#on-site-agent) at agent sites
 - History with search across any device in the path; firmware versions recorded
