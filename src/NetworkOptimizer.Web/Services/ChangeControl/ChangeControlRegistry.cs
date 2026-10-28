@@ -99,10 +99,16 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(slug);
         using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
         var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        var moved = await ReaddressSettings.RunAsync(db, moves, remote, apply, ct);
+        await using var main = await _mainDbFactory.CreateDbContextAsync(ct);
+        var isDefault = string.Equals(slug, SiteManagementService.DefaultSiteSlug, StringComparison.OrdinalIgnoreCase);
+        var moved = await ReaddressSettings.RunAsync(db, moves, remote, apply, ct, main, isDefault ? null : slug);
         // The live connection caches its settings: reconnect at the new console address now, not in five minutes.
         if (apply && moved.Any(m => m.Setting == ReaddressSettings.ConsoleSetting))
             _ = Connection(slug).ReloadAndReconnectAsync();
+        // Every site's InfluxDB client derives from the main site's settings, so each picks the new URL up.
+        if (apply && moved.Any(m => m.Setting == ReaddressSettings.InfluxSetting))
+            foreach (var site in RunningSites().Append(slug).Distinct(StringComparer.OrdinalIgnoreCase))
+                _ = _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(site).ReconfigureAsync();
         return moved;
     }
 

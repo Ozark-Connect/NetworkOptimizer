@@ -9,15 +9,23 @@ public sealed record SettingRewrite(string Setting, string Name, string Old, str
 /// <summary>
 /// Network Optimizer's own settings that hold LAN addresses: latency targets, device SSH hosts, the
 /// Gateway SSH host, the UniFi Console URL, monitoring interfaces, modems, speed test servers, UPnP
-/// notes. A re-address moves them with the site, and its revert moves them back.
+/// notes, the WAF URL, and the InfluxDB URL. A re-address moves them with the site, and its revert moves them back.
 /// </summary>
 public static class ReaddressSettings
 {
     /// <summary>The setting name of the UniFi Console URL, which needs a reconnect once moved.</summary>
     public const string ConsoleSetting = "UniFi Console connection";
 
-    /// <summary>What a move would change (<paramref name="apply"/> false), or changes it and saves.</summary>
-    public static async Task<List<SettingRewrite>> RunAsync(NetworkOptimizerDbContext db, IReadOnlyList<SubnetMove> moves, IReadOnlyList<string> remote, bool apply, CancellationToken ct)
+    /// <summary>The setting name of the InfluxDB URL, which needs the client reconfigured once moved.</summary>
+    public const string InfluxSetting = "InfluxDB connection";
+
+    /// <summary>
+    /// What a move would change (<paramref name="apply"/> false), or changes it and saves. <paramref name="main"/> is
+    /// the main database, which holds the site's WAF URL and, for the default site (<paramref name="site"/> null),
+    /// the InfluxDB URL every site uses.
+    /// </summary>
+    public static async Task<List<SettingRewrite>> RunAsync(NetworkOptimizerDbContext db, IReadOnlyList<SubnetMove> moves, IReadOnlyList<string> remote, bool apply, CancellationToken ct,
+        NetworkOptimizerDbContext? main = null, string? site = null)
     {
         var map = Readdressing.Map(moves);
         var far = remote.Select(Readdressing.ParseRange).OfType<Readdressing.Subnet>().ToList();
@@ -54,8 +62,21 @@ public static class ReaddressSettings
         Move(await db.OntConfigurations.ToListAsync(ct), "ONT", m => m.Name, m => m.Host, (m, v) => m.Host = v, Ip);
         Move(await db.ExternalSpeedTestServers.ToListAsync(ct), "Speed test server", s => s.Name, s => s.Host, (s, v) => s.Host = v, Ip);
         Move(await db.UpnpNotes.ToListAsync(ct), "UPnP note", n => n.HostIp, n => n.HostIp, (n, v) => n.HostIp = v, Ip);
+        if (main != null)
+        {
+            // Other sites inherit the main site's InfluxDB connection, so only the main site's re-address moves it.
+            if (site == null)
+                Move(await main.MonitoringSettings.ToListAsync(ct), InfluxSetting, _ => "URL", m => m.InfluxDbUrl, (m, v) => m.InfluxDbUrl = v, Url);
+            var wafKey = NetworkOptimizer.Threats.Waf.WafSettingKeys.ForSite(NetworkOptimizer.Threats.Waf.WafSettingKeys.Url, site);
+            Move(await main.SystemSettings.Where(s => s.Key == wafKey).ToListAsync(ct), "Web Application Firewall connection", _ => "URL",
+                s => s.Value, (s, v) => { s.Value = v; s.UpdatedAt = DateTime.UtcNow; }, Url);
+        }
 
-        if (apply && found.Count > 0) await db.SaveChangesAsync(ct);
+        if (apply && found.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            if (main != null && !ReferenceEquals(main, db)) await main.SaveChangesAsync(ct);
+        }
         return found;
     }
 }
