@@ -60,4 +60,43 @@ public static partial class StringUtilities
 
         return slug.Length == 0 ? "site" : slug;
     }
+
+    /// <summary>
+    /// Splits plain text into text and http(s) URL segments, in order, so a renderer can link
+    /// the URLs. Trailing sentence punctuation is left out of a URL, and so is a closing
+    /// parenthesis the URL did not open ("(see https://x/y)." links "https://x/y").
+    /// </summary>
+    public static IReadOnlyList<(string Text, bool IsUrl)> SplitLinks(string? text)
+    {
+        var segments = new List<(string, bool)>();
+        if (string.IsNullOrEmpty(text))
+            return segments;
+
+        var pos = 0;
+        foreach (Match m in UrlRegex().Matches(text))
+        {
+            var url = m.Value;
+            while (url.Length > 0)
+            {
+                var last = url[^1];
+                if (".,;:!?'\"".Contains(last) || (last == ')' && url.Count(c => c == '(') < url.Count(c => c == ')')))
+                    url = url[..^1];
+                else
+                    break;
+            }
+            if (url.Length <= "https://".Length)
+                continue;
+
+            if (m.Index > pos)
+                segments.Add((text[pos..m.Index], false));
+            segments.Add((url, true));
+            pos = m.Index + url.Length;
+        }
+        if (pos < text.Length)
+            segments.Add((text[pos..], false));
+        return segments;
+    }
+
+    [GeneratedRegex(@"https?://[^\s<>""]+", RegexOptions.IgnoreCase)]
+    private static partial Regex UrlRegex();
 }

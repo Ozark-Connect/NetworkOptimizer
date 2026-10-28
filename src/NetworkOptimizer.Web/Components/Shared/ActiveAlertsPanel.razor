@@ -40,7 +40,7 @@
                             <h3 class="alert-title">@alert.Title</h3>
                             <span class="alert-time">@TimeFormatHelper.FormatRelativeTimeTerse(alert.TriggeredAt)</span>
                         </div>
-                        <p class="alert-message">@alert.Message</p>
+                        <p class="alert-message"><LinkifiedText Text="@alert.Message" /></p>
                         <span class="alert-source">
                             @AlertSourceDisplay.GetName(alert.Source)
                             @if (AlertSourceDisplay.GetDeviceName(alert.Source, alert.DeviceName) is { } deviceName)

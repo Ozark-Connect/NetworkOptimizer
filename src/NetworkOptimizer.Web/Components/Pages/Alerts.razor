@@ -880,7 +880,7 @@
                                         <h3 class="alert-title">@alert.Title</h3>
                                         <span class="alert-time">@FormatTime(alert.TriggeredAt)</span>
                                     </div>
-                                    <p class="alert-message">@alert.Message</p>
+                                    <p class="alert-message"><LinkifiedText Text="@alert.Message" /></p>
                                     @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
                                     {
                                         <span class="alert-source">
@@ -947,7 +947,7 @@
                                         <h3 class="alert-title">@alert.Title</h3>
                                         <span class="alert-time">@FormatTime(alert.TriggeredAt)</span>
                                     </div>
-                                    <p class="alert-message">@alert.Message</p>
+                                    <p class="alert-message"><LinkifiedText Text="@alert.Message" /></p>
                                     @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
                                     {
                                         <span class="alert-source">
