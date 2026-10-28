@@ -4,6 +4,7 @@
 @inject IAlertRepository AlertRepository
 @inject IAlertConfigService AlertConfig
 @inject ILogger<ActiveAlertsPanel> Logger
+@inject NavigationManager Navigation
 @implements IDisposable
 
 <div class="active-alerts-panel">
@@ -33,7 +34,7 @@
             @foreach (var alert in _shown)
             {
                 var busy = _busyIds.Contains(alert.Id);
-                <div class="alert-item @AlertSeverityDisplay.GetItemClass(alert.Severity)" @key="alert.Id">
+                <div class="alert-item @AlertSeverityDisplay.GetItemClass(alert.Severity)" @key="alert.Id" @onclick="() => OpenAlert(alert.Id)" @onclick:stopPropagation>
                     <div class="alert-icon">@((MarkupString)AlertSeverityDisplay.GetIcon(alert.Severity))</div>
                     <div class="alert-content">
                         <div class="alert-header">
@@ -100,6 +101,9 @@
     private bool _loading = true;
     private readonly HashSet<int> _busyIds = [];
     private System.Threading.Timer? _pollTimer;
+
+    // Opens the alert itself on Active Alerts, ringed, rather than the top of the list.
+    private void OpenAlert(int alertId) => Navigation.NavigateTo($"/alerts?tab=active&alert={alertId}");
 
     private int PendingNewCount
     {
