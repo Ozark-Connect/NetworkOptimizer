@@ -188,6 +188,21 @@ public class AgentTunnelRegistry
     public List<AgentTunnelConnection> GetForSite(string siteSlug) =>
         _connections.Values.Where(c => c.SiteSlug == siteSlug).ToList();
 
+    /// <summary>
+    /// The connection a site-local dial (console, SSH, device endpoints) goes through: the site's
+    /// first agent, as always, unless it has gone silent and another has not. A recovered agent
+    /// takes new dials back as soon as it is fresh again. Null when the site has no agent.
+    /// </summary>
+    public AgentTunnelConnection? PickForSite(string siteSlug)
+    {
+        var connections = GetForSite(siteSlug);
+        return connections.FirstOrDefault(c => !c.IsStale) ?? connections.FirstOrDefault();
+    }
+
+    /// <summary>Whether another of this connection's site agents is registered and not silent.</summary>
+    public bool HasOtherLiveForSite(AgentTunnelConnection connection) =>
+        GetForSite(connection.SiteSlug).Any(c => !ReferenceEquals(c, connection) && !c.IsStale);
+
     /// <summary>All live connections across sites.</summary>
     public List<AgentTunnelConnection> GetAll() => _connections.Values.ToList();
 
