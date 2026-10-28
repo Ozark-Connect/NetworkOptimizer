@@ -1356,7 +1356,7 @@
                                                 <span class="severity-badge @GetSeverityBadgeClass(member.Severity)">@member.Severity</span>
                                                 @if (member.Status != AlertStatus.Resolved)
                                                 {
-                                                    <button class="incident-alert-link incident-alert-title" data-tooltip="Show in Active Alerts" @onclick="() => GoToAlertAsync(member.Id)">@member.Title</button>
+                                                    <button class="incident-alert-link incident-alert-title" @onclick="() => GoToAlertAsync(member.Id)">@member.Title</button>
                                                 }
                                                 else if (!string.IsNullOrEmpty(member.Message))
                                                 {
