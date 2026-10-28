@@ -45,6 +45,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
   - Gets Security Audit, Wi-Fi Optimizer, Performance Tweaks, Adaptive SQM, WAN Steering, and SNMP device health
 - Onboard a site through an [On-Site Agent](#on-site-agent) for the full feature set, including behind CGNAT
 - Per site: rename, disable or enable, remove, and assign users and roles
+- **No UniFi Console at this site** - a main site that only hosts the other sites skips console checks
 - Per site: reach the UniFi Console, devices, modems, and ONTs through the agent tunnel
 - Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
