@@ -287,20 +287,27 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         }
         finally
         {
-            _registry.Unregister(connection);
+            var current = _registry.Unregister(connection);
             _proxy.OnAgentDisconnected(connection);
             _iperf3.OnAgentDisconnected(connection);
             _uwn.OnAgentDisconnected(connection);
             _probe.OnAgentDisconnected(connection);
             _snmpQuery.OnAgentDisconnected(connection);
             _probeResultSink.OnAgentDisconnected(connection);
-            _gatewayBlocklist.OnAgentDisconnected(connection);
-            _wanFlood.OnAgentDisconnected(connection);
+            // Per-agent state: a superseded connection's teardown would wipe what the new one just set.
+            if (current)
+            {
+                _gatewayBlocklist.OnAgentDisconnected(connection);
+                _wanFlood.OnAgentDisconnected(connection);
+            }
             streamCts.Cancel();
             await AwaitQuietlyAsync(pumpTask);
             await AwaitQuietlyAsync(refreshTask);
             await AwaitQuietlyAsync(livenessTask);
-            _logger.LogInformation("Agent {Name} (id {Id}) tunnel closed", agent.Name, agent.Id);
+            if (current)
+                _logger.LogInformation("Agent {Name} (id {Id}) tunnel closed", agent.Name, agent.Id);
+            else
+                _logger.LogInformation("Agent {Name} (id {Id}) tunnel closed; a newer tunnel replaced it", agent.Name, agent.Id);
         }
     }
 
@@ -347,7 +354,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         {
             await Task.Delay(TimeSpan.FromSeconds(15), ct);
             var silent = DateTime.UtcNow - connection.LastMessageAt;
-            if (!flaggedStale && silent > AgentTunnelConnection.StaleThreshold)
+            if (!flaggedStale && silent > AgentTunnelConnection.StaleThreshold && _registry.IsCurrent(connection))
             {
                 flaggedStale = true;
                 _logger.LogInformation(

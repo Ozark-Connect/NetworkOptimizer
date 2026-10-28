@@ -867,7 +867,9 @@ discarded.
 
 ### Dead-connection detection
 
-The tunnel reconnects on a 30-second interval. Each attempt has a 15-second
+The tunnel reconnects on a 30-second interval. A stream the server or a proxy
+ends cleanly after at least a minute reconnects within 1 to 3 seconds instead,
+since proxies recycle long-lived streams on a healthy link. Each attempt has a 15-second
 TCP connect timeout (without it, a powered-off server rides OS SYN retries for
 ~2 minutes) and a 20-second hello timeout for the post-connect handshake.
 

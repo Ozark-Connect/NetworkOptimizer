@@ -380,6 +380,7 @@ watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
 // older server, or a network drop between reconnect attempts).
 while (!cts.IsCancellationRequested)
 {
+    var retryDelay = TimeSpan.FromSeconds(30);
     if (!string.IsNullOrEmpty(config.TunnelUrl))
     {
         using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
@@ -434,6 +435,7 @@ while (!cts.IsCancellationRequested)
             Console.Error.WriteLine($"Result buffer caps dropped the {droppedOffline} oldest message(s) while the tunnel was down");
 
         var drainTask = tunnel.DrainResultsAsync(resultBuffer, connectionCts.Token);
+        var tunnelStartedAt = Environment.TickCount64;
         try
         {
             // Announce the port only when a speed test server is actually up. An agent that
@@ -448,7 +450,12 @@ while (!cts.IsCancellationRequested)
                 NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor.SupportsSourceBinding,
                 config.OnGateway, capabilities,
                 config.IgnoreSslErrors, cts.Token);
-            Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
+            // Proxies recycle long-lived streams, and the server marks the console unreachable
+            // until the tunnel is back, so a clean end after a healthy run reconnects at once.
+            // The one-minute floor keeps a proxy that closes right after the hello off a tight loop.
+            if (Environment.TickCount64 - tunnelStartedAt >= 60_000)
+                retryDelay = TimeSpan.FromMilliseconds(1000 + Random.Shared.Next(2000));
+            Console.Error.WriteLine($"Tunnel closed by server, reconnecting in {retryDelay.TotalSeconds:0}s...");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -495,7 +502,7 @@ while (!cts.IsCancellationRequested)
         Console.Error.WriteLine($"Heartbeat error: {ex.Message}");
     }
 
-    try { await Task.Delay(TimeSpan.FromSeconds(30), cts.Token); }
+    try { await Task.Delay(retryDelay, cts.Token); }
     catch (OperationCanceledException) { break; }
 }
 
