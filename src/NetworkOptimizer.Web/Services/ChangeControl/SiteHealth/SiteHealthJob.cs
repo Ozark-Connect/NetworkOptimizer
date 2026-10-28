@@ -73,6 +73,8 @@ public sealed class SiteHealthJob
     {
         var now = DateTime.UtcNow;
         if (now < _next) return;
+        // A site with no UniFi Console has no network of its own to score.
+        if (_connection().HasNoConsole) return;
         // Scored before the console connects, every device is nameless and weighs the same.
         if (!_connection().IsConnected && now - _created < ConsoleWait) return;
         _next = now + RunEvery;

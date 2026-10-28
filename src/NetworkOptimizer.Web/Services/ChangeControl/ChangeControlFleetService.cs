@@ -158,6 +158,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var rows = await db.Sites.AsNoTracking().Where(s => s.Enabled).Select(s => new { s.Slug, s.Name, s.IsDefault }).ToListAsync(ct);
         var sites = rows.Where(r => running.Contains(r.Slug) || r.IsDefault).Select(r => (r.Slug, r.Name, r.IsDefault)).ToList();
         if (sites.Count == 0) sites.Add((SiteManagementService.DefaultSiteSlug, "Default", true));
+        // After the fallback: a main site with no UniFi Console has no health or changes to report,
+        // even when it is the only site left.
+        sites.RemoveAll(s => s.IsDefault && _registry.Connection(s.Slug).HasNoConsole);
         sites = await _access.FilterAsync(sites, s => s.Slug);
         return only == null ? sites : sites.Where(s => only.Contains(s.Slug, StringComparer.OrdinalIgnoreCase)).ToList();
     }

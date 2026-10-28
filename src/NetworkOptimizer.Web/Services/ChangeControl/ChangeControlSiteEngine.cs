@@ -65,6 +65,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     private readonly SemaphoreSlim _evaluateLock = new(1, 1);
     private readonly ConcurrentQueue<UniFiWriteRecord> _journalQueue = new();
     private readonly Func<bool>? _isAgentSite;
+    private readonly Func<bool>? _hasNoConsole;
 
     private ConfigState? _latestState;
     private int? _latestSnapshotId;
@@ -91,8 +92,10 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     public ChangeControlSiteEngine(
         string slug, IUniFiConfigApi api, IChangeControlRepositoryAccessor repos, IConfigBlobStore blobs,
         ILogger logger, IAuditLogger? audit = null, Func<CancellationToken, Task<bool>>? isRolloutActive = null,
-        Func<bool>? isAgentSite = null, Func<CancellationToken, Task<bool>>? wasRolloutRecent = null)
+        Func<bool>? isAgentSite = null, Func<CancellationToken, Task<bool>>? wasRolloutRecent = null,
+        Func<bool>? hasNoConsole = null)
     {
+        _hasNoConsole = hasNoConsole;
         _wasRolloutRecent = wasRolloutRecent;
         _slug = slug;
         _api = api;
@@ -218,6 +221,10 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         var settings = await _repos.UseAsync((r, c) => r.GetSettingsAsync(c), ct);
         _nextPoll = DateTime.UtcNow.AddSeconds(Math.Clamp(settings.PollIntervalSeconds, 30, 600));
         var now = DateTime.UtcNow;
+
+        // A site with no UniFi Console has nothing to detect, and no gap to record.
+        if (_hasNoConsole?.Invoke() == true)
+            return;
 
         if (!_api.IsConnected)
         {
