@@ -126,6 +126,31 @@ public class WanOutageEvaluatorTests
     }
 
     /// <summary>
+    /// Two scattered destinations among many healthy ones is a narrow partial: it holds about
+    /// three minutes before opening, where a broad one opens on the total's clock.
+    /// </summary>
+    [Fact]
+    public async Task NarrowPartial_OpensOnlyOnceItHoldsThreeMinutes()
+    {
+        MonitoringTarget[] healthyDestinations =
+        [
+            Target("wan-resolver-c", "resolver-c", "203.0.113.30", MonitoringTargetType.InternetService, "wan", 64530, "Gamma Cloud"),
+            Target("wan-resolver-d", "resolver-d", "203.0.113.40", MonitoringTargetType.InternetService, "wan", 64531, "Delta Cloud"),
+            Target("wan-resolver-e", "resolver-e", "203.0.113.50", MonitoringTargetType.InternetService, "wan", 64532, "Echo Cloud"),
+            Target("wan-resolver-f", "resolver-f", "203.0.113.60", MonitoringTargetType.InternetService, "wan", 64533, "Foxtrot Cloud"),
+        ];
+
+        await RoundsAsync(RoundsToConfirm, failing: WanDestinations,
+            passing: [.. WanPath, .. healthyDestinations, .. Wan2Targets]);
+        _bus.Published.Should().BeEmpty();
+
+        await RoundsAsync(12, failing: WanDestinations,
+            passing: [.. WanPath, .. healthyDestinations, .. Wan2Targets]);
+        _bus.Published.Should().ContainSingle()
+            .Which.EventType.Should().Be("monitoring.wan_outage_partial");
+    }
+
+    /// <summary>
     /// A partial that grows into the whole connection is superseded, never stacked: the total
     /// follows once, and the partial is not repeated as the picture worsens.
     /// </summary>
