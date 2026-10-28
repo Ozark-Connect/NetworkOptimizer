@@ -864,10 +864,15 @@
                 }
                 else
                 {
+                    var failure = SpeedTestFailureSummary.Summarize(currentResult.ErrorMessage);
                     <div class="alert alert-danger alert-with-tooltip">
-                        <span class="alert-text"><strong>Test Failed:</strong> @currentResult.ErrorMessage</span>
+                        <span class="alert-text"><strong>Test Failed:</strong> @failure.Cause</span>
                         <SshTroubleshootingTooltip Context="devices" />
                     </div>
+                    @if (failure.RawOutput != null)
+                    {
+                        <details class="latest-result-raw"><summary>Raw output</summary><pre class="gateway-diag-raw">@failure.RawOutput</pre></details>
+                    }
                 }
             </div>
         </div>
@@ -1502,7 +1507,6 @@
         background: rgba(255, 255, 255, 0.1);
     }
 
-    /* UniFi Device Speed Test filters, batch bar, and per-device result rows */
     .device-test-filters .form-row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
     .device-test-filters .form-row > .form-group { flex: 1 1 180px; min-width: 0; }
     .device-test-filters .form-row > .device-test-search { flex: 2 1 240px; }
@@ -1520,6 +1524,7 @@
     .device-test-table .alert { margin: 0; }
     .device-test-table details { margin-top: 0.5rem; }
     .device-test-table summary { cursor: pointer; font-size: 0.8125rem; }
+    .latest-result-raw summary { cursor: pointer; font-size: 0.8125rem; }
     .device-test-table .device-cell-status { margin-top: 0.35rem; }
 
     @@media (max-width: 768px) {
