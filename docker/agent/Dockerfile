@@ -43,11 +43,13 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
 # runtime-deps carries the native dependencies a self-contained .NET app needs.
 # nginx serves the OpenSpeedTest page + the throughput-critical transfer legs
 # (sendfile, so it saturates 10 GbE on modest hardware); iperf3 (LAN speed test)
-# and iputils-ping (per-WAN source-bound probes) round it out. The .NET agent
+# and iputils-ping (per-WAN source-bound probes) round it out. traceroute is
+# required: without it the agent falls back to the managed ICMP traceroute, whose
+# hop RTTs are wrong under Upstream Discovery's concurrent sweep. The .NET agent
 # runs the tunnel plus the loopback results relay.
 FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION}
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nginx iperf3 iputils-ping ca-certificates openssl \
+    && apt-get install -y --no-install-recommends nginx iperf3 iputils-ping traceroute ca-certificates openssl \
     && rm -rf /var/lib/apt/lists/* /etc/nginx/sites-enabled/default
 WORKDIR /app
 COPY --from=build /app/publish/NetworkOptimizer.Agent /app/NetworkOptimizer.Agent

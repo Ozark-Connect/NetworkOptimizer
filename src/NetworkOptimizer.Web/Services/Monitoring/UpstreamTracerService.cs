@@ -1215,18 +1215,26 @@ public class UpstreamTracerService
         // is per-IP and dedupes naturally on its way out.
         _minRttByIp.Clear();
         _minLaterHopRttByIp.Clear();
+        // Managed-traceroute hop RTTs are not trusted: run concurrently, as this sweep runs them,
+        // they come back short, and a short trace RTT marks an on-path hop off path. Untimed
+        // hops are kept by every consumer of these maps.
+        var trustTraceRtts = !SweepUsedManagedTraceroute(results.Select(r => r.Result));
+        if (!trustTraceRtts)
+            _logger.LogInformation("Tracer: traces ran on the managed traceroute (no traceroute binary on the probe host); trace RTTs ignored for the off-path check");
         var byIp = new Dictionary<string, AttributedHop>(StringComparer.OrdinalIgnoreCase);
         foreach (var (_, result) in results)
         {
-            foreach (var (address, laterRtt) in LaterHopRtts(result.Hops))
-                if (!_minLaterHopRttByIp.TryGetValue(address, out var best) || laterRtt < best)
-                    _minLaterHopRttByIp[address] = laterRtt;
+            if (trustTraceRtts)
+                foreach (var (address, laterRtt) in LaterHopRtts(result.Hops))
+                    if (!_minLaterHopRttByIp.TryGetValue(address, out var best) || laterRtt < best)
+                        _minLaterHopRttByIp[address] = laterRtt;
 
             foreach (var hop in result.Hops)
             {
                 if (!hop.Responded || string.IsNullOrEmpty(hop.Address)) continue;
                 var rtt = hop.RttMinMs ?? hop.RttAvgMs;
-                if (rtt is double seen
+                if (trustTraceRtts
+                    && rtt is double seen
                     && (!_minRttByIp.TryGetValue(hop.Address, out var best) || seen < best))
                     _minRttByIp[hop.Address] = seen;
                 if (byIp.ContainsKey(hop.Address)) continue;
@@ -2036,6 +2044,14 @@ public class UpstreamTracerService
         || (laterHopRttMs is double later
             && IsOffPath(pingRttMs, traceRttMs)
             && IsOffPath(later, pingRttMs));
+
+    /// <summary>
+    /// True when the sweep's traces came from the managed ICMP traceroute. It ignores the requested
+    /// mode and reports ICMP, while every native path reports the mode it was asked for, so a UDP
+    /// request answered as ICMP identifies it. Works for agents already deployed.
+    /// </summary>
+    internal static bool SweepUsedManagedTraceroute(IEnumerable<TracerouteResult> traces) =>
+        traces.Any(t => t.Target.Mode == ProbeMode.Udp && t.ModeUsed == ProbeMode.Icmp);
 
     /// <summary>
     /// For each responding hop on one trace, the lowest RTT of any responding hop after it. Hops with
