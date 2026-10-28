@@ -173,6 +173,21 @@ public class AgentTunnelRegistryTests
     }
 
     [Fact]
+    public void PickForSite_SkipsAnAgentTheCallerRejects_UntilNoneIsLeft()
+    {
+        // The proxy rejects an agent whose open just timed out; a live alternative takes the dial.
+        var registry = Registry(tunnelEnabled: true);
+        registry.Register(1, "branch-office", "Agent");
+        registry.Register(2, "branch-office", "Agent 2");
+        var usual = registry.PickForSite("branch-office")!;
+        var other = registry.GetForSite("branch-office").Single(c => !ReferenceEquals(c, usual));
+
+        registry.PickForSite("branch-office", c => !ReferenceEquals(c, usual)).Should().BeSameAs(other);
+        // Nothing qualifies: the first live agent, so the caller still sees why it cannot dial.
+        registry.PickForSite("branch-office", _ => false).Should().BeSameAs(usual);
+    }
+
+    [Fact]
     public void PickForSite_AllSilent_StillReturnsOne()
     {
         // The proxy's stale gate then refuses the dial and flips the console, as for a single agent.
