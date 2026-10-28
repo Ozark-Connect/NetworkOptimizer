@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<HEAD>
+<TITLE>Network Information</TITLE>
+<META http-equiv=Content-Language content=zh-cn>
+<META http-equiv=Content-Type content="text/html; charset=gb2312">
+<LINK href="/JS/stylemain.css" type=text/css rel=stylesheet>
+<SCRIPT language=javascript src="/JS/menu.js"></SCRIPT>
+<SCRIPT language=javascript src="/JS/util.js"></SCRIPT>
+<SCRIPT language=JavaScript src="/JS/printtable.js"></SCRIPT>
+<SCRIPT language=javascript src="/JS/jquery-1.8.3.min.js"></SCRIPT> 
+<META content="MSHTML 6.00.6000.16809" name=GENERATOR>
+</HEAD>
+<BODY style="TEXT-ALIGN: center" vLink=#000000 aLink=#000000 link=#000000 leftMargin=0 topMargin=0 
+onload="DisplayLocation(getElement('Selected_Menu').value);FinishLoad();if(getElById('ConfigForm') != null)LoadFrame()" 
+onunload=DoUnload() marginheight="0" marginwidth="0">
+<TABLE cellSpacing=0 cellPadding=0 align=center border=0 class="major">
+	<TBODY>
+		<TR>
+			<TD class="header">
+				<TABLE cellSpacing=0 cellPadding=0 border=0 class="tbl_nav">
+					<TBODY>
+						<TR>
+							<TD>&nbsp;</TD>
+							<TD vAlign=top align=right>
+								<TABLE id=table8 cellSpacing=0 cellPadding=0 border=0>
+									<TBODY>
+										<TR>
+												<TD class="td_model">
+												<span>Model: </span> 
+												<span> 
+													<SCRIPT language=javascript>
+														document.write(top.ModelName); 
+													</SCRIPT>
+												</span>
+												</TD>
+												<TD class=welcom>
+												<span>Welcome!</span> 
+												<SPAN class=curUserName>&nbsp;</SPAN>
+												<A onclick=DoLogout() href="/cgi-bin/logout.cgi" target=_top>
+													 <SPAN name=logout class=logout>Logout</SPAN>
+												</A>
+													<INPUT id=Selected_Menu type=hidden value="Status->Network" name=Selected_Menu>
+												</TD>
+										</TR>
+									</TBODY>
+								</TABLE>
+							</TD>
+						</TR>
+					</TBODY>
+				</TABLE>
+				<TABLE cellSpacing=0 cellPadding=0 border=0 id=table2>
+					<TBODY>
+							<TR><TD id=MenuArea_L1></TD></TR>
+							<TR><TD id=MenuArea_L2></TD></TR>
+					</TBODY>
+				</TABLE>
+				<SCRIPT language=javascript>
+					MakeMenu(getElById ('Selected_Menu').value);
+				</SCRIPT>
+			</TD>
+		</TR>
+		<TR>
+			<TD class="content">
+<SCRIPT language=JavaScript type=text/javascript>
+function transTemperature(temperature)
+					{
+						var temp = Number(temperature);
+						if (temp >= Math.pow(2, 15)){
+							return -Math.round((Math.pow(2, 16)-temp)/256);
+						}else{
+							return Math.round(temp/256);
+						}
+					}			
+					function PonInfoClass()
+					{				
+						var SupplyVoltage = '32724';
+						var TxBiasCurrent = '6275';
+						var Temperature = '17898';
+						var TxPower = '18800';
+						var RxPower = '58';
+						this.LinkSta					= '1';
+						this.trafficstate			= 'up';
+						this.fecState					= '0';
+						this.ponType					= 'N/A';
+						this.loidStatus				= 'init';
+						this.PonState 				= 'down';
+						this.FECEnable 				= '-';
+						this.WarnInfo 				= 'disconnect';
+						this.PonSendPkt 			= '42633114';
+						this.PonRecvPkt 			= '87266263';
+						this.SendPower 				= '-';
+						this.RecvPower 				= '-';
+						this.WorkVoltage 			= '-';
+						this.WorkElectric 		= '-';
+						this.WorkTemperature 	= '-';
+						this.EncryptEnable 		= '-';
+						this.encryptState			= 'N/A';
+						this.GemPortInfo			= '14:0#3953:0#3952:0#';
+						this.DispGemPortState = DispGemPortState;
+						this.phyStatus				=	'gpon_phy_up';
+						if ( 'GPON' != this.ponType && 'EPON' != this.ponType )
+							this.ponType = 'GPON';
+						if ( 'GPON' == this.ponType )
+						{
+							this.loidAuth					= '0';
+							this.loidV1						= '';
+						}
+						else
+						{
+							this.loidAuth					= '';
+							this.loidV1						= '';
+						}
+						if ( 'up' == this.trafficstate )
+						{
+							this.PonState 				= 'up';
+							this.WarnInfo 				= 'no info';
+							this.loidStatus				= 'up';
+						}
+						else
+						{
+							if ( '0' != this.LinkSta && '2' == this.loidAuth && 0 != this.loidV1.length )
+								this.loidStatus			= 'error';
+						}
+						if( '0' != this.LinkSta)
+						{
+							this.SendPower 				= (Math.round(Math.log((Number(TxPower))/10000)/(Math.log(10))*100)/10);
+											
+							this.RecvPower 				= (Math.round(Math.log((Number(RxPower))/10000)/(Math.log(10))*100)/10);
+											
+							this.WorkVoltage 			= (Number(SupplyVoltage)/10);
+											
+							this.WorkElectric 		= (Number(TxBiasCurrent)*2/1000);
+											
+							this.WorkTemperature 	= transTemperature(Temperature);
+							this.FECEnable 				= ( '1' == this.fecState ) ? 'enabled' : 'disabled';
+							if ( '2' == this.LinkSta )
+								this.EncryptEnable	= ( '1' == this.encryptState ) ? 'enabled' : 'disabled';
+						}
+					function DispGemPortState()
+					{
+						var gemportList;
+						var gemportInfo;
+						var gemportState;
+						var i = 0;
+						if ( this.GemPortInfo.indexOf('#') >=0 )
+							this.GemPortInfo = this.GemPortInfo.substring(0, this.GemPortInfo.length - 1);
+						else
+						{
+							document.write('Disable');
+							return -1;
+						}
+						gemportList = this.GemPortInfo.split('#');
+						for (i = 0; i < gemportList.length; i ++)
+						{
+							gemportInfo = gemportList[i].split(':');
+							if ( 2 != gemportInfo.length )
+								continue;
+							gemportState = 'GEMPORT' + gemportInfo[0] + ':' + ( ( 1 == gemportInfo[1] ) ? 'Enable' : 'Disable' )
+							+ '; '
+							document.write(gemportState);
+						}
+						return 0;
+						}
+					}
+					var PonInfo = new PonInfoClass();
+</SCRIPT>
+</TD>
+</TR>
+</TBODY>
+</TABLE>
+</BODY>
+</HTML>
