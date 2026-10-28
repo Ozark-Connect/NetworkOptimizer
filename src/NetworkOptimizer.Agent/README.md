@@ -221,7 +221,8 @@ journalctl -u netopt-agent --no-pager | grep -E "Enroll|Tunnel|Heartbeat" | tail
 `Enrollment failed:`, `Tunnel error:`, `Heartbeat failed:`, and `Heartbeat error:`
 are each followed by the reason. A `Tunnel error:` and `Heartbeat failed:
 BadGateway`, then `Tunnel open` about 30 seconds later, is the server
-restarting, not a fault. When the reason is a connection problem, check the
+restarting, not a fault. A `Reconnecting in` line follows every tunnel end with the
+wait before the next attempt. When the reason is a connection problem, check the
 connection.
 
 Check the dates: the last connect lines can be older than the running agent,
@@ -867,9 +868,10 @@ discarded.
 
 ### Dead-connection detection
 
-The tunnel reconnects on a 30-second interval. A stream the server or a proxy
-ends cleanly after at least a minute reconnects within 1 to 3 seconds instead,
-since proxies recycle long-lived streams on a healthy link. Each attempt has a 15-second
+The tunnel reconnects on a 30-second interval. A tunnel that carried traffic for at
+least five minutes reconnects within 1 to 3 seconds instead, however it ended (closed,
+reset, or the silence check below), since proxies recycle long-lived streams on a
+healthy link. Each attempt has a 15-second
 TCP connect timeout (without it, a powered-off server rides OS SYN retries for
 ~2 minutes) and a 20-second hello timeout for the post-connect handshake.
 
