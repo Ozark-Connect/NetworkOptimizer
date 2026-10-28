@@ -873,7 +873,7 @@
                     <div class="alert-list" data-tour="active-alerts">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active))
                         {
-                            <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
+                            <div class="alert-item @GetSeverityClass(alert.Severity)" id="alert-@alert.Id" @key="alert.Id">
                                 <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
                                 <div class="alert-content">
                                     <div class="alert-header">
@@ -940,7 +940,7 @@
                     <div class="alert-list" data-tour="active-alerts">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged))
                         {
-                            <div class="alert-item @GetSeverityClass(alert.Severity)" @key="alert.Id">
+                            <div class="alert-item @GetSeverityClass(alert.Severity)" id="alert-@alert.Id" @key="alert.Id">
                                 <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
                                 <div class="alert-content">
                                     <div class="alert-header">
@@ -1342,6 +1342,48 @@
                                     <span class="detail-value">@FormatTime(incident.LastTriggeredAt)</span>
                                 </div>
                             </div>
+                            @if (_incidentAlerts.TryGetValue(incident.Id, out var members) && members.Count > 0)
+                            {
+                                var showAll = _showAllIncidentAlerts.Contains(incident.Id);
+                                <div class="incident-alerts">
+                                    <div class="detail-label">Alerts</div>
+                                    @foreach (var member in showAll ? members : members.Take(IncidentAlertPreviewCount))
+                                    {
+                                        var open = _openIncidentAlerts.Contains(member.Id);
+                                        <div class="incident-alert" @key="member.Id">
+                                            <div class="incident-alert-row">
+                                                <span class="severity-badge @GetSeverityBadgeClass(member.Severity)">@member.Severity</span>
+                                                @if (member.Status != AlertStatus.Resolved)
+                                                {
+                                                    <button class="incident-alert-link incident-alert-title" data-tooltip="Show in Active Alerts" @onclick="() => GoToAlertAsync(member.Id)">@member.Title</button>
+                                                }
+                                                else if (!string.IsNullOrEmpty(member.Message))
+                                                {
+                                                    <button class="incident-alert-link incident-alert-title" aria-expanded="@(open ? "true" : "false")" data-tooltip="@(open ? "Hide message" : "Show message")" @onclick="() => ToggleIncidentAlert(member.Id)">@member.Title</button>
+                                                }
+                                                else
+                                                {
+                                                    <span class="incident-alert-title">@member.Title</span>
+                                                }
+                                                <span class="incident-alert-meta">
+                                                    <span class="status-badge @GetStatusBadgeClass(member.Status)">@member.Status</span>
+                                                    <span class="alert-time">@FormatTime(member.TriggeredAt)</span>
+                                                </span>
+                                            </div>
+                                            @if (open && member.Status == AlertStatus.Resolved)
+                                            {
+                                                <p class="alert-message incident-alert-message"><LinkifiedText Text="@member.Message" /></p>
+                                            }
+                                        </div>
+                                    }
+                                    @if (members.Count > IncidentAlertPreviewCount)
+                                    {
+                                        <button class="incident-alert-link incident-alerts-more" @onclick="() => ToggleShowAllIncidentAlerts(incident.Id)">
+                                            @(showAll ? "Show fewer" : $"Show all {members.Count} alerts")
+                                        </button>
+                                    }
+                                </div>
+                            }
                             <div class="incident-actions">
                                 @if (incident.Status == AlertStatus.Active)
                                 {
@@ -1729,6 +1771,51 @@
         padding-top: 0.75rem;
         border-top: 1px solid var(--border-color);
     }
+    /* Same rhythm as Change Control's "Changes in the 2 hours before", which shares this card. */
+    .incident-alerts {
+        margin-top: 1rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+        font-size: 0.8125rem;
+    }
+    .incident-alert-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+        padding: 0.4rem 0;
+    }
+    .incident-alert-title {
+        flex: 1 1 12rem;
+        min-width: 0;
+        color: var(--text-primary);
+        overflow-wrap: anywhere;
+    }
+    .incident-alert-link {
+        background: none;
+        border: 0;
+        padding: 0;
+        color: var(--primary-hover);
+        cursor: pointer;
+        text-align: left;
+        font: inherit;
+    }
+    .incident-alert-link:hover {
+        color: var(--text-primary);
+    }
+    .incident-alert-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+    .incident-alert-message {
+        margin: 0 0 0.4rem 0;
+    }
+    .incident-alerts-more {
+        margin-top: 0.25rem;
+    }
     .status-success {
         background: rgba(36, 188, 112, 0.2);
         color: var(--success-color);
@@ -2024,6 +2111,11 @@
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    /// <summary>An alert to ring on Active Alerts once it renders (Dashboard and Incidents link here).</summary>
+    [SupplyParameterFromQuery(Name = "alert")]
+    public int? AlertParam { get; set; }
+
+    private int? _highlightAlertId;
     private string? _lastTabParam;
     private bool _isNavigating;
 
@@ -2073,6 +2165,7 @@
     /// </summary>
     private List<AlertHistoryEntry>? _pendingAlerts;
     private List<AlertIncident>? _pendingIncidents;
+    private Dictionary<int, List<AlertHistoryEntry>>? _pendingIncidentAlerts;
 
     /// <summary>
     /// How many held entries are new to the list on screen, which is what the pill offers. Counted
@@ -2315,6 +2408,13 @@
 
     // Incidents
     private List<AlertIncident> _incidents = [];
+    /// <summary>Each shown incident's alerts by incident id, oldest first.</summary>
+    private Dictionary<int, List<AlertHistoryEntry>> _incidentAlerts = [];
+    /// <summary>Resolved incident alerts whose message is expanded in place.</summary>
+    private readonly HashSet<int> _openIncidentAlerts = [];
+    /// <summary>Incidents showing every alert rather than the first <see cref="IncidentAlertPreviewCount"/>.</summary>
+    private readonly HashSet<int> _showAllIncidentAlerts = [];
+    private const int IncidentAlertPreviewCount = 5;
 
     // Data Usage
     private List<WanUsageSummary> _wanUsageSummaries = [];
@@ -2368,6 +2468,7 @@
 
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
+        _highlightAlertId = AlertParam;
 
         // Whether this site shows the ONT Stats tab - gates the ONT rules' threshold
         // deep-link icon so we never link to a tab the site has hidden. (SFP Stats and
@@ -2466,6 +2567,14 @@
                 _ = InvokeAsync(() => SetActiveTab(newTab, pushHistory: false));
         }
         _lastTabParam = TabParam;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_highlightAlertId is not int id || _loading || _activeTab != "active") return;
+        _highlightAlertId = null;
+        if (_unresolvedAlerts.Any(a => a.Id == id))
+            await JS.InvokeVoidAsync("noHighlightTarget", $"alert-{id}", "center", "var(--border-radius)");
     }
 
     private async Task SetActiveTab(string tab, bool pushHistory = true)
@@ -2800,9 +2909,11 @@
         try
         {
             var latest = await AlertRepository.GetUnresolvedIncidentsAsync();
+            var latestAlerts = await LoadIncidentAlertsAsync(latest);
             var shown = _incidents.Select(i => i.Id).ToHashSet();
             var isNew = latest.Any(p => !shown.Contains(p.Id));
             _pendingIncidents = latest;
+            _pendingIncidentAlerts = latestAlerts;
             if (!isNew || _incidents.Count == 0) ApplyPendingIncidents();
         }
         catch (Exception ex)
@@ -2823,7 +2934,9 @@
     {
         if (_pendingIncidents is null) return;
         _incidents = _pendingIncidents;
+        _incidentAlerts = _pendingIncidentAlerts ?? [];
         _pendingIncidents = null;
+        _pendingIncidentAlerts = null;
     }
 
     private async Task LoadIncidents()
@@ -2831,13 +2944,43 @@
         try
         {
             _incidents = await AlertRepository.GetUnresolvedIncidentsAsync();
+            _incidentAlerts = await LoadIncidentAlertsAsync(_incidents);
             _pendingIncidents = null;
+            _pendingIncidentAlerts = null;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading incidents");
             _incidents = [];
+            _incidentAlerts = [];
         }
+    }
+
+    /// <summary>Each incident's alerts, oldest first, read in one query for the whole list.</summary>
+    private async Task<Dictionary<int, List<AlertHistoryEntry>>> LoadIncidentAlertsAsync(List<AlertIncident> incidents)
+    {
+        if (incidents.Count == 0) return [];
+        var alerts = await AlertRepository.GetAlertsByIncidentIdsAsync(incidents.Select(i => i.Id).ToList());
+        return alerts.Where(a => a.IncidentId.HasValue)
+            .GroupBy(a => a.IncidentId!.Value)
+            .ToDictionary(g => g.Key, g => g.OrderBy(a => a.TriggeredAt).ToList());
+    }
+
+    private void ToggleIncidentAlert(int alertId)
+    {
+        if (!_openIncidentAlerts.Remove(alertId)) _openIncidentAlerts.Add(alertId);
+    }
+
+    private void ToggleShowAllIncidentAlerts(int incidentId)
+    {
+        if (!_showAllIncidentAlerts.Remove(incidentId)) _showAllIncidentAlerts.Add(incidentId);
+    }
+
+    // Opens Active Alerts and rings the alert there, where its View / Acknowledge / Resolve live.
+    private async Task GoToAlertAsync(int alertId)
+    {
+        _highlightAlertId = alertId;
+        await SetActiveTab("active");
     }
 
     // ========== Active Alert Actions ==========
