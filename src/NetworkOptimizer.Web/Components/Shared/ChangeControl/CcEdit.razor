@@ -45,7 +45,7 @@
                 }
                 <span class="cc-toolbar-spacer"></span>
                 <span class="cc-edit-actions">
-                <label class="btn btn-contrast btn-sm" style="margin:0">
+                <label class="btn btn-contrast btn-sm" style="margin:0" data-tooltip="@UploadTooltip">
                     Upload YAML
                     <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
                 </label>
@@ -104,14 +104,18 @@
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">@_group<span class="card-title-suffix">@FileName(_group), @CcFormat.Plural(GroupCount(_group), "object", "objects")</span></h3>
-                        @if (EditedCount(_group) > 0)
-                        {
-                            <span class="status-badge status-info">@EditedCount(_group) edited</span>
-                        }
-                        else
-                        {
-                            <span class="status-badge badge-muted hide-mobile">Secrets masked</span>
-                        }
+                        <span class="cc-header-actions">
+                            @if (EditedCount(_group) > 0)
+                            {
+                                <span class="status-badge status-info">@EditedCount(_group) edited</span>
+                            }
+                            else
+                            {
+                                <span class="status-badge badge-muted hide-mobile">Secrets masked</span>
+                            }
+                            <button class="btn btn-contrast btn-sm hide-mobile" disabled="@_loading" @onclick="DownloadCollectionAsync"
+                                    data-tooltip="@DownloadCollectionTooltip">Download Collection</button>
+                        </span>
                     </div>
                     @if (_loading)
                     {
@@ -160,11 +164,12 @@
                         {
                             <button class="btn btn-primary" disabled="@(Errors > 0 || _validation.EditedObjects == 0 || _busy)" @onclick="SaveTemplateAsync">Save Template</button>
                         }
-                        <label class="btn btn-contrast cc-phone-inline" style="margin:0">
+                        <label class="btn btn-contrast cc-phone-inline" style="margin:0" data-tooltip="@UploadTooltip">
                             Upload YAML
                             <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
                         </label>
                         <button class="btn btn-contrast cc-phone-inline" @onclick="() => DownloadAsync(false)">Download</button>
+                        <button class="btn btn-contrast cc-phone-inline" disabled="@_loading" @onclick="DownloadCollectionAsync">Download Collection</button>
                     </div>
                 </div>
                 @if (_error != null)
@@ -186,6 +191,9 @@
         "Routes and Traffic Routes", "QoS and Traffic Rules", "NAT and Port Forwards", "Local DNS", "RADIUS and VPN", "Devices", "Clients", "Other",
     ];
 
+    private const string UploadTooltip = "Takes the whole site config or a single collection.";
+    private const string DownloadCollectionTooltip = "This collection only, with your edits. Edit it and upload it back.";
+
     private List<FleetSiteView> _sites = [];
     private List<SnapshotRowView> _snapshots = [];
     private string StartFrom { get; set; } = "";
@@ -195,6 +203,8 @@
     private readonly Dictionary<string, string> _edited = [];
     private readonly Dictionary<string, string> _original = [];
     private readonly Dictionary<string, string> _schemas = [];
+    // Groups that came from Upload YAML: a collection in the file replaces the whole collection.
+    private readonly HashSet<string> _uploaded = [];
     private YamlValidation _validation = new();
     private bool _loading = true;
     private bool _busy;
@@ -422,6 +432,7 @@
             _validation = _edited.Count == 0 ? new YamlValidation()
                 : TemplateId is { } templateId ? await Templates.ValidateYamlAsync(templateId, Files())
                 : await Site.ValidateYamlAsync(SnapshotId, Files());
+            AddUploadDeleteWarnings();
         }
         catch (Exception ex)
         {
@@ -431,9 +442,24 @@
         StateHasChanged();
     }
 
+    /// <summary>Warns, per uploaded collection, how many objects the file leaves out and so deletes.</summary>
+    private void AddUploadDeleteWarnings()
+    {
+        foreach (var group in _uploaded)
+        {
+            foreach (var def in Defs(group))
+            {
+                if (_validation.DeletedByCollection.GetValueOrDefault(def.Key) is var n and > 0)
+                    _validation.Problems.Add(new YamlProblem("Warning", FileName(group), 1,
+                        $"{def.DisplayName}: {CcFormat.Plural(n, "object is", "objects are")} not in the uploaded file and will be deleted."));
+            }
+        }
+    }
+
     private async Task StartOverAsync()
     {
         _generation++;
+        _uploaded.Clear();
         _edited.Clear();
         _original.Clear();
         _schemas.Clear();
@@ -459,7 +485,11 @@
             }
             if (unknown.Count > 0) _error = $"Unknown collection {string.Join(", ", unknown)} in the file; it was skipped.";
             _generation++;
-            foreach (var (group, sb) in segments) _edited[group] = sb.ToString();
+            foreach (var (group, sb) in segments)
+            {
+                _edited[group] = sb.ToString();
+                _uploaded.Add(group);
+            }
             if (segments.Count > 0) await OpenGroupAsync(segments.Keys.First());
             await ValidateAsync();
         }
@@ -474,15 +504,26 @@
         if (CurrentTemplate is { } template)
         {
             var text = await Templates.GetYamlAsync(template.Id);
-            var name = new string(template.Name.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-').ToArray()).Trim('-');
-            await JS.InvokeVoidAsync("downloadFile", $"template-{name}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
-                "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
+            await SaveYamlAsync($"template-{TemplateSlug(template)}", text);
             return;
         }
         var yaml = withSecrets ? await Site.DownloadYamlWithSecretsAsync(SnapshotId) : await Site.DownloadYamlAsync(SnapshotId);
-        await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config{(withSecrets ? "-with-secrets" : "")}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
-            "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
+        await SaveYamlAsync($"{SiteCtx.Slug}-config{(withSecrets ? "-with-secrets" : "")}", yaml);
     }
+
+    /// <summary>The open collection as the editor shows it: edits included, secrets masked.</summary>
+    private Task DownloadCollectionAsync()
+    {
+        var prefix = CurrentTemplate is { } template ? $"template-{TemplateSlug(template)}" : SiteCtx.Slug;
+        return SaveYamlAsync($"{prefix}-{Path.GetFileNameWithoutExtension(FileName(_group))}", _text);
+    }
+
+    private static string TemplateSlug(TemplateView template) =>
+        new string(template.Name.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-').ToArray()).Trim('-');
+
+    private async Task SaveYamlAsync(string name, string yaml) =>
+        await JS.InvokeVoidAsync("downloadFile", $"{name}-{DateTime.Now:yyyyMMdd-HHmm}.yaml",
+            "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
 
     private async Task ReviewPlanAsync()
     {

@@ -284,7 +284,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Baseline and **Drift from Baseline**, with **Return to Baseline** and **Accept as Baseline**
   - **Templates** - save collections from one site, apply them to others, or use one as the Baseline
   - **UniFi Console Backups** - keeps copies of UniFi's own .unf autobackups for download (Site Admin)
-- **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files
+- **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files, for the whole site or a single collection
   - Remove an object with one click; references to it in lists are removed in the same plan
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements

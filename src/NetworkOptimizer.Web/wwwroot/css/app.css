@@ -24840,6 +24840,12 @@ body:has(.top-bar-hidden) .btn-fit {
     gap: 0.5rem;
 }
 
+.change-control .cc-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 @media (max-width: 768px) {
     .change-control .cc-edit-actions {
         display: none;

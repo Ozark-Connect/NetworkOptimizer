@@ -168,4 +168,5 @@ public sealed class YamlValidation
     public int EditedObjects { get; init; }
     public int EditedCollections { get; init; }
     public Dictionary<string, int> EditedByCollection { get; init; } = [];
+    public Dictionary<string, int> DeletedByCollection { get; init; } = [];
 }
