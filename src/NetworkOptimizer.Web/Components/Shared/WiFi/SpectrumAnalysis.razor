@@ -7,6 +7,7 @@
 @inject SiteContextService SiteContext
 @inject ILogger<SpectrumAnalysis> Logger
 @inject NavigationManager NavigationManager
+@inject IDisplayTimeZone DisplayTime
 
 <div class="spectrum-container wifi-sections">
     <!-- Header Row (matching Client Stats pattern) -->
@@ -1527,7 +1528,7 @@
         if (ago.TotalMinutes < 60) return $"{(int)ago.TotalMinutes}m ago";
         if (ago.TotalHours < 24) return $"{(int)ago.TotalHours}h ago";
 
-        return lastSeen.Value.ToLocalTime().ToString("MMM d HH:mm");
+        return lastSeen.Value.ToLocalTime(DisplayTime).ToString("MMM d HH:mm");
     }
 
     private IEnumerable<DfsChannelStatus> GetDfsChannelStatus()

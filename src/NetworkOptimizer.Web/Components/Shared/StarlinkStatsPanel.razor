@@ -3,6 +3,7 @@
 @inject IStarlinkMonitorService StarlinkService
 @inject IJSRuntime JS
 @implements IAsyncDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="starlink-stats-panel">
     @if (isLoading)
@@ -49,7 +50,7 @@
                 @if (stats != null)
                 {
                     <div class="tc-timestamp">
-                        <small>Updated: @stats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                        <small>Updated: @stats.Timestamp.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</small>
                     </div>
                 }
             </div>

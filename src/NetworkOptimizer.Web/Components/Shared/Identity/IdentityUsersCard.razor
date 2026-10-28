@@ -11,6 +11,7 @@
 @inject NetworkOptimizer.Web.Services.SiteSwitchService SiteSwitch
 @implements IDisposable
 @inject Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> IdentityOptions
+@inject IDisplayTimeZone DisplayTime
 
 @* Settings - Identity: the instance-wide account list. Create, enable/disable, delete, change role,
    reset another user's password, and link or unlink an external identity. Everything runs through
@@ -162,7 +163,7 @@
                                 <td class="hide-mobile">
                                     @if (user.LastLoginAt is { } last)
                                     {
-                                        <span data-tooltip="@($"Method: {user.LastLoginMethod ?? "password"}")">@last.ToLocalTime().ToString("g")</span>
+                                        <span data-tooltip="@($"Method: {user.LastLoginMethod ?? "password"}")">@last.ToLocalTime(DisplayTime).ToString("g")</span>
                                     }
                                     else
                                     {

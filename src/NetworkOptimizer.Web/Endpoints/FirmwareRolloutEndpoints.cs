@@ -22,6 +22,7 @@ public static class FirmwareRolloutEndpoints
             IFirmwareRolloutService rollout,
             SiteContextService siteContext,
             SiteManagementService siteManagement,
+            IDisplayTimeZone displayTime,
             CancellationToken ct) =>
         {
             var view = await rollout.GetReportAsync(planId, ct);
@@ -38,9 +39,10 @@ public static class FirmwareRolloutEndpoints
                 siteName = sites.FirstOrDefault(s => s.Slug == siteContext.Slug)?.Name ?? siteContext.Slug;
             }
 
-            var pdfBytes = new RolloutReportPdfGenerator().GenerateReportBytes(report, siteName);
+            await displayTime.ResolveAsync();
+            var pdfBytes = new RolloutReportPdfGenerator(timeZone: displayTime.Zone).GenerateReportBytes(report, siteName);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
-            var stamp = (report.CompletedAt ?? report.GeneratedAt).ToLocalTime();
+            var stamp = displayTime.ToLocal(report.CompletedAt ?? report.GeneratedAt);
             var fileName = $"FirmwareRollout{sitePart}_{planId}_{stamp:yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);
         });

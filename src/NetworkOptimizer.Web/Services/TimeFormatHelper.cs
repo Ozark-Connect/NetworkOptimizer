@@ -44,9 +44,10 @@ public static class TimeFormatHelper
     }
 
     /// <summary>
-    /// Format a UTC time as a relative string (e.g., "5 minutes ago", "1 hour ago").
+    /// Format a UTC time as a relative string (e.g., "5 minutes ago", "1 hour ago"). A week or more
+    /// ago shows the date on <paramref name="zone"/>'s clock.
     /// </summary>
-    public static string FormatRelativeTime(DateTime utcTime)
+    public static string FormatRelativeTime(DateTime utcTime, TimeZoneInfo zone)
     {
         var elapsed = DateTime.UtcNow - utcTime;
 
@@ -62,7 +63,7 @@ public static class TimeFormatHelper
         if (elapsed.TotalDays < 7)
             return $"{Pluralize((int)elapsed.TotalDays, "day")} ago";
 
-        return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
+        return TimeZoneCatalog.ToZone(utcTime, zone).ToString("MMM dd, yyyy");
     }
 
     /// <summary>

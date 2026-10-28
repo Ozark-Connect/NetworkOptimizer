@@ -10,6 +10,7 @@
 @inject ILogger<Optimize> Logger
 @inject PullToRefreshState PtrState
 @rendermode InteractiveServer
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Config Optimizer - Network Optimizer</PageTitle>
 
@@ -95,7 +96,7 @@
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Summary</h2>
-                <span class="audit-timestamp"><span class="timestamp-label">Last run: </span>@_result.Timestamp.ToLocalTime().ToString("g")</span>
+                <span class="audit-timestamp"><span class="timestamp-label">Last run: </span>@_result.Timestamp.ToLocalTime(DisplayTime).ToString("g")</span>
             </div>
             <div class="card-body">
                 <div class="diagnostics-summary">
@@ -728,7 +729,7 @@
         return result;
     }
 
-    private static string FormatLastSeen(DateTime lastSeen)
+    private string FormatLastSeen(DateTime lastSeen)
     {
         var ago = DateTime.UtcNow - lastSeen;
 
@@ -739,7 +740,7 @@
         if (ago.TotalDays < 7)
             return $"{(int)ago.TotalDays}d ago";
 
-        return lastSeen.ToLocalTime().ToString("MMM d");
+        return lastSeen.ToLocalTime(DisplayTime).ToString("MMM d");
     }
 
 }

@@ -3,6 +3,7 @@
 @inject IThreatBlockingAdmin Blocking
 @inject SiteContextService SiteContext
 @inject AuthenticationStateProvider AuthState
+@inject IDisplayTimeZone DisplayTime
 
 @* Block or release one address by hand. Renders nothing for an address that is not publicly
    routable (IPv4 or IPv6) or while Automatic Blocking is Off. *@
@@ -13,7 +14,7 @@
         @if (_active is { Enforced: true })
         {
             <span class="status-badge status-error" data-tooltip="@_active.Reason">Blocked</span>
-            <span class="ip-block-until">until @_active.ExpiresAt.ToLocalTime().ToString("MMM d HH:mm")</span>
+            <span class="ip-block-until">until @_active.ExpiresAt.ToLocalTime(DisplayTime).ToString("MMM d HH:mm")</span>
             <SiteAdminOnly>
                 <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="Release">Release</button>
             </SiteAdminOnly>

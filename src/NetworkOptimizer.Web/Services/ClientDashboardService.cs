@@ -38,6 +38,7 @@ public class ClientDashboardService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly WiredPortPresence.IWiredPortPresenceService? _portPresence;
     private readonly GatewayNeighborTable _neighborTable;
+    private readonly IDisplayTimeZone? _displayTime;
 
     // For an IPv6 source, the IPv4 address UniFi Network lists the device under. WiFiman is
     // looked up by that address, including on the 1-second poll, which has no identity to read.
@@ -92,9 +93,11 @@ public class ClientDashboardService
         ApAgentClientLiveService? apAgentLive = null,
         ApAgentTelemetryRegistry? apAgentTelemetry = null,
         Microsoft.Extensions.Caching.Memory.IMemoryCache? cache = null,
-        WiredPortPresence.IWiredPortPresenceService? portPresence = null)
+        WiredPortPresence.IWiredPortPresenceService? portPresence = null,
+        IDisplayTimeZone? displayTime = null)
     {
         _logger = logger;
+        _displayTime = displayTime;
         _cache = cache;
         _portPresence = portPresence;
         _siteDbFactory = siteDbFactory;
@@ -1888,6 +1891,8 @@ public class ClientDashboardService
         var bucket = span <= TimeSpan.FromHours(2) ? TimeSpan.FromMinutes(5)
             : span <= TimeSpan.FromHours(48) ? TimeSpan.FromHours(1)
             : TimeSpan.FromDays(1);
+        // Day bars start at the viewer's midnight, the clock the chart draws in.
+        var dayZone = _displayTime?.Zone ?? TimeZoneInfo.Local;
         var usage = new ClientDataUsage { From = from, To = to, Bucket = bucket, LanIsPortTotal = client.IsWired };
         if (string.IsNullOrEmpty(client.Mac)) return usage;
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -1901,7 +1906,7 @@ public class ClientDashboardService
             if (_connectionService.IsConnected && _connectionService.Client != null)
             {
                 var rate = await _connectionService.Client.GetClientTrafficRateAsync(client.Mac, from, to);
-                usage.Wan = BucketTrafficRate(rate, bucket);
+                usage.Wan = BucketTrafficRate(rate, bucket, dayZone);
             }
         }
         catch (Exception ex)
@@ -1931,7 +1936,7 @@ public class ClientDashboardService
             if (coverage.Count > 0)
             {
                 var measured = await MeasuredWanUsageAsync(influx, client.Mac, from, to, bucket, rawFrom);
-                usage.Wan = InterleaveWanBuckets(usage.Wan, measured, coverage, bucket, to);
+                usage.Wan = InterleaveWanBuckets(usage.Wan, measured, coverage, bucket, to, dayZone);
             }
         }
         catch (Exception ex)
@@ -1965,7 +1970,7 @@ public class ClientDashboardService
             }
 
             var lan = points.Select(p => new UsageBucket(p.Time, p.ToClientBytes, p.FromClientBytes)).ToList();
-            usage.Lan = bucket >= TimeSpan.FromDays(1) ? SumToDays(lan, usage.Wan) : lan;
+            usage.Lan = bucket >= TimeSpan.FromDays(1) ? SumToDays(lan, usage.Wan, dayZone) : lan;
         }
         catch (Exception ex)
         {
@@ -2037,12 +2042,12 @@ public class ClientDashboardService
     /// Hourly buckets summed into days on the WAN series' own day edges, so the two charts line
     /// up bar for bar; <see cref="BucketStart"/> days when there is no WAN series to follow.
     /// </summary>
-    private static List<UsageBucket> SumToDays(List<UsageBucket> hourly, IReadOnlyList<UsageBucket> wanDays)
+    private static List<UsageBucket> SumToDays(List<UsageBucket> hourly, IReadOnlyList<UsageBucket> wanDays, TimeZoneInfo dayZone)
     {
         var edges = wanDays.Select(w => w.Time).OrderBy(t => t).ToList();
         DateTime EdgeFor(DateTime t)
         {
-            if (edges.Count == 0) return BucketStart(t, TimeSpan.FromDays(1));
+            if (edges.Count == 0) return BucketStart(t, TimeSpan.FromDays(1), dayZone);
             var idx = edges.FindLastIndex(e => e <= t);
             if (idx >= 0) return edges[idx];
             // Before the report's first day: the same day boundary, a day earlier.
@@ -2179,9 +2184,10 @@ public class ClientDashboardService
         IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ClientWanPoint> measured,
         IReadOnlyDictionary<DateTime, long> coverageHours,
         TimeSpan bucket,
-        DateTime to)
+        DateTime to,
+        TimeZoneInfo dayZone)
     {
-        DateTime BucketOf(DateTime t) => BucketStart(t, bucket);
+        DateTime BucketOf(DateTime t) => BucketStart(t, bucket, dayZone);
 
         bool Covered(DateTime bucketStart)
         {
@@ -2242,11 +2248,11 @@ public class ClientDashboardService
         return result;
     }
 
-    public static List<UsageBucket> BucketTrafficRate(IEnumerable<UniFiTrafficRateBucket> rate, TimeSpan bucket)
+    public static List<UsageBucket> BucketTrafficRate(IEnumerable<UniFiTrafficRateBucket> rate, TimeSpan bucket, TimeZoneInfo dayZone)
     {
         return rate
             .Select(b => (Start: b.Time.AddSeconds(-b.IntervalSeconds), Bucket: b))
-            .GroupBy(x => BucketStart(x.Start, bucket), x => x.Bucket)
+            .GroupBy(x => BucketStart(x.Start, bucket, dayZone), x => x.Bucket)
             .Select(g => new UsageBucket(g.Key, g.Sum(b => b.DownloadBytes), g.Sum(b => b.UploadBytes)))
             .OrderBy(b => b.Time)
             .ToList();
@@ -2254,17 +2260,16 @@ public class ClientDashboardService
 
     /// <summary>
     /// The start of the bucket holding an instant. Sub-day buckets truncate on the UTC clock, which
-    /// every whole-hour zone shares. A day starts at local midnight in the server's zone (the clock
-    /// Firmware Rollout shows too): a UTC day drawn in a local clock lands its bars at 19:00.
+    /// every whole-hour zone shares. A day starts at midnight in <paramref name="dayZone"/>, the
+    /// viewer's clock: a UTC day drawn in a local clock lands its bars at 19:00.
     /// </summary>
-    internal static DateTime BucketStart(DateTime utc, TimeSpan bucket)
+    internal static DateTime BucketStart(DateTime utc, TimeSpan bucket, TimeZoneInfo dayZone)
     {
         if (bucket < TimeSpan.FromDays(1))
             return new DateTime(utc.Ticks - utc.Ticks % bucket.Ticks, DateTimeKind.Utc);
-        var tz = TimeZoneInfo.Local;
-        var midnight = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz).Date;
+        var midnight = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), dayZone).Date;
         // GetUtcOffset never throws on a skipped or repeated midnight, so one date is one key.
-        return new DateTimeOffset(midnight, tz.GetUtcOffset(midnight)).UtcDateTime;
+        return new DateTimeOffset(midnight, dayZone.GetUtcOffset(midnight)).UtcDateTime;
     }
 
     /// <summary>

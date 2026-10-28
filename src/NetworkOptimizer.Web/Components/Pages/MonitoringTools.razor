@@ -32,6 +32,7 @@
 @inject NetworkOptimizer.Web.Services.Ssh.IGatewaySshService GatewaySsh
 @inject IThreatBlockingSiteAdmin SiteBlocking
 @inject ISiteManagementService SiteManagement
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -1367,9 +1368,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             : "Never expires";
 
     /// <summary>Absolute local expiry, counted from when the commands actually ran.</summary>
-    private static string LeaseExpiryLabel(GatewayInterfaceAddress addr, DateTime collectedAtUtc) =>
+    private string LeaseExpiryLabel(GatewayInterfaceAddress addr, DateTime collectedAtUtc) =>
         addr.ValidLifetime is TimeSpan span
-            ? collectedAtUtc.Add(span).ToLocalTime().ToString("MMM d, yyyy HH:mm")
+            ? collectedAtUtc.Add(span).ToLocalTime(DisplayTime).ToString("MMM d, yyyy HH:mm")
             : "-";
 
     private async Task OnVantageChanged(ChangeEventArgs e)

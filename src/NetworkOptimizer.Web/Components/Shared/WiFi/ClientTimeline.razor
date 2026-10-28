@@ -6,6 +6,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<ClientTimeline> Logger
+@inject IDisplayTimeZone DisplayTime
 
 <div class="client-timeline-container wifi-sections">
     <div class="client-timeline-controls">
@@ -367,7 +368,7 @@
                                 <div class="event-title">@GetEventTitle(evt)</div>
                                 <div class="event-details">@GetEventDetails(evt)</div>
                             </div>
-                            <div class="event-time">@evt.Timestamp.ToLocalTime().ToString("MMM d, h:mm tt")</div>
+                            <div class="event-time">@evt.Timestamp.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</div>
                         </div>
                     }
                 </div>

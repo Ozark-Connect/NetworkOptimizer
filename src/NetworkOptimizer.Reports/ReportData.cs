@@ -9,6 +9,9 @@ public class ReportData
 {
     public string ClientName { get; set; } = "Client";
     public DateTime GeneratedAt { get; set; } = DateTime.Now;
+
+    /// <summary>The zone <see cref="GeneratedAt"/> is on ("CDT"), printed beside it; null prints none.</summary>
+    public string? TimeZoneLabel { get; set; }
     public SecurityScore SecurityScore { get; set; } = new();
     public List<NetworkInfo> Networks { get; set; } = new();
     public List<DeviceInfo> Devices { get; set; } = new();

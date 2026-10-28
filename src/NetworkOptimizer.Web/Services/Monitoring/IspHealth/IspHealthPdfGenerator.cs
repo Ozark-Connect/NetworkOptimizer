@@ -20,12 +20,15 @@ public class IspHealthPdfGenerator
     private readonly BrandingOptions _branding;
     private readonly IspHealthOptions _options;
     private readonly byte[]? _logoBytes;
+    private readonly TimeZoneInfo _timeZone;
 
     /// <param name="options">The scorer's own options, so the limiting-aspect column weighs
     /// stability against congestion exactly as the tab does.</param>
-    public IspHealthPdfGenerator(BrandingOptions? branding = null, IspHealthOptions? options = null)
+    /// <param name="timeZone">The reader's zone, which every time in the report is shown in; UTC when null.</param>
+    public IspHealthPdfGenerator(BrandingOptions? branding = null, IspHealthOptions? options = null, TimeZoneInfo? timeZone = null)
     {
         _branding = branding ?? BrandingOptions.OzarkConnect();
+        _timeZone = timeZone ?? TimeZoneInfo.Utc;
         _options = options ?? new IspHealthOptions();
         QuestPDF.Settings.License = LicenseType.Community;
         _logoBytes = ReportAssets.Logo();
@@ -36,7 +39,7 @@ public class IspHealthPdfGenerator
     /// <param name="siteName">Site the report covers, used in the title.</param>
     public byte[] GenerateReportBytes(IspHealthReport report, string? siteName = null)
     {
-        var generatedAt = DateTime.Now;
+        var generatedAt = TimeZoneCatalog.ToZone(DateTime.UtcNow, _timeZone);
         return Document.Create(container =>
         {
             container.Page(page =>
@@ -85,7 +88,7 @@ public class IspHealthPdfGenerator
             }
 
             column.Item().AlignLeft().PaddingTop(subjectLine.Length > 0 ? 2 : 6)
-                .Text($"Generated: {generatedAt:MMMM dd, yyyy HH:mm}    Window: {IspHealthPresentation.WindowRangeLabel(report)}")
+                .Text($"Generated: {generatedAt:MMMM dd, yyyy HH:mm}    Window: {IspHealthPresentation.WindowRangeLabel(report, _timeZone)}")
                 .FontSize(10).FontColor(Colors.Grey.Medium);
 
             column.Item().PaddingBottom(10).LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten2);
@@ -167,8 +170,8 @@ public class IspHealthPdfGenerator
                 {
                     LabelledLine(detail, "Scored as", IspHealthPresentation.ScoredAsLabel(report));
                     LabelledLine(detail, "Window",
-                        $"{IspHealthPresentation.WindowLabel(report)} - {IspHealthPresentation.WindowRangeLabel(report)}");
-                    LabelledLine(detail, "Computed", report.ComputedAt.ToLocalTime().ToString("MMM d, yyyy HH:mm"));
+                        $"{IspHealthPresentation.WindowLabel(report)} - {IspHealthPresentation.WindowRangeLabel(report, _timeZone)}");
+                    LabelledLine(detail, "Computed", TimeZoneCatalog.ToZone(report.ComputedAt, _timeZone).ToString("MMM d, yyyy HH:mm"));
                     LabelledLine(detail, "Outages in window", report.Outages.Count.ToString());
                     LabelledLine(detail, "Congestion events", report.CongestionEvents.Count.ToString());
                 });
@@ -231,7 +234,7 @@ public class IspHealthPdfGenerator
                 Cell(table, $"{IspHealthPresentation.FormatSpeed(report.MeasuredDownloadMbps)} Mbps");
                 Cell(table, $"{IspHealthPresentation.FormatSpeed(report.MeasuredUploadMbps)} Mbps");
                 Cell(table, report.SpeedTestTime.HasValue
-                    ? $"Best result, {report.SpeedTestTime.Value.ToLocalTime():MMM d HH:mm}"
+                    ? $"Best result, {TimeZoneCatalog.ToZone(report.SpeedTestTime.Value, _timeZone):MMM d HH:mm}"
                     : "No recent WAN speed test");
 
                 Cell(table, "Typical");
@@ -469,7 +472,7 @@ public class IspHealthPdfGenerator
                 foreach (var outage in report.Outages)
                 {
                     Cell(table, IspHealthPresentation.OutageBadgeText(outage));
-                    Cell(table, $"{outage.Start.ToLocalTime():MMM d, HH:mm:ss} - {outage.End.ToLocalTime():HH:mm:ss}");
+                    Cell(table, $"{TimeZoneCatalog.ToZone(outage.Start, _timeZone):MMM d, HH:mm:ss} - {TimeZoneCatalog.ToZone(outage.End, _timeZone):HH:mm:ss}");
                     Cell(table, IspHealthPresentation.FormatDuration(outage.Duration));
                     Cell(table, IspHealthPresentation.OutageScopeLabel(outage));
                     Cell(table, IspHealthPresentation.OutageScoreTooltip(outage));
@@ -481,9 +484,9 @@ public class IspHealthPdfGenerator
             foreach (var outage in report.Outages.Where(o => o.Tiers.Any(t => t.WentDark)))
             {
                 var shape = string.Join(", ", outage.Tiers.Select(t =>
-                    $"{t.Name}: {IspHealthPresentation.OutageHopStatus(t)}"));
+                    $"{t.Name}: {IspHealthPresentation.OutageHopStatus(t, _timeZone)}"));
                 column.Item().PaddingTop(4)
-                    .Text($"{outage.Start.ToLocalTime():MMM d, HH:mm:ss} recovery - {shape}")
+                    .Text($"{TimeZoneCatalog.ToZone(outage.Start, _timeZone):MMM d, HH:mm:ss} recovery - {shape}")
                     .FontSize(8).FontColor(Colors.Grey.Darken1);
             }
         });
@@ -517,7 +520,7 @@ public class IspHealthPdfGenerator
                 foreach (var entry in timeline)
                 {
                     Cell(table, entry.Badge);
-                    Cell(table, IspHealthPresentation.EventTimeLabel(entry.Time));
+                    Cell(table, IspHealthPresentation.EventTimeLabel(entry.Time, _timeZone));
                     // A grouped line's per-hop readings always print: the document has no
                     // disclosure to open, and they are what an ISP is being handed this for.
                     CellLines(table, entry.Text, entry.Members is { Count: > 0 }

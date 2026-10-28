@@ -5,6 +5,7 @@
 @inject TcMonitorClient TcMonitorClient
 @inject SiteContextService SiteContext
 @inject ISpeedTestRepository SpeedTestRepository
+@inject IDisplayTimeZone DisplayTime
 
 <div class="sqm-status-panel">
     @if (isLoading)
@@ -50,7 +51,7 @@
             @if (statusData?.TcMonitorTimestamp != null)
             {
                 <div class="tc-timestamp">
-                    <small>Updated: @statusData.TcMonitorTimestamp.Value.ToLocalTime().ToString("HH:mm:ss")</small>
+                    <small>Updated: @statusData.TcMonitorTimestamp.Value.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</small>
                 </div>
             }
         </div>

@@ -1,0 +1,48 @@
+@inject ITimeZonePreferenceSource TimeZonePreferences
+@inject ISystemSettingsAdmin SettingsAdmin
+@inject NavigationManager Navigation
+
+@* Settings - Application: the viewer's clock. Each user's own zone, then the zone everyone without
+   one reads in. The default is instance-wide, so only a global Admin is offered it. *@
+
+<div class="card settings-tab-application" id="time-zone">
+    <div class="card-header">
+        <h2 class="card-title">Time Zone</h2>
+    </div>
+    <div class="card-body">
+        <PersonalTimeZoneField />
+
+        <AuthorizeView Policy="@Policies.RequireAdmin" Context="globalAdmin">
+            @if (_loaded)
+            {
+                <div class="form-group">
+                    <label class="form-label" for="time-zone-default">Default time zone</label>
+                    <TimeZoneSelect Id="time-zone-default" Value="@_default" ValueChanged="SaveDefaultAsync" InheritLabel="@_serverLabel" />
+                    <p class="form-help">For everyone who has not chosen their own, and for alerts.</p>
+                </div>
+            }
+        </AuthorizeView>
+    </div>
+</div>
+
+@code {
+    private bool _loaded;
+    private string? _default;
+    private string _serverLabel = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _default = await TimeZonePreferences.GetInheritedAsync();
+        _serverLabel = $"Server time zone - {TimeZoneCatalog.Describe(TimeZoneCatalog.ServerZoneId, DateTime.UtcNow)}";
+        _loaded = true;
+    }
+
+    private async Task SaveDefaultAsync(string? value)
+    {
+        if (value != null && !TimeZoneCatalog.TryResolve(value, out _)) return;
+        _default = value;
+        await SettingsAdmin.SetGlobalAsync(TimeZonePreferenceSource.Key, value);
+        // Reloads so the page, and the personal field's "Default - ..." label, read the new default.
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+}

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Models;
@@ -160,6 +161,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private readonly TimeProvider _time;
     private readonly ILogger<FirmwareRolloutOrchestrator> _logger;
     private readonly Auditing.IAuditLogger? _audit;
+    private readonly INotificationTimeZoneResolver? _timeZones;
     private readonly string _siteSlug;
     private readonly string _siteSuffix;
 
@@ -239,8 +241,10 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         IRolloutRebootWitness? rebootWitness = null,
         IRolloutObserverLocator? observerLocator = null,
         Auditing.IAuditLogger? audit = null,
-        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null)
+        NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null,
+        INotificationTimeZoneResolver? timeZones = null)
     {
+        _timeZones = timeZones;
         _audit = audit;
         _sharedCatalog = sharedCatalog;
         _tunnelRouting = tunnelRouting;
@@ -943,6 +947,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (document.ReminderSentForStartAt == start) return;
 
         var devices = document.Waves.Sum(w => w.Steps.Count);
+        var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
 
         await PublishAsync(
             RolloutAlerts.StartingSoon,
@@ -951,7 +956,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             AlertSeverity.Warning,
             $"Firmware Rollout Starting Soon{_siteSuffix}",
             $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(document, devices))} will be upgraded starting "
-                + $"{start.ToLocalTime():ddd MMM d, h:mm tt}{RolloutScopeCopy.SiteAside(document.TimeZoneId, start)}, "
+                + $"{RolloutScopeCopy.AlertStartLabel(start, document.TimeZoneId, zone)}, "
                 + $"{RolloutScopeCopy.StartsIn(start - now)}. "
                 + "Open Firmware Rollout to postpone or stop it.",
             null, null, cancellationToken);

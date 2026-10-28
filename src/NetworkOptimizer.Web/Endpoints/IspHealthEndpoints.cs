@@ -30,6 +30,7 @@ public static class IspHealthEndpoints
             IspHealthRegistry ispHealthRegistry,
             SiteContextService siteContext,
             SiteManagementService siteManagement,
+            IDisplayTimeZone displayTime,
             CancellationToken ct) =>
         {
             // wan (a UniFi wan key) exports a non-primary WAN's report; absent = primary,
@@ -51,10 +52,11 @@ public static class IspHealthEndpoints
                 siteName = sites.FirstOrDefault(s => s.Slug == siteContext.Slug)?.Name ?? siteContext.Slug;
             }
 
-            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options)
+            await displayTime.ResolveAsync();
+            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options, timeZone: displayTime.Zone)
                 .GenerateReportBytes(report, siteName);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
-            var fileName = $"ISPHealth{sitePart}_{report.WindowEnd.ToLocalTime():yyyyMMdd-HHmm}.pdf";
+            var fileName = $"ISPHealth{sitePart}_{displayTime.ToLocal(report.WindowEnd):yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);
         });
 

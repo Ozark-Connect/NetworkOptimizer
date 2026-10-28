@@ -581,6 +581,7 @@ Requires Gateway SSH.
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
 - **Security & Alerts** - audit allow-lists, alert channels, threat collection, MaxMind GeoIP, CrowdSec CTI
 - **Application** - admin password, licensing, pre-release update notices, guided tours, kiosk mode, satellite imagery (Mapbox)
+  - **Time Zone** - show times on your own clock; set the default for everyone else and for alerts (global Admin)
   - Back up and restore all settings or a full export (`.nopt`); clear cached data
 - **Identity** and **Audit Log** - see [Accounts and Access](#accounts-and-access)
 - **Multi-Site** - see [Multi-Site](#multi-site)
@@ -637,6 +638,7 @@ Requires Gateway SSH.
 - Single sign-on: OpenID Connect, SAML, and UniFi Identity, with claim mapping and just-in-time users
 - Require MFA or a passkey per role; SSO-only sign-in
 - Authenticator app (TOTP), recovery codes, and passkeys per user; sign out everywhere
+- Each user's own time zone, on the account **Security** page
 - Account lockout after 5 failed sign-ins; sign-in attempts rate-limited per address
 - Disabling a user ends their open sessions
 - **Audit Log** - every configuration and device change, filterable, exportable to CSV or JSON

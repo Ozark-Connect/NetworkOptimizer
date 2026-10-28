@@ -17,11 +17,14 @@ public class RolloutReportPdfGenerator
 {
     private readonly BrandingOptions _branding;
     private readonly byte[]? _logoBytes;
+    private readonly TimeZoneInfo _timeZone;
 
     /// <param name="branding">Branding overrides; the product defaults are used when null.</param>
-    public RolloutReportPdfGenerator(BrandingOptions? branding = null)
+    /// <param name="timeZone">The reader's zone, which every time in the report is shown in; UTC when null.</param>
+    public RolloutReportPdfGenerator(BrandingOptions? branding = null, TimeZoneInfo? timeZone = null)
     {
         _branding = branding ?? BrandingOptions.OzarkConnect();
+        _timeZone = timeZone ?? TimeZoneInfo.Utc;
         QuestPDF.Settings.License = LicenseType.Community;
         _logoBytes = ReportAssets.Logo();
     }
@@ -33,7 +36,7 @@ public class RolloutReportPdfGenerator
     {
         ArgumentNullException.ThrowIfNull(report);
 
-        var generatedAt = DateTime.Now;
+        var generatedAt = TimeZoneCatalog.ToZone(DateTime.UtcNow, _timeZone);
         return Document.Create(container =>
         {
             container.Page(page =>
@@ -231,17 +234,19 @@ public class RolloutReportPdfGenerator
         });
     }
 
-    private static string WindowLabel(RolloutReport report)
+    private string WindowLabel(RolloutReport report)
     {
         if (report.StartedAt is not DateTime started)
             return "not started";
         return report.CompletedAt is DateTime completed
-            ? $"{started.ToLocalTime():MMM d, yyyy HH:mm} - {completed.ToLocalTime():HH:mm}"
-            : $"{started.ToLocalTime():MMM d, yyyy HH:mm}";
+            ? $"{Local(started):MMM d, yyyy HH:mm} - {Local(completed):HH:mm}"
+            : $"{Local(started):MMM d, yyyy HH:mm}";
     }
 
-    private static string TimeLabel(DateTime? time) =>
-        time is DateTime value ? value.ToLocalTime().ToString("MMM d, yyyy HH:mm") : "--";
+    private string TimeLabel(DateTime? time) =>
+        time is DateTime value ? Local(value).ToString("MMM d, yyyy HH:mm") : "--";
+
+    private DateTime Local(DateTime utc) => TimeZoneCatalog.ToZone(utc, _timeZone);
 
     private static string FormatDuration(int seconds)
     {

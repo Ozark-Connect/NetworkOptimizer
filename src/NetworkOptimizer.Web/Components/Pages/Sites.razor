@@ -18,6 +18,7 @@
 @using NetworkOptimizer.Storage.Models.Identity
 @inject NetworkOptimizer.Web.Services.Authorization.IEffectiveSiteRoleResolver SiteRoles
 @inject SiteRegistryChangeNotifier ChangeNotifier
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Sites - Network Optimizer</PageTitle>
 
@@ -97,7 +98,7 @@ else
                 <div class="site-card-footer">
                     @if (!site.IsDefault)
                     {
-                        <span class="site-card-created">Added @site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                        <span class="site-card-created">Added @site.CreatedAt.ToLocalTime(DisplayTime).ToString("MMM d, yyyy")</span>
                     }
                     @if (AgentCount(site.Id) > 0)
                     {

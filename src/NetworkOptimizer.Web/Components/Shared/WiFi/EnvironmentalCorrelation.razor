@@ -3,6 +3,7 @@
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
+@inject IDisplayTimeZone DisplayTime
 
 <div class="env-correlation-container wifi-sections">
     <div class="env-header">
@@ -306,7 +307,7 @@
         {
             var periodMetrics = _metrics.Where(m =>
             {
-                var hour = m.Timestamp.ToLocalTime().Hour;
+                var hour = m.Timestamp.ToLocalTime(DisplayTime).Hour;
                 return period.StartHour <= period.EndHour
                     ? (hour >= period.StartHour && hour < period.EndHour)
                     : (hour >= period.StartHour || hour < period.EndHour);
@@ -341,7 +342,7 @@
 
         foreach (var metric in _metrics)
         {
-            var localTime = metric.Timestamp.ToLocalTime();
+            var localTime = metric.Timestamp.ToLocalTime(DisplayTime);
             var day = _heatmapData.FirstOrDefault(d => d.DayOfWeek == localTime.DayOfWeek);
             if (day != null)
             {
@@ -479,7 +480,7 @@
                 var peakMetric = metricsWithBand
                     .OrderByDescending(m => m.ByBand[band].Interference ?? 0)
                     .FirstOrDefault();
-                stat.PeakTime = peakMetric?.Timestamp.ToLocalTime().ToString("ddd h tt");
+                stat.PeakTime = peakMetric?.Timestamp.ToLocalTime(DisplayTime).ToString("ddd h tt");
             }
 
             _bandStats.Add(stat);

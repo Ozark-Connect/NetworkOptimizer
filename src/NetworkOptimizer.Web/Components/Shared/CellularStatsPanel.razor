@@ -4,6 +4,7 @@
 @inject ICellularModemService ModemService
 @inject IJSRuntime JS
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="cellular-stats-panel" data-tour="cellular-radio-reset">
     @if (isLoading)
@@ -98,7 +99,7 @@
                 <span class="status-label">@modemStats.ModemName</span>
             </div>
             <div class="tc-timestamp">
-                <small>Updated: @modemStats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                <small>Updated: @modemStats.Timestamp.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</small>
             </div>
         </div>
 

@@ -56,6 +56,7 @@
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache LanFlowMapCache
 @inject ILogger<Monitoring> Logger
 @inject NetworkOptimizer.Web.Services.UiHintService UiHints
+@inject IDisplayTimeZone DisplayTime
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
                 ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
@@ -2767,7 +2768,7 @@
         : !CollectionAgent.ServerProbesThisSite ? "syncing targets (this site is probed by its agent)"
         : ServerCollecting ? "collecting"
         : CollectionAgent.LastCollectionUtc is DateTime last
-            ? $"last collected {TimeFormatHelper.FormatRelativeTime(last).ToLowerInvariant()}"
+            ? $"last collected {TimeFormatHelper.FormatRelativeTime(last, DisplayTime.Zone).ToLowerInvariant()}"
             : "not collecting";
 
     private string AgentCollectionState
@@ -2780,7 +2781,7 @@
             if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
             if (_siteAgent.EnrolledAt is null) return "enrolled but never connected";
             return _siteAgent.LastSeenAt is DateTime seen
-                ? $"last seen {TimeFormatHelper.FormatRelativeTime(seen).ToLowerInvariant()}{version}"
+                ? $"last seen {TimeFormatHelper.FormatRelativeTime(seen, DisplayTime.Zone).ToLowerInvariant()}{version}"
                 : $"not connected{version}";
         }
     }
@@ -5588,7 +5589,7 @@
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
-            var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
+            var localTime = result.Timestamp.ToLocalTime(DisplayTime).ToString("M/d h:mm tt");
             // The event is found on its single worst target's peak minute, but the highlight should
             // read the loss the score is actually graded on: the pooled per-sample mean across the
             // exact ISP Health loss pool (access + transit excl. non-transit infra + anycast DNS) over
@@ -5635,7 +5636,7 @@
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
-            var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
+            var localTime = result.Timestamp.ToLocalTime(DisplayTime).ToString("M/d h:mm tt");
             _sfpInvestigateResult = $"SFP {desc} {ago} ({localTime})";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",

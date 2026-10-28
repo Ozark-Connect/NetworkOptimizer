@@ -30,19 +30,22 @@ public class DigestService : BackgroundService
     private const int CollapseThreshold = 10;
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
+    private readonly INotificationTimeZoneResolver? _timeZones;
 
     public DigestService(
         ILogger<DigestService> logger,
         IServiceScopeFactory scopeFactory,
         IEnumerable<IAlertDeliveryChannel> deliveryChannels,
         IScheduleSiteContext? siteContext = null,
-        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
+        INotificationTimeZoneResolver? timeZones = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _deliveryChannels = deliveryChannels;
         _siteContext = siteContext;
         _siteWorkGate = siteWorkGate;
+        _timeZones = timeZones;
     }
 
     /// <summary>Whether background work may run for a site; no gate wired means yes (fail-open).</summary>
@@ -163,7 +166,10 @@ public class DigestService : BackgroundService
                 var summary = DigestSummary.FromAlerts(alerts);
                 var collapsedAlerts = CollapseAlerts(alerts);
 
-                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, cancellationToken);
+                var timeZone = _timeZones == null
+                    ? TimeZoneInfo.Local
+                    : await _timeZones.ResolveAsync(siteKey == DefaultSiteKey ? null : siteKey, cancellationToken);
+                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, timeZone, cancellationToken);
                 if (success)
                 {
                     await MarkSentAsync(stateStore, siteKey, channel.Id, cancellationToken);

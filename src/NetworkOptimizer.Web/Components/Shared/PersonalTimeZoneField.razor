@@ -1,0 +1,44 @@
+@using NetworkOptimizer.Web.Services.Identity
+@inject ITimeZonePreferenceSource TimeZonePreferences
+@inject IUserPreferences UserPreferences
+@inject ICallerContext Caller
+@inject NavigationManager Navigation
+
+@* The signed-in user's own time zone. Shown on Settings - Application and on the account page; both
+   write the same preference. Renders nothing without a user to own it (authentication disabled),
+   where the install default is the only setting. *@
+
+@if (_loaded && Caller.Current?.UserId != null)
+{
+    <div class="form-group">
+        <label class="form-label" for="@Id">Your time zone</label>
+        <TimeZoneSelect Id="@Id" Value="@_own" ValueChanged="SaveAsync" InheritLabel="@_inheritLabel" />
+        <p class="form-help">Times are shown in this zone wherever you sign in.</p>
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "time-zone-personal";
+
+    private bool _loaded;
+    private string? _own;
+    private string _inheritLabel = "Default";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _own = await TimeZonePreferences.GetOwnAsync();
+        var inherited = await TimeZonePreferences.GetInheritedAsync();
+        var effective = TimeZoneCatalog.TryResolve(inherited, out _) ? inherited! : TimeZoneCatalog.ServerZoneId;
+        _inheritLabel = $"Default - {TimeZoneCatalog.Describe(effective, DateTime.UtcNow)}";
+        _loaded = true;
+    }
+
+    private async Task SaveAsync(string? value)
+    {
+        if (value != null && !TimeZoneCatalog.TryResolve(value, out _)) return;
+        _own = value;
+        await UserPreferences.SetAsync(TimeZonePreferenceSource.Key, value);
+        // Every time already on the page was rendered on the old clock; the new circuit resolves the new one.
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+}

@@ -10,6 +10,7 @@
 @inject IWiFiRadioKeepService RadioKeep
 @inject IChannelPlanApplyService ChannelApply
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="channel-analysis-container wifi-sections" data-tour="wifi-channels">
     <div class="channel-header">
@@ -351,7 +352,7 @@
                                             }
                                             else if (rec.MoveVerdictDueAt.HasValue)
                                             {
-                                                <span>Measuring the new channel; the first hour's result lands at @rec.MoveVerdictDueAt.Value.ToLocalTime().ToString("t").</span>
+                                                <span>Measuring the new channel; the first hour's result lands at @rec.MoveVerdictDueAt.Value.ToLocalTime(DisplayTime).ToString("t").</span>
                                             }
                                         </div>
                                     }
@@ -1456,12 +1457,12 @@
 
     private static string FormatPercent(double pct) => pct.ToString("F0");
 
-    private static string GetSoakTooltip(ApChannelRecommendation rec)
+    private string GetSoakTooltip(ApChannelRecommendation rec)
     {
         var channels = string.Join(", ", rec.SoakSuppressedChannels);
         var chLabel = rec.SoakSuppressedChannels.Count == 1 ? "Ch" : "Channels";
         var until = rec.SoakEndsAt.HasValue
-            ? $" until {rec.SoakEndsAt.Value.ToLocalTime():MMM d h:mm tt}"
+            ? $" until {rec.SoakEndsAt.Value.ToLocalTime(DisplayTime):MMM d h:mm tt}"
             : "";
         return $"Channel changed recently. {chLabel} {channels} won't be re-suggested{until} " +
                "so the new channel can prove itself on measured data.";

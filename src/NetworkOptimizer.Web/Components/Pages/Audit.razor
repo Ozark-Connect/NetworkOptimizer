@@ -19,6 +19,7 @@
 @inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthState
 @implements IDisposable
 @rendermode InteractiveServer
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Security Audit - Network Optimizer</PageTitle>
 
@@ -992,7 +993,7 @@
             // Load dismissed issues
             dismissedIssues = await AuditService.GetDismissedIssuesAsync();
 
-            lastAuditTime = previousResult.CompletedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm");
+            lastAuditTime = previousResult.CompletedAt.ToLocalTime(DisplayTime).ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
         }
 
@@ -1072,7 +1073,7 @@
             // Load dismissed issues
             dismissedIssues = await AuditService.GetDismissedIssuesAsync();
 
-            lastAuditTime = DateTime.Now.ToString("MMM dd, yyyy HH:mm");
+            lastAuditTime = DisplayTime.Now.ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
             _purposeOverridesPending = false;
         }
@@ -1144,7 +1145,8 @@
             var reportData = new NetworkOptimizer.Reports.ReportData
             {
                 ClientName = networkName,
-                GeneratedAt = DateTime.Now,
+                GeneratedAt = DisplayTime.Now,
+                TimeZoneLabel = DisplayTime.Abbreviation(DateTime.UtcNow),
                 SecurityScore = new NetworkOptimizer.Reports.SecurityScore
                 {
                     Rating = securityScore >= 90 ? NetworkOptimizer.Reports.SecurityRating.Excellent
@@ -1370,7 +1372,7 @@
             Logger.LogInformation("PDF generated: {Size} bytes", pdfBytes.Length);
 
             // Download file via JS interop
-            var fileName = $"NetworkAudit_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+            var fileName = $"NetworkAudit_{DisplayTime.Now:yyyyMMdd_HHmmss}.pdf";
             var base64 = Convert.ToBase64String(pdfBytes);
             Logger.LogInformation("Calling JS downloadFile for {FileName}", fileName);
             await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/pdf", base64);

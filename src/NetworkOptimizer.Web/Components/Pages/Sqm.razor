@@ -21,6 +21,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.Web.Services.SqmLearning
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Adaptive SQM - Network Optimizer</PageTitle>
 
@@ -242,7 +243,7 @@
                     @if (sqmMonitorData?.Timestamp != default)
                     {
                         <div class="tc-timestamp">
-                            <small>Updated: @sqmMonitorData?.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                            <small>Updated: @sqmMonitorData?.Timestamp.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</small>
                         </div>
                     }
                     <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
@@ -1851,13 +1852,13 @@
                     }
                     else if (status.IsCompleted)
                     {
-                        <span><span class="detail-label">Status:</span>@(status.IsReliable ? "Complete" : "Ended") @(status.CompletedAt.HasValue ? status.CompletedAt.Value.ToLocalTime().ToString("MMM d, HH:mm") : "")</span>
+                        <span><span class="detail-label">Status:</span>@(status.IsReliable ? "Complete" : "Ended") @(status.CompletedAt.HasValue ? status.CompletedAt.Value.ToLocalTime(DisplayTime).ToString("MMM d, HH:mm") : "")</span>
                     }
                     <span><span class="detail-label">Samples:</span>@status.ValidSampleCount valid of @status.TotalSampleCount</span>
                     <span><span class="detail-label">Week covered:</span>@status.CoveragePercent.ToString("F0")%</span>
                     @if (status.LastSampleAt.HasValue)
                     {
-                        <span><span class="detail-label">Last sample:</span>@status.LastSampleAt.Value.ToLocalTime().ToString("MMM d, HH:mm")</span>
+                        <span><span class="detail-label">Last sample:</span>@status.LastSampleAt.Value.ToLocalTime(DisplayTime).ToString("MMM d, HH:mm")</span>
                     }
                     @if (status.IsRunning)
                     {
@@ -1865,7 +1866,7 @@
                     }
                     else if (status.IsActive && status.NextRunAt.HasValue)
                     {
-                        <span><span class="detail-label">Next check:</span>@status.NextRunAt.Value.ToLocalTime().ToString("HH:mm")</span>
+                        <span><span class="detail-label">Next check:</span>@status.NextRunAt.Value.ToLocalTime(DisplayTime).ToString("HH:mm")</span>
                     }
                     @if (status.IsActive && status.LastSummary?.StartsWith("Waiting", StringComparison.Ordinal) == true)
                     {

@@ -25,6 +25,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IAsyncDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
     <!-- Toolbar -->
@@ -3582,7 +3583,7 @@
     {
         var deviceName = System.Net.WebUtility.HtmlEncode(
             (result.DeviceName ?? result.DeviceHost) ?? "Unknown");
-        var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+        var time = result.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt");
 
         var apHop = result.PathAnalysis?.Path?.Hops?
             .FirstOrDefault(h => h.Type == HopType.AccessPoint);
@@ -3644,7 +3645,7 @@
 
     private string BuildSignalLogPopup(SignalMapPoint point)
     {
-        var time = point.Timestamp.ToLocalTime().ToString("MMM d, h:mm:ss tt");
+        var time = point.Timestamp.ToLocalTime(DisplayTime).ToString("MMM d, h:mm:ss tt");
         var html = "<div class='map-popup'>";
 
         if (!string.IsNullOrEmpty(point.DeviceName))
