@@ -1013,6 +1013,14 @@ public class IspHealthOptions
     public double AccessReachInternetBlendAlpha { get; set; } = 0.40;
 
     /// <summary>
+    /// How much of an ISP hop's distance beyond the ISP's transit egress still counts against its
+    /// reach ceiling, blended in score space: ceiling = C(egress) + beta * (C(hop) - C(egress)).
+    /// 0 charges such a hop as if it sat at the egress; 1 is the plain intra-ASN ceiling. Only a
+    /// hop past the nearest transit cluster moves, so an ISP whose far hop IS the way out is unchanged.
+    /// </summary>
+    public double AccessReachBeyondEgressBeta { get; set; } = 0.25;
+
+    /// <summary>
     /// Average WAN load at which packet loss reaches its worst on shared-medium access
     /// (DOCSIS, PON, fixed wireless). The load-calibrated loss ceiling reaches the
     /// connection's loaded-loss band at this utilization and holds there above it, rather
