@@ -123,6 +123,7 @@ public class WanOutageClassifierTests
 
         verdict.Kind.Should().Be(WanVerdictKind.Partial);
         verdict.BranchLabel.Should().Be("TransitNet");
+        verdict.Broad.Should().BeTrue();
         verdict.FailingCount.Should().Be(2);
         verdict.TotalCount.Should().Be(4);
     }
@@ -180,14 +181,15 @@ public class WanOutageClassifierTests
 
         verdict.Kind.Should().Be(WanVerdictKind.Partial);
         verdict.BranchLabel.Should().BeNull();
+        verdict.Broad.Should().BeTrue();
     }
 
     /// <summary>
-    /// Several endpoints of one provider are one network, not several independent ones, so with
-    /// no monitored hop to anchor on the network itself is what the partial is named after.
+    /// Several endpoints of one provider are one network, not several independent ones. With no
+    /// monitored hop to anchor on, that is the provider's problem, the same as one dark endpoint.
     /// </summary>
     [Fact]
-    public void Classify_TwoDestinationsOfOneUnlabeledAsn_IsPartialNamingTheAsn()
+    public void Classify_TwoDestinationsOfOneUnlabeledAsn_ReturnsNone()
     {
         var verdict = WanOutageClassifier.Classify([
             Access(),
@@ -196,8 +198,50 @@ public class WanOutageClassifierTests
             Internet("resolver-c", "203.0.113.30", asnLabel: "Gamma Cloud", asnNumber: 64530)
         ]);
 
+        verdict.Kind.Should().Be(WanVerdictKind.None);
+    }
+
+    /// <summary>
+    /// Two regions of one cloud dark while the rest of the internet answers: the cloud's outage,
+    /// not the WAN's. A transit hop dark elsewhere does not corroborate it.
+    /// </summary>
+    [Fact]
+    public void Classify_TwoRegionsOfOneCloudWithAnUnrelatedTransitDark_ReturnsNone()
+    {
+        var verdict = WanOutageClassifier.Classify([
+            Access(),
+            Transit("transit-b", SecondTransitIp, 3, failing: true, asnLabel: "Delta Transit",
+                asnNumber: 64502, ancestors: [AccessIp]),
+            Internet("cloud-west-1", "203.0.113.10", failing: true, ancestors: [AccessIp]),
+            Internet("cloud-west-2", "203.0.113.20", failing: true, ancestors: [AccessIp]),
+            Internet("resolver-c", "203.0.113.30", asnLabel: "Gamma Cloud", asnNumber: 64530,
+                ancestors: [AccessIp])
+        ]);
+
+        verdict.Kind.Should().Be(WanVerdictKind.None);
+    }
+
+    /// <summary>
+    /// Destinations on two networks failing out of many healthy ones is a partial, but a narrow
+    /// one: it waits longer to confirm than a partial with path or breadth behind it.
+    /// </summary>
+    [Fact]
+    public void Classify_FewUnrelatedDestinationsAmongMany_IsNarrowPartial()
+    {
+        var verdict = WanOutageClassifier.Classify([
+            Access(),
+            Internet("resolver-a", "203.0.113.10", failing: true, ancestors: [AccessIp]),
+            Internet("resolver-b", "203.0.113.20", failing: true, asnLabel: "Beta Cloud",
+                asnNumber: 64520, ancestors: [AccessIp]),
+            Internet("resolver-c", "203.0.113.30", asnLabel: "Gamma Cloud", asnNumber: 64530, ancestors: [AccessIp]),
+            Internet("resolver-d", "203.0.113.40", asnLabel: "Delta Cloud", asnNumber: 64531, ancestors: [AccessIp]),
+            Internet("resolver-e", "203.0.113.50", asnLabel: "Echo Cloud", asnNumber: 64532, ancestors: [AccessIp]),
+            Internet("resolver-f", "203.0.113.60", asnLabel: "Foxtrot Cloud", asnNumber: 64533, ancestors: [AccessIp]),
+            Internet("resolver-g", "203.0.113.70", asnLabel: "Golf Cloud", asnNumber: 64534, ancestors: [AccessIp])
+        ]);
+
         verdict.Kind.Should().Be(WanVerdictKind.Partial);
-        verdict.BranchLabel.Should().Be("AS64540");
+        verdict.Broad.Should().BeFalse();
     }
 
     /// <summary>

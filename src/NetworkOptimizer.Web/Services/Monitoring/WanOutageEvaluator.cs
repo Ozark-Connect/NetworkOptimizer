@@ -49,6 +49,10 @@ public class WanOutageEvaluator
     private const int FailedProbesToCountFailing = 2;
     private const int TargetStalenessSeconds = 180;
 
+    // A narrow partial (a few scattered destinations, no path hop) must hold this long before it
+    // opens. Nothing is lost waiting: a partial that grows into a total opens on the total's clock.
+    private const int NarrowPartialHoldSeconds = 180;
+
     /// <summary>How far apart the WANs' total-outage confirmations may sit and still read as one site outage.</summary>
     private const int RollupWindowSeconds = 90;
     private const int ContextTtlSeconds = 300;
@@ -198,13 +202,16 @@ public class WanOutageEvaluator
             {
                 state.PendingKind = verdict.Kind;
                 state.PendingCount = 1;
+                state.PendingSince = now;
             }
             if (verdict.Kind != WanVerdictKind.None && state.EpisodeStart == null)
                 state.EpisodeStart = now;
             state.LastVerdict = verdict;
 
             var needed = verdict.Kind == WanVerdictKind.None ? ConfirmsToClose : ConfirmsToOpen;
-            if (state.PendingCount >= needed) confirmedThisPass[wanKey] = verdict.Kind;
+            var held = verdict.Kind != WanVerdictKind.Partial || verdict.Broad
+                || now - state.PendingSince >= TimeSpan.FromSeconds(NarrowPartialHoldSeconds);
+            if (state.PendingCount >= needed && held) confirmedThisPass[wanKey] = verdict.Kind;
 
             // When this WAN's total outage was first confirmed, for the rollup's window. Cleared
             // the moment it is no longer verdicted total, so a recovered WAN cannot hold a stale
@@ -571,6 +578,9 @@ public class WanOutageEvaluator
 
         /// <summary>Consecutive passes the pending kind has held.</summary>
         public int PendingCount;
+
+        /// <summary>When the pending kind was first observed, for the narrow-partial hold.</summary>
+        public DateTime PendingSince;
 
         /// <summary>When the current outage episode was first observed (pre-confirmation), for the notification body.</summary>
         public DateTime? EpisodeStart;

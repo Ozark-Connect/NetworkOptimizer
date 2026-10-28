@@ -48,7 +48,9 @@ internal sealed record WanTargetSnapshot(
 /// <see cref="WanVerdictKind.Total"/> verdict. <paramref name="LastReachableHop"/> /
 /// <paramref name="BrokenNetwork"/> carry <see cref="OutageDetector.AttributeBreak"/>'s
 /// attribution for the upstream case; <paramref name="BranchLabel"/> names the shared
-/// ancestor (or shared network) for a branch-shaped partial, null for an independent one.
+/// ancestor for a branch-shaped partial, null for an independent one. <paramref name="Broad"/>
+/// marks a partial with strong evidence (a monitored path hop, or a wide spread of networks),
+/// which opens on the total's fast clock; a narrow one waits longer to confirm.
 /// </summary>
 internal sealed record WanVerdict(
     WanVerdictKind Kind,
@@ -57,7 +59,8 @@ internal sealed record WanVerdict(
     string? BrokenNetwork,
     string? BranchLabel,
     int FailingCount,
-    int TotalCount)
+    int TotalCount,
+    bool Broad = false)
 {
     public static readonly WanVerdict None = new(WanVerdictKind.None, false, null, null, null, 0, 0);
 }
@@ -114,22 +117,27 @@ internal static class WanOutageClassifier
         if (degraded.Count == 1)
             return WanVerdict.None;
 
+        // A monitored path hop the degraded targets sit behind is real path evidence.
         var branch = FindBranchLabel(targets, degraded);
         if (branch != null)
             return new WanVerdict(WanVerdictKind.Partial, false, null, null, branch,
-                degraded.Count, targets.Count);
+                degraded.Count, targets.Count, Broad: true);
 
-        // Independence gate, by network (ASN label / real ASN), inherited from the partial
-        // detector: several endpoints of one provider are one network, not several.
-        var networks = degraded.Select(NetworkKeyOf).Distinct().Count();
-        if (networks >= 2)
-            return new WanVerdict(WanVerdictKind.Partial, false, null, null, null,
-                degraded.Count, targets.Count);
+        // Independence gate, by network (ASN label / real ASN), over the degraded destinations:
+        // several endpoints of one provider are one network, and a transit hop no failing
+        // destination sits behind is uncorroborated. One network with no path hop to anchor on
+        // is that provider's problem, not the WAN's (two AWS regions dark at once, say), so it
+        // gets the single-destination treatment.
+        var networks = degraded.Where(t => t.IsInternet).Select(NetworkKeyOf).Distinct().Count();
+        if (networks < 2)
+            return WanVerdict.None;
 
-        // One network, no monitored shared ancestor: the network itself is the branch.
-        return new WanVerdict(WanVerdictKind.Partial, false, null, null,
-            NetworkKeyOf(degraded[0]), degraded.Count, targets.Count);
+        return new WanVerdict(WanVerdictKind.Partial, false, null, null, null,
+            degraded.Count, targets.Count, Broad: degraded.Count * BroadShareDenominator >= targets.Count);
     }
+
+    /// <summary>A scattered partial is broad once at least 1/N of the WAN's targets are degraded.</summary>
+    private const int BroadShareDenominator = 3;
 
     /// <summary>
     /// Break attribution for a total-with-first-hop-answering verdict, through
