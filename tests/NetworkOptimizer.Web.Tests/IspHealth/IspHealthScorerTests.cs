@@ -2312,6 +2312,51 @@ public class IspHealthScorerTests
         // Lift only - the near (zero-distance) hop is untouched at the top.
         withContext.IspTargets.Single(t => t.TargetId == "isp-near").OverallScore.Should().Be(100);
     }
+
+    // ── ISP hop reach beyond the transit egress ───────────────────────────────────
+
+    private static AsnSeries TransitCluster(double rttMs) => new()
+    {
+        AsnNumber = 64500,
+        AsnName = "Transit",
+        TargetIds = { "transit-a" },
+        Samples = TestSeries.Flat(TestSeries.Start, Day, rttMs, 0.3, 0),
+        RoleTargetIds = { "transit-a" }
+    };
+
+    private static int? FarHopScore(double farRtt, AsnSeries? transit)
+    {
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-near", "Near", 2.0, 0.3),
+            IspHop("isp-far", "Far", farRtt, 0.3)
+        };
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(idleRtt: 2.0, ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-near",
+                internetDeltaMs: 11.0, transit: transit is null ? null : new List<AsnSeries> { transit }), Gpon);
+        return report.IspTargets.Single(t => t.TargetId == "isp-far").OverallScore;
+    }
+
+    [Fact]
+    public void Isp_hop_past_a_nearer_transit_egress_is_eased_but_not_absolved()
+    {
+        // The ISP hands off to transit at +2 ms, so a hop at +12 ms is a second route, not the haul.
+        var without = FarHopScore(14.0, null);
+        var withEgress = FarHopScore(14.0, TransitCluster(4.0));
+        var atEgress = FarHopScore(4.0, null);
+
+        withEgress.Should().BeGreaterThan(without!.Value + 10);
+        withEgress.Should().BeLessThan(atEgress!.Value, "distance past the egress still leaves a mark");
+    }
+
+    [Fact]
+    public void Isp_hop_that_is_the_way_out_keeps_its_reach_ceiling()
+    {
+        // Transit sits beyond the far hop (the Comcast Stockton -> LAX shape): nothing changes.
+        FarHopScore(14.0, TransitCluster(16.0)).Should().Be(FarHopScore(14.0, null));
+        // A hop nearer than the egress is untouched as well.
+        FarHopScore(3.5, TransitCluster(5.0)).Should().Be(FarHopScore(3.5, null));
+    }
 }
 
 public class IspHealthProfilesTests
