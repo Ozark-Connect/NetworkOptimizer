@@ -661,6 +661,7 @@ Requires Gateway SSH.
   - Nokia - XS-010X-Q
   - Deutsche Telekom - Glasfaser-Modem 2
   - Zyxel - PMG3000-D20B
+  - Richerlink - RL821GWV-D (signs in and out around each poll)
   - Realtek RTL960x sticks - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
   - 8311 firmware sticks - WAS-110, X-ONU-SFPP, WT-ONU-STICK
   - Any GPON or XGS-PON ONT SFP module with DDM
@@ -671,6 +672,7 @@ Requires Gateway SSH.
   - Netgear Nighthawk - modems and hotspots (MR5200, M6)
   - GL.iNet / Quectel - GL-X3000, GL-XE3000, GL-X2000, GL-E750V2, GL-E5800 (Mudi 7)
   - Inseego - FX4100
+  - MikroTik - RouterOS 7 LTE/5G routers over SSH (read-only user is enough)
   - Zyxel - NR7101, NR7102, NR7301, NR7302, NR7303, NR5103E, NR5103 v2, NR5307
   - Zyxel - FWA505, FWA510, FWA710, LTE3202, LTE5398, LTE7490
 - **Satellite**
