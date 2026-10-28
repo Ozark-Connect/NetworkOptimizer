@@ -835,6 +835,38 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("ApRoamRecords", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.AttentionDismissal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("DismissedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DismissedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ItemKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemKey")
+                        .IsUnique();
+
+                    b.ToTable("AttentionDismissals", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.AuditResult", b =>
                 {
                     b.Property<int>("Id")
@@ -928,6 +960,140 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Buildings", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ChangeControlSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AgentCommitWindowMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ApprovalsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("BaselineTemplateId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CommitWindowMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ConsoleBackupsToKeep")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DailySnapshotHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DailySnapshotMinute")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("EmergencyRollbackWithoutApproval")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("KeepDailyDays")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("KeepEveryChangeDays")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("KeepMonthlyMonths")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ScheduleQuietestHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ShowOwnChanges")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("WatchInternet")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ChangeControlSettings", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ChangeDetectionGap", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("CaughtUp")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedAt");
+
+                    b.ToTable("ChangeDetectionGaps", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ChangeDetectionState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CfgVersionsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceVersionsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastAuditEventIdsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("LastAuditEventTimestamp")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastConsoleBackupAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastDailySnapshotAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastPollAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("LastPollOk")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastRetentionAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSnapshotAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NetworkAppVersion")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NetworkAppVersionChangedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ChangeDetectionStates", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.ClientSignalLog", b =>
@@ -1103,6 +1269,494 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasIndex("Host");
 
                     b.ToTable("CmConfigurations", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigChange", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ActorIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ActorKind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ActorName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorPlatform")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuditEventsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Evaluated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("FirmwareRolloutPlanId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FixCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("HealthAfter")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("HealthBefore")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("ImpactJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ManagementChecked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ManagementPath")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ObjectCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PlanId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PreviousSnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RegressionCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ServiceTagsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VersionFrom")
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VersionTo")
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("WanPath")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OccurredAt");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.ToTable("ConfigChanges", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigChangeObject", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChangeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Collection")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FieldsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ObjectId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ObjectName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnedBy")
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ServiceTagsJson")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangeId");
+
+                    b.HasIndex("Collection", "ObjectId");
+
+                    b.ToTable("ConfigChangeObjects", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigPlan", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AcknowledgementsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("AgentRevertArmed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AppliedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ApplyOnApproval")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ApprovedLiveHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DeviceCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("HighestTier")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ObjectCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OperationsEncrypted")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PostApplySnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PreApplySnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReportJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResultJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("RevertOfPlanId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("RollsBackChangeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ScheduledFor")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceDescription")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceSiteSlug")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SourceSnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SubmittedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("WatchUntil")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("ConfigPlans", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigSnapshot", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AuditIssueCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuditIssuesJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AuditRegressionCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChangedObjectCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsBaseline")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NetworkAppVersion")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ObjectCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PinReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Pinned")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PreviousSnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReadErrorsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TakenAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("TotalBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Trigger")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TriggerDetail")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TakenAt");
+
+                    b.ToTable("ConfigSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigSnapshotBlob", b =>
+                {
+                    b.Property<int>("SnapshotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Collection")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ObjectCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("SnapshotId", "Collection");
+
+                    b.HasIndex("Hash");
+
+                    b.ToTable("ConfigSnapshotBlobs", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CollectionsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentEncrypted")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceSiteSlug")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ConfigTemplates", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigWriteJournalEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Collection")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FieldsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ObjectId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("At");
+
+                    b.ToTable("ConfigWriteJournal", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConsoleBackupRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("FetchedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("FirmwareRollout")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NetworkAppVersion")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("TakenAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FileName")
+                        .IsUnique();
+
+                    b.ToTable("ConsoleBackups", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.CustomOidConfiguration", b =>
@@ -3135,6 +3789,73 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("SiteAgents", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SiteHealthHour", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("AccessRttMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("Availability")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("Clients")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DetailsJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("Health")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("HourStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("Internet")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("InternetIsp")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("Lan")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("LoadedDeltaMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("LoadedShare")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("LossPct")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("Wifi")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("WirelessShare")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("Worst")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HourStart")
+                        .IsUnique();
+
+                    b.ToTable("SiteHealthHours", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.SiteLicenseAssignment", b =>
                 {
                     b.Property<int>("Id")
@@ -4619,6 +5340,24 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasIndex("PatternType", "DetectedAt");
 
                     b.ToTable("ThreatPatterns", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigChangeObject", b =>
+                {
+                    b.HasOne("NetworkOptimizer.Storage.Models.ConfigChange", null)
+                        .WithMany()
+                        .HasForeignKey("ChangeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ConfigSnapshotBlob", b =>
+                {
+                    b.HasOne("NetworkOptimizer.Storage.Models.ConfigSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.FirmwareRolloutStep", b =>
