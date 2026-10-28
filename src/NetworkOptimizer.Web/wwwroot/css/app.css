@@ -24036,6 +24036,16 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 1.05rem;
 }
 
+/* Snapshots: a long trigger is cut off with its full text in a tooltip, so it cannot squeeze the actions.
+   The tooltip starts at 40 characters, below where 22rem cuts, so every cut-off trigger has one. */
+.change-control .cc-trigger {
+    display: block;
+    max-width: 22rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .change-control .cc-row-actions {
     display: flex;
     justify-content: flex-end;

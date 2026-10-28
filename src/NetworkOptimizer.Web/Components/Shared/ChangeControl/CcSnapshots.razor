@@ -129,11 +129,13 @@
                             <td><label class="checkbox-label"><input type="checkbox" checked="@_selected.Contains(s.Id)" @onchange="() => ToggleSelect(s.Id)" /><span></span></label></td>
                             <td class="col-time">@CcFormat.Time(s.TakenAt)</td>
                             <td>
-                                @if (!string.IsNullOrEmpty(s.TriggerDot))
-                                {
-                                    <span class="cc-dot @s.TriggerDot"></span>
-                                }
-                                @s.Trigger
+                                <span class="cc-trigger" data-tooltip="@(s.Trigger.Length > 40 ? s.Trigger : null)">
+                                    @if (!string.IsNullOrEmpty(s.TriggerDot))
+                                    {
+                                        <span class="cc-dot @s.TriggerDot"></span>
+                                    }
+                                    @s.Trigger
+                                </span>
                                 <span class="cc-phone-inline">
                                     @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
                                     @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@PinTooltip(s.PinReason)">Pinned</span> }
