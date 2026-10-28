@@ -380,7 +380,8 @@ watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
 // older server, or a network drop between reconnect attempts).
 while (!cts.IsCancellationRequested)
 {
-    var retryDelay = TimeSpan.FromSeconds(30);
+    var retryDelay = TunnelReconnectPolicy.Backoff;
+    var redialAtOnce = false;
     if (!string.IsNullOrEmpty(config.TunnelUrl))
     {
         using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
@@ -435,7 +436,6 @@ while (!cts.IsCancellationRequested)
             Console.Error.WriteLine($"Result buffer caps dropped the {droppedOffline} oldest message(s) while the tunnel was down");
 
         var drainTask = tunnel.DrainResultsAsync(resultBuffer, connectionCts.Token);
-        var tunnelStartedAt = Environment.TickCount64;
         try
         {
             // Announce the port only when a speed test server is actually up. An agent that
@@ -450,12 +450,7 @@ while (!cts.IsCancellationRequested)
                 NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor.SupportsSourceBinding,
                 config.OnGateway, capabilities,
                 config.IgnoreSslErrors, cts.Token);
-            // Proxies recycle long-lived streams, and the server marks the console unreachable
-            // until the tunnel is back, so a clean end after a healthy run reconnects at once.
-            // The one-minute floor keeps a proxy that closes right after the hello off a tight loop.
-            if (Environment.TickCount64 - tunnelStartedAt >= 60_000)
-                retryDelay = TimeSpan.FromMilliseconds(1000 + Random.Shared.Next(2000));
-            Console.Error.WriteLine($"Tunnel closed by server, reconnecting in {retryDelay.TotalSeconds:0}s...");
+            Console.Error.WriteLine("Tunnel closed by server");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -477,6 +472,24 @@ while (!cts.IsCancellationRequested)
             // still in the buffer and replays on the next connection.
             try { await drainTask; } catch (OperationCanceledException) { }
         }
+        if (cts.IsCancellationRequested) break;
+
+        // However the tunnel ended, a long healthy run redials within seconds; see TunnelReconnectPolicy.
+        var healthyFor = tunnel.HealthyFor;
+        redialAtOnce = TunnelReconnectPolicy.RedialsAtOnce(healthyFor);
+        retryDelay = TunnelReconnectPolicy.Delay(healthyFor, Random.Shared);
+        Console.Error.WriteLine(healthyFor is { } ran
+            ? $"Reconnecting in {retryDelay.TotalSeconds:0}s (the tunnel was healthy for {ran.TotalMinutes:0} min)"
+            : $"Reconnecting in {retryDelay.TotalSeconds:0}s");
+    }
+
+    // The heartbeat keeps the agent visible while the tunnel is down; an immediate redial is
+    // the better signal, and a slow heartbeat would only delay it.
+    if (redialAtOnce)
+    {
+        try { await Task.Delay(retryDelay, cts.Token); }
+        catch (OperationCanceledException) { break; }
+        continue;
     }
 
     try
