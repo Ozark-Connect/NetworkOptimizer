@@ -67,6 +67,7 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
                 ActivatorUtilities.CreateInstance<QuectelAtModemProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<InseegoFxProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<ZyxelCpeProvider>(_serviceProvider),
+                ActivatorUtilities.CreateInstance<MikroTikRouterOsProvider>(_serviceProvider),
             };
             // Starlink providers are also per site: the gRPC provider keeps
             // per-config history-counter state keyed by configuration ID, which

@@ -183,13 +183,10 @@ public class CellularModemService : ICellularModemService, IDisposable
     // TODO: Move to ICellularModemProvider.RequiresSharedSsh property when adding a 4th provider
     /// <summary>
     /// Whether this modem's provider requires the shared UniFi SSH credentials.
-    /// Providers with per-modem SSH credentials (quectel-at) handle their own auth.
+    /// Providers with per-modem SSH credentials (quectel-at, quectel-ssh) handle their own auth.
     /// </summary>
-    private static bool RequiresSharedSsh(ModemConfiguration modem)
-    {
-        var key = string.IsNullOrWhiteSpace(modem.Provider) ? DefaultProviderKey : modem.Provider;
-        return string.Equals(key, "qmicli", StringComparison.OrdinalIgnoreCase);
-    }
+    private static bool RequiresSharedSsh(ModemConfiguration modem) =>
+        CellularModemProviders.ModemProviderKeys.UsesSharedSsh(modem.Provider);
 
     /// <summary>
     /// Dispatch a poll to the appropriate provider based on the row's Provider column.
