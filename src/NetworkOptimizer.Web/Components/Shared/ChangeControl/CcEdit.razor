@@ -114,7 +114,7 @@
                                 <span class="status-badge badge-muted hide-mobile">Secrets masked</span>
                             }
                             <button class="btn btn-contrast btn-sm hide-mobile" disabled="@_loading" @onclick="DownloadCollectionAsync"
-                                    data-tooltip="@DownloadCollectionTooltip">Download Collection</button>
+                                    data-tooltip="@DownloadCollectionTooltip" aria-label="Download Collection YAML">@DownloadIcon Collection YAML</button>
                         </span>
                     </div>
                     @if (_loading)
@@ -169,7 +169,7 @@
                             <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
                         </label>
                         <button class="btn btn-contrast cc-phone-inline" @onclick="() => DownloadAsync(false)">Download</button>
-                        <button class="btn btn-contrast cc-phone-inline" disabled="@_loading" @onclick="DownloadCollectionAsync">Download Collection</button>
+                        <button class="btn btn-contrast cc-phone-inline" disabled="@_loading" @onclick="DownloadCollectionAsync" aria-label="Download Collection YAML">@DownloadIcon Collection YAML</button>
                     </div>
                 </div>
                 @if (_error != null)
@@ -238,6 +238,14 @@
 
     private IEnumerable<ConfigCollectionDef> LoadDefs(string group) =>
         CurrentTemplate is { } t ? Defs(group).Where(d => t.Collections.Contains(d.Key)) : Defs(group);
+
+    // The Snapshots tab's download icon.
+    private static readonly RenderFragment DownloadIcon =
+        @<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>;
 
     private RenderFragment EditingPicker() => __builder =>
     {
