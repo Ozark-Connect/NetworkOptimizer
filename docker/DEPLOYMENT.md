@@ -400,6 +400,8 @@ OPENSPEEDTEST_HTTPS=true
 
 If your proxy fronts the app on a port other than 443 (for example, one hostname with the app and the speed test separated by port), also set `REVERSE_PROXIED_PORT` to that port. This is supported, but host-based routing on 443 is the recommended setup: one hostname per service and no ports to remember. With local DNS on your gateway and a proxy that does DNS-01 certificates (Caddy, Traefik), there is no reason to need a non-standard port, even without exposing anything publicly.
 
+Also set `TRUSTED_PROXIES` to your proxy's address (`127.0.0.1,::1` for a proxy on the same host). Without it the app ignores forwarded headers, so the audit log and login rate limiting see every user as the proxy.
+
 See [`.env.example`](.env.example) for the full list of variables and detailed explanations of what each one does.
 
 **If the reverse proxy is on the same host**, also add:
@@ -1246,6 +1248,8 @@ OPENSPEEDTEST_HTTPS_PORT=443        # Optional - HTTPS port if not 443
 
 See `.env.example` for full documentation on each setting.
 
+**Running the two containers separately?** If you configure each container on its own (Portainer, CasaOS, Unraid templates) instead of with the bundled compose file and its `.env`, the speed test container needs the same host settings as the app: `REVERSE_PROXIED_HOST_NAME`, `HOST_NAME`, or `HOST_IP`. Those settings tell it where to post results. Without any of them, it posts to its own hostname on port 8042.
+
 **Usage:**
 1. Open `http://your-server:3005` from any device on your network
 2. Run the speed test
@@ -1277,6 +1281,12 @@ OPENSPEEDTEST_HTTPS=true
 Blocked loading mixed active content "http://..."
 ```
 It means your speedtest is HTTPS but trying to POST results to an HTTP endpoint. Set `REVERSE_PROXIED_HOST_NAME` to fix.
+
+**If you see this error in browser console:**
+```
+Cross-Origin Request Blocked: ... http://<speedtest-host>:8042/api/public/speedtest/results ... Status code: 302
+```
+The speed test is posting results to its own hostname instead of to Network Optimizer. This happens when the speed test container has none of the host settings above, usually because it was configured separately from the app. Give it the same `REVERSE_PROXIED_HOST_NAME` (or `HOST_NAME` / `HOST_IP`) as the app, then recreate it.
 
 ### iperf3 Server Mode
 
