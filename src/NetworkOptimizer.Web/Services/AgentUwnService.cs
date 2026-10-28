@@ -44,7 +44,7 @@ public class AgentUwnService
             return (false, $"The agent chosen to run the WAN speed test for site '{siteSlug}' is no longer connected");
 
         var id = Interlocked.Increment(ref _nextRequestId);
-        var pending = new PendingRun(agent.AgentId);
+        var pending = new PendingRun(agent);
         _pending[id] = pending;
         try
         {
@@ -92,7 +92,7 @@ public class AgentUwnService
     /// <summary>Fails any runs waiting on an agent whose tunnel just dropped.</summary>
     public void OnAgentDisconnected(AgentTunnelConnection agent)
     {
-        foreach (var (_, pending) in _pending.Where(p => p.Value.AgentId == agent.AgentId))
+        foreach (var (_, pending) in _pending.Where(p => ReferenceEquals(p.Value.Connection, agent)))
         {
             pending.Completion.TrySetResult(new UwnResult
             {
@@ -104,9 +104,9 @@ public class AgentUwnService
 
     private sealed class PendingRun
     {
-        public PendingRun(int agentId) => AgentId = agentId;
+        public PendingRun(AgentTunnelConnection connection) => Connection = connection;
 
-        public int AgentId { get; }
+        public AgentTunnelConnection Connection { get; }
 
         public TaskCompletionSource<UwnResult> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

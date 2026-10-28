@@ -42,7 +42,7 @@ public class AgentSnmpQueryService
         }
 
         var id = Interlocked.Increment(ref _nextRequestId);
-        var pending = new PendingQuery(agent.AgentId);
+        var pending = new PendingQuery(agent);
         _pending[id] = pending;
         try
         {
@@ -85,7 +85,7 @@ public class AgentSnmpQueryService
     /// <summary>Fails any queries waiting on an agent whose tunnel just dropped.</summary>
     public void OnAgentDisconnected(AgentTunnelConnection agent)
     {
-        foreach (var (_, pending) in _pending.Where(p => p.Value.AgentId == agent.AgentId))
+        foreach (var (_, pending) in _pending.Where(p => ReferenceEquals(p.Value.Connection, agent)))
         {
             pending.Completion.TrySetResult(new SnmpOidResult
             {
@@ -97,9 +97,9 @@ public class AgentSnmpQueryService
 
     private sealed class PendingQuery
     {
-        public PendingQuery(int agentId) => AgentId = agentId;
+        public PendingQuery(AgentTunnelConnection connection) => Connection = connection;
 
-        public int AgentId { get; }
+        public AgentTunnelConnection Connection { get; }
 
         public TaskCompletionSource<SnmpOidResult> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
