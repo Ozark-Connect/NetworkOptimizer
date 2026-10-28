@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
-using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -424,6 +423,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         // Determine if we should manage the iperf3 server ourselves
         var manageServer = device.StartIperf3Server;
         var isWindows = false;
+        var saved = false;
 
         try
         {
@@ -439,6 +439,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                     result.Success = false;
                     result.ErrorMessage = $"Cannot connect to device: {sshMsg}";
                     _logger.LogWarning("Speed test aborted - SSH connection failed to {Host}: {Message}", host, sshMsg);
+                    await SaveResultAsync(result);
                     return result;
                 }
             }
@@ -464,6 +465,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 {
                     result.Success = false;
                     result.ErrorMessage = $"Failed to start iperf3 server: {serverStartResult.output}";
+                    await SaveResultAsync(result);
                     return result;
                 }
 
@@ -545,6 +547,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
             // Save result to database
             await SaveResultAsync(result);
+            saved = true;
 
             // Publish alert event for regression detection
             await PublishSpeedTestAlertAsync(result);
@@ -573,6 +576,9 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 }
             }
 
+            // Early-exit failures are stored for history but never published: they are not a throughput regression.
+            if (!saved)
+                await SaveResultAsync(result);
             return result;
         }
         finally
