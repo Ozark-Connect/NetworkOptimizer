@@ -21,7 +21,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 
 - **Edit Layout** - move, show or hide, resize (full or half width), and stack cards
 - **Quick Stats** - Total Devices, Security Score, Adaptive SQM Status, Security Findings, Threat Events (24h), Wi-Fi Health
-- **Active Alerts** - top three open alerts, with Acknowledge and Resolve in place
+- **Active Alerts** - top three open alerts, with Acknowledge and Resolve in place; click one to open it on Alerts & Schedule
 - **Security Posture**, **Adaptive SQM**, **Threat Trends**, and **Recent Security Findings** cards
 - **WAN Speed Test**, **LAN Speed Test**, and **Wi-Fi Optimizer** summary cards
 - **Device Status** - every device's IP, model, firmware, uptime, clients, and ping
@@ -595,7 +595,7 @@ Requires Gateway SSH.
 - **Active Alerts** - acknowledge and resolve, singly or in bulk
 - **History** - every alert by source and severity
 - **Rules** - event pattern, threshold, severity, cooldown, escalation, digest-only, target devices
-- **Incidents** - related alerts grouped automatically
+- **Incidents** - related alerts grouped automatically, each listed in its incident with a link to it
   - Config changes in the 2 hours before each incident, with **Roll Back** ([Change Control](#change-control))
 - Alerts cover:
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
