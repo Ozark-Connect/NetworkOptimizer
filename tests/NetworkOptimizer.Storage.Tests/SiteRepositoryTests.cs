@@ -97,6 +97,20 @@ public class SiteRepositoryTests
     }
 
     [Fact]
+    public async Task UpdateAsync_CopiesHasNoConsole()
+    {
+        var site = await _repository.AddAsync(new Site { Slug = "main", Name = "Main Site", IsDefault = true });
+
+        site.HasNoConsole = true;
+        await _repository.UpdateAsync(site);
+        (await _repository.GetDefaultAsync())!.HasNoConsole.Should().BeTrue();
+
+        site.HasNoConsole = false;
+        await _repository.UpdateAsync(site);
+        (await _repository.GetDefaultAsync())!.HasNoConsole.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task UpdateAsync_ThrowsForUnknownId()
     {
         var act = () => _repository.UpdateAsync(new Site { Id = 999, Slug = "x", Name = "X" });
