@@ -45,7 +45,8 @@ public class AgentTunnelProxyService : IDisposable
     // below - so a healthy tunnel is never held this long: its next heartbeat
     // (<=30s) advances LastMessageAt and lets the open through.
     private static readonly TimeSpan OpenBreakerHold = TimeSpan.FromSeconds(60);
-    private readonly ConcurrentDictionary<string, (DateTime Until, DateTime OpenedAtLastMsg)> _openBreaker = new();
+    // Per site, but it only holds back the agent that timed out: another agent of the site is not suspect.
+    private readonly ConcurrentDictionary<string, (DateTime Until, DateTime OpenedAtLastMsg, int AgentId)> _openBreaker = new();
 
     private readonly AgentTunnelRegistry _registry;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -156,7 +157,7 @@ public class AgentTunnelProxyService : IDisposable
     private async Task<(ProxyConnection? Connection, string? Error)> OpenAsync(
         ProxyTarget target, Stream local, CancellationToken ct)
     {
-        var agent = _registry.GetForSite(target.SiteSlug).FirstOrDefault();
+        var agent = _registry.PickForSite(target.SiteSlug);
         if (agent == null)
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - no agent online for site {Slug}",
@@ -191,6 +192,7 @@ public class AgentTunnelProxyService : IDisposable
         // each. Fresh inbound (LastMessageAt past when the breaker tripped) means
         // the tunnel recovered, clearing this without needing a probe.
         if (_openBreaker.TryGetValue(target.SiteSlug, out var breaker)
+            && breaker.AgentId == agent.AgentId
             && DateTime.UtcNow < breaker.Until
             && agent.LastMessageAt <= breaker.OpenedAtLastMsg)
         {
@@ -232,8 +234,9 @@ public class AgentTunnelProxyService : IDisposable
                 // Trip the breaker so the opens queued behind this one fast-fail
                 // instead of each blocking the full OpenTimeout.
                 var wasTripped = _openBreaker.TryGetValue(target.SiteSlug, out var prev)
+                                 && prev.AgentId == agent.AgentId
                                  && DateTime.UtcNow < prev.Until;
-                _openBreaker[target.SiteSlug] = (DateTime.UtcNow + OpenBreakerHold, agent.LastMessageAt);
+                _openBreaker[target.SiteSlug] = (DateTime.UtcNow + OpenBreakerHold, agent.LastMessageAt, agent.AgentId);
 
                 // On the FIRST timeout of an outage, flip the site's console to
                 // awaiting-agent now (not at the 90s watchdog), so its page renders
@@ -417,9 +420,10 @@ public class AgentTunnelProxyService : IDisposable
     /// </summary>
     public bool IsTunnelSuspect(string siteSlug)
     {
-        var agent = _registry.GetForSite(siteSlug).FirstOrDefault();
+        var agent = _registry.PickForSite(siteSlug);
         if (agent == null || agent.IsStale) return true;
         return _openBreaker.TryGetValue(siteSlug, out var breaker)
+               && breaker.AgentId == agent.AgentId
                && DateTime.UtcNow < breaker.Until
                && agent.LastMessageAt <= breaker.OpenedAtLastMsg;
     }

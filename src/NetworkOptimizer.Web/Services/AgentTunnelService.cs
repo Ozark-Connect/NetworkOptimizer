@@ -367,7 +367,12 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                 _logger.LogInformation(
                     "Agent {Name} (id {Id}, site {Slug}) silent for {Silent:0}s; treating the tunnel as black-holed",
                     connection.AgentName, connection.AgentId, connection.SiteSlug, silent.TotalSeconds);
-                _probeResultSink.OnTunnelStale(connection);
+                // With another live agent the site keeps its console: new dials go through that agent
+                // (PickForSite), and closing this one's proxied sockets moves pooled ones over at once.
+                if (_registry.HasOtherLiveForSite(connection))
+                    _proxy.OnAgentDisconnected(connection);
+                else
+                    _probeResultSink.OnTunnelStale(connection);
             }
             if (silent <= LivenessTimeout) continue;
             _logger.LogWarning(
