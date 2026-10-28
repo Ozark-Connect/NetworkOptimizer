@@ -156,6 +156,36 @@ public class AgentTunnelRegistryTests
     }
 
     [Fact]
+    public void PickForSite_SkipsASilentAgent_AndReturnsToItOnceFresh()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        registry.Register(1, "branch-office", "Agent");
+        registry.Register(2, "branch-office", "Agent 2");
+        var usual = registry.PickForSite("branch-office")!;
+        var other = registry.GetForSite("branch-office").Single(c => !ReferenceEquals(c, usual));
+
+        usual.LastMessageAt = DateTime.UtcNow - AgentTunnelConnection.StaleThreshold - TimeSpan.FromSeconds(1);
+        registry.PickForSite("branch-office").Should().BeSameAs(other);
+        registry.HasOtherLiveForSite(usual).Should().BeTrue();
+
+        usual.LastMessageAt = DateTime.UtcNow;
+        registry.PickForSite("branch-office").Should().BeSameAs(usual);
+    }
+
+    [Fact]
+    public void PickForSite_AllSilent_StillReturnsOne()
+    {
+        // The proxy's stale gate then refuses the dial and flips the console, as for a single agent.
+        var registry = Registry(tunnelEnabled: true);
+        var only = registry.Register(1, "branch-office", "Agent");
+        only.LastMessageAt = DateTime.UtcNow - AgentTunnelConnection.StaleThreshold - TimeSpan.FromSeconds(1);
+
+        registry.PickForSite("branch-office").Should().BeSameAs(only);
+        registry.HasOtherLiveForSite(only).Should().BeFalse();
+        registry.PickForSite("elsewhere").Should().BeNull();
+    }
+
+    [Fact]
     public void IsUnstable_CountsPerAgent()
     {
         var registry = Registry(tunnelEnabled: true);
