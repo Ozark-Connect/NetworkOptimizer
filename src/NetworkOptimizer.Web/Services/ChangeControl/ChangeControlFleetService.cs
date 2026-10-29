@@ -175,7 +175,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         var now = DateTime.UtcNow;
         var (latest, changes, state, last, hours, snapshots, dismissed) = await engine.Repositories.UseAsync(async (r, c) =>
             (await r.GetLatestSnapshotAsync(c), await r.GetChangesAsync(now.AddDays(-7), now, 2000, c), await r.GetDetectionStateAsync(c),
-             await r.GetLastConfigChangeAsync(c), await r.GetHealthHoursAsync(now.AddHours(-24), now, c), await r.GetSnapshotsAsync(null, null, 200, c),
+             await r.GetLastChangeAsync(c), await r.GetHealthHoursAsync(now.AddHours(-24), now, c), await r.GetSnapshotsAsync(null, null, 200, c),
              (await r.GetDismissalsAsync(c)).Select(d => d.ItemKey).ToHashSet(StringComparer.Ordinal)), ct);
         var health = SiteHealth.SiteHealthSeriesBuilder.Build(_registry.WithProvisionalHealth(site.Slug, hours), now.AddHours(-24), now);
         var config = changes.Where(x => x.Kind == ConfigChangeKind.Config && x.ActorKind != ConfigChangeActorKind.NetworkOptimizer).ToList();

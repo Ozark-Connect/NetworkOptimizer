@@ -65,8 +65,11 @@ public interface IChangeControlRepository
     /// <summary>One change, or null.</summary>
     Task<ConfigChange?> GetChangeAsync(int id, CancellationToken cancellationToken = default);
 
-    /// <summary>The newest config change, leaving out Network Optimizer's own except those from an applied plan.</summary>
-    Task<ConfigChange?> GetLastConfigChangeAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The newest change of any kind (config, firmware, UniFi Network upgrade), leaving out Network
+    /// Optimizer's own except those from an applied plan.
+    /// </summary>
+    Task<ConfigChange?> GetLastChangeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Changes newest first in a range.</summary>
     Task<List<ConfigChange>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, int limit = 1000, CancellationToken cancellationToken = default);
