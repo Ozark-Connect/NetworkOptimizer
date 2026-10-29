@@ -2769,7 +2769,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     foreach (var step in waveSteps.Where(s => !IsSettled(s) && IsAccessPointStep(s)))
                     {
                         step.State = FirmwareRolloutStepState.AbortedSku;
-                        step.Error = "Skipped: it was the last access point still online";
+                        step.Error = RolloutSkipReasons.LastApOnline;
                         await PersistStepAsync(step, cancellationToken);
                         _logger.LogWarning(
                             "Skipped {Ap} on site {Site}: it was the last access point still online",
@@ -2803,7 +2803,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             foreach (var step in waveSteps)
             {
                 step.State = FirmwareRolloutStepState.AbortedSku;
-                step.Error = "No canary passed for this model";
+                step.Error = RolloutSkipReasons.NoCanaryPassed;
                 await PersistStepAsync(step, cancellationToken);
                 _logger.LogWarning(
                     "Skipped {Device} on site {Site}: no canary passed for its model",
@@ -3031,7 +3031,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         _offlineAtTurnSince.TryRemove(step.Id, out _);
         step.State = FirmwareRolloutStepState.AbortedSku;
-        step.Error = "Offline when its turn came";
+        step.Error = RolloutSkipReasons.OfflineAtTurn;
         await PersistStepAsync(step, cancellationToken);
         _logger.LogWarning(
             "Skipped {Device} on site {Site}: it was offline when its turn came", step.DeviceName, _siteSlug);
@@ -3046,7 +3046,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             && string.Equals(familyOf(s), family, StringComparison.OrdinalIgnoreCase)))
         {
             peer.State = FirmwareRolloutStepState.AbortedSku;
-            peer.Error = "No online canary for this model";
+            peer.Error = RolloutSkipReasons.NoOnlineCanary;
             await PersistStepAsync(peer, cancellationToken);
             _logger.LogWarning(
                 "Skipped {Device} on site {Site}: its model's canary was offline when its turn came",
