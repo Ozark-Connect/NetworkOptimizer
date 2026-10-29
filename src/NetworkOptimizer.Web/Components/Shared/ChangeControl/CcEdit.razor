@@ -54,7 +54,7 @@
                 {
                     <SiteAdminOnly>
                         <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(true)"
-                                data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited." aria-label="Download YAML with Secrets"><CcIcon /> YAML with Secrets</button>
+                                data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited." aria-label="Download YAML with Secrets"><CcIcon /> YAML w/ Secrets</button>
                     </SiteAdminOnly>
                 }
                 <button class="btn btn-contrast btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>

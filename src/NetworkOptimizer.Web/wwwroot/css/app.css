@@ -23455,6 +23455,13 @@ body:has(.top-bar-hidden) .btn-fit {
     min-width: 120px;
 }
 
+/* A long option (a snapshot's time, a template's name) must not widen the bar; the open list
+   still sizes to its options. */
+.change-control .cc-toolbar select.form-control {
+    max-width: 250px;
+    text-overflow: ellipsis;
+}
+
 .change-control .cc-toolbar-spacer {
     flex: 1;
 }
@@ -24803,8 +24810,10 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 @media (max-width: 768px) {
-    .change-control .cc-toolbar .form-control {
+    .change-control .cc-toolbar .form-control,
+    .change-control .cc-toolbar select.form-control {
         width: 100%;
+        max-width: none;
     }
 
     .change-control .cc-toolbar .cc-toolbar-label {
