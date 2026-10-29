@@ -885,12 +885,16 @@ const blockItemPosition = /^(\s*)- ([^#:]*)$/;
 
 // The fields a firewall policy's source or destination needs for its matching_target,
 // matching_target_type, and port_matching_type, as the main site's 342 policies carry them
-// (Network 11.0.97). Only added, never removed: switching back keeps what was typed.
+// (Network 11.0.97). A change adds the ones it needs and removes the other types' fields.
+const matchOnlyFields = ['ips', 'ip_group_id', 'network_ids', 'match_opposite_networks', 'client_macs', 'macs',
+    'web_domains', 'web_matching_type', 'app_ids', 'regions', 'port', 'port_group_id'];
+
 function matchFields(target, targetType, portType) {
     const out = [];
     const typed = def => targetType ? [] : [['matching_target_type', def]];
     switch (target) {
-        case 'IP': out.push(...typed('SPECIFIC'), (targetType ?? 'SPECIFIC') === 'OBJECT' ? ['ip_group_id', ''] : ['ips', '[]']); break;
+        // An OBJECT (IP group) match carries an ips list too, empty, in every policy seen.
+        case 'IP': out.push(...typed('SPECIFIC'), ...((targetType ?? 'SPECIFIC') === 'OBJECT' ? [['ip_group_id', '']] : []), ['ips', '[]']); break;
         case 'NETWORK': out.push(['network_ids', '[]'], ['match_opposite_networks', 'false']); break;
         case 'CLIENT': out.push(['client_macs', '[]']); break;
         case 'MAC': out.push(...typed('SPECIFIC'), ['macs', '[]']); break;
@@ -917,36 +921,54 @@ export function matchFieldsChange(doc, lineNo) {
         if (t) top = t[1];
     }
     if (top !== 'firewall_policies') return null;
-    // The mapping the line sits in: its siblings at the same indent, up to a less-indented line.
-    const siblings = new Map();
+    // The mapping the line sits in: its keys at the same indent, each with the lines it spans (a
+    // block list runs on below its key), up to a less-indented line.
     const keyAt = n => {
         const t = doc.line(n).text;
         const lead = t.length - t.trimStart().length + (t.trimStart().startsWith('- ') ? 2 : 0);
         const k = /^\s*(?:- )?([A-Za-z0-9_]+):\s*(.*)$/.exec(t);
-        return { lead, key: k?.[1], value: (k?.[2] ?? '').trim(), item: t.trimStart().startsWith('- ') };
+        return { lead, key: k?.[1], value: (k?.[2] ?? '').trim(), item: t.trimStart().startsWith('- '), blank: t.trim() === '' };
     };
-    for (let n = lineNo; n >= 1; n--) {
+    let start = lineNo;
+    // Up to the mapping's first key: an item at its own indent ("- key:") starts it.
+    for (let n = lineNo - 1; n >= 1 && !(keyAt(start).item && keyAt(start).lead === indent); n--) {
         const k = keyAt(n);
-        if (doc.line(n).text.trim() === '') continue;
+        if (k.blank) continue;
         if (k.lead < indent) break;
-        if (k.lead === indent && k.key) siblings.set(k.key, k.value);
-        if (k.item && k.lead === indent) break;
+        start = n;
     }
-    for (let n = lineNo + 1; n <= doc.lines; n++) {
+    const siblings = new Map();
+    let current = null;
+    for (let n = start; n <= doc.lines; n++) {
         const k = keyAt(n);
-        if (doc.line(n).text.trim() === '') continue;
-        if (k.lead < indent || (k.item && k.lead <= indent)) break;
-        if (k.lead === indent && k.key) siblings.set(k.key, k.value);
+        if (k.blank) continue;
+        if (n > start && (k.lead < indent || (k.item && k.lead <= indent))) break;
+        if (k.lead === indent && k.key) siblings.set(k.key, current = { value: k.value, first: n, last: n });
+        else if (current) current.last = n;
     }
-    const missing = matchFields(siblings.get('matching_target'), siblings.get('matching_target_type') || undefined,
-        siblings.get('port_matching_type')).filter(([k]) => !siblings.has(k));
-    if (missing.length === 0) return null;
-    const pad = ' '.repeat(indent);
-    const insert = missing.map(([k, v]) => `\n${pad}${k}: ${v}`).join('');
-    // The cursor goes into the first added field: inside its [], or after "key: ".
-    const first = `\n${pad}${missing[0][0]}: `;
-    const cursor = line.to + first.length + (missing[0][1] === '[]' ? 1 : 0);
-    return { changes: { from: line.to, insert }, selection: { anchor: cursor } };
+    const value = key => siblings.get(key)?.value || undefined;
+    const needed = matchFields(value('matching_target'), value('matching_target_type'), value('port_matching_type'));
+    const missing = needed.filter(([k]) => !siblings.has(k));
+    const unused = matchOnlyFields.filter(k => siblings.has(k) && !needed.some(([n]) => n === k))
+        .map(k => siblings.get(k)).filter(s => s.first !== lineNo);
+    if (missing.length === 0 && unused.length === 0) return null;
+
+    // Each unused key goes with its lines and the line break before them.
+    const changes = unused.sort((a, b) => a.first - b.first)
+        .map(s => ({ from: doc.line(s.first).from - 1, to: doc.line(s.last).to }));
+    let selection;
+    if (missing.length > 0) {
+        const pad = ' '.repeat(indent);
+        changes.push({ from: line.to, insert: missing.map(([k, v]) => `\n${pad}${k}: ${v}`).join('') });
+        changes.sort((a, b) => a.from - b.from);
+        // The cursor goes into the first added field left to fill (inside its [], or after "key: "),
+        // past any removal above it.
+        const removedAbove = changes.filter(c => c.to !== undefined && c.to <= line.to).reduce((sum, c) => sum + (c.to - c.from), 0);
+        const target = Math.max(0, missing.findIndex(([, v]) => v === '' || v === '[]'));
+        const upTo = missing.slice(0, target + 1).map(([k, v], i) => `\n${pad}${k}: ${i === target ? '' : v}`).join('');
+        selection = { anchor: line.to - removedAbove + upTo.length + (missing[target][1] === '[]' ? 1 : 0) };
+    }
+    return selection ? { changes, selection } : { changes };
 }
 
 /** The value on pos's "key: value" line, without a trailing comment; '' when none. */
