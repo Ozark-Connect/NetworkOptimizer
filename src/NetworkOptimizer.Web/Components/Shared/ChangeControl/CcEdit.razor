@@ -446,8 +446,13 @@
 
     /// <summary>The editor's text after typing pauses. <paramref name="key"/> is <see cref="EditKey"/> when it was typed.</summary>
     [JSInvokable]
-    public void OnEditorChanged(string key, string text)
+    public async Task OnEditorChanged(string key, IJSStreamReference stream)
     {
+        // Streamed (cc-editor.js reportChange): the text can be past SignalR's message limit.
+        string text;
+        await using (var s = await stream.OpenReadStreamAsync(maxAllowedSize: 5 * 1024 * 1024))
+        using (var reader = new StreamReader(s))
+            text = await reader.ReadToEndAsync();
         var bar = key.IndexOf('|');
         if (bar < 0 || key[..bar] != _generation.ToString(System.Globalization.CultureInfo.InvariantCulture)) return;
         var group = key[(bar + 1)..];

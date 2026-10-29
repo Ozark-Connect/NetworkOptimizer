@@ -547,6 +547,14 @@ function restoreRevealed(view, state) {
 
 // The text the page sees: a revealed value still as shown reads as its token, so a reveal the cursor
 // has not left yet is no edit either. A value typed over no longer matches, so it is sent as typed.
+// Streamed, never a plain argument: a large collection (Firewall Policies) is past SignalR's 32 KB
+// message limit, which drops the call and with it every edit to that collection.
+function reportChange(view, state, key) {
+    const bytes = new TextEncoder().encode(reportedText(view, state));
+    state.dotnet.invokeMethodAsync('OnEditorChanged', key, DotNet.createJSStreamReference(bytes))
+        .catch(e => console.warn('cc-editor: change callback failed', e));
+}
+
 function reportedText(view, state) {
     const doc = view.state.doc;
     const kept = state.revealed
@@ -604,7 +612,7 @@ function loadFolds(state, key) {
 }
 
 /**
- * Creates the editor in host. dotnet receives OnEditorChanged(key, text) after typing pauses; key
+ * Creates the editor in host. dotnet receives OnEditorChanged(key, text stream) after typing pauses; key
  * names what the text belongs to, so a change still in flight when setText swaps the document
  * lands on the right file. scope (the viewer and the site or template) keys saved folds.
  */
@@ -663,8 +671,7 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                     const key = state.key;
                     state.timer = setTimeout(() => {
                         state.timer = 0;
-                        state.dotnet.invokeMethodAsync('OnEditorChanged', key, reportedText(view, state))
-                            .catch(e => console.warn('cc-editor: change callback failed', e));
+                        reportChange(view, state, key);
                     }, 250);
                 }),
                 // A bare "key: " starts value completion without waiting for the next keystroke.
@@ -690,8 +697,7 @@ export function setText(host, text, key, scope) {
     if (cc.state.timer) {
         clearTimeout(cc.state.timer);
         cc.state.timer = 0;
-        cc.state.dotnet.invokeMethodAsync('OnEditorChanged', cc.state.key, reportedText(cc.view, cc.state))
-            .catch(e => console.warn('cc-editor: change callback failed', e));
+        reportChange(cc.view, cc.state, cc.state.key);
     }
     // Each collection keeps its own scroll, cursor, and folds for this visit; one opened for the first
     // time starts at the top, with the folds saved for it.
