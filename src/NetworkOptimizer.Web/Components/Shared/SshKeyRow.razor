@@ -17,7 +17,10 @@
 *@
 
 <div class="form-group ssh-key-row">
-    <label class="form-label @(Key is null ? "form-label-unused" : "")">Managed SSH Key@(Key is null ? " (Not in use)" : "")</label>
+    @if (ShowLabel)
+    {
+        <label class="form-label @(Key is null ? "form-label-unused" : "")">Managed SSH Key@(Key is null ? " (Not in use)" : "")</label>
+    }
     @if (Key is not null)
     {
         <div class="ssh-key-row-set">
@@ -70,4 +73,8 @@
     /// </summary>
     [Parameter]
     public EventCallback OnManage { get; set; }
+
+    /// <summary>False when the host already shows the "Managed SSH Key" heading above the row.</summary>
+    [Parameter]
+    public bool ShowLabel { get; set; } = true;
 }
