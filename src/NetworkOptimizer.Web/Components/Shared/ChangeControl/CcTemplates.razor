@@ -112,11 +112,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Name</label>
-                            <input class="form-control" @bind="_name" maxlength="100" />
+                            <input class="form-control" @bind="_editName" maxlength="100" />
                         </div>
                         <div class="form-group">
                             <label class="form-label">Description</label>
-                            <input class="form-control" @bind="_description" maxlength="300" />
+                            <input class="form-control" @bind="_editDescription" maxlength="300" />
                         </div>
                     </div>
                     <div class="form-group">
@@ -124,7 +124,7 @@
                         <small class="form-help">Off, a site keeps its own PPSKs and gains the template's. On, each site's PPSKs become exactly the template's.</small>
                     </div>
                     <div class="action-buttons">
-                        <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))" @onclick="SaveDetailsAsync">Save</button>
+                        <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_editName))" @onclick="SaveDetailsAsync">Save</button>
                         <button class="btn btn-contrast" @onclick="() => _editingId = null">Cancel</button>
                     </div>
                 </div>
@@ -200,20 +200,23 @@
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/edit?template={id}", SiteCtx.Slug));
 
     // The YAML itself is edited on the Edit tab; this form holds the name, description, and PPSK handling.
+    // Its own fields: the Add Template form keeps whatever was typed into it.
     private void EditDetails(TemplateView t)
     {
-        _name = t.Name;
-        _description = t.Description;
+        _editName = t.Name;
+        _editDescription = t.Description;
         _replaceLists = t.ReplaceLists;
         _editingId = _editingId == t.Id ? null : t.Id;
     }
 
+    private string _editName = "";
+    private string? _editDescription;
     private bool _replaceLists;
 
     private async Task SaveDetailsAsync() => await RunAsync(async () =>
     {
         if (_editingId is not int id) return;
-        await Templates.RenameAsync(id, _name.Trim(), _description, _replaceLists);
+        await Templates.RenameAsync(id, _editName.Trim(), _editDescription, _replaceLists);
         _editingId = null;
         await LoadAsync();
     });
