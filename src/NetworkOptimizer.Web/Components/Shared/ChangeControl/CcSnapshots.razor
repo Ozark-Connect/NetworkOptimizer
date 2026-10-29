@@ -32,7 +32,8 @@
             <CcObjectTable Objects="drift.Objects" PastTense="true" />
             <div class="cc-card-footer">
                 <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="AcceptBaselineAsync">Accept as Baseline</button></SiteAdminOnly>
-                <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReturnToBaselineAsync">@Spinner("baseline")Return to Baseline</button></SiteOperatorOnly>
+                <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReturnToBaselineAsync"
+                    data-tooltip="Applies right away, or opens Review Plan first for deletes, passphrase or WAN changes, lockout risks, or approval.">@Spinner("baseline")Return to Baseline</button></SiteOperatorOnly>
             </div>
         }
     </div>
