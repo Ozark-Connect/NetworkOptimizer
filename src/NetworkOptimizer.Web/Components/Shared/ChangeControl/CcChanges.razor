@@ -753,7 +753,8 @@
 
     /// <summary>
     /// Bolds the object name in a summary ("WLAN &lt;b&gt;Home&lt;/b&gt;: security ..."): the text between a
-    /// collection noun and the first ": ", the shape ChangeDescriber.SummaryLine writes. Without a ": " nothing is bolded.
+    /// collection noun and the first ": ", the shape ChangeDescriber.SummaryLine writes, or the whole head when it
+    /// is a setting's page (ChangeDescriber.SettingPages). Without a ": " nothing is bolded.
     /// </summary>
     private static string Bold(string summary)
     {
@@ -764,6 +765,8 @@
         foreach (var def in ConfigCollections.All.OrderByDescending(d => d.Noun.Length))
             if (head.StartsWith(def.Noun + " ", StringComparison.Ordinal))
                 return $"{def.Noun} <b>{head[(def.Noun.Length + 1)..]}</b>{enc[colon..]}";
+        if (ChangeDescriber.SettingPages.Contains(System.Net.WebUtility.HtmlDecode(head)))
+            return $"<b>{head}</b>{enc[colon..]}";
         return enc;
     }
 

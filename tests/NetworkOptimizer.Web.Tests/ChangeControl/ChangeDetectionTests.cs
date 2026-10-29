@@ -134,7 +134,7 @@ public class ChangeDetectionTests
     public void Summary_PolicyEditedAndMovedInOneSave_IsOnePolicy()
     {
         ChangeDescriber.GroupSummary([Renamed("Allow D"), Reorder("Allow D", "Allow A", "Allow B", "Allow C")])
-            .Should().Be("Firewall Policy Allow D: Name: Old name to Allow D, moved from #4 to #1");
+            .Should().Be("Firewall Policy Allow D: renamed from Old name, moved from #4 to #1");
     }
 
     [Fact]
@@ -166,7 +166,143 @@ public class ChangeDetectionTests
     public void Summary_OtherEditsWithAReorder_CountOnlyRealPolicies()
     {
         ChangeDescriber.GroupSummary([Renamed("Allow X"), Reorder("Allow D", "Allow A", "Allow B", "Allow C")])
-            .Should().Be("Firewall Policy Allow X: Name: Old name to Allow X; Allow D moved from #4 to #1");
+            .Should().Be("Firewall Policy Allow X: renamed from Old name; Allow D moved from #4 to #1");
+    }
+
+    private static ConfigChangeObject Stored(string collection, string name, params StoredField[] fields) => new()
+    {
+        Collection = collection, ObjectId = name, ObjectName = name, Action = ConfigChangeAction.Updated,
+        FieldsJson = System.Text.Json.JsonSerializer.Serialize(fields.ToList()),
+    };
+
+    private static ConfigChangeObject StoredCreated(string collection, string name) => new()
+    {
+        Collection = collection, ObjectId = name, ObjectName = name, Action = ConfigChangeAction.Created, FieldsJson = "[]",
+    };
+
+    [Fact]
+    public void StoredSummary_ARemovedValue_SaysRemoved_UnderTheSettingsPage()
+    {
+        var teleport = Stored("setting", "teleport", new StoredField { Path = "subnet_cidr", Label = "Subnet CIDR", Old = "192.168.2.1/24", New = "none" });
+
+        ChangeControlService.StoredSummary([teleport], null, null)
+            .Should().Be("VPN Server - Teleport: Subnet CIDR 192.168.2.1/24 removed");
+    }
+
+    [Fact]
+    public void StoredSummary_ASetValue_SaysSetTo()
+    {
+        var network = Stored("networkconf", "Guest", new StoredField { Path = "dhcpd_dns_1", Label = "DNS Server", Old = "none", New = "192.0.2.53" });
+
+        ChangeControlService.StoredSummary([network], null, null).Should().Be("Network Guest: DNS Server set to 192.0.2.53");
+    }
+
+    [Fact]
+    public void StoredSummary_TheIpsSetting_IsHoneypotOnlyWhenEveryRowIsOne()
+    {
+        var honeypot = Stored("setting", "ips",
+            new StoredField { Path = "honeypot[entry=1].ip_address", Label = "Honeypot 1 IP Address", Old = "192.0.2.2", New = "198.51.100.2" },
+            new StoredField { Path = "honeypot[entry=2].ip_address", Label = "Honeypot 2 IP Address", Old = "192.0.2.3", New = "198.51.100.3" });
+        var ips = Stored("setting", "ips", new StoredField { Path = "ips_mode", Label = "IPS Mode", Old = "ids", New = "ips" });
+
+        ChangeControlService.StoredSummary([honeypot], null, null).Should().StartWith("CyberSecure - Honeypot: ");
+        ChangeControlService.StoredSummary([ips], null, null).Should().StartWith("CyberSecure - Intrusion Prevention: ");
+    }
+
+    [Fact]
+    public void StoredSummary_OnePortsRows_SayThePortOnce()
+    {
+        var device = Stored("device", "Desk Switch",
+            new StoredField { Path = "port_overrides[port_idx=4].autoneg", Label = "Port 4 Auto Negotiate Link Speed", Old = "on", New = "off" },
+            new StoredField { Path = "port_overrides[port_idx=4].dot1x_ctrl", Label = "Port 4 Client Authentication (802.1X)", Old = "auto", New = "force_authorized" });
+
+        ChangeControlService.StoredSummary([device], null, null)
+            .Should().Be("Device Desk Switch: Port 4: Auto Negotiate Link Speed, Client Authentication (802.1X)");
+    }
+
+    [Fact]
+    public void StoredSummary_UpToThreeObjects_AreNamed()
+    {
+        ChangeControlService.StoredSummary([StoredCreated("networkconf", "IoT"), StoredCreated("networkconf", "Cameras")], null, null)
+            .Should().Be("Networks IoT and Cameras created");
+        ChangeControlService.StoredSummary([StoredCreated("networkconf", "IoT"), StoredCreated("user", "Desk PC")], null, null)
+            .Should().Be("Network IoT and Client Desk PC changed");
+    }
+
+    [Fact]
+    public void StoredSummary_MoreThanThreeAcrossCollections_BreaksDownLargestFirst_LedByThePlan()
+    {
+        var objects = new List<ConfigChangeObject>
+        {
+            StoredCreated("user", "a"), StoredCreated("user", "b"), StoredCreated("user", "c"),
+            StoredCreated("networkconf", "n1"), StoredCreated("networkconf", "n2"),
+        };
+
+        ChangeControlService.StoredSummary(objects, null, null).Should().Be("5 changes: 3 Clients, 2 Networks");
+        ChangeControlService.StoredSummary(objects, null, ChangeDescriber.PlanLead(ConfigPlanKind.Readdress))
+            .Should().Be("Re-address Networks applied: 3 Clients, 2 Networks");
+    }
+
+    [Fact]
+    public void StoredSummary_KeepsTheUpgradeContextReadersLookFor()
+    {
+        var stored = "35 objects changed during Network app upgrade (plus 12 new fields the upgrade added, not listed)";
+        var context = ChangeControlService.UpgradeContextOf(stored);
+
+        var rebuilt = ChangeControlService.StoredSummary([StoredCreated("user", "a"), StoredCreated("networkconf", "n")], context, null);
+
+        rebuilt.Should().EndWith("during Network app upgrade (plus 12 new fields the upgrade added, not listed)");
+        ChangeDescriber.IsUpgradeSummary(rebuilt).Should().BeTrue();
+        ChangeControlService.UpgradeContextOf("Firewall Policy X: renamed from Y").Should().BeNull();
+    }
+
+    [Fact]
+    public void Labels_ASuppressedAlert_ByItsSignature()
+    {
+        var setting = (JsonObject)JsonNode.Parse("""{"alerts":[{"id":2003068,"signature":"ET SCAN Potential SSH Scan OUTBOUND","tracking":[{"value":"192.0.2.10"}]}]}""")!;
+
+        ChangeDescriber.LabelFor("alerts[entry=1].tracking[entry=2].value", setting)
+            .Should().Be("ET SCAN Potential SSH Scan OUTBOUND: Tracked Address 2");
+        ChangeDescriber.LabelFor("alerts[entry=1].tracking[entry=2].value")
+            .Should().Be("Suppressed Signature 1: Tracked Address 2");
+    }
+
+    [Fact]
+    public void ObjectView_KeepsASignatureFromTheSavedLabel_AndNamesPolicyOrderAsReviewPlanDoes()
+    {
+        var suppression = Stored("setting", "ips_suppression", new StoredField
+        {
+            Path = "alerts[entry=1].tracking[entry=2].value", Label = "ET SCAN Potential SSH Scan OUTBOUND: Tracked Address 2",
+            Old = "192.0.2.10", New = "198.51.100.10",
+        });
+        var view = ChangeControlService.ObjectView(suppression);
+        view.Name.Should().Be("CyberSecure - Suppressed Signatures");
+        view.Fields.Single().Label.Should().Be("ET SCAN Potential SSH Scan OUTBOUND: Tracked Address 2");
+
+        ChangeDescriber.PolicyOrderDisplayName("order, Internal to Internal").Should().Be("Policy order, Internal to Internal");
+    }
+
+    [Fact]
+    public void Drift_FromASnapshotBaseline_IncludesPolicyOrder()
+    {
+        var baseline = State(
+            ("firewall_policy", """{"_id":"p1","name":"A","index":10000,"source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"p2","name":"B","index":10001,"source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+        var current = State(
+            ("firewall_policy", """{"_id":"p1","name":"A","index":10001,"source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"p2","name":"B","index":10000,"source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+
+        var drift = DriftCalculator.Drift(baseline, current, new PlanOptions());
+
+        var order = drift.Should().ContainSingle(o => ChangeControlSiteEngine.IsPolicyOrder(o.Collection, o.ObjectId)).Subject;
+        ChangeControlService.ObjectView(order).OrderMoves.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Labels_MeshAsTheAPSettingsNameIt()
+    {
+        ChangeDescriber.LabelFor("radio_table[radio=na].vwire_enabled").Should().Be("5 GHz Mesh Parent");
+        ChangeDescriber.LabelFor("mesh_sta_vap_enabled").Should().Be("Mesh Connect");
     }
 
     [Fact]
@@ -334,7 +470,7 @@ public class ChangeDetectionTests
         ChangeDescriber.SummaryLine("Device", "Desk Switch", ChangeDescriber.ChangeText(shown))
             .Should().Be("Device Desk Switch: Port 5 Port Profile, Port 6 Auto-Negotiation");
         ChangeDescriber.SummaryLine("Device", "Desk Switch", ChangeDescriber.ChangeText(shown.Take(1).ToList()))
-            .Should().Be("Device Desk Switch: Port 5 Port Profile: None to [Access] Main Network");
+            .Should().Be("Device Desk Switch: Port 5: profile set to [Access] Main Network");
     }
 
     [Fact]

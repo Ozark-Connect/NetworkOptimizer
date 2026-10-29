@@ -718,6 +718,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             var context = g.ActorKind == ConfigChangeActorKind.LikelyUniFi && inUpgradeWindow ? ChangeDescriber.UpgradeContext : null;
             var added = diff.SchemaAdditions.Values.SelectMany(f => f).Distinct(StringComparer.Ordinal).Count();
             if (context != null && added > 0) context += $" (plus {added} new fields the upgrade added, not listed)";
+            var rows = g.Objects.Select(o => ToRecord(o, beforeNames, afterNames)).ToList();
+            var lead = g.PlanId is { } planId && await _repos.UseAsync((r, c) => r.GetPlanAsync(planId, c), ct) is { } plan
+                ? ChangeDescriber.PlanLead(plan.Kind) : null;
             var change = new ConfigChange
             {
                 Kind = ConfigChangeKind.Config,
@@ -730,14 +733,14 @@ public sealed class ChangeControlSiteEngine : BackgroundService
                 ActorIp = g.ActorIp,
                 ActorPlatform = g.ActorPlatform,
                 PlanId = g.PlanId,
-                Summary = Truncate(ChangeDescriber.GroupSummary(g.Objects, context, beforeNames, afterNames), 500),
+                // From the stored rows, as the Changes list rebuilds it, so an alert reads what the page shows.
+                Summary = Truncate(ChangeControlService.StoredSummary(rows, context, lead), 500),
                 ObjectCount = g.Objects.Count,
                 ServiceTagsJson = JsonSerializer.Serialize(g.Objects.SelectMany(o => o.Tags).Distinct().OrderBy(t => t)),
                 ManagementPath = g.Objects.Any(o => o.ManagementPath),
                 WanPath = g.Objects.Any(o => o.WanPath),
                 AuditEventsJson = g.Events.Count == 0 ? null : JsonSerializer.Serialize(g.Events),
             };
-            var rows = g.Objects.Select(o => ToRecord(o, beforeNames, afterNames)).ToList();
             change = await _repos.UseAsync((r, c) => r.AddChangeAsync(change, rows, c), ct);
             recorded.Add(change);
         }
@@ -749,7 +752,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     {
         Collection = "firewall_policy",
         ObjectId = $"order:{order.SourceZoneId}>{order.DestinationZoneId}",
-        Name = $"order, {order.ZonePairName}",
+        Name = ChangeDescriber.PolicyOrderName(order.ZonePairName),
         Action = ConfigChangeAction.Updated,
         OrderedIds = order.Before.Union(order.After).ToList(),
         Fields =

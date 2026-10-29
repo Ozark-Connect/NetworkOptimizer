@@ -571,20 +571,7 @@ else
     [Parameter] public int PlanId { get; set; }
 
     /// <summary>The Source tile's short value: what kind of plan this is.</summary>
-    private static string KindLabel(ConfigPlanKind kind) => kind switch
-    {
-        ConfigPlanKind.RollbackSnapshot or ConfigPlanKind.RollbackChange => "Roll Back",
-        ConfigPlanKind.Edit => "YAML edit",
-        ConfigPlanKind.Restore => "Restore",
-        ConfigPlanKind.ReplaceDevice => "Replace Device",
-        ConfigPlanKind.Zones => "Set Up Zones",
-        ConfigPlanKind.LegacyToZones => "Translate Legacy Rules",
-        ConfigPlanKind.Template => "Template",
-        ConfigPlanKind.Baseline => "Return to Baseline",
-        ConfigPlanKind.Revert => "Revert",
-        ConfigPlanKind.Readdress or ConfigPlanKind.ReaddressPrepare => "Re-address Networks",
-        _ => kind.ToString(),
-    };
+    private static string KindLabel(ConfigPlanKind kind) => ChangeDescriber.PlanKindName(kind);
 
     private static readonly (string Label, ConfigPlanStatus[] Statuses)[] Track =
     [

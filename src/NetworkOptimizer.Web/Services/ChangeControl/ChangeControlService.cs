@@ -93,20 +93,31 @@ public sealed partial class ChangeControlService : IChangeControlService
     internal static async Task<Dictionary<int, string>> SummariesAsync(Storage.Interfaces.IChangeControlRepository r,
         IEnumerable<ConfigChange> changes, CancellationToken ct)
     {
-        var ids = changes.Where(c => c.Kind == ConfigChangeKind.Config).Select(c => c.Id).ToList();
-        if (ids.Count == 0) return [];
-        return (await r.GetChangeObjectsAsync(ids, ct))
+        var config = changes.Where(c => c.Kind == ConfigChangeKind.Config).ToDictionary(c => c.Id);
+        if (config.Count == 0) return [];
+        var leads = await PlanLeadsAsync(r, config.Values, ct);
+        return (await r.GetChangeObjectsAsync(config.Keys.ToList(), ct))
             .GroupBy(o => o.ChangeId)
-            .Where(g => g.Count() == 1)
             .ToDictionary(g => g.Key, g =>
             {
-                var o = g.First();
-                var noun = ConfigCollections.Get(o.Collection)?.Noun ?? o.Collection;
-                if (o.Action == ConfigChangeAction.Created) return $"{noun} {o.ObjectName} created";
-                if (o.Action == ConfigChangeAction.Deleted) return $"{noun} {o.ObjectName} deleted";
-                var view = ObjectView(o);
-                return view.Fields.Count == 0 ? "" : ChangeDescriber.SummaryLine(noun, o.ObjectName, ChangeDescriber.ChangeText(view.Fields));
+                var change = config[g.Key];
+                // An updated object with no rows left to show has nothing to say: keep the stored summary.
+                var objects = g.ToList();
+                if (objects.All(o => o.Action == ConfigChangeAction.Updated && !ChangeControlSiteEngine.IsPolicyOrder(o.Collection, o.ObjectId)
+                        && DisplayFields(o).Fields.Count == 0))
+                    return "";
+                return StoredSummary(objects, UpgradeContextOf(change.Summary), change.PlanId is { } p ? leads.GetValueOrDefault(p) : null);
             });
+    }
+
+    /// <summary>The summary lead for each plan behind these changes ("Re-address Networks applied"), by plan ID.</summary>
+    internal static async Task<Dictionary<int, string>> PlanLeadsAsync(Storage.Interfaces.IChangeControlRepository r,
+        IEnumerable<ConfigChange> changes, CancellationToken ct)
+    {
+        var leads = new Dictionary<int, string>();
+        foreach (var id in changes.Select(c => c.PlanId).OfType<int>().Distinct())
+            if (await r.GetPlanAsync(id, ct) is { } plan) leads[id] = ChangeDescriber.PlanLead(plan.Kind);
+        return leads;
     }
 
     /// <summary>
@@ -295,7 +306,6 @@ public sealed partial class ChangeControlService : IChangeControlService
         return facts;
     }
 
-    /// <summary>UniFi's audit access method as shown: "WEB" reads Web, "MOBILE" Mobile; acronyms (API, SSH) stay.</summary>
     /// <summary>"UniFi Web App" for UniFi's access method, or the method itself when it is not one of its apps.</summary>
     internal static string? AppName(string? accessMethod) => accessMethod switch
     {
@@ -305,6 +315,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         _ => Platform(accessMethod),
     };
 
+    /// <summary>UniFi's audit access method as shown: "WEB" reads Web, "MOBILE" Mobile; acronyms (API, SSH) stay.</summary>
     internal static string? Platform(string? accessMethod) =>
         accessMethod is { Length: > 0 } m && m.All(c => !char.IsLower(c)) ? ChangeDescriber.Title(m.ToLowerInvariant().Replace('_', ' ')) : accessMethod;
 
@@ -326,35 +337,72 @@ public sealed partial class ChangeControlService : IChangeControlService
         return moves.Count > 0 ? moves : null;
     }
 
-    internal static ChangeObjectView ObjectView(ConfigChangeObject o)
+    /// <summary>
+    /// A stored object's rows as the change detail shows them, and the policies it moved when it is a
+    /// policy order change. The one reading of stored rows: the detail, the Changes list's summaries,
+    /// and the summary written at detection all come from here, so they cannot disagree.
+    /// </summary>
+    internal static (List<StoredField> Fields, List<OrderMove>? Moves) DisplayFields(ConfigChangeObject o)
     {
         var stored = JsonSerializer.Deserialize<List<StoredField>>(o.FieldsJson) ?? [];
         // Labels are saved at detection; relabel from the path so rows recorded earlier get today's names.
-        // A port's given name ("Port 2 (Desk)") is kept from the saved label; a synthetic row (_security) keeps its own.
+        // What only the object at detection could name is kept from the saved label: a port's given name
+        // ("Port 2 (Desk)") and a suppressed alert's signature. A synthetic row (_security) keeps its own.
         foreach (var f in stored.Where(f => !f.Path.StartsWith('_')))
         {
             var label = ChangeDescriber.LabelFor(f.Path);
             if (PortNamePrefix().Match(f.Label) is { Success: true } named && label.StartsWith(named.Groups[1].Value + " ", StringComparison.Ordinal))
                 label = named.Value + label[named.Groups[1].Value.Length..];
+            if (SignaturePrefix().Match(label) is { Success: true } generic && f.Label.IndexOf(": ", StringComparison.Ordinal) is > 0 and var colon
+                && !f.Label.StartsWith("Suppressed Signature ", StringComparison.Ordinal))
+                label = f.Label[..colon] + label[generic.Length..];
             f.Label = label;
         }
-        var fields = ChangeDescriber.ForDisplay(stored);
+        return (ChangeDescriber.ForDisplay(stored), OrderMovesOf(o, stored));
+    }
+
+    // "Suppressed Signature 1" at the start of a label LabelFor writes without the setting in hand.
+    [System.Text.RegularExpressions.GeneratedRegex(@"^Suppressed Signature \d+(?=: )")]
+    private static partial System.Text.RegularExpressions.Regex SignaturePrefix();
+
+    /// <summary>A stored object as a summary sees it. A policy order change carries its moves, even none.</summary>
+    internal static SummaryObject SummaryObjectOf(ConfigChangeObject o)
+    {
+        var (fields, moves) = DisplayFields(o);
+        var order = ChangeControlSiteEngine.IsPolicyOrder(o.Collection, o.ObjectId);
+        return ChangeDescriber.ForSummary(o, fields, order ? moves ?? [] : null);
+    }
+
+    /// <summary>
+    /// The summary of a change from its stored objects: written at detection, rebuilt for the Changes list,
+    /// and used to rewrite stored summaries. <paramref name="context"/> is the upgrade context
+    /// (<see cref="ChangeDescriber.UpgradeContext"/> and anything after it); <paramref name="lead"/> names the plan.
+    /// </summary>
+    internal static string StoredSummary(IReadOnlyList<ConfigChangeObject> objects, string? context, string? lead) =>
+        ChangeDescriber.GroupSummary(objects.Select(SummaryObjectOf).ToList(), context, lead);
+
+    /// <summary>The upgrade context a stored summary ends with ("during Network app upgrade (plus ...)"), or null.</summary>
+    internal static string? UpgradeContextOf(string summary) =>
+        summary.IndexOf(ChangeDescriber.UpgradeContext, StringComparison.Ordinal) is >= 0 and var at ? summary[at..] : null;
+
+    internal static ChangeObjectView ObjectView(ConfigChangeObject o)
+    {
+        var (fields, moves) = DisplayFields(o);
+        var summaryObject = ChangeDescriber.ForSummary(o, fields,
+            ChangeControlSiteEngine.IsPolicyOrder(o.Collection, o.ObjectId) ? moves ?? [] : null);
         return new ChangeObjectView
         {
-            OrderMoves = OrderMovesOf(o, stored),
+            OrderMoves = moves,
             Collection = o.Collection,
             CollectionName = ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection,
             ObjectId = o.ObjectId,
-            Name = o.ObjectName,
+            Name = ChangeControlSiteEngine.IsPolicyOrder(o.Collection, o.ObjectId)
+                ? ChangeDescriber.PolicyOrderDisplayName(o.ObjectName)
+                : ChangeDescriber.SettingName(o.Collection, o.ObjectName, fields.Select(f => f.Label)) ?? o.ObjectName,
             Action = o.Action,
             Fields = fields,
             OwnedBy = o.OwnedBy,
-            ChangeText = o.Action switch
-            {
-                ConfigChangeAction.Created => "Created",
-                ConfigChangeAction.Deleted => "Deleted",
-                _ => string.Join(", ", fields.Select(f => f.Label).Distinct().Take(4)),
-            },
+            ChangeText = ChangeDescriber.ObjectChangeText(summaryObject),
         };
     }
 

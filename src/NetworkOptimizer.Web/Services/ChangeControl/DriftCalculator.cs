@@ -21,6 +21,10 @@ public static class DriftCalculator
         var objects = diff.Objects.Where(o => !o.Generated && o.OwnedBy == null).ToList();
         if (!options.SameSite || options.DeleteMissing == false)
             objects = objects.Where(o => o.Action != ConfigChangeAction.Created).ToList();
+        // A snapshot Baseline's policy order too, as Compare shows it and Return to Baseline restores it. A template
+        // Baseline matches policies across sites by name, so its order is not compared.
+        if (options.SameSite)
+            objects.AddRange(diff.PolicyOrder.Select(order => ChangeControlSiteEngine.PolicyOrderObject(order, afterNames)));
         return objects.Select(o => ChangeControlSiteEngine.ToRecord(o, beforeNames, afterNames)).ToList();
     }
 

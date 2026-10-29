@@ -44,6 +44,9 @@ public static partial class ChangeDescriber
         ["source"] = "Source", ["destination"] = "Destination", ["schedule"] = "Schedule", ["logging"] = "Logging",
         ["protocol"] = "Protocol", ["ip_version"] = "IP Version", ["channel"] = "Channel", ["ht"] = "Channel Width",
         ["tx_power_mode"] = "TX Power", ["tx_power"] = "TX Power", ["min_rssi"] = "Min RSSI", ["min_rssi_enabled"] = "Min RSSI",
+        // Mesh, as the AP's settings name it: a radio's vwire offers a mesh VAP to children (its vwire_vap_table),
+        // mesh_sta_vap is the AP's own wireless uplink.
+        ["vwire_enabled"] = "Mesh Parent", ["mesh_sta_vap_enabled"] = "Mesh Connect",
         ["dhcpd_dns_1"] = "DNS Server", ["dhcpd_dns_2"] = "DNS Server", ["wan_dns1"] = "DNS Server", ["wan_dns2"] = "DNS Server",
         ["port_security_enabled"] = "Port Security", ["port_security_mac_address"] = "MAC Address Filter",
         ["trusted_port_mac"] = "Lock Port to UniFi Device",
@@ -126,9 +129,15 @@ public static partial class ChangeDescriber
                 "port_overrides" => (PortName(after, value) ?? PortName(before, value)) is { } portName ? $"Port {value} ({portName})" : $"Port {value}",
                 "radio_table" => Bands.TryGetValue(value, out var band) ? band : value,
                 "ethernet_overrides" => value,
+                // CyberSecure - Suppressed Signatures: each alert by the signature it suppresses.
+                "alerts" when rest.StartsWith("tracking", StringComparison.Ordinal) || Signature(after ?? before, value) != null
+                    => Signature(after, value) ?? Signature(before, value) ?? $"Suppressed Signature {value}",
+                "tracking" => $"Tracked Address {value}",
                 _ => $"{Humanize(array)} {value}",
             };
-            return rest.Length == 0 ? element : $"{element} {LabelFor(rest)}";
+            if (rest.Length == 0 || (array == "tracking" && rest == "value")) return element;
+            // A signature is a sentence, so its own fields follow a colon ("ET SCAN ...: Tracked Address 2").
+            return array == "alerts" ? $"{element}: {LabelFor(rest)}" : $"{element} {LabelFor(rest)}";
         }
         var leaf = path.Split('.')[^1];
         var head = path.Split('.')[0];
@@ -136,6 +145,13 @@ public static partial class ChangeDescriber
         if (head != leaf && Labels.TryGetValue(head, out var headLabel)) return $"{headLabel} {Humanize(leaf)}";
         return Humanize(leaf);
     }
+
+    // A suppressed alert's signature text, by its 1-based entry in the setting's alerts.
+    private static string? Signature(JsonObject? setting, string entry) =>
+        setting?["alerts"] is JsonArray alerts && int.TryParse(entry, out var n) && n >= 1 && n <= alerts.Count
+        && alerts[n - 1]?["signature"]?.ToString() is { Length: > 0 } signature
+            ? signature
+            : null;
 
     // A port's given name; UniFi's default "Port N" adds nothing to the label.
     private static string? PortName(JsonObject? device, string portIdx) =>
@@ -278,7 +294,7 @@ public static partial class ChangeDescriber
                 rows.Add(new FieldRow(label, "", "changed", true));
                 continue;
             }
-            if (diff.Collection == "wlanconf" && label == "Security")
+            if (diff.Collection == "wlanconf" && label == SecurityLabel)
             {
                 if (securityDone) continue;
                 securityDone = true;
@@ -309,34 +325,36 @@ public static partial class ChangeDescriber
 
     private static string ChangeText(List<FieldRow> rows)
     {
+        if (rows.Count == 0) return "changed";
         // A WLAN security change is the headline; PMF and the rest show in the detail.
         if (rows.FirstOrDefault(r => r.Label == SecurityProtocol) is { } security && security.Old != security.New)
             return $"security {security.Old} to {security.New}";
+        // One port's rows share "Port 4": say it once. A profile applied brings its settings, so it is the change.
+        var ports = rows.Select(r => PortLabel().Match(r.Label)).ToList();
+        if (rows.Count > 0 && ports.All(m => m.Success) && ports.Select(m => m.Groups[1].Value).Distinct().Count() == 1)
+        {
+            var port = ports[0].Groups[1].Value;
+            var inner = rows.Zip(ports, (r, m) => r with { Label = m.Groups[2].Value }).ToList();
+            if (inner.FirstOrDefault(r => r.Label == PortProfileLabel) is { Secret: false } profile && !IsAbsent(profile.New))
+                return $"{port}: profile set to {profile.New}";
+            return $"{port}: {ChangeText(inner)}";
+        }
         if (rows.Count == 1)
         {
             // Labels keep UniFi Network's Title Case in a summary too ("Port 5 Port Profile").
             var r = rows[0];
             if (r.Secret) return $"{r.Label} changed";
             if (r.Label == EnabledLabel) return string.Equals(r.New, "off", StringComparison.OrdinalIgnoreCase) ? "disabled" : "enabled";
+            // The new name is already the object's name; the old one is what a reader needs.
+            if (r.Label == NameLabel && !IsAbsent(r.Old)) return $"renamed from {r.Old}";
+            if (IsAbsent(r.New) && !IsAbsent(r.Old)) return r.Old.Length > 40 ? $"{r.Label} removed" : $"{r.Label} {r.Old} removed";
+            if (IsAbsent(r.Old) && !IsAbsent(r.New)) return r.New.Length > 40 ? $"{r.Label} set" : $"{r.Label} set to {r.New}";
             if (r.Old.Length + r.New.Length > 50) return $"{r.Label} changed";
             return $"{r.Label}: {r.Old} to {r.New}";
         }
         var labels = rows.Select(r => r.Label).Distinct().ToList();
         if (labels.Count > 4) return $"{string.Join(", ", labels.Take(3))}, and {labels.Count - 3} more";
         return string.Join(", ", labels);
-    }
-
-    /// <summary>One summary line: "WLAN Home: security WPA2 to WPA2/WPA3", "Firewall Policy Block IoT created".</summary>
-    public static string Summary(ObjectDiff diff, ConfigIdentityContext? beforeNames = null, ConfigIdentityContext? afterNames = null)
-    {
-        var def = ConfigCollections.Get(diff.Collection);
-        var noun = def?.Noun ?? diff.Collection;
-        return diff.Action switch
-        {
-            ConfigChangeAction.Created => $"{noun} {diff.Name} created",
-            ConfigChangeAction.Deleted => $"{noun} {diff.Name} deleted",
-            _ => SummaryLine(noun, diff.Name, ChangeText(diff, beforeNames, afterNames)),
-        };
     }
 
     /// <summary>
@@ -357,55 +375,4 @@ public static partial class ChangeDescriber
     /// </summary>
     public static bool IsUpgradeSummary(string summary) => summary.Contains("Network app upgrade", StringComparison.Ordinal);
 
-    /// <summary>
-    /// A group summary: the object's line for one, "N objects changed" for several, each followed by
-    /// <paramref name="context"/> (<see cref="UpgradeContext"/>) when given.
-    /// </summary>
-    public static string GroupSummary(IReadOnlyList<ObjectDiff> objects, string? context = null,
-        ConfigIdentityContext? beforeNames = null, ConfigIdentityContext? afterNames = null)
-    {
-        string WithContext(string summary) => context == null ? summary : $"{summary} {context}";
-
-        var orders = objects.Where(o => o.OrderedIds != null).ToList();
-        if (orders.Count > 0)
-            return WithContext(OrderSummary(objects.Except(orders).ToList(), Moves(orders), beforeNames, afterNames));
-        if (objects.Count == 1) return WithContext(Summary(objects[0], beforeNames, afterNames));
-        var collections = objects.Select(o => o.Collection).Distinct().ToList();
-        return WithContext(collections.Count == 1
-            ? $"{objects.Count} {Plural(ConfigCollections.Get(collections[0])?.Noun ?? collections[0])} changed"
-            : $"{objects.Count} objects changed");
-    }
-
-    /// <summary>
-    /// A group with policy order changes. The order is a pseudo object, so it is told as moves rather
-    /// than counted as a policy: one rule edited and dragged in one save reads as that one rule.
-    /// </summary>
-    private static string OrderSummary(List<ObjectDiff> rest, List<OrderMove> moves,
-        ConfigIdentityContext? beforeNames, ConfigIdentityContext? afterNames)
-    {
-        var noun = ConfigCollections.Get("firewall_policy")?.Noun ?? "Firewall Policy";
-        var moved = moves.Count switch
-        {
-            0 => $"{noun} order changed",
-            1 => $"{moves[0].Name} moved from #{moves[0].From} to #{moves[0].To}",
-            _ => $"{moves.Count} {Plural(noun)} moved",
-        };
-        if (rest.Count == 0)
-            return moves.Count == 1 ? SummaryLine(noun, moves[0].Name, $"moved from #{moves[0].From} to #{moves[0].To}") : moved;
-        if (rest.Count == 1 && rest[0].Action == ConfigChangeAction.Updated && moves.Count == 1 && moves[0].Name == rest[0].Name)
-            return $"{Summary(rest[0], beforeNames, afterNames)}, moved from #{moves[0].From} to #{moves[0].To}";
-        return $"{GroupSummary(rest, null, beforeNames, afterNames)}; {moved}";
-    }
-
-    private static List<OrderMove> Moves(IEnumerable<ObjectDiff> orders) =>
-        orders.SelectMany(o => o.Fields.Where(f => f.Path == "order")
-                .SelectMany(f => PolicyOrderMoves.Compute(Names(f.Old), Names(f.New))))
-            .ToList();
-
-    private static List<string> Names(JsonNode? node) =>
-        node is JsonArray arr ? arr.Select(e => e?.ToString() ?? "").ToList() : [];
-
-    private static string Plural(string noun) =>
-        noun.EndsWith("y", StringComparison.Ordinal) && !noun.EndsWith("ey", StringComparison.Ordinal) ? noun[..^1] + "ies"
-        : noun.EndsWith("s", StringComparison.Ordinal) ? noun : noun + "s";
 }
