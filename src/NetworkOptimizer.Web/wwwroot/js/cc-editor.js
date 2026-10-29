@@ -305,7 +305,9 @@ export function itemBlocks(doc) {
     };
     for (let n = 1; n <= doc.lines; n++) {
         const text = doc.line(n).text;
-        const key = /^([A-Za-z0-9_]+):\s*$/.exec(text);
+        // An empty collection ("acl_rules: []") is a key too: missed, the object before it ran on
+        // through it, and its fold, x, and order arrows took the collections after it along.
+        const key = /^([A-Za-z0-9_]+):\s*(\[\]|\{\})?\s*$/.exec(text);
         if (key) {
             close(n - 1);
             collection = key[1];
