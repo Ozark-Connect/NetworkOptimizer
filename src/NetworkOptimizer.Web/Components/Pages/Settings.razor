@@ -4495,12 +4495,9 @@
             @if (editingModem.UseManagedSshKey)
             {
                 <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
+                <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" ShowLabel="false" />
             }
         </div>
-        @if (editingModem.UseManagedSshKey)
-        {
-            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" ShowLabel="false" />
-        }
     </text>;
 
     private async Task ShowSshKeyPanel()
