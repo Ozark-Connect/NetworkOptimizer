@@ -132,8 +132,7 @@
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Problems<span class="card-title-suffix">checked as you type</span></h3>
-                        @if (_checking) { <span class="muted-text cc-checking"><span class="spinner-sm"></span> Checking</span> }
-                        else if (Errors > 0) { <span class="status-badge status-error">@CcFormat.Plural(Errors, "error", "errors")</span> }
+                        @if (Errors > 0) { <span class="status-badge status-error">@CcFormat.Plural(Errors, "error", "errors")</span> }
                     </div>
                     @if (_validation.Problems.Count == 0)
                     {
@@ -246,8 +245,6 @@
     private readonly HashSet<string> _uploaded = [];
     private YamlValidation _validation = new();
     private bool _loading = true;
-    private bool _checking;
-    private int _checkRun, _checkDone;
     private bool _busy;
     private bool _reviewing;
     private string? _error;
@@ -499,18 +496,7 @@
 
     private async Task ValidateAsync()
     {
-        // A check reading the live config can take seconds; say so then, but not on the usual quick
-        // check, where a spinner on every typing pause only flashes.
-        var run = ++_checkRun;
-        if (_edited.Count > 0)
-        {
-            _ = Task.Delay(700).ContinueWith(_ => _disposed ? Task.CompletedTask : InvokeAsync(() =>
-            {
-                if (run != _checkRun || _checkDone == run) return;
-                _checking = true;
-                StateHasChanged();
-            }), TaskScheduler.Default);
-        }
+        // Deliberately no progress indicator: it runs on every typing pause, where any spinner flashes.
         try
         {
             _validation = _edited.Count == 0 ? new YamlValidation()
@@ -522,8 +508,6 @@
         {
             Logger.LogDebug(ex, "YAML validation failed");
         }
-        _checkDone = run;
-        _checking = false;
         await PushProblemsAsync();
         StateHasChanged();
     }
