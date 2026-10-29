@@ -525,7 +525,8 @@ else
                     <div class="warning-text" style="font-size:0.875rem">Watching until @CcFormat.Local(until).ToString("h:mm tt")</div>
                 }
             </div>
-            <button class="btn btn-secondary" @onclick="DownloadYamlAsync" aria-label="Download YAML"><CcIcon /> YAML</button>
+            <button class="btn btn-secondary" @onclick="DownloadYamlAsync" aria-label="Download Config Delta"
+                data-tooltip="What this plan writes, field by field, secrets hidden. Just to review, not to upload and apply."><CcIcon /> Config Delta</button>
             @if (editable)
             {
                 <SiteOperatorOnly>
