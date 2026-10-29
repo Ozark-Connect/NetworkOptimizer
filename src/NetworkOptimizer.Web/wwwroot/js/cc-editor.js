@@ -1165,7 +1165,9 @@ export function matchFieldsChange(doc, lineNo) {
     const value = key => siblings.get(key)?.value || undefined;
     const needed = matchFields(value('matching_target'), value('matching_target_type'), value('port_matching_type'));
     const missing = needed.filter(([k]) => !siblings.has(k));
-    const unused = matchOnlyFields.filter(k => siblings.has(k) && !needed.some(([n]) => n === k))
+    // UniFi keeps no SPECIFIC match type on an ANY match (PlanBuilder.DropAnyMatchType).
+    const dropType = value('matching_target') === 'ANY' && value('matching_target_type') === 'SPECIFIC' ? ['matching_target_type'] : [];
+    const unused = [...matchOnlyFields, ...dropType].filter(k => siblings.has(k) && !needed.some(([n]) => n === k))
         .map(k => siblings.get(k)).filter(s => s.first !== lineNo);
     if (missing.length === 0 && unused.length === 0) return null;
 

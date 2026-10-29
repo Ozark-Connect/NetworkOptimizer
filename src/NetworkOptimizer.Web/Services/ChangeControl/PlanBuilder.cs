@@ -755,7 +755,22 @@ public static class PlanBuilder
             }
             body[k] = v?.DeepClone();
         }
+        DropAnyMatchType(def, body);
         return body;
+    }
+
+    /// <summary>
+    /// UniFi drops matching_target_type SPECIFIC from a firewall policy's ANY source or destination
+    /// (none of the main site's ANY matches carry it, Network 11.0.97), though its own create defaults
+    /// send it; sent, the create read back as "Not applied by UniFi: Destination". OBJECT stays.
+    /// </summary>
+    internal static void DropAnyMatchType(ConfigCollectionDef def, JsonObject body)
+    {
+        if (def.Key != "firewall_policy") return;
+        foreach (var side in new[] { "source", "destination" })
+            if (body[side] is JsonObject match && match["matching_target"]?.ToString() == "ANY"
+                && match["matching_target_type"]?.ToString() == "SPECIFIC")
+                match.Remove("matching_target_type");
     }
 
     private static JsonObject UpdateBody(ConfigCollectionDef def, JsonObject live, JsonObject desired, ObjectDiff diff, List<string> writeFields)
@@ -769,6 +784,7 @@ public static class PlanBuilder
             var partial = new JsonObject();
             foreach (var field in changedTop)
                 partial[field] = desired[field]?.DeepClone();
+            DropAnyMatchType(def, partial);
             return partial;
         }
 
@@ -785,6 +801,7 @@ public static class PlanBuilder
         if (write.Allowlist != null)
             foreach (var key in merged.Select(p => p.Key).ToList())
                 if (!write.Allowlist.Contains(key) && write.KeepOnUpdate?.Contains(key) != true) merged.Remove(key);
+        DropAnyMatchType(def, merged);
         return merged;
     }
 

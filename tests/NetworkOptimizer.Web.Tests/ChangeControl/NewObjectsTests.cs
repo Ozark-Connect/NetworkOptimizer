@@ -69,6 +69,28 @@ public class NewObjectsTests
     }
 
     [Fact]
+    public void Policy_AnyMatch_CarriesNoSpecificMatchType()
+    {
+        // UniFi's own defaults, as the main site returns them: ANY with matching_target_type SPECIFIC, which it drops on create.
+        var defaults = NewObjects.ParseDefaults("""{"action":"BLOCK","enabled":true,"source":{"matching_target":"ANY","matching_target_type":"SPECIFIC","port_matching_type":"ANY"},"destination":{"matching_target":"ANY","matching_target_type":"SPECIFIC","port_matching_type":"ANY"}}""");
+
+        NewObjects.Yaml(ConfigCollections.Get("firewall_policy")!, Site(), defaults).Should().NotContain("matching_target_type");
+    }
+
+    [Fact]
+    public void CreateBody_DropsTheMatchTypeOnAnAnyMatch_ButKeepsObject()
+    {
+        var live = State(("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""));
+        live.Collections["firewall_policy"] = [];
+        var desired = live.Clone();
+        desired.Collections["firewall_policy"] = [(JsonObject)JsonNode.Parse("""{"_id":"@new:a","name":"A","action":"BLOCK","source":{"zone_id":"z1","matching_target":"ANY","matching_target_type":"OBJECT"},"destination":{"zone_id":"z1","matching_target":"ANY","matching_target_type":"SPECIFIC","port_matching_type":"ANY"}}""")!];
+
+        var create = PlanBuilder.Build(desired, live, new PlanOptions()).Operations.Should().ContainSingle(o => o.Action == PlanAction.Create).Subject;
+        create.Body!["destination"]!.AsObject().ContainsKey("matching_target_type").Should().BeFalse();
+        create.Body!["source"]!["matching_target_type"]!.ToString().Should().Be("OBJECT");
+    }
+
+    [Fact]
     public void Policy_IsOneListItem_WithNoZonePairHeading()
     {
         var defaults = NewObjects.ParseDefaults("""{"action":"BLOCK","enabled":true,"source":{"matching_target":"ANY"},"destination":{"matching_target":"ANY"}}""");
@@ -150,7 +172,8 @@ public class NewObjectsTests
             """);
         var item = NewObjects.Yaml(ConfigCollections.Get("firewall_policy")!, Site(), defaults);
         item.Should().NotContain("predefined").And.NotContain("report_flow", "the policy allowlist leaves them out");
-        item.Should().Contain("matching_target_type: SPECIFIC");
+        // In UniFi's defaults, but UniFi drops it from an ANY match on create (PlanBuilder.DropAnyMatchType).
+        item.Should().NotContain("matching_target_type");
 
         var parsed = AddAndParse(Site(), "firewall_policy", defaults, i => i.Replace("- name: \n", "- name: Block IoT\n"));
         parsed.Problems.Where(p => p.Level == "Error").Select(p => p.Message)

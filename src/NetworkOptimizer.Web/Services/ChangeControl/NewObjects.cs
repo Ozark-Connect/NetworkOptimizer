@@ -188,6 +188,8 @@ public static partial class NewObjects
         }
         foreach (var (key, value) in spec.Force ?? []) obj[key] = value?.DeepClone();
         obj["_id"] = YamlConverter.TempIdPrefix + "add";
+        // UniFi's defaults carry a match type on an ANY match that it drops on create.
+        PlanBuilder.DropAnyMatchType(def, obj);
 
         var state = baseState.Clone();
         state.Collections[def.Key] = [obj];
