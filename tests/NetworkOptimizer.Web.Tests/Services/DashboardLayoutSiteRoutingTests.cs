@@ -13,14 +13,12 @@ public class DashboardLayoutSiteRoutingTests
 {
     private const string TabSite = "site-b";
     private readonly Mock<ISystemSettingsService> _settings = new();
-    private readonly Mock<ISystemSettingsAdmin> _settingsAdmin = new();
 
     private DashboardLayoutService Build()
     {
         var site = new SiteContextService(new HttpContextAccessor(), new SiteDatabasePaths("/tmp"));
         site.OverrideSite(TabSite);
-        return new DashboardLayoutService(_settings.Object, _settingsAdmin.Object, site,
-            NullLogger<DashboardLayoutService>.Instance);
+        return new DashboardLayoutService(_settings.Object, site, NullLogger<DashboardLayoutService>.Instance);
     }
 
     [Fact]
@@ -36,7 +34,7 @@ public class DashboardLayoutSiteRoutingTests
     {
         await Build().SaveLayoutAsync(DashboardLayoutService.GetDefaultLayout());
 
-        _settingsAdmin.Verify(s => s.SetAsync(TabSite, SystemSettingKeys.DashboardLayout, It.IsAny<string?>()), Times.Once);
+        _settings.Verify(s => s.SetAsync(TabSite, SystemSettingKeys.DashboardLayout, It.IsAny<string?>()), Times.Once);
     }
 
     [Fact]
