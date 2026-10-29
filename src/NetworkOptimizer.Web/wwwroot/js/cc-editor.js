@@ -685,6 +685,21 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                     }
                     if (u.docChanged) state.clickList = false;
                     if (!u.docChanged || state.silent) return;
+                    // A firewall policy match key set by the user gets the fields it needs.
+                    if (u.transactions.some(t => t.isUserEvent('input') && !t.isUserEvent('input.match-fields'))) {
+                        const lines = new Set();
+                        u.changes.iterChangedRanges((fa, ta, fb, tb) => {
+                            for (let n = u.state.doc.lineAt(fb).number; n <= u.state.doc.lineAt(tb).number; n++) lines.add(n);
+                        });
+                        for (const n of lines) {
+                            if (!matchFieldsChange(u.state.doc, n)) continue;
+                            setTimeout(() => {
+                                const change = n <= u.view.state.doc.lines ? matchFieldsChange(u.view.state.doc, n) : null;
+                                if (change) u.view.dispatch({ ...change, userEvent: 'input.match-fields', scrollIntoView: true });
+                            }, 0);
+                            break;
+                        }
+                    }
                     // Deleting a masked secret leaves "key: "; open the menu there too (phones have no Ctrl+Space).
                     const head = u.state.selection.main.head;
                     const lineStart = u.state.doc.lineAt(head).from;
@@ -865,6 +880,74 @@ const keyPosition = /^(\s*)(- )?([A-Za-z0-9_.-]*)$/;
 const flowListPosition = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*\[([^\]]*)$/;
 const valuePosition = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*([^#\[{]*)$/;
 const blockItemPosition = /^(\s*)- ([^#:]*)$/;
+
+// ---------- Firewall policy match fields ----------
+
+// The fields a firewall policy's source or destination needs for its matching_target,
+// matching_target_type, and port_matching_type, as the main site's 342 policies carry them
+// (Network 11.0.97). Only added, never removed: switching back keeps what was typed.
+function matchFields(target, targetType, portType) {
+    const out = [];
+    const typed = def => targetType ? [] : [['matching_target_type', def]];
+    switch (target) {
+        case 'IP': out.push(...typed('SPECIFIC'), (targetType ?? 'SPECIFIC') === 'OBJECT' ? ['ip_group_id', ''] : ['ips', '[]']); break;
+        case 'NETWORK': out.push(['network_ids', '[]'], ['match_opposite_networks', 'false']); break;
+        case 'CLIENT': out.push(['client_macs', '[]']); break;
+        case 'MAC': out.push(...typed('SPECIFIC'), ['macs', '[]']); break;
+        case 'WEB': out.push(...typed('SPECIFIC'), ['web_domains', '[]'], ['web_matching_type', '']); break;
+        case 'APP': out.push(['app_ids', '[]']); break;
+        case 'REGION': out.push(['regions', '[]']); break;
+    }
+    if (portType === 'SPECIFIC') out.push(['port', '']);
+    if (portType === 'OBJECT') out.push(['port_group_id', '']);
+    return out;
+}
+
+const matchKeyLine = /^(\s*)(?:- )?(matching_target|matching_target_type|port_matching_type):\s*([A-Z_]+)\s*$/;
+
+/** After a match key's value is set in firewall_policies, the change that adds the fields it needs; null when none. */
+export function matchFieldsChange(doc, lineNo) {
+    const line = doc.line(lineNo);
+    const m = matchKeyLine.exec(line.text);
+    if (!m) return null;
+    const indent = m[1].length + (line.text.slice(m[1].length).startsWith('- ') ? 2 : 0);
+    let top = null;
+    for (let n = lineNo - 1; n >= 1 && top === null; n--) {
+        const t = /^([A-Za-z0-9_]+):\s*$/.exec(doc.line(n).text);
+        if (t) top = t[1];
+    }
+    if (top !== 'firewall_policies') return null;
+    // The mapping the line sits in: its siblings at the same indent, up to a less-indented line.
+    const siblings = new Map();
+    const keyAt = n => {
+        const t = doc.line(n).text;
+        const lead = t.length - t.trimStart().length + (t.trimStart().startsWith('- ') ? 2 : 0);
+        const k = /^\s*(?:- )?([A-Za-z0-9_]+):\s*(.*)$/.exec(t);
+        return { lead, key: k?.[1], value: (k?.[2] ?? '').trim(), item: t.trimStart().startsWith('- ') };
+    };
+    for (let n = lineNo; n >= 1; n--) {
+        const k = keyAt(n);
+        if (doc.line(n).text.trim() === '') continue;
+        if (k.lead < indent) break;
+        if (k.lead === indent && k.key) siblings.set(k.key, k.value);
+        if (k.item && k.lead === indent) break;
+    }
+    for (let n = lineNo + 1; n <= doc.lines; n++) {
+        const k = keyAt(n);
+        if (doc.line(n).text.trim() === '') continue;
+        if (k.lead < indent || (k.item && k.lead <= indent)) break;
+        if (k.lead === indent && k.key) siblings.set(k.key, k.value);
+    }
+    const missing = matchFields(siblings.get('matching_target'), siblings.get('matching_target_type') || undefined,
+        siblings.get('port_matching_type')).filter(([k]) => !siblings.has(k));
+    if (missing.length === 0) return null;
+    const pad = ' '.repeat(indent);
+    const insert = missing.map(([k, v]) => `\n${pad}${k}: ${v}`).join('');
+    // The cursor goes into the first added field: inside its [], or after "key: ".
+    const first = `\n${pad}${missing[0][0]}: `;
+    const cursor = line.to + first.length + (missing[0][1] === '[]' ? 1 : 0);
+    return { changes: { from: line.to, insert }, selection: { anchor: cursor } };
+}
 
 /** The value on pos's "key: value" line, without a trailing comment; '' when none. */
 function valueAt(es, pos) {
