@@ -44,7 +44,45 @@ const theme = EditorView.theme({
         font: 'inherit', fontSize: '0.75rem', letterSpacing: 'normal', padding: '0 0.35rem', cursor: 'pointer',
         border: '1px solid var(--bg-hover)', borderRadius: '3px', background: 'transparent', color: 'var(--info-color)',
     },
+    // Find / replace in the app's colors and shapes, kept compact: smaller than the app's standard
+    // controls, larger than CodeMirror's default. Scoped under .cm-search to outrank its gradient buttons.
+    '.cm-panels': { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' },
+    '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border-color)' },
+    '.cm-panels.cm-panels-bottom': { borderTop: '1px solid var(--border-color)' },
+    '.cm-panel.cm-search': {
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem',
+        padding: '0.5rem 2rem 0.5rem 0.6rem', fontSize: '0.8125rem', position: 'relative',
+    },
+    '.cm-panel.cm-search br': { display: 'block', width: '100%', height: '0', content: '""' },
+    '.cm-panel.cm-search .cm-textfield': {
+        font: 'inherit', fontSize: '0.8125rem', height: '26px', width: '13rem', maxWidth: '100%', margin: '0', padding: '0 0.5rem',
+        background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--border-radius)', color: 'var(--text-primary)',
+    },
+    '.cm-panel.cm-search .cm-textfield:focus': {
+        outline: 'none', borderColor: 'var(--primary-color)', boxShadow: '0 0 0 2px rgba(5, 89, 201, 0.2)',
+    },
+    '.cm-panel.cm-search .cm-button': {
+        font: 'inherit', fontSize: '0.75rem', fontWeight: '500', height: '26px', margin: '0', padding: '0 9px', cursor: 'pointer',
+        border: 'none', borderRadius: 'var(--border-radius)', backgroundImage: 'none', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+    },
+    '.cm-panel.cm-search .cm-button:hover': { backgroundColor: 'var(--bg-elevated)' },
+    '.cm-panel.cm-search .cm-button:active': { backgroundImage: 'none' },
+    '.cm-panel.cm-search label': {
+        display: 'inline-flex', alignItems: 'center', gap: '0.3rem', margin: '0', fontSize: '0.75rem', color: 'var(--text-secondary)',
+    },
+    '.cm-panel.cm-search input[type=checkbox]': { margin: '0', accentColor: 'var(--primary-color)' },
+    '.cm-panel.cm-search [name=close]': {
+        position: 'absolute', top: '0.4rem', right: '0.4rem', padding: '0.1rem 0.4rem', fontSize: '1rem', lineHeight: '1',
+        border: 'none', borderRadius: '4px', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
+    },
+    '.cm-panel.cm-search [name=close]:hover': { color: 'var(--text-primary)', background: 'var(--bg-tertiary)' },
 }, { dark: true });
+
+// The search panel's labels in the app's Title Case, as its buttons read elsewhere.
+const phrases = EditorState.phrases.of({
+    'next': 'Next', 'previous': 'Previous', 'all': 'Select All', 'match case': 'Match Case',
+    'regexp': 'Regex', 'by word': 'By Word', 'replace': 'Replace', 'replace all': 'Replace All',
+});
 
 // ---------- Masked secrets ----------
 
@@ -301,6 +339,7 @@ export function create(host, dotnet, text, label, key, canReveal) {
                 keymap.of([indentWithTab]),
                 syntaxHighlighting(highlight),
                 theme,
+                phrases,
                 secretMasks(state),
                 literalMasks(state),
                 removeButtons(state),
