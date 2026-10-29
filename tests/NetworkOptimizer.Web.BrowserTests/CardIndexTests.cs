@@ -88,6 +88,20 @@ public class CardIndexTests
     }
 
     [BrowserFact]
+    public async Task Index_StaysWhenThePageShrinksBackUnderAScreen()
+    {
+        // Edit's shape: the Problems card grows and shrinks with each check, across the first screen's edge.
+        var page = await OpenAsync(Card("Collections", 300) + Card("WLANs", 700) + Card("Problems", 600, "problems") + Card("Footer", 50));
+        Assert.NotEmpty(await page.EvaluateAsync<string[]>(Links));
+        for (var n = 0; n < 4; n++)
+        {
+            await page.EvaluateAsync($"document.querySelector('#problems > div:last-child').style.height = '{(n % 2 == 0 ? 20 : 600)}px'");
+            await page.WaitForTimeoutAsync(300);
+            Assert.Equal(4, await page.EvaluateAsync<int>("document.querySelectorAll('.card-index-link').length"));
+        }
+    }
+
+    [BrowserFact]
     public async Task Index_IsAbsentWhenEveryCardFits()
     {
         var page = await OpenAsync(Card("C0", 50) + Card("C1", 50) + Card("C2", 50));
