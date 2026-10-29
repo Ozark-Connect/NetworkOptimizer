@@ -549,7 +549,8 @@ export function childRanges(doc, lineNo) {
     const close = () => { if (start && last > start) ranges.push({ from: doc.line(start).to, to: doc.line(last).to }); };
     for (let n = lineNo + 1; n <= doc.lines; n++) {
         const text = doc.line(n).text;
-        if (!text.trim()) continue;
+        // Comments (Firewall Policies' zone pair headings) neither end the list nor belong to an item.
+        if (!text.trim() || text.trimStart().startsWith('#')) continue;
         const lead = text.length - text.trimStart().length;
         if (text.startsWith(marker)) { close(); start = n; last = n; continue; }
         if (lead < itemIndent || (itemIndent === 0 && lead === 0)) break;
@@ -558,6 +559,30 @@ export function childRanges(doc, lineNo) {
     close();
     return ranges;
 }
+
+/** Under a heading comment at the margin: the items up to the next heading or key, as childRanges gives them; pure. */
+export function groupRanges(doc, lineNo) {
+    if (!doc.line(lineNo).text.startsWith('#')) return [];
+    let end = doc.lines;
+    for (let n = lineNo + 1; n <= doc.lines; n++) {
+        const text = doc.line(n).text;
+        if (text.startsWith('#') || /^[A-Za-z0-9_]+:/.test(text)) { end = n - 1; break; }
+    }
+    const ranges = [];
+    let start = null;
+    let last = null;
+    const close = () => { if (start && last > start) ranges.push({ from: doc.line(start).to, to: doc.line(last).to }); };
+    for (let n = lineNo + 1; n <= end; n++) {
+        const text = doc.line(n).text;
+        if (!text.trim()) continue;
+        if (text.startsWith('- ')) { close(); start = n; last = n; continue; }
+        if (start) last = n;
+    }
+    close();
+    return ranges;
+}
+
+const foldableUnder = (doc, lineNo) => doc.line(lineNo).text.startsWith('#') ? groupRanges(doc, lineNo) : childRanges(doc, lineNo);
 
 class CollapseWidget extends WidgetType {
     constructor(lineNo, folded) {
@@ -576,7 +601,7 @@ class CollapseWidget extends WidgetType {
         button.addEventListener('mousedown', e => e.preventDefault());
         button.addEventListener('click', e => {
             e.preventDefault();
-            const ranges = childRanges(view.state.doc, view.state.doc.lineAt(view.posAtDOM(button)).number);
+            const ranges = foldableUnder(view.state.doc, view.state.doc.lineAt(view.posAtDOM(button)).number);
             const open = ranges.filter(r => !isFolded(view.state, r));
             view.dispatch({
                 effects: open.length > 0 ? open.map(r => foldEffect.of(r)) : ranges.map(r => unfoldEffect.of(r)),
@@ -602,14 +627,15 @@ function isFolded(cmState, range) {
     return found;
 }
 
-// "Collapse All" / "Expand All" at the end of each parent line whose list items can fold.
+// "Collapse All" / "Expand All" at the end of each parent line (and zone pair heading) whose list items can fold.
 function collapseButtons() {
     const build = view => {
         const doc = view.state.doc;
         const widgets = [];
         for (let n = 1; n <= doc.lines; n++) {
-            if (!/:\s*$/.test(doc.line(n).text)) continue;
-            const ranges = childRanges(doc, n);
+            const text = doc.line(n).text;
+            if (!/:\s*$/.test(text) && !text.startsWith('#')) continue;
+            const ranges = foldableUnder(doc, n);
             if (ranges.length === 0) continue;
             const folded = ranges.every(r => isFolded(view.state, r));
             widgets.push(Decoration.widget({ widget: new CollapseWidget(n, folded), side: 1 }).range(doc.line(n).to));
