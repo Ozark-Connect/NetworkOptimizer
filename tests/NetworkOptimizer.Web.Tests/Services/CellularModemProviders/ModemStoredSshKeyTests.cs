@@ -109,4 +109,25 @@ public class ModemStoredSshKeyTests
             connection.UsePasswordAuth.Should().BeTrue();
         }
     }
+
+    [Theory]
+    [InlineData(ModemProviderKeys.MikroTikRouterOs, false, false)]
+    [InlineData(ModemProviderKeys.MikroTikRouterOs, true, true)]
+    [InlineData(ModemProviderKeys.QuectelAt, false, false)]
+    [InlineData(ModemProviderKeys.QuectelAt, true, true)]
+    [InlineData(ModemProviderKeys.Qmicli, true, false)]
+    public void The_stored_key_is_offered_only_to_a_per_modem_SSH_modem_that_opts_in(
+        string provider, bool useManagedSshKey, bool offered)
+    {
+        // Off by default: an existing password modem is never offered a key it does not hold.
+        var modem = new ModemConfiguration { Provider = provider, UseManagedSshKey = useManagedSshKey };
+
+        CellularModemService.OffersStoredKey(modem).Should().Be(offered);
+    }
+
+    [Fact]
+    public void A_modem_does_not_opt_in_by_default()
+    {
+        new ModemConfiguration().UseManagedSshKey.Should().BeFalse();
+    }
 }

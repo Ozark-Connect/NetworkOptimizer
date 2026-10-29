@@ -205,12 +205,19 @@ public class CellularModemService : ICellularModemService, IDisposable
     private async Task<ModemPollContext> ToPollContextAsync(ModemConfiguration modem)
     {
         var context = ToPollContext(modem);
-        if (!CellularModemProviders.ModemProviderKeys.UsesPerModemSsh(modem.Provider))
+        if (!OffersStoredKey(modem))
             return context;
 
         using var scope = CreateSiteScope();
         return await WithStoredKeyAsync(context, scope.ServiceProvider);
     }
+
+    /// <summary>
+    /// Whether the modem is offered the site's stored key: opt-in per modem, and per-modem SSH only, so
+    /// a modem that authenticates with a password is never offered a key it does not hold.
+    /// </summary>
+    internal static bool OffersStoredKey(ModemConfiguration modem)
+        => modem.UseManagedSshKey && CellularModemProviders.ModemProviderKeys.UsesPerModemSsh(modem.Provider);
 
     /// <summary>
     /// Adds the site's stored SSH key to a per-modem SSH context, the same additive way gateway SSH
