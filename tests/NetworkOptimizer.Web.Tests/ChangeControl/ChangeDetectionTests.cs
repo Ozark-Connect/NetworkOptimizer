@@ -67,6 +67,40 @@ public class ChangeDetectionTests
         groups.Single().ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
     }
 
+    // A plan wrote the WLAN's PPSKs, the post-apply read took that in, then someone edited them in UniFi
+    // before UniFi's audit event for it arrived.
+    private static ConfigWriteJournalEntry PpskWrite(int secondsAgo) => new()
+    {
+        At = Now.AddSeconds(-secondsAgo), Method = "PUT", Path = "rest/wlanconf/w1", Collection = "wlanconf", ObjectId = "w1",
+        Source = "change-control:plan:66", FieldsJson = """["name","private_preshared_keys"]""",
+    };
+
+    private static ObjectDiff PpskDiff(string path = "private_preshared_keys") =>
+        Diff("wlanconf", "w1", "Home", new FieldChange(path, JsonValue.Create(3), JsonValue.Create(4)));
+
+    [Fact]
+    public void Attribute_WriteAlreadyInTheBeforeState_DoesNotClaimAFieldItSent()
+    {
+        var groups = ChangeAttributor.Attribute([PpskDiff()], [], [PpskWrite(65)], Now, false, beforeReadAt: Now.AddSeconds(-64));
+        groups.Single().ActorKind.Should().NotBe(ConfigChangeActorKind.NetworkOptimizer);
+    }
+
+    [Fact]
+    public void Attribute_WriteAlreadyInTheBeforeState_StillClaimsAFieldUniFiFilledInLater()
+    {
+        var groups = ChangeAttributor.Attribute([PpskDiff("x_iapp_key")], [], [PpskWrite(65)], Now, false, beforeReadAt: Now.AddSeconds(-64));
+        var g = groups.Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+        g.PlanId.Should().Be(66);
+    }
+
+    [Fact]
+    public void Attribute_WriteAfterTheBeforeRead_ClaimsTheFieldsItSent()
+    {
+        var groups = ChangeAttributor.Attribute([PpskDiff("private_preshared_keys[0].password")], [], [PpskWrite(5)], Now, false, beforeReadAt: Now.AddSeconds(-64));
+        groups.Single().ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+    }
+
     [Fact]
     public void Attribute_OwnWrite_OccursAtItsNewestWrite_NotTheWindowsOldest()
     {

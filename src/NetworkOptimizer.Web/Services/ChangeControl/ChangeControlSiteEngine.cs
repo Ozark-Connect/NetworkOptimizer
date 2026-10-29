@@ -711,7 +711,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         foreach (var order in diff.PolicyOrder)
             all.Add(PolicyOrderObject(order, afterNames));
 
-        var groups = ChangeAttributor.Attribute(all, events, journal, DateTime.UtcNow, inUpgradeWindow);
+        var groups = ChangeAttributor.Attribute(all, events, journal, DateTime.UtcNow, inUpgradeWindow, before.ReadAt);
         var recorded = new List<ConfigChange>();
         foreach (var g in groups)
         {

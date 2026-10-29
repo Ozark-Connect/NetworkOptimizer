@@ -87,9 +87,10 @@ public static class ChangeAttributor
     /// <param name="journal">NO's writes since the previous snapshot.</param>
     /// <param name="now">Detection time.</param>
     /// <param name="inUpgradeWindow">The Network app version changed recently.</param>
+    /// <param name="beforeReadAt">When the diff's before state was read; null when unknown.</param>
     public static List<AttributedChange> Attribute(
         IReadOnlyList<ObjectDiff> objects, IReadOnlyList<AuditLogEvent> events,
-        IReadOnlyList<ConfigWriteJournalEntry> journal, DateTime now, bool inUpgradeWindow)
+        IReadOnlyList<ConfigWriteJournalEntry> journal, DateTime now, bool inUpgradeWindow, DateTime? beforeReadAt = null)
     {
         var result = new List<AttributedChange>();
         var humanEvents = events.Where(e => e.IsChange && !IsOwnEvent(e, journal)).ToList();
@@ -121,7 +122,7 @@ public static class ChangeAttributor
             }
 
             // An object NO owns but did not write is NO's only outside an upgrade: the upgrade rewrites them too.
-            if (WrittenByNo(obj, journal) || (obj.OwnedBy != null && !inUpgradeWindow))
+            if (WrittenByNo(obj, Explaining(journal, obj, beforeReadAt)) || (obj.OwnedBy != null && !inUpgradeWindow))
             {
                 ownObjects.Add(obj);
                 continue;
@@ -147,7 +148,7 @@ public static class ChangeAttributor
         if (ownObjects.Count > 0)
         {
             // The newest write to these objects made the state this diff sees; the window can hold older ones.
-            var writes = journal.Where(j => ownObjects.Any(o => WrittenByNo(o, [j]))).ToList();
+            var writes = journal.Where(j => ownObjects.Any(o => WrittenByNo(o, Explaining([j], o, beforeReadAt)))).ToList();
             var noChange = new AttributedChange
             {
                 ActorKind = ConfigChangeActorKind.NetworkOptimizer,
@@ -174,6 +175,32 @@ public static class ChangeAttributor
             result.Add(group);
         }
         return result.OrderBy(g => g.OccurredAt).ToList();
+    }
+
+    /// <summary>
+    /// The writes that can account for an object's diff. One that finished before the diff's before
+    /// state was read is already in it: it explains only fields it did not send (UniFi fills some in
+    /// a pass later), never a field it sent, which only someone else can have changed since.
+    /// </summary>
+    internal static IReadOnlyList<ConfigWriteJournalEntry> Explaining(
+        IReadOnlyList<ConfigWriteJournalEntry> journal, ObjectDiff obj, DateTime? beforeReadAt)
+    {
+        if (beforeReadAt is not { } readAt || obj.Fields.Count == 0) return journal;
+        var changed = obj.Fields.Select(f => TopLevel(f.Path)).ToHashSet(StringComparer.Ordinal);
+        return journal.Where(j => j.At >= readAt || SentFields(j) is not { } sent || !changed.IsSubsetOf(sent)).ToList();
+    }
+
+    private static string TopLevel(string path)
+    {
+        var end = path.IndexOfAny(['.', '[']);
+        return end < 0 ? path : path[..end];
+    }
+
+    private static HashSet<string>? SentFields(ConfigWriteJournalEntry j)
+    {
+        if (string.IsNullOrEmpty(j.FieldsJson)) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(j.FieldsJson); }
+        catch (System.Text.Json.JsonException) { return null; }
     }
 
     /// <summary>The plan ID in a write's source ("change-control:plan:12"), or null.</summary>
