@@ -27,7 +27,7 @@
     var cap = _more ? ExpandedCap : CondensedCap;
     var shown = sites.Take(cap).ToList();
 
-    <section class="card sites-health-panel" data-tour="dashboard-sites">
+    <section class="card sites-health-panel" data-tour="dashboard-sites" data-card-index="Sites">
         <header class="shp-header">
             <h3 class="shp-title">Sites</h3>
             @if (!_more && avg is { } a)
