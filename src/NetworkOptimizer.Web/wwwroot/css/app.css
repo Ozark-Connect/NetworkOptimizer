@@ -25207,7 +25207,8 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.875rem;
 }
 
-.change-control .cc-setting-row .status-badge {
+.change-control .cc-setting-row .status-badge,
+.change-control .cc-setting-row > .btn {
     flex-shrink: 0;
 }
 
