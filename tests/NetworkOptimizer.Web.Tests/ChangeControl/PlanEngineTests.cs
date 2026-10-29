@@ -263,6 +263,35 @@ public class PlanEngineTests
         doc.Operations.Single(o => o.ObjectName == "magic_site_to_site_vpn").Body!["public_key"]!.GetValue<string>().Should().Be("pub-old");
     }
 
+    private static string Policy(string id, string name, string src, string dst, bool predefined = false) =>
+        $$$"""{"_id":"{{{id}}}","name":"{{{name}}}","predefined":{{{(predefined ? "true" : "false")}}},"source":{"zone_id":"{{{src}}}"},"destination":{"zone_id":"{{{dst}}}"}}""";
+
+    [Fact]
+    public void OtherSite_NamesOnlyUnwrittenPoliciesShare_DoNotBlock_AWritableOneStillDoes()
+    {
+        var source = State(
+            ("firewall_policy", Policy("s1", "Block All Traffic", "z1", "z2", predefined: true)),
+            ("firewall_policy", Policy("s2", "Block All Traffic", "z1", "z3", predefined: true)),
+            ("firewall_policy", Policy("s3", "Net. Opt. Blocklist", "z1", "z2")),
+            ("firewall_policy", Policy("s4", "Net. Opt. Blocklist", "z1", "z3")),
+            ("firewall_policy", Policy("s5", "Allow DNS", "z1", "z2")),
+            ("firewall_policy", Policy("s6", "Allow DNS", "z1", "z3")));
+        var target = State(
+            ("firewall_policy", Policy("t1", "Block All Traffic", "zA", "zB", predefined: true)),
+            ("firewall_policy", Policy("t2", "Block All Traffic", "zA", "zC", predefined: true)),
+            ("firewall_policy", Policy("t3", "Block All Traffic", "zA", "zD", predefined: true)),
+            ("firewall_policy", Policy("t4", "Net. Opt. Blocklist", "zA", "zB")),
+            ("firewall_policy", Policy("t5", "Net. Opt. Blocklist", "zA", "zC")),
+            ("firewall_policy", Policy("t6", "Net. Opt. Blocklist", "zA", "zD")),
+            ("firewall_policy", Policy("t7", "Allow DNS", "zA", "zB")),
+            ("firewall_policy", Policy("t8", "Allow DNS", "zA", "zC")));
+
+        var doc = Plan(source, target, new PlanOptions { SameSite = false });
+
+        doc.Errors.Should().ContainSingle().Which.Should().StartWith("Firewall Policy Allow DNS:");
+        doc.Notes.Count(n => n.Contains("Net. Opt. Blocklist", StringComparison.Ordinal)).Should().Be(1);
+    }
+
     [Fact]
     public void OtherSite_AFieldTheSourceNeverCarried_KeepsTheTargets()
     {

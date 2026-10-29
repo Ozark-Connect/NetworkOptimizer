@@ -107,7 +107,13 @@ public static class PlanBuilder
 
             var match = matches[def.Key];
             foreach (var conflict in match.Conflicts)
+            {
+                // A name only objects no plan writes share (UniFi's predefined policies, one per zone pair;
+                // Network Optimizer's own Threat Intelligence policies) changes nothing, so it blocks nothing.
+                // They stay in matching: their IDs resolve references in other collections.
+                if (NeverWritten(def, desired, conflict.Name) && NeverWritten(def, live, conflict.Name)) continue;
                 doc.Errors.Add($"{def.Noun} {conflict.Name}: {conflict.Reason}. Use the enforced key or the ID in the file.");
+            }
 
             foreach (var pair in match.Pairs)
             {
@@ -173,6 +179,16 @@ public static class PlanBuilder
         return list;
     }
 
+    /// <summary>
+    /// Objects named <paramref name="name"/> exist and none is written by a plan: generated, or owned by a
+    /// Network Optimizer feature. A key conflict names no object, so it is never excused here.
+    /// </summary>
+    private static bool NeverWritten(ConfigCollectionDef def, ConfigState state, string name)
+    {
+        var named = state.Get(def.Key).Where(o => ConfigState.DisplayName(def, o) == name).ToList();
+        return named.Count > 0 && named.All(o => def.IsGenerated?.Invoke(o) == true || ConfigCollections.OwnedBy(def, o) != null);
+    }
+
     private static bool HasDifferences(ConfigCollectionDef def, MatchResult match, PlanOptions options) =>
         match.Pairs.Where(p => def.IsGenerated?.Invoke(p.Left ?? p.Right!) != true)
             .Any(p => p.Left == null || p.Right == null || ConfigDiffEngine.CompareObjects(def, p.Right, p.Left) != null);
@@ -197,8 +213,9 @@ public static class PlanBuilder
         var owned = ConfigCollections.OwnedBy(def, desired ?? live!);
         if (owned != null)
         {
-            if (live == null)
-                doc.Notes.Add($"{def.Noun} {name}: managed by {owned}, which re-provisions it.");
+            // Once per name: another site's feature can own several same-named objects, one per zone pair.
+            if (live == null && $"{def.Noun} {name}: managed by {owned}, which re-provisions it." is var note && !doc.Notes.Contains(note))
+                doc.Notes.Add(note);
             return null;
         }
 
