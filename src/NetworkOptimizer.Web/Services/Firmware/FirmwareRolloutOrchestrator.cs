@@ -4176,13 +4176,15 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var displayModels = document.Waves.SelectMany(w => w.Steps)
             .GroupBy(s => s.Mac, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().DisplayModel, StringComparer.OrdinalIgnoreCase);
+        var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         return step =>
         {
+            if (known.TryGetValue(step.DeviceMac, out var cached)) return cached;
             // An empty display name would come back as the family of every unknown code alike.
             var display = displayModels.GetValueOrDefault(step.DeviceMac);
             var family = NetworkOptimizer.UniFi.UniFiProductDatabase.GetModelFamily(
                 step.Model, string.IsNullOrWhiteSpace(display) ? null : display);
-            return string.IsNullOrWhiteSpace(family) ? step.Model : family;
+            return known[step.DeviceMac] = string.IsNullOrWhiteSpace(family) ? step.Model : family;
         };
     }
 
