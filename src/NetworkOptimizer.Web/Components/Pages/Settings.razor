@@ -8482,19 +8482,19 @@
     {
         try
         {
-            var appleStreaming = await SystemSettings.GetAsync("audit:allowAppleStreamingOnMainNetwork");
-            var allStreaming = await SystemSettings.GetAsync("audit:allowAllStreamingOnMainNetwork");
-            var nameBrandTVs = await SystemSettings.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
-            var allTVs = await SystemSettings.GetAsync("audit:allowAllTVsOnMainNetwork");
-            var mediaPlayers = await SystemSettings.GetAsync("audit:allowMediaPlayersOnMainNetwork");
-            var printers = await SystemSettings.GetAsync("audit:allowPrintersOnMainNetwork");
-            var excludedVlans = await SystemSettings.GetAsync("audit:dnatExcludedVlans");
-            var piholePort = await SystemSettings.GetAsync("audit:piholeManagementPort");
-            var trustedTargets = await SystemSettings.GetAsync("audit:trustedDnsRedirectTargets");
-            var unusedPortDays = await SystemSettings.GetAsync("audit:unusedPortInactivityDays");
-            var namedPortDays = await SystemSettings.GetAsync("audit:namedPortInactivityDays");
-            var topSourcesRows = await SystemSettings.GetAsync(ThreatReportRows.TopSourcesSettingKey);
-            var categoryRows = await SystemSettings.GetAsync(ThreatReportRows.CategoryRowsSettingKey);
+            var appleStreaming = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowAppleStreamingOnMainNetwork");
+            var allStreaming = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowAllStreamingOnMainNetwork");
+            var nameBrandTVs = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowNameBrandTVsOnMainNetwork");
+            var allTVs = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowAllTVsOnMainNetwork");
+            var mediaPlayers = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowMediaPlayersOnMainNetwork");
+            var printers = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowPrintersOnMainNetwork");
+            var excludedVlans = await SystemSettings.GetAsync(SiteContext.Slug, "audit:dnatExcludedVlans");
+            var piholePort = await SystemSettings.GetAsync(SiteContext.Slug, "audit:piholeManagementPort");
+            var trustedTargets = await SystemSettings.GetAsync(SiteContext.Slug, "audit:trustedDnsRedirectTargets");
+            var unusedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:unusedPortInactivityDays");
+            var namedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:namedPortInactivityDays");
+            var topSourcesRows = await SystemSettings.GetAsync(SiteContext.Slug, ThreatReportRows.TopSourcesSettingKey);
+            var categoryRows = await SystemSettings.GetAsync(SiteContext.Slug, ThreatReportRows.CategoryRowsSettingKey);
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";

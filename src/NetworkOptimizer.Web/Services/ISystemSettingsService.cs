@@ -6,32 +6,35 @@ namespace NetworkOptimizer.Web.Services;
 public interface ISystemSettingsService
 {
     /// <summary>
-    /// Gets a setting value by key.
+    /// Gets a setting value by key from one site's database.
     /// </summary>
+    /// <param name="siteSlug">The site whose database holds the setting: the caller's site in context.</param>
     /// <param name="key">The setting key.</param>
     /// <returns>The setting value, or null if not found.</returns>
-    Task<string?> GetAsync(string key);
+    Task<string?> GetAsync(string siteSlug, string key);
 
     /// <summary>
-    /// Gets a setting value as an integer with a default fallback.
+    /// Gets a setting value as an integer with a default fallback, from one site's database.
     /// </summary>
+    /// <param name="siteSlug">The site whose database holds the setting: the caller's site in context.</param>
     /// <param name="key">The setting key.</param>
     /// <param name="defaultValue">The default value to return if the setting is not found or invalid.</param>
     /// <returns>The setting value as an integer, or the default value.</returns>
-    Task<int> GetIntAsync(string key, int defaultValue);
+    Task<int> GetIntAsync(string siteSlug, string key, int defaultValue);
 
     /// <summary>
-    /// Sets a setting value.
+    /// Sets a setting value in one site's database.
     /// </summary>
+    /// <param name="siteSlug">The site whose database holds the setting: the caller's site in context.</param>
     /// <param name="key">The setting key.</param>
     /// <param name="value">The value to store, or null to clear.</param>
-    Task SetAsync(string key, string? value);
+    Task SetAsync(string siteSlug, string key, string? value);
 
     /// <summary>
     /// Gets a GLOBAL (instance-wide) setting from the main database, regardless of the
     /// current site. Use for values shared across all sites (Mapbox token, CrowdSec
     /// config, iperf3 preferences, live-map order). <see cref="GetAsync"/> routes to the
-    /// current site's database, which is wrong for shared keys on a secondary site.
+    /// named site's database, which is wrong for shared keys on a secondary site.
     /// </summary>
     Task<string?> GetGlobalAsync(string key);
 
@@ -45,11 +48,12 @@ public interface ISystemSettingsService
     Task SetGlobalIntAsync(string key, int value);
 
     /// <summary>
-    /// Sets a setting value as an integer.
+    /// Sets a setting value as an integer in one site's database.
     /// </summary>
+    /// <param name="siteSlug">The site whose database holds the setting: the caller's site in context.</param>
     /// <param name="key">The setting key.</param>
     /// <param name="value">The integer value to store.</param>
-    Task SetIntAsync(string key, int value);
+    Task SetIntAsync(string siteSlug, string key, int value);
 
     /// <summary>
     /// Gets the iperf3 test duration setting.
