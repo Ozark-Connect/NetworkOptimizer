@@ -9194,6 +9194,16 @@ a.path-hop.hop-clickable:hover {
     margin-bottom: 0.25rem;
 }
 
+/* A help line under the summary title, visible while the form is collapsed. */
+.add-form-summary-help {
+    font-weight: 400;
+    margin-bottom: 0.5rem;
+}
+
+.add-form[open] .add-form-summary-help {
+    margin-bottom: 0.75rem;
+}
+
 .add-form-content {
     padding-top: 0.25rem;
 }

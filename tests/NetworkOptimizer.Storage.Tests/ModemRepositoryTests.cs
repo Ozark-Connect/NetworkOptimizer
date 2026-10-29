@@ -84,6 +84,21 @@ public class ModemRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveModemConfigurationAsync_Update_CopiesUseManagedSshKey()
+    {
+        // The update path assigns fields one by one, so a new column must be copied there too.
+        var modem = new ModemConfiguration { Name = "Backup LTE", Host = "192.0.2.1" };
+        _context.ModemConfigurations.Add(modem);
+        await _context.SaveChangesAsync();
+
+        await _repository.SaveModemConfigurationAsync(
+            new ModemConfiguration { Id = modem.Id, Name = "Backup LTE", Host = "192.0.2.1", UseManagedSshKey = true });
+
+        var saved = await _context.ModemConfigurations.AsNoTracking().FirstAsync(m => m.Id == modem.Id);
+        saved.UseManagedSshKey.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task DeleteModemConfigurationAsync_RemovesModem()
     {
         var modem = new ModemConfiguration { Name = "To Delete", Host = "192.168.1.1" };

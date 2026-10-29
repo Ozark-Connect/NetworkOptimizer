@@ -126,6 +126,25 @@ public class ModemStoredSshKeyTests
     }
 
     [Fact]
+    public async Task Providers_KeyOnly_ConnectionHasCredentialsWithoutAPassword()
+    {
+        // A modem saved with the key ticked and no password must still authenticate.
+        var keyOnly = Context with { Password = null };
+        var context = await CellularModemService.WithStoredKeyAsync(keyOnly, SiteProvider(Key()));
+
+        foreach (var connection in new[]
+                 {
+                     await QuectelAtModemProvider.ToConnectionInfoAsync(context),
+                     await MikroTikRouterOsProvider.ToConnectionInfoAsync(context),
+                 })
+        {
+            connection.Password.Should().BeNull();
+            connection.StoredPrivateKeyPem.Should().Be("decrypted:pem");
+            connection.HasCredentials.Should().BeTrue();
+        }
+    }
+
+    [Fact]
     public void A_modem_does_not_opt_in_by_default()
     {
         new ModemConfiguration().UseManagedSshKey.Should().BeFalse();
