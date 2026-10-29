@@ -879,7 +879,7 @@ curl -s http://localhost:8042/api/health
 
 ## Joining the Preview Channel
 
-Preview builds ship early access to features before the next release. The `:preview` tag receives every preview AND every release, so you never fall behind - when a release ships, `:preview` gets it too.
+Preview builds ship early access to features before the next release. The `:preview` tag receives every preview AND every release, so you never fall behind - when a release ships, `:preview` gets it too. The one exception is a patch to an older line while a newer preview is out: it would roll you back, so it skips `:preview`, and its fixes arrive in the next preview.
 
 ### Docker / Proxmox
 
