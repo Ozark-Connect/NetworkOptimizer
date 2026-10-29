@@ -2593,7 +2593,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     /// <summary>
     /// Releases a model's held peers once its canary is through, which is the whole point of the
-    /// hold: one device of each model proves the build before the rest follow it.
+    /// hold: one device of each model proves the build before the rest follow it. A canary found
+    /// already running the target at its turn proves it as well as a pass does.
     /// </summary>
     private async Task PropagateCanaryOutcomesAsync(
         RolloutPlanDocument document, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
@@ -2610,7 +2611,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 .ToList();
             if (canaries.Count == 0) continue;
 
-            if (canaries.Any(c => c.State is FirmwareRolloutStepState.LitmusPassed or FirmwareRolloutStepState.RegressionFlagged))
+            if (canaries.Any(c => c.State is FirmwareRolloutStepState.LitmusPassed or FirmwareRolloutStepState.RegressionFlagged
+                || IsAlreadyOnTarget(c)))
             {
                 foreach (var step in group)
                 {
@@ -2624,6 +2626,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
         }
     }
+
+    private static bool IsAlreadyOnTarget(FirmwareRolloutStep step) =>
+        step.State == FirmwareRolloutStepState.SkippedExcluded && step.Error == RolloutSkipReasons.AlreadyOnTarget;
 
     private async Task RunDueResourceComparisonsAsync(List<FirmwareRolloutStep> steps,
         FirmwareRolloutPlan? plan, RolloutPlanDocument? document, CancellationToken cancellationToken)
@@ -2970,7 +2975,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 "Refusing to command {Device} on site {Site}: {Target} is not newer than the installed {Installed}",
                 step.DeviceName, _siteSlug, step.ToVersion ?? "no target", observation.Firmware ?? "unknown");
             step.State = FirmwareRolloutStepState.SkippedExcluded;
-            step.Error = "Nothing newer to install on the planned channel.";
+            step.Error = RolloutSkipReasons.AlreadyOnTarget;
             await PersistStepAsync(step, cancellationToken);
             return;
         }
