@@ -120,6 +120,37 @@ public class ChangeDetectionTests
             .Single().ActorKind.Should().Be(ConfigChangeActorKind.NoAdminRecorded);
     }
 
+    private static ObjectDiff Reorder(params string[] after) => ChangeControlSiteEngine.PolicyOrderObject(
+        new PolicyOrderDiff("z1", "z1", "Internal to Internal", ["Allow A", "Allow B", "Allow C", "Allow D"], after),
+        new ConfigIdentityContext(new Dictionary<string, string>()));
+
+    private static ObjectDiff Renamed(string name) => new()
+    {
+        Collection = "firewall_policy", ObjectId = "p4", Name = name, Action = ConfigChangeAction.Updated,
+        Fields = [new FieldChange("name", JsonValue.Create("Old name"), JsonValue.Create(name))],
+    };
+
+    [Fact]
+    public void Summary_PolicyEditedAndMovedInOneSave_IsOnePolicy()
+    {
+        ChangeDescriber.GroupSummary([Renamed("Allow D"), Reorder("Allow D", "Allow A", "Allow B", "Allow C")])
+            .Should().Be("Firewall Policy Allow D: Name: Old name to Allow D, moved from #4 to #1");
+    }
+
+    [Fact]
+    public void Summary_PureReorder_NamesTheRuleThatMoved()
+    {
+        ChangeDescriber.GroupSummary([Reorder("Allow D", "Allow A", "Allow B", "Allow C")])
+            .Should().Be("Firewall Policy Allow D moved from #4 to #1");
+    }
+
+    [Fact]
+    public void Summary_OtherEditsWithAReorder_CountOnlyRealPolicies()
+    {
+        ChangeDescriber.GroupSummary([Renamed("Allow X"), Reorder("Allow D", "Allow A", "Allow B", "Allow C")])
+            .Should().Be("Firewall Policy Allow X: Name: Old name to Allow X; Allow D moved from #4 to #1");
+    }
+
     [Fact]
     public void Labels_PortSecuritySettings_UseUniFiNames()
     {

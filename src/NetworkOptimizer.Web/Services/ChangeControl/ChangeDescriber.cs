@@ -337,6 +337,12 @@ public static partial class ChangeDescriber
     public static string GroupSummary(IReadOnlyList<ObjectDiff> objects, string? context = null,
         ConfigIdentityContext? beforeNames = null, ConfigIdentityContext? afterNames = null)
     {
+        var orders = objects.Where(o => o.OrderedIds != null).ToList();
+        if (orders.Count > 0)
+        {
+            var summary = OrderSummary(objects.Except(orders).ToList(), Moves(orders), beforeNames, afterNames);
+            return context == null ? summary : $"{summary} {context}";
+        }
         if (objects.Count == 1) return Summary(objects[0], beforeNames, afterNames);
         var collections = objects.Select(o => o.Collection).Distinct().ToList();
         var what = collections.Count == 1
@@ -344,6 +350,35 @@ public static partial class ChangeDescriber
             : $"{objects.Count} objects changed";
         return context == null ? what : $"{what} {context}";
     }
+
+    /// <summary>
+    /// A group with policy order changes. The order is a pseudo object, so it is told as moves rather
+    /// than counted as a policy: one rule edited and dragged in one save reads as that one rule.
+    /// </summary>
+    private static string OrderSummary(List<ObjectDiff> rest, List<OrderMove> moves,
+        ConfigIdentityContext? beforeNames, ConfigIdentityContext? afterNames)
+    {
+        var noun = ConfigCollections.Get("firewall_policy")?.Noun ?? "Firewall Policy";
+        var moved = moves.Count switch
+        {
+            0 => $"{noun} order changed",
+            1 => $"{moves[0].Name} moved from #{moves[0].From} to #{moves[0].To}",
+            _ => $"{moves.Count} {Plural(noun)} moved",
+        };
+        if (rest.Count == 0)
+            return moves.Count == 1 ? $"{noun} {moved}" : moved;
+        if (rest.Count == 1 && rest[0].Action == ConfigChangeAction.Updated && moves.Count == 1 && moves[0].Name == rest[0].Name)
+            return $"{Summary(rest[0], beforeNames, afterNames)}, moved from #{moves[0].From} to #{moves[0].To}";
+        return $"{GroupSummary(rest, null, beforeNames, afterNames)}; {moved}";
+    }
+
+    private static List<OrderMove> Moves(IEnumerable<ObjectDiff> orders) =>
+        orders.SelectMany(o => o.Fields.Where(f => f.Path == "order")
+                .SelectMany(f => PolicyOrderMoves.Compute(Names(f.Old), Names(f.New))))
+            .ToList();
+
+    private static List<string> Names(JsonNode? node) =>
+        node is JsonArray arr ? arr.Select(e => e?.ToString() ?? "").ToList() : [];
 
     private static string Plural(string noun) =>
         noun.EndsWith("y", StringComparison.Ordinal) && !noun.EndsWith("ey", StringComparison.Ordinal) ? noun[..^1] + "ies"
