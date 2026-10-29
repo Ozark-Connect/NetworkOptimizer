@@ -1465,8 +1465,11 @@
                                 </div>
                             </div>
 
-                            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
-                            @if (_sshKey is not null)
+                            @if (_sshKey is null)
+                            {
+                                <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+                            }
+
                             {
                                 <div class="form-group">
                                     <label class="checkbox-label">
@@ -1475,6 +1478,10 @@
                                     </label>
                                     <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
                                 </div>
+                                @if (editingModem.UseManagedSshKey)
+                                {
+                                    <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+                                }
                             }
                         }
                         else if (ModemProviderKeys.UsesPerModemSsh(editingModem.Provider))
@@ -1495,8 +1502,11 @@
                                 </div>
                             </div>
 
-                            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
-                            @if (_sshKey is not null)
+                            @if (_sshKey is null)
+                            {
+                                <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+                            }
+
                             {
                                 <div class="form-group">
                                     <label class="checkbox-label">
@@ -1505,6 +1515,10 @@
                                     </label>
                                     <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
                                 </div>
+                                @if (editingModem.UseManagedSshKey)
+                                {
+                                    <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+                                }
                             }
                         }
                         else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-cpe")
