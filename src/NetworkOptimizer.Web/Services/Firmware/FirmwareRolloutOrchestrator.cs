@@ -65,6 +65,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <summary>How long to wait for the console to stage a device's target build before commanding anyway.</summary>
     public static readonly TimeSpan CatalogReflectWait = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// How long a device has to stay Disconnected, from its turn, before it is skipped instead of
+    /// commanded. Long enough that a reboot or a brief drop still gets its upgrade.
+    /// </summary>
+    public static readonly TimeSpan OfflineAtTurnGrace = TimeSpan.FromMinutes(5);
+
     /// <summary>How far a health-gated start is pushed out. One window, per the approved behavior.</summary>
     public static readonly TimeSpan HealthPostponeWindow = TimeSpan.FromHours(24);
 
@@ -167,6 +173,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     // re-queued mesh re-pair; none of it changes whether a step succeeds.
     private readonly ConcurrentDictionary<int, DateTime> _escalatedAt = new();
     private readonly ConcurrentDictionary<int, DateTime> _commandWaitSince = new();
+    private readonly ConcurrentDictionary<int, DateTime> _offlineAtTurnSince = new();
     private readonly HashSet<string> _meshRepairsQueued = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skuAbortsPublished = new(StringComparer.OrdinalIgnoreCase);
     // Devices and vantages each in-flight step has taken dark so far, so one that drops off the
@@ -473,6 +480,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
             plan.Status = FirmwareRolloutStatus.Running;
             await PersistPlanAsync(plan, cancellationToken);
+            // Nothing was watched while paused, so an offline device's grace starts again.
+            _offlineAtTurnSince.Clear();
             _logger.LogInformation("Firmware rollout {Id} on site {Site} resumed", plan.Id, _siteSlug);
         }
         finally
@@ -2702,6 +2711,14 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var wave = startable;
         var waveSteps = pending.Where(s => s.Wave == wave).ToList();
 
+        // An offline-at-turn grace must be continuous, so any pass that sees the device back resets
+        // it, even one that goes on to hold the wave for another reason.
+        foreach (var step in waveSteps)
+        {
+            if (byMac.TryGetValue(step.DeviceMac, out var seen) && seen.State != (int)UniFiDeviceState.Disconnected)
+                _offlineAtTurnSince.TryRemove(step.Id, out _);
+        }
+
         // A cool-down is a device settling, not the site holding its breath: it blocks only the
         // waves the planner found a topology relationship with. Waves are still commanded in
         // order - a blocked wave ends the pass rather than letting a later one jump it.
@@ -2813,8 +2830,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         // Anchor the gap on a command that actually went out. A step the console was too dark to
-        // command is still Pending and must be free to retry on the very next pass.
-        if (commandable.Any(s => s.State != FirmwareRolloutStepState.Pending))
+        // command is still Pending and must be free to retry on the very next pass. A device skipped
+        // as offline was never commanded either.
+        if (commandable.Any(s => s.State is not (FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.AbortedSku)))
         {
             _lastWaveCommandedAt = Now;
             // Persisted as well: this is the only thing spacing overlapping waves apart, and a
@@ -2855,6 +2873,18 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     {
         if (observation == null)
             return;
+
+        // A command to a device that is offline at its turn runs out its offline budget and reads
+        // as a bad build, so after a continuous grace it is skipped instead. Disconnected only:
+        // Heartbeat Missed also maps to Offline, and a device in it usually still upgrades.
+        if (observation.State == (int)UniFiDeviceState.Disconnected)
+        {
+            var offlineSince = _offlineAtTurnSince.GetOrAdd(step.Id, _ => Now);
+            if (ElapsedObserved(offlineSince) >= OfflineAtTurnGrace)
+                await SkipOfflineAtTurnAsync(document, steps, step, cancellationToken);
+            return;
+        }
+        _offlineAtTurnSince.TryRemove(step.Id, out _);
 
         // The console has to have staged this device's build before there is anything to command.
         // After the wait it is commanded anyway: some models report nothing here even when ready.
@@ -2975,6 +3005,43 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _logger.LogInformation(
             "Commanded {Device} ({Model}) on site {Site} to upgrade to {Version}",
             step.DeviceName, step.Model, _siteSlug, step.ToVersion);
+    }
+
+    /// <summary>
+    /// Settles a device that stayed offline through its turn without commanding it. A skip, not a
+    /// failure: nothing is known about the build, so it never drops the model or raises an alert.
+    /// A skipped canary takes its held peers with it, since nothing else may release them; the next
+    /// plan picks them all up again with an online canary.
+    /// </summary>
+    private async Task SkipOfflineAtTurnAsync(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        FirmwareRolloutStep step,
+        CancellationToken cancellationToken)
+    {
+        _offlineAtTurnSince.TryRemove(step.Id, out _);
+        step.State = FirmwareRolloutStepState.AbortedSku;
+        step.Error = "Offline when its turn came";
+        await PersistStepAsync(step, cancellationToken);
+        _logger.LogWarning(
+            "Skipped {Device} on site {Site}: it was offline when its turn came", step.DeviceName, _siteSlug);
+
+        if (!IsCanary(document, step.DeviceMac))
+            return;
+
+        var familyOf = FamilyLookup(document);
+        var family = familyOf(step);
+        foreach (var peer in steps.Where(s => s.Id != step.Id
+            && s.State == FirmwareRolloutStepState.Held
+            && string.Equals(familyOf(s), family, StringComparison.OrdinalIgnoreCase)))
+        {
+            peer.State = FirmwareRolloutStepState.AbortedSku;
+            peer.Error = "No online canary for this model";
+            await PersistStepAsync(peer, cancellationToken);
+            _logger.LogWarning(
+                "Skipped {Device} on site {Site}: its model's canary was offline when its turn came",
+                peer.DeviceName, _siteSlug);
+        }
     }
 
     private async Task CompleteAsync(
@@ -3647,6 +3714,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         _escalatedAt.Clear();
         _commandWaitSince.Clear();
+        _offlineAtTurnSince.Clear();
 
         var document = ParseDocument(plan);
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
