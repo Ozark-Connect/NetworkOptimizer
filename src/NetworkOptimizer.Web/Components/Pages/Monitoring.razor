@@ -42,6 +42,7 @@
 @inject ISystemSettingsService SystemSettings
 @inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @inject DashboardLayoutService DashboardLayout
+@inject IDashboardLayoutAdminService LayoutAdmin
 @inject ICableModemService CmMonitorService
 @inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
 @inject IOntMonitorService OntMonitorService
@@ -5185,7 +5186,7 @@
             layout.Cards.Remove(card);
             layout.Cards.Insert(0, card);
         }
-        await DashboardLayout.SaveLayoutAsync(layout);
+        await LayoutAdmin.SaveLayoutAsync(layout);
         _liveViewOnDashboard = true;
     }
 
