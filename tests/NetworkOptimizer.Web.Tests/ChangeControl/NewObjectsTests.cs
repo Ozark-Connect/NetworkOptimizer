@@ -69,6 +69,16 @@ public class NewObjectsTests
     }
 
     [Fact]
+    public void Policy_IsOneListItem_WithNoZonePairHeading()
+    {
+        var defaults = NewObjects.ParseDefaults("""{"action":"BLOCK","enabled":true,"source":{"matching_target":"ANY"},"destination":{"matching_target":"ANY"}}""");
+
+        var item = NewObjects.Yaml(ConfigCollections.Get("firewall_policy")!, Site(), defaults);
+        item.Should().StartWith("- ");
+        item.Split('\n').Should().NotContain(l => l.StartsWith('#'));
+    }
+
+    [Fact]
     public void Policy_Block_CreatesNoReturnTraffic()
     {
         var defaults = NewObjects.ParseDefaults("""{"action":"BLOCK","create_allow_respond":true,"enabled":true}""");

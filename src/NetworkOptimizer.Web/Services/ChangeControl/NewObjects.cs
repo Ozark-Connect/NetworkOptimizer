@@ -192,7 +192,9 @@ public static partial class NewObjects
         var state = baseState.Clone();
         state.Collections[def.Key] = [obj];
         var text = YamlConverter.Export(state, [def.Key], SecretMode.Clear);
-        var lines = text.Replace("\r\n", "\n").Split('\n').Skip(1).Where(l => l.Length > 0)
+        // Skip the collection key and any heading (firewall policies' zone pair, of blank zones here):
+        // the editor inserts a list item, and a margin comment before "- " broke the add.
+        var lines = text.Replace("\r\n", "\n").Split('\n').Skip(1).Where(l => l.Length > 0 && !l.StartsWith('#'))
             .Select(l => BlankLine().Replace(l, m => $"{m.Groups[1].Value}{YamlConverter.StrippedName(m.Groups[2].Value) ?? m.Groups[2].Value}: "));
         return string.Join("\n", lines) + "\n";
     }

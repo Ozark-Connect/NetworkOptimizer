@@ -425,8 +425,11 @@ function managedObjects(state) {
     });
     // A change inside one is dropped. Its first character stays open, so removing the object above
     // (which takes the line break before this one) is not caught at the boundary.
+    // The editor's own actions pass: they never change a locked object's text, but an add lands at
+    // the file's end, inside a locked policy that ends it (the grouped export often ends on one).
+    const own = ['input.add-object', 'input.move-policy', 'input.match-fields', 'delete.remove-object'];
     const lock = EditorState.changeFilter.of(tr => {
-        if (state.silent || !tr.docChanged) return true;
+        if (state.silent || !tr.docChanged || own.some(e => tr.isUserEvent(e))) return true;
         const locked = [];
         for (const b of itemBlocks(tr.startState.doc)) if (managedBy(state, b)) locked.push(b.from + 1, b.to);
         return locked.length ? locked : true;
