@@ -1,0 +1,9 @@
+{
+  "name": "network-optimizer-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Network Optimizer for UniFi - web app (ASP.NET Core). npm entry point exists so Kimi Work can launch the dev server; it forwards host/port args to dotnet run.",
+  "scripts": {
+    "dev": "sh ./dev-server.sh"
+  }
+}
