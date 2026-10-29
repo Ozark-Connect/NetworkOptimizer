@@ -25375,3 +25375,82 @@ body:has(.top-bar-hidden) .btn-fit {
         min-height: 44px;
     }
 }
+
+/* "On this page" (js/card-index.js): beside the content when the gutter fits, else a row above the first card. */
+.card-index {
+    position: fixed;
+    z-index: 5;
+    width: 168px;
+    font-size: 0.8125rem;
+}
+
+.card-index-label {
+    margin: 0 0 0.5rem 0.75rem;
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.card-index .card-index-link {
+    display: block;
+    padding: 0.3rem 0.75rem;
+    border-left: 2px solid var(--border-color);
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.card-index-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+}
+
+.card-index-row .card-index-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.card-index .card-index-link:hover,
+.card-index-row .card-index-link:hover {
+    color: var(--text-primary);
+}
+
+.card-index .card-index-link.active {
+    border-left-color: var(--primary-color);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.card-index-row .card-index-link.active {
+    color: var(--text-primary);
+}
+
+.card-index,
+.card-index-row {
+    animation: card-index-in 0.2s ease-out;
+    transition: opacity 0.15s ease-in;
+}
+
+.card-index-link {
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.card-index-out {
+    opacity: 0;
+}
+
+@keyframes card-index-in {
+    from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .card-index,
+    .card-index-row,
+    .card-index-link {
+        animation: none;
+        transition: none;
+    }
+}
