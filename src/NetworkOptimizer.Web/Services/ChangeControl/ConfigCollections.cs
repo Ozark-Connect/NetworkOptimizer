@@ -334,6 +334,18 @@ public static class ConfigCollections
         return null;
     }
 
+    /// <summary>
+    /// Who manages an object the editor never changes: "UniFi" for its predefined and generated
+    /// objects, a Network Optimizer feature for its own; null when the user owns it. Narrower than
+    /// <see cref="DeleteCascade.CannotDelete"/>: the Default network and built-in zones cannot be
+    /// deleted but are the user's to edit.
+    /// </summary>
+    public static string? ManagedBy(ConfigCollectionDef def, JsonObject obj) =>
+        OwnedBy(def, obj)
+        ?? (def.IsGenerated?.Invoke(obj) == true
+            || new[] { "predefined", "is_predefined" }.Any(f => obj[f] is JsonValue v && v.TryGetValue<bool>(out var b) && b)
+            ? "UniFi" : null);
+
     /// <summary>Copies <paramref name="fields"/> from the target's object into the desired one; <paramref name="label"/> when any differed.</summary>
     private static string? KeepFields(JsonObject desired, JsonObject live, string label, params string[] fields)
     {

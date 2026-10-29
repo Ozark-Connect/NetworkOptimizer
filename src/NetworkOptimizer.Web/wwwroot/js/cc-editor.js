@@ -39,6 +39,8 @@ const theme = EditorView.theme({
     // The gap before an end-of-line button is the wrapper's padding, never a margin: the cursor at the
     // line's end is drawn at the widget's edge, and a margin put it where a trailing space would be.
     '.cc-line-tail': { paddingLeft: '0.75rem' },
+    '.cc-managed': { color: 'var(--text-muted)' },
+    '.cc-managed-label': { fontSize: '0.75rem', padding: '0 0.4rem', borderRadius: '3px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' },
     '.cc-remove-item': {
         font: 'inherit', fontSize: '0.95rem', lineHeight: '1', padding: '0 0.35rem', cursor: 'pointer',
         border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
@@ -363,6 +365,59 @@ function removeButtons(state) {
     }, { decorations: v => v.decorations });
 }
 
+// ---------- Read-only objects ----------
+
+// UniFi's own objects and Network Optimizer's (the schema's "managed", with who manages each) are
+// read-only: their lines refuse edits, show muted, and carry a label where the x would be. The
+// server rejects an edit to them too (an upload, a paste), so this is the convenience, not the guard.
+const managedBy = (state, b) => b.id ? state.schema?.collections?.[b.collection]?.managed?.[b.id] : undefined;
+
+class ManagedWidget extends WidgetType {
+    constructor(who) { super(); this.who = who; }
+    eq(other) { return other.who === this.who; }
+    toDOM() {
+        const label = document.createElement('span');
+        label.className = 'cc-managed-label';
+        label.textContent = 'Read-only';
+        label.dataset.tooltip = this.who === 'UniFi'
+            ? 'Built into UniFi; Change Control does not edit it.'
+            : `Managed by ${this.who}; change it there.`;
+        const tail = document.createElement('span');
+        tail.className = 'cc-line-tail';
+        tail.appendChild(label);
+        return tail;
+    }
+    ignoreEvent() { return true; }
+}
+
+function managedObjects(state) {
+    const build = doc => {
+        const ranges = [];
+        for (const b of itemBlocks(doc)) {
+            const who = managedBy(state, b);
+            if (!who) continue;
+            for (let n = doc.lineAt(b.from).number, last = doc.lineAt(b.to).number; n <= last; n++)
+                ranges.push(Decoration.line({ class: 'cc-managed' }).range(doc.line(n).from));
+            ranges.push(Decoration.widget({ widget: new ManagedWidget(who), side: 1 }).range(b.lineEnd));
+        }
+        return Decoration.set(ranges, true);
+    };
+    const field = StateField.define({
+        create: s => build(s.doc),
+        update: (deco, tr) => tr.docChanged || tr.effects.some(e => e.is(refreshMasks)) ? build(tr.state.doc) : deco,
+        provide: f => EditorView.decorations.from(f),
+    });
+    // A change inside one is dropped. Its first character stays open, so removing the object above
+    // (which takes the line break before this one) is not caught at the boundary.
+    const lock = EditorState.changeFilter.of(tr => {
+        if (state.silent || !tr.docChanged) return true;
+        const locked = [];
+        for (const b of itemBlocks(tr.startState.doc)) if (managedBy(state, b)) locked.push(b.from + 1, b.to);
+        return locked.length ? locked : true;
+    });
+    return [field, lock];
+}
+
 // ---------- Collapsing children ----------
 
 /**
@@ -648,6 +703,7 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                 secretMasks(state),
                 literalMasks(state),
                 removeButtons(state),
+                managedObjects(state),
                 addButtons(state),
                 collapseButtons(),
                 namedFolds,

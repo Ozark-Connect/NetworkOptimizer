@@ -656,6 +656,25 @@ public static partial class YamlConverter
             }
         }
 
+        // UniFi's own and Network Optimizer's objects are read-only here; the editor locks them, and an
+        // upload or a pasted file is held to the same rule.
+        // Compared as resolved (zone names to IDs); raw only gives each object's line.
+        var resolved = result.Collections.SelectMany(c => c.Value.Select(o => (Key: c.Key, Id: ConfigState.IdOf(o), Obj: o)))
+            .GroupBy(x => (x.Key, x.Id)).ToDictionary(g => g.Key, g => g.First().Obj);
+        foreach (var (def, node, obj) in raw)
+        {
+            var id = ConfigState.IdOf(obj);
+            if (!baseById.TryGetValue(id, out var before) || before.Collection != def.Key
+                || ConfigCollections.ManagedBy(def, before.Object) is not { } who
+                || !resolved.TryGetValue((def.Key, id), out var edited)
+                // Shared fields only: the export leaves out fields UniFi derives, so an untouched object differs in those.
+                || ConfigDiffEngine.SharedFieldsEqual(def, before.Object, edited, new Dictionary<string, string>())) continue;
+            var name = $"{def.Noun} {ConfigState.DisplayName(def, before.Object)}";
+            result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who == "UniFi"
+                ? $"{name} is built into UniFi and cannot be edited here."
+                : $"{name} belongs to {who} and cannot be edited here."));
+        }
+
         // An object removed from the file is deleted. Say what that does: nothing in a collection
         // Network Optimizer does not delete from, nothing to UniFi's built-in objects, list references
         // go with it (DeleteCascade), and single references must be pointed elsewhere first.

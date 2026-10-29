@@ -127,6 +127,36 @@ public class YamlConverterTests
     }
 
     [Fact]
+    public void EditingAPredefinedPolicy_IsAnError_AndAnUnchangedOneIsNot()
+    {
+        var site = PolicySite();
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
+
+        YamlConverter.Parse(yaml, site, "firewall_policies.yaml").Problems.Should().NotContain(p => p.Level == "Error");
+
+        var edited = yaml.Replace("name: Allow All Traffic", "name: Allow Everything");
+        YamlConverter.Parse(edited, site, "firewall_policies.yaml").Problems.Should().ContainSingle(p => p.Level == "Error")
+            .Which.Message.Should().Be("Firewall Policy Allow All Traffic is built into UniFi and cannot be edited here.");
+
+        var custom = yaml.Replace("name: Block IoT", "name: Block Cameras");
+        YamlConverter.Parse(custom, site, "firewall_policies.yaml").Problems.Should().NotContain(p => p.Level == "Error");
+    }
+
+    [Fact]
+    public void EditSchema_MarksManagedObjects_ButNotTheEditableBuiltIns()
+    {
+        var site = State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","default_zone":true,"network_ids":[]}"""),
+            ("firewall_policy", """{"_id":"p2","name":"Allow All Traffic","predefined":true,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z1"}}"""),
+            ("networkconf", """{"_id":"n1","name":"Default","purpose":"corporate","attr_no_delete":true}"""));
+        var schema = YamlConverter.EditSchema(site, ConfigCollections.All.Where(d => d.Key is "firewall_zone" or "firewall_policy" or "networkconf"));
+
+        schema["collections"]!["firewall_policies"]!["managed"]!["p2"]!.ToString().Should().Be("UniFi");
+        // Not deletable, but the user's to edit: a zone's networks, the Default network's subnet.
+        schema["collections"]!.AsObject().Where(c => c.Key != "firewall_policies").Should().OnlyContain(c => c.Value!["managed"] == null);
+    }
+
+    [Fact]
     public void Parse_AmbiguousName_IsAnError_SuggestingTheVlan()
     {
         var yaml = """

@@ -41,6 +41,11 @@ public static partial class YamlConverter
             var keep = state.Get(def.Key).Where(o => DeleteCascade.CannotDelete(def, o) || ConfigCollections.OwnedBy(def, o) != null)
                 .Select(o => (JsonNode?)ConfigState.IdOf(o)).ToArray();
             if (keep.Length > 0) json["undeletable"] = new JsonArray(keep);
+            // ...and read-only, by ID, with who manages it, on UniFi's own and Network Optimizer's objects.
+            var managed = new JsonObject();
+            foreach (var o in state.Get(def.Key))
+                if (ConfigCollections.ManagedBy(def, o) is { } who) managed[ConfigState.IdOf(o)] = who;
+            if (managed.Count > 0) json["managed"] = managed;
             collections[YamlName(def)] = json;
         }
 
