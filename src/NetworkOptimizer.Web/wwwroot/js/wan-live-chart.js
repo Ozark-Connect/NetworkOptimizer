@@ -883,10 +883,7 @@ async function doMount(containerId, opts) {
     if (opts && 'wans' in opts) {
         const list = Array.isArray(opts.wans) ? opts.wans.filter(w => w && w.key) : [];
         compareWans = list.length > 1 ? list : [];
-        // The scope resets with it: a primary-only mount kept the last WAN's scope, so the chart
-        // read that WAN under the primary's pills until a page reload. An explicit wan still wins.
         if (list.length >= 1) wanScope = list[0].key;
-        else if (!('wan' in opts)) wanScope = null;
     }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
