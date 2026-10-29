@@ -32,18 +32,15 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     private readonly IServiceProvider _serviceProvider;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILogger<AgentEnrollmentService> _logger;
-    private readonly Authorization.ISiteAccessFilter _siteAccess;
 
     public AgentEnrollmentService(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         AgentTunnelRegistry tunnelRegistry,
-        Authorization.ISiteAccessFilter siteAccess,
         SiteAgentCoverage agentCoverage,
         IServiceProvider serviceProvider,
         SiteTunnelRouting tunnelRouting,
         ILogger<AgentEnrollmentService> logger)
     {
-        _siteAccess = siteAccess;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _agentCoverage = agentCoverage;
@@ -85,9 +82,11 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
         // The site id arrives from the caller, so authorization for it is asked here rather than
-        // assumed from whatever page supplied it.
+        // assumed from whatever page supplied it. The filter is scoped (caller context), so this
+        // singleton resolves it per call instead of capturing it at construction.
         var slug = await db.Sites.Where(x => x.Id == siteId).Select(x => x.Slug).FirstOrDefaultAsync();
-        if (slug is not null && !await _siteAccess.IsAuthorizedAsync(slug))
+        using var scope = _serviceProvider.CreateScope();
+        if (slug is not null && !await scope.ServiceProvider.GetRequiredService<Authorization.ISiteAccessFilter>().IsAuthorizedAsync(slug))
             return new List<SiteAgent>();
 
         return await db.SiteAgents
@@ -103,9 +102,11 @@ public class AgentEnrollmentService : IAgentEnrollmentService
         var agents = await db.SiteAgents.ToListAsync();
 
         // Agent rows name the sites they serve, so the same narrowing the site list gets applies
-        // here. Background scopes are unfiltered, as always.
+        // here. Background scopes are unfiltered, as always. Scoped filter resolved per call.
         var slugsById = await db.Sites.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Slug);
-        return await _siteAccess.FilterAsync(agents, a => slugsById.GetValueOrDefault(a.SiteId) ?? "");
+        using var scope = _serviceProvider.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<Authorization.ISiteAccessFilter>()
+            .FilterAsync(agents, a => slugsById.GetValueOrDefault(a.SiteId) ?? "");
     }
 
     /// <summary>

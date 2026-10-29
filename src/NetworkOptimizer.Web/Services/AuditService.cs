@@ -197,13 +197,13 @@ public class AuditService : IAuditScanService
             var unusedPortDays = await _settingsRepository.GetSystemSettingAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await _settingsRepository.GetSystemSettingAsync("audit:namedPortInactivityDays");
 
-            options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
-            options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
-            options.AllowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
-            options.AllowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
-            options.AllowMediaPlayersOnMainNetwork = mediaPlayers?.ToLower() == "true";
+            options.AllowAppleStreamingOnMainNetwork = string.Equals(appleStreaming, "true", StringComparison.OrdinalIgnoreCase);
+            options.AllowAllStreamingOnMainNetwork = string.Equals(allStreaming, "true", StringComparison.OrdinalIgnoreCase);
+            options.AllowNameBrandTVsOnMainNetwork = string.Equals(nameBrandTVs, "true", StringComparison.OrdinalIgnoreCase);
+            options.AllowAllTVsOnMainNetwork = string.Equals(allTVs, "true", StringComparison.OrdinalIgnoreCase);
+            options.AllowMediaPlayersOnMainNetwork = string.Equals(mediaPlayers, "true", StringComparison.OrdinalIgnoreCase);
             // Printers default to true (allowed) if not set
-            options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
+            options.AllowPrintersOnMainNetwork = printers == null || string.Equals(printers, "true", StringComparison.OrdinalIgnoreCase);
             // DNAT excluded VLANs (parse comma-separated VLAN IDs)
             options.DnatExcludedVlanIds = ParseVlanIds(dnatExcludedVlans);
             // Third-party DNS endpoint (Pi-hole, AdGuard Home, etc.) - null means auto-detect

@@ -93,10 +93,10 @@
         return Score switch
         {
             0 => "RUN AUDIT",
-            >= 90 => "EXCELLENT ✓",
+            >= 90 => "EXCELLENT",
             >= 75 => "GOOD",
-            >= 60 => "FAIR ⚠",
-            _ => "NEEDS WORK ✗"
+            >= 60 => "FAIR",
+            _ => "NEEDS WORK"
         };
     }
 }
@@ -106,10 +106,11 @@
         font-size: 32px;
         font-weight: bold;
         fill: currentColor;
+        font-variant-numeric: tabular-nums;
     }
 
     .gauge-label {
         font-size: 12px;
-        fill: var(--text-muted);
+        fill: var(--text-secondary);
     }
 </style>

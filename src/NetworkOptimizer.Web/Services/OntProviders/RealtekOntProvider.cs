@@ -89,7 +89,7 @@ public sealed class RealtekOntProvider : IOntProvider
             try { await client.GetAsync($"{baseUrl}/admin/logout.asp", cancellationToken); }
             catch { }
 
-            return (true, $"Connected ({(baseUrl.StartsWith("https") ? "HTTPS" : "HTTP")}) - PON Status page accessible");
+            return (true, $"Connected ({(baseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "HTTPS" : "HTTP")}) - PON Status page accessible");
         }
         catch (Exception ex)
         {

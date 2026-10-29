@@ -9,6 +9,10 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.Monitoring;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Engines;
+using Org.BouncyCastle.Crypto.Modes;
+using Org.BouncyCastle.Crypto.Parameters;
 
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
@@ -586,16 +590,20 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
     /// <summary>
     /// Encrypt to the layout the modem expects: ciphertext followed by the authentication tag,
     /// as one lowercase hex string.
+    /// Uses BouncyCastle rather than System.Security.Cryptography.AesCcm, which is unsupported
+    /// on macOS and would throw PlatformNotSupportedException at login time there.
     /// </summary>
     internal static string AesCcmEncryptHex(byte[] key, byte[] nonce, byte[] plaintext, string associatedData)
     {
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[TagLengthBytes];
+        var ccm = new CcmBlockCipher(new AesEngine());
+        ccm.Init(true, new AeadParameters(new KeyParameter(key), TagLengthBytes * 8, nonce, Encoding.ASCII.GetBytes(associatedData)));
 
-        using var ccm = new AesCcm(key);
-        ccm.Encrypt(nonce, plaintext, ciphertext, tag, Encoding.ASCII.GetBytes(associatedData));
+        // CcmBlockCipher output is already ciphertext followed by the tag.
+        var output = new byte[ccm.GetOutputSize(plaintext.Length)];
+        var len = ccm.ProcessBytes(plaintext, 0, plaintext.Length, output, 0);
+        ccm.DoFinal(output, len);
 
-        return Convert.ToHexStringLower(ciphertext) + Convert.ToHexStringLower(tag);
+        return Convert.ToHexStringLower(output);
     }
 
     internal static string? AesCcmDecryptText(byte[] key, byte[] nonce, string encryptedHex, string associatedData)
@@ -603,33 +611,25 @@ public sealed partial class VodafoneStationProvider : ICableModemProvider, IDisp
         if (!TryParseHex(encryptedHex, out var blob) || blob.Length <= TagLengthBytes)
             return null;
 
-        var ciphertext = blob.AsSpan(0, blob.Length - TagLengthBytes);
-        var tag = blob.AsSpan(blob.Length - TagLengthBytes);
-        var plaintext = new byte[ciphertext.Length];
-
         try
         {
-            using var ccm = new AesCcm(key);
-            ccm.Decrypt(nonce, ciphertext, tag, plaintext, Encoding.ASCII.GetBytes(associatedData));
+            var ccm = new CcmBlockCipher(new AesEngine());
+            ccm.Init(false, new AeadParameters(new KeyParameter(key), TagLengthBytes * 8, nonce, Encoding.ASCII.GetBytes(associatedData)));
+
+            var plaintext = new byte[ccm.GetOutputSize(blob.Length)];
+            var len = ccm.ProcessBytes(blob, 0, blob.Length, plaintext, 0);
+            ccm.DoFinal(plaintext, len); // throws InvalidCipherTextException on tag mismatch
+
+            return Encoding.UTF8.GetString(plaintext);
         }
-        catch (CryptographicException)
+        catch (InvalidCipherTextException)
         {
             return null;
         }
-
-        return Encoding.UTF8.GetString(plaintext);
     }
 
-    private static bool IsSupportedNonceSize(int length)
-    {
-        var sizes = AesCcm.NonceByteSizes;
-        if (length < sizes.MinSize || length > sizes.MaxSize)
-            return false;
-
-        return sizes.SkipSize == 0
-            ? length == sizes.MinSize
-            : (length - sizes.MinSize) % sizes.SkipSize == 0;
-    }
+    // CCM (RFC 3610) allows 7-13 byte nonces; CcmBlockCipher enforces the same at Init.
+    private static bool IsSupportedNonceSize(int length) => length is >= 7 and <= 13;
 
     private static bool TryParseHex(string value, out byte[] bytes)
     {

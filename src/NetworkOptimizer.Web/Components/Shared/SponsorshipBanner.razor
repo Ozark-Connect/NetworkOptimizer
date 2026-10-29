@@ -18,17 +18,17 @@
 else if (_nag != null)
 {
     var corgiImage = GetCorgiImage(_nag.Level);
-    <div class="sponsorship-banner @(corgiImage != null ? "has-corgi" : "")">
-        @if (corgiImage != null)
-        {
-            <img src="images/corgis/@corgiImage" class="banner-corgi" alt="" />
-        }
+    <div class="sponsorship-banner">
         <div class="banner-content">
             <span class="banner-icon">&#x2665;</span>
             <div class="banner-text">
                 <strong>@_nag.Quip</strong>
                 <span class="banner-commercial">Commercial use? See <a href="https://ozarkconnect.net/network-optimizer/licensing" target="_blank" rel="noopener">licensing and pricing</a>.</span>
             </div>
+            @if (corgiImage != null)
+            {
+                <img src="images/corgis/@corgiImage" class="banner-corgi" alt="" />
+            }
             <div class="banner-actions">
                 <button class="btn-cta" @onclick="ShowModal">@_nag.ActionText</button>
                 <span class="banner-actions-secondary">

@@ -104,7 +104,7 @@ public class AttGatewayOntProvider : IOntProvider
                 return (false, $"HTTP {(int)response.StatusCode} from {context.ConfiguredHost ?? context.Host}");
 
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
-            var scheme = baseUrl.StartsWith("https") ? "HTTPS" : "HTTP";
+            var scheme = baseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "HTTPS" : "HTTP";
             if (html.Contains("Fiber Status", StringComparison.OrdinalIgnoreCase))
                 return (true, $"Connected ({scheme}) to AT&T gateway fiber stats page");
 

@@ -124,6 +124,43 @@ a:hover {
     color: var(--primary-hover);
 }
 
+/* Browser surfaces: selection, keyboard focus, scrollbars — themed from the palette */
+::selection {
+    background: rgba(5, 80, 181, 0.45);
+    color: var(--text-primary);
+}
+
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible {
+    outline: 2px solid var(--primary-hover);
+    outline-offset: 2px;
+    border-radius: var(--border-radius);
+}
+
+html {
+    scrollbar-color: var(--bg-elevated) var(--bg-primary);
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bg-elevated);
+    border-radius: 5px;
+    border: 2px solid var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #3a3a40;
+}
+
 .leaflet-container a.map-popup-link {
     color: var(--primary-hover);
 }
@@ -990,11 +1027,16 @@ a.stat-card-link:active {
     font-weight: 600;
     line-height: 1;
     margin-bottom: 0.25rem;
+    font-variant-numeric: tabular-nums;
 }
 
+/* Text stand-ins for a numeric value ("Not Configured", "--"): sized to fit the card
+   on one line and muted to read as an inactive state, not a measurement. */
 .stat-value-text {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 600;
+    white-space: nowrap;
+    color: var(--text-secondary);
 }
 
 .stat-value.cleanest-channels {
@@ -1753,10 +1795,11 @@ a.stat-card-link:active {
 
 .rating-badge {
     display: inline-block;
-    padding: 0.5rem 1.5rem;
+    padding: 0.4rem 1.25rem;
     border-radius: 2rem;
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
 }
 
 .rating-badge.rating-excellent {
@@ -1788,13 +1831,18 @@ a.stat-card-link:active {
 .security-summary {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
 }
 
 .summary-item {
     display: flex;
     justify-content: space-between;
+    align-items: baseline;
     font-size: 0.875rem;
+    padding: 0.55rem 0;
+}
+
+.summary-item + .summary-item {
+    border-top: 1px solid var(--border-color);
 }
 
 .summary-label {
@@ -1806,6 +1854,7 @@ a.stat-card-link:active {
     min-height: 1.25rem;
     display: inline-flex;
     align-items: center;
+    font-variant-numeric: tabular-nums;
 }
 
 .summary-value.critical {
@@ -2731,6 +2780,19 @@ a.btn-lg {
     background: transparent;
     border: 1px solid var(--primary-color);
     color: var(--primary-color);
+}
+
+/* Light-outline button for dark colorway banners (update, warnings) */
+.btn-outline-light {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    color: var(--text-primary);
+}
+
+.btn-outline-light:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.55);
+    color: #fff;
 }
 
 .btn-outline-primary:hover:not(:disabled) {
@@ -4863,7 +4925,7 @@ tr:hover .snmp-row-chevron {
 
 .pwa-banner .btn-pwa-dismiss {
     background: rgba(255, 255, 255, 0.06);
-    color: var(--text-muted);
+    color: var(--text-secondary);
     border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
@@ -4875,7 +4937,7 @@ tr:hover .snmp-row-chevron {
 
 .pwa-banner .btn-pwa-dismiss:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: var(--text-secondary);
+    color: var(--text-primary);
 }
 
 /* Sponsorship Banner */
@@ -4890,14 +4952,13 @@ tr:hover .snmp-row-chevron {
 }
 
 .sponsorship-banner .banner-corgi {
-    position: absolute;
-    right: 400px;
-    top: 50%;
-    height: 80px;
-    opacity: 0.5;
-    pointer-events: none;
+    height: 56px;
+    width: auto;
     object-fit: contain;
-    transform: translateY(-50%);
+    opacity: 0.9;
+    flex-shrink: 0;
+    align-self: center;
+    pointer-events: none;
 }
 
 .sponsorship-banner .banner-icon {
@@ -4907,7 +4968,6 @@ tr:hover .snmp-row-chevron {
 
 .sponsorship-banner .banner-text strong {
     color: var(--purple-light);
-    width: 85%;
 }
 
 .sponsorship-banner .banner-text span {
@@ -4972,19 +5032,9 @@ tr:hover .snmp-row-chevron {
     color: white;
 }
 
-@media (max-width: 1575px) {
-    .sponsorship-banner .banner-text strong {
-        width: 79%;
-    }
-}
-
 @media (max-width: 1353px) {
     .sponsorship-banner .banner-content {
         flex-wrap: wrap;
-    }
-
-    .sponsorship-banner .banner-text strong {
-        width: 88%;
     }
 
     .sponsorship-banner .banner-actions {
@@ -4992,37 +5042,21 @@ tr:hover .snmp-row-chevron {
         justify-content: flex-end;
         margin-top: 0.5rem;
     }
-
-    .sponsorship-banner .banner-corgi {
-        left: auto;
-        right: 0.5rem;
-        top: auto;
-        bottom: 0;
-    }
 }
 
 @media (max-width: 930px) {
     .sponsorship-banner .banner-icon {
         display: none;
     }
-}
 
-@media (max-width: 900px) {
     .sponsorship-banner .banner-corgi {
-        left: auto;
-        right: 0.5rem;
-        top: auto;
-        bottom: 0;
+        display: none;
     }
 }
 
 @media (max-width: 768px) {
     .sponsorship-banner {
         padding: 1rem;
-    }
-
-    .sponsorship-banner .banner-separator {
-        display: none;
     }
 
     .sponsorship-banner .banner-text strong {
@@ -5036,25 +5070,49 @@ tr:hover .snmp-row-chevron {
     }
 }
 
-@media (max-width: 575px) {
-    .sponsorship-banner .banner-text strong {
-        width: auto;
-    }
-}
-
 @media (max-width: 460px) {
     .sponsorship-banner .banner-actions {
         flex-direction: column;
         align-items: flex-end;
     }
+}
 
-    .sponsorship-banner .banner-corgi {
-        left: 10px;
-        right: auto;
-        top: auto;
-        bottom: 1.3rem;
-        transform: none;
-    }
+/* Update banner: success colorway over the shared connection-banner structure */
+.update-banner {
+    background: linear-gradient(135deg, #12261d 0%, #0c1a14 100%);
+    border: 1px solid #1e3d2e;
+}
+
+.update-banner .banner-icon {
+    background: var(--success-color);
+    color: white;
+}
+
+.update-banner .banner-text strong {
+    color: #4ade80;
+}
+
+.update-banner .banner-text span {
+    color: #86b89a;
+}
+
+/* Auto-generated password banner: warning colorway over the shared structure */
+.password-warning-banner {
+    background: linear-gradient(135deg, #261c08 0%, #1a1305 100%);
+    border: 1px solid #3d2e0a;
+}
+
+.password-warning-banner .banner-icon {
+    background: var(--warning-color);
+    color: white;
+}
+
+.password-warning-banner .banner-text strong {
+    color: var(--warning-color);
+}
+
+.password-warning-banner .banner-text span {
+    color: #c9a86c;
 }
 
 /* Sponsorship Modal */

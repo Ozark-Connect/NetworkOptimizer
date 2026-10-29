@@ -40,6 +40,11 @@ public class AdminAuthService : IAdminAuthService
     private readonly AdminAuthCache _cache;
     private readonly ILogger<AdminAuthService> _logger;
 
+    // Brute-force throttle state (see ValidatePasswordAsync). Static because the
+    // service is registered scoped.
+    private static int _consecutiveFailures;
+    private static DateTime _lastFailureUtc;
+
     public AdminAuthService(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         IPasswordHasher passwordHasher,
@@ -89,9 +94,24 @@ public class AdminAuthService : IAdminAuthService
     /// <summary>
     /// Validates a password against the current effective password.
     /// Uses constant-time comparison to prevent timing attacks.
+    /// Consecutive failures progressively throttle further attempts (the service
+    /// is scoped, so the counter is static to hold across requests and circuits).
     /// </summary>
     public async Task<bool> ValidatePasswordAsync(string password, CancellationToken cancellationToken = default)
     {
+        // Enforce any outstanding throttle delay from prior failed attempts before
+        // doing validation work: 200ms after the first failure, doubling each time,
+        // capped at 5s. Legitimate users notice nothing after a typo; an online
+        // brute-force loop drops to a few attempts per second at most.
+        var priorFailures = Volatile.Read(ref _consecutiveFailures);
+        if (priorFailures > 0)
+        {
+            var delayMs = Math.Min(200.0 * Math.Pow(2, Math.Min(priorFailures, 10) - 1), 5000);
+            var elapsed = DateTime.UtcNow - _lastFailureUtc;
+            if (elapsed.TotalMilliseconds < delayMs)
+                await Task.Delay(TimeSpan.FromMilliseconds(delayMs) - elapsed, cancellationToken);
+        }
+
         await RefreshCacheIfNeededAsync(cancellationToken);
 
         if (string.IsNullOrEmpty(_cache.PasswordHash))
@@ -119,10 +139,15 @@ public class AdminAuthService : IAdminAuthService
 
         if (!isValid)
         {
+            var failures = Interlocked.Increment(ref _consecutiveFailures);
+            if (failures > 10)
+                Interlocked.Exchange(ref _consecutiveFailures, 10);
+            _lastFailureUtc = DateTime.UtcNow;
             _logger.LogWarning("Invalid admin password attempt. Source: {Source}", _cache.Source);
         }
         else
         {
+            Interlocked.Exchange(ref _consecutiveFailures, 0);
             _logger.LogDebug("Admin password validated successfully. Source: {Source}", _cache.Source);
         }
 

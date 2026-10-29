@@ -155,7 +155,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
 
             // Check if iperf3 is installed
             var versionResult = await RunSshCommandAsync("iperf3 --version 2>&1 | head -1");
-            if (versionResult.success && versionResult.output.ToLower().Contains("iperf"))
+            if (versionResult.success && versionResult.output.Contains("iperf", StringComparison.OrdinalIgnoreCase))
             {
                 status.IsInstalled = true;
                 status.Version = versionResult.output.Trim();

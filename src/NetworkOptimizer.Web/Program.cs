@@ -221,6 +221,9 @@ if (agentTunnelBound)
         });
     });
 }
+// Don't disclose the server software in the Server response header
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
 builder.Services.AddSingleton(new AgentTunnelOptions(agentTunnelBound, agentTunnelPort));
 builder.Services.AddGrpc();
 builder.Services.AddSingleton<AgentTunnelRegistry>();
@@ -1079,12 +1082,12 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
     var conn = db.Database.GetDbConnection();
-    conn.Open();
+    await conn.OpenAsync();
     using var cmd = conn.CreateCommand();
 
     // Check if database has any tables (existing install) or is brand new
     cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
-    var tableCount = Convert.ToInt32(cmd.ExecuteScalar());
+    var tableCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
 
     if (tableCount > 0)
     {
@@ -1094,7 +1097,7 @@ using (var scope = app.Services.CreateScope())
                 MigrationId TEXT PRIMARY KEY,
                 ProductVersion TEXT NOT NULL
             )";
-        cmd.ExecuteNonQuery();
+        await cmd.ExecuteNonQueryAsync();
 
         // For each migration that created tables which already exist, mark as applied
         // Using INSERT OR IGNORE so this works regardless of current history state
@@ -1115,7 +1118,7 @@ using (var scope = app.Services.CreateScope())
             tableParam.Value = tableName;
             cmd.Parameters.Add(tableParam);
 
-            if (cmd.ExecuteScalar() != null)
+            if (await cmd.ExecuteScalarAsync() != null)
             {
                 // Table exists, mark migration as applied
                 cmd.CommandText = "INSERT OR IGNORE INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES (@migrationId, '9.0.0')";
@@ -1124,7 +1127,7 @@ using (var scope = app.Services.CreateScope())
                 migrationParam.ParameterName = "@migrationId";
                 migrationParam.Value = migrationId;
                 cmd.Parameters.Add(migrationParam);
-                cmd.ExecuteNonQuery();
+                await cmd.ExecuteNonQueryAsync();
             }
         }
     }
@@ -1133,15 +1136,15 @@ using (var scope = app.Services.CreateScope())
     // At app startup no other process can be migrating this SQLite DB, so any lock is stale.
     cmd.Parameters.Clear();
     cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsLock'";
-    if (cmd.ExecuteScalar() != null)
+    if (await cmd.ExecuteScalarAsync() != null)
     {
         cmd.CommandText = "DELETE FROM __EFMigrationsLock";
-        var cleared = cmd.ExecuteNonQuery();
+        var cleared = await cmd.ExecuteNonQueryAsync();
         if (cleared > 0)
             app.Logger.LogWarning("Cleared stale migration lock (likely from a previous interrupted startup)");
     }
 
-    conn.Close();
+    await conn.CloseAsync();
 
     // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
     app.Logger.LogInformation("Applying database migrations...");
@@ -1154,7 +1157,7 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var sitePaths = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.SiteDatabasePaths>();
-        var siteRows = db.Sites.Where(s => !s.IsDefault).ToList();
+        var siteRows = await db.Sites.Where(s => !s.IsDefault).ToListAsync();
         foreach (var site in siteRows)
         {
             var siteDbPath = sitePaths.GetSiteDbPath(site.Slug, isDefault: false);
@@ -1172,7 +1175,7 @@ using (var scope = app.Services.CreateScope())
             // Seed the Alerts & Schedule defaults into each site's DB too, so secondary
             // sites match the main site instead of showing blank lists. The main-DB seed
             // below only covers the default site.
-            var siteSeededPatterns = StartupHelpers.SeedAlertRules(
+            var siteSeededPatterns = await StartupHelpers.SeedAlertRules(
                 siteDb, NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults());
             if (siteSeededPatterns.Count > 0)
             {
@@ -1192,7 +1195,7 @@ using (var scope = app.Services.CreateScope())
                 AlertRuleAutoEnable.EnableFreshlySeeded(siteDb, "starlink", siteSeededPatterns, () => siteDb.StarlinkConfigurations.Any());
             }
 
-            if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !siteDb.ScheduledTasks.Any())
+            if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !await siteDb.ScheduledTasks.AnyAsync())
             {
                 siteDb.ScheduledTasks.Add(new NetworkOptimizer.Alerts.Models.ScheduledTask
                 {
@@ -1203,7 +1206,7 @@ using (var scope = app.Services.CreateScope())
                     NextRunAt = NetworkOptimizer.Alerts.ScheduleService.CalculateNextRun(720),
                     CreatedAt = DateTime.UtcNow
                 });
-                siteDb.SaveChanges();
+                await siteDb.SaveChangesAsync();
                 app.Logger.LogInformation("Seeded default scheduled tasks for site {Slug}", site.Slug);
             }
         }
@@ -1220,7 +1223,7 @@ using (var scope = app.Services.CreateScope())
     var (isFuseFs, detectedFsType) = StartupHelpers.DetectFilesystem(dbPath);
     if (isFuseFs)
     {
-        db.Database.ExecuteSqlRaw("PRAGMA journal_mode=DELETE;");
+        await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=DELETE;");
         app.Logger.LogWarning(
             "FUSE/network filesystem detected ({FilesystemType}) - using DELETE journal mode to prevent database corruption. " +
             "To use WAL mode (better performance), store the database on a direct filesystem " +
@@ -1229,7 +1232,7 @@ using (var scope = app.Services.CreateScope())
     else
     {
         // Ensure WAL mode - config imports replace the DB with a DELETE-mode copy
-        db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+        await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
         app.Logger.LogInformation("Database journal mode: WAL (filesystem: {FilesystemType})", detectedFsType);
     }
 
@@ -1241,14 +1244,14 @@ using (var scope = app.Services.CreateScope())
         // itself has an agent (secondary sites get theirs from the per-site seed above).
         // Skipping them keeps a single-site install's Rules list free of agent entries;
         // enrolling a default-site agent later seeds them at that point.
-        var defaultSiteId = db.Sites
+        var defaultSiteId = await db.Sites
             .Where(s => s.Slug == SiteManagementService.DefaultSiteSlug)
             .Select(s => (int?)s.Id)
-            .FirstOrDefault();
-        if (defaultSiteId == null || !db.SiteAgents.Any(a => a.SiteId == defaultSiteId))
+            .FirstOrDefaultAsync();
+        if (defaultSiteId == null || !await db.SiteAgents.AnyAsync(a => a.SiteId == defaultSiteId))
             defaults = defaults.Where(d => d.Source != "agent").ToList();
 
-        var seededPatterns = StartupHelpers.SeedAlertRules(db, defaults);
+        var seededPatterns = await StartupHelpers.SeedAlertRules(db, defaults);
         if (seededPatterns.Count > 0)
             app.Logger.LogInformation("Seeded {Count} new alert rules", seededPatterns.Count);
 
@@ -1271,7 +1274,7 @@ using (var scope = app.Services.CreateScope())
     }
 
     // Seed default scheduled tasks if none exist
-    if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !db.ScheduledTasks.Any())
+    if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !await db.ScheduledTasks.AnyAsync())
     {
         db.ScheduledTasks.Add(new NetworkOptimizer.Alerts.Models.ScheduledTask
         {
@@ -1282,7 +1285,7 @@ using (var scope = app.Services.CreateScope())
             NextRunAt = NetworkOptimizer.Alerts.ScheduleService.CalculateNextRun(720), // Clean minute boundary, no immediate fire
             CreatedAt = DateTime.UtcNow
         });
-        db.SaveChanges();
+        await db.SaveChangesAsync();
         app.Logger.LogInformation("Seeded default scheduled tasks");
     }
 }
@@ -1328,6 +1331,43 @@ app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
 // via the ModemMonitorRegistry hosted service - no eager resolution needed.
 
 // Configure the HTTP request pipeline
+
+// Honor X-Forwarded-For / X-Forwarded-Proto when deployed behind a reverse proxy or
+// in a container. Without this, Request.IsHttps is false behind a TLS-terminating
+// proxy (so auth cookies lose their Secure flag) and RemoteIpAddress is always the
+// proxy's address (so every client shares one rate-limit partition). Direct (non-
+// proxied) installs take no behavioral change because the headers are only honored
+// in these deployment modes.
+if (!string.IsNullOrEmpty(builder.Configuration["REVERSE_PROXIED_HOST_NAME"])
+    || string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    var forwardedOptions = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+    {
+        ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                         | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+    };
+    // Self-hosted deployments can't enumerate their proxy addresses up front, so
+    // trust any immediate proxy (standard for containerized apps). The only
+    // IP-keyed consumer is the speed-test rate limiter, so header spoofing by a
+    // direct client can weaken that limiter but never bypass authentication.
+    forwardedOptions.KnownIPNetworks.Clear();
+    forwardedOptions.KnownProxies.Clear();
+    app.UseForwardedHeaders(forwardedOptions);
+}
+
+// Security headers on every response
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    // The app embeds its own pages (e.g. OpenSpeedTest) but is never meant to be
+    // framed cross-origin
+    headers["X-Frame-Options"] = "SAMEORIGIN";
+    headers["Content-Security-Policy"] = "frame-ancestors 'self'";
+    await next();
+});
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
@@ -1442,34 +1482,35 @@ app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.LegacyJwtBridgeMiddlewa
 app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.CallerContextMiddleware>();
 
 // Auth middleware that checks if authentication is required and protects all endpoints
+// Path lists are hoisted out of the per-request lambda so they allocate once, and the
+// per-request ToLower() allocation is dropped (all comparisons are OrdinalIgnoreCase).
+// "/error" is public so the exception handler's re-execute can actually render: if it fell to the
+// gate below, every unhandled exception would redirect to /login with no message.
+var authPublicPaths = new[] { "/login", "/login/2fa", "/error", "/api/auth/login", "/api/auth/2fa", "/api/auth/logout", "/api/health", "/api/health/ready", "/api/passkey/request-options", "/api/passkey/assert" };
+// /api/public/*, plus the federation login/callback surface (OIDC challenge, IdP callbacks, SAML ACS).
+var authPublicPrefixes = new[] { "/api/public/", "/login/external", "/login/saml/", "/signin-oidc/", "/signout-oidc/", "/signout-callback-oidc/", "/saml/" };
+var authStaticPrefixes = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
+
 app.Use(async (context, next) =>
 {
-    var path = context.Request.Path.Value?.ToLower() ?? "";
-
-    // Only these paths are public (no auth required)
-    // "/error" is public so the exception handler's re-execute can actually render: if it fell to the
-    // gate below, every unhandled exception would redirect to /login with no message.
-    var publicPaths = new[] { "/login", "/login/2fa", "/error", "/api/auth/login", "/api/auth/2fa", "/api/auth/logout", "/api/health", "/api/passkey/request-options", "/api/passkey/assert" };
-    // /api/public/*, plus the federation login/callback surface (OIDC challenge, IdP callbacks, SAML ACS).
-    var publicPrefixes = new[] { "/api/public/", "/login/external", "/login/saml/", "/signin-oidc/", "/signout-oidc/", "/signout-callback-oidc/", "/saml/" };
-    var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
+    var path = context.Request.Path.Value ?? "";
 
     // Allow public endpoints
-    if (publicPaths.Any(p => path.Equals(p, StringComparison.OrdinalIgnoreCase)))
+    if (authPublicPaths.Any(p => path.Equals(p, StringComparison.OrdinalIgnoreCase)))
     {
         await next();
         return;
     }
 
     // Allow public API prefixes (e.g., /api/public/*)
-    if (publicPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+    if (authPublicPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
     {
         await next();
         return;
     }
 
     // Allow static files and Blazor framework
-    if (staticPaths.Any(p => path.StartsWith(p)) || (path.Contains('.') && !path.EndsWith(".razor")))
+    if (authStaticPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)) || (path.Contains('.') && !path.EndsWith(".razor")))
     {
         await next();
         return;
@@ -1489,7 +1530,7 @@ app.Use(async (context, next) =>
     if (context.User.Identity?.IsAuthenticated != true)
     {
         // API endpoints return 401
-        if (path.StartsWith("/api/"))
+        if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
         {
             context.Response.StatusCode = 401;
             await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
@@ -1544,7 +1585,25 @@ var contentTypeProvider = new FileExtensionContentTypeProvider();
 contentTypeProvider.Mappings[".ipk"] = "application/octet-stream";
 app.UseStaticFiles(new StaticFileOptions
 {
-    ContentTypeProvider = contentTypeProvider
+    ContentTypeProvider = contentTypeProvider,
+    OnPrepareResponse = ctx =>
+    {
+        // Blazor framework / component-library assets change only on app upgrades
+        // (long cache); the app's own css/js/images can change between releases but
+        // rarely within one (short cache, still revalidatable).
+        var path = ctx.Context.Request.Path.Value ?? "";
+        if (path.StartsWith("/_framework/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/_content/", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.CacheControl = "public, max-age=86400";
+        }
+        else if (path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/images/", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.CacheControl = "public, max-age=3600";
+        }
+    }
 });
 app.UseAntiforgery();
 app.UseCors(); // Required for OpenSpeedTest to POST results
@@ -1588,6 +1647,24 @@ app.MapRazorComponents<App>()
 // Every minimal-API endpoint is mapped in one place so architecture test A1 can walk the whole
 // surface and prove each endpoint is authorized or explicitly public (design doc 06, gate 2/3).
 ApiEndpoints.MapAll(app);
+
+// Readiness probe: verifies the database is actually reachable, unlike the liveness
+// probe (Endpoints/HealthEndpoints.cs) which only proves the process is up. Returns 503
+// while the DB is down so orchestrators hold traffic until the app can actually serve
+// requests.
+app.MapGet("/api/health/ready", async (NetworkOptimizerDbContext db, CancellationToken ct) =>
+{
+    try
+    {
+        return await db.Database.CanConnectAsync(ct)
+            ? Results.Ok(new { status = "ready", timestamp = DateTime.UtcNow })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+    catch
+    {
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+}).AllowAnonymous();
 
 // Agent tunnel (gRPC). Mapped unconditionally; it is only reachable when the
 // dedicated HTTP/2 listener is bound (multi-site enabled at startup). It authenticates with the
@@ -1805,11 +1882,11 @@ static partial class StartupHelpers
     /// <param name="db">Database to seed (main or a site's).</param>
     /// <param name="defaults">Default rules this database should have.</param>
     /// <returns>The patterns inserted by this pass, for the auto-enable helpers to act on.</returns>
-    internal static HashSet<string> SeedAlertRules(
+    internal static async Task<HashSet<string>> SeedAlertRules(
         NetworkOptimizerDbContext db, List<NetworkOptimizer.Alerts.Models.AlertRule> defaults)
     {
-        var existingPatterns = db.AlertRules.Select(r => r.EventTypePattern).ToHashSet();
-        var recordedPatterns = db.SeededAlertRules.Select(s => s.EventTypePattern).ToHashSet();
+        var existingPatterns = await db.AlertRules.Select(r => r.EventTypePattern).ToHashSetAsync();
+        var recordedPatterns = await db.SeededAlertRules.Select(s => s.EventTypePattern).ToHashSetAsync();
 
         var missing = defaults
             .Where(d => !existingPatterns.Contains(d.EventTypePattern) && !recordedPatterns.Contains(d.EventTypePattern))
@@ -1817,7 +1894,7 @@ static partial class StartupHelpers
         if (missing.Count > 0)
         {
             db.AlertRules.AddRange(missing);
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
@@ -1833,7 +1910,7 @@ static partial class StartupHelpers
             {
                 EventTypePattern = p
             }));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         return seededPatterns;

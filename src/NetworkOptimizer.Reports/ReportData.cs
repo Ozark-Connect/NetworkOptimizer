@@ -361,7 +361,7 @@ public class PortDetail
         if (!IsUp && Forward != "disabled")
             return ("Off", PortStatusType.Ok);
 
-        if (IsUplink || Name.ToLower().Contains("uplink"))
+        if (IsUplink || Name.Contains("uplink", StringComparison.OrdinalIgnoreCase))
             return ("Trunk", PortStatusType.Ok);
 
         if (Forward == "all")
@@ -411,8 +411,7 @@ public class PortDetail
         }
 
         // Fallback: check port name for AP hints
-        var nameLower = Name?.ToLower() ?? "";
-        if (nameLower.Contains("ap") || nameLower.Contains("access point"))
+        if (Name != null && (Name.Contains("ap", StringComparison.OrdinalIgnoreCase) || Name.Contains("access point", StringComparison.OrdinalIgnoreCase)))
             return "AP";
 
         return null;
@@ -421,9 +420,8 @@ public class PortDetail
     private bool IsIoTDeviceOnWrongVlan()
     {
         var iotHints = new[] { "ikea", "hue", "smart", "iot", "alexa", "echo", "nest", "ring" };
-        var nameLower = Name.ToLower();
-        var isIoTDevice = iotHints.Any(hint => nameLower.Contains(hint));
-        var onIoTVlan = NativeNetwork?.ToLower().Contains("iot") ?? false;
+        var isIoTDevice = iotHints.Any(hint => Name.Contains(hint, StringComparison.OrdinalIgnoreCase));
+        var onIoTVlan = NativeNetwork?.Contains("iot", StringComparison.OrdinalIgnoreCase) ?? false;
 
         return isIoTDevice && !onIoTVlan && Forward == "native" && IsUp;
     }

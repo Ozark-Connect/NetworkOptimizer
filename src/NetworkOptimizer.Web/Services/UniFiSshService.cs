@@ -330,7 +330,7 @@ public class UniFiSshService : IUniFiSshService
                 host, toolName, result.success, result.output);
             // Check for tool name without version number (iperf3 outputs "iperf 3.x" not "iperf3")
             var checkName = toolName.Replace("3", "").Replace("2", ""); // "iperf3" -> "iperf"
-            if (result.success && result.output.ToLower().Contains(checkName.ToLower()))
+            if (result.success && result.output.Contains(checkName, StringComparison.OrdinalIgnoreCase))
             {
                 // Get just the first line of output
                 var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
@@ -358,7 +358,7 @@ public class UniFiSshService : IUniFiSshService
             // Extract just the filename if a path was provided (e.g., /usr/local/bin/iperf3 -> iperf3)
             var baseName = Path.GetFileName(toolName);
             var checkName = baseName.Replace("3", "").Replace("2", "");
-            if (result.success && result.output.ToLower().Contains(checkName.ToLower()))
+            if (result.success && result.output.Contains(checkName, StringComparison.OrdinalIgnoreCase))
             {
                 var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
                 return (true, firstLine?.Trim() ?? result.output.Trim());

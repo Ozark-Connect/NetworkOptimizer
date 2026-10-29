@@ -2759,7 +2759,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return null;
 
         // Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
-        if (clientIp.StartsWith("100."))
+        if (clientIp.StartsWith("100.", StringComparison.Ordinal))
         {
             var parts = clientIp.Split('.');
             if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet)
@@ -2773,7 +2773,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return null;
 
         // Teleport: 192.168.x.x that's NOT in any known UniFi network
-        if (clientIp.StartsWith("192.168."))
+        if (clientIp.StartsWith("192.168.", StringComparison.Ordinal))
         {
             var isInKnownNetwork = topology.Networks.Any(n =>
                 !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));

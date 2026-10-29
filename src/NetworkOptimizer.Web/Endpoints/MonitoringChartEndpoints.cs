@@ -12,6 +12,11 @@ public static class MonitoringChartEndpoints
 {
     public static void Map(WebApplication app)
     {
+        // Captured once for the endpoint lambdas below; used to log (instead of
+        // silently swallowing) gateway-discovery failures that degrade a chart
+        // to "no WAN data".
+        var logger = app.Logger;
+
         // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
         // architecture test A1 checks. The policy short-circuits when the install has
         // authentication disabled (GlobalRoleHandler).
@@ -35,7 +40,11 @@ public static class MonitoringChartEndpoints
                 gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                 wanIfNames = gw?.WanInterfaceNames;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Chart degrades to "no WAN data" - log so the cause is diagnosable
+                logger.LogDebug(ex, "Gateway discovery failed while building monitoring chart data");
+            }
 
             // The live tick has to answer for the same WAN the caller is charting. Without this it
             // served the primary's counters to every caller, so a chart backfilled with one WAN's
@@ -139,7 +148,11 @@ public static class MonitoringChartEndpoints
                 gatewayMac = gw?.Mac;
                 wanIfNames = gw?.WanInterfaceNames;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Chart degrades to "no WAN data" - log so the cause is diagnosable
+                logger.LogDebug(ex, "Gateway discovery failed while building monitoring chart data");
+            }
 
             // The stored rates are keyed on gateway MAC + counter interface, and both normally come
             // from the console - so an offline site skipped the query entirely and read as having no
@@ -492,7 +505,11 @@ public static class MonitoringChartEndpoints
                 gatewayMac = gw?.Mac;
                 wanIfNames = gw?.WanInterfaceNames;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Chart degrades to "no WAN data" - log so the cause is diagnosable
+                logger.LogDebug(ex, "Gateway discovery failed while building monitoring chart data");
+            }
 
             // Explicit WAN (a UniFi wan key like "wan2", from the chart's WAN filter): that WAN's
             // own counter interface - live, then its remembered profile row - replaces the default

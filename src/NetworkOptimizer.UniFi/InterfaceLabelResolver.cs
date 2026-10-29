@@ -86,7 +86,7 @@ public static class InterfaceLabelResolver
 
             if (wgMap.TryGetValue(ifName, out var g)) return g;
 
-            if (lower.StartsWith("ifb"))
+            if (lower.StartsWith("ifb", StringComparison.Ordinal))
             {
                 // SQM shaping attached to a parent (ifbeth0.100 → eth0.100); the bare
                 // ifb0/ifb1 root devices are left unresolved (and hidden when down).
@@ -111,19 +111,19 @@ public static class InterfaceLabelResolver
 
             if (wanMap.TryGetValue(ifName, out var w)) return w;
 
-            if (lower.StartsWith("honeypot"))
+            if (lower.StartsWith("honeypot", StringComparison.Ordinal))
             {
                 var vlan = TrailingVlanId(ifName);
                 var net = vlan.HasValue ? NetworkNameForVlan(vlan.Value) : null;
                 return net != null ? $"Honeypot ({net})"
                     : vlan is > 0 ? $"Honeypot (VLAN {vlan})" : "Honeypot";
             }
-            if (lower.StartsWith("br"))
+            if (lower.StartsWith("br", StringComparison.Ordinal))
             {
                 var vlan = TrailingVlanId(ifName);
                 return vlan.HasValue ? NetworkNameForVlan(vlan.Value) : null;
             }
-            if (lower.StartsWith("tun") || lower.StartsWith("ovpn") || lower.StartsWith("vtun"))
+            if (lower.StartsWith("tun", StringComparison.Ordinal) || lower.StartsWith("ovpn", StringComparison.Ordinal) || lower.StartsWith("vtun", StringComparison.Ordinal))
                 return ovpnLabel;
 
             return null;

@@ -128,7 +128,7 @@ public class UniFiApiClient : IDisposable
     {
         _agentProxyPort = agentProxyPort;
         _logger = logger;
-        _controllerUrl = controllerHost.StartsWith("https://") ? controllerHost : $"https://{controllerHost}";
+        _controllerUrl = controllerHost.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? controllerHost : $"https://{controllerHost}";
         _username = username;
         _password = password;
         _apiKey = apiKey;

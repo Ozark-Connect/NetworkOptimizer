@@ -115,7 +115,6 @@ public class AgentProbeResultSink
         MonitoringCollectionRegistry collectionRegistry,
         SiteAgentCoverage agentCoverage,
         AgentOnGatewayDetector onGatewayDetector,
-        IAgentEnrollmentService enrollment,
         AgentTunnelRegistry tunnelRegistry,
         Monitoring.IspHealth.IspHealthRegistry ispHealthRegistry,
         ClientUsageRollupRegistry usageRollupRegistry,
@@ -135,14 +134,12 @@ public class AgentProbeResultSink
         _collectionRegistry = collectionRegistry;
         _agentCoverage = agentCoverage;
         _onGatewayDetector = onGatewayDetector;
-        _enrollment = enrollment;
         _logger = logger;
     }
 
     private readonly MonitoringCollectionRegistry _collectionRegistry;
     private readonly SiteAgentCoverage _agentCoverage;
     private readonly AgentOnGatewayDetector _onGatewayDetector;
-    private readonly IAgentEnrollmentService _enrollment;
     private readonly AgentTunnelRegistry _tunnelRegistry;
 
     /// <summary>

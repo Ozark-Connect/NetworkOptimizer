@@ -41,8 +41,10 @@ public class AgentEnrollmentServiceTests
         // collects", which is what these tests assert against. The same empty provider backs the
         // routing cleanup on agent removal, so it logs and moves on rather than clearing anything -
         // these tests are about enrollment, and the removal must not depend on that tidying working.
-        var emptyProvider = new ServiceCollection().BuildServiceProvider();
-        _service = new AgentEnrollmentService(_factory, _tunnelRegistry, new UnfilteredSiteAccess(),
+        var emptyProvider = new ServiceCollection()
+            .AddSingleton<NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter>(new UnfilteredSiteAccess())
+            .BuildServiceProvider();
+        _service = new AgentEnrollmentService(_factory, _tunnelRegistry,
             new SiteAgentCoverage(emptyProvider),
             emptyProvider,
             new SiteTunnelRouting(emptyProvider, new SiteAgentCoverage(emptyProvider),

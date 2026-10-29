@@ -168,7 +168,7 @@ public class UniFiPortForwardRule
         get
         {
             if (string.IsNullOrEmpty(Name)) return "Unknown";
-            if (Name.StartsWith("UPnP [") && Name.EndsWith("]"))
+            if (Name.StartsWith("UPnP [", StringComparison.Ordinal) && Name.EndsWith(']'))
                 return Name.Substring(6, Name.Length - 7);
             return Name;
         }

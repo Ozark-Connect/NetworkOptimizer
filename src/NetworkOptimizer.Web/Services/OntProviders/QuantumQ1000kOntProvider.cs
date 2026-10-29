@@ -116,7 +116,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
             var opticalJson = await client.GetStringAsync($"{baseUrl}{OpticalPath}", cancellationToken);
             ApplyOpticalInterface(opticalJson, stats);
 
-            var scheme = baseUrl.StartsWith("https") ? "HTTPS" : "HTTP";
+            var scheme = baseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "HTTPS" : "HTTP";
             var rx = stats.RxPowerDbm.HasValue ? $", RX: {stats.RxPowerDbm.Value:F2} dBm" : "";
             return (true, $"Connected ({scheme}) - {stats.DeviceModel}{rx}");
         }
