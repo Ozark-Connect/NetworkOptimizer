@@ -16,7 +16,7 @@
     can make a key for them. It stays a plain line of text: the feature is optional and must not nag.
 *@
 
-<div class="form-group ssh-key-row">
+<div class="@(ShowLabel ? "form-group ssh-key-row" : "ssh-key-row")">
     @if (ShowLabel)
     {
         <label class="form-label @(Key is null ? "form-label-unused" : "")">Managed SSH Key@(Key is null ? " (Not in use)" : "")</label>
@@ -74,7 +74,10 @@
     [Parameter]
     public EventCallback OnManage { get; set; }
 
-    /// <summary>False when the host already shows the "Managed SSH Key" heading above the row.</summary>
+    /// <summary>
+    /// False when the host already shows the "Managed SSH Key" heading and wraps the row in its own form
+    /// group: the row then drops both, so it sits directly under the host's control.
+    /// </summary>
     [Parameter]
     public bool ShowLabel { get; set; } = true;
 }
