@@ -845,6 +845,9 @@ public static class PlanBuilder
             foreach (var p in group.OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue))
             {
                 var id = Map(ConfigState.IdOf(p));
+                // Only policies the console has or the plan creates: a Roll Back's snapshot can name one
+                // deleted since, and UniFi refuses a reorder that lists it.
+                if (!liveIndex.ContainsKey(id) && !id.StartsWith(RefPrefix, StringComparison.Ordinal)) continue;
                 var idx = p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i
                     : liveIndex.TryGetValue(id, out var li) ? li : long.MaxValue;
                 (idx < predefinedMin ? before : after).Add(id);

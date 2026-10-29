@@ -203,6 +203,27 @@ public class YamlConverterTests
     }
 
     [Fact]
+    public void ReorderBackToASnapshot_LeavesOutAPolicyDeletedSince()
+    {
+        // A Roll Back of a reorder, scoped to order: the snapshot still has D, deleted on the console since.
+        ConfigState Site(bool withD, params (string Id, long Index)[] order) => State([
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+            .. order.Where(o => withD || o.Id != "pd").Select(o => ("firewall_policy",
+                "{\"_id\":\"" + o.Id + "\",\"name\":\"" + o.Id + "\",\"index\":" + o.Index
+                + ",\"action\":\"ALLOW\",\"source\":{\"zone_id\":\"z1\"},\"destination\":{\"zone_id\":\"z2\"}}"))]);
+        var snapshot = Site(true, ("pa", 10000), ("pd", 10001), ("pb", 10002));
+        var live = Site(false, ("pb", 10000), ("pa", 10001));
+        // As Roll Back narrows it: only the policies the change moved.
+        var only = new HashSet<(string, string)> { ("firewall_policy", "pa"), ("firewall_policy", "pb") };
+        var ops = PlanBuilder.Build(snapshot, live, new PlanOptions { OnlyObjects = only, Collections = new HashSet<string> { "firewall_policy" } }).Operations;
+
+        var reorder = ops.Should().ContainSingle(o => o.Action == PlanAction.Reorder).Subject;
+        reorder.Body!["before_predefined_ids"]!.AsArray().Concat(reorder.Body!["after_predefined_ids"]!.AsArray())
+            .Select(i => i!.ToString()).Should().Equal("pa", "pb");
+    }
+
+    [Fact]
     public void RemovingAPredefinedPolicy_IsAnError()
     {
         var site = PolicySite();
