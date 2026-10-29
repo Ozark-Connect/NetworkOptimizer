@@ -155,7 +155,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     {
         var running = _registry.RunningSites().ToHashSet(StringComparer.OrdinalIgnoreCase);
         await using var db = await _mainDb.CreateDbContextAsync(ct);
-        var rows = await db.Sites.AsNoTracking().Where(s => s.Enabled).Select(s => new { s.Slug, s.Name, s.IsDefault }).ToListAsync(ct);
+        // The natural site order, as Settings - Multi-Site and the site selector list them.
+        var rows = await db.Sites.AsNoTracking().Where(s => s.Enabled)
+            .OrderByDescending(s => s.IsDefault).ThenBy(s => s.SortOrder).ThenBy(s => s.Name)
+            .Select(s => new { s.Slug, s.Name, s.IsDefault }).ToListAsync(ct);
         var sites = rows.Where(r => running.Contains(r.Slug) || r.IsDefault).Select(r => (r.Slug, r.Name, r.IsDefault)).ToList();
         if (sites.Count == 0) sites.Add((SiteManagementService.DefaultSiteSlug, "Default", true));
         // After the fallback: a main site with no UniFi Console has no health or changes to report,
@@ -585,8 +588,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 PendingApprovals = plans.Count(p => p.Status == ConfigPlanStatus.PendingApproval),
             });
         }
-        // Worst first: no data from an unreachable site, then lowest health.
-        return result.OrderBy(s => s.Online ? 1 : 0).ThenBy(s => s.Health.Latest ?? s.Health.Average ?? 101).ThenBy(s => s.Name).ToList();
+        // Worst first: no data from an unreachable site, then lowest health. Ties keep the natural
+        // site order SitesAsync returns, since OrderBy is stable.
+        return result.OrderBy(s => s.Online ? 1 : 0).ThenBy(s => s.Health.Latest ?? s.Health.Average ?? 101).ToList();
     }
 
     public async Task<ChangeDetailView?> GetChangeDetailAsync(string siteSlug, int changeId, CancellationToken cancellationToken = default)
