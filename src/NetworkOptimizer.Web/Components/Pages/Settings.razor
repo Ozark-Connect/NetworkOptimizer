@@ -1465,24 +1465,7 @@
                                 </div>
                             </div>
 
-                            @if (_sshKey is null)
-                            {
-                                <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
-                            }
-
-                            {
-                                <div class="form-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" @bind="editingModem.UseManagedSshKey" />
-                                        <span>Use this site's Managed SSH Key</span>
-                                    </label>
-                                    <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
-                                </div>
-                                @if (editingModem.UseManagedSshKey)
-                                {
-                                    <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
-                                }
-                            }
+                            @ModemManagedKeyField
                         }
                         else if (ModemProviderKeys.UsesPerModemSsh(editingModem.Provider))
                         {
@@ -1502,24 +1485,7 @@
                                 </div>
                             </div>
 
-                            @if (_sshKey is null)
-                            {
-                                <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
-                            }
-
-                            {
-                                <div class="form-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" @bind="editingModem.UseManagedSshKey" />
-                                        <span>Use this site's Managed SSH Key</span>
-                                    </label>
-                                    <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
-                                </div>
-                                @if (editingModem.UseManagedSshKey)
-                                {
-                                    <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
-                                }
-                            }
+                            @ModemManagedKeyField
                         }
                         else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-cpe")
                         {
@@ -4517,6 +4483,26 @@
     }
 
     /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
+    // One heading, the opt-in under it, and the key details only once the modem uses it. Shared by the
+    // MikroTik and GL-iNet/Quectel forms so the two cannot drift.
+    private RenderFragment ModemManagedKeyField => @<text>
+        <div class="form-group">
+            <label class="form-label">Managed SSH Key</label>
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="editingModem.UseManagedSshKey" />
+                <span>Use for this modem</span>
+            </label>
+            @if (editingModem.UseManagedSshKey)
+            {
+                <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
+            }
+        </div>
+        @if (editingModem.UseManagedSshKey)
+        {
+            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" ShowLabel="false" />
+        }
+    </text>;
+
     private async Task ShowSshKeyPanel()
     {
         if (_activeTab != "connection")
