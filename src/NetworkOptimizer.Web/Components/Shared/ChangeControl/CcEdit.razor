@@ -137,7 +137,7 @@
                     </div>
                     @if (_validation.Problems.Count == 0)
                     {
-                        <div class="empty-state empty-state-small"><p>@(_checking ? "Checking against the live config..." : _edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
+                        <div class="empty-state empty-state-small"><p>@(_edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
                     }
                     @foreach (var p in _validation.Problems.OrderBy(p => p.Level == "Error" ? 0 : p.Level == "Warning" ? 1 : 2))
                     {
@@ -247,6 +247,7 @@
     private YamlValidation _validation = new();
     private bool _loading = true;
     private bool _checking;
+    private int _checkRun, _checkDone;
     private bool _busy;
     private bool _reviewing;
     private string? _error;
@@ -498,9 +499,18 @@
 
     private async Task ValidateAsync()
     {
-        // A check reads the live config and can take seconds; say so rather than look stuck.
-        _checking = _edited.Count > 0;
-        if (_checking) StateHasChanged();
+        // A check reading the live config can take seconds; say so then, but not on the usual quick
+        // check, where a spinner on every typing pause only flashes.
+        var run = ++_checkRun;
+        if (_edited.Count > 0)
+        {
+            _ = Task.Delay(700).ContinueWith(_ => _disposed ? Task.CompletedTask : InvokeAsync(() =>
+            {
+                if (run != _checkRun || _checkDone == run) return;
+                _checking = true;
+                StateHasChanged();
+            }), TaskScheduler.Default);
+        }
         try
         {
             _validation = _edited.Count == 0 ? new YamlValidation()
@@ -512,6 +522,7 @@
         {
             Logger.LogDebug(ex, "YAML validation failed");
         }
+        _checkDone = run;
         _checking = false;
         await PushProblemsAsync();
         StateHasChanged();
