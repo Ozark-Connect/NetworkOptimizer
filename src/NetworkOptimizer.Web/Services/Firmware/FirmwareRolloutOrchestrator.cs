@@ -2732,6 +2732,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (inFlightWaves.Any(w => w != wave && !mayOverlap.Contains(w)))
             return;
 
+        // The overlap above is plan-time topology, and a mesh device can re-mesh after planning. A
+        // wave holding a device that is NOW above one in flight would cut that device's path.
+        if (HoldsALiveAncestor(waveSteps, steps, byMac))
+            return;
+
         var spacingLimits = ResolvedSpacing.For(settings.SpacingProfile, settings.AdvancedSpacingJson);
         if (!inFlightWaves.Contains(wave) && inFlightWaves.Count >= spacingLimits.MaxWaveOverlap)
             return;
@@ -3870,6 +3875,39 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         return !document.SiteApMacs.Any(mac => !going.Contains(mac)
             && byMac.TryGetValue(mac, out var seen)
             && seen.State != (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Disconnected);
+    }
+
+    /// <summary>
+    /// Whether a device still to be commanded in this wave sits, on the live uplink tree, above a
+    /// device that is in flight or cooling down. Only ever adds a hold on top of the plan's own
+    /// overlap rules, and only while that step is moving.
+    /// </summary>
+    private bool HoldsALiveAncestor(
+        List<FirmwareRolloutStep> waveSteps,
+        List<FirmwareRolloutStep> steps,
+        Dictionary<string, RolloutDeviceObservation> byMac)
+    {
+        var starting = waveSteps
+            .Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held)
+            .Select(s => s.DeviceMac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var moving = steps.Where(IsInFlight).ToList();
+        if (starting.Count == 0 || moving.Count == 0 || byMac.Count == 0)
+            return false;
+
+        var parents = RolloutDarkSet.ParentMap(byMac.Values);
+        foreach (var step in moving)
+        {
+            // ChainToRoot stops at a cycle; index 0 is the device itself.
+            var above = RolloutDarkSet.ChainToRoot(step.DeviceMac, parents).Skip(1).FirstOrDefault(starting.Contains);
+            if (above == null) continue;
+
+            _logger.LogDebug(
+                "Holding wave {Wave} on site {Site}: {Above} is now upstream of {Device}, which is {State}",
+                waveSteps[0].Wave, _siteSlug, above, step.DeviceName, step.State);
+            return true;
+        }
+        return false;
     }
 
     private static int InFlightCount(IEnumerable<FirmwareRolloutStep> steps, DeviceType type) =>

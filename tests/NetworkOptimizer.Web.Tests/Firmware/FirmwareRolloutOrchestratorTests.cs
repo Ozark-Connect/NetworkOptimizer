@@ -773,6 +773,46 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task AWave_IsHeldWhileItsDeviceIsNowAboveACoolingDevice(bool reMeshedUnderIt, bool expectCommanded)
+    {
+        using var harness = new RolloutHarness();
+        var later = Wave(2, PlanStep(PeerMac));
+        later.MayOverlapWaves.Add(1);
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, MeshPlanStep(ApMac, SwitchMac)), later),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2));
+
+        // Planned under the switch, so the plan lets the two waves overlap. Live, it may have
+        // re-meshed under the second AP.
+        var liveParent = reMeshedUnderIt ? PeerMac : SwitchMac;
+        void SetMesh(int state, string firmware, string? upgradeTo = null) =>
+            harness.Observer.Set(ApMac, state, firmware, upgradeTo: upgradeTo, uplinkMac: liveParent, wirelessUplink: true);
+        SetMesh(Online, FromVersion, ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
+        harness.Observer.Set(SwitchMac, Online, FromVersion, model: "USL24", name: "Switch 1");
+
+        await harness.TickAsync();
+        SetMesh(Offline, FromVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        SetMesh(Online, ToVersion);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        await harness.TickAsync(TimeSpan.FromMinutes(4));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.CoolDown);
+        harness.Commands.UpgradeCommands.Contains(PeerMac).Should().Be(expectCommanded);
+
+        // The hold lasts only while the device below is moving.
+        await harness.TickAsync(TimeSpan.FromMinutes(2));
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.LitmusPassed);
+        await harness.TickAsync(PastWaveGap);
+        harness.Commands.UpgradeCommands.Should().Contain(PeerMac);
+    }
+
+    [Theory]
     [InlineData(true, FirmwareRolloutStepState.Down)]
     [InlineData(false, FirmwareRolloutStepState.Commanded)]
     public async Task IsolatedAfterTheCommand_IsDown_OnlyForAMeshDevice(bool mesh, FirmwareRolloutStepState expected)
