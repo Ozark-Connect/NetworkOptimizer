@@ -50,6 +50,15 @@ public sealed record ModemPollContext
     public string? PrivateKeyPath { get; init; }
 
     /// <summary>
+    /// Decrypted PEM of the site's stored SSH key, set only for per-modem SSH providers. Additive: offered
+    /// alongside the password and key file, never in place of them.
+    /// </summary>
+    public string? StoredPrivateKeyPem { get; init; }
+
+    /// <summary>Passphrase for <see cref="StoredPrivateKeyPem"/>, for an uploaded encrypted key.</summary>
+    public string? StoredPrivateKeyPassphrase { get; init; }
+
+    /// <summary>
     /// Modem model or type string for display and provider-internal branching
     /// (e.g. "U5G-Max", "U-LTE"). Not a primary routing key - that is ProviderKey.
     /// </summary>
