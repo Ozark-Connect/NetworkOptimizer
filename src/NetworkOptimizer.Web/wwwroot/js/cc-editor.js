@@ -926,6 +926,14 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                     if (insert === ' ' && v.state.sliceDoc(from - 1, from) === ':') setTimeout(() => startCompletion(v), 0);
                     return false;
                 }),
+                // A quote typed before text quotes that text, not an empty pair in front of it.
+                EditorView.inputHandler.of((v, from, to, insert) => {
+                    if ((insert !== '"' && insert !== "'") || from !== to) return false;
+                    const end = quotedEnd(v.state.doc.lineAt(from), from);
+                    if (end === null) return false;
+                    v.dispatch({ changes: [{ from, insert }, { from: end, insert }], selection: { anchor: end + 2 }, userEvent: 'input.type' });
+                    return true;
+                }),
             ],
         }),
     });
@@ -1177,6 +1185,20 @@ export function matchFieldsChange(doc, lineNo) {
         selection = { anchor: line.to - removedAbove + upTo.length + (missing[target][1] === '[]' ? 1 : 0) };
     }
     return selection ? { changes, selection } : { changes };
+}
+
+/**
+ * Where a quote typed at pos closes when text follows it: the end of that value (before a list's
+ * comma or bracket, a trailing comment, or trailing spaces). Null when nothing follows, or it is
+ * already a quote or a closing bracket: then the usual pairing applies. Pure, exported for testing.
+ */
+export function quotedEnd(line, pos) {
+    const rest = line.text.slice(pos - line.from);
+    if (!rest || /^[\s"'\]},]/.test(rest)) return null;
+    const inList = /[[{]/.test(line.text.slice(0, pos - line.from));
+    const stop = rest.search(inList ? /,|\]|\}|\s#/ : /\s#/);
+    const value = (stop < 0 ? rest : rest.slice(0, stop)).replace(/\s+$/, '');
+    return value ? pos + value.length : null;
 }
 
 /** The value on pos's "key: value" line, without a trailing comment; '' when none. */
