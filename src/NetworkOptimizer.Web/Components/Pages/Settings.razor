@@ -1464,6 +1464,8 @@
                                     <small class="form-help">Leave empty when the router has one LTE interface. Set it when there is more than one.</small>
                                 </div>
                             </div>
+
+                            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
                         }
                         else if (ModemProviderKeys.UsesPerModemSsh(editingModem.Provider))
                         {
