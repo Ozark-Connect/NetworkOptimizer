@@ -1005,6 +1005,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var observations = await _observer.ObserveAsync(cancellationToken);
         var answered = observations.Count > 0;
         var byMac = observations.ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
+        // Read before the loop drops pruned devices from the document.
+        var familyOf = FamilyLookup(document);
         foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
         {
             if (!byMac.TryGetValue(step.DeviceMac, out var seen)
@@ -1035,8 +1037,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             // held peers are not left waiting on a step that will never run.
             if (IsCanary(document, step.DeviceMac))
             {
+                var family = familyOf(step);
                 foreach (var held in steps.Where(s => s.State == FirmwareRolloutStepState.Held
-                    && string.Equals(s.Model, step.Model, StringComparison.OrdinalIgnoreCase)))
+                    && string.Equals(familyOf(s), family, StringComparison.OrdinalIgnoreCase)))
                 {
                     held.State = FirmwareRolloutStepState.Pending;
                     await PersistStepAsync(held, cancellationToken);
@@ -2543,10 +2546,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var held = steps.Where(s => s.State == FirmwareRolloutStepState.Held).ToList();
         if (held.Count == 0) return;
 
-        foreach (var group in held.GroupBy(s => s.Model, StringComparer.OrdinalIgnoreCase))
+        var familyOf = FamilyLookup(document);
+        foreach (var group in held.GroupBy(familyOf, StringComparer.OrdinalIgnoreCase))
         {
             var canaries = steps
-                .Where(s => string.Equals(s.Model, group.Key, StringComparison.OrdinalIgnoreCase)
+                .Where(s => string.Equals(familyOf(s), group.Key, StringComparison.OrdinalIgnoreCase)
                     && IsCanary(document, s.DeviceMac))
                 .ToList();
             if (canaries.Count == 0) continue;
@@ -2760,18 +2764,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (waveSteps.All(s => s.State == FirmwareRolloutStepState.Held))
         {
-            // Nothing in this wave can move and no canary is left to release it. Rather than stall
-            // forever, let it run: the canary that was meant to gate it is already gone.
+            var familyOf = FamilyLookup(document);
+            var waveFamilies = waveSteps.Select(familyOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var stillGating = steps.Any(s => IsCanary(document, s.DeviceMac)
-                && waveSteps.Any(w => string.Equals(w.Model, s.Model, StringComparison.OrdinalIgnoreCase))
+                && waveFamilies.Contains(familyOf(s))
                 && !IsSettled(s));
             if (stillGating) return;
 
+            // Its canary settled without passing, or a pass would have released it already. Never
+            // let it run instead: a model that has not been proven does not upgrade in this plan.
             foreach (var step in waveSteps)
             {
-                step.State = FirmwareRolloutStepState.Pending;
+                step.State = FirmwareRolloutStepState.AbortedSku;
+                step.Error = "No canary passed for this model";
                 await PersistStepAsync(step, cancellationToken);
+                _logger.LogWarning(
+                    "Skipped {Device} on site {Site}: no canary passed for its model",
+                    step.DeviceName, _siteSlug);
             }
+            return;
         }
 
         if (settings.PerWaveApproval && document.ApprovedThroughWave < wave)
@@ -4012,6 +4023,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private static bool IsCanary(RolloutPlanDocument document, string mac) =>
         document.Waves.SelectMany(w => w.Steps)
             .Any(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase) && s.IsCanary);
+
+    /// <summary>
+    /// Model family of a step, the key the planner pairs a canary with its peers on. The raw SKU
+    /// is not: the same device in another shell has its own code but shares the canary.
+    /// </summary>
+    private static Func<FirmwareRolloutStep, string> FamilyLookup(RolloutPlanDocument document)
+    {
+        var displayModels = document.Waves.SelectMany(w => w.Steps)
+            .GroupBy(s => s.Mac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().DisplayModel, StringComparer.OrdinalIgnoreCase);
+        return step =>
+        {
+            // An empty display name would come back as the family of every unknown code alike.
+            var display = displayModels.GetValueOrDefault(step.DeviceMac);
+            var family = NetworkOptimizer.UniFi.UniFiProductDatabase.GetModelFamily(
+                step.Model, string.IsNullOrWhiteSpace(display) ? null : display);
+            return string.IsNullOrWhiteSpace(family) ? step.Model : family;
+        };
+    }
 
     /// <summary>
     /// Version equality across the two spellings the console and the feed use. Whitespace and a

@@ -710,6 +710,57 @@ public class FirmwareRolloutOrchestratorTests
         (await harness.StepAsync(plan.Id, SwitchMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
     }
 
+    // UAPA6A9 and UAPA6AE are one AP in two colors: the planner pairs them under one canary.
+    private const string WhiteXg = "UAPA6A9";
+    private const string BlackXg = "UAPA6AE";
+
+    [Fact]
+    public async Task HeldPeerInAnotherColor_IsReleasedWhenTheCanaryPasses()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(
+                Wave(1, PlanStep(ApMac, model: WhiteXg, canary: true)),
+                Wave(2, PlanStep(PeerMac, model: BlackXg, held: true))),
+            Step(ApMac, model: WhiteXg),
+            Step(PeerMac, name: "AP 2", model: BlackXg, wave: 2, state: FirmwareRolloutStepState.Held));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion, model: WhiteXg);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, model: BlackXg, name: "AP 2");
+
+        await harness.TickAsync();
+        await RunCanaryToLitmusAsync(harness, ApMac);
+
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.Pending);
+        await harness.TickAsync(PastWaveGap);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
+    public async Task HeldPeerInAnotherColor_NeverRunsAfterTheCanaryFails()
+    {
+        using var harness = new RolloutHarness();
+        harness.Litmus.VerdictByMac[ApMac] = LitmusVerdict.Fail("CPU is pinned since the upgrade.");
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(
+                Wave(1, PlanStep(ApMac, model: WhiteXg, canary: true)),
+                Wave(2, PlanStep(PeerMac, model: BlackXg, held: true))),
+            Step(ApMac, model: WhiteXg),
+            Step(PeerMac, name: "AP 2", model: BlackXg, wave: 2, state: FirmwareRolloutStepState.Held));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion, model: WhiteXg);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, model: BlackXg, name: "AP 2");
+
+        await harness.TickAsync();
+        await RunCanaryToLitmusAsync(harness, ApMac);
+        for (var i = 0; i < 6; i++)
+            await harness.TickAsync(PastWaveGap);
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+        var peer = await harness.StepAsync(plan.Id, PeerMac);
+        peer.State.Should().Be(FirmwareRolloutStepState.AbortedSku);
+        peer.Error.Should().Be("No canary passed for this model");
+        harness.Commands.UpgradeCommands.Should().NotContain(PeerMac);
+    }
+
     [Fact]
     public async Task PerWaveApproval_PausesAtTheBoundaryAndRunsOnResume()
     {
