@@ -6309,6 +6309,26 @@
         return success;
     }
 
+    /// <summary>
+    /// Names of this site's modems that authenticate with the stored key alone, read fresh so a modem
+    /// saved in another tab counts. Wording only: any failure returns none, so it can never block the removal.
+    /// </summary>
+    private async Task<List<string>> KeyOnlyModemNamesAsync()
+    {
+        try
+        {
+            return (await ModemService.GetModemsAsync())
+                .Where(m => CellularModemService.OffersStoredKey(m)
+                            && string.IsNullOrEmpty(m.Password) && string.IsNullOrEmpty(m.PrivateKeyPath))
+                .Select(m => m.Name)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return new List<string>();
+        }
+    }
+
     private async Task RemoveSshKey()
     {
         var installed = _keyDeployStatus?.KeyInstalled == true || _keyDeployStatus?.ScriptInstalled == true;
@@ -6316,6 +6336,11 @@
             ? "Remove the stored SSH key and take it off the gateway? Connections will fall back to the "
               + "password or key file configured for each."
             : "Remove the stored SSH key? Connections will fall back to the password or key file configured for each.";
+
+        // A modem set to use the key with no password or key file has nothing to fall back to.
+        var keyOnlyModems = await KeyOnlyModemNamesAsync();
+        if (keyOnlyModems.Count > 0)
+            prompt += $" These modems use only this key and will stop connecting until each has a password: {string.Join(", ", keyOnlyModems)}.";
 
         if (!await JS.InvokeAsync<bool>("confirm", prompt))
         {
