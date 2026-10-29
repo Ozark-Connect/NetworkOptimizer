@@ -40,14 +40,16 @@ const theme = EditorView.theme({
     // line's end is drawn at the widget's edge, and a margin put it where a trailing space would be.
     '.cc-line-tail': { paddingLeft: '0.75rem' },
     '.cc-managed': { color: 'var(--text-muted)' },
-    '.cc-order': { display: 'inline-flex', alignItems: 'center', gap: '0.15rem' },
-    '.cc-order-move': {
-        font: 'inherit', fontSize: '0.8rem', lineHeight: '1', padding: '0 0.3rem', cursor: 'pointer',
+    // Inline and in the line's own height. Not cc-order-*: app.css styles those (Changes' policy
+    // move rows), and its ".cc-order-move + .cc-order-move" margin doubled each policy's first line.
+    '.cc-policy-rank': { whiteSpace: 'nowrap' },
+    '.cc-policy-step': {
+        font: 'inherit', lineHeight: 'inherit', verticalAlign: 'baseline', height: 'auto', margin: '0', padding: '0 0.25rem', cursor: 'pointer',
         border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
     },
-    '.cc-order-move:hover:not(:disabled)': { color: 'var(--text-primary)', background: 'var(--bg-tertiary)' },
-    '.cc-order-move:disabled': { opacity: '0.3', cursor: 'default' },
-    '.cc-order-label': { fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.35rem' },
+    '.cc-policy-step:hover:not(:disabled)': { color: 'var(--text-primary)', background: 'var(--bg-tertiary)' },
+    '.cc-policy-step:disabled': { opacity: '0.3', cursor: 'default' },
+    '.cc-policy-rank-label': { fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.35rem' },
     '.cc-managed-label': { fontSize: '0.75rem', padding: '0 0.4rem', borderRadius: '3px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' },
     '.cc-remove-item': {
         font: 'inherit', fontSize: '0.95rem', lineHeight: '1', padding: '0 0.35rem', cursor: 'pointer',
@@ -477,11 +479,11 @@ class OrderWidget extends WidgetType {
     eq(o) { return o.p.pair === this.p.pair && o.p.rank === this.p.rank && o.p.of === this.p.of && !o.p.prev === !this.p.prev && !o.p.next === !this.p.next; }
     toDOM(view) {
         const tail = document.createElement('span');
-        tail.className = 'cc-line-tail cc-order';
+        tail.className = 'cc-line-tail cc-policy-rank';
         const arrow = (label, has, up) => {
             const b = document.createElement('button');
             b.type = 'button';
-            b.className = 'cc-order-move';
+            b.className = 'cc-policy-step';
             b.textContent = label;
             b.disabled = !has;
             b.setAttribute('aria-label', up ? 'Move up in its zone pair' : 'Move down in its zone pair');
@@ -501,7 +503,7 @@ class OrderWidget extends WidgetType {
         };
         tail.append(arrow('↑', this.p.prev, true), arrow('↓', this.p.next, false));
         const label = document.createElement('span');
-        label.className = 'cc-order-label';
+        label.className = 'cc-policy-rank-label';
         label.textContent = `${this.p.pair}, ${this.p.rank} of ${this.p.of}`;
         tail.appendChild(label);
         return tail;
