@@ -112,7 +112,8 @@
                 <div class="cc-item-detail">@LastMoveStatus(steps)</div>
                 <label class="checkbox-label cc-reconnect-poe"><input type="checkbox" @bind="_powerCycle" /><span>Power-cycle PoE ports of wired clients</span></label>
             </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastMoves.Count == 0)" @onclick="ReconnectAsync">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastMoves.Count == 0)" @onclick="ReconnectAsync"
+                data-tooltip="Acts right away: Wi-Fi clients still on an old address rejoin, and PoE ports power-cycle if allowed.">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
         </div>
         @if (_reconnect is { } rc)
         {
