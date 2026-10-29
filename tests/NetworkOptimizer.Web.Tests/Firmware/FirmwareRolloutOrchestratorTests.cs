@@ -672,6 +672,29 @@ public class FirmwareRolloutOrchestratorTests
         (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
     }
 
+    // A canary that already runs the target when its turn comes (updated by hand, or by the console
+    // since the plan was built) is skipped, and still proves the build for its held peers.
+    [Fact]
+    public async Task CanaryAlreadyOnTheTarget_ReleasesItsHeldPeers()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(
+                Wave(1, PlanStep(ApMac, canary: true)),
+                Wave(2, PlanStep(PeerMac, held: true))),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2, state: FirmwareRolloutStepState.Held));
+        harness.Observer.Set(ApMac, Online, ToVersion, upgradeTo: ToVersion);
+        harness.Observer.Set(PeerMac, Online, FromVersion, upgradeTo: ToVersion, name: "AP 2");
+
+        await harness.TickAsync();
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.SkippedExcluded);
+        (await harness.StepAsync(plan.Id, ApMac)).Error.Should().Be(RolloutSkipReasons.AlreadyOnTarget);
+
+        await harness.TickAsync(PastWaveGap);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
     [Fact]
     public async Task CanaryFailingItsLitmus_DropsTheModelAndKeepsOtherModelsRolling()
     {
