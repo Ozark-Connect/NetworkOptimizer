@@ -45,6 +45,12 @@ public class ModemConfiguration
     [MaxLength(500)]
     public string? PrivateKeyPath { get; set; }
 
+    /// <summary>
+    /// Offer the site's Managed SSH Key on this modem's per-modem SSH connection. Off by default, so a
+    /// modem that authenticates with a password is never offered a key it does not hold.
+    /// </summary>
+    public bool UseManagedSshKey { get; set; }
+
     /// <summary>Modem model or type for display (e.g. "U5G-Max", "Nighthawk M5")</summary>
     [MaxLength(50)]
     public string ModemType { get; set; } = "U5G-Max";

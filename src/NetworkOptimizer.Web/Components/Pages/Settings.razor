@@ -1466,6 +1466,16 @@
                             </div>
 
                             <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+                            @if (_sshKey is not null)
+                            {
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" @bind="editingModem.UseManagedSshKey" />
+                                        <span>Use this site's Managed SSH Key</span>
+                                    </label>
+                                    <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
+                                </div>
+                            }
                         }
                         else if (ModemProviderKeys.UsesPerModemSsh(editingModem.Provider))
                         {
@@ -1486,6 +1496,16 @@
                             </div>
 
                             <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
+                            @if (_sshKey is not null)
+                            {
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" @bind="editingModem.UseManagedSshKey" />
+                                        <span>Use this site's Managed SSH Key</span>
+                                    </label>
+                                    <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
+                                </div>
+                            }
                         }
                         else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-cpe")
                         {
@@ -7189,6 +7209,7 @@
             Username = modem.Username,
             Password = modem.Password,
             PrivateKeyPath = modem.PrivateKeyPath,
+            UseManagedSshKey = modem.UseManagedSshKey,
             ModemType = modem.ModemType,
             QmiDevice = modem.QmiDevice,
             Enabled = modem.Enabled,
@@ -7289,9 +7310,9 @@
             return;
         }
 
-        // The site's SSH key is offered on every modem connection, so it stands in for a password.
+        // A modem set to use the site's SSH key needs no password.
         if (isPerModemSshProvider && string.IsNullOrWhiteSpace(editingModem.Password)
-            && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath) && _sshKey is null)
+            && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath) && !(editingModem.UseManagedSshKey && _sshKey is not null))
         {
             modemMessage = $"An SSH password, or an SSH key for this site, is required for {sshModemKind} modems";
             modemMessageClass = "danger";
