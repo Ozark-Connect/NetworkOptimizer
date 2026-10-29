@@ -23461,11 +23461,6 @@ body:has(.top-bar-hidden) .btn-fit {
     max-width: 250px;
     text-overflow: ellipsis;
 }
-
-.change-control .cc-toolbar select.form-control option {
-    padding-right: 1.5rem;
-}
-
 .change-control .cc-toolbar-spacer {
     flex: 1;
 }

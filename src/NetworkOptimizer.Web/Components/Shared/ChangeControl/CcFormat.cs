@@ -12,6 +12,12 @@ public static class CcFormat
     /// <summary>"Oct 20, 4:42 PM".</summary>
     public static string Time(DateTime utc) => Local(utc).ToString("MMM d, h:mm tt");
 
+    /// <summary>
+    /// An option's text with room after it: Chrome ignores padding on a select's open list, which
+    /// sizes to its longest option and would otherwise end that text at the list's edge.
+    /// </summary>
+    public static string Option(string text) => text + "   ";
+
     /// <summary>"Oct 20".</summary>
     public static string Day(DateTime utc) => Local(utc).ToString("MMM d");
 

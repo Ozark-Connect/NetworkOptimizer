@@ -39,7 +39,7 @@
                         <option value="">Live config</option>
                         @foreach (var s in _snapshots.Take(30))
                         {
-                            <option value="@s.Id">Snapshot, @CcFormat.Time(s.TakenAt)</option>
+                            <option value="@s.Id">@CcFormat.Option("Snapshot, " + CcFormat.Time(s.TakenAt))</option>
                         }
                     </select>
                 }
@@ -286,7 +286,7 @@
             <optgroup label="Templates">
                 @foreach (var t in _templates)
                 {
-                    <option value="t:@t.Id">@t.Name</option>
+                    <option value="t:@t.Id">@CcFormat.Option(t.Name)</option>
                 }
             </optgroup>
         </select>

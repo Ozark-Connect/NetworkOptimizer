@@ -7,7 +7,7 @@
 <select class="form-control" value="@SiteCtx.Slug" @onchange="ChangeAsync" disabled="@(Sites.Count <= 1)">
     @foreach (var s in Sites)
     {
-        <option value="@s.Slug">@s.Name</option>
+        <option value="@s.Slug">@CcFormat.Option(s.Name)</option>
     }
 </select>
 
