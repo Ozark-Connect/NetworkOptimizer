@@ -193,7 +193,7 @@ else
                                             {
                                                 <div class="cc-mobile-field">
                                                     <div class="muted-text">@f.Label</div>
-                                                    <div><span class="danger-text">@(f.Secret ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</span></div>
+                                                    <div><span class="danger-text">@(f.Secret && op.Action != PlanAction.Create ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</span></div>
                                                 </div>
                                             }
                                         </div>
@@ -285,7 +285,7 @@ else
                                                         {
                                                             <tr>
                                                                 <td class="label">@f.Label</td>
-                                                                <td class="old">@(f.Secret ? "Current value" : f.Old)</td>
+                                                                <td class="old">@(f.Secret && op.Action != PlanAction.Create ? "Current value" : f.Old)</td>
                                                                 <td class="new">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</td>
                                                             </tr>
                                                         }
@@ -792,7 +792,7 @@ else
             {
                 sb.Append("    fields:\n");
                 foreach (var f in op.Fields)
-                    sb.Append($"      - {{field: \"{f.Label}\", from: \"{(f.Secret ? "<current>" : f.Old)}\", to: \"{(f.Secret ? "<hidden>" : f.New)}\"}}\n");
+                    sb.Append($"      - {{field: \"{f.Label}\", from: \"{(f.Secret && op.Action != PlanAction.Create ? "<current>" : f.Old)}\", to: \"{(f.Secret ? "<hidden>" : f.New)}\"}}\n");
             }
         }
         await JS.InvokeVoidAsync("downloadFile", $"plan-{PlanId}.yaml", "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));

@@ -84,6 +84,10 @@ public interface IChangeControlService
     [RequireRole(Roles.Operator)]
     Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default);
 
+    /// <summary>Edit tab's Add: a new object of the collection as YAML, from the Console's create defaults (see <see cref="NewObjects"/>).</summary>
+    [RequireRole(Roles.Operator)]
+    Task<string> GetNewObjectYamlAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Edit tab: the value behind a masked secret (<see cref="YamlConverter.SecretToken"/>) in the
     /// state the edit started from, as a YAML scalar; null when the token leads nowhere. Admin only,

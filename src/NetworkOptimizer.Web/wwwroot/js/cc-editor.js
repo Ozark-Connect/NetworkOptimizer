@@ -3,8 +3,9 @@
 import {
     EditorView, EditorState, Compartment, basicSetup, keymap, indentWithTab, indentUnit, yaml,
     autocompletion, startCompletion, setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
-    Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect,
-} from '../lib/codemirror/codemirror.bundle.js?v=3';
+    Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect, StateField,
+    codeFolding, foldEffect, unfoldEffect, foldedRanges,
+} from '../lib/codemirror/codemirror.bundle.js?v=5';
 
 const highlight = HighlightStyle.define([
     { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--info-color)' },
@@ -40,6 +41,21 @@ const theme = EditorView.theme({
         border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
     },
     '.cc-remove-item:hover, .cc-remove-item:focus-visible': { color: 'var(--danger-color)', background: 'var(--bg-tertiary)' },
+    '.cc-collapse-children': {
+        font: 'inherit', fontSize: '0.75rem', lineHeight: '1.4', marginLeft: '0.75rem', padding: '0 0.4rem', cursor: 'pointer',
+        border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
+    },
+    '.cc-collapse-children:hover, .cc-collapse-children:focus-visible': { color: 'var(--text-primary)', background: 'var(--bg-tertiary)' },
+    '.cm-foldPlaceholder': {
+        margin: '0 0.4rem', padding: '0 0.4rem', border: 'none', borderRadius: '3px',
+        backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer',
+    },
+    '.cc-add-item': {
+        font: 'inherit', fontSize: '0.75rem', lineHeight: '1.6', margin: '0.1rem 0 0.35rem', padding: '0 0.4rem', cursor: 'pointer',
+        border: '1px dashed var(--bg-hover)', borderRadius: '3px', background: 'transparent', color: 'var(--info-color)',
+    },
+    '.cc-add-item:hover, .cc-add-item:focus-visible': { background: 'var(--bg-tertiary)', borderStyle: 'solid' },
+    '.cc-add-item:disabled': { opacity: '0.6', cursor: 'default' },
     '.cc-secret button': {
         font: 'inherit', fontSize: '0.75rem', letterSpacing: 'normal', padding: '0 0.35rem', cursor: 'pointer',
         border: '1px solid var(--bg-hover)', borderRadius: '3px', background: 'transparent', color: 'var(--info-color)',
@@ -83,6 +99,37 @@ const phrases = EditorState.phrases.of({
     'next': 'Next', 'previous': 'Previous', 'all': 'Select All', 'match case': 'Match Case',
     'regexp': 'Regex', 'by word': 'By Word', 'replace': 'Replace', 'replace all': 'Replace All',
 });
+
+// ---------- Indentation ----------
+
+/**
+ * The indent for a new line typed after `text`: one level in after "key:", the item's own keys after
+ * "- ", else the same. lang-yaml indents from its parse tree, which an unfinished "key:" leaves
+ * unreliable. Pure: exported for testing.
+ */
+export function yamlIndentAfter(text) {
+    if (!text.trim()) return text.length;
+    const lead = /^(\s*)((?:- ?)*)/.exec(text);
+    const indent = lead[1].length + lead[2].length + (lead[2].endsWith('-') ? 1 : 0);
+    const body = text.slice(lead[0].length).replace(/\s+#.*$/, '').trimEnd();
+    return /:$/.test(body) || /:\s*[|>][-+0-9]*$/.test(body) ? indent + 2 : indent;
+}
+
+function yamlNewline(view) {
+    const { state } = view;
+    if (state.selection.ranges.length !== 1 || !state.selection.main.empty) return false;
+    const head = state.selection.main.head;
+    const line = state.doc.lineAt(head);
+    const before = line.text.slice(0, head - line.from);
+    const restSpaces = /^[ \t]*/.exec(line.text.slice(head - line.from))[0].length;
+    const insert = '\n' + ' '.repeat(yamlIndentAfter(before));
+    view.dispatch({
+        changes: { from: head - (before.length - before.trimEnd().length), to: head + restSpaces, insert },
+        selection: { anchor: head - (before.length - before.trimEnd().length) + insert.length },
+        scrollIntoView: true, userEvent: 'input',
+    });
+    return true;
+}
 
 // ---------- Masked secrets ----------
 
@@ -251,9 +298,16 @@ export function itemBlocks(doc) {
         }
         if (collection && text.startsWith('- ')) {
             close(n - 1);
-            const m = /^- ([A-Za-z0-9_.-]+):\s*(.*)$/.exec(text);
-            const value = m ? scalarText(m[2]).replace(/^["']|["']$/g, '') : '';
-            open = { from: doc.line(n).from, line: n, lineEnd: doc.line(n).to, collection, label: value || (m ? m[1] : 'this object') };
+            const field = t => {
+                const m = /^(?:- |  )([A-Za-z0-9_.-]+):\s*(.*)$/.exec(t);
+                return m ? { key: m[1], value: scalarText(m[2]).replace(/^["']|["']$/g, '') } : null;
+            };
+            const first = field(text);
+            // The editor writes "- id: ..." first; the object's name is on the next line.
+            const id = first?.key === 'id' ? first.value : null;
+            const named = id && n < doc.lines ? field(doc.line(n + 1).text) : first;
+            // A blank first field (a new object from Add) names nothing yet.
+            open = { from: doc.line(n).from, line: n, lineEnd: doc.line(n).to, collection, id, label: named?.value || 'this object' };
         }
     }
     close(doc.lines);
@@ -266,7 +320,7 @@ class RemoveWidget extends WidgetType {
         this.block = block;
     }
 
-    eq(other) { return other.block.from === this.block.from && other.block.to === this.block.to && other.block.label === this.block.label; }
+    eq(other) { return other.block.from === this.block.from && other.block.to === this.block.to && other.block.label === this.block.label && other.block.id === this.block.id; }
 
     toDOM(view) {
         const button = document.createElement('button');
@@ -291,10 +345,12 @@ class RemoveWidget extends WidgetType {
     ignoreEvent(e) { return e.type === 'mousedown' || e.type === 'click'; }
 }
 
-// An × at the end of each object's first line, except in collections Network Optimizer cannot delete from.
+// An × at the end of each object's first line, except in collections Network Optimizer cannot delete
+// from and on objects no plan deletes (UniFi's predefined and built-in objects, Threat Intelligence's).
 function removeButtons(state) {
     const build = view => Decoration.set(itemBlocks(view.state.doc)
-        .filter(b => !state.schema?.collections?.[b.collection]?.readOnly)
+        .filter(b => !state.schema?.collections?.[b.collection]?.readOnly
+            && !(b.id && state.schema?.collections?.[b.collection]?.undeletable?.includes(b.id)))
         .map(b => Decoration.widget({ widget: new RemoveWidget(b), side: 1 }).range(b.lineEnd)), true);
     return ViewPlugin.fromClass(class {
         constructor(view) { this.decorations = build(view); }
@@ -302,6 +358,176 @@ function removeButtons(state) {
             if (u.docChanged || u.transactions.some(t => t.effects.some(e => e.is(refreshMasks)))) this.decorations = build(u.view);
         }
     }, { decorations: v => v.decorations });
+}
+
+// ---------- Collapsing children ----------
+
+/**
+ * The list items under a parent key line ("port_profiles:", "  port_overrides:"), each as the range a
+ * fold hides: the end of its first line to the end of its last. Top-level items sit at column 0, nested
+ * ones two in from their key, as the export writes them. Single-line items have nothing to fold.
+ * Pure: exported for testing.
+ */
+export function childRanges(doc, lineNo) {
+    const m = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*$/.exec(doc.line(lineNo).text);
+    if (!m) return [];
+    const keyIndent = m[1].length + (m[2] ? 2 : 0);
+    const itemIndent = keyIndent === 0 ? 0 : keyIndent + 2;
+    const marker = ' '.repeat(itemIndent) + '- ';
+    const ranges = [];
+    let start = null;
+    let last = null;
+    const close = () => { if (start && last > start) ranges.push({ from: doc.line(start).to, to: doc.line(last).to }); };
+    for (let n = lineNo + 1; n <= doc.lines; n++) {
+        const text = doc.line(n).text;
+        if (!text.trim()) continue;
+        const lead = text.length - text.trimStart().length;
+        if (text.startsWith(marker)) { close(); start = n; last = n; continue; }
+        if (lead < itemIndent || (itemIndent === 0 && lead === 0)) break;
+        if (start) last = n;
+    }
+    close();
+    return ranges;
+}
+
+class CollapseWidget extends WidgetType {
+    constructor(lineNo, folded) {
+        super();
+        this.lineNo = lineNo;
+        this.folded = folded;
+    }
+
+    eq(other) { return other.lineNo === this.lineNo && other.folded === this.folded; }
+
+    toDOM(view) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'cc-collapse-children';
+        button.textContent = this.folded ? 'Expand All' : 'Collapse All';
+        button.addEventListener('mousedown', e => e.preventDefault());
+        button.addEventListener('click', e => {
+            e.preventDefault();
+            const ranges = childRanges(view.state.doc, view.state.doc.lineAt(view.posAtDOM(button)).number);
+            const open = ranges.filter(r => !isFolded(view.state, r));
+            view.dispatch({
+                effects: open.length > 0 ? open.map(r => foldEffect.of(r)) : ranges.map(r => unfoldEffect.of(r)),
+            });
+        });
+        return button;
+    }
+
+    ignoreEvent(e) { return e.type === 'mousedown' || e.type === 'click'; }
+}
+
+function isFolded(cmState, range) {
+    let found = false;
+    foldedRanges(cmState).between(range.from, range.to, (from, to) => { if (from === range.from && to === range.to) found = true; });
+    return found;
+}
+
+// "Collapse All" / "Expand All" at the end of each parent line whose list items can fold.
+function collapseButtons() {
+    const build = view => {
+        const doc = view.state.doc;
+        const widgets = [];
+        for (let n = 1; n <= doc.lines; n++) {
+            if (!/:\s*$/.test(doc.line(n).text)) continue;
+            const ranges = childRanges(doc, n);
+            if (ranges.length === 0) continue;
+            const folded = ranges.every(r => isFolded(view.state, r));
+            widgets.push(Decoration.widget({ widget: new CollapseWidget(n, folded), side: 1 }).range(doc.line(n).to));
+        }
+        return Decoration.set(widgets, true);
+    };
+    return ViewPlugin.fromClass(class {
+        constructor(view) { this.decorations = build(view); }
+        update(u) {
+            if (u.docChanged || u.transactions.some(t => t.effects.some(e => e.is(foldEffect) || e.is(unfoldEffect)))) this.decorations = build(u.view);
+        }
+    }, { decorations: v => v.decorations });
+}
+
+// A folded object reads by its name, not its ID: "- id: ...  [Access] Guest …".
+const namedFolds = codeFolding({
+    preparePlaceholder: (cmState, range) => {
+        const next = cmState.doc.lineAt(range.from).number + 1;
+        if (next > cmState.doc.lines) return null;
+        const m = /^\s+(?:name|key|description|host_name):\s*(.+)$/.exec(cmState.doc.line(next).text);
+        return m ? scalarText(m[1]).replace(/^["']|["']$/g, '') : null;
+    },
+    placeholderDOM: (view, onclick, prepared) => {
+        const span = document.createElement('span');
+        span.className = 'cm-foldPlaceholder';
+        span.textContent = prepared ? `${prepared} …` : '…';
+        span.setAttribute('aria-label', 'Folded; click to expand');
+        span.onclick = onclick;
+        return span;
+    },
+});
+
+// ---------- Adding an object ----------
+
+/** The last line of each top-level collection's block, by YAML name. Pure: exported for testing. */
+export function collectionEnds(doc) {
+    const ends = [];
+    let open = null;
+    for (let n = 1; n <= doc.lines; n++) {
+        const m = /^([A-Za-z0-9_]+):/.exec(doc.line(n).text);
+        if (!m) continue;
+        if (open) ends.push({ collection: open.collection, line: lastContent(doc, open.line, n - 1) });
+        open = { collection: m[1], line: n };
+    }
+    if (open) ends.push({ collection: open.collection, line: lastContent(doc, open.line, doc.lines) });
+    return ends;
+}
+
+function lastContent(doc, first, last) {
+    for (let n = last; n > first; n--) if (doc.line(n).text.trim()) return n;
+    return first;
+}
+
+class AddWidget extends WidgetType {
+    constructor(collection, label, state) {
+        super();
+        this.collection = collection;
+        this.label = label;
+        this.state = state;
+    }
+
+    eq(other) { return other.collection === this.collection && other.label === this.label; }
+
+    toDOM() {
+        const wrap = document.createElement('div');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'cc-add-item';
+        button.textContent = `+ Add ${this.label}`;
+        button.addEventListener('mousedown', e => e.preventDefault());
+        button.addEventListener('click', e => {
+            e.preventDefault();
+            button.disabled = true;
+            this.state.dotnet.invokeMethodAsync('AddObject', this.collection)
+                .catch(err => console.warn('cc-editor: add failed', err))
+                .finally(() => { button.disabled = false; });
+        });
+        wrap.append(button);
+        return wrap;
+    }
+
+    ignoreEvent() { return true; }
+}
+
+// A "+ Add" line under each collection the schema marks addable. Block widgets must come from a field.
+function addButtons(state) {
+    const build = doc => Decoration.set(collectionEnds(doc)
+        .filter(e => state.schema?.collections?.[e.collection]?.add)
+        .map(e => Decoration.widget({ widget: new AddWidget(e.collection, state.schema.collections[e.collection].add, state), block: true, side: 1 })
+            .range(doc.line(e.line).to)), true);
+    return StateField.define({
+        create: s => build(s.doc),
+        update: (deco, tr) => tr.docChanged || tr.effects.some(e => e.is(refreshMasks)) ? build(tr.state.doc) : deco,
+        provide: f => EditorView.decorations.from(f),
+    });
 }
 
 // Revealed values left unedited go back to their token once the cursor leaves the line, so a reveal
@@ -331,19 +557,67 @@ function reportedText(view, state) {
     return text;
 }
 
+// ---------- Per collection: scroll, cursor, and folds ----------
+
+// A collection's place is per scope (the viewer and the site or template, set by the page) and group.
+const groupOf = key => (key ?? '').slice((key ?? '').indexOf('|') + 1);
+const placeKey = (state, key) => `${state.scope ?? ''}|${groupOf(key)}`;
+
+/** IDs of the objects whose fold is closed, by the "- id:" line the editor writes first. */
+function foldedIds(cmState) {
+    const byLineEnd = new Map(itemBlocks(cmState.doc).filter(b => b.id).map(b => [b.lineEnd, b.id]));
+    const ids = [];
+    foldedRanges(cmState).between(0, cmState.doc.length, from => { const id = byLineEnd.get(from); if (id) ids.push(id); });
+    return ids;
+}
+
+function foldIds(view, ids) {
+    const want = new Set(ids);
+    if (want.size === 0) return;
+    const doc = view.state.doc;
+    const effects = itemBlocks(doc).filter(b => b.id && want.has(b.id))
+        .map(b => ({ from: b.lineEnd, to: doc.line(lastContent(doc, b.line, doc.lineAt(b.to).number)).to }))
+        .filter(r => r.to > r.from).map(r => foldEffect.of(r));
+    if (effects.length) view.dispatch({ effects });
+}
+
+// Folds outlive the page in this browser, by object ID, so an edit or a reload keeps them. Storage
+// can be missing (private window, blocked site data); the editor works the same without it.
+function saveFolds(view, state) {
+    if (!state.scope) return;
+    const name = `cc-editor-folds:${placeKey(state, state.key)}`;
+    try {
+        const ids = foldedIds(view.state);
+        if (ids.length) localStorage.setItem(name, JSON.stringify(ids));
+        else localStorage.removeItem(name);
+    } catch { /* no storage: folds last for this visit only */ }
+}
+
+function loadFolds(state, key) {
+    if (!state.scope) return [];
+    try {
+        const ids = JSON.parse(localStorage.getItem(`cc-editor-folds:${placeKey(state, key)}`) ?? '[]');
+        return Array.isArray(ids) ? ids : [];
+    } catch {
+        return [];
+    }
+}
+
 /**
  * Creates the editor in host. dotnet receives OnEditorChanged(key, text) after typing pauses; key
  * names what the text belongs to, so a change still in flight when setText swaps the document
- * lands on the right file.
+ * lands on the right file. scope (the viewer and the site or template) keys saved folds.
  */
-export function create(host, dotnet, text, label, key, canReveal) {
+export function create(host, dotnet, text, label, key, canReveal, scope) {
     dispose(host);
-    const state = { dotnet, key, canReveal: !!canReveal, schema: null, silent: false, timer: 0, revealed: [], editable: new Compartment() };
+    const state = { dotnet, key, scope: scope ?? null, canReveal: !!canReveal, schema: null, silent: false, timer: 0, revealed: [], editable: new Compartment() };
     const view = new EditorView({
         parent: host,
         state: EditorState.create({
             doc: text ?? '',
             extensions: [
+                // Ahead of basicSetup, so it outranks the default Enter; completion's Enter still wins.
+                keymap.of([{ key: 'Enter', run: yamlNewline }]),
                 basicSetup,
                 yaml(),
                 indentUnit.of('  '),
@@ -355,12 +629,16 @@ export function create(host, dotnet, text, label, key, canReveal) {
                 secretMasks(state),
                 literalMasks(state),
                 removeButtons(state),
+                addButtons(state),
+                collapseButtons(),
+                namedFolds,
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
                 state.editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ 'aria-label': label ?? 'YAML', spellcheck: 'false' }),
                 EditorView.updateListener.of(u => {
+                    if (!state.silent && u.transactions.some(t => t.effects.some(e => e.is(foldEffect) || e.is(unfoldEffect)))) saveFolds(u.view, state);
                     if (u.docChanged) {
                         // Grow with typing at either edge, so an edit there counts as an edit.
                         for (const r of state.revealed) {
@@ -393,10 +671,15 @@ export function create(host, dotnet, text, label, key, canReveal) {
         }),
     });
     host._cc = { view, state };
+    state.silent = true;
+    try { foldIds(view, loadFolds(state, key)); } finally { state.silent = false; }
 }
 
-/** Replaces the document without reporting it as an edit. A pending change for the old text is sent first. */
-export function setText(host, text, key) {
+/**
+ * Replaces the document without reporting it as an edit. A pending change for the old text is sent
+ * first. scope, when given, replaces the editor's (a switch between site config and a template).
+ */
+export function setText(host, text, key, scope) {
     const cc = host?._cc;
     if (!cc) return;
     if (cc.state.timer) {
@@ -405,15 +688,101 @@ export function setText(host, text, key) {
         cc.state.dotnet.invokeMethodAsync('OnEditorChanged', cc.state.key, reportedText(cc.view, cc.state))
             .catch(e => console.warn('cc-editor: change callback failed', e));
     }
+    // Each collection keeps its own scroll, cursor, and folds for this visit; one opened for the first
+    // time starts at the top, with the folds saved for it.
+    const view = cc.view;
+    const places = cc.state.places ??= {};
+    const folds = [];
+    foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => { folds.push({ from, to }); });
+    // The top line in view, not a pixel offset: CodeMirror keeps its own scroll across a document swap.
+    const top = view.lineBlockAtHeight(view.scrollDOM.getBoundingClientRect().top - view.documentTop).from;
+    // Not for the empty text the editor starts with before its first collection loads.
+    if (view.state.doc.length > 0) places[placeKey(cc.state, cc.state.key)] = { top, anchor: view.state.selection.main.head, folds };
+    if (scope != null) cc.state.scope = scope;
+    const place = places[placeKey(cc.state, key)];
+
     cc.state.key = key;
     cc.state.revealed = [];
     cc.state.silent = true;
     try {
-        cc.view.dispatch({ changes: { from: 0, to: cc.view.state.doc.length, insert: text ?? '' } });
-        cc.view.dispatch(setDiagnostics(cc.view.state, []));
+        const length = (text ?? '').length;
+        view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: text ?? '' },
+            selection: { anchor: Math.min(place?.anchor ?? 0, length) },
+        });
+        view.dispatch(setDiagnostics(view.state, []));
+        // A fold saved against other text (an edit since) is dropped rather than misplaced.
+        const doc = view.state.doc;
+        const valid = (place?.folds ?? []).filter(r => r.to <= doc.length && doc.lineAt(r.from).to === r.from);
+        if (place) { if (valid.length) view.dispatch({ effects: valid.map(r => foldEffect.of(r)) }); }
+        else foldIds(view, loadFolds(cc.state, key));
     } finally {
         cc.state.silent = false;
     }
+    // After CodeMirror's own layout pass, which re-anchors the scroll to the old text's top line.
+    const target = Math.min(place?.top ?? 0, view.state.doc.length);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (host._cc === cc && cc.state.key === key) view.scrollDOM.scrollTop = target === 0 ? 0 : view.lineBlockAt(target).top;
+    }));
+}
+
+/**
+ * Where a new object goes in the document: the end of the collection's block, with "[]" to drop
+ * when the collection was empty. Null when the collection key is not in the document. Pure: the
+ * Node harness tests it.
+ */
+export function insertionPoint(doc, collection) {
+    let start = 0;
+    for (let n = 1; n <= doc.lines; n++) {
+        const m = /^([A-Za-z0-9_]+):\s*(\[\])?\s*$/.exec(doc.line(n).text);
+        if (!m) continue;
+        if (start) return { at: doc.line(n).from, empty: null };
+        if (m[1] !== collection) continue;
+        start = n;
+        if (m[2]) {
+            const line = doc.line(n);
+            return { at: line.to, empty: { from: line.from + line.text.indexOf('[]') - 1, to: line.to } };
+        }
+    }
+    return start ? { at: doc.length, empty: null } : null;
+}
+
+/** Adds a new object (YAML list item text) to a collection, as an edit, with the cursor on its first blank field. */
+export function insertObject(host, collection, text) {
+    const cc = host?._cc;
+    if (!cc) return;
+    const view = cc.view;
+    const doc = view.state.doc;
+    const point = insertionPoint(doc, collection);
+    let item = text.endsWith('\n') ? text : text + '\n';
+    let changes;
+    let from;
+    if (!point) {
+        const lead = doc.length && !doc.toString().endsWith('\n') ? '\n' : '';
+        from = doc.length + lead.length + collection.length + 2;
+        changes = { from: doc.length, insert: `${lead}${collection}:\n${item}` };
+    } else if (point.empty) {
+        // "wlans: []" becomes "wlans:" and the item; the line's own break follows it.
+        from = point.empty.from + 1;
+        changes = { from: point.empty.from, to: point.empty.to, insert: '\n' + item.replace(/\n$/, '') };
+    } else {
+        const needsBreak = point.at > 0 && doc.sliceString(point.at - 1, point.at) !== '\n';
+        if (needsBreak) item = '\n' + item;
+        from = point.at + (needsBreak ? 1 : 0);
+        changes = { from: point.at, insert: item };
+    }
+    view.dispatch({ changes, userEvent: 'input.add-object', scrollIntoView: true });
+    // The first "key: " the object leaves blank, else its first line.
+    const after = view.state.doc;
+    let cursor = after.lineAt(Math.min(from, after.length)).to;
+    for (let pos = from; pos < after.length;) {
+        const line = after.lineAt(pos);
+        if (pos > from && (/^[A-Za-z0-9_]+:/.test(line.text) || /^- /.test(line.text))) break;
+        if (/: $/.test(line.text)) { cursor = line.to; break; }
+        pos = line.to + 1;
+    }
+    view.dispatch({ selection: { anchor: cursor }, scrollIntoView: true });
+    view.focus();
 }
 
 /** problems: [{ line, level: 'Error'|'Warning'|'Info', message }]. Lines are 1-based. */

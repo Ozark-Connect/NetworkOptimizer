@@ -36,7 +36,11 @@ public static partial class YamlConverter
                 shape.Add(def, o, top: true);
             var json = shape.ToJson(def, targets);
             // The editor offers its remove button only where a delete can be written.
-            if (def.Write?.DeletePath == null) json["readOnly"] = true;
+            if (def.Write?.CanDelete != true) json["readOnly"] = true;
+            // ...and never on an object no plan deletes, by the ID the editor writes on its first line.
+            var keep = state.Get(def.Key).Where(o => DeleteCascade.CannotDelete(def, o) || ConfigCollections.OwnedBy(def, o) != null)
+                .Select(o => (JsonNode?)ConfigState.IdOf(o)).ToArray();
+            if (keep.Length > 0) json["undeletable"] = new JsonArray(keep);
             collections[YamlName(def)] = json;
         }
 

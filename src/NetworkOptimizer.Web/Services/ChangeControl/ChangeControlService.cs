@@ -595,12 +595,33 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     // ---------- Edit ----------
 
+    // The Edit tab reads its base per collection, per typing pause, per Show: one live read serves them
+    // for a while (a group of four collections was four whole-Console reads). Review Plan reads fresh.
+    private (string Slug, DateTime At, ConfigState State)? _editLive;
+    private static readonly TimeSpan EditLiveReuse = TimeSpan.FromSeconds(30);
+
+    private async Task<ConfigState> EditBaseAsync(int? snapshotId, CancellationToken ct)
+    {
+        if (snapshotId != null) return (await LoadSideAsync(snapshotId, ct)).State;
+        if (_editLive is { } cached && cached.Slug == _site.Slug && DateTime.UtcNow - cached.At < EditLiveReuse) return cached.State.Clone();
+        var live = await Engine.ReadLiveAsync(ct);
+        _editLive = (_site.Slug, DateTime.UtcNow, live);
+        return live.Clone();
+    }
+
     public async Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default)
     {
-        var state = (await LoadSideAsync(snapshotId, cancellationToken)).State;
+        var state = await EditBaseAsync(snapshotId, cancellationToken);
         var counts = state.Collections.ToDictionary(k => k.Key, k => k.Key == "user" ? k.Value.Count(ConfigDiffEngine.HasClientConfig) : k.Value.Count);
         var schema = ConfigCollections.Get(collection) is { } def ? YamlConverter.EditSchema(state, [def]).ToJsonString() : "{}";
         return (YamlConverter.Export(state, [collection], SecretMode.Mask, ids: true), counts, schema);
+    }
+
+    public async Task<string> GetNewObjectYamlAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default)
+    {
+        var def = ConfigCollections.Get(collection) is { } d && NewObjects.CanAdd(d) ? d : throw new InvalidOperationException("Objects of this collection cannot be added here.");
+        var state = await EditBaseAsync(snapshotId, cancellationToken);
+        return NewObjects.Yaml(def, state, await NewObjects.ReadDefaultsAsync(Engine.Api, def, cancellationToken));
     }
 
     public async Task<string?> RevealSecretAsync(int? snapshotId, string token, CancellationToken cancellationToken = default)
@@ -610,7 +631,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             _audit.SetTarget(null, "Not a masked secret");
             return null;
         }
-        var state = (await LoadSideAsync(snapshotId, cancellationToken)).State;
+        var state = await EditBaseAsync(snapshotId, cancellationToken);
         if (YamlConverter.FindSecret(state, path) is not { } found)
         {
             _audit.SetTarget(path, "Not found; nothing shown");
@@ -623,10 +644,6 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     public Task<string> GenerateSecretAsync(Secrets.SecretKind kind, CancellationToken cancellationToken = default) =>
         Task.FromResult(Secrets.SecretGenerator.Generate(kind));
-
-    private async Task<(ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Collections)> ParseEditsAsync(
-        int? snapshotId, IReadOnlyDictionary<string, string> files, CancellationToken ct) =>
-        ParseEdits((await LoadSideAsync(snapshotId, ct)).State, files);
 
     /// <summary>
     /// Edit tab files (one per collection group, keyed by its first collection) parsed onto a base state.
@@ -670,8 +687,8 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     public async Task<YamlValidation> ValidateYamlAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)
     {
-        var baseState = (await LoadSideAsync(snapshotId, cancellationToken)).State;
-        var (desired, problems, touched) = await ParseEditsAsync(snapshotId, filesByCollection, cancellationToken);
+        var baseState = await EditBaseAsync(snapshotId, cancellationToken);
+        var (desired, problems, touched) = ParseEdits(baseState, filesByCollection);
         var plan = touched.Count == 0 ? null : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched });
         var ops = plan?.Operations ?? [];
         // Plan errors (a kept secret with nothing to keep, a dangling reference) block Review Plan too.
@@ -766,18 +783,28 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     public async Task<int> BuildApplyTemplateAsync(int templateId, CancellationToken cancellationToken = default)
     {
-        var (view, state) = await _templates.LoadAsync(templateId, cancellationToken) ?? throw new InvalidOperationException("Template not found.");
-        var options = new PlanOptions { SameSite = false, DeleteMissing = false, Collections = state.Collections.Keys.ToHashSet() };
+        var (view, state) = await _templates.LoadWithReferencesAsync(templateId, cancellationToken) ?? throw new InvalidOperationException("Template not found.");
+        var options = TemplateOptions(view);
         var plan = await Plans.CreateAsync(ConfigPlanKind.Template, $"Apply template {view.Name} to {await SiteNameAsync(cancellationToken)}",
             $"Template {view.Name}", null, null, state, options, Actor, cancellationToken);
         return plan.Id;
     }
 
+    /// <summary>
+    /// A template onto this site: its own collections only (the state also holds its references, matched
+    /// and never written), nothing deleted, and its PPSKs added to the site's own unless it replaces them.
+    /// </summary>
+    private static PlanOptions TemplateOptions(TemplateView view) => new()
+    {
+        SameSite = false, DeleteMissing = false, MergeLists = !view.ReplaceLists,
+        Collections = view.Collections.ToHashSet(StringComparer.OrdinalIgnoreCase),
+    };
+
     private async Task<(ConfigState State, string Label, PlanOptions Options, int? SnapshotId)?> BaselineStateAsync(CancellationToken ct)
     {
         var settings = await Repo.UseAsync((r, c) => r.GetSettingsAsync(c), ct);
-        if (settings.BaselineTemplateId is { } tid && await _templates.LoadAsync(tid, ct) is { } t)
-            return (t.State, $"Template {t.View.Name}", new PlanOptions { SameSite = false, DeleteMissing = false, Collections = t.State.Collections.Keys.ToHashSet() }, null);
+        if (settings.BaselineTemplateId is { } tid && await _templates.LoadWithReferencesAsync(tid, ct) is { } t)
+            return (t.State, $"Template {t.View.Name}", TemplateOptions(t.View), null);
         var baseline = await Repo.UseAsync((r, c) => r.GetBaselineSnapshotAsync(c), ct);
         if (baseline == null) return null;
         var state = await Engine.LoadSnapshotStateAsync(baseline.Id, ct);

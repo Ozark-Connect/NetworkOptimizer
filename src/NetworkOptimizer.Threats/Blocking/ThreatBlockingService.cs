@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
 using NetworkOptimizer.Threats.Waf;
+using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Threats.Blocking;
 
@@ -227,7 +228,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _logger.LogError(ex, "Automatic Blocking failed to decide for site {Site}", site ?? "main");
+                _logger.LogError(ex, "Automatic Blocking failed to decide for site {Site}", site ?? SiteSlugs.Default);
             }
         }
         foreach (var site in sites)
@@ -239,7 +240,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _logger.LogError(ex, "Automatic Blocking failed to sync site {Site}", site ?? "main");
+                _logger.LogError(ex, "Automatic Blocking failed to sync site {Site}", site ?? SiteSlugs.Default);
             }
             try
             {
@@ -247,7 +248,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _logger.LogError(ex, "Trusted Sources failed to sync site {Site}", site ?? "main");
+                _logger.LogError(ex, "Trusted Sources failed to sync site {Site}", site ?? SiteSlugs.Default);
             }
             try
             {
@@ -255,7 +256,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _logger.LogError(ex, "WAF exclusions failed to sync site {Site}", site ?? "main");
+                _logger.LogError(ex, "WAF exclusions failed to sync site {Site}", site ?? SiteSlugs.Default);
             }
         }
     }
@@ -289,7 +290,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         catch (WafClientException ex)
         {
             _exclusionsSent[Key(site)] = (fingerprint, now, false);
-            _logger.LogWarning("WAF exclusions: sync failed on {Site}: {Error}", site ?? "main", ex.Message);
+            _logger.LogWarning("WAF exclusions: sync failed on {Site}: {Error}", site ?? SiteSlugs.Default, ex.Message);
         }
     }
 
@@ -322,7 +323,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             {
                 await repository.AddBlocksAsync(decided, ct);
                 _logger.LogInformation("Automatic Blocking ({Mode}) on {Site}: {Count} new block(s): {Ips}",
-                    settings.Mode, site ?? "main", decided.Count, string.Join(", ", decided.Select(b => b.SourceIp)));
+                    settings.Mode, site ?? SiteSlugs.Default, decided.Count, string.Join(", ", decided.Select(b => b.SourceIp)));
                 if (settings.Mode == BlockingMode.Enforce)
                 {
                     var targets = EnabledTargets(settings, site).Select(t => t.ToString()).ToList();
@@ -345,7 +346,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         {
             _lastPrune[Key(site)] = now;
             var count = await repository.PruneBlocksAsync(now - Retention, ct);
-            if (count > 0) _logger.LogInformation("Automatic Blocking: pruned {Count} ended block(s) on {Site}", count, site ?? "main");
+            if (count > 0) _logger.LogInformation("Automatic Blocking: pruned {Count} ended block(s) on {Site}", count, site ?? SiteSlugs.Default);
         }
         return settings;
     }
@@ -536,7 +537,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _policiesChecked[Key(site)] = (now, false);
-            _logger.LogWarning(ex, "Automatic Blocking: could not narrow the gateway blocklist policies on {Site}", site ?? "main");
+            _logger.LogWarning(ex, "Automatic Blocking: could not narrow the gateway blocklist policies on {Site}", site ?? SiteSlugs.Default);
         }
     }
 
@@ -608,11 +609,11 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         }
         if (dropped > 0 && dropped != _feedsCapped.GetValueOrDefault(Key(site)))
             _logger.LogWarning("Automatic Blocking: public block lists on {Site} capped at {Max:N0} entries; {Dropped:N0} left out",
-                site ?? "main", MaxFeedEntries, dropped);
+                site ?? SiteSlugs.Default, MaxFeedEntries, dropped);
         _feedsCapped[Key(site)] = dropped;
         if (cut > 0 && cut != _feedsCut.GetValueOrDefault(Key(site)))
             _logger.LogInformation("Automatic Blocking: {Cut} public list entries on {Site} cut around its latency targets",
-                cut, site ?? "main");
+                cut, site ?? SiteSlugs.Default);
         _feedsCut[Key(site)] = cut;
 
         // UniFi Network's Network List gets a share of every list, within what the gateway accepts after the
@@ -713,9 +714,9 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         if (result.Ok)
             _feedEntries[Key(site)] = result.Count;
         if (!result.Ok)
-            _logger.LogWarning("Automatic Blocking: public lists not written to the gateway on {Site}: {Error}", site ?? "main", result.Error);
+            _logger.LogWarning("Automatic Blocking: public lists not written to the gateway on {Site}: {Error}", site ?? SiteSlugs.Default, result.Error);
         else if (wanted.Count > 0)
-            _logger.LogInformation("Automatic Blocking: {Count} public list entries on the gateway of {Site}", result.Count, site ?? "main");
+            _logger.LogInformation("Automatic Blocking: {Count} public list entries on the gateway of {Site}", result.Count, site ?? SiteSlugs.Default);
     }
 
     private readonly ConcurrentDictionary<string, (string Fingerprint, DateTime At, bool Ok)> _exceptionsWritten = new();
@@ -752,7 +753,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         _exceptionsWritten[Key(site)] = (fingerprint, now, result.Ok);
         _exceptionsStatus[Key(site)] = new BlockTargetStatus(BlockTargetKind.Gateway, now, result.Ok, result.Count, result.Error);
         if (!result.Ok)
-            _logger.LogWarning("Automatic Blocking: exceptions not written to the gateway on {Site}: {Error}", site ?? "main", result.Error);
+            _logger.LogWarning("Automatic Blocking: exceptions not written to the gateway on {Site}: {Error}", site ?? SiteSlugs.Default, result.Error);
     }
 
     // Records the site's current addresses; a site that cannot be read keeps the ones it had.
@@ -770,7 +771,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Could not read the addresses of {Site}", site ?? "main");
+            _logger.LogDebug(ex, "Could not read the addresses of {Site}", site ?? SiteSlugs.Default);
             return;
         }
         if (current == null) return;
@@ -787,7 +788,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         if (added.Count > 0 || dropped.Count > 0)
         {
             _logger.LogInformation("Trusted Sources: {Site} addresses changed, added {Added}, dropped {Dropped}",
-                site ?? "main", string.Join(", ", added), string.Join(", ", dropped));
+                site ?? SiteSlugs.Default, string.Join(", ", added), string.Join(", ", dropped));
             _audit?.TrustedAddressesChanged(site, added, dropped);
         }
     }
@@ -850,7 +851,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _trustedSent[(Key(site), kind)] = (sent, now, result.Ok);
             _trustedStatus[(Key(site), kind)] = new BlockTargetStatus(kind, now, result.Ok, result.Count, result.Error);
             if (!result.Ok)
-                _logger.LogWarning("Trusted Sources: {Target} sync failed on {Site}: {Error}", kind, site ?? "main", result.Error);
+                _logger.LogWarning("Trusted Sources: {Target} sync failed on {Site}: {Error}", kind, site ?? SiteSlugs.Default, result.Error);
         }
     }
 
@@ -929,7 +930,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _sent[key] = (targetFingerprint, now, result.Ok, !result.Ok || desired.Count > 0 || (feedTarget != null && feeds.Count > 0));
             _status[key] = new BlockTargetStatus(kind, now, result.Ok, result.Count, result.Error);
             if (!result.Ok)
-                _logger.LogWarning("Automatic Blocking: {Target} sync failed on {Site}: {Error}", kind, site ?? "main", result.Error);
+                _logger.LogWarning("Automatic Blocking: {Target} sync failed on {Site}: {Error}", kind, site ?? SiteSlugs.Default, result.Error);
         }
     }
 

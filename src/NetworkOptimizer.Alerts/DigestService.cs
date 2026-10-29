@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
+using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Alerts;
 
@@ -111,7 +112,7 @@ public class DigestService : BackgroundService
             if (!MayRunForSite(siteKey))
             {
                 _logger.LogDebug("Skipping digests for non-operational site {Site}",
-                    siteKey.Length == 0 ? "main" : siteKey);
+                    siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
                 continue;
             }
             try
@@ -120,7 +121,7 @@ public class DigestService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process digests for site {Site}", siteKey.Length == 0 ? "main" : siteKey);
+                _logger.LogError(ex, "Failed to process digests for site {Site}", siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
             }
         }
     }
@@ -151,7 +152,7 @@ public class DigestService : BackgroundService
 
                 if (alerts.Count == 0)
                 {
-                    _logger.LogDebug("No alerts for digest on channel {ChannelId} (site {Site})", channel.Id, siteKey.Length == 0 ? "main" : siteKey);
+                    _logger.LogDebug("No alerts for digest on channel {ChannelId} (site {Site})", channel.Id, siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
                     await MarkSentAsync(stateStore, siteKey, channel.Id, cancellationToken);
                     continue;
                 }
@@ -168,7 +169,7 @@ public class DigestService : BackgroundService
                 {
                     await MarkSentAsync(stateStore, siteKey, channel.Id, cancellationToken);
                     _logger.LogInformation("Sent digest with {Count} alerts ({Collapsed} after collapsing) to channel {ChannelId} ({Name}) for site {Site}",
-                        alerts.Count, collapsedAlerts.Count, channel.Id, channel.Name, siteKey.Length == 0 ? "main" : siteKey);
+                        alerts.Count, collapsedAlerts.Count, channel.Id, channel.Name, siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
                 }
             }
             catch (Exception ex)
@@ -195,7 +196,7 @@ public class DigestService : BackgroundService
                     loaded++;
                 }
             }
-            _logger.LogDebug("Loaded persisted digest state for {Count} channels (site {Site})", loaded, siteKey.Length == 0 ? "main" : siteKey);
+            _logger.LogDebug("Loaded persisted digest state for {Count} channels (site {Site})", loaded, siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
         }
         catch (Exception ex)
         {

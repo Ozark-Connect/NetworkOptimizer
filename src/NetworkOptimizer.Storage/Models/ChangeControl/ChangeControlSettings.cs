@@ -163,6 +163,12 @@ public class ConfigTemplate
     /// <summary>Collections the template covers, as a JSON string array.</summary>
     public string CollectionsJson { get; set; } = "[]";
 
+    /// <summary>
+    /// Applied, the template's lists replace each site's (a WLAN's PPSKs become exactly the template's)
+    /// instead of adding to them, the default.
+    /// </summary>
+    public bool ReplaceLists { get; set; }
+
     [MaxLength(200)]
     public string CreatedBy { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }

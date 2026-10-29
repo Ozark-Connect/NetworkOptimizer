@@ -80,6 +80,7 @@ public sealed class PlanCoordinator
         OnlyObjects = baseOptions?.OnlyObjects,
         DeviceMap = baseOptions?.DeviceMap ?? new Dictionary<string, string>(),
         TargetHasGateway = baseOptions?.TargetHasGateway ?? true,
+        MergeLists = baseOptions?.MergeLists ?? false,
         AgentSite = IsAgentSite(),
         ConsoleHost = ConsoleHost(),
         ManagementAddresses = ManagementAddresses(),
@@ -654,9 +655,14 @@ public sealed class PlanCoordinator
 
         var names = offlineMacs.Count == 0 ? "" : $" Offline: {string.Join(", ", offlineMacs)}.";
         var recovery = offlineMacs.Count > 0 ? " If a device stays offline, SSH to it and run set-inform with the UniFi Console's inform URL." : "";
-        await Publish(ChangeAlerts.PlanReverted, AlertSeverity.Critical, $"Plan reverted: {plan.Name}",
-            $"{reason}.{names} Network Optimizer put back the snapshot taken before the apply"
-            + (why == null ? "." : $", but the revert did not finish: {why}") + recovery, plan.Id, ct);
+        // A person's own Roll Back that went through is news, like their apply; the watch's revert, or
+        // a revert that did not finish, means something broke.
+        var severity = !automatic && why == null ? AlertSeverity.Info : AlertSeverity.Critical;
+        // Said by who reverted: the watch acted on its own; a person's Roll Back already names them in the reason.
+        var outcome = automatic
+            ? "Network Optimizer put back the snapshot taken before the apply" + (why == null ? "." : $", but the revert did not finish: {why}")
+            : why == null ? "The snapshot taken before the apply is back." : $"The revert did not finish: {why}";
+        await Publish(ChangeAlerts.PlanReverted, severity, $"Plan reverted: {plan.Name}", $"{reason}.{names} {outcome}" + recovery, plan.Id, ct);
         if (automatic) Audit(AuditActions.ChangeControlPlanReverted, plan, why == null ? AuditOutcomes.Success : AuditOutcomes.Failure, new { reason, offline = offlineMacs, why });
         return why;
     }

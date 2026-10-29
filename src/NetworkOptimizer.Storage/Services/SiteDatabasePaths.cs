@@ -18,7 +18,7 @@ public class SiteDatabasePaths
     /// which means a path request for it always means the main database, whatever the caller
     /// believes about the flag.
     /// </summary>
-    public const string DefaultSiteSlug = "main";
+    public const string DefaultSiteSlug = NetworkOptimizer.Core.SiteSlugs.Default;
 
     public SiteDatabasePaths(string mainDbPath)
     {

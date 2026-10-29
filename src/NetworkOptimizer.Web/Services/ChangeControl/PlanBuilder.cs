@@ -36,6 +36,12 @@ public sealed class PlanOptions
 
     /// <summary>The target has no gateway adopted yet: gateway-bound collections wait.</summary>
     public bool TargetHasGateway { get; init; } = true;
+
+    /// <summary>
+    /// A template: lists in <see cref="ConfigCollectionDef.MergeOnTemplate"/> add to the target's
+    /// entries instead of replacing them (a template's PPSKs join the site's own).
+    /// </summary>
+    public bool MergeLists { get; init; }
 }
 
 /// <summary>
@@ -68,6 +74,7 @@ public static class PlanBuilder
         // Pass 1: match every collection both states have, so references resolve across collections
         // (zones in policies, networks in profiles), including objects this plan never writes.
         var (matches, idMap) = ObjectMatcher.MatchAll(desired, live, desiredCtx, liveCtx, options.SameSite, (d, o) => Relevant(d, o, options));
+        if (!options.SameSite) NoteNameMatchesOnAnotherVlan(matches, doc);
 
         // A snapshot from another Network version predates the columns the upgrade added.
         if (!options.SameSite || otherVersion)
@@ -81,6 +88,7 @@ public static class PlanBuilder
                         if (!p.Left!.ContainsKey(k)) p.Left[k] = v?.DeepClone();
                     if (!options.SameSite && def.KeepTargetValues?.Invoke(p.Left!, p.Right!) is { } what)
                         doc.KeptValues.Add(what);
+                    if (options.MergeLists) MergeListsInto(def, p.Left!, p.Right!);
                 }
         }
 
@@ -134,7 +142,11 @@ public static class PlanBuilder
         foreach (var (def, d, l) in pending)
         {
             var op = BuildOperation(def, d, l, desiredById, liveById, idMap, creates, desiredCtx, liveCtx, options, doc, mgmtNetworks, otherVersion);
-            if (op != null) doc.Operations.Add(op);
+            if (op == null) continue;
+            doc.Operations.Add(op);
+            // Right after its create, so PlannedState (before Order) applies the two in sequence.
+            if (op.Action == PlanAction.Create && def.Key == "wlanconf" && Wpa3AfterCreate(op, def, op.ObjectName) is { } then)
+                doc.Operations.Add(then);
         }
 
         AddPolicyOrder(doc, desired, live, idMap, creates, liveCtx, options);
@@ -158,6 +170,39 @@ public static class PlanBuilder
         doc.Collections = doc.Operations.Select(o => o.Collection).Distinct().ToList();
         doc.DeviceMap = options.DeviceMap.ToDictionary(k => k.Key, k => k.Value);
         return doc;
+    }
+
+    /// <summary>
+    /// A network paired by name onto another VLAN ID (names come first across sites): what it carries
+    /// lands on that VLAN here, and a written network moves to the source's VLAN ID. Said once per network.
+    /// </summary>
+    private static void NoteNameMatchesOnAnotherVlan(Dictionary<string, MatchResult> matches, PlanDocument doc)
+    {
+        if (!matches.TryGetValue("networkconf", out var networks)) return;
+        static string Vlan(JsonObject o) =>
+            o["vlan_enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && on && o["vlan"]?.ToString() is { Length: > 0 } v ? $"VLAN {v}" : "untagged";
+        foreach (var pair in networks.Pairs.Where(p => p.MatchedBy == "name" && p.Left != null && p.Right != null))
+        {
+            var (source, here) = (Vlan(pair.Left!), Vlan(pair.Right!));
+            if (source == here) continue;
+            var note = $"Network {ConfigState.DisplayName(ConfigCollections.Get("networkconf"), pair.Right!)}: matched by name; {source} in the source, {here} here.";
+            if (!doc.Notes.Contains(note)) doc.Notes.Add(note);
+        }
+    }
+
+    /// <summary>
+    /// The target's entries the desired list does not have (by the merge key), then the desired list's own:
+    /// an entry with the same key is the desired one. A template therefore never removes an entry.
+    /// </summary>
+    internal static void MergeListsInto(ConfigCollectionDef def, JsonObject desired, JsonObject live)
+    {
+        foreach (var (field, key) in def.MergeOnTemplate)
+        {
+            if (desired[field] is not JsonArray want || live[field] is not JsonArray have) continue;
+            var keys = want.OfType<JsonObject>().Select(e => e[key]?.ToString()).Where(k => k != null).ToHashSet(StringComparer.Ordinal);
+            desired[field] = new JsonArray(have.OfType<JsonObject>().Where(e => e[key]?.ToString() is not { } k || !keys.Contains(k))
+                .Select(e => (JsonNode?)e.DeepClone()).Concat(want.Select(e => e?.DeepClone())).ToArray());
+        }
     }
 
     private static List<JsonObject> Relevant(ConfigCollectionDef def, IReadOnlyList<JsonObject> objects, PlanOptions options)
@@ -230,6 +275,11 @@ public static class PlanBuilder
                 doc.Notes.Add($"{def.Noun} {name}: belongs to a WLAN; UniFi removes it with that WLAN.");
                 return null;
             }
+            if (DeleteCascade.CannotDelete(def, live!))
+            {
+                doc.Notes.Add($"{def.Noun} {name}: built into UniFi; never deleted.");
+                return null;
+            }
             if (write.DeletePath == null && write.BatchDeletePath == null)
             {
                 doc.Notes.Add($"{def.Noun} {name}: is not in the source, and UniFi has no delete for it; left in place.");
@@ -252,6 +302,8 @@ public static class PlanBuilder
         }
 
         var remapped = (JsonObject)Remap(desired, desiredById, idMap, creates, options, doc, $"{def.Noun} {name}")!;
+        if (def.Key == "wlanconf" && PmfProblem(remapped) is { } pmf && $"{def.Noun} {name}: {pmf}" is var pmfError && !doc.Errors.Contains(pmfError))
+            doc.Errors.Add(pmfError);
         RestoreKeptSecrets(def, live, remapped, doc, name);
         if (live != null)
             foreach (var field in remapped.Select(p => p.Key).ToList())
@@ -281,6 +333,16 @@ public static class PlanBuilder
                 if (!keep) continue;
                 if (liveValue == null) remapped.Remove(field);
                 else remapped[field] = liveValue.DeepClone();
+            }
+        // Onto another site, an update must not write an ID that means nothing here: a template saved
+        // without its references (before they were kept) carries the source site's network IDs in its PPSKs.
+        if (live != null && !options.SameSite)
+            foreach (var field in remapped.Select(p => p.Key).Where(k => k is not "_id" and not "id" and not "site_id" and not "external_id"
+                         and not ObjectMatcher.LegacyIdField && !def.IsReadOnly(remapped, k) && !ConfigCollections.IsSecretField(def, k)).ToList())
+            {
+                if (CanonicalJson.DeepEquals(remapped[field], live[field]) || !UnresolvedIds(remapped[field], idMap, liveById, creates).Any()) continue;
+                var unresolved = $"{def.Noun} {name}: its {FieldLabel(field).ToLowerInvariant()} names an object that is not on this console. Recreate the template from its site so it carries the objects it references.";
+                if (!doc.Errors.Contains(unresolved)) doc.Errors.Add(unresolved);
             }
         // A field YAML leaves out (a locked zone's networks) keeps its live value; absent is not "empty".
         if (live != null && def.HiddenInYaml != null)
@@ -331,6 +393,18 @@ public static class PlanBuilder
             op.WanPath = def.IsWanPath?.Invoke(desired) == true;
             var created = ConfigDiffEngine.CompareObjects(def, null, desired);
             if (created != null) ApplyTags(op, created);
+            // What the create writes, as an update shows its changes: Review Plan and the Config Delta list
+            // fields, and a create had none, so a new WLAN's PPSKs never showed. Compared with an empty
+            // object, every field it sets is a row (CompareObjects against null reports only the create).
+            if (ConfigDiffEngine.CompareObjects(def, new JsonObject { ["_id"] = ConfigState.IdOf(desired) }, desired) is { } written)
+            {
+                // Values as written: the mapped body, named as on this site, a reference to another create by its name.
+                var names = live == null ? liveById.ToDictionary(e => e.Key, e => ConfigState.DisplayName(ConfigCollections.Get(e.Value.Collection), e.Value.Object)) : [];
+                foreach (var other in creates.Values.Where(c => c.Key.Length > 0))
+                    names[RefPrefix + other.Key] = other.Key.Split(':') is { Length: > 2 } parts ? parts[2] : other.Key;
+                var here = new ConfigIdentityContext(names);
+                op.Fields = ChangeDescriber.ForDisplay(written.Fields.SelectMany(f => CreateRows(def, f, remapped, here)).ToList());
+            }
             return op;
         }
 
@@ -376,6 +450,99 @@ public static class PlanBuilder
             AddReason(update, $"A passphrase change disconnects every client on {name}");
         if (update.WanPath) AddReason(update, "WAN path change");
         return update;
+    }
+
+    /// <summary>
+    /// A WPA mode and PMF setting UniFi refuses together (api.err.InvalidSecurityPmfModeCombination,
+    /// scratch site, Network 11.0.97, 2026-10-29): WPA3 only needs PMF required; WPA2/WPA3 transition
+    /// needs it optional or required; WPA2 takes any. UniFi's own UI changes PMF with the mode; the file
+    /// says what to set instead of changing it.
+    /// </summary>
+    internal static string? PmfProblem(JsonObject wlan)
+    {
+        if (wlan["pmf_mode"] is not JsonValue p || !p.TryGetValue<string>(out var pmf)) return null;
+        static bool On(JsonObject o, string field) => o[field] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
+        if (!On(wlan, "wpa3_support")) return null;
+        if (!On(wlan, "wpa3_transition") && pmf != "required")
+            return $"WPA3 only needs pmf_mode: required; UniFi refuses {pmf}.";
+        if (On(wlan, "wpa3_transition") && pmf == "disabled")
+            return "WPA2/WPA3 transition needs pmf_mode: optional or required; UniFi refuses disabled.";
+        return null;
+    }
+
+    // Fields a WLAN create cannot set (scratch site, Network 11.0.97, 2026-10-29): UniFi stores WPA3 off
+    // and PMF disabled whatever the create sends, so 6 GHz, which needs WPA3, is refused
+    // (api.err.Wpa3MandatoryFor6GHzBand). An update afterwards sets them.
+    private static readonly string[] Wpa3Fields = ["wpa3_support", "wpa3_transition", "wpa3_enhanced_192", "wpa3_fast_roaming", "pmf_mode", "wlan_bands"];
+
+    /// <summary>
+    /// For a WLAN create that wants WPA3 or 6 GHz: creates it on WPA2 without 6 GHz, and returns the
+    /// update that then sets what the create could not. Null when the create needs no second step.
+    /// </summary>
+    private static PlanOperation? Wpa3AfterCreate(PlanOperation create, ConfigCollectionDef def, string name)
+    {
+        var body = create.Body as JsonObject;
+        var wantsWpa3 = body?["wpa3_support"] is JsonValue w && w.TryGetValue<bool>(out var on) && on;
+        var bands = (body?["wlan_bands"] as JsonArray)?.Select(b => b?.ToString()).ToList();
+        if (body == null || (!wantsWpa3 && bands?.Contains("6g") != true)) return null;
+
+        var later = new JsonObject();
+        foreach (var field in Wpa3Fields)
+            if (body[field] is { } value) later[field] = value.DeepClone();
+        body["wpa3_support"] = false;
+        body["wpa3_transition"] = false;
+        if (body.ContainsKey("wpa3_enhanced_192")) body["wpa3_enhanced_192"] = false;
+        if (body.ContainsKey("wpa3_fast_roaming")) body["wpa3_fast_roaming"] = false;
+        body["pmf_mode"] = "disabled";
+        if (bands != null)
+        {
+            var withoutSix = bands.Where(b => b != "6g").ToList();
+            body["wlan_bands"] = new JsonArray((withoutSix.Count > 0 ? withoutSix : ["5g"]).Select(b => (JsonNode?)b).ToArray());
+        }
+        create.WriteFields = body.Select(p => p.Key).Where(k => k is not "_id" and not "id").ToList();
+
+        return new PlanOperation
+        {
+            Key = OpKey(def, PlanAction.Update, name, RefPrefix + create.Key),
+            Collection = def.Key,
+            Action = PlanAction.Update,
+            ObjectId = RefPrefix + create.Key,
+            ObjectName = name,
+            Order = def.Order,
+            Body = later,
+            WriteFields = later.Select(p => p.Key).ToList(),
+            Fields = later.Select(p => new StoredField
+            {
+                Path = p.Key, Label = ChangeDescriber.LabelFor(p.Key),
+                Old = ChangeDescriber.Value(body[p.Key], null), New = ChangeDescriber.Value(p.Value, null),
+            }).ToList(),
+            ChangeText = "WPA3 and bands, set right after the create: UniFi creates every WLAN on WPA2",
+            NeedsGateway = create.NeedsGateway,
+        };
+    }
+
+    /// <summary>
+    /// A create's field as Review Plan rows: one row, or for a list of objects one row per entry naming
+    /// its fields ("Private Preshared Keys 1: Network Gaming"). Secrets are never shown, nested ones included.
+    /// </summary>
+    private static IEnumerable<StoredField> CreateRows(ConfigCollectionDef def, FieldChange f, JsonObject desired, ConfigIdentityContext ctx)
+    {
+        var label = ChangeDescriber.LabelFor(f.Path, desired);
+        if (!f.Secret && desired[f.Path] is JsonArray list && list.Count > 0 && list.All(e => e is JsonObject))
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                var parts = ((JsonObject)list[i]!).Where(p => !ConfigCollections.IsSecretField(def, p.Key) && p.Value is not null)
+                    .Select(p => $"{ChangeDescriber.LabelFor(p.Key)} {ChangeDescriber.Value(p.Value, ctx)}");
+                yield return new StoredField { Path = $"{f.Path}[{i}]", Label = $"{label} {i + 1}", Old = "none", New = string.Join(", ", parts) };
+            }
+            yield break;
+        }
+        yield return new StoredField
+        {
+            Path = f.Path, Label = label, Old = "none",
+            New = f.Secret ? null : ChangeDescriber.Value(f.New, ctx), Secret = f.Secret,
+        };
     }
 
     private static void ApplyTags(PlanOperation op, ObjectDiff diff)
@@ -577,7 +744,8 @@ public static class PlanBuilder
         var body = new JsonObject();
         foreach (var (k, v) in desired)
         {
-            if (k is "_id" or "id" or "site_id" || k == ConfigCollections.DeviceMetaField) continue;
+            // UniFi's own bookkeeping IDs (Network 11's copy of a 10.x ObjectId, the cloud ID): never written.
+            if (k is "_id" or "id" or "site_id" or "external_id" or ObjectMatcher.LegacyIdField || k == ConfigCollections.DeviceMetaField) continue;
             if (def.IsReadOnly(desired, k) && !(def.Write!.Allowlist?.Contains(k) ?? false)) continue;
             if (def.Write!.Allowlist != null && !def.Write.Allowlist.Contains(k)) continue;
             if (ConfigCollections.IsSecretField(def, k) && v is JsonValue sv && sv.TryGetValue<string>(out var s) && s == KeepSecret)
@@ -828,7 +996,10 @@ public static class PlanBuilder
     private static List<PlanOperation> AfterTheirCreates(List<PlanOperation> ops)
     {
         var byKey = ops.ToDictionary(o => o.Key, StringComparer.Ordinal);
-        var needs = ops.ToDictionary(o => o.Key, o => RefsIn(o.Body).Where(k => k != o.Key && byKey.ContainsKey(k)).ToHashSet(), StringComparer.Ordinal);
+        // A body naming a create, or an update of an object this plan creates (a new WLAN's WPA3 step).
+        var needs = ops.ToDictionary(o => o.Key, o => RefsIn(o.Body)
+            .Concat(o.ObjectId is { } id && id.StartsWith(RefPrefix, StringComparison.Ordinal) ? [id[RefPrefix.Length..]] : [])
+            .Where(k => k != o.Key && byKey.ContainsKey(k)).ToHashSet(), StringComparer.Ordinal);
         var placed = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<PlanOperation>(ops.Count);
         var pending = new List<PlanOperation>(ops);

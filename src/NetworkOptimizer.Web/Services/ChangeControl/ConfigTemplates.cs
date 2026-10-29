@@ -16,6 +16,8 @@ public sealed class TemplateView
     public string? Description { get; init; }
     public string? SourceSiteSlug { get; init; }
     public List<string> Collections { get; init; } = [];
+    /// <summary>Applied, its lists (a WLAN's PPSKs) replace each site's instead of adding to them.</summary>
+    public bool ReplaceLists { get; init; }
     public DateTime UpdatedAt { get; init; }
 }
 
@@ -44,11 +46,24 @@ public sealed class ConfigTemplateStore
     private static TemplateView View(ConfigTemplate t) => new()
     {
         Id = t.Id, Name = t.Name, Description = t.Description, SourceSiteSlug = t.SourceSiteSlug, UpdatedAt = t.UpdatedAt,
-        Collections = JsonSerializer.Deserialize<List<string>>(t.CollectionsJson) ?? [],
+        Collections = JsonSerializer.Deserialize<List<string>>(t.CollectionsJson) ?? [], ReplaceLists = t.ReplaceLists,
     };
 
+    /// <summary>Content key holding <see cref="References"/>: never a collection key.</summary>
+    private const string ReferencesKey = "_references";
+
     /// <summary>A template's content as a state (only the template's collections).</summary>
-    public async Task<(TemplateView View, ConfigState State)?> LoadAsync(int id, CancellationToken ct)
+    public async Task<(TemplateView View, ConfigState State)?> LoadAsync(int id, CancellationToken ct) =>
+        await LoadCoreAsync(id, withReferences: false, ct);
+
+    /// <summary>
+    /// A template's content plus the objects it references in collections it does not carry, so a plan
+    /// can match them on the target and Edit can name them. Plans still write <see cref="TemplateView.Collections"/> only.
+    /// </summary>
+    public async Task<(TemplateView View, ConfigState State)?> LoadWithReferencesAsync(int id, CancellationToken ct) =>
+        await LoadCoreAsync(id, withReferences: true, ct);
+
+    private async Task<(TemplateView View, ConfigState State)?> LoadCoreAsync(int id, bool withReferences, CancellationToken ct)
     {
         await using var db = await _mainDb.CreateDbContextAsync(ct);
         var t = await db.ConfigTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -56,11 +71,60 @@ public sealed class ConfigTemplateStore
         var state = new ConfigState { ReadAt = t.UpdatedAt };
         var content = JsonNode.Parse(_crypto.Decrypt(t.ContentEncrypted)) as JsonObject ?? [];
         foreach (var (collection, list) in content)
-            state.Collections[collection] = (list as JsonArray)?.OfType<JsonObject>().Select(o => (JsonObject)o.DeepClone()).ToList() ?? [];
+            if (collection != ReferencesKey) state.Collections[collection] = Objects(list);
+        if (withReferences && content[ReferencesKey] is JsonObject refs)
+            foreach (var (collection, list) in refs)
+                if (!state.Collections.ContainsKey(collection)) state.Collections[collection] = Objects(list);
         return (View(t), state);
     }
 
-    /// <summary>Creates or updates a template from a state's collections.</summary>
+    private static List<JsonObject> Objects(JsonNode? list) =>
+        (list as JsonArray)?.OfType<JsonObject>().Select(o => (JsonObject)o.DeepClone()).ToList() ?? [];
+
+    /// <summary>
+    /// The objects the template's collections point at in collections it does not carry (a PPSK's
+    /// network, a policy's zone), secrets removed: enough to match them on another site, never written.
+    /// </summary>
+    internal static Dictionary<string, List<JsonObject>> References(ConfigState state, IReadOnlyCollection<string> collections)
+    {
+        var carried = collections.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var byId = state.ObjectsById();
+        var found = new Dictionary<string, List<JsonObject>>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void Walk(JsonNode? node)
+        {
+            switch (node)
+            {
+                case JsonObject o:
+                    foreach (var (k, v) in o) if (k is not "_id" and not "id") Walk(v);
+                    break;
+                case JsonArray a:
+                    foreach (var e in a) Walk(e);
+                    break;
+                case JsonValue v when v.TryGetValue<string>(out var s) && byId.TryGetValue(s, out var target)
+                                       && !carried.Contains(target.Collection) && seen.Add(s):
+                    if (!found.TryGetValue(target.Collection, out var list)) found[target.Collection] = list = [];
+                    list.Add(WithoutSecrets(ConfigCollections.Get(target.Collection), target.Object));
+                    break;
+            }
+        }
+        foreach (var c in carried)
+            foreach (var o in state.Get(c)) Walk(o);
+        return found;
+    }
+
+    private static JsonObject WithoutSecrets(ConfigCollectionDef? def, JsonObject o)
+    {
+        JsonNode? Strip(JsonNode? node) => node switch
+        {
+            JsonObject obj => new JsonObject(obj.Where(p => !ConfigCollections.IsSecretField(def, p.Key)).Select(p => KeyValuePair.Create(p.Key, Strip(p.Value)))),
+            JsonArray arr => new JsonArray(arr.Select(Strip).ToArray()),
+            _ => node?.DeepClone(),
+        };
+        return (JsonObject)Strip(o)!;
+    }
+
+    /// <summary>Creates or updates a template from a state's collections, with the objects they reference.</summary>
     public async Task<int> SaveAsync(int? id, string name, string? description, string? sourceSite, ConfigState state,
         IReadOnlyCollection<string> collections, string by, CancellationToken ct)
     {
@@ -68,6 +132,10 @@ public sealed class ConfigTemplateStore
         foreach (var c in collections)
             if (state.Collections.TryGetValue(c, out var list))
                 content[c] = new JsonArray(list.Select(o => (JsonNode?)o.DeepClone()).ToArray());
+        var references = References(state, collections);
+        if (references.Count > 0)
+            content[ReferencesKey] = new JsonObject(references.Select(r =>
+                KeyValuePair.Create(r.Key, (JsonNode?)new JsonArray(r.Value.Select(o => (JsonNode?)o).ToArray()))));
         await using var db = await _mainDb.CreateDbContextAsync(ct);
         var t = id == null ? null : await db.ConfigTemplates.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (t == null)
@@ -91,13 +159,14 @@ public sealed class ConfigTemplateStore
         await db.ConfigTemplates.Where(t => t.Id == id).ExecuteDeleteAsync(ct);
     }
 
-    /// <summary>Changes a template's name and description, leaving its content alone.</summary>
-    public async Task RenameAsync(int id, string name, string? description, CancellationToken ct)
+    /// <summary>Changes a template's name, description, and list handling, leaving its content alone.</summary>
+    public async Task RenameAsync(int id, string name, string? description, bool replaceLists, CancellationToken ct)
     {
         await using var db = await _mainDb.CreateDbContextAsync(ct);
         var t = await db.ConfigTemplates.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new InvalidOperationException("Template not found.");
         t.Name = name;
         t.Description = description;
+        t.ReplaceLists = replaceLists;
         t.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
     }
@@ -136,11 +205,15 @@ public interface IConfigTemplateService
     /// <summary>Renames a template and replaces its description.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ChangeControlTemplateSaved, TargetType = "config_template", InstanceScoped = true)]
-    Task RenameAsync(int templateId, string name, string? description, CancellationToken cancellationToken = default);
+    Task RenameAsync(int templateId, string name, string? description, bool replaceLists, CancellationToken cancellationToken = default);
 
     /// <summary>Edit tab: one collection of a template as YAML (secrets masked), its object counts, and the editor schema.</summary>
     [RequireRole(Roles.Admin)]
     Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int templateId, string collection, CancellationToken cancellationToken = default);
+
+    /// <summary>Edit tab's Add: a new object as YAML, from the template's source site's create defaults when it is reachable.</summary>
+    [RequireRole(Roles.Admin)]
+    Task<string> GetNewObjectYamlAsync(int templateId, string collection, CancellationToken cancellationToken = default);
 
     /// <summary>Edit tab: checks a template's edited files as they are typed, and counts the objects they change.</summary>
     [RequireRole(Roles.Admin)]
@@ -187,32 +260,36 @@ public sealed class ConfigTemplateService : IConfigTemplateService
 
     public async Task<List<YamlProblem>> UpdateFromYamlAsync(int templateId, string name, string? description, string yaml, CancellationToken cancellationToken = default)
     {
-        var loaded = await _store.LoadAsync(templateId, cancellationToken) ?? throw new InvalidOperationException("Template not found.");
+        var loaded = await LoadAsync(templateId, cancellationToken);
         var parsed = YamlConverter.Parse(yaml, loaded.State, "template.yaml");
         if (parsed.HasErrors) return parsed.Problems;
         var state = loaded.State.Clone();
         foreach (var (c, list) in parsed.Collections) state.Collections[c] = list;
         YamlConverter.AssignPermanentIds(state);
-        await _store.SaveAsync(templateId, name, description, loaded.View.SourceSiteSlug, state, state.Collections.Keys.ToList(),
+        // The template's collections plus any the file adds; its references stay references.
+        var collections = loaded.View.Collections.Union(parsed.Collections.Keys, StringComparer.OrdinalIgnoreCase).ToList();
+        await _store.SaveAsync(templateId, name, description, loaded.View.SourceSiteSlug, state, collections,
             _caller.Current?.ActorName ?? "unknown", cancellationToken);
         return parsed.Problems;
     }
 
     public async Task<string> GetYamlAsync(int templateId, CancellationToken cancellationToken = default)
     {
-        var loaded = await _store.LoadAsync(templateId, cancellationToken) ?? throw new InvalidOperationException("Template not found.");
+        var loaded = await LoadAsync(templateId, cancellationToken);
         // Masked, not redacted: UpdateFromYamlAsync parses against this same state, so each token
         // resolves to the template's own secret. <keep current> would be stored as the value.
-        return YamlConverter.Export(loaded.State, null, SecretMode.Mask);
+        // The references name what the template's objects point at; they are not written themselves.
+        return YamlConverter.Export(loaded.State, loaded.View.Collections, SecretMode.Mask);
     }
 
     public Task DeleteAsync(int templateId, CancellationToken cancellationToken = default) => _store.DeleteAsync(templateId, cancellationToken);
 
-    public Task RenameAsync(int templateId, string name, string? description, CancellationToken cancellationToken = default) =>
-        _store.RenameAsync(templateId, name, description, cancellationToken);
+    public Task RenameAsync(int templateId, string name, string? description, bool replaceLists, CancellationToken cancellationToken = default) =>
+        _store.RenameAsync(templateId, name, description, replaceLists, cancellationToken);
 
+    // With its references, so the Edit tab names a PPSK's network and Save keeps the references.
     private async Task<(TemplateView View, ConfigState State)> LoadAsync(int templateId, CancellationToken ct) =>
-        await _store.LoadAsync(templateId, ct) ?? throw new InvalidOperationException("Template not found.");
+        await _store.LoadWithReferencesAsync(templateId, ct) ?? throw new InvalidOperationException("Template not found.");
 
     public async Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int templateId, string collection, CancellationToken cancellationToken = default)
     {
@@ -220,6 +297,17 @@ public sealed class ConfigTemplateService : IConfigTemplateService
         var counts = state.Collections.ToDictionary(k => k.Key, k => k.Value.Count);
         var schema = ConfigCollections.Get(collection) is { } def ? YamlConverter.EditSchema(state, [def]).ToJsonString() : "{}";
         return (YamlConverter.Export(state, [collection], SecretMode.Mask, ids: true), counts, schema);
+    }
+
+    public async Task<string> GetNewObjectYamlAsync(int templateId, string collection, CancellationToken cancellationToken = default)
+    {
+        var def = ConfigCollections.Get(collection) is { } d && NewObjects.CanAdd(d) ? d : throw new InvalidOperationException("Objects of this collection cannot be added here.");
+        var (view, state) = await LoadAsync(templateId, cancellationToken);
+        // The source site may be gone; its defaults are a nicety, the skeleton stands without them.
+        IUniFiConfigApi? api = null;
+        try { if (view.SourceSiteSlug is { } slug) api = _registry.GetFor(slug).Api; }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+        return NewObjects.Yaml(def, state, await NewObjects.ReadDefaultsAsync(api, def, cancellationToken));
     }
 
     public async Task<YamlValidation> ValidateYamlAsync(int templateId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)

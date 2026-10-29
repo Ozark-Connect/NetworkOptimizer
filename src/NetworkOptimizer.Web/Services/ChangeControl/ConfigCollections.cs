@@ -48,6 +48,9 @@ public sealed class CollectionWrite
     /// <summary>POST path taking an array of ids to delete, preferred over per-object deletes when set.</summary>
     public string? BatchDeletePath { get; init; }
 
+    /// <summary>Objects can be deleted, one at a time or in a batch (firewall policies have only the batch).</summary>
+    public bool CanDelete => DeletePath != null || BatchDeletePath != null;
+
     /// <summary>
     /// Fields the endpoint accepts (from the installed app's request DTOs). Null: send the stored
     /// object minus <see cref="ConfigCollectionDef.ReadOnlyFields"/>. v2 endpoints need a list, since
@@ -118,6 +121,12 @@ public sealed class ConfigCollectionDef
     /// </summary>
     public Func<string, JsonObject, bool>? UnsetElement { get; init; }
 
+    /// <summary>
+    /// List fields a template adds to rather than replaces, with the entry field that identifies an
+    /// entry (<see cref="PlanOptions.MergeLists"/>).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> MergeOnTemplate { get; init; } = new Dictionary<string, string>();
+
     /// <summary>Secret fields beyond the <c>x_</c> convention.</summary>
     public IReadOnlySet<string> ExtraSecretFields { get; init; } = Empty;
 
@@ -164,6 +173,12 @@ public sealed class ConfigCollectionDef
 
     /// <summary>Whether UniFi enforces <see cref="EnforcedKey"/> as unique (VLAN ID, group name, DNS record, MAC).</summary>
     public bool KeyIsUnique { get; init; }
+
+    /// <summary>
+    /// Across sites (a template, a restore from another site), an exact name match comes before
+    /// <see cref="EnforcedKey"/>. Within one site the UniFi ID decides first either way.
+    /// </summary>
+    public bool NameFirstAcrossSites { get; init; }
 
     /// <summary>Objects UniFi generates and owns (predefined, derived): never written, compared for display only.</summary>
     public Func<JsonObject, bool>? IsGenerated { get; init; }
@@ -423,6 +438,8 @@ public static class ConfigCollections
                 ExtraSecretFields = Set("wireguard_client_preshared_key", "wireguard_client_configuration_file", "openvpn_configuration"),
                 SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses"),
                 EnforcedKey = (o, _) => NetworkKey(o), KeyIsUnique = true,
+                // Sites numbered by different people share names ("IoT") more reliably than VLAN IDs (TJ, 2026-10-29).
+                NameFirstAcrossSites = true,
                 Write = new CollectionWrite
                 {
                     CreatePath = "rest/networkconf", UpdatePath = "rest/networkconf/{id}", DeletePath = "rest/networkconf/{id}", Proven = true,
@@ -546,6 +563,8 @@ public static class ConfigCollections
                 // ap_macs and networkconf_ids also appear inside mdns_proxy_custom entries, where order means nothing either.
                 SetArrays = Set("ap_group_ids", "wlan_bands", "mac_filter_list", "schedule", "schedule_with_duration", "ap_macs", "networkconf_ids"),
                 EnforcedKey = (o, ctx) => $"{Str(o, "name")}@{ctx.NameOf(Str(o, "networkconf_id"))}",
+                // UniFi keeps a PPSK's password unique on its WLAN, so it names the entry.
+                MergeOnTemplate = new Dictionary<string, string> { ["private_preshared_keys"] = "password" },
                 Write = new CollectionWrite { CreatePath = "rest/wlanconf", UpdatePath = "rest/wlanconf/{id}", DeletePath = "rest/wlanconf/{id}", Proven = true },
                 AuditSections = ["WIFI", "WLAN"], AuditCollectionNames = ["wlanconf"], AuditInput = true,
                 TagsForField = (_, f) => Tags(f, ("security", ServiceTags.WlanSecurity), ("wpa", ServiceTags.WlanSecurity), ("pmf", ServiceTags.WlanSecurity),

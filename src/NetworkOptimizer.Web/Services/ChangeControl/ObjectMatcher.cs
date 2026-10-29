@@ -66,6 +66,10 @@ public static class ObjectMatcher
                     Pair(l, r, "id");
         }
 
+        // Across sites, a collection can prefer the name (networks: the same name is the same network,
+        // even on another VLAN ID). An ambiguous name is no conflict yet: the key may still settle it.
+        if (!matchById && def.NameFirstAcrossSites) PairByName(recordConflicts: false);
+
         // 2. Enforced key.
         if (def.EnforcedKey != null)
         {
@@ -82,16 +86,21 @@ public static class ObjectMatcher
         }
 
         // 3. Name, only when unambiguous on both sides.
-        var rightByName = GroupBy(rightOpen, o => ConfigState.DisplayName(def, o));
-        var leftByName = GroupBy(leftOpen, o => ConfigState.DisplayName(def, o));
-        foreach (var (name, ls) in leftByName)
+        PairByName(recordConflicts: true);
+
+        void PairByName(bool recordConflicts)
         {
-            if (!rightByName.TryGetValue(name, out var rs)) continue;
-            if (ls.Count == 1 && rs.Count == 1)
-                Pair(ls[0], rs[0], "name");
-            else
-                result.Conflicts.Add(new MatchConflict(def.Key, name,
-                    $"{ls.Count} on one side and {rs.Count} on the other share the name"));
+            var rightByName = GroupBy(rightOpen, o => ConfigState.DisplayName(def, o));
+            var leftByName = GroupBy(leftOpen, o => ConfigState.DisplayName(def, o));
+            foreach (var (name, ls) in leftByName)
+            {
+                if (!rightByName.TryGetValue(name, out var rs)) continue;
+                if (ls.Count == 1 && rs.Count == 1)
+                    Pair(ls[0], rs[0], "name");
+                else if (recordConflicts)
+                    result.Conflicts.Add(new MatchConflict(def.Key, name,
+                        $"{ls.Count} on one side and {rs.Count} on the other share the name"));
+            }
         }
 
         foreach (var l in leftOpen) result.Pairs.Add(new ObjectPair(l, null, "none"));

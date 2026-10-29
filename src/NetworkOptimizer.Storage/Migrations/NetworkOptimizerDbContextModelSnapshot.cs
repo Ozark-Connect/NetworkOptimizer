@@ -1660,6 +1660,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("ReplaceLists")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("SourceSiteSlug")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");

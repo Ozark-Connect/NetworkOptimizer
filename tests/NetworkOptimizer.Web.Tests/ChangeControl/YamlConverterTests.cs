@@ -11,6 +11,7 @@ public class YamlConverterTests
         ("networkconf", """{"_id":"n1","name":"Default","purpose":"corporate"}"""),
         ("networkconf", """{"_id":"n2","name":"IoT","purpose":"corporate","vlan":30,"vlan_enabled":true}"""),
         ("networkconf", """{"_id":"n3","name":"IoT","purpose":"corporate","vlan":31,"vlan_enabled":true}"""),
+        ("apgroups", """{"_id":"a1","name":"All APs","attr_hidden_id":"default","device_macs":[]}"""),
         ("wlanconf", """{"_id":"w1","name":"Home","security":"wpapsk","wpa_mode":"wpa2","x_passphrase":"hunter2","networkconf_id":"n1","wlan_bands":["2g","5g","6g"]}"""));
 
     [Fact]
@@ -68,6 +69,63 @@ public class YamlConverterTests
         PlanBuilder.Build(desired, state, new PlanOptions()).Operations.Should().BeEmpty();
     }
 
+    private static ConfigState PolicySite() => State(
+        ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+        ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+        ("firewall_policy", """{"_id":"p1","name":"Block IoT","action":"BLOCK","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+        ("firewall_policy", """{"_id":"p2","name":"Allow All Traffic","predefined":true,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+
+    [Fact]
+    public void FirewallPolicies_BatchDeleteOnly_AreDeletableInTheEditor()
+    {
+        var schema = YamlConverter.EditSchema(PolicySite(), [ConfigCollections.Get("firewall_policy")!]);
+
+        schema["collections"]!["firewall_policies"]!["readOnly"].Should().BeNull("firewall-policies/batch-delete is a delete");
+        schema["collections"]!["firewall_policies"]!["undeletable"]!.AsArray().Select(i => i!.ToString()).Should().Equal("p2");
+    }
+
+    [Fact]
+    public void RestoreStylePlan_NeverDeletesBuiltInObjects()
+    {
+        var live = State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","default_zone":true,"network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z3","name":"Lab","network_ids":[]}"""),
+            ("firewall_policy", """{"_id":"p2","name":"Allow All Traffic","predefined":true,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z1"}}"""),
+            ("networkconf", """{"_id":"n1","name":"Default","purpose":"corporate","attr_no_delete":true}"""),
+            ("nat", """{"_id":"r1","description":"Masquerade","is_predefined":true}"""));
+        var empty = new ConfigState();
+        foreach (var key in live.Collections.Keys) empty.Collections[key] = [];
+
+        var doc = PlanBuilder.Build(empty, live, new PlanOptions { DeleteMissing = true });
+
+        doc.Operations.Where(o => o.Action == PlanAction.Delete).Select(o => o.ObjectId).Should().Equal("z3");
+    }
+
+    [Fact]
+    public void RemovingACustomPolicy_IsADelete()
+    {
+        var site = PolicySite();
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
+        var kept = string.Join("\n", yaml.Split('\n').SkipWhile(l => !l.StartsWith("- id: p2", StringComparison.Ordinal)));
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(site, new Dictionary<string, string> { ["firewall_policy"] = "firewall_policies:\n" + kept });
+
+        problems.Should().NotContain(p => p.Level == "Error" || p.Message.Contains("read-only"));
+        PlanBuilder.Build(desired, site, new PlanOptions { Collections = touched }).Operations
+            .Should().ContainSingle(o => o.Action == PlanAction.Delete && o.ObjectId == "p1");
+    }
+
+    [Fact]
+    public void RemovingAPredefinedPolicy_IsAnError()
+    {
+        var site = PolicySite();
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
+        var kept = string.Join("\n", yaml.Split('\n').TakeWhile(l => !l.StartsWith("- id: p2", StringComparison.Ordinal)));
+        var parsed = YamlConverter.Parse(kept + "\n", site, "firewall_policies.yaml");
+
+        parsed.Problems.Should().ContainSingle(p => p.Level == "Error")
+            .Which.Message.Should().Be("Firewall Policy Allow All Traffic is built into UniFi and cannot be deleted.");
+    }
+
     [Fact]
     public void Parse_AmbiguousName_IsAnError_SuggestingTheVlan()
     {
@@ -76,6 +134,7 @@ public class YamlConverterTests
               - name: IoT
                 security: wpapsk
                 network: IoT
+                ap_groups: [All APs]
             """;
         var parsed = YamlConverter.Parse(yaml, Site(), "wlans.yaml");
         var problem = parsed.Problems.Should().ContainSingle(p => p.Level == "Error").Subject;
@@ -103,7 +162,17 @@ public class YamlConverterTests
                 wpa3_transition: true
                 network: Default
             """;
-        YamlConverter.Parse(yaml, Site(), "wlans.yaml").Problems.Should().Contain(p => p.Level == "Info" && p.Message.Contains("WPA3"));
+        YamlConverter.Parse(yaml, Site(), "wlans.yaml").Problems.Should().Contain(p => p.Level == "Info" && p.Message == "WPA3 transition on Home: some IoT devices cannot join.");
+    }
+
+    [Fact]
+    public void Parse_Wpa3TransitionAlreadyOn_IsNoNote()
+    {
+        var site = Site();
+        site.Collections["wlanconf"][0]["wpa3_transition"] = true;
+
+        YamlConverter.Parse(YamlConverter.Export(site, ["wlanconf"], SecretMode.Mask, ids: true), site, "wlans.yaml")
+            .Problems.Should().NotContain(p => p.Message.Contains("WPA3 transition"));
     }
 
     private const string LabNetworkFile = "networks:\n- name: Default\n  purpose: corporate\n- name: IoT\n  vlan: 30\n  vlan_enabled: true\n  purpose: corporate\n"
@@ -116,7 +185,7 @@ public class YamlConverterTests
         var files = new Dictionary<string, string>
         {
             ["wlanconf"] = YamlConverter.Export(Site(), ["wlanconf"], SecretMode.Mask, ids: true)
-                + "- name: Lab Wi-Fi\n  security: wpapsk\n  x_passphrase: lab-passphrase\n  network: Lab\n",
+                + "- name: Lab Wi-Fi\n  security: wpapsk\n  x_passphrase: lab-passphrase\n  network: Lab\n  ap_groups: [All APs]\n",
             ["networkconf"] = LabNetworkFile,
         };
         var (desired, problems, touched) = ChangeControlService.ParseEdits(Site(), files);

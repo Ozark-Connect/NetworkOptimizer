@@ -79,8 +79,8 @@ public static class DeleteCascade
         foreach (var key in touched)
         {
             var def = ConfigCollections.Get(key);
-            if (def?.Write?.DeletePath == null) continue;
-            deleted.AddRange(Removed(def, baseState, desired).Where(o => !IsProtected(o)).Select(ConfigState.IdOf));
+            if (def?.Write?.CanDelete != true) continue;
+            deleted.AddRange(Removed(def, baseState, desired).Where(o => !CannotDelete(def, o)).Select(ConfigState.IdOf));
         }
         if (deleted.Count == 0) return changed;
 
@@ -117,4 +117,12 @@ public static class DeleteCascade
     /// <summary>UniFi's built-in objects (the Default WLAN group, the default network) refuse deletion.</summary>
     public static bool IsProtected(JsonObject o) =>
         o["attr_no_delete"] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
+
+    /// <summary>
+    /// Never deleted by any plan: UniFi's own objects (predefined policies and NAT rules, the built-in
+    /// zones, anything marked no-delete or generated). Editor, Review Plan, restore, and template all check it.
+    /// </summary>
+    public static bool CannotDelete(ConfigCollectionDef? def, JsonObject o) =>
+        IsProtected(o) || def?.IsGenerated?.Invoke(o) == true
+        || new[] { "predefined", "is_predefined", "default_zone" }.Any(f => o[f] is JsonValue v && v.TryGetValue<bool>(out var b) && b);
 }

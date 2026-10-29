@@ -297,7 +297,8 @@ else if (_compare != null)
     private DriftView? _drift;
     private readonly List<int> _selected = [];
     private string _search = "";
-    private int _shown = 50;
+    // Short enough that the Templates card below is in reach at 1080p; Show more adds 50.
+    private int _shown = 15;
     private CompareView? _compare;
     private bool _compareLoading;
     private string _compareView = "changes";

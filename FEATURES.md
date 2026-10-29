@@ -285,9 +285,12 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **Compare** any two snapshots or one against live; **Download YAML**; **Pin**; **Roll Back** to a snapshot
   - Baseline and **Drift from Baseline**, with **Return to Baseline** and **Accept as Baseline**
   - **Templates** - save collections from one site, apply them to others, or use one as the Baseline
+    - Pare a template down to the fields to set; networks, zones, and groups it references match at each site by name, VLAN ID, or key
+    - A WLAN's PPSKs from a template join each site's own, or replace them (**Replace each site's PPSKs**)
   - **UniFi Console Backups** - keeps copies of UniFi's own .unf autobackups for download (Site Admin)
 - **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files, for the whole site or a single collection
   - Remove an object with one click; references to it in lists are removed in the same plan
+  - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
   - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report

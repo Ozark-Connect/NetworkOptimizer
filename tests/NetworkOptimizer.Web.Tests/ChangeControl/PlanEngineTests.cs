@@ -350,10 +350,39 @@ public class PlanEngineTests
             ("wlanconf", """{"_id":"w1","name":"Six","networkconf_id":"n1","wlan_band":"both","wlan_bands":["2g","5g","6g"]}"""));
         var live = State(("networkconf", Lan), ("wlanconf", other));
 
-        var create = Plan(desired, live).Operations.Single(o => o.Action == PlanAction.Create);
+        var ops = Plan(desired, live).Operations;
+        var create = ops.Single(o => o.Action == PlanAction.Create);
 
         create.Body!.AsObject().ContainsKey("wlan_band").Should().BeFalse();
-        create.Body!["wlan_bands"]!.AsArray().Should().HaveCount(3);
+        // A create refuses 6 GHz (it stores WPA3 off), so the update right after it adds the band.
+        var then = ops.Single(o => o.Action == PlanAction.Update && o.ObjectId == PlanBuilder.RefPrefix + create.Key);
+        then.Body!.AsObject().ContainsKey("wlan_band").Should().BeFalse();
+        then.Body!["wlan_bands"]!.AsArray().Should().HaveCount(3);
+    }
+
+    [Theory]
+    [InlineData(false, false, "disabled", null)]
+    [InlineData(false, false, "required", null)]
+    [InlineData(true, true, "optional", null)]
+    [InlineData(true, true, "required", null)]
+    [InlineData(true, true, "disabled", "WPA2/WPA3 transition needs pmf_mode: optional or required; UniFi refuses disabled.")]
+    [InlineData(true, false, "required", null)]
+    [InlineData(true, false, "optional", "WPA3 only needs pmf_mode: required; UniFi refuses optional.")]
+    [InlineData(true, false, "disabled", "WPA3 only needs pmf_mode: required; UniFi refuses disabled.")]
+    public void Pmf_FollowsUniFisRule(bool wpa3, bool transition, string pmf, string? expected)
+    {
+        var wlan = new JsonObject { ["wpa3_support"] = wpa3, ["wpa3_transition"] = transition, ["pmf_mode"] = pmf };
+
+        PlanBuilder.PmfProblem(wlan).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Pmf_TurningTransitionOffWithPmfOptional_IsAPlanError()
+    {
+        var live = State(("networkconf", Lan), ("wlanconf", """{"_id":"w1","name":"Cool-SSID","networkconf_id":"n1","wpa3_support":true,"wpa3_transition":true,"pmf_mode":"optional"}"""));
+        var desired = State(("networkconf", Lan), ("wlanconf", """{"_id":"w1","name":"Cool-SSID","networkconf_id":"n1","wpa3_support":true,"wpa3_transition":false,"pmf_mode":"optional"}"""));
+
+        Plan(desired, live).Errors.Should().Contain("WLAN Cool-SSID: WPA3 only needs pmf_mode: required; UniFi refuses optional.");
     }
 
     [Fact]

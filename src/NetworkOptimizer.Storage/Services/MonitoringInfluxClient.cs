@@ -12,6 +12,7 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Storage.Services;
 
@@ -436,7 +437,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && cancellation.IsCancellationRequested)
         {
             _logger.LogInformation("Speed test InfluxDB backfill interrupted by configuration refresh for site {Site}; will retry",
-                _siteSlug ?? "main");
+                _siteSlug ?? SiteSlugs.Default);
             return false;
         }
     }
@@ -488,7 +489,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
                 catch (JsonException ex)
                 {
                     _logger.LogWarning(ex, "Invalid speed test InfluxDB backfill marker for site {Site}; replaying history",
-                        _siteSlug ?? "main");
+                        _siteSlug ?? SiteSlugs.Default);
                 }
             }
             if (previous?.BucketId == bucket.Id && previous.RetentionSeconds == retentionSeconds)
@@ -580,7 +581,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
                 _flushSemaphore.Release();
             }
             _logger.LogInformation("Speed test InfluxDB backfill complete for site {Site}: {Exported} exported, {Skipped} skipped",
-                _siteSlug ?? "main", exported, skipped);
+                _siteSlug ?? SiteSlugs.Default, exported, skipped);
             return true;
         }
         catch (InfluxDB.Client.Core.Exceptions.HttpException) when (ct.IsCancellationRequested)

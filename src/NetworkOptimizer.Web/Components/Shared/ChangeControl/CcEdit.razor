@@ -113,6 +113,10 @@
                             {
                                 <span class="status-badge badge-muted hide-mobile">Secrets masked</span>
                             }
+                            @if (AddableDef(_group) is { } addable)
+                            {
+                                <button class="btn btn-contrast btn-sm" disabled="@(_loading || _adding)" @onclick="() => AddObjectAsync(addable)">+ Add @NewObjects.Label(addable)</button>
+                            }
                             <button class="btn btn-contrast btn-sm hide-mobile" disabled="@_loading" @onclick="DownloadCollectionAsync"
                                     data-tooltip="@DownloadCollectionTooltip" aria-label="Download Collection YAML"><CcIcon /> Collection YAML</button>
                         </span>
@@ -193,6 +197,40 @@
 
     private const string UploadTooltip = "Takes the whole site config or a single collection.";
     private const string DownloadCollectionTooltip = "This collection only, with your edits. Edit it and upload it back.";
+    private bool _adding;
+
+    /// <summary>The collection in a group that Add creates in, or null when the group has none.</summary>
+    private ConfigCollectionDef? AddableDef(string group) => LoadDefs(group).FirstOrDefault(NewObjects.CanAdd);
+
+    /// <summary>The editor's "+ Add" line under a collection, by its YAML name.</summary>
+    [JSInvokable]
+    public Task AddObject(string yamlName) =>
+        LoadDefs(_group).FirstOrDefault(d => YamlConverter.YamlName(d) == yamlName && NewObjects.CanAdd(d)) is { } def
+            ? InvokeAsync(async () => { await AddObjectAsync(def); StateHasChanged(); })
+            : Task.CompletedTask;
+
+    private async Task AddObjectAsync(ConfigCollectionDef def)
+    {
+        if (_editor == null || _adding) return;
+        _adding = true;
+        _error = null;
+        try
+        {
+            var yaml = TemplateId is { } templateId
+                ? await Templates.GetNewObjectYamlAsync(templateId, def.Key)
+                : await Site.GetNewObjectYamlAsync(SnapshotId, def.Key);
+            await _editor.InvokeVoidAsync("insertObject", _host, YamlConverter.YamlName(def), yaml);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
 
     private List<FleetSiteView> _sites = [];
     private List<SnapshotRowView> _snapshots = [];
@@ -262,7 +300,9 @@
     {
         _sites = await Fleet.GetSitesAsync();
         _snapshots = (await Site.GetSnapshotsAsync()).Rows;
-        if ((await AuthState.GetAuthenticationStateAsync()).User.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin))
+        var user = (await AuthState.GetAuthenticationStateAsync()).User;
+        _viewer = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? user.Identity?.Name ?? "";
+        if (user.IsInRole(NetworkOptimizer.Storage.Models.Identity.Roles.Admin))
         {
             _templates = await Templates.ListAsync();
             // Snapshots' Edit YAML links here with ?template=<id>.
@@ -273,14 +313,32 @@
                 _group = VisibleGroups.FirstOrDefault() ?? _group;
             }
         }
+        if (await ReadLastGroupAsync() is { } last && VisibleGroups.Contains(last)) _group = last;
         await OpenGroupAsync(_group);
+    }
+
+    // The collection last open, per user and per site or template, in this browser. Storage can be
+    // missing (prerender, private window, blocked site data); the editor then opens its default.
+    private string LastGroupKey => $"cc-editor-group:{FoldScope}";
+
+    private async Task<string?> ReadLastGroupAsync()
+    {
+        try { return await JS.InvokeAsync<string?>("localStorage.getItem", LastGroupKey); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException) { return null; }
+    }
+
+    private async Task SaveLastGroupAsync()
+    {
+        try { await JS.InvokeVoidAsync("localStorage.setItem", LastGroupKey, _group); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException) { }
     }
 
     private async Task SwitchEditingAsync()
     {
         _saved = null;
         _error = null;
-        if (!VisibleGroups.Contains(_group)) _group = VisibleGroups.FirstOrDefault() ?? Groups[0];
+        if (await ReadLastGroupAsync() is { } last && VisibleGroups.Contains(last)) _group = last;
+        else if (!VisibleGroups.Contains(_group)) _group = VisibleGroups.FirstOrDefault() ?? Groups[0];
         await StartOverAsync();
     }
 
@@ -288,6 +346,7 @@
     {
         _group = group;
         _pushText = true;
+        await SaveLastGroupAsync();
         // An uploaded group is edited before it was ever loaded: load its base for the schema and
         // the unedited text, but keep showing the upload.
         var edited = _edited.GetValueOrDefault(group);
@@ -333,6 +392,12 @@
                 foreach (var (k, v) in parsed["refs"] as JsonObject ?? []) refs[k] = v?.DeepClone();
             }
         }
+        // The editor draws "+ Add <Noun>" under each collection marked here.
+        foreach (var def in LoadDefs(group).Where(NewObjects.CanAdd))
+        {
+            if (collections[YamlConverter.YamlName(def)] is not JsonObject shape) collections[YamlConverter.YamlName(def)] = shape = new JsonObject();
+            shape["add"] = NewObjects.Label(def);
+        }
         _schemas[group] = new JsonObject { ["collections"] = collections, ["refs"] = refs }.ToJsonString();
         return sb.ToString();
     }
@@ -349,7 +414,7 @@
                 var module = await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/cc-editor.js"));
                 _canReveal = await Site.IsSiteAdminAsync();
                 if (_disposed) { await module.DisposeAsync(); return; }
-                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), EditKey, _canReveal);
+                await module.InvokeVoidAsync("create", _host, _self, _text, FileName(_group), EditKey, _canReveal, FoldScope);
                 _editor = module;
                 _pushText = true;
                 // Left the tab while create was in flight: DisposeAsync already ran without an editor to tear down.
@@ -363,7 +428,7 @@
             _pushText = false;
             try
             {
-                await _editor.InvokeVoidAsync("setText", _host, _text, EditKey);
+                await _editor.InvokeVoidAsync("setText", _host, _text, EditKey, FoldScope);
                 await _editor.InvokeVoidAsync("setSchema", _host, _schemas.GetValueOrDefault(_group, "{}"));
                 await PushProblemsAsync();
             }
@@ -374,6 +439,10 @@
     // Group plus a generation that Discard, Start from, and Upload advance, so a change still in
     // flight from before one of them is dropped instead of restoring the text it replaced.
     private string EditKey => $"{_generation}|{_group}";
+
+    // Whose folds the editor keeps, and where: per user, per site or template.
+    private string _viewer = "";
+    private string FoldScope => TemplateId is { } t ? $"{_viewer}|template:{t}" : $"{_viewer}|site:{SiteCtx.Slug}";
 
     /// <summary>The editor's text after typing pauses. <paramref name="key"/> is <see cref="EditKey"/> when it was typed.</summary>
     [JSInvokable]

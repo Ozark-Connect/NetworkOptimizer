@@ -430,6 +430,31 @@ public static partial class YamlConverter
         {
             var resolved = ResolveObject(def, obj, map, index, fieldMap, result, fileName);
             ResolveSecretTokens(def, resolved, baseState, Line(map), result, fileName);
+            if (ConfigState.IdOf(resolved).StartsWith(TempIdPrefix, StringComparison.Ordinal))
+                foreach (var (missing, refused) in NewObjects.Missing(def, resolved))
+                {
+                    // Named as the file writes it: networkconf_id is "network", source.zone_id is "source.zone".
+                    var parts = missing.Split('.').Select(p => StrippedName(p) ?? p).ToArray();
+                    YamlNode at = map;
+                    YamlMappingNode? level = map;
+                    foreach (var part in parts)
+                    {
+                        var entry = level?.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == part);
+                        if (entry?.Key == null) break;
+                        at = entry.Value.Key;
+                        level = entry.Value.Value as YamlMappingNode;
+                    }
+                    var field = string.Join(".", parts);
+                    result.Problems.Add(refused
+                        ? new YamlProblem("Error", fileName, Line(at), $"A new {def.Noun} needs {field}.")
+                        : new YamlProblem("Warning", fileName, Line(at), $"A new {def.Noun} without {field} is created, but does nothing until it has one."));
+                }
+            if (ConfigState.IdOf(resolved).StartsWith(TempIdPrefix, StringComparison.Ordinal))
+                foreach (var (path, message) in NewObjects.Refused(def, resolved))
+                {
+                    var keyNode = map.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == path).Key;
+                    result.Problems.Add(new YamlProblem("Error", fileName, Line(keyNode ?? map), message));
+                }
             result.Collections[def.Key].Add(resolved);
         }
 
@@ -618,13 +643,16 @@ public static partial class YamlConverter
     /// <summary>Warnings and notes that do not stop Review Plan, from the mockup's Problems card.</summary>
     private static void Lint(YamlParseResult result, ConfigState baseState, List<(ConfigCollectionDef Def, YamlMappingNode Node, JsonObject Obj)> raw, string fileName)
     {
+        var baseById = baseState.ObjectsById();
         foreach (var (def, node, obj) in raw.Where(r => r.Def.Key == "wlanconf"))
         {
-            if (obj["wpa3_transition"] is JsonValue t && t.TryGetValue<bool>(out var tr) && tr)
+            // Only where the edit turns it on, not on every WLAN already using it.
+            static bool On(JsonObject? o) => o?["wpa3_transition"] is JsonValue t && t.TryGetValue<bool>(out var tr) && tr;
+            if (On(obj) && !(baseById.TryGetValue(ConfigState.IdOf(obj), out var before) && On(before.Object)))
             {
                 var keyNode = node.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == "wpa3_transition").Key;
                 result.Problems.Add(new YamlProblem("Info", fileName, keyNode == null ? Line(node) : Line(keyNode),
-                    $"WPA3 transition on {ConfigState.DisplayName(def, obj)}: some IoT devices cannot join. Review Plan asks you to acknowledge it."));
+                    $"WPA3 transition on {ConfigState.DisplayName(def, obj)}: some IoT devices cannot join."));
             }
         }
 
@@ -640,7 +668,7 @@ public static partial class YamlConverter
             var removedObjects = DeleteCascade.Removed(def, baseState, desired)
                 .Where(o => !(def.Key == "user" && !ConfigDiffEngine.HasClientConfig(o))).ToList();
             if (removedObjects.Count == 0) continue;
-            if (def.Write?.DeletePath == null)
+            if (def.Write?.CanDelete != true)
             {
                 result.Problems.Add(new YamlProblem("Warning", fileName, 1,
                     $"{def.DisplayName} are read-only in Network Optimizer: {Names(def, removedObjects)} will not be deleted."));
@@ -649,7 +677,13 @@ public static partial class YamlConverter
             foreach (var removed in removedObjects)
             {
                 var name = $"{def.Noun} {ConfigState.DisplayName(def, removed)}";
-                if (DeleteCascade.IsProtected(removed))
+                // The owning feature re-provisions it, and Review Plan writes nothing for it (PlanBuilder).
+                if (ConfigCollections.OwnedBy(def, removed) is { } owner)
+                {
+                    result.Problems.Add(new YamlProblem("Warning", fileName, 1, $"{name} belongs to {owner} and is not deleted here."));
+                    continue;
+                }
+                if (DeleteCascade.CannotDelete(def, removed))
                 {
                     result.Problems.Add(new YamlProblem("Error", fileName, 1, $"{name} is built into UniFi and cannot be deleted."));
                     continue;

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Threats.Blocking;
 
@@ -486,7 +487,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                 {
                     var held = GatewayExceptionPolicies.ZonesOf(e.Device, others);
                     _logger.LogDebug("Gateway exceptions on {Site}: exception {Id} device {Device} is in {Zones}",
-                        site ?? "main", e.Id, e.Device,
+                        site ?? SiteSlugs.Default, e.Id, e.Device,
                         ReferenceEquals(held, others) ? "no zone's networks, so every zone" : string.Join(", ", held.Select(z => names[z.Id])));
                 }
             }
@@ -541,7 +542,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             }
             if (updated + created + deleted > 0)
                 _logger.LogInformation("Gateway exceptions on {Site}: {Count} Allow policies ({Updated} updated, {Created} created, {Deleted} deleted)",
-                    site ?? "main", refs.Count, updated, created, deleted);
+                    site ?? SiteSlugs.Default, refs.Count, updated, created, deleted);
             return BlockTargetResult.Success(refs.Count);
         }
         catch (UniFiPermissionException ex)

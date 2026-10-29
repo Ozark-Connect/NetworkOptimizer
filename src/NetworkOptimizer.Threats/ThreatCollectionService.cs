@@ -9,6 +9,7 @@ using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
 using NetworkOptimizer.Threats.Waf;
+using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Threats;
 
@@ -188,7 +189,7 @@ public class ThreatCollectionService : BackgroundService
                     if (_siteWorkGate?.IsSiteOperational(siteKey) == false)
                     {
                         _logger.LogDebug("Skipping threat collection for non-operational site {Site}",
-                            siteKey ?? "main");
+                            siteKey ?? SiteSlugs.Default);
                         continue;
                     }
                     try
@@ -198,7 +199,7 @@ public class ThreatCollectionService : BackgroundService
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        _logger.LogError(ex, "Threat collection failed for site {Site}", siteKey ?? "main");
+                        _logger.LogError(ex, "Threat collection failed for site {Site}", siteKey ?? SiteSlugs.Default);
                     }
                 }
             }
@@ -245,7 +246,7 @@ public class ThreatCollectionService : BackgroundService
         var enabled = await settings.GetSettingAsync(SiteScopedKey("threats.enabled", siteKey), cancellationToken);
         if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogDebug("Threat collection disabled for site {Site}", siteKey ?? "main");
+            _logger.LogDebug("Threat collection disabled for site {Site}", siteKey ?? SiteSlugs.Default);
             return;
         }
 
@@ -262,7 +263,7 @@ public class ThreatCollectionService : BackgroundService
         var apiClient = _uniFiClientAccessor.GetClient(siteKey);
         if (apiClient == null)
         {
-            _logger.LogDebug("UniFi API client not available for site {Site}, skipping threat collection", siteKey ?? "main");
+            _logger.LogDebug("UniFi API client not available for site {Site}, skipping threat collection", siteKey ?? SiteSlugs.Default);
             return;
         }
 
@@ -1080,7 +1081,7 @@ public class ThreatCollectionService : BackgroundService
             _wafStatus.TryGetValue(statusKey, out var last);
             _wafStatus[statusKey] = new WafStatus(DateTimeOffset.UtcNow, last?.Mode, last?.Paranoia ?? 0,
                 last?.Started, last?.Stats, ex.Message, last?.ModeSince, last?.Version, last?.Crs);
-            _logger.LogDebug("WAF poll failed for site {Site}: {Message}", site ?? "main", ex.Message);
+            _logger.LogDebug("WAF poll failed for site {Site}: {Message}", site ?? SiteSlugs.Default, ex.Message);
         }
         // A WAF failure must never cost the site its IPS and flow collection, which runs next.
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1134,7 +1135,7 @@ public class ThreatCollectionService : BackgroundService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Failed to update infrastructure filters for site {Site}", siteKey ?? "main");
+            _logger.LogWarning(ex, "Failed to update infrastructure filters for site {Site}", siteKey ?? SiteSlugs.Default);
         }
     }
 
