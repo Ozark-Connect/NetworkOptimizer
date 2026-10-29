@@ -165,6 +165,44 @@ public class YamlConverterTests
     }
 
     [Fact]
+    public void ReorderFromTheEditor_KeepsEachPolicyOnItsSideOfThePredefinedOnes()
+    {
+        var site = State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+            ("firewall_policy", """{"_id":"pa","name":"A","index":10000,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pb","name":"B","index":10001,"action":"BLOCK","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pp","name":"Allow All Traffic","index":20000,"predefined":true,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pz","name":"Z","index":30000,"action":"BLOCK","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+        // B moved above A in the file.
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
+        var items = yaml.Split("\n- ").Skip(1).Select(b => "- " + b.TrimEnd('\n')).ToList();
+        var edited = "firewall_policies:\n" + string.Join("\n", new[] { items[1], items[0], items[2], items[3] }) + "\n";
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(site, new Dictionary<string, string> { ["firewall_policy"] = edited });
+
+        problems.Should().NotContain(p => p.Level == "Error");
+        var reorder = PlanBuilder.Build(desired, site, new PlanOptions { Collections = touched }).Operations
+            .Should().ContainSingle(o => o.Action == PlanAction.Reorder).Subject;
+        reorder.Body!["before_predefined_ids"]!.AsArray().Select(i => i!.ToString()).Should().Equal("pb", "pa");
+        reorder.Body!["after_predefined_ids"]!.AsArray().Select(i => i!.ToString()).Should().Equal("pz");
+    }
+
+    [Fact]
+    public void RollBackOfAReorder_PutsPoliciesBackAboveThePredefinedOnes()
+    {
+        // The console after a bad reorder moved A and B below the predefined policy; the snapshot had them above.
+        ConfigState Site(long a, long b) => State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+            ("firewall_policy", """{"_id":"pa","name":"A","index":""" + a + ""","action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pb","name":"B","index":""" + b + ""","action":"BLOCK","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pp","name":"Allow All Traffic","index":20000,"predefined":true,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+        var reorder = PlanBuilder.Build(Site(10000, 10001), Site(30001, 30000), new PlanOptions()).Operations
+            .Should().ContainSingle(o => o.Action == PlanAction.Reorder).Subject;
+        reorder.Body!["before_predefined_ids"]!.AsArray().Select(i => i!.ToString()).Should().Equal("pa", "pb");
+    }
+
+    [Fact]
     public void RemovingAPredefinedPolicy_IsAnError()
     {
         var site = PolicySite();

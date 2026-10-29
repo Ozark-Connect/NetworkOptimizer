@@ -837,10 +837,17 @@ public static class PlanBuilder
                 .DefaultIfEmpty(long.MaxValue).Min();
             var before = new JsonArray();
             var after = new JsonArray();
+            // The slot is the desired index when there is one (a Roll Back, a restore: from a snapshot),
+            // else the console's: an edited file carries no index, and without this every policy above
+            // UniFi's predefined ones would be moved below them. A new one goes after.
+            var liveIndex = live.Get("firewall_policy").ToDictionary(ConfigState.IdOf,
+                p => p["index"] is JsonValue lv && lv.TryGetValue<long>(out var li) ? li : long.MaxValue, StringComparer.OrdinalIgnoreCase);
             foreach (var p in group.OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue))
             {
-                var idx = p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
-                (idx < predefinedMin ? before : after).Add(Map(ConfigState.IdOf(p)));
+                var id = Map(ConfigState.IdOf(p));
+                var idx = p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i
+                    : liveIndex.TryGetValue(id, out var li) ? li : long.MaxValue;
+                (idx < predefinedMin ? before : after).Add(id);
             }
             // The reorder runs before the deletes, and UniFi refuses one that leaves out a policy the
             // pair still has (ShouldIncludeFirewallPolicyInBatchUpdate): a policy about to be deleted
