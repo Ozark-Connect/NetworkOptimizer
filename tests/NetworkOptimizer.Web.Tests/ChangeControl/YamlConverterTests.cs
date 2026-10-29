@@ -224,6 +224,24 @@ public class YamlConverterTests
     }
 
     [Fact]
+    public void FirewallPolicies_ExportGroupedByZonePair_InZoneOrder_AndRoundTripUnchanged()
+    {
+        var site = State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+            ("firewall_policy", """{"_id":"p3","name":"C","index":10002,"action":"ALLOW","source":{"zone_id":"z2"},"destination":{"zone_id":"z1"}}"""),
+            ("firewall_policy", """{"_id":"p2","name":"B","index":10001,"action":"BLOCK","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"p1","name":"A","index":10000,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
+
+        yaml.Split('\n').Where(l => l.StartsWith('#') || l.StartsWith("- id:", StringComparison.Ordinal))
+            .Should().Equal("# Internal → External", "- id: p1", "- id: p2", "# External → Internal", "- id: p3");
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(site, new Dictionary<string, string> { ["firewall_policy"] = yaml });
+        problems.Should().NotContain(p => p.Level == "Error");
+        PlanBuilder.Build(desired, site, new PlanOptions { Collections = touched }).Operations.Should().BeEmpty();
+    }
+
+    [Fact]
     public void RemovingAPredefinedPolicy_IsAnError()
     {
         var site = PolicySite();

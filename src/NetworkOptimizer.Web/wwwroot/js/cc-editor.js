@@ -311,6 +311,12 @@ export function itemBlocks(doc) {
             collection = key[1];
             continue;
         }
+        // A comment at the margin (Firewall Policies' zone pair headings) belongs to what follows it,
+        // so removing or moving the object above leaves it in place.
+        if (collection && text.startsWith('#')) {
+            close(n - 1);
+            continue;
+        }
         if (collection && text.startsWith('- ')) {
             close(n - 1);
             const field = t => {

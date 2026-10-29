@@ -115,17 +115,31 @@ public static partial class YamlConverter
             if (keys != null && !keys.Contains(def.Key)) continue;
             if (!state.Collections.ContainsKey(def.Key)) continue;
             var objects = state.Get(def.Key).Where(o => def.Key != "user" || ConfigDiffEngine.HasClientConfig(o)).ToList();
-            // In index order: the file omits the read-only index, so a parsed policy's order is its
-            // place in the file (PlanBuilder.AddPolicyOrder). Stored order differs, and every zone
-            // pair then read as reordered.
+            // Grouped by zone pair, in UniFi's zone order (the matrix's), each group under a comment
+            // naming it, and in index order within it: the file omits the read-only index, so a parsed
+            // policy's order is its place in the file (PlanBuilder.AddPolicyOrder). Stored order differs,
+            // and every zone pair then read as reordered.
+            Func<JsonObject, string?>? pairOf = null;
             if (def.Key == "firewall_policy")
-                objects = objects.OrderBy(o => o["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+            {
+                var zones = state.Get("firewall_zone").Select((z, i) => (Id: ConfigState.IdOf(z), Name: z["name"]?.ToString() ?? ConfigState.IdOf(z), i))
+                    .GroupBy(z => z.Id).ToDictionary(g => g.Key, g => g.First());
+                (int, string) Zone(JsonObject o, string side) => o[side]?["zone_id"]?.ToString() is { } id && zones.TryGetValue(id, out var z)
+                    ? (z.i, z.Name) : (int.MaxValue, o[side]?["zone_id"]?.ToString() ?? "?");
+                objects = objects.OrderBy(o => Zone(o, "source").Item1).ThenBy(o => Zone(o, "destination").Item1)
+                    .ThenBy(o => o["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+                pairOf = o => $"{Zone(o, "source").Item2} → {Zone(o, "destination").Item2}";
+            }
             sb.Append(YamlName(def)).Append(':');
             if (objects.Count == 0) { sb.Append(" []\n"); continue; }
             sb.Append('\n');
             var ambiguous = objects.GroupBy(o => Identity(def, o)).Where(g => g.Count() > 1).SelectMany(g => g).ToHashSet();
+            string? pair = null;
             foreach (var o in objects)
+            {
+                if (pairOf?.Invoke(o) is { } p && p != pair) sb.Append("# ").Append(pair = p).Append('\n');
                 WriteObject(sb, def, o, index, secrets, indent: 2, listItem: true, withId: ids || ambiguous.Contains(o), top: true, path: ConfigState.IdOf(o));
+            }
         }
         return sb.ToString();
     }
