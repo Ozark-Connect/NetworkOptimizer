@@ -230,6 +230,41 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void StoredSummary_SameNamesAreCounted_AndRenamesSayRenamed()
+    {
+        ChangeControlService.StoredSummary([StoredCreated("firewall_policy", "Allow DNS"), StoredCreated("firewall_policy", "Allow DNS")], null, null)
+            .Should().Be("2 Firewall Policies Allow DNS created");
+
+        var a = Stored("firewall_policy", "New A", new StoredField { Path = "name", Label = "Name", Old = "Old A", New = "New A" });
+        var b = Stored("firewall_policy", "New B", new StoredField { Path = "name", Label = "Name", Old = "Old B", New = "New B" });
+        ChangeControlService.StoredSummary([a, b], null, null).Should().Be("Firewall Policies New A and New B: renamed");
+    }
+
+    [Fact]
+    public void StoredSummary_ASharedSignatureIsSaidOnce()
+    {
+        var suppression = Stored("setting", "ips_suppression",
+            new StoredField { Path = "alerts[entry=1].tracking[entry=1].value", Label = "x", Old = "192.0.2.1", New = "198.51.100.1" },
+            new StoredField { Path = "alerts[entry=1].tracking[entry=2].value", Label = "x", Old = "192.0.2.2", New = "198.51.100.2" });
+
+        ChangeControlService.StoredSummary([suppression], null, null)
+            .Should().Be("CyberSecure - Suppressed Signatures: Suppressed Signature 1: Tracked Address 1, Tracked Address 2");
+    }
+
+    [Fact]
+    public void StoredSummary_PastFourTypes_CountsTheObjectsLeft()
+    {
+        var objects = new List<ConfigChangeObject>
+        {
+            StoredCreated("user", "a"), StoredCreated("user", "b"), StoredCreated("user", "c"),
+            StoredCreated("networkconf", "n1"), StoredCreated("networkconf", "n2"),
+            StoredCreated("static_dns", "d1"), StoredCreated("firewallgroup", "g1"), StoredCreated("firewallgroup", "g2"), StoredCreated("portconf", "p1"),
+        };
+
+        ChangeControlService.StoredSummary(objects, null, null).Should().EndWith(", and 2 more");
+    }
+
+    [Fact]
     public void StoredSummary_MoreThanThreeAcrossCollections_BreaksDownLargestFirst_LedByThePlan()
     {
         var objects = new List<ConfigChangeObject>

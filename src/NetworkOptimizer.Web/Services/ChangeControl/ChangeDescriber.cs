@@ -339,6 +339,10 @@ public static partial class ChangeDescriber
                 return $"{port}: profile set to {profile.New}";
             return $"{port}: {ChangeText(inner)}";
         }
+        // Rows that share a "Name: " head (a suppressed signature's tracked addresses) say it once too.
+        if (rows.Count > 1 && rows[0].Label.IndexOf(": ", StringComparison.Ordinal) is > 0 and var colon
+            && rows[0].Label[..(colon + 2)] is var shared && rows.All(r => r.Label.StartsWith(shared, StringComparison.Ordinal) && r.Label.Length > shared.Length))
+            return $"{shared}{ChangeText(rows.Select(r => r with { Label = r.Label[shared.Length..] }).ToList())}";
         if (rows.Count == 1)
         {
             // Labels keep UniFi Network's Title Case in a summary too ("Port 5 Port Profile").

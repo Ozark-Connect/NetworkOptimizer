@@ -154,15 +154,20 @@ public static partial class ChangeDescriber
         {
             // Name them: "Firewall Policies A and B: Name". One shared change text is said once; different ones are not listed.
             var noun = Subject(list[0]).Noun;
-            var names = JoinAnd(list.Select(o => Subject(o).Name).ToList());
-            var head = noun == null ? names : $"{Plural(noun)} {names}";
+            var distinct = list.Select(o => Subject(o).Name).Distinct(StringComparer.Ordinal).ToList();
+            // Same-named objects are counted, not repeated ("2 Firewall Policies Allow DNS").
+            var names = distinct.Count == 1 ? $"{list.Count} {Plural(noun ?? "Setting")} {distinct[0]}" : JoinAnd(distinct);
+            var head = noun == null || distinct.Count == 1 ? names : $"{Plural(noun)} {names}";
             var texts = list.Select(o => o.Action switch
             {
                 ConfigChangeAction.Created => " created",
                 ConfigChangeAction.Deleted => " deleted",
                 _ => $": {ChangeText(o.Rows)}",
             }).Distinct().ToList();
-            body = texts.Count == 1 ? head + texts[0] : $"{head} changed";
+            body = texts.Count == 1 ? head + texts[0]
+                // Each renamed from its own old name: the shared fact is the rename.
+                : texts.All(t => t.StartsWith(": renamed from ", StringComparison.Ordinal)) ? $"{head}: renamed"
+                : $"{head} changed";
         }
         else if (list.Count <= 3)
             body = $"{JoinAnd(list.Select(o => Named(Subject(o).Noun, Subject(o).Name)).ToList())} changed";
@@ -175,7 +180,7 @@ public static partial class ChangeDescriber
         return list.Count > 3 && byCollection.Count > 1 ? $"{lead}: {Breakdown(byCollection)}" : $"{lead}: {body}";
     }
 
-    /// <summary>"40 Clients, 8 NAT Rules, 6 Networks", largest first; past four, "and N more".</summary>
+    /// <summary>"40 Clients, 8 NAT Rules, 6 Networks", largest first; past four types, "and N more" objects.</summary>
     private static string Breakdown(List<IGrouping<string, SummaryObject>> byCollection)
     {
         string Part(IGrouping<string, SummaryObject> g)
@@ -184,7 +189,7 @@ public static partial class ChangeDescriber
             return g.Count() == 1 ? $"1 {noun}" : $"{g.Count()} {Plural(noun)}";
         }
         return byCollection.Count > 4
-            ? $"{string.Join(", ", byCollection.Take(3).Select(Part))}, and {byCollection.Count - 3} more"
+            ? $"{string.Join(", ", byCollection.Take(3).Select(Part))}, and {byCollection.Skip(3).Sum(g => g.Count())} more"
             : string.Join(", ", byCollection.Select(Part));
     }
 
@@ -228,7 +233,9 @@ public static partial class ChangeDescriber
         node is System.Text.Json.Nodes.JsonArray arr ? arr.Select(e => e?.ToString() ?? "").ToList() : [];
 
     private static string Plural(string noun) =>
-        noun.EndsWith("y", StringComparison.Ordinal) && !noun.EndsWith("ey", StringComparison.Ordinal) ? noun[..^1] + "ies"
+        // "Local DNS" names one record, as the client field "Local DNS Record" does.
+        noun.EndsWith(" DNS", StringComparison.Ordinal) ? noun + " Records"
+        : noun.EndsWith("y", StringComparison.Ordinal) && !noun.EndsWith("ey", StringComparison.Ordinal) ? noun[..^1] + "ies"
         : noun.EndsWith("s", StringComparison.Ordinal) ? noun : noun + "s";
 
     /// <summary>
