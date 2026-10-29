@@ -14,9 +14,10 @@ namespace NetworkOptimizer.Web.Tests.Identity;
 /// export every site's database, credentials and data-protection keys through Settings: the page
 /// injected ConfigTransferService rather than IConfigTransferService.
 ///
-/// The allowlist below is the set that existed when this test was written. It is DEBT, not
-/// approval - each entry is a control whose gate is currently decorative. The point of the test is
-/// that the list cannot grow without someone editing it in a reviewed diff.
+/// The allowlist below is the set that existed when this test was written. Each entry was reviewed
+/// (2026-10-29): none calls a gated method through the concrete class; they read through it. A gated
+/// call added through one of them is a bypass. The point of the test is that the list cannot grow
+/// without someone editing it in a reviewed diff.
 /// </summary>
 public class ConcreteInjectionTests
 {
@@ -43,6 +44,8 @@ public class ConcreteInjectionTests
         // The WAF page under Threat Intelligence: reads only (WAF summary and events), no filter writes.
         "ThreatWaf.razor:ThreatDashboardService",
         "WiFiOptimizer.razor:ApMapService",
+        // Read-only use of the concrete class: analysis reads, cached audit results and the ungated
+        // ISystemSettingsService members. ChannelAnalysis runs its scans through IWiFiScanService.
         "AirtimeFairness.razor:WiFiOptimizerService",
         "AlertsList.razor:AuditService",
         "ApLoadBalance.razor:WiFiOptimizerService",
