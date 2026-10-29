@@ -23458,7 +23458,7 @@ body:has(.top-bar-hidden) .btn-fit {
 /* A long option (a snapshot's time, a template's name) must not widen the bar; the open list
    still sizes to its options. */
 .change-control .cc-toolbar select.form-control {
-    max-width: 250px;
+    max-width: 238px;
     text-overflow: ellipsis;
 }
 .change-control .cc-toolbar-spacer {
