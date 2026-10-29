@@ -151,6 +151,7 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     /// which is what every render and background tick needs.
     /// </summary>
     private readonly ISystemSettingsAdmin _settingsAdmin;
+    private readonly SiteContextService _siteContext;
     private readonly ILogger<DashboardLayoutService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -162,10 +163,12 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     public DashboardLayoutService(
         ISystemSettingsService settings,
         ISystemSettingsAdmin settingsAdmin,
+        SiteContextService siteContext,
         ILogger<DashboardLayoutService> logger)
     {
         _settings = settings;
         _settingsAdmin = settingsAdmin;
+        _siteContext = siteContext;
         _logger = logger;
     }
 
@@ -176,7 +179,7 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     {
         try
         {
-            var json = await _settings.GetAsync(SystemSettingKeys.DashboardLayout);
+            var json = await _settings.GetAsync(_siteContext.Slug, SystemSettingKeys.DashboardLayout);
             if (!string.IsNullOrEmpty(json))
             {
                 var layout = JsonSerializer.Deserialize<DashboardLayout>(json, JsonOptions);
@@ -202,7 +205,7 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     public async Task SaveLayoutAsync(DashboardLayout layout)
     {
         var json = JsonSerializer.Serialize(layout, JsonOptions);
-        await _settingsAdmin.SetAsync(SystemSettingKeys.DashboardLayout, json);
+        await _settingsAdmin.SetAsync(_siteContext.Slug, SystemSettingKeys.DashboardLayout, json);
         _logger.LogDebug("Saved dashboard layout");
     }
 
@@ -211,7 +214,7 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     /// </summary>
     public async Task ResetLayoutAsync()
     {
-        await _settings.SetAsync(SystemSettingKeys.DashboardLayout, null);
+        await _settings.SetAsync(_siteContext.Slug, SystemSettingKeys.DashboardLayout, null);
         _logger.LogDebug("Reset dashboard layout to defaults");
     }
 

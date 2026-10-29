@@ -3868,7 +3868,7 @@
     private async Task DismissUpstreamReviewAsync()
     {
         _upstreamReviewDismissed = true;
-        try { await SystemSettings.SetAsync(SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed, "true"); }
+        try { await SystemSettings.SetAsync(SiteCtx.Slug, SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed, "true"); }
         catch { /* still hide it for this session */ }
     }
 
@@ -3887,7 +3887,7 @@
             {
                 if (_upstreamReviewDismissed)
                 {
-                    await SystemSettings.SetAsync(SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed, null);
+                    await SystemSettings.SetAsync(SiteCtx.Slug, SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed, null);
                     _upstreamReviewDismissed = false;
                 }
                 _upstreamNeedsReview = false;
@@ -3895,7 +3895,7 @@
             else
             {
                 _upstreamReviewDismissed = string.Equals(
-                    await SystemSettings.GetAsync(SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed),
+                    await SystemSettings.GetAsync(SiteCtx.Slug, SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed),
                     "true", StringComparison.OrdinalIgnoreCase);
                 _upstreamNeedsReview = true;
             }

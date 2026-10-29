@@ -49,16 +49,25 @@ public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmi
     /// <summary>
     /// Get a setting value by key
     /// </summary>
-    public async Task<string?> GetAsync(string key)
+    public async Task<string?> GetAsync(string siteSlug, string key)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope(siteSlug);
         var repository = scope.ServiceProvider.GetRequiredService<ISettingsRepository>();
         return await repository.GetSystemSettingAsync(key);
     }
 
+    // A fresh scope would re-resolve its site from the cookie on the circuit's connection request,
+    // not the tab's ?site= pin or a fallback, so a site-routed read or write must name its site.
+    private IServiceScope CreateSiteScope(string siteSlug)
+    {
+        var scope = _serviceProvider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+        return scope;
+    }
+
     /// <summary>
     /// Get a GLOBAL (instance-wide) setting from the MAIN database, regardless of the
-    /// current site. <see cref="GetAsync"/> routes to the current site's database, which
+    /// current site. <see cref="GetAsync"/> routes to the named site's database, which
     /// is correct for genuinely per-site keys but wrong for values shared across all
     /// sites (Mapbox token, CrowdSec config): on a secondary site those would read that
     /// site's own empty SystemSettings row. Callers for shared keys must use this.
@@ -107,9 +116,9 @@ public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmi
     /// <summary>
     /// Get a setting value as int with default
     /// </summary>
-    public async Task<int> GetIntAsync(string key, int defaultValue)
+    public async Task<int> GetIntAsync(string siteSlug, string key, int defaultValue)
     {
-        var value = await GetAsync(key);
+        var value = await GetAsync(siteSlug, key);
         if (string.IsNullOrEmpty(value) || !int.TryParse(value, out var result))
             return defaultValue;
         return result;
@@ -118,9 +127,9 @@ public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmi
     /// <summary>
     /// Set a setting value
     /// </summary>
-    public async Task SetAsync(string key, string? value)
+    public async Task SetAsync(string siteSlug, string key, string? value)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope(siteSlug);
         var repository = scope.ServiceProvider.GetRequiredService<ISettingsRepository>();
         await repository.SaveSystemSettingAsync(key, value);
         var isSensitive = key.Contains("_key", StringComparison.OrdinalIgnoreCase)
@@ -135,7 +144,7 @@ public class SystemSettingsService : ISystemSettingsService, ISystemSettingsAdmi
     /// <summary>
     /// Set a setting value as int
     /// </summary>
-    public Task SetIntAsync(string key, int value) => SetAsync(key, value.ToString());
+    public Task SetIntAsync(string siteSlug, string key, int value) => SetAsync(siteSlug, key, value.ToString());
 
     // iperf3 test settings are GLOBAL (instance-wide): they're an operator preference
     // that applies to every site's speed tests, and the local-iperf3 availability

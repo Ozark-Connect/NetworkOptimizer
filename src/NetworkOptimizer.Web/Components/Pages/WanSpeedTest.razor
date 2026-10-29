@@ -953,7 +953,7 @@
 
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
-        _wanScheduleBannerDismissed = await SettingsService.GetAsync("banner.wan_schedule_dismissed") != null;
+        _wanScheduleBannerDismissed = await SettingsService.GetAsync(SiteContext.Slug, "banner.wan_schedule_dismissed") != null;
         InitializeChartOptions();
         InitializeLatencyChartOptions();
         InitializeLoadedLatencyChartOptions();
@@ -1328,7 +1328,7 @@
     private async Task DismissWanScheduleBanner()
     {
         _wanScheduleBannerDismissed = true;
-        await SettingsService.SetAsync("banner.wan_schedule_dismissed", "true");
+        await SettingsService.SetAsync(SiteContext.Slug, "banner.wan_schedule_dismissed", "true");
     }
 
     private void InitializeChartOptions()

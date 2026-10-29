@@ -109,7 +109,7 @@ public class SiteSpeedTestTargetResolver
         if (_siteContext.IsDefault && !await _agentCoverage.CoversAsync(_siteContext.Slug))
             return new Result(null, null, null, UsesAgent: false, AgentOffline: false);
 
-        var targetOverride = (await _settings.GetAsync(SystemSettingKeys.ClientSpeedTestTargetOverride))?.Trim();
+        var targetOverride = (await _settings.GetAsync(_siteContext.Slug, SystemSettingKeys.ClientSpeedTestTargetOverride))?.Trim();
         // Saves are validated; a value stored before that was is treated as no override at all.
         if (!NetworkOptimizer.Core.Helpers.UrlSafety.IsSafeHostOrHttpUrl(targetOverride))
             targetOverride = null;

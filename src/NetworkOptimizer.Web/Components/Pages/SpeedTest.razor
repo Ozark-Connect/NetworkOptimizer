@@ -1771,7 +1771,7 @@
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
         // Check schedule banner dismissal and local iperf3 availability
-        _lanScheduleBannerDismissed = await SettingsService.GetAsync("banner.lan_schedule_dismissed") != null;
+        _lanScheduleBannerDismissed = await SettingsService.GetAsync(SiteContext.Slug, "banner.lan_schedule_dismissed") != null;
         localIperf3Status = await SettingsService.CheckLocalIperf3Async();
 
         // Wait for UniFi controller connection (auto-connect happens in background on startup)
@@ -1868,7 +1868,7 @@
     private async Task DismissLanScheduleBanner()
     {
         _lanScheduleBannerDismissed = true;
-        await SettingsService.SetAsync("banner.lan_schedule_dismissed", "true");
+        await SettingsService.SetAsync(SiteContext.Slug, "banner.lan_schedule_dismissed", "true");
     }
 
     private async Task RecheckLocalIperf3()

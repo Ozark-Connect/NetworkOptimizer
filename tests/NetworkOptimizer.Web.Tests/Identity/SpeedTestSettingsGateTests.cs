@@ -24,8 +24,8 @@ public class SpeedTestSettingsGateTests
     private sealed class RecordingSettingsAdmin : ISystemSettingsAdmin
     {
         public Iperf3Settings? Saved { get; private set; }
-        public Task SetAsync(string key, string? value) => Task.CompletedTask;
-        public Task SetIntAsync(string key, int value) => Task.CompletedTask;
+        public Task SetAsync(string siteSlug, string key, string? value) => Task.CompletedTask;
+        public Task SetIntAsync(string siteSlug, string key, int value) => Task.CompletedTask;
         public Task SetGlobalAsync(string key, string? value) => Task.CompletedTask;
         public Task SetGlobalIntAsync(string key, int value) => Task.CompletedTask;
         public ExternalSpeedTestServer? AddedServer { get; private set; }
