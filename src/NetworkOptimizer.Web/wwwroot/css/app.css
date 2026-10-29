@@ -23993,23 +23993,19 @@ body:has(.top-bar-hidden) .btn-fit {
 .change-control .cc-action-text.updated { color: var(--primary-light); }
 .change-control .cc-action-text.deleted { color: var(--danger-color); }
 
-/* The arrow between an old and a new value; the text stays for copy-paste and screen readers. */
+/* The arrow between an old and a new value; the text stays for copy-paste and screen readers.
+   Inline throughout: a flex or positioned box drops the spaces around "to" from copied text. */
 .change-control .cc-to {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
     margin: 0 0.35em;
     color: var(--text-muted);
+}
+
+.change-control .cc-to svg {
     vertical-align: -0.15em;
 }
 
 .change-control .cc-to-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+    font-size: 0;
 }
 
 /* Change detail: Security Audit and Settings group headings, fixed and new issues, who made it. */

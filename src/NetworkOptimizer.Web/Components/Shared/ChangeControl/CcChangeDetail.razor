@@ -75,11 +75,11 @@ else
                         <td style="text-align:right">
                             <span class="cc-source">
                                 <span class="cc-source-who">
-                                    @if (Detail.MadeOnMobile)
+                                    @if (Detail.MadeOn == "phone")
                                     {
                                         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M7 12.5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
                                     }
-                                    else
+                                    else if (Detail.MadeOn == "desktop")
                                     {
                                         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="1.5" y="2.5" width="13" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M5.5 14h5M8 11.5V14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
                                     }

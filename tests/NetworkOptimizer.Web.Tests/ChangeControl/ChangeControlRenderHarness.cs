@@ -217,7 +217,7 @@ public class ChangeControlRenderHarness
             new() { Collection = "wlanconf", CollectionName = "WLANs", ObjectId = "w1", Name = "Home", Action = ConfigChangeAction.Updated,
                 Fields = [new() { Label = "Security protocol", Old = "WPA2", New = "WPA2/WPA3" }, new() { Label = "PMF", Old = "Disabled", New = "Optional" }] },
         ],
-        MadeBy = "Alex", MadeVia = "UniFi web app", MadeFromIp = "203.0.113.24",
+        MadeBy = "Alex", MadeVia = "UniFi Web App", MadeOn = "desktop", MadeFromIp = "203.0.113.24",
         BeforeAfter = [new("Loaded latency", "34", "35 ms", false), new("Loaded loss", "0.0", "0.0%", false), new("Gateway CPU", "18", "19%", false)],
         IncidentsAfter = [new() { Id = 1, Title = "8 Wi-Fi clients offline", StartedAt = Now.AddHours(-56).AddMinutes(15), ResolvedAt = Now.AddHours(-52) }],
         CanRollBack = true,

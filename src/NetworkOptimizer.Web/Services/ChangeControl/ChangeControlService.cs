@@ -234,7 +234,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             MadeBy = person && !string.IsNullOrEmpty(l.change.ActorName) ? l.change.ActorName : null,
             MadeVia = person ? AppName(l.change.ActorPlatform) : null,
             MadeFromIp = person && !string.IsNullOrEmpty(l.change.ActorIp) ? l.change.ActorIp : null,
-            MadeOnMobile = person && l.change.ActorPlatform is "IOS" or "ANDROID",
+            MadeOn = !person ? null : l.change.ActorPlatform switch { "IOS" or "ANDROID" => "phone", "WEB" => "desktop", _ => null },
             CanRollBack = l.change.Kind == ConfigChangeKind.Config && l.change.PreviousSnapshotId != null && !l.rollbacks.ContainsKey(l.change.Id),
             Facts = Facts(l.change),
         };
@@ -295,12 +295,12 @@ public sealed partial class ChangeControlService : IChangeControlService
     }
 
     /// <summary>UniFi's audit access method as shown: "WEB" reads Web, "MOBILE" Mobile; acronyms (API, SSH) stay.</summary>
-    /// <summary>"UniFi web app" for UniFi's access method, or the method itself when it is not one of its apps.</summary>
+    /// <summary>"UniFi Web App" for UniFi's access method, or the method itself when it is not one of its apps.</summary>
     internal static string? AppName(string? accessMethod) => accessMethod switch
     {
-        "WEB" => "UniFi web app",
-        "IOS" => "UniFi iOS app",
-        "ANDROID" => "UniFi Android app",
+        "WEB" => "UniFi Web App",
+        "IOS" => "UniFi iOS App",
+        "ANDROID" => "UniFi Android App",
         _ => Platform(accessMethod),
     };
 
