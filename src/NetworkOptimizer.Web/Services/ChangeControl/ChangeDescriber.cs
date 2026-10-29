@@ -206,6 +206,8 @@ public static partial class ChangeDescriber
                 Old = DisplayValue(f.Old, f.Path),
                 New = DisplayValue(f.New, f.Path),
                 Secret = f.Secret,
+                OldItems = f.OldItems,
+                NewItems = f.NewItems,
             })
             .ToList();
     }

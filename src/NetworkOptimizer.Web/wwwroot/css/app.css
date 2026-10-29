@@ -23993,6 +23993,97 @@ body:has(.top-bar-hidden) .btn-fit {
 .change-control .cc-action-text.updated { color: var(--primary-light); }
 .change-control .cc-action-text.deleted { color: var(--danger-color); }
 
+/* The arrow between an old and a new value; the text stays for copy-paste and screen readers. */
+.change-control .cc-to {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin: 0 0.35em;
+    color: var(--text-muted);
+    vertical-align: -0.15em;
+}
+
+.change-control .cc-to-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* A policy order change: each moved rule with its neighbors before and after. */
+.change-control .cc-order-move + .cc-order-move {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-order-move-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.change-control .cc-order-pos {
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.change-control .cc-order-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+}
+
+.change-control .cc-order-col-title {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.2rem;
+}
+
+.change-control .cc-order-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.change-control .cc-order-list li {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-order-list li .n {
+    color: var(--text-muted);
+    min-width: 1.6rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.change-control .cc-order-list li.moved {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.change-control .cc-order-list li.end {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.change-control .cc-order-more {
+    margin-top: 0.5rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-order-cols { grid-template-columns: 1fr; }
+}
+
 .change-control .cc-group-row td {
     font-size: 0.75rem;
     font-weight: 600;

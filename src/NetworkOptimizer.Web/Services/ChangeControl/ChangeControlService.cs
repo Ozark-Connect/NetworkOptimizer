@@ -301,6 +301,20 @@ public sealed partial class ChangeControlService : IChangeControlService
     [System.Text.RegularExpressions.GeneratedRegex(@"^(Port \d+) \([^)]*\)")]
     private static partial System.Text.RegularExpressions.Regex PortNamePrefix();
 
+    /// <summary>
+    /// The policies a recorded order change moved, or null when it is not one or nothing moved.
+    /// Changes recorded before the order rows kept their lists are split back from the joined text.
+    /// </summary>
+    private static List<OrderMove>? OrderMovesOf(ConfigChangeObject o, List<StoredField> stored)
+    {
+        if (!ChangeControlSiteEngine.IsPolicyOrder(o.Collection, o.ObjectId)) return null;
+        if (stored.FirstOrDefault(f => f.Path == "order") is not { } order) return null;
+        var before = order.OldItems ?? order.Old?.Split(", ").ToList() ?? [];
+        var after = order.NewItems ?? order.New?.Split(", ").ToList() ?? [];
+        var moves = PolicyOrderMoves.Compute(before, after);
+        return moves.Count > 0 ? moves : null;
+    }
+
     internal static ChangeObjectView ObjectView(ConfigChangeObject o)
     {
         var stored = JsonSerializer.Deserialize<List<StoredField>>(o.FieldsJson) ?? [];
@@ -316,6 +330,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var fields = ChangeDescriber.ForDisplay(stored);
         return new ChangeObjectView
         {
+            OrderMoves = OrderMovesOf(o, stored),
             Collection = o.Collection,
             CollectionName = ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection,
             ObjectId = o.ObjectId,

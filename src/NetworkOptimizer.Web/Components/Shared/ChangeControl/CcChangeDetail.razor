@@ -24,16 +24,23 @@ else
                 }
                 @foreach (var o in Detail.Objects.OrderBy(o => o.Action == ConfigChangeAction.Deleted ? 0 : 1))
                 {
-                    @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated)
+                    @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated || o.OrderMoves != null)
                     {
                         <tr><td colspan="2"><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, true)</span> @o.CollectionName: @o.Name</td></tr>
                     }
-                    @foreach (var f in o.Fields.Take(12))
+                    @if (o.OrderMoves is { } moves)
                     {
-                        <tr>
-                            <td class="label">@f.Label</td>
-                            <td style="text-align:right">@(f.Secret ? "changed" : $"{f.Old} to {f.New}")</td>
-                        </tr>
+                        <tr><td colspan="2"><CcOrderMoves Moves="moves" /></td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var f in o.Fields.Take(12))
+                        {
+                            <tr>
+                                <td class="label">@f.Label</td>
+                                <td style="text-align:right">@if (f.Secret) { <text>changed</text> } else { @f.Old<CcTo />@f.New }</td>
+                            </tr>
+                        }
                     }
                 }
                 @if (!string.IsNullOrEmpty(Detail.Source))

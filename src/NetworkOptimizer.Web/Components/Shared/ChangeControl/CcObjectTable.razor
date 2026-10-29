@@ -17,9 +17,16 @@
                 <div class="expand-wrapper @(open ? "expanded" : "")">
                     <div class="expand-content">
                         <div class="cc-inset" style="margin:0.4rem 0 0">
-                            @foreach (var f in o.Fields)
+                            @if (o.OrderMoves is { } moves)
                             {
-                                <div class="cc-mobile-field">@f.Label: <span class="danger-text">@(f.Secret ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? "Changed (hidden)" : f.New)</span></div>
+                                <CcOrderMoves Moves="moves" />
+                            }
+                            else
+                            {
+                                @foreach (var f in o.Fields)
+                                {
+                                    <div class="cc-mobile-field">@f.Label: <span class="danger-text">@(f.Secret ? "Current value" : f.Old)</span><CcTo /><span class="success-text">@(f.Secret ? "Changed (hidden)" : f.New)</span></div>
+                                }
                             }
                         </div>
                     </div>
@@ -67,11 +74,15 @@
                                 <div class="expand-content">
                                     <div class="cc-inset" style="margin-top:0.75rem">
                                         <table class="cc-field-table">
-                                            @if (o.Fields.Count == 0)
+                                            @if (o.OrderMoves is { } moves)
+                                            {
+                                                <tr><td colspan="3"><CcOrderMoves Moves="moves" /></td></tr>
+                                            }
+                                            else if (o.Fields.Count == 0)
                                             {
                                                 <tr><td class="label">@(o.Action == ConfigChangeAction.Created ? "New object" : "Removed")</td><td></td><td></td></tr>
                                             }
-                                            @foreach (var f in o.Fields)
+                                            @foreach (var f in o.Fields.Where(_ => o.OrderMoves == null))
                                             {
                                                 <tr>
                                                     <td class="label">@f.Label</td>

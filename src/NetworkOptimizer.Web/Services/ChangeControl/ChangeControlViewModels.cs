@@ -39,6 +39,9 @@ public sealed class ChangeObjectView
     public List<StoredField> Fields { get; init; } = [];
     public string? OwnedBy { get; init; }
     public string ChangeText { get; init; } = "";
+
+    /// <summary>For a policy order change, the policies that moved; shown in place of the order lists.</summary>
+    public List<OrderMove>? OrderMoves { get; init; }
 }
 
 /// <summary>An incident near a change.</summary>

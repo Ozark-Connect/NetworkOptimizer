@@ -757,6 +757,15 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         ],
     };
 
+    /// <summary>The pseudo object <see cref="PolicyOrderObject"/> records a zone pair's order change as.</summary>
+    internal static bool IsPolicyOrder(string collection, string objectId) =>
+        collection == "firewall_policy" && objectId.StartsWith("order:", StringComparison.Ordinal);
+
+    private static bool IsPolicyOrder(ObjectDiff o) => IsPolicyOrder(o.Collection, o.ObjectId);
+
+    private static List<string>? Items(JsonNode? node) =>
+        node is JsonArray arr ? arr.Select(e => e?.ToString() ?? "").ToList() : null;
+
     /// <summary>Stores an object diff: fields with references as names, secrets without values.</summary>
     internal static ConfigChangeObject ToRecord(ObjectDiff o, ConfigIdentityContext beforeNames, ConfigIdentityContext afterNames)
     {
@@ -767,6 +776,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             Old = f.Secret ? null : ChangeDescriber.Value(f.Old, beforeNames),
             New = f.Secret ? null : ChangeDescriber.Value(f.New, afterNames),
             Secret = f.Secret,
+            OldItems = IsPolicyOrder(o) ? Items(f.Old) : null,
+            NewItems = IsPolicyOrder(o) ? Items(f.New) : null,
         }).ToList();
         if (o.Collection == "wlanconf")
         {
@@ -831,4 +842,13 @@ public sealed class StoredField
     public string? Old { get; set; }
     public string? New { get; set; }
     public bool Secret { get; set; }
+
+    /// <summary>
+    /// A policy order row's names as lists. <see cref="Old"/> and <see cref="New"/> join them with
+    /// commas, which a policy name can contain, so the move is worked out from these. Null on other rows.
+    /// </summary>
+    public List<string>? OldItems { get; set; }
+
+    /// <summary>See <see cref="OldItems"/>.</summary>
+    public List<string>? NewItems { get; set; }
 }
