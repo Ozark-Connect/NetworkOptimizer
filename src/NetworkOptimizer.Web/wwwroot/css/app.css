@@ -24425,6 +24425,13 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.75rem;
 }
 
+.change-control .cc-checking {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+}
+
 /* Migrate */
 .change-control .cc-action-cards {
     display: grid;

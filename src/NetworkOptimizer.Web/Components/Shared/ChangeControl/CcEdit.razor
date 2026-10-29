@@ -132,11 +132,12 @@
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Problems<span class="card-title-suffix">checked as you type</span></h3>
-                        @if (Errors > 0) { <span class="status-badge status-error">@CcFormat.Plural(Errors, "error", "errors")</span> }
+                        @if (_checking) { <span class="muted-text cc-checking"><span class="spinner-sm"></span> Checking</span> }
+                        else if (Errors > 0) { <span class="status-badge status-error">@CcFormat.Plural(Errors, "error", "errors")</span> }
                     </div>
                     @if (_validation.Problems.Count == 0)
                     {
-                        <div class="empty-state empty-state-small"><p>@(_edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
+                        <div class="empty-state empty-state-small"><p>@(_checking ? "Checking against the live config..." : _edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
                     }
                     @foreach (var p in _validation.Problems.OrderBy(p => p.Level == "Error" ? 0 : p.Level == "Warning" ? 1 : 2))
                     {
@@ -245,6 +246,7 @@
     private readonly HashSet<string> _uploaded = [];
     private YamlValidation _validation = new();
     private bool _loading = true;
+    private bool _checking;
     private bool _busy;
     private bool _reviewing;
     private string? _error;
@@ -496,6 +498,9 @@
 
     private async Task ValidateAsync()
     {
+        // A check reads the live config and can take seconds; say so rather than look stuck.
+        _checking = _edited.Count > 0;
+        if (_checking) StateHasChanged();
         try
         {
             _validation = _edited.Count == 0 ? new YamlValidation()
@@ -507,6 +512,7 @@
         {
             Logger.LogDebug(ex, "YAML validation failed");
         }
+        _checking = false;
         await PushProblemsAsync();
         StateHasChanged();
     }
@@ -540,6 +546,9 @@
 
     private async Task UploadAsync(InputFileChangeEventArgs e)
     {
+        // The editor's spinner covers the whole upload: reading the file, loading each base, checking.
+        _loading = true;
+        StateHasChanged();
         try
         {
             using var reader = new StreamReader(e.File.OpenReadStream(5 * 1024 * 1024));
@@ -560,11 +569,17 @@
                 _uploaded.Add(group);
             }
             if (segments.Count > 0) await OpenGroupAsync(segments.Keys.First());
+            _loading = false;
+            _pushText = true;
             await ValidateAsync();
         }
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
         }
     }
 
