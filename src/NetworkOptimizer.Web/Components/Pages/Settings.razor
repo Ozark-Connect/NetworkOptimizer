@@ -1391,11 +1391,17 @@
 
             <!-- Manual Add Form (collapsed by default, expands when editing) -->
             <details class="add-form" open="@modemFormExpanded">
-                <summary @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add a Modem")</summary>
+                <summary @onclick="() => modemFormExpanded = !modemFormExpanded">
+                    @(editingModem?.Id > 0 ? "Edit Modem" : "Add a Modem")
+                    @* Inside the summary so it shows while the form is collapsed. *@
+                    @if (!(editingModem?.Id > 0))
+                    {
+                        <small class="form-help" style="font-weight: 400; margin-bottom: 0.75rem;">
+                            Ubiquiti modems are found automatically above. Add any other modem here: Netgear Nighthawk, GL-iNet / Quectel, Inseego FX, Zyxel or MikroTik.
+                        </small>
+                    }
+                </summary>
                 <div class="add-form-content">
-                    <p class="form-help" style="margin-bottom: 1rem;">
-                        Ubiquiti modems are found automatically above. Add any other modem here: Netgear Nighthawk, GL-iNet / Quectel, Inseego FX, Zyxel or MikroTik.
-                    </p>
 
                     @if (editingModem != null)
                     {
