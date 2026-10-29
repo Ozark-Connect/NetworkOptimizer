@@ -761,6 +761,64 @@ public class FirmwareRolloutOrchestratorTests
         harness.Commands.UpgradeCommands.Should().NotContain(PeerMac);
     }
 
+    // ---- Mesh devices that move ----
+
+    private static PlanWaveStep MeshPlanStep(string mac, string? plannedUplink)
+    {
+        var step = PlanStep(mac);
+        step.WirelessUplink = true;
+        step.IsMeshParticipant = true;
+        step.UplinkMac = plannedUplink;
+        return step;
+    }
+
+    [Theory]
+    [InlineData(true, FirmwareRolloutStepState.Down)]
+    [InlineData(false, FirmwareRolloutStepState.Commanded)]
+    public async Task IsolatedAfterTheCommand_IsDown_OnlyForAMeshDevice(bool mesh, FirmwareRolloutStepState expected)
+    {
+        using var harness = new RolloutHarness();
+        var planStep = mesh ? MeshPlanStep(ApMac, SwitchMac) : PlanStep(ApMac);
+        var plan = await harness.SeedRunningPlanAsync(Document(Wave(1, planStep)), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion, wirelessUplink: mesh);
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, (int)UniFiDeviceState.Isolated, FromVersion, wirelessUplink: mesh);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(PeerMac, true)]
+    [InlineData(null, false)]
+    [InlineData(SwitchMac, false)]
+    public async Task SilentMeshDevice_WaitsOneMoreCoolDown_OnlyWhenItReMeshedUnderAnotherParent(
+        string? liveParent, bool waits)
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, MeshPlanStep(ApMac, SwitchMac))),
+            Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion, uplinkMac: SwitchMac, wirelessUplink: true);
+        harness.Litmus.Verdict = LitmusVerdict.Silent("The device stopped reporting health after the upgrade.");
+
+        await harness.TickAsync();
+        harness.Observer.Set(ApMac, Upgrading, FromVersion, uplinkMac: SwitchMac, wirelessUplink: true);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        harness.Observer.Set(ApMac, Online, ToVersion, uplinkMac: liveParent, wirelessUplink: true);
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        await harness.TickAsync(FirmwareRolloutOrchestrator.CoolDown + TimeSpan.FromMinutes(1));
+        await harness.TickAsync(TimeSpan.FromSeconds(10));
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(
+            waits ? FirmwareRolloutStepState.CoolDown : FirmwareRolloutStepState.Failed);
+
+        // Bounded: one extra cool-down, then it is judged on what there is.
+        await harness.TickAsync(FirmwareRolloutOrchestrator.CoolDown);
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Failed);
+    }
+
     // ---- Offline at its turn ----
 
     [Fact]

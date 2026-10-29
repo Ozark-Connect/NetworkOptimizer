@@ -660,7 +660,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 var kind = UniFiDeviceStateMap.ToStatus(seen.State).Kind;
                 if (step.State == FirmwareRolloutStepState.Commanded)
                 {
-                    if (kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline)
+                    if (kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline
+                        || LostItsMesh(documents[step.PlanId], step, seen))
                     {
                         step.State = FirmwareRolloutStepState.Down;
                         step.WentDownAt = Now;
@@ -2134,7 +2135,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 break;
 
             case FirmwareRolloutStepState.CoolDown:
-                await ProgressCoolDownAsync(document, steps, step, cancellationToken);
+                await ProgressCoolDownAsync(document, steps, step, observation, cancellationToken);
                 break;
         }
     }
@@ -2158,7 +2159,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         var status = UniFiDeviceStateMap.ToStatus(observation.State);
-        if (status.Kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline)
+        if (status.Kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline
+            || LostItsMesh(document, step, observation))
         {
             await MarkDownAsync(step, cancellationToken);
             return;
@@ -2362,6 +2364,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         RolloutPlanDocument document,
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
+        RolloutDeviceObservation? observation,
         CancellationToken cancellationToken)
     {
         var backAt = step.BackAt ?? Now;
@@ -2378,9 +2381,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // to do with this device - another device's reboot cutting the path, a dropped tunnel, the
         // console restarting - and failing it here can roll back a healthy device for someone
         // else's outage. Wait out one more cool-down for the site to come back, then judge on
-        // whatever we have: a device that is genuinely gone still fails, just later.
+        // whatever we have: a device that is genuinely gone still fails, just later. A mesh device
+        // that came back under a different parent gets the same allowance: re-meshing drops its
+        // reporting for a while without saying anything about the build.
         if (verdict is { Passed: false, Silence: true }
-            && WasBlindDuring(windowFrom, Now)
+            && (WasBlindDuring(windowFrom, Now) || ReMeshed(document, step, observation))
             && ElapsedObserved(backAt) < cooldown + cooldown)
         {
             return;
@@ -4091,6 +4096,38 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private static bool IsCanary(RolloutPlanDocument document, string mac) =>
         document.Waves.SelectMany(w => w.Steps)
             .Any(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase) && s.IsCanary);
+
+    private static PlanWaveStep? PlannedStep(RolloutPlanDocument document, string mac) =>
+        document.Waves.SelectMany(w => w.Steps)
+            .FirstOrDefault(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether the device rides a wireless mesh backhaul, when planned or now.</summary>
+    private static bool IsMeshUplinked(
+        RolloutPlanDocument document, FirmwareRolloutStep step, RolloutDeviceObservation? observation) =>
+        observation?.WirelessUplink == true || PlannedStep(document, step.DeviceMac)?.WirelessUplink == true;
+
+    /// <summary>
+    /// A mesh device that drops its backhaul to flash reports Isolated or Incorrect Topology rather
+    /// than Offline. Wired devices are left out: for them Isolated after a command is not a reboot,
+    /// and reading it as one would skip the SSH retry for a command that was never taken.
+    /// </summary>
+    private static bool LostItsMesh(
+        RolloutPlanDocument document, FirmwareRolloutStep step, RolloutDeviceObservation observation) =>
+        observation.State is (int)UniFiDeviceState.Isolated or (int)UniFiDeviceState.IncorrectTopology
+        && IsMeshUplinked(document, step, observation);
+
+    /// <summary>
+    /// Whether a mesh device now uplinks through a different parent than it did when the plan was
+    /// built. Both ends must be known: a missing live uplink is no evidence of a move.
+    /// </summary>
+    private static bool ReMeshed(
+        RolloutPlanDocument document, FirmwareRolloutStep step, RolloutDeviceObservation? observation)
+    {
+        if (observation?.UplinkMac is not string live || !IsMeshUplinked(document, step, observation))
+            return false;
+        var planned = PlannedStep(document, step.DeviceMac)?.UplinkMac;
+        return planned != null && !string.Equals(planned, live, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Model family of a step, the key the planner pairs a canary with its peers on. The raw SKU

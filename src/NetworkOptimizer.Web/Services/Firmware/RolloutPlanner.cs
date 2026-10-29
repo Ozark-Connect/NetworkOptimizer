@@ -120,6 +120,8 @@ public class RolloutPlanner
                             IsCanary = isCanary,
                             HeldForCanary = held,
                             IsMeshParticipant = IsMeshParticipant(device, meshParents),
+                            WirelessUplink = device.WirelessUplink,
+                            UplinkMac = device.UplinkMac,
                             EstimatedDowntimeSeconds = input.Estimator.EstimateDowntimeSeconds(device.Model, cls),
                             OfflineBudgetSeconds = FirmwareTimingEstimator.OfflineBudgetSeconds(cls),
                         });
