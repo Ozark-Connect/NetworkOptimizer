@@ -402,6 +402,13 @@ public static class ConfigCollections
                     "element_adopt" => KeepFields(d, l, "Adoption SSID and key", "x_element_essid", "x_element_psk"),
                     "peer_to_peer" => KeepFields(d, l, "Peer-to-peer SSID and key", "ssid", "psk"),
                     "openvpn" => KeepFields(d, l, "OpenVPN DH key", "x_pregenerated_dh_key"),
+                    // The site's own identity, not config to copy: two sites with one Site Magic keypair conflict,
+                    // and the name, tokens, and inform-host override belong to the target Console.
+                    "magic_site_to_site_vpn" => KeepFields(d, l, "Site Magic keys", "public_key", "x_private_key"),
+                    "super_identity" => KeepFields(d, l, "Console name", "name"),
+                    "super_fwupdate" => KeepFields(d, l, "Firmware update sign-in", "x_sso_token"),
+                    "ips" => KeepFields(d, l, "CyberSecure token", "utm_token"),
+                    "super_mgmt" => KeepFields(d, l, "Inform host override", "override_inform_host", "override_inform_host_location"),
                     _ => null,
                 },
                 IsWanPath = o => Str(o, "key") is "doh" or "global_nat",

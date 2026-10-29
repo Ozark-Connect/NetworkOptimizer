@@ -239,6 +239,30 @@ public class PlanEngineTests
         source.Get("setting")[0]["x_mgmt_key"]!.GetValue<string>().Should().Be("source-key", "the caller's state is not changed");
     }
 
+    private static ConfigState IdentitySite(string id) => State(
+        ("setting", $$"""{"_id":"s-magic","key":"magic_site_to_site_vpn","enabled":true,"public_key":"pub-{{id}}","x_private_key":"priv-{{id}}"}"""),
+        ("setting", $$"""{"_id":"s-ident","key":"super_identity","name":"Console {{id}}"}"""),
+        ("setting", $$"""{"_id":"s-fw","key":"super_fwupdate","x_sso_token":"sso-{{id}}","firmware_channel":"release"}"""),
+        ("setting", $$"""{"_id":"s-ips","key":"ips","utm_token":"utm-{{id}}","ips_mode":"ips"}"""),
+        ("setting", $$"""{"_id":"s-sm","key":"super_mgmt","override_inform_host":true,"override_inform_host_location":"{{id}}.example.test"}"""));
+
+    [Fact]
+    public void OtherSite_KeepsTheTargetsIdentity_SiteMagicKeysAndTokens()
+    {
+        var doc = Plan(IdentitySite("source"), IdentitySite("target"), new PlanOptions { SameSite = false });
+
+        doc.Operations.Should().BeEmpty("a template carries no other site's keys, name, tokens, or inform host");
+        doc.KeptValues.Should().BeEquivalentTo("Site Magic keys", "Console name", "Firmware update sign-in", "CyberSecure token", "Inform host override");
+    }
+
+    [Fact]
+    public void SameSite_RestoresTheSiteMagicKeys()
+    {
+        var doc = Plan(IdentitySite("old"), IdentitySite("new"));
+
+        doc.Operations.Single(o => o.ObjectName == "magic_site_to_site_vpn").Body!["public_key"]!.GetValue<string>().Should().Be("pub-old");
+    }
+
     [Fact]
     public void OtherSite_AFieldTheSourceNeverCarried_KeepsTheTargets()
     {
