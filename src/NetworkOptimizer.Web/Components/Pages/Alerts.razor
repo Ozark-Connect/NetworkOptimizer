@@ -99,10 +99,11 @@
             }
             @if (_scheduledTasks.Any(t => t.TaskType == ScheduleService.SqmLearningTaskType))
             {
-                <div class="schedule-section">
-                    <div class="schedule-section-header">
-                        <h2 class="schedule-section-title">Adaptive SQM Learning</h2>
+                <div class="card schedule-group">
+                    <div class="card-header">
+                        <h2 class="card-title">Adaptive SQM Learning</h2>
                     </div>
+                    <div class="card-body">
                     <p class="schedule-section-desc">One-time, hourly for 7 days: a brief gateway speed test on the WAN whenever it is idle, building that connection's own congestion profile. Started and applied from Adaptive SQM.</p>
                     @foreach (var task in _scheduledTasks.Where(t => t.TaskType == ScheduleService.SqmLearningTaskType))
                     {
@@ -204,11 +205,15 @@
                             </div>
                         </div>
                     }
+                    </div>
                 </div>
             }
 
-            <div class="schedule-section">
-                <h2 class="schedule-section-title">Security Audit</h2>
+            <div class="card schedule-group">
+                <div class="card-header">
+                    <h2 class="card-title">Security Audit</h2>
+                </div>
+                <div class="card-body">
                 @{ var auditTask = _scheduledTasks.FirstOrDefault(t => t.TaskType == "audit"); }
                 @if (auditTask != null)
                 {
@@ -296,16 +301,18 @@
                         </div>
                     </div>
                 }
+                </div>
             </div>
 
-            <div class="schedule-section">
-                <div class="schedule-section-header">
-                    <h2 class="schedule-section-title">WAN Speed Tests</h2>
+            <div class="card schedule-group">
+                <div class="card-header">
+                    <h2 class="card-title">WAN Speed Tests</h2>
                     @if (_canConfigure)
                     {
                     <button class="btn btn-sm btn-primary" @onclick="StartAddWanSchedule">+ Add Test</button>
                     }
                 </div>
+                <div class="card-body">
                 <p class="schedule-section-desc">@(_canConfigure ? "Add a separate test for each WAN line - schedule as many as you like." : "One test per WAN line; a site administrator sets these up.")</p>
                 @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
                 @foreach (var task in wanTasks)
@@ -419,11 +426,12 @@
                 {
                     <div id="wan-add-form">@WanScheduleForm</div>
                 }
+                </div>
             </div>
 
-            <div class="schedule-section">
-                <div class="schedule-section-header">
-                    <h2 class="schedule-section-title">LAN Speed Tests</h2>
+            <div class="card schedule-group">
+                <div class="card-header">
+                    <h2 class="card-title">LAN Speed Tests</h2>
                     @if (_lanDeviceOptions.Count > 0)
                     {
                         @if (_canConfigure)
@@ -432,6 +440,7 @@
                         }
                     }
                 </div>
+                <div class="card-body">
                 <p class="schedule-section-desc">@(_canConfigure ? "Add a separate test for each device - schedule as many as you like." : "One test per device; a site administrator sets these up.")</p>
                 @{ var lanTasks = _scheduledTasks.Where(t => t.TaskType == "lan_speedtest").ToList(); }
                 @foreach (var task in lanTasks)
@@ -547,6 +556,7 @@
                         <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
                     </div>
                 }
+                </div>
             </div>
 
         }
@@ -1597,6 +1607,49 @@
         border-radius: var(--border-radius);
         margin-bottom: 0.75rem;
     }
+    /* Schedule tab: each task type is a card and its tasks are rows in it, as in Settings' lists. */
+    .schedule-group .schedule-card {
+        background: none;
+        border: none;
+        border-radius: 0;
+        border-bottom: 1px solid var(--bg-tertiary);
+        margin: 0;
+    }
+    .schedule-group .schedule-card-header {
+        padding: 0.75rem 0 0.5rem;
+        border-bottom: none;
+    }
+    .schedule-group .schedule-card-body {
+        padding: 0 0 0.75rem;
+    }
+    .schedule-group .schedule-status {
+        margin-top: 0.5rem;
+        padding-top: 0;
+        border-top: none;
+    }
+    .schedule-group .card-body > :last-child,
+    .schedule-group .card-body > :last-child > .schedule-card:last-child {
+        margin-bottom: 0;
+        border-bottom: none;
+    }
+    .schedule-group .schedule-section-desc + .schedule-card .schedule-card-header,
+    .schedule-group .card-body > .schedule-card:first-child .schedule-card-header {
+        padding-top: 0;
+    }
+    /* The add and edit forms stand out one background step up. */
+    .schedule-group .schedule-card.schedule-form {
+        background: var(--bg-tertiary);
+        border-bottom: none;
+        border-radius: var(--border-radius);
+        margin: 0.75rem 0;
+        padding: 0 1rem;
+    }
+    .schedule-group .schedule-card.schedule-form .schedule-card-header {
+        padding-top: 0.75rem;
+    }
+    .schedule-group .schedule-card.schedule-form .schedule-card-body {
+        padding-top: 0.75rem;
+    }
     .schedule-card-header {
         display: flex;
         justify-content: space-between;
@@ -2210,7 +2263,7 @@
 
     private RenderFragment WanScheduleForm => __builder =>
     {
-        <div class="schedule-card">
+        <div class="schedule-card schedule-form">
             @if (!_editingWanScheduleId.HasValue)
             {
                 <div class="schedule-card-header">
@@ -2294,7 +2347,7 @@
                                     disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
                                 Save
                             </button>
-                            <button class="btn btn-sm btn-secondary" @onclick="CancelEditWanSchedule">Cancel</button>
+                            <button class="btn btn-sm btn-contrast" @onclick="CancelEditWanSchedule">Cancel</button>
                         }
                         else
                         {
@@ -2315,7 +2368,7 @@
 
     private RenderFragment LanScheduleForm => __builder =>
     {
-        <div class="schedule-card">
+        <div class="schedule-card schedule-form">
             @if (!_editingLanScheduleId.HasValue)
             {
                 <div class="schedule-card-header">
@@ -2360,7 +2413,7 @@
                                     disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
                                 Save
                             </button>
-                            <button class="btn btn-sm btn-secondary" @onclick="CancelEditLanSchedule">Cancel</button>
+                            <button class="btn btn-sm btn-contrast" @onclick="CancelEditLanSchedule">Cancel</button>
                         }
                         else
                         {
