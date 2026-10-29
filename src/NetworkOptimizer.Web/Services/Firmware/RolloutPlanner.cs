@@ -93,7 +93,10 @@ public class RolloutPlanner
             var requiresChange = !string.Equals(group.Channel, input.CurrentConsoleChannel, StringComparison.OrdinalIgnoreCase);
             var firstWave = waveNumber + 1;
 
-            foreach (var levelDevices in Levels(group.Devices, depths))
+            var levels = Levels(group.Devices, depths).ToList();
+            DeferOfflineAheadOfCanary(levels, skuCounts, canaried);
+
+            foreach (var levelDevices in levels)
             {
                 foreach (var wave in BuildLevelWaves(levelDevices, meshParents, spacing, apCap, switchApLimits, input.Neighbors, skuCounts, canaried))
                 {
@@ -117,6 +120,8 @@ public class RolloutPlanner
                             IsCanary = isCanary,
                             HeldForCanary = held,
                             IsMeshParticipant = IsMeshParticipant(device, meshParents),
+                            WirelessUplink = device.WirelessUplink,
+                            UplinkMac = device.UplinkMac,
                             EstimatedDowntimeSeconds = input.Estimator.EstimateDowntimeSeconds(device.Model, cls),
                             OfflineBudgetSeconds = FirmwareTimingEstimator.OfflineBudgetSeconds(cls),
                         });
@@ -333,16 +338,60 @@ public class RolloutPlanner
         return devices
             .GroupBy(d => depths.GetValueOrDefault(d.Mac, 1))
             .OrderByDescending(g => g.Key)
-            .Select(g => g.OrderBy(TypeOrder).ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
-                          .ThenBy(d => d.Mac, StringComparer.Ordinal).ToList());
+            .Select(g => OrderInLevel(g));
+    }
 
-        static int TypeOrder(PlannerDevice d) => d.Type switch
+    private static List<PlannerDevice> OrderInLevel(IEnumerable<PlannerDevice> devices) =>
+        devices.OrderBy(TypeOrder).ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(d => d.Mac, StringComparer.Ordinal).ToList();
+
+    private static int TypeOrder(PlannerDevice d) => d.Type switch
+    {
+        DeviceType.AccessPoint => 0,
+        DeviceType.Switch => 2,
+        DeviceType.Gateway => 3,
+        _ => 1,
+    };
+
+    /// <summary>
+    /// A family's canary is its first online device in upgrade order. Family members ahead of it
+    /// are all offline, so they move down to its level, where they are held behind it: the canary
+    /// must run before every peer, and waves run in order. With no device of the family online,
+    /// nothing moves and the canary is the first device, as before; the executor skips it if it is
+    /// still offline at its turn.
+    /// </summary>
+    /// <remarks>
+    /// Offline devices usually carry no live uplink, so they sit in the deepest (unknown-parent)
+    /// level. Leaving them there would hand the canary to a device that cannot take it.
+    /// </remarks>
+    private static void DeferOfflineAheadOfCanary(
+        List<List<PlannerDevice>> levels, Dictionary<string, int> skuCounts, HashSet<string> canaried)
+    {
+        var families = levels.SelectMany(l => l)
+            .Select(d => d.ModelFamily)
+            .Where(f => skuCounts.GetValueOrDefault(f, 0) > 1 && !canaried.Contains(f))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var family in families)
         {
-            DeviceType.AccessPoint => 0,
-            DeviceType.Switch => 2,
-            DeviceType.Gateway => 3,
-            _ => 1,
-        };
+            bool InFamily(PlannerDevice d) => string.Equals(d.ModelFamily, family, StringComparison.OrdinalIgnoreCase);
+
+            var canaryLevel = levels.FindIndex(l => l.Any(d => InFamily(d) && !d.Offline));
+            if (canaryLevel <= 0) continue;
+
+            var moved = new List<PlannerDevice>();
+            for (var i = 0; i < canaryLevel; i++)
+            {
+                moved.AddRange(levels[i].Where(InFamily));
+                levels[i].RemoveAll(InFamily);
+            }
+            if (moved.Count == 0) continue;
+
+            levels[canaryLevel] = OrderInLevel(levels[canaryLevel].Concat(moved));
+        }
+
+        levels.RemoveAll(l => l.Count == 0);
     }
 
     /// <summary>
@@ -366,9 +415,17 @@ public class RolloutPlanner
         var solo = new List<PlannerDevice>();
         var gateways = new List<PlannerDevice>();
 
+        // An offline canary proves nothing, so the first online device of each family is picked,
+        // and the first device only when none is online.
+        var canaryOf = level
+            .GroupBy(d => d.ModelFamily, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault(d => !d.Offline) ?? g.First(), StringComparer.OrdinalIgnoreCase);
+
         foreach (var d in level)
         {
-            var isCanary = skuCounts.GetValueOrDefault(d.ModelFamily, 0) > 1 && canaried.Add(d.ModelFamily);
+            var isCanary = skuCounts.GetValueOrDefault(d.ModelFamily, 0) > 1
+                && ReferenceEquals(canaryOf[d.ModelFamily], d)
+                && canaried.Add(d.ModelFamily);
             if (isCanary)
             {
                 waves.Add([(d, true, false)]);

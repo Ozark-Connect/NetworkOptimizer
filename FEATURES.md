@@ -326,6 +326,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Live map and step table; pause, resume, abort, postpone, deploy now, re-plan
 - Health gate postpones a start while critical alerts are open
 - A dark console or dropped agent pauses the rollout instead of failing it
+- Canaries are online devices; a device offline at its turn is skipped, not failed
 - Tries SSH when a device ignores the upgrade command
 - Optional mute of offline, restart, and WAN outage alerts for each device as it flashes
 - Re-scans mesh backhaul once both halves of a mesh pair are upgraded

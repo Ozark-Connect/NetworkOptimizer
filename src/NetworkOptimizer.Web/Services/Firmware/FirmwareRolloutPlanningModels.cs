@@ -740,6 +740,16 @@ public class PlanWaveStep
     public bool IsCanary { get; set; }
     public bool HeldForCanary { get; set; }
     public bool IsMeshParticipant { get; set; }
+
+    /// <summary>Whether the device uplinked over a wireless mesh backhaul when the plan was built.</summary>
+    public bool WirelessUplink { get; set; }
+
+    /// <summary>
+    /// Normalized MAC of the device's parent when the plan was built, null when unknown. The
+    /// executor compares it with the live uplink to tell a mesh device that has re-meshed.
+    /// </summary>
+    public string? UplinkMac { get; set; }
+
     public int EstimatedDowntimeSeconds { get; set; }
     public int OfflineBudgetSeconds { get; set; }
     public int EtaOffsetSeconds { get; set; }

@@ -35,13 +35,15 @@ public class RolloutPlannerTests
         bool wirelessUplink = false,
         string? meshInterface = null,
         string? displayModel = null,
-        string? ipAddress = null) => new()
+        string? ipAddress = null,
+        bool offline = false) => new()
         {
             Mac = mac,
             Name = name,
             Model = model,
             DisplayModel = displayModel ?? model,
             Type = type,
+            Offline = offline,
             Upgradable = upgradable,
             FromVersion = "1.0.0",
             ToVersion = "1.1.0",
@@ -53,9 +55,9 @@ public class RolloutPlannerTests
 
     private static PlannerDevice Ap(string mac, string name, string model = "SKU-AP1", string? uplinkMac = null,
         bool upgradable = true, bool wirelessUplink = false, string? meshInterface = null,
-        string? displayModel = null, string? ipAddress = null) =>
+        string? displayModel = null, string? ipAddress = null, bool offline = false) =>
         Device(mac, DeviceType.AccessPoint, model, name, uplinkMac, upgradable, wirelessUplink, meshInterface,
-            displayModel, ipAddress);
+            displayModel, ipAddress, offline);
 
     private static PlannerDevice Sw(string mac, string name, string model = "SKU-SW1", string? uplinkMac = null,
         bool upgradable = true) =>
@@ -830,6 +832,74 @@ public class RolloutPlannerTests
         StepOf(doc, AccessSwitchMac).IsCanary.Should().BeTrue();
         StepOf(doc, DistSwitchMac).HeldForCanary.Should().BeTrue();
         WaveOf(doc, AccessSwitchMac).Should().BeLessThan(WaveOf(doc, DistSwitchMac));
+    }
+
+    [Fact]
+    public void Plan_Canary_IsTheFirstOnlineDeviceOfItsFamily()
+    {
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Ap(ApMac, "AP-1", "SKU-AP1", GatewayMac, offline: true),
+            Ap("aa:bb:cc:dd:ee:05", "AP-2", "SKU-AP1", GatewayMac),
+            Ap("aa:bb:cc:dd:ee:06", "AP-3", "SKU-AP1", GatewayMac),
+        };
+
+        var result = Plan(devices);
+        var doc = result.Document;
+
+        StepOf(doc, "aa:bb:cc:dd:ee:05").IsCanary.Should().BeTrue();
+        StepOf(doc, ApMac).IsCanary.Should().BeFalse();
+        StepOf(doc, ApMac).HeldForCanary.Should().BeTrue();
+        doc.Waves[0].Steps.Should().ContainSingle().Which.Mac.Should().Be("aa:bb:cc:dd:ee:05");
+        result.Steps.Single(s => s.DeviceMac == ApMac).State.Should().Be(FirmwareRolloutStepState.Held);
+    }
+
+    [Fact]
+    public void Plan_OfflineFamilyMembersWithNoUplink_WaitBehindTheOnlineCanary()
+    {
+        // Offline mesh plugs report no live uplink, so they land in the unknown-parent level that
+        // runs first. The canary must still be an online one, and it must still run first.
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Ap(AccessSwitchMac, "Mesh-1", "SKU-MESH", GatewayMac),
+            Ap("aa:bb:cc:dd:ee:05", "Mesh-2", "SKU-MESH", uplinkMac: null, offline: true),
+            Ap("aa:bb:cc:dd:ee:06", "Mesh-3", "SKU-MESH", uplinkMac: null, offline: true),
+            Ap("aa:bb:cc:dd:ee:07", "Other", "SKU-OTHER", uplinkMac: null),
+        };
+
+        var result = Plan(devices);
+        var doc = result.Document;
+
+        StepOf(doc, AccessSwitchMac).IsCanary.Should().BeTrue();
+        foreach (var offline in new[] { "aa:bb:cc:dd:ee:05", "aa:bb:cc:dd:ee:06" })
+        {
+            StepOf(doc, offline).HeldForCanary.Should().BeTrue();
+            WaveOf(doc, offline).Should().BeGreaterThan(WaveOf(doc, AccessSwitchMac));
+        }
+
+        // Only the offline family members move: the other model keeps its place.
+        WaveOf(doc, "aa:bb:cc:dd:ee:07").Should().BeLessThan(WaveOf(doc, AccessSwitchMac));
+        doc.Waves.SelectMany(w => w.Steps).Select(s => s.Mac).Should().OnlyHaveUniqueItems()
+            .And.HaveCount(4);
+    }
+
+    [Fact]
+    public void Plan_NoDeviceOfAFamilyOnline_FallsBackToTheFirstDevice()
+    {
+        var devices = new[]
+        {
+            Gw(upgradable: false),
+            Ap(ApMac, "AP-1", "SKU-AP1", GatewayMac, offline: true),
+            Ap("aa:bb:cc:dd:ee:05", "AP-2", "SKU-AP1", GatewayMac, offline: true),
+        };
+
+        var doc = Plan(devices).Document;
+
+        StepOf(doc, ApMac).IsCanary.Should().BeTrue();
+        StepOf(doc, "aa:bb:cc:dd:ee:05").HeldForCanary.Should().BeTrue();
+        WaveOf(doc, ApMac).Should().BeLessThan(WaveOf(doc, "aa:bb:cc:dd:ee:05"));
     }
 
     [Fact]
