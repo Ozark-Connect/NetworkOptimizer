@@ -24012,6 +24012,54 @@ body:has(.top-bar-hidden) .btn-fit {
     white-space: nowrap;
 }
 
+/* Change detail: Security Audit and Settings group headings, fixed and new issues, who made it. */
+.change-control .cc-detail-head td {
+    padding-top: 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.change-control .cc-audit-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.change-control .cc-audit-kind.fixed { color: var(--success-color); }
+.change-control .cc-audit-kind.new { color: var(--danger-color); }
+
+.change-control .cc-audit-device,
+.change-control .cc-source-via {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.change-control .cc-source {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+}
+
+.change-control .cc-source-who {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+}
+
+.change-control .cc-source-who svg { color: var(--text-secondary); }
+
+.change-control .cc-source-via code {
+    color: var(--text-muted);
+    background: none;
+    padding: 0;
+    font-size: 0.75rem;
+}
+
 /* A policy order change: each moved rule with its neighbors before and after. */
 .change-control .cc-order-move + .cc-order-move {
     margin-top: 0.75rem;

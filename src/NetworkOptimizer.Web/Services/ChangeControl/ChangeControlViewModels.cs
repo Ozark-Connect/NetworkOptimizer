@@ -68,7 +68,18 @@ public sealed class ChangeDetailView
     public List<ImpactLine> Impact { get; init; } = [];
     public List<IncidentView> IncidentsAfter { get; init; } = [];
     public List<MetricDelta> BeforeAfter { get; init; } = [];
-    public string? Source { get; init; }
+    /// <summary>The admin who made the change, or null when it was not a person.</summary>
+    public string? MadeBy { get; init; }
+
+    /// <summary>The app the change was made in ("UniFi web app"), shown under <see cref="MadeBy"/>.</summary>
+    public string? MadeVia { get; init; }
+
+    /// <summary>The address UniFi Network saw the admin at.</summary>
+    public string? MadeFromIp { get; init; }
+
+    /// <summary>Made from a phone app, for the icon next to <see cref="MadeBy"/>.</summary>
+    public bool MadeOnMobile { get; init; }
+
     public bool CanRollBack { get; init; }
     /// <summary>Label and value rows for a change with no config objects: a firmware or Network app upgrade.</summary>
     public List<(string Label, string Value)> Facts { get; init; } = [];

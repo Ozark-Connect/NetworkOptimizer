@@ -223,9 +223,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var metrics = HealthDeltas(l.health, l.change.OccurredAt)
             .Concat(await new SiteMetricsReader(_influx, _isp, _logger).BeforeAfterAsync(l.change.OccurredAt, cancellationToken)).ToList();
         var impact = string.IsNullOrEmpty(l.change.ImpactJson) ? [] : JsonSerializer.Deserialize<List<ImpactLine>>(l.change.ImpactJson) ?? [];
-        var source = l.change.ActorKind == ConfigChangeActorKind.Person && l.change.ActorName != "Network Optimizer"
-            ? string.Join(", ", new[] { l.change.ActorName, l.change.ActorIp, Platform(l.change.ActorPlatform) }.Where(s => !string.IsNullOrEmpty(s)))
-            : null;
+        var person = l.change.ActorKind == ConfigChangeActorKind.Person && l.change.ActorName != "Network Optimizer";
         return new ChangeDetailView
         {
             Row = Row(l.change, _site.Slug, name, LinkedAfter(l.change, l.incidents), l.rollbacks, appliers: appliers),
@@ -233,7 +231,10 @@ public sealed partial class ChangeControlService : IChangeControlService
             Impact = impact,
             IncidentsAfter = l.incidents.Select(Incident).ToList(),
             BeforeAfter = metrics,
-            Source = source,
+            MadeBy = person && !string.IsNullOrEmpty(l.change.ActorName) ? l.change.ActorName : null,
+            MadeVia = person ? AppName(l.change.ActorPlatform) : null,
+            MadeFromIp = person && !string.IsNullOrEmpty(l.change.ActorIp) ? l.change.ActorIp : null,
+            MadeOnMobile = person && l.change.ActorPlatform is "IOS" or "ANDROID",
             CanRollBack = l.change.Kind == ConfigChangeKind.Config && l.change.PreviousSnapshotId != null && !l.rollbacks.ContainsKey(l.change.Id),
             Facts = Facts(l.change),
         };
@@ -294,6 +295,15 @@ public sealed partial class ChangeControlService : IChangeControlService
     }
 
     /// <summary>UniFi's audit access method as shown: "WEB" reads Web, "MOBILE" Mobile; acronyms (API, SSH) stay.</summary>
+    /// <summary>"UniFi web app" for UniFi's access method, or the method itself when it is not one of its apps.</summary>
+    internal static string? AppName(string? accessMethod) => accessMethod switch
+    {
+        "WEB" => "UniFi web app",
+        "IOS" => "UniFi iOS app",
+        "ANDROID" => "UniFi Android app",
+        _ => Platform(accessMethod),
+    };
+
     internal static string? Platform(string? accessMethod) =>
         accessMethod is { Length: > 0 } m && m.All(c => !char.IsLower(c)) ? ChangeDescriber.Title(m.ToLowerInvariant().Replace('_', ' ')) : accessMethod;
 

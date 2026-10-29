@@ -11,12 +11,37 @@ else
         <div class="cc-panel">
             <div class="cc-panel-title">What changed</div>
             <table class="cc-field-table">
-                @foreach (var line in Detail.Impact.Where(l => l.Kind == "Regression"))
+                @if (Detail.Impact.Count > 0)
                 {
-                    <tr>
-                        <td class="label">@line.Kind</td>
-                        <td style="text-align:right" class="danger-text">@line.Title@(line.Device is { Length: > 0 } device ? $" ({device})" : "")</td>
-                    </tr>
+                    <tr class="cc-detail-head"><td colspan="2">Security Audit</td></tr>
+                    @foreach (var line in Detail.Impact.OrderBy(l => l.Kind == "Regression" ? 0 : 1))
+                    {
+                        var fixedIssue = line.Kind != "Regression";
+                        <tr>
+                            <td class="label">
+                                <span class="cc-audit-kind @(fixedIssue ? "fixed" : "new")">
+                                    @if (fixedIssue)
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                        <text>Fixed issue</text>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M8 3v6.5M8 12.5v.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" /></svg>
+                                        <text>New issue</text>
+                                    }
+                                </span>
+                            </td>
+                            <td style="text-align:right">
+                                @line.Title
+                                @if (line.Device is { Length: > 0 } device)
+                                {
+                                    <br /><span class="cc-audit-device">@device</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    <tr class="cc-detail-head"><td colspan="2">Settings</td></tr>
                 }
                 @foreach (var (label, value) in Detail.Facts)
                 {
@@ -43,15 +68,29 @@ else
                         }
                     }
                 }
-                @if (!string.IsNullOrEmpty(Detail.Source))
-                {
-                    <tr><td class="label">Source</td><td style="text-align:right">@Detail.Source</td></tr>
-                }
-                @foreach (var line in Detail.Impact.Where(l => l.Kind != "Regression"))
+                @if (Detail.MadeBy != null)
                 {
                     <tr>
-                        <td class="label">@line.Kind</td>
-                        <td style="text-align:right" class="success-text">@line.Title@(line.Device is { Length: > 0 } device ? $" ({device})" : "")</td>
+                        <td class="label">Made by</td>
+                        <td style="text-align:right">
+                            <span class="cc-source">
+                                <span class="cc-source-who">
+                                    @if (Detail.MadeOnMobile)
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M7 12.5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="1.5" y="2.5" width="13" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M5.5 14h5M8 11.5V14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+                                    }
+                                    @Detail.MadeBy
+                                </span>
+                                @if (Detail.MadeVia != null || Detail.MadeFromIp != null)
+                                {
+                                    <span class="cc-source-via">@Detail.MadeVia@(Detail.MadeVia != null && Detail.MadeFromIp != null ? ", " : "")@if (Detail.MadeFromIp != null) { <text>from </text><code>@Detail.MadeFromIp</code> }</span>
+                                }
+                            </span>
+                        </td>
                     </tr>
                 }
             </table>
