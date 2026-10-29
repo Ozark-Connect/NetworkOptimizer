@@ -2,10 +2,10 @@
 // diagnostics from the server's validation. One editor per host element, kept on host._cc.
 import {
     EditorView, EditorState, Compartment, basicSetup, keymap, indentWithTab, indentUnit, yaml,
-    autocompletion, startCompletion, setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
-    Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect, StateField,
+    autocompletion, startCompletion, closeCompletion, completionStatus, setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
+    Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect, StateField, Prec,
     codeFolding, foldEffect, unfoldEffect, foldedRanges,
-} from '../lib/codemirror/codemirror.bundle.js?v=5';
+} from '../lib/codemirror/codemirror.bundle.js?v=6';
 
 const highlight = HighlightStyle.define([
     { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--info-color)' },
@@ -36,13 +36,16 @@ const theme = EditorView.theme({
         display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0 0.4rem', borderRadius: '4px',
         backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', letterSpacing: '0.1em',
     },
+    // The gap before an end-of-line button is the wrapper's padding, never a margin: the cursor at the
+    // line's end is drawn at the widget's edge, and a margin put it where a trailing space would be.
+    '.cc-line-tail': { paddingLeft: '0.75rem' },
     '.cc-remove-item': {
-        font: 'inherit', fontSize: '0.95rem', lineHeight: '1', marginLeft: '0.75rem', padding: '0 0.35rem', cursor: 'pointer',
+        font: 'inherit', fontSize: '0.95rem', lineHeight: '1', padding: '0 0.35rem', cursor: 'pointer',
         border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
     },
     '.cc-remove-item:hover, .cc-remove-item:focus-visible': { color: 'var(--danger-color)', background: 'var(--bg-tertiary)' },
     '.cc-collapse-children': {
-        font: 'inherit', fontSize: '0.75rem', lineHeight: '1.4', marginLeft: '0.75rem', padding: '0 0.4rem', cursor: 'pointer',
+        font: 'inherit', fontSize: '0.75rem', lineHeight: '1.4', padding: '0 0.4rem', cursor: 'pointer',
         border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
     },
     '.cc-collapse-children:hover, .cc-collapse-children:focus-visible': { color: 'var(--text-primary)', background: 'var(--bg-tertiary)' },
@@ -339,7 +342,7 @@ class RemoveWidget extends WidgetType {
             view.dispatch({ changes: { from, to }, userEvent: 'delete.remove-object' });
             view.focus();
         });
-        return button;
+        return lineTail(button);
     }
 
     ignoreEvent(e) { return e.type === 'mousedown' || e.type === 'click'; }
@@ -413,10 +416,18 @@ class CollapseWidget extends WidgetType {
                 effects: open.length > 0 ? open.map(r => foldEffect.of(r)) : ranges.map(r => unfoldEffect.of(r)),
             });
         });
-        return button;
+        return lineTail(button);
     }
 
     ignoreEvent(e) { return e.type === 'mousedown' || e.type === 'click'; }
+}
+
+/** An end-of-line button in a wrapper that carries the gap before it (see .cc-line-tail). */
+function lineTail(button) {
+    const tail = document.createElement('span');
+    tail.className = 'cc-line-tail';
+    tail.appendChild(button);
+    return tail;
 }
 
 function isFolded(cmState, range) {
@@ -643,6 +654,17 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
+                // A list a click opened on a value already set only offers: Enter is still a line break
+                // until an arrow key picks an entry. On an empty value, or opened by typing, Enter accepts.
+                Prec.highest(keymap.of([
+                    { key: 'ArrowDown', run: () => { state.clickList = false; return false; } },
+                    { key: 'ArrowUp', run: () => { state.clickList = false; return false; } },
+                    { key: 'Enter', run: v => {
+                        if (state.clickList && completionStatus(v.state) === 'active') closeCompletion(v);
+                        state.clickList = false;
+                        return false;
+                    } },
+                ])),
                 state.editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ 'aria-label': label ?? 'YAML', spellcheck: 'false' }),
                 EditorView.updateListener.of(u => {
@@ -658,8 +680,10 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                     if (!u.docChanged && u.state.selection.main.empty && u.transactions.some(t => t.isUserEvent('select.pointer'))
                         && opensOnClick(state, u.state, u.state.selection.main.head)) {
                         state.clickOpen = true;
+                        state.clickList = valueAt(u.state, u.state.selection.main.head) !== '';
                         setTimeout(() => startCompletion(u.view), 0);
                     }
+                    if (u.docChanged) state.clickList = false;
                     if (!u.docChanged || state.silent) return;
                     // Deleting a masked secret leaves "key: "; open the menu there too (phones have no Ctrl+Space).
                     const head = u.state.selection.main.head;
@@ -841,6 +865,16 @@ const keyPosition = /^(\s*)(- )?([A-Za-z0-9_.-]*)$/;
 const flowListPosition = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*\[([^\]]*)$/;
 const valuePosition = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*([^#\[{]*)$/;
 const blockItemPosition = /^(\s*)- ([^#:]*)$/;
+
+/** The value on pos's "key: value" line, without a trailing comment; '' when none. */
+function valueAt(es, pos) {
+    const text = es.doc.lineAt(pos).text;
+    const colon = text.indexOf(':');
+    if (colon < 0) return '';
+    const rest = text.slice(colon + 1);
+    const comment = rest.search(/\s#/);
+    return (comment >= 0 ? rest.slice(0, comment) : rest).trim();
+}
 
 // A click into a single value whose field has choices (a zone, a network) opens them without typing.
 function opensOnClick(state, es, pos) {
