@@ -319,6 +319,18 @@ function restoreRevealed(view, state) {
     if (changes.length) setTimeout(() => view.dispatch({ changes }), 0);
 }
 
+// The text the page sees: a revealed value still as shown reads as its token, so a reveal the cursor
+// has not left yet is no edit either. A value typed over no longer matches, so it is sent as typed.
+function reportedText(view, state) {
+    const doc = view.state.doc;
+    const kept = state.revealed
+        .filter(r => r.from <= r.to && r.to <= doc.length && doc.sliceString(r.from, r.to) === r.value)
+        .sort((a, b) => b.from - a.from);
+    let text = doc.toString();
+    for (const r of kept) text = text.slice(0, r.from) + r.token + text.slice(r.to);
+    return text;
+}
+
 /**
  * Creates the editor in host. dotnet receives OnEditorChanged(key, text) after typing pauses; key
  * names what the text belongs to, so a change still in flight when setText swaps the document
@@ -368,7 +380,7 @@ export function create(host, dotnet, text, label, key, canReveal) {
                     const key = state.key;
                     state.timer = setTimeout(() => {
                         state.timer = 0;
-                        state.dotnet.invokeMethodAsync('OnEditorChanged', key, view.state.doc.toString())
+                        state.dotnet.invokeMethodAsync('OnEditorChanged', key, reportedText(view, state))
                             .catch(e => console.warn('cc-editor: change callback failed', e));
                     }, 250);
                 }),
@@ -390,7 +402,7 @@ export function setText(host, text, key) {
     if (cc.state.timer) {
         clearTimeout(cc.state.timer);
         cc.state.timer = 0;
-        cc.state.dotnet.invokeMethodAsync('OnEditorChanged', cc.state.key, cc.view.state.doc.toString())
+        cc.state.dotnet.invokeMethodAsync('OnEditorChanged', cc.state.key, reportedText(cc.view, cc.state))
             .catch(e => console.warn('cc-editor: change callback failed', e));
     }
     cc.state.key = key;
