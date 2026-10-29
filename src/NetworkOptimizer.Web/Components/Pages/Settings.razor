@@ -1241,7 +1241,7 @@
             }
 
             <!-- Discovered Modems from UniFi Console -->
-            <h4>Auto-Discovered Modems</h4>
+            <h4>Ubiquiti Modems (Auto-Discovered)</h4>
             <div class="action-buttons" style="margin-top: 0.5rem; margin-bottom: 1rem;">
                 <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
                     @if (loadingDiscoveredModems)
@@ -1386,15 +1386,15 @@
             }
             else
             {
-                <p class="empty-state">No modems configured. Scan for modems above or add one manually.</p>
+                <p class="empty-state">No modems configured. Scan for Ubiquiti modems above, or add any modem below.</p>
             }
 
             <!-- Manual Add Form (collapsed by default, expands when editing) -->
             <details class="add-form" open="@modemFormExpanded">
-                <summary @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
+                <summary @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add a Modem")</summary>
                 <div class="add-form-content">
                     <p class="form-help" style="margin-bottom: 1rem;">
-                        Only use manual entry if auto-discovery doesn't find your modem.
+                        Ubiquiti modems are found automatically above. Add any other modem here: Netgear Nighthawk, GL-iNet / Quectel, Inseego FX, Zyxel or MikroTik.
                     </p>
 
                     @if (editingModem != null)
