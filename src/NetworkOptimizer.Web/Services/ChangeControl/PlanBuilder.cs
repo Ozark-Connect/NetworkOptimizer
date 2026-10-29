@@ -842,6 +842,15 @@ public static class PlanBuilder
                 var idx = p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
                 (idx < predefinedMin ? before : after).Add(Map(ConfigState.IdOf(p)));
             }
+            // The reorder runs before the deletes, and UniFi refuses one that leaves out a policy the
+            // pair still has (ShouldIncludeFirewallPolicyInBatchUpdate): a policy about to be deleted
+            // keeps its slot until then.
+            foreach (var p in live.Get("firewall_policy").Where(p => deleted.Contains(ConfigState.IdOf(p))
+                         && p["source"]?["zone_id"]?.ToString() == src && p["destination"]?["zone_id"]?.ToString() == dst))
+            {
+                var idx = p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
+                (idx < predefinedMin ? before : after).Add(ConfigState.IdOf(p));
+            }
 
             var pair = $"{liveCtx.NameOf(src)} to {liveCtx.NameOf(dst)}";
             doc.Operations.Add(new PlanOperation

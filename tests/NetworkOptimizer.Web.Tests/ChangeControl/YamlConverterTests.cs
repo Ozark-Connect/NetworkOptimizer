@@ -115,6 +115,56 @@ public class YamlConverterTests
     }
 
     [Fact]
+    public void DeletingOnePolicy_IsOneDelete_NoReorders()
+    {
+        // Index order differs from name order in both zone pairs, as on a real console.
+        var site = State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+            // Stored out of index order, as a snapshot can hold them.
+            ("firewall_policy", """{"_id":"pc","name":"Mid","index":10002,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pe","name":"Bravo","index":10004,"action":"BLOCK","source":{"zone_id":"z2"},"destination":{"zone_id":"z1"}}"""),
+            ("firewall_policy", """{"_id":"pa","name":"Zeta","index":10000,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pd","name":"Yankee","index":10003,"action":"ALLOW","source":{"zone_id":"z2"},"destination":{"zone_id":"z1"}}"""),
+            ("firewall_policy", """{"_id":"pb","name":"Alpha","index":10001,"action":"BLOCK","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
+        var lines = yaml.Split('\n').ToList();
+        var at = lines.FindIndex(l => l == "- id: pb");
+        var end = lines.FindIndex(at + 1, l => l.StartsWith("- ", StringComparison.Ordinal));
+        lines.RemoveRange(at, end - at);
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(site, new Dictionary<string, string> { ["firewall_policy"] = string.Join("\n", lines) });
+
+        problems.Should().NotContain(p => p.Level == "Error");
+        PlanBuilder.Build(desired, site, new PlanOptions { Collections = touched }).Operations
+            .Should().ContainSingle().Which.Should().Match<PlanOperation>(o => o.Action == PlanAction.Delete && o.ObjectId == "pb");
+    }
+
+    [Fact]
+    public void ReorderAndDeleteInOnePair_TheReorderStillListsThePolicyBeingDeleted()
+    {
+        var site = State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+            ("firewall_policy", """{"_id":"pa","name":"A","index":10000,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pb","name":"B","index":10001,"action":"BLOCK","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pc","name":"C","index":10002,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+        // C moved above A, and B deleted.
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
+        var blocks = yaml.Split("\n- ").ToList();
+        var header = blocks[0];
+        var items = blocks.Skip(1).Select(b => "- " + b.TrimEnd('\n')).ToList();
+        var edited = header + "\n" + string.Join("\n", new[] { items[2], items[0] }) + "\n";
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(site, new Dictionary<string, string> { ["firewall_policy"] = edited });
+
+        problems.Should().NotContain(p => p.Level == "Error");
+        var ops = PlanBuilder.Build(desired, site, new PlanOptions { Collections = touched }).Operations;
+        ops.Should().ContainSingle(o => o.Action == PlanAction.Delete && o.ObjectId == "pb");
+        var reorder = ops.Should().ContainSingle(o => o.Action == PlanAction.Reorder).Subject;
+        var listed = reorder.Body!["before_predefined_ids"]!.AsArray().Concat(reorder.Body!["after_predefined_ids"]!.AsArray()).Select(i => i!.ToString());
+        listed.Should().BeEquivalentTo(["pc", "pa", "pb"]);
+    }
+
+    [Fact]
     public void RemovingAPredefinedPolicy_IsAnError()
     {
         var site = PolicySite();

@@ -115,6 +115,11 @@ public static partial class YamlConverter
             if (keys != null && !keys.Contains(def.Key)) continue;
             if (!state.Collections.ContainsKey(def.Key)) continue;
             var objects = state.Get(def.Key).Where(o => def.Key != "user" || ConfigDiffEngine.HasClientConfig(o)).ToList();
+            // In index order: the file omits the read-only index, so a parsed policy's order is its
+            // place in the file (PlanBuilder.AddPolicyOrder). Stored order differs, and every zone
+            // pair then read as reordered.
+            if (def.Key == "firewall_policy")
+                objects = objects.OrderBy(o => o["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
             sb.Append(YamlName(def)).Append(':');
             if (objects.Count == 0) { sb.Append(" []\n"); continue; }
             sb.Append('\n');
