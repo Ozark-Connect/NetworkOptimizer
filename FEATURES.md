@@ -631,6 +631,7 @@ Requires Gateway SSH.
   - Reconnects on its own after a console outage or restart
 - **Gateway SSH** and **Device SSH** credentials; iperf3 status on the gateway
 - **Managed SSH Key** - generate or upload one key and install it on the gateway, surviving reboots
+  - GL.iNet and MikroTik cellular modems can sign in with it instead of a password, per modem
 - **Monitoring** - SNMP status, InfluxDB, Adaptive SQM monitor, and cable modem, ONT, cellular, and Starlink devices
 - **AP Telemetry** - turn on and manage the AP agents; see [Wi-Fi Optimizer - AP Telemetry](#ap-telemetry)
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
