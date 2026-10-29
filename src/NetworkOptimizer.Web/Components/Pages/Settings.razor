@@ -1482,6 +1482,8 @@
                                     <small class="form-help">Leave empty to auto-detect. Set this only if detection fails: <code>cpu</code> for a modem built into the router, or a USB path like 1-1.2 for a plug-in module.</small>
                                 </div>
                             </div>
+
+                            <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" />
                         }
                         else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-cpe")
                         {
@@ -7285,9 +7287,11 @@
             return;
         }
 
-        if (isPerModemSshProvider && string.IsNullOrWhiteSpace(editingModem.Password) && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath))
+        // The site's SSH key is offered on every modem connection, so it stands in for a password.
+        if (isPerModemSshProvider && string.IsNullOrWhiteSpace(editingModem.Password)
+            && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath) && _sshKey is null)
         {
-            modemMessage = $"SSH password or private key path is required for {sshModemKind} modems";
+            modemMessage = $"An SSH password, or an SSH key for this site, is required for {sshModemKind} modems";
             modemMessageClass = "danger";
             return;
         }
