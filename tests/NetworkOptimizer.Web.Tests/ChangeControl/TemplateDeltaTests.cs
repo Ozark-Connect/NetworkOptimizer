@@ -27,6 +27,18 @@ public class TemplateDeltaTests
         ("networkconf", """{"_id":"t-guest","name":"Guest","purpose":"guest","vlan":50,"vlan_enabled":true,"ip_subnet":"192.0.2.129/25"}"""),
         ("wlanconf", """{"_id":"t-w","name":"Home","networkconf_id":"t-lan","security":"wpapsk","private_preshared_keys_enabled":true,"private_preshared_keys":[{"password":"guest-pass","networkconf_id":"t-guest"}]}"""));
 
+    [Theory]
+    [InlineData("""{"wlanconf":[{"name":"Home","private_preshared_keys":[{"password":"p"}]}]}""", true)]
+    [InlineData("""{"wlanconf":[{"name":"Home","private_preshared_keys":[]}]}""", false)]
+    [InlineData("""{"wlanconf":[{"name":"Home"}]}""", false)]
+    [InlineData("""{"networkconf":[{"name":"IoT"}]}""", false)]
+    [InlineData("""{"networkconf":[{"name":"IoT"}],"_references":{"wlanconf":[{"name":"Home","private_preshared_keys":[{"password":"p"}]}]}}""", false)]
+    public void HasLists_OnlyForACarriedWlanWithPpsks(string content, bool expected)
+    {
+        // Templates offer "Replace each site's PPSKs" only when this holds.
+        ConfigTemplateStore.HasLists((JsonObject)JsonNode.Parse(content)!).Should().Be(expected);
+    }
+
     private static PlanOptions TemplateOptions(params string[] collections) => new()
     {
         SameSite = false, DeleteMissing = false, MergeLists = true, Collections = collections.ToHashSet(),

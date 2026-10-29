@@ -54,6 +54,10 @@
                 </div>
                 <small class="form-help">Devices and clients stay per site. Secrets are copied from the source and kept encrypted.</small>
             </div>
+            @if (Templatable.Any(d => _collections.Contains(d.Key) && d.MergeOnTemplate.Count > 0))
+            {
+                @ReplaceListsField(_newReplaceLists, v => _newReplaceLists = v)
+            }
             <div class="action-buttons">
                 <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || _collections.Count == 0)" @onclick="CreateAsync">Save Template</button>
             </div>
@@ -119,10 +123,10 @@
                             <input class="form-control" @bind="_editDescription" maxlength="300" />
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label class="checkbox-label"><input type="checkbox" @bind="_replaceLists" /><span>Replace each site's PPSKs</span></label>
-                        <small class="form-help">Off, a site keeps its own PPSKs and gains the template's. On, each site's PPSKs become exactly the template's.</small>
-                    </div>
+                    @if (t.HasLists)
+                    {
+                        @ReplaceListsField(_replaceLists, v => _replaceLists = v)
+                    }
                     <div class="action-buttons">
                         <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_editName))" @onclick="SaveDetailsAsync">Save</button>
                         <button class="btn btn-contrast" @onclick="() => _editingId = null">Cancel</button>
@@ -188,10 +192,12 @@
 
     private async Task CreateAsync() => await RunAsync(async () =>
     {
-        await Templates.CreateFromSiteAsync(SiteCtx.Slug, int.TryParse(_source, out var id) ? id : null, _name.Trim(), _description, _collections.ToList());
+        var lists = _newReplaceLists && Templatable.Any(d => _collections.Contains(d.Key) && d.MergeOnTemplate.Count > 0);
+        await Templates.CreateFromSiteAsync(SiteCtx.Slug, int.TryParse(_source, out var id) ? id : null, _name.Trim(), _description, _collections.ToList(), lists);
         _creating = false;
         _name = "";
         _description = null;
+        _newReplaceLists = false;
         _collections.Clear();
         await LoadAsync();
     });
@@ -212,6 +218,16 @@
     private string _editName = "";
     private string? _editDescription;
     private bool _replaceLists;
+    private bool _newReplaceLists;
+
+    // Shown only where it applies: a template carrying WLANs with PPSKs (Add: WLANs selected).
+    private RenderFragment ReplaceListsField(bool value, Action<bool> set) => __builder =>
+    {
+        <div class="form-group">
+            <label class="checkbox-label"><input type="checkbox" checked="@value" @onchange="e => set(e.Value is true)" /><span>Replace each site's PPSKs</span></label>
+            <small class="form-help">Off, a site keeps its own PPSKs and gains the template's. On, each site's PPSKs become exactly the template's.</small>
+        </div>
+    };
 
     private async Task SaveDetailsAsync() => await RunAsync(async () =>
     {

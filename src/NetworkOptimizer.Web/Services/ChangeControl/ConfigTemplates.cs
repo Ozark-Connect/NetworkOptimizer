@@ -18,6 +18,8 @@ public sealed class TemplateView
     public List<string> Collections { get; init; } = [];
     /// <summary>Applied, its lists (a WLAN's PPSKs) replace each site's instead of adding to them.</summary>
     public bool ReplaceLists { get; init; }
+    /// <summary>Its content holds a list <see cref="ReplaceLists"/> applies to (a WLAN with PPSKs).</summary>
+    public bool HasLists { get; init; }
     public DateTime UpdatedAt { get; init; }
 }
 
@@ -40,14 +42,22 @@ public sealed class ConfigTemplateStore
     public async Task<List<TemplateView>> ListAsync(CancellationToken ct)
     {
         await using var db = await _mainDb.CreateDbContextAsync(ct);
-        return (await db.ConfigTemplates.AsNoTracking().OrderBy(t => t.Name).ToListAsync(ct)).Select(View).ToList();
+        return (await db.ConfigTemplates.AsNoTracking().OrderBy(t => t.Name).ToListAsync(ct)).Select(t => View(t, Content(t))).ToList();
     }
 
-    private static TemplateView View(ConfigTemplate t) => new()
+    private static TemplateView View(ConfigTemplate t, JsonObject content) => new()
     {
         Id = t.Id, Name = t.Name, Description = t.Description, SourceSiteSlug = t.SourceSiteSlug, UpdatedAt = t.UpdatedAt,
         Collections = JsonSerializer.Deserialize<List<string>>(t.CollectionsJson) ?? [], ReplaceLists = t.ReplaceLists,
+        HasLists = HasLists(content),
     };
+
+    private JsonObject Content(ConfigTemplate t) => JsonNode.Parse(_crypto.Decrypt(t.ContentEncrypted)) as JsonObject ?? [];
+
+    /// <summary>Whether any carried object has a non-empty list that merges on a template (a WLAN's PPSKs).</summary>
+    internal static bool HasLists(JsonObject content) =>
+        content.Any(c => c.Key != ReferencesKey && ConfigCollections.Get(c.Key) is { MergeOnTemplate.Count: > 0 } def
+            && (c.Value as JsonArray)?.OfType<JsonObject>().Any(o => def.MergeOnTemplate.Keys.Any(f => o[f] is JsonArray { Count: > 0 })) == true);
 
     /// <summary>Content key holding <see cref="References"/>: never a collection key.</summary>
     private const string ReferencesKey = "_references";
@@ -69,13 +79,13 @@ public sealed class ConfigTemplateStore
         var t = await db.ConfigTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
         if (t == null) return null;
         var state = new ConfigState { ReadAt = t.UpdatedAt };
-        var content = JsonNode.Parse(_crypto.Decrypt(t.ContentEncrypted)) as JsonObject ?? [];
+        var content = Content(t);
         foreach (var (collection, list) in content)
             if (collection != ReferencesKey) state.Collections[collection] = Objects(list);
         if (withReferences && content[ReferencesKey] is JsonObject refs)
             foreach (var (collection, list) in refs)
                 if (!state.Collections.ContainsKey(collection)) state.Collections[collection] = Objects(list);
-        return (View(t), state);
+        return (View(t, content), state);
     }
 
     private static List<JsonObject> Objects(JsonNode? list) =>
@@ -124,9 +134,12 @@ public sealed class ConfigTemplateStore
         return (JsonObject)Strip(o)!;
     }
 
-    /// <summary>Creates or updates a template from a state's collections, with the objects they reference.</summary>
+    /// <summary>
+    /// Creates or updates a template from a state's collections, with the objects they reference.
+    /// <paramref name="replaceLists"/> sets <see cref="TemplateView.ReplaceLists"/>; null leaves it as stored.
+    /// </summary>
     public async Task<int> SaveAsync(int? id, string name, string? description, string? sourceSite, ConfigState state,
-        IReadOnlyCollection<string> collections, string by, CancellationToken ct)
+        IReadOnlyCollection<string> collections, string by, CancellationToken ct, bool? replaceLists = null)
     {
         var content = new JsonObject();
         foreach (var c in collections)
@@ -147,6 +160,7 @@ public sealed class ConfigTemplateStore
         t.Description = description;
         t.SourceSiteSlug = sourceSite;
         t.CollectionsJson = JsonSerializer.Serialize(collections);
+        if (replaceLists is { } replace) t.ReplaceLists = replace;
         t.ContentEncrypted = _crypto.EncryptForSite(content.ToJsonString(), sourceSite ?? SiteManagementService.DefaultSiteSlug);
         t.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -186,7 +200,7 @@ public interface IConfigTemplateService
     /// <summary>Creates a template from a site's snapshot (null: its live config).</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ChangeControlTemplateSaved, TargetType = "config_template", InstanceScoped = true)]
-    Task<int> CreateFromSiteAsync(string siteSlug, int? snapshotId, string name, string? description, IReadOnlyCollection<string> collections, CancellationToken cancellationToken = default);
+    Task<int> CreateFromSiteAsync(string siteSlug, int? snapshotId, string name, string? description, IReadOnlyCollection<string> collections, bool replaceLists = false, CancellationToken cancellationToken = default);
 
     /// <summary>Replaces a template's content from YAML.</summary>
     [RequireRole(Roles.Admin)]
@@ -247,7 +261,7 @@ public sealed class ConfigTemplateService : IConfigTemplateService
     public Task<List<TemplateView>> ListAsync(CancellationToken cancellationToken = default) => _store.ListAsync(cancellationToken);
 
     public async Task<int> CreateFromSiteAsync(string siteSlug, int? snapshotId, string name, string? description,
-        IReadOnlyCollection<string> collections, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<string> collections, bool replaceLists = false, CancellationToken cancellationToken = default)
     {
         var engine = _registry.GetFor(siteSlug);
         var state = snapshotId is { } id
@@ -255,7 +269,7 @@ public sealed class ConfigTemplateService : IConfigTemplateService
             : await engine.ReadLiveAsync(cancellationToken);
         // Devices and clients are per site; a template carries site-wide objects only.
         var allowed = collections.Where(c => c is not "device" and not "user" && ConfigCollections.Get(c)?.Write != null).ToList();
-        return await _store.SaveAsync(null, name, description, siteSlug, state, allowed, _caller.Current?.ActorName ?? "unknown", cancellationToken);
+        return await _store.SaveAsync(null, name, description, siteSlug, state, allowed, _caller.Current?.ActorName ?? "unknown", cancellationToken, replaceLists);
     }
 
     public async Task<List<YamlProblem>> UpdateFromYamlAsync(int templateId, string name, string? description, string yaml, CancellationToken cancellationToken = default)
