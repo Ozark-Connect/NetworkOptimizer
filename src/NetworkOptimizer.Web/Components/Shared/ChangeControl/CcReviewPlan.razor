@@ -775,14 +775,19 @@ else
             await JS.InvokeVoidAsync("downloadFile", $"plan-{PlanId}-report.pdf", "application/pdf", Convert.ToBase64String(pdf));
     }
 
-    /// <summary>The plan's writes as YAML: action, object, and field changes (secret values never appear).</summary>
+    /// <summary>
+    /// The plan's writes as YAML: action, object, and field changes (secret values never appear). Rows this
+    /// apply leaves out stay in the record, marked, so it shows what was reviewed and set aside.
+    /// </summary>
     private async Task DownloadYamlAsync()
     {
         if (_view == null) return;
+        var leftOut = PlanReadiness.LeftOut(_view.Doc, _acks.Excluded);
         var sb = new StringBuilder($"# {_view.Plan.Name}\n# Source: {_view.Plan.SourceDescription}\noperations:\n");
         foreach (var op in _view.Doc.Operations)
         {
             sb.Append($"  - action: {op.Action.ToString().ToLowerInvariant()}\n    collection: {op.Collection}\n    object: \"{op.ObjectName.Replace("\"", "\\\"")}\"\n");
+            if (leftOut.Contains(op.Key)) sb.Append("    left_out: true\n");
             if (op.Fields.Count > 0)
             {
                 sb.Append("    fields:\n");
