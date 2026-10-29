@@ -40,6 +40,14 @@ const theme = EditorView.theme({
     // line's end is drawn at the widget's edge, and a margin put it where a trailing space would be.
     '.cc-line-tail': { paddingLeft: '0.75rem' },
     '.cc-managed': { color: 'var(--text-muted)' },
+    '.cc-order': { display: 'inline-flex', alignItems: 'center', gap: '0.15rem' },
+    '.cc-order-move': {
+        font: 'inherit', fontSize: '0.8rem', lineHeight: '1', padding: '0 0.3rem', cursor: 'pointer',
+        border: 'none', borderRadius: '3px', background: 'transparent', color: 'var(--text-muted)',
+    },
+    '.cc-order-move:hover:not(:disabled)': { color: 'var(--text-primary)', background: 'var(--bg-tertiary)' },
+    '.cc-order-move:disabled': { opacity: '0.3', cursor: 'default' },
+    '.cc-order-label': { fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.35rem' },
     '.cc-managed-label': { fontSize: '0.75rem', padding: '0 0.4rem', borderRadius: '3px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' },
     '.cc-remove-item': {
         font: 'inherit', fontSize: '0.95rem', lineHeight: '1', padding: '0 0.35rem', cursor: 'pointer',
@@ -418,6 +426,101 @@ function managedObjects(state) {
     return [field, lock];
 }
 
+// ---------- Firewall policy order ----------
+
+// A policy's order is its place in the file among the policies of its zone pair: the file carries no
+// index (PlanBuilder.AddPolicyOrder). Each policy's first line says where it stands, with arrows that
+// swap it with its neighbor in that pair. UniFi's predefined policies sit outside the custom order.
+
+/** Firewall policies in file order, each with its zone pair ("Internal → External"); pure, exported for testing. */
+export function policyOrder(doc, isOutside = () => false) {
+    const zoneOf = (lines, side) => {
+        const at = lines.findIndex(l => new RegExp(`^\\s+${side}:\\s*$`).test(l));
+        if (at < 0) return '?';
+        const pad = lines[at].length - lines[at].trimStart().length;
+        for (let i = at + 1; i < lines.length; i++) {
+            const l = lines[i];
+            if (l.trim() && l.length - l.trimStart().length <= pad) break;
+            const m = /^\s+zone(?:_id)?:\s*(.+?)\s*$/.exec(l);
+            if (m) return m[1].replace(/^["']|["']$/g, '');
+        }
+        return '?';
+    };
+    const policies = itemBlocks(doc).filter(b => b.collection === 'firewall_policies' && !isOutside(b))
+        .map(b => {
+            const lines = doc.sliceString(b.from, b.to).split('\n');
+            return { block: b, pair: `${zoneOf(lines, 'source')} → ${zoneOf(lines, 'destination')}` };
+        });
+    const byPair = new Map();
+    for (const p of policies) {
+        if (!byPair.has(p.pair)) byPair.set(p.pair, []);
+        byPair.get(p.pair).push(p);
+    }
+    for (const list of byPair.values()) list.forEach((p, i) => { p.rank = i + 1; p.of = list.length; p.prev = list[i - 1]?.block; p.next = list[i + 1]?.block; });
+    return policies;
+}
+
+/** The change that moves block above prev (up) or below next (down) in the file; pure, exported for testing. */
+export function moveBlock(doc, block, target, up) {
+    const take = block.to < doc.length ? block.to + 1 : block.to;
+    let text = doc.sliceString(block.from, take);
+    if (!text.endsWith('\n')) text += '\n';
+    if (up) return { changes: [{ from: target.from, insert: text }, { from: block.from, to: take }], selection: { anchor: target.from } };
+    const at = target.to < doc.length ? target.to + 1 : target.to;
+    const insert = target.to < doc.length ? text : '\n' + text.replace(/\n$/, '');
+    const anchor = at - (take - block.from) + (target.to < doc.length ? 0 : 1);
+    return { changes: [{ from: block.from, to: take }, { from: at, insert }], selection: { anchor } };
+}
+
+class OrderWidget extends WidgetType {
+    constructor(p, state) { super(); this.p = p; this.state = state; }
+    eq(o) { return o.p.pair === this.p.pair && o.p.rank === this.p.rank && o.p.of === this.p.of && !o.p.prev === !this.p.prev && !o.p.next === !this.p.next; }
+    toDOM(view) {
+        const tail = document.createElement('span');
+        tail.className = 'cc-line-tail cc-order';
+        const arrow = (label, has, up) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'cc-order-move';
+            b.textContent = label;
+            b.disabled = !has;
+            b.setAttribute('aria-label', up ? 'Move up in its zone pair' : 'Move down in its zone pair');
+            b.addEventListener('mousedown', e => e.preventDefault());
+            b.addEventListener('click', e => {
+                e.preventDefault();
+                // From the document as it is now: CodeMirror keeps this DOM across edits that leave the
+                // label equal, so positions captured when it was drawn can be stale.
+                const at = view.posAtDOM(tail);
+                const p = policyOrder(view.state.doc, x => managedBy(this.state, x) === 'UniFi').find(x => x.block.lineEnd === at);
+                const target = up ? p?.prev : p?.next;
+                if (!p || !target) return;
+                view.dispatch({ ...moveBlock(view.state.doc, p.block, target, up), userEvent: 'input.move-policy', scrollIntoView: true });
+                view.focus();
+            });
+            return b;
+        };
+        tail.append(arrow('↑', this.p.prev, true), arrow('↓', this.p.next, false));
+        const label = document.createElement('span');
+        label.className = 'cc-order-label';
+        label.textContent = `${this.p.pair}, ${this.p.rank} of ${this.p.of}`;
+        tail.appendChild(label);
+        return tail;
+    }
+    ignoreEvent() { return true; }
+}
+
+function policyOrderMarks(state) {
+    // A locked policy (Network Optimizer's own) is labeled but has no arrows.
+    const build = doc => Decoration.set(policyOrder(doc, b => managedBy(state, b) === 'UniFi')
+        .map(p => managedBy(state, p.block) ? { ...p, prev: null, next: null } : p)
+        .map(p => Decoration.widget({ widget: new OrderWidget(p, state), side: 2 }).range(p.block.lineEnd)), true);
+    return StateField.define({
+        create: s => build(s.doc),
+        update: (deco, tr) => tr.docChanged || tr.effects.some(e => e.is(refreshMasks)) ? build(tr.state.doc) : deco,
+        provide: f => EditorView.decorations.from(f),
+    });
+}
+
 // ---------- Collapsing children ----------
 
 /**
@@ -704,6 +807,7 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                 literalMasks(state),
                 removeButtons(state),
                 managedObjects(state),
+                policyOrderMarks(state),
                 addButtons(state),
                 collapseButtons(),
                 namedFolds,
@@ -1040,6 +1144,10 @@ function valueAt(es, pos) {
 // A click into a single value whose field has choices (a zone, a network) opens them without typing.
 function opensOnClick(state, es, pos) {
     if (!state.schema) return false;
+    // A click right of a folded object lands at its fold's end, the last line it hides: not a value the reader sees.
+    let hidden = false;
+    foldedRanges(es).between(pos, pos, (from, to) => { if (pos > from && pos <= to) hidden = true; });
+    if (hidden) return false;
     const line = es.doc.lineAt(pos);
     const v = valuePosition.exec(line.text.slice(0, pos - line.from));
     if (!v) return false;
