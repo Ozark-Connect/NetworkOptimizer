@@ -647,6 +647,11 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                         }
                     }
                     if ((u.selectionSet || u.docChanged) && state.revealed.length) restoreRevealed(u.view, state);
+                    if (!u.docChanged && u.state.selection.main.empty && u.transactions.some(t => t.isUserEvent('select.pointer'))
+                        && opensOnClick(state, u.state, u.state.selection.main.head)) {
+                        state.clickOpen = true;
+                        setTimeout(() => startCompletion(u.view), 0);
+                    }
                     if (!u.docChanged || state.silent) return;
                     // Deleting a masked secret leaves "key: "; open the menu there too (phones have no Ctrl+Space).
                     const head = u.state.selection.main.head;
@@ -831,6 +836,16 @@ const flowListPosition = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*\[([^\]]*)$/;
 const valuePosition = /^(\s*)(- )?([A-Za-z0-9_.-]+):\s*([^#\[{]*)$/;
 const blockItemPosition = /^(\s*)- ([^#:]*)$/;
 
+// A click into a single value whose field has choices (a zone, a network) opens them without typing.
+function opensOnClick(state, es, pos) {
+    if (!state.schema) return false;
+    const line = es.doc.lineAt(pos);
+    const v = valuePosition.exec(line.text.slice(0, pos - line.from));
+    if (!v) return false;
+    const field = fieldAt(state.schema, es.doc, line.number, v[1].length + (v[2] ? 2 : 0), v[3]);
+    return !!field && !field.secret && valueResult(state.schema, field, pos, new Set()) !== null;
+}
+
 function complete(state, ctx) {
     const schema = state.schema;
     if (!schema) return null;
@@ -854,7 +869,15 @@ function complete(state, ctx) {
         const field = fieldAt(schema, doc, line.number, v[1].length + (v[2] ? 2 : 0), v[3]);
         const typed = v[4] ?? '';
         if (field?.secret) return generatorResult(state, ctx.pos - typed.length);
-        return valueResult(schema, field, ctx.pos - typed.length, new Set());
+        const result = valueResult(schema, field, ctx.pos - typed.length, new Set());
+        // Opened by a click: every choice, and picking one replaces the whole value.
+        if (result && state.clickOpen) {
+            state.clickOpen = false;
+            const rest = line.text.slice(ctx.pos - line.from);
+            const comment = rest.search(/\s#/);
+            return { ...result, to: comment >= 0 ? ctx.pos + comment : line.to, filter: false };
+        }
+        return result;
     }
 
     // key:
