@@ -44,6 +44,10 @@ Host mode needs ports 80, 443 and 81 free on the host, since NPM binds them dire
 The examples below use `127.0.0.1`. Substitute the host LAN IP for bridge mode or another box. The
 agent tunnel port (8043) always listens on all interfaces, so either address reaches it.
 
+In bridge mode or from another box, NPM reaches the app over the network on two ports: 8042 for the
+app and 8043 for the agent tunnel. A firewall between them must allow both. With only 8042 open,
+the app loads and the agents never connect.
+
 ---
 
 ## 1. Certificates (NPM admin UI)
@@ -185,6 +189,10 @@ is what the setup one-liner already writes:
 - For agents, the site shows Online in **Settings - Multi-Site**. A tunnel that drops on the same
   interval every time is a proxy timeout, not the network. The agent log then repeats a buffered
   backlog that never drains.
+- A tunnel that never comes up is usually port 8043 blocked between NPM and the app. The agent logs
+  `Tunnel error: Status(StatusCode="Cancelled", ...)`, then `Reconnecting in ...`. NPM's access log
+  shows `499` on `/networkoptimizer.agent.v1.AgentTunnel/Connect`, while
+  `/api/public/agents/heartbeats` still returns `204`, because heartbeats use 8042.
 
 ## A note on client addresses
 

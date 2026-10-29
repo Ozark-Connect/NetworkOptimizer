@@ -654,6 +654,11 @@ a stream that keeps resetting leaves the site reporting nothing even though the
 agent is up and reconnecting. Pin down the interval - a reset landing on the same
 round number every time is a proxy deadline, not a network fault.
 
+A tunnel that never opens is the other common case: `Tunnel error: ... Cancelled`
+about 20 seconds after each attempt, with no `Tunnel open` line between. The proxy
+accepted the request but could not reach the tunnel port. Check that tcp/8043 on
+the app host is reachable from the proxy, and not only 8042.
+
 Over a site-to-site VPN the same config applies; the proxy is simply reached at
 its VPN address, with `"ignoreSslErrors": true` if its certificate does not
 match that address.

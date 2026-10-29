@@ -20,7 +20,8 @@ assume host mode or a native install on the same host, so they use `127.0.0.1`.
 
 In bridge mode, `127.0.0.1` inside the container is Zoraxy itself. Use the host's LAN IP as every
 Proxy Target, leave `BIND_LOCALHOST_ONLY` unset, and set `TRUSTED_PROXIES` to the subnet of
-Zoraxy's Docker network.
+Zoraxy's Docker network. The Proxy Targets then cross the network to two ports, 8042 and 8043. A host
+firewall must allow both from Zoraxy.
 
 ## One Zoraxy limitation worth knowing up front
 
@@ -128,4 +129,5 @@ whole agent, so certificate checking is off for its other calls home too.
 
 Load the app. No "Reconnecting..." banner means the connection is working. For agents, the site
 shows Online in **Settings - Multi-Site**. A tunnel that drops on the same interval every time is a
-proxy timeout, not the network.
+proxy timeout, not the network. A tunnel that never comes up, with the agent logging
+`Tunnel error: ... Cancelled` while the app works, is port 8043 unreachable from Zoraxy.
