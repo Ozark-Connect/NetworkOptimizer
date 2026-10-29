@@ -5,6 +5,8 @@
 @using NetworkOptimizer.WiFi.Services
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
+@* Scans go through the gated interface (Site Operator, audited); the concrete class above is for reads. *@
+@inject IWiFiScanService ScanService
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Web.Services.Identity.IUserDismissals Dismissals
 @inject IWiFiRadioKeepService RadioKeep
@@ -1361,7 +1363,7 @@
                 _scanCompletedBands = Math.Max(_scanCompletedBands, n);
                 InvokeAsync(StateHasChanged);
             });
-            await WiFiService.RunQuickScansAsync(targets, progress);
+            await ScanService.RunQuickScansAsync(targets, progress);
 
             // Re-run recommendations on the fresh spectrum data, then re-check what's still missing.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
@@ -1397,7 +1399,7 @@
                 _scanCompletedBands = Math.Max(_scanCompletedBands, n);
                 InvokeAsync(StateHasChanged);
             });
-            await WiFiService.RunQuickScansAsync(targets, progress);
+            await ScanService.RunQuickScansAsync(targets, progress);
 
             // Re-run recommendations on the fresh spectrum data, then re-evaluate both banners.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
