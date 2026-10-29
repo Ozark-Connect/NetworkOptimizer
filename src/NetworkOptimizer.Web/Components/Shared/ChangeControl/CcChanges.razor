@@ -751,7 +751,10 @@
 
     private static string Csv(string s) => s.Contains(',') || s.Contains('"') ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
 
-    /// <summary>Bolds the object name in a summary ("WLAN <b>Home</b>: security ...").</summary>
+    /// <summary>
+    /// Bolds the object name in a summary ("WLAN &lt;b&gt;Home&lt;/b&gt;: security ..."): the text between a
+    /// collection noun and the first ": ", the shape ChangeDescriber.SummaryLine writes. Without a ": " nothing is bolded.
+    /// </summary>
     private static string Bold(string summary)
     {
         var enc = System.Net.WebUtility.HtmlEncode(summary);

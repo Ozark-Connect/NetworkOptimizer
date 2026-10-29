@@ -292,6 +292,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         foreach (var d in firmwareChanged)
         {
             var planId = RolloutFor != null ? await RolloutFor(d.Mac, d.Version, ct) : null;
+            // "<device>: firmware ..." is parsed back: Facts reads the device before ": firmware", and
+            // FirmwareHistoryImport.IsSame matches "<device>:". Keep both shapes in step with FirmwareHistoryImport.Summary.
             await RecordFirmwareRowAsync(ConfigChangeKind.DeviceFirmware, $"{d.Name}: firmware {FirmwareVersionFormat.Short(oldVersions[d.Mac])} to {FirmwareVersionFormat.Short(d.Version)}",
                 oldVersions[d.Mac], d.Version, rolloutActive || planId != null, ct, planId);
         }
@@ -499,7 +501,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             var previous = await LoadSnapshotStateAsync(previousId, ct) ?? throw new InvalidOperationException("The earlier snapshot is gone.");
             var current = await LoadSnapshotStateAsync(snapshotId, ct) ?? throw new InvalidOperationException("The snapshot is gone.");
             var snapshot = await _repos.UseAsync((r, c) => r.GetSnapshotAsync(snapshotId, c), ct) ?? throw new InvalidOperationException("The snapshot is gone.");
-            var upgrade = siblings.Any(c => c.Summary.Contains("Network app upgrade", StringComparison.Ordinal));
+            var upgrade = siblings.Any(c => ChangeDescriber.IsUpgradeSummary(c.Summary));
 
             var diff = ConfigDiffEngine.Compare(previous, current);
             var recordable = diff.Objects.Where(o => !o.Generated).ToList();
@@ -713,7 +715,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         var recorded = new List<ConfigChange>();
         foreach (var g in groups)
         {
-            var context = g.ActorKind == ConfigChangeActorKind.LikelyUniFi && inUpgradeWindow ? "during Network app upgrade" : null;
+            var context = g.ActorKind == ConfigChangeActorKind.LikelyUniFi && inUpgradeWindow ? ChangeDescriber.UpgradeContext : null;
             var added = diff.SchemaAdditions.Values.SelectMany(f => f).Distinct(StringComparer.Ordinal).Count();
             if (context != null && added > 0) context += $" (plus {added} new fields the upgrade added, not listed)";
             var change = new ConfigChange
@@ -783,7 +785,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         if (o.Collection == "wlanconf")
         {
             var rows = ChangeDescriber.Rows(o, beforeNames, afterNames).Where(r => r.Label == ChangeDescriber.SecurityProtocol).ToList();
-            if (rows.Count > 0) fields.RemoveAll(f => f.Label == "Security");
+            if (rows.Count > 0) fields.RemoveAll(f => f.Label == ChangeDescriber.SecurityLabel);
             foreach (var r in rows)
                 fields.Insert(0, new StoredField { Path = "_security", Label = r.Label, Old = r.Old, New = r.New });
         }

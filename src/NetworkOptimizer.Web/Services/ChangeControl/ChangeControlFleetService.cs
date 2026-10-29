@@ -274,7 +274,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
 
             foreach (var (ch, lines, key) in OpenRegressions(changes.Where(c => c.OccurredAt > now.AddDays(-7)), snapshots))
             {
-                var upgrade = ch.ActorKind == ConfigChangeActorKind.LikelyUniFi && ch.Summary.Contains("Network app upgrade", StringComparison.Ordinal);
+                var upgrade = ch.ActorKind == ConfigChangeActorKind.LikelyUniFi && ChangeDescriber.IsUpgradeSummary(ch.Summary);
                 Add(new AttentionItem
                 {
                     Kind = "Regression",
@@ -291,7 +291,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             }
             // What a Network app upgrade deleted: recorded in a change of hundreds of rewrites, where nobody would find it.
             var upgradeChanges = changes.Where(c => c.Kind == ConfigChangeKind.Config && c.OccurredAt > now.AddDays(-7)
-                && c.ActorKind == ConfigChangeActorKind.LikelyUniFi && c.Summary.Contains("Network app upgrade", StringComparison.Ordinal)).ToList();
+                && c.ActorKind == ConfigChangeActorKind.LikelyUniFi && ChangeDescriber.IsUpgradeSummary(c.Summary)).ToList();
             if (upgradeChanges.Count > 0)
             {
                 var objects = await engine.Repositories.UseAsync((r, c) => r.GetChangeObjectsAsync(upgradeChanges.Select(u => u.Id).ToList(), c), cancellationToken);

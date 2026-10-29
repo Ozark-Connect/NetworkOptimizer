@@ -17,11 +17,20 @@ public static partial class ChangeDescriber
     /// <summary>The synthetic WLAN row that stands for wpa_mode, wpa3_support, wpa3_transition, and wpa_enc.</summary>
     public const string SecurityProtocol = "Security Protocol";
 
+    /// <summary>
+    /// The label every WLAN security field shares. PlanBuilder and ChangeControlSiteEngine.ToRecord find those
+    /// rows by it to replace them with the one <see cref="SecurityProtocol"/> row; compare against this, not text.
+    /// </summary>
+    public const string SecurityLabel = "Security";
+
+    /// <summary>The label of an object's enabled flag, which the one-row change text words as "enabled" or "disabled".</summary>
+    public const string EnabledLabel = "Enabled";
+
     private static readonly Dictionary<string, string> Labels = new(StringComparer.Ordinal)
     {
-        ["enabled"] = "Enabled", ["name"] = "Name", ["action"] = "Action", ["description"] = "Description",
-        ["security"] = "Security", ["wpa_mode"] = "Security", ["wpa3_support"] = "Security", ["wpa3_transition"] = "Security",
-        ["wpa_enc"] = "Security", ["pmf_mode"] = "PMF", ["x_passphrase"] = "Passphrase", ["x_iapp_key"] = "Fast Roaming Key",
+        ["enabled"] = EnabledLabel, ["name"] = "Name", ["action"] = "Action", ["description"] = "Description",
+        ["security"] = SecurityLabel, ["wpa_mode"] = SecurityLabel, ["wpa3_support"] = SecurityLabel, ["wpa3_transition"] = SecurityLabel,
+        ["wpa_enc"] = SecurityLabel, ["pmf_mode"] = "PMF", ["x_passphrase"] = "Passphrase", ["x_iapp_key"] = "Fast Roaming Key",
         ["native_networkconf_id"] = "Native VLAN / Network", ["tagged_networkconf_ids"] = "Tagged Networks",
         ["excluded_networkconf_ids"] = "Tagged Networks", ["tagged_vlan_mgmt"] = "Tagged VLAN Management",
         ["networkconf_id"] = "Network", ["network_id"] = "Network", ["network_ids"] = "Networks",
@@ -308,7 +317,7 @@ public static partial class ChangeDescriber
             // Labels keep UniFi Network's Title Case in a summary too ("Port 5 Port Profile").
             var r = rows[0];
             if (r.Secret) return $"{r.Label} changed";
-            if (r.Label == "Enabled") return string.Equals(r.New, "off", StringComparison.OrdinalIgnoreCase) ? "disabled" : "enabled";
+            if (r.Label == EnabledLabel) return string.Equals(r.New, "off", StringComparison.OrdinalIgnoreCase) ? "disabled" : "enabled";
             if (r.Old.Length + r.New.Length > 50) return $"{r.Label} changed";
             return $"{r.Label}: {r.Old} to {r.New}";
         }
@@ -330,25 +339,41 @@ public static partial class ChangeDescriber
         };
     }
 
-    /// <summary>"Device Desk Switch: Port 5 Auto-Negotiation, ..." for one updated object.</summary>
+    /// <summary>
+    /// "Device Desk Switch: Port 5 Auto-Negotiation, ..." for one updated object. The Changes list bolds
+    /// the name between the noun and the first ": " (CcChanges.Bold), so a one-object summary keeps this shape.
+    /// </summary>
     public static string SummaryLine(string noun, string name, string changeText) => $"{noun} {name}: {changeText}";
 
-    /// <summary>A group summary: the object's line for one, "N objects changed" for several.</summary>
+    /// <summary>
+    /// The context a change recorded in a Network app upgrade window ends its summary with. Readers find
+    /// upgrade changes by <see cref="IsUpgradeSummary"/>, so every summary shape must keep it.
+    /// </summary>
+    public const string UpgradeContext = "during Network app upgrade";
+
+    /// <summary>
+    /// A stored summary recorded during a Network app upgrade. The only test for it: the fleet's upgrade
+    /// regressions and deleted objects, Recompute, and Compare's note all read it here.
+    /// </summary>
+    public static bool IsUpgradeSummary(string summary) => summary.Contains("Network app upgrade", StringComparison.Ordinal);
+
+    /// <summary>
+    /// A group summary: the object's line for one, "N objects changed" for several, each followed by
+    /// <paramref name="context"/> (<see cref="UpgradeContext"/>) when given.
+    /// </summary>
     public static string GroupSummary(IReadOnlyList<ObjectDiff> objects, string? context = null,
         ConfigIdentityContext? beforeNames = null, ConfigIdentityContext? afterNames = null)
     {
+        string WithContext(string summary) => context == null ? summary : $"{summary} {context}";
+
         var orders = objects.Where(o => o.OrderedIds != null).ToList();
         if (orders.Count > 0)
-        {
-            var summary = OrderSummary(objects.Except(orders).ToList(), Moves(orders), beforeNames, afterNames);
-            return context == null ? summary : $"{summary} {context}";
-        }
-        if (objects.Count == 1) return Summary(objects[0], beforeNames, afterNames);
+            return WithContext(OrderSummary(objects.Except(orders).ToList(), Moves(orders), beforeNames, afterNames));
+        if (objects.Count == 1) return WithContext(Summary(objects[0], beforeNames, afterNames));
         var collections = objects.Select(o => o.Collection).Distinct().ToList();
-        var what = collections.Count == 1
+        return WithContext(collections.Count == 1
             ? $"{objects.Count} {Plural(ConfigCollections.Get(collections[0])?.Noun ?? collections[0])} changed"
-            : $"{objects.Count} objects changed";
-        return context == null ? what : $"{what} {context}";
+            : $"{objects.Count} objects changed");
     }
 
     /// <summary>
@@ -366,7 +391,7 @@ public static partial class ChangeDescriber
             _ => $"{moves.Count} {Plural(noun)} moved",
         };
         if (rest.Count == 0)
-            return moves.Count == 1 ? $"{noun} {moved}" : moved;
+            return moves.Count == 1 ? SummaryLine(noun, moves[0].Name, $"moved from #{moves[0].From} to #{moves[0].To}") : moved;
         if (rest.Count == 1 && rest[0].Action == ConfigChangeAction.Updated && moves.Count == 1 && moves[0].Name == rest[0].Name)
             return $"{Summary(rest[0], beforeNames, afterNames)}, moved from #{moves[0].From} to #{moves[0].To}";
         return $"{GroupSummary(rest, null, beforeNames, afterNames)}; {moved}";

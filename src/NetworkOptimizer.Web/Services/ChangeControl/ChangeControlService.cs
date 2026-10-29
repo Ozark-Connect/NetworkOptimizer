@@ -279,6 +279,7 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         if (c.Kind is not (ConfigChangeKind.DeviceFirmware or ConfigChangeKind.NetworkAppUpgrade)) return [];
         var facts = new List<(string, string)>();
+        // Firmware rows read "<device>: firmware ..." (ChangeControlSiteEngine, FirmwareHistoryImport.Summary).
         if (c.Kind == ConfigChangeKind.DeviceFirmware && c.Summary.IndexOf(": firmware", StringComparison.Ordinal) is > 0 and var end)
             facts.Add(("Device", c.Summary[..end]));
         facts.Add(("From", FirmwareVersionFormat.ShortOrNull(c.VersionFrom) ?? "Not recorded"));
@@ -466,7 +467,7 @@ public sealed partial class ChangeControlService : IChangeControlService
                 if (latest is { } l)
                 {
                     whenWho = $"{Local(l.Change.OccurredAt):MMM d}, {Who(l.Change)}";
-                    if (l.Change.ActorKind is ConfigChangeActorKind.LikelyUniFi or ConfigChangeActorKind.NoAdminRecorded && l.Change.Summary.Contains("Network app upgrade", StringComparison.Ordinal))
+                    if (l.Change.ActorKind is ConfigChangeActorKind.LikelyUniFi or ConfigChangeActorKind.NoAdminRecorded && ChangeDescriber.IsUpgradeSummary(l.Change.Summary))
                         note = "During a Network app upgrade. No AUDIT event matches.";
                 }
                 objects.Add(new CompareObjectView { Object = ObjectView(record), WhenWho = whenWho, Note = note });

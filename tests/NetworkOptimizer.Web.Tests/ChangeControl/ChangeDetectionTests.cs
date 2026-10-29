@@ -141,7 +141,25 @@ public class ChangeDetectionTests
     public void Summary_PureReorder_NamesTheRuleThatMoved()
     {
         ChangeDescriber.GroupSummary([Reorder("Allow D", "Allow A", "Allow B", "Allow C")])
-            .Should().Be("Firewall Policy Allow D moved from #4 to #1");
+            .Should().Be("Firewall Policy Allow D: moved from #4 to #1");
+    }
+
+    /// <summary>Readers find upgrade changes by the context; a one-object group once dropped it.</summary>
+    [Fact]
+    public void Summary_OneObjectInAnUpgrade_KeepsTheUpgradeContext()
+    {
+        var summary = ChangeDescriber.GroupSummary([Renamed("Allow X")], ChangeDescriber.UpgradeContext);
+
+        summary.Should().EndWith(ChangeDescriber.UpgradeContext);
+        ChangeDescriber.IsUpgradeSummary(summary).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsUpgradeSummary_ReadsRowsStoredBeforeTheConstant()
+    {
+        ChangeDescriber.IsUpgradeSummary("35 objects changed during Network app upgrade (plus 12 new fields the upgrade added, not listed)")
+            .Should().BeTrue();
+        ChangeDescriber.IsUpgradeSummary("Firewall Policy Allow X: Name changed").Should().BeFalse();
     }
 
     [Fact]

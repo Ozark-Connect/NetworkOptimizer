@@ -346,7 +346,7 @@ public static class PlanBuilder
         }).ToList();
         if (def.Key == "wlanconf" && ChangeDescriber.Rows(diff).FirstOrDefault(r => r.Label == ChangeDescriber.SecurityProtocol) is { } sec)
         {
-            update.Fields.RemoveAll(f => ChangeDescriber.LabelFor(f.Path) == "Security");
+            update.Fields.RemoveAll(f => ChangeDescriber.LabelFor(f.Path) == ChangeDescriber.SecurityLabel);
             update.Fields.Insert(0, new StoredField { Path = "_security", Label = ChangeDescriber.SecurityProtocol, Old = sec.Old, New = sec.New });
         }
         // Display rows only; the write uses Body.

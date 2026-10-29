@@ -70,13 +70,20 @@ public sealed class FirmwareHistoryImport
             _logger.LogInformation("Change Control imported {Count} past firmware upgrade(s) for site {Site}", added, engine.SiteSlug);
     }
 
+    /// <summary>
+    /// "{device}: firmware ...", the shape the live firmware rows (ChangeControlSiteEngine) also write.
+    /// ChangeControlService.Facts reads the device before ": firmware" and <see cref="IsSame"/> matches "{device}:".
+    /// </summary>
     internal static string Summary(Upgrade u) => u.To == null
         ? $"{u.Name}: firmware upgrade"
         : u.From == null || SameVersion(u.From, u.To)
             ? $"{u.Name}: firmware to {FirmwareVersionFormat.Short(u.To)}"
             : $"{u.Name}: firmware {FirmwareVersionFormat.Short(u.From)} to {FirmwareVersionFormat.Short(u.To)}";
 
-    /// <summary>The same device reaching the same version close in time. Live rows carry the name, not the MAC.</summary>
+    /// <summary>
+    /// The same device reaching the same version close in time. Live rows carry the name, not the MAC, and
+    /// both writers start the summary with "{device}:" (see <see cref="Summary"/>).
+    /// </summary>
     internal static bool IsSame(ConfigChange x, Upgrade u) =>
         Math.Abs((x.OccurredAt - u.At).TotalHours) <= SameUpgrade.TotalHours
         && x.Summary.StartsWith(u.Name + ":", StringComparison.Ordinal)
