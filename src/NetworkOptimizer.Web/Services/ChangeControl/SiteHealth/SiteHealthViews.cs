@@ -84,20 +84,32 @@ public static class SiteHealthSeriesBuilder
     internal static string Costs(double points) =>
         points < 1 ? "costs under 1 point" : $"costs {points:0} point{(Math.Round(points) == 1 ? "" : "s")}";
 
-    /// <summary>The area that cost the most over the range, its latest description, and the average points it cost.</summary>
+    /// <summary>An area is an issue when it averages this many points over the range...</summary>
+    private const double IssueAveragePoints = 0.5;
+
+    /// <summary>...or costs this many in any one hour, so a short sharp event (a WAN outage) is not averaged away.</summary>
+    private const double IssuePeakHourPoints = 2;
+
+    /// <summary>
+    /// Of the areas that qualify as an issue, the one that cost the most over the range: its latest
+    /// description and the average points it cost.
+    /// </summary>
     internal static (string? Area, string? Text, double Points) TopIssue(IReadOnlyList<SiteHealthHour> hours)
     {
-        var byArea = new Dictionary<string, (double Sum, string Text, DateTime At)>();
+        var byArea = new Dictionary<string, (double Sum, double Peak, string Text, DateTime At)>();
         foreach (var h in hours)
             foreach (var c in SiteHealthScorer.Contributors(h))
             {
                 var cur = byArea.GetValueOrDefault(c.Area);
-                byArea[c.Area] = (cur.Sum + c.Impairment, h.HourStart >= cur.At ? c.Text : cur.Text, h.HourStart >= cur.At ? h.HourStart : cur.At);
+                byArea[c.Area] = (cur.Sum + c.Impairment, Math.Max(cur.Peak, c.Impairment),
+                    h.HourStart >= cur.At ? c.Text : cur.Text, h.HourStart >= cur.At ? h.HourStart : cur.At);
             }
         if (byArea.Count == 0 || hours.Count == 0) return (null, null, 0);
-        var top = byArea.OrderByDescending(kv => kv.Value.Sum).First();
-        var points = top.Value.Sum / hours.Count * 100;
-        return points < 0.5 ? (null, null, 0) : (top.Key, top.Value.Text, points);
+        var top = byArea
+            .Where(kv => kv.Value.Sum / hours.Count * 100 >= IssueAveragePoints || kv.Value.Peak * 100 >= IssuePeakHourPoints)
+            .OrderByDescending(kv => kv.Value.Sum)
+            .FirstOrDefault();
+        return top.Key == null ? (null, null, 0) : (top.Key, top.Value.Text, top.Value.Sum / hours.Count * 100);
     }
 
     /// <summary>"Health 86. Wi-Fi: Back Yard 5 GHz, 18% of samples under 80 (costs 9 points)" for one hour.</summary>

@@ -153,6 +153,43 @@ public class SiteHealthTests
     }
 
     [Fact]
+    public void TopIssue_AShortSharpOutageShowsThoughItsDailyAverageIsSmall()
+    {
+        var hours = Enumerable.Range(0, 24).Select(i => Hour(i,
+            i == 8 ? ("Internet", 0.047, "partial WAN outage, 4 of 27 targets, 19 min (ISP)") : null,
+            ("Wi-Fi", 0.0012, "AP1 5 GHz, 1% of samples under 80"))).ToList();
+
+        var (area, text, _) = SiteHealthSeriesBuilder.TopIssue(hours);
+
+        area.Should().Be("Internet");
+        text.Should().Be("partial WAN outage, 4 of 27 targets, 19 min (ISP)");
+    }
+
+    [Fact]
+    public void TopIssue_SteadyNoiseUnderBothBarsStaysHidden()
+    {
+        var hours = Enumerable.Range(0, 24).Select(i => Hour(i, ("Wi-Fi", 0.004, "AP1 5 GHz, 1% of samples under 80"))).ToList();
+
+        SiteHealthSeriesBuilder.TopIssue(hours).Area.Should().BeNull();
+    }
+
+    [Fact]
+    public void TopIssue_ASteadyIssueThatNeverPeaksStillShows()
+    {
+        var hours = Enumerable.Range(0, 24).Select(i => Hour(i, ("Wi-Fi", 0.015, "AP1 5 GHz, 15% of samples under 80"))).ToList();
+
+        SiteHealthSeriesBuilder.TopIssue(hours).Area.Should().Be("Wi-Fi");
+    }
+
+    private static SiteHealthHour Hour(int i, params (string Area, double Impairment, string Text)?[] contributors) => new()
+    {
+        HourStart = T.AddHours(i),
+        Health = 100,
+        DetailsJson = System.Text.Json.JsonSerializer.Serialize(contributors.OfType<(string Area, double Impairment, string Text)>()
+            .Select(c => new HealthContributor(c.Area, c.Impairment, c.Text)).ToList()),
+    };
+
+    [Fact]
     public void HealthDeltas_ReportsTheDropAndTheAreaThatMoved()
     {
         var hours = Enumerable.Range(-4, 9).Select(i => Score(new HealthHourInputs
