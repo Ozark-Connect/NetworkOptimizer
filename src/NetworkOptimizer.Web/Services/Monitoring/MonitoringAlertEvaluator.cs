@@ -275,17 +275,7 @@ public class MonitoringAlertEvaluator
     /// </summary>
     private static string TargetSourceUrl(MonitoringTarget target, DateTime firedAt)
     {
-        var category = target.TargetType switch
-        {
-            MonitoringTargetType.Fabric => MonitoringLinks.FabricCategory,
-            MonitoringTargetType.AccessIsp => MonitoringLinks.AccessIspCategory,
-            MonitoringTargetType.Transit => MonitoringLinks.TransitCategory,
-            // Both name the WAN's own service. Falling through to Custom sent an outage on the
-            // service being monitored to the chart for user-added targets.
-            MonitoringTargetType.InternetService or MonitoringTargetType.Wan
-                => MonitoringLinks.InternetServiceCategory,
-            _ => MonitoringLinks.CustomCategory
-        };
+        var category = MonitoringLinks.CategoryFor(target.TargetType);
         var at = new DateTimeOffset(DateTime.SpecifyKind(firedAt, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
         var url = $"/monitoring?tab=performance&category={category}&at={at}";
         // A LAN target is not reached over any one WAN, so it asks for all of them rather than
