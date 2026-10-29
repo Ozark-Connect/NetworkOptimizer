@@ -1396,7 +1396,7 @@
                     @* Inside the summary so it shows while the form is collapsed. *@
                     @if (!(editingModem?.Id > 0))
                     {
-                        <small class="form-help" style="font-weight: 400; margin-bottom: 0.75rem;">
+                        <small class="form-help add-form-summary-help">
                             Ubiquiti modems are found automatically above. Add any other modem here: Netgear Nighthawk, GL-iNet / Quectel, Inseego FX, Zyxel or MikroTik.
                         </small>
                     }
@@ -4488,7 +4488,6 @@
         await ScrollToAndHighlightAsync("device-ssh");
     }
 
-    /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
     // One heading, the opt-in under it, and the key details only once the modem uses it. Shared by the
     // MikroTik and GL-iNet/Quectel forms so the two cannot drift.
     private RenderFragment ModemManagedKeyField => @<text>
@@ -4500,12 +4499,17 @@
             </label>
             @if (editingModem.UseManagedSshKey)
             {
-                <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
+                @* With no key yet the row below offers to set one up; the password is not optional until then. *@
+                @if (_sshKey is not null)
+                {
+                    <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
+                }
                 <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" ShowLabel="false" />
             }
         </div>
     </text>;
 
+    /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
     private async Task ShowSshKeyPanel()
     {
         if (_activeTab != "connection")

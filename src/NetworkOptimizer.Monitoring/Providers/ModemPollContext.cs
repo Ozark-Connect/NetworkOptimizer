@@ -50,8 +50,8 @@ public sealed record ModemPollContext
     public string? PrivateKeyPath { get; init; }
 
     /// <summary>
-    /// Decrypted PEM of the site's stored SSH key, set only for per-modem SSH providers. Additive: offered
-    /// alongside the password and key file, never in place of them.
+    /// Decrypted PEM of the site's stored SSH key, set only for a per-modem SSH modem that opts in
+    /// (UseManagedSshKey). Offered alongside any password or key file.
     /// </summary>
     public string? StoredPrivateKeyPem { get; init; }
 
