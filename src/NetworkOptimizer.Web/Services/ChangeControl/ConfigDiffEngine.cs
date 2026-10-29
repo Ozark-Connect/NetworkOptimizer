@@ -34,6 +34,12 @@ public sealed class ObjectDiff
 
     /// <summary>The object after (null on delete).</summary>
     public JsonObject? After { get; init; }
+
+    /// <summary>
+    /// For a policy order change: the zone pair's policy IDs. UniFi audits a reorder as one index
+    /// change per moved policy, never as one event, so attribution matches on these.
+    /// </summary>
+    public IReadOnlyList<string>? OrderedIds { get; init; }
 }
 
 /// <summary>The order of custom firewall policies changed within one zone pair.</summary>

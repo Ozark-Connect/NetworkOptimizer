@@ -48,7 +48,14 @@ public static class ChangeAttributor
         journal.Any(j => Math.Abs((j.At - e.TimeUtc).TotalSeconds) <= JournalSlack.TotalSeconds
             && (Matches(j.ObjectId, e.ObjectId)
                 // A device's AUDIT entry names it by MAC, our journal by its _id: match those on collection and time.
-                || ((e.ObjectId == null || e.Section == "DEVICE") && SameCollection(j.Collection, e))));
+                || ((e.ObjectId == null || e.Section == "DEVICE") && SameCollection(j.Collection, e))
+                // Our batch-reorder names no policy; UniFi audits it as an index change on each one it moved.
+                || (IsReorder(j) && e.SettingField == OrderAuditField && SameCollection(j.Collection, e))));
+
+    private static bool IsReorder(ConfigWriteJournalEntry j) => j.Path.Contains("batch-reorder", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The AUDIT setting UniFi names, once per moved policy, for a policy reorder.</summary>
+    private const string OrderAuditField = "index";
 
     private static bool Matches(string? a, string? b) =>
         !string.IsNullOrEmpty(a) && !string.IsNullOrEmpty(b) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
@@ -63,7 +70,8 @@ public static class ChangeAttributor
     /// <summary>The journal entries that wrote this object in the window.</summary>
     public static bool WrittenByNo(ObjectDiff obj, IReadOnlyList<ConfigWriteJournalEntry> journal) =>
         journal.Any(j => Matches(j.ObjectId, obj.ObjectId)
-            || (j.Collection == obj.Collection && j.ObjectId == null && j.Path.Contains(obj.ObjectId, StringComparison.OrdinalIgnoreCase)));
+            || (j.Collection == obj.Collection && j.ObjectId == null && j.Path.Contains(obj.ObjectId, StringComparison.OrdinalIgnoreCase))
+            || (obj.OrderedIds != null && j.Collection == obj.Collection && IsReorder(j)));
 
     /// <summary>True when an unattributed object diff is on a field UniFi rewrites by itself.</summary>
     public static bool IsLikelyUniFiField(ObjectDiff obj) =>
@@ -194,6 +202,8 @@ public static class ChangeAttributor
     private static AuditLogEvent? FindEvent(ObjectDiff obj, IReadOnlyList<AuditLogEvent> events)
     {
         var def = ConfigCollections.Get(obj.Collection);
+        if (obj.OrderedIds is { } ordered)
+            return events.LastOrDefault(e => e.SettingField == OrderAuditField && ordered.Any(id => Matches(id, e.ObjectId)));
         var byId = events.LastOrDefault(e => Matches(e.ObjectId, obj.ObjectId));
         if (byId != null) return byId;
         if (def == null) return null;

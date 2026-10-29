@@ -80,6 +80,46 @@ public class ChangeDetectionTests
             .Single().OccurredAt.Should().Be(Now.AddSeconds(-5));
     }
 
+    private static ObjectDiff OrderDiff() => ChangeControlSiteEngine.PolicyOrderObject(
+        new PolicyOrderDiff("z1", "z2", "Internal to IoT", ["p1", "p2", "p3"], ["p1", "p3", "p2"]),
+        new ConfigIdentityContext(new Dictionary<string, string>()));
+
+    private static AuditLogEvent IndexEvent(string policyId, string admin = "TJ") => Event(policyId, admin) with
+    {
+        Section = "FIREWALL_POLICY", SettingCollection = "firewall_policy", SettingField = "index",
+    };
+
+    [Fact]
+    public void Attribute_PolicyReorder_FromThePerPolicyIndexEvents()
+    {
+        var groups = ChangeAttributor.Attribute([OrderDiff()], [IndexEvent("p3"), IndexEvent("p2")], [], Now, false);
+
+        var g = groups.Should().ContainSingle().Subject;
+        g.ActorKind.Should().Be(ConfigChangeActorKind.Person);
+        g.ActorName.Should().Be("TJ");
+    }
+
+    [Fact]
+    public void Attribute_PolicyReorder_OwnBatchReorder_IsNetworkOptimizer()
+    {
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-25), Method = "PUT", Path = "firewall-policies/batch-reorder", Collection = "firewall_policy", Source = "change-control:plan:7" },
+        };
+        var groups = ChangeAttributor.Attribute([OrderDiff()], [IndexEvent("p3", admin: "Network Optimizer key")], journal, Now, false);
+
+        var g = groups.Should().ContainSingle().Subject;
+        g.ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+        g.PlanId.Should().Be(7);
+    }
+
+    [Fact]
+    public void Attribute_PolicyReorder_WithNoIndexEvent_StaysUnattributed()
+    {
+        ChangeAttributor.Attribute([OrderDiff()], [Event("p9")], [], Now, false)
+            .Single().ActorKind.Should().Be(ConfigChangeActorKind.NoAdminRecorded);
+    }
+
     [Fact]
     public void Labels_PortSecuritySettings_UseUniFiNames()
     {

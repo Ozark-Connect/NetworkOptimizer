@@ -749,6 +749,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         ObjectId = $"order:{order.SourceZoneId}>{order.DestinationZoneId}",
         Name = $"order, {order.ZonePairName}",
         Action = ConfigChangeAction.Updated,
+        OrderedIds = order.Before.Union(order.After).ToList(),
         Fields =
         [
             new FieldChange("order",
