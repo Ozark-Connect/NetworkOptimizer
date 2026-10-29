@@ -4,7 +4,7 @@ export { EditorState, Compartment, StateEffect, StateField, Prec } from '@codemi
 export { basicSetup } from 'codemirror';
 export { indentWithTab } from '@codemirror/commands';
 export { indentUnit, syntaxHighlighting, HighlightStyle, syntaxTree, codeFolding, foldEffect, unfoldEffect, foldedRanges } from '@codemirror/language';
-export { autocompletion, completionKeymap, startCompletion, closeCompletion, completionStatus } from '@codemirror/autocomplete';
+export { autocompletion, completionKeymap, startCompletion, closeCompletion, completionStatus, currentCompletions, setSelectedCompletion } from '@codemirror/autocomplete';
 export { linter, setDiagnostics, lintGutter } from '@codemirror/lint';
 export { yaml } from '@codemirror/lang-yaml';
 export { tags } from '@lezer/highlight';

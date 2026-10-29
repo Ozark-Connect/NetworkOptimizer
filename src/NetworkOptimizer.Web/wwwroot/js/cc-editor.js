@@ -2,10 +2,11 @@
 // diagnostics from the server's validation. One editor per host element, kept on host._cc.
 import {
     EditorView, EditorState, Compartment, basicSetup, keymap, indentWithTab, indentUnit, yaml,
-    autocompletion, startCompletion, closeCompletion, completionStatus, setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
+    autocompletion, startCompletion, closeCompletion, completionStatus, currentCompletions, setSelectedCompletion,
+    setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
     Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect, StateField, Prec,
     codeFolding, foldEffect, unfoldEffect, foldedRanges,
-} from '../lib/codemirror/codemirror.bundle.js?v=6';
+} from '../lib/codemirror/codemirror.bundle.js?v=7';
 
 const highlight = HighlightStyle.define([
     { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--info-color)' },
@@ -879,10 +880,18 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                     if (!u.docChanged && u.state.selection.main.empty && u.transactions.some(t => t.isUserEvent('select.pointer'))
                         && opensOnClick(state, u.state, u.state.selection.main.head)) {
                         state.clickOpen = true;
-                        state.clickList = valueAt(u.state, u.state.selection.main.head) !== '';
+                        state.clickValue = valueAt(u.state, u.state.selection.main.head);
+                        state.clickList = state.clickValue !== '';
                         setTimeout(() => startCompletion(u.view), 0);
                     }
-                    if (u.docChanged) state.clickList = false;
+                    // Once that list is open, highlight the value the field holds, where it sits in the list.
+                    if (state.clickValue && completionStatus(u.state) === 'active') {
+                        const want = state.clickValue.replace(/^["']|["']$/g, '');
+                        state.clickValue = '';
+                        const at = currentCompletions(u.state).findIndex(o => [o.apply, o.label].some(v => typeof v === 'string' && v.replace(/^["']|["']$/g, '') === want));
+                        if (at > 0) setTimeout(() => u.view.dispatch({ effects: setSelectedCompletion(at) }), 0);
+                    }
+                    if (u.docChanged) { state.clickList = false; state.clickValue = ''; }
                     if (!u.docChanged || state.silent) return;
                     // A firewall policy match key set by the user gets the fields it needs.
                     if (u.transactions.some(t => t.isUserEvent('input') && !t.isUserEvent('input.match-fields'))) {
