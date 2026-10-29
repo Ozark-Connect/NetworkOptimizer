@@ -132,7 +132,10 @@
         var hidden = sc && found.some(function (c) {
             return c.getBoundingClientRect().top - paneRect(sc).top + sc.scrollTop > sc.clientHeight;
         });
-        var sig = hidden && found.length >= MIN_CARDS ? found.map(nameOf).join('|') : '';
+        var names = found.length >= MIN_CARDS ? found.map(nameOf).join('|') : '';
+        // Once shown, the same cards keep it: a page near one screen tall (Edit, as its Problems list
+        // grows and shrinks) would otherwise add and drop it, shifting the whole page each time.
+        var sig = hidden || (names && names === signature) ? names : '';
         var gutter = root.getBoundingClientRect().left - (sc ? paneRect(sc).left : 0);
         var mode = gutter >= LIST_WIDTH + 2 * GAP + 8 ? 'list' : 'row';
         // Same cards, same form, row still in the page: keep the index, follow the new nodes.
