@@ -600,15 +600,26 @@ public sealed partial class ChangeControlService : IChangeControlService
     private (string Slug, DateTime At, ConfigState State)? _editLive;
     private static readonly TimeSpan EditLiveReuse = TimeSpan.FromSeconds(30);
 
+    // A read in flight, shared: checks a second apart each started their own, seconds long behind an
+    // On-Site Agent. Not cancelled by one caller, since the others wait on it too.
+    private (string Slug, Task<ConfigState> Read)? _editLiveRead;
+
     private async Task<ConfigState> EditBaseAsync(int? snapshotId, CancellationToken ct)
     {
         if (snapshotId != null) return (await LoadSideAsync(snapshotId, ct)).State;
         if (_editLive is { } cached && cached.Slug == _site.Slug && DateTime.UtcNow - cached.At < EditLiveReuse) return cached.State.Clone();
+        if (_editLiveRead is not { } inFlight || inFlight.Slug != _site.Slug || inFlight.Read.IsCompleted)
+            _editLiveRead = inFlight = (_site.Slug, ReadEditLiveAsync());
+        return (await inFlight.Read.WaitAsync(ct)).Clone();
+    }
+
+    private async Task<ConfigState> ReadEditLiveAsync()
+    {
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var live = await Engine.ReadLiveAsync(ct);
+        var live = await Engine.ReadLiveAsync(CancellationToken.None);
         _logger.LogDebug("Change Control Edit: read the live config of {Site} in {Ms} ms", _site.Slug, watch.ElapsedMilliseconds);
         _editLive = (_site.Slug, DateTime.UtcNow, live);
-        return live.Clone();
+        return live;
     }
 
     public async Task<(string Yaml, Dictionary<string, int> Counts, string Schema)> GetEditBaseAsync(int? snapshotId, string collection, CancellationToken cancellationToken = default)

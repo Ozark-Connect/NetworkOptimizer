@@ -539,14 +539,22 @@
     private Dictionary<string, string> Files() =>
         _edited.ToDictionary(e => Defs(e.Key).First().Key, e => e.Value);
 
+    // Each check's number: only the newest one's result is shown.
+    private int _check;
+
     private async Task ValidateAsync()
     {
         // Deliberately no progress indicator: it runs on every typing pause, where any spinner flashes.
+        var check = ++_check;
         try
         {
-            _validation = _edited.Count == 0 ? new YamlValidation()
+            var result = _edited.Count == 0 ? new YamlValidation()
                 : TemplateId is { } templateId ? await Templates.ValidateYamlAsync(templateId, Files())
                 : await Site.ValidateYamlAsync(SnapshotId, Files());
+            // A check waiting on a slow Console read (seconds behind an On-Site Agent) finishes after a
+            // newer one; shown, it puts back the Problems of text already changed.
+            if (check != _check) return;
+            _validation = result;
             AddUploadDeleteWarnings();
         }
         catch (Exception ex)
