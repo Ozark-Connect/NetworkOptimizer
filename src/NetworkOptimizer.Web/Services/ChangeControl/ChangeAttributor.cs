@@ -71,7 +71,13 @@ public static class ChangeAttributor
     public static bool WrittenByNo(ObjectDiff obj, IReadOnlyList<ConfigWriteJournalEntry> journal) =>
         journal.Any(j => Matches(j.ObjectId, obj.ObjectId)
             || (j.Collection == obj.Collection && j.ObjectId == null && j.Path.Contains(obj.ObjectId, StringComparison.OrdinalIgnoreCase))
-            || (obj.OrderedIds != null && j.Collection == obj.Collection && IsReorder(j)));
+            || (obj.OrderedIds != null && j.Collection == obj.Collection && IsReorder(j))
+            || (obj.Action == ConfigChangeAction.Deleted && j.Collection == obj.Collection && IsBatchDelete(j)));
+
+    // Its body is the list of IDs, so the journal names no object: it explains any delete in its
+    // collection, held to writes after the diff's before read (Explaining).
+    private static bool IsBatchDelete(ConfigWriteJournalEntry j) =>
+        j.ObjectId == null && j.Path.EndsWith("batch-delete", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>True when an unattributed object diff is on a field UniFi rewrites by itself.</summary>
     public static bool IsLikelyUniFiField(ObjectDiff obj) =>
@@ -185,6 +191,9 @@ public static class ChangeAttributor
     internal static IReadOnlyList<ConfigWriteJournalEntry> Explaining(
         IReadOnlyList<ConfigWriteJournalEntry> journal, ObjectDiff obj, DateTime? beforeReadAt)
     {
+        // A batch delete names no object, so only one after the before read can be this object's.
+        if (beforeReadAt is { } since && obj.Action == ConfigChangeAction.Deleted)
+            journal = journal.Where(j => !IsBatchDelete(j) || j.At >= since).ToList();
         if (beforeReadAt is not { } readAt || obj.Fields.Count == 0) return journal;
         var changed = obj.Fields.Select(f => TopLevel(f.Path)).ToHashSet(StringComparer.Ordinal);
         return journal.Where(j => j.At >= readAt || SentFields(j) is not { } sent || !changed.IsSubsetOf(sent)).ToList();

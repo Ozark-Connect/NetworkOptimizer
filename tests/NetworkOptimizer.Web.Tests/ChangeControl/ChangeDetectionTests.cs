@@ -102,6 +102,36 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_BatchDelete_IsTheDeletingPlans_NotTheCreatesBeforeIt()
+    {
+        // Plan 76 created the policy; plan 77's batch delete (no object ID in the journal) removed it.
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddMinutes(-3), Method = "POST", Path = "firewall-policies", Collection = "firewall_policy", ObjectId = "p1", Source = "change-control:plan:76" },
+            new() { At = Now.AddSeconds(-1), Method = "POST", Path = "firewall-policies/batch-delete", Collection = "firewall_policy", FieldsJson = "[]", Source = "change-control:plan:77" },
+        };
+        var deleted = new ObjectDiff { Collection = "firewall_policy", ObjectId = "p1", Name = "Test", Action = ConfigChangeAction.Deleted };
+
+        var g = ChangeAttributor.Attribute([deleted], [], journal, Now, false, beforeReadAt: Now.AddSeconds(-2)).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+        g.PlanId.Should().Be(77);
+        g.OccurredAt.Should().Be(Now.AddSeconds(-1));
+    }
+
+    [Fact]
+    public void Attribute_AnOldBatchDelete_DoesNotClaimALaterDelete()
+    {
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddMinutes(-5), Method = "POST", Path = "firewall-policies/batch-delete", Collection = "firewall_policy", FieldsJson = "[]", Source = "change-control:plan:70" },
+        };
+        var deleted = new ObjectDiff { Collection = "firewall_policy", ObjectId = "p9", Name = "Someone's", Action = ConfigChangeAction.Deleted };
+
+        ChangeAttributor.Attribute([deleted], [], journal, Now, false, beforeReadAt: Now.AddMinutes(-1)).Single()
+            .ActorKind.Should().NotBe(ConfigChangeActorKind.NetworkOptimizer);
+    }
+
+    [Fact]
     public void Attribute_OwnWrite_OccursAtItsNewestWrite_NotTheWindowsOldest()
     {
         var journal = new List<ConfigWriteJournalEntry>
