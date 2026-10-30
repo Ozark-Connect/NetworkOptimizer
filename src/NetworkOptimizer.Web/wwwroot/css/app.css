@@ -25445,14 +25445,13 @@ body:has(.top-bar-hidden) .btn-fit {
     transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-/* Idle: a slow dim. Scroll, hover, or focus: back up quickly (the base 0.15s transition). */
-.card-index.card-index-idle {
-    opacity: 0.4;
-    transition: opacity 1.2s ease;
+/* Muted at rest, full on hover or focus. Never fade on idle: motion beside the text pulls the eye. */
+.card-index {
+    opacity: 0.55;
 }
 
-.card-index.card-index-idle:hover,
-.card-index.card-index-idle:focus-within {
+.card-index:hover,
+.card-index:focus-within {
     opacity: 1;
     transition: opacity 0.15s ease-out;
 }
@@ -25469,9 +25468,8 @@ body:has(.top-bar-hidden) .btn-fit {
 
 @media (prefers-reduced-motion: reduce) {
     .card-index,
-    .card-index.card-index-idle,
-    .card-index.card-index-idle:hover,
-    .card-index.card-index-idle:focus-within,
+    .card-index:hover,
+    .card-index:focus-within,
     .card-index.card-index-out,
     .card-index-row,
     .card-index-row.card-index-out,
