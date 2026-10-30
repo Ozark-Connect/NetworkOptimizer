@@ -582,7 +582,8 @@ public static class ZoneSetup
             var src = policy["source"] as JsonObject;
             var dst = policy["destination"] as JsonObject;
             // "Every network but these": a moved network has left the side's zone, so its exclusion is dropped (the side
-            // still matches what it did). UniFi pauses the policy on the zone write; the update re-writes it whole.
+            // still matches what it did). UniFi strips it on the zone write, and pauses the policy when that empties the
+            // list (UDR7, Network 11, 2026-10-30); the update re-writes it whole either way.
             var excluded = DropMovedExclusions(src, moved) | DropMovedExclusions(dst, moved);
             if (excluded)
                 notes.Add($"Firewall Policy {Str(policy, "name")}: excludes a network that moves out of its zone, so that exclusion is dropped.");
