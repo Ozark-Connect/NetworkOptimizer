@@ -823,6 +823,10 @@ public class DnsSecurityAnalyzer
 
         foreach (var network in networks)
         {
+            // Only a complete Internet deny earns this label; a dedicated port rule is credited under its own name.
+            // The per-port check still applies so a narrower allow ahead of the broad deny is honored.
+            if (!FirewallRuleAnalyzer.IsInternetBlocked(network, firewallRules, externalZoneId, family))
+                continue;
             var coverageName = network.InternetAccessEnabled
                 ? "Internet access blocked by firewall"
                 : "Internet Access disabled";

@@ -358,15 +358,225 @@ public class ZoneSetupTests
     }
 
     [Fact]
-    public void Rehome_LeavesClientPolicies_WithANote()
+    public void Rehome_ClientPolicies_MoveTheNetworkSide_AndKeepTheClientSide()
     {
         var live = WithSubnetsAndGateway();
         live.Collections["firewall_policy"].Add(Rule("p-cl", "[TV] Commands", "ALLOW", Side("z-int", "CLIENT"), Side("z-int", "NETWORK", ["n-iot"])));
 
         var plan = PlanFor(live);
 
-        Named(plan.Desired, "[TV] Commands")!["destination"]!["zone_id"]!.ToString().Should().Be("z-int");
+        // UniFi pauses it and strips n-iot on the zone write, leaving the destination on Internal: the plan re-writes it.
+        var policy = Named(plan.Desired, "[TV] Commands")!;
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        policy["destination"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["n-iot"]);
+        policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        policy["source"]!["client_macs"]!.AsArray().Should().ContainSingle();
+        plan.Rehomed.Should().Contain("p-cl");
         plan.Notes.Should().Contain(n => n.Contains("[TV] Commands") && n.Contains("matches clients"));
+
+        var doc = PlanBuilder.Build(plan.Desired, live, ZoneSetup.Options());
+        ChangeControlService.AfterZoneWrites(doc, plan.Rehomed);
+        var update = doc.Operations.Single(o => o.ObjectId == "p-cl");
+        update.WriteFields.Should().Contain(["enabled", "source", "destination"]);
+        doc.Operations.IndexOf(update).Should().BeGreaterThan(doc.Operations.FindLastIndex(o => o.Collection == "firewall_zone"));
+    }
+
+    [Theory]
+    [InlineData("CLIENT")]
+    [InlineData("MAC")]
+    public void Rehome_ClientDestination_MovesTheNetworkSource(string target)
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-cam", "[Cameras] To Phones", "ALLOW", Side("z-int", "NETWORK", ["n-cam"]), Side("z-int", target)));
+
+        var plan = PlanFor(live);
+
+        var policy = Named(plan.Desired, "[Cameras] To Phones")!;
+        policy["source"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        policy["source"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["n-cam"]);
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("z-int");
+        plan.Rehomed.Should().Contain("p-cam");
+    }
+
+    [Fact]
+    public void Rehome_ClientPolicy_SplitsWhenItsNetworksLandInSeveralZones()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-cl2", "[Phones] To Sensitive VLANs", "ALLOW", Side("z-int", "CLIENT"), Side("z-int", "NETWORK", ["n-iot", "n-cam"])));
+
+        var plan = PlanFor(live);
+
+        var parts = plan.Desired.Get("firewall_policy").Where(p => p["name"]!.ToString().StartsWith("[Phones] To Sensitive VLANs")).ToList();
+        parts.Should().HaveCount(2);
+        parts.Select(p => p["destination"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["new-zone-iot", "new-zone-cameras"]);
+        parts.Should().OnlyContain(p => p["source"]!["zone_id"]!.ToString() == "z-int" && p["source"]!["matching_target"]!.ToString() == "CLIENT");
+        parts.Should().Contain(p => p["_id"]!.ToString() == "p-cl2");
+        plan.Rehomed.Should().Contain("p-cl2");
+    }
+
+    private static JsonObject Client(string mac, string? networkId) => new()
+    {
+        ["_id"] = "u-" + mac, ["mac"] = mac, ["use_fixedip"] = networkId != null, ["network_id"] = networkId,
+    };
+
+    private static JsonObject ClientSide(string zone, string target, params string[] macs)
+    {
+        var side = new JsonObject { ["zone_id"] = zone, ["matching_target"] = target, ["port_matching_type"] = "ANY" };
+        side[target == "MAC" ? "macs" : "client_macs"] = new JsonArray(macs.Select(m => (JsonNode?)m).ToArray());
+        return side;
+    }
+
+    [Theory]
+    [InlineData("CLIENT")]
+    [InlineData("MAC")]
+    public void Rehome_ClientSide_FollowsItsFixedIpNetwork(string target)
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["user"] = [Client("aa:00:00:00:00:01", "n-iot")];
+        live.Collections["firewall_policy"].Add(Rule("p-plug", "[IoT] Plug to Internet", "ALLOW", ClientSide("z-int", target, "AA:00:00:00:00:01"), Side("z-ext")));
+
+        var plan = PlanFor(live);
+
+        var policy = Named(plan.Desired, "[IoT] Plug to Internet")!;
+        policy["source"]!["zone_id"]!.ToString().Should().Be("new-zone-iot", "the plug's traffic now leaves from the IoT zone");
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("z-ext");
+        plan.Rehomed.Should().Contain("p-plug");
+        plan.Notes.Should().Contain(n => n.Contains("[IoT] Plug to Internet") && n.Contains("moves with it"));
+    }
+
+    [Fact]
+    public void Rehome_ClientSideAndNetworkSide_BothMove()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["user"] = [Client("aa:00:00:00:00:02", "n-iot")];
+        live.Collections["firewall_policy"].Add(Rule("p-hub", "[IoT] Hub to Cameras", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:02"), Side("z-int", "NETWORK", ["n-cam"])));
+
+        var plan = PlanFor(live);
+
+        var policy = Named(plan.Desired, "[IoT] Hub to Cameras")!;
+        policy["source"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        plan.Desired.Get("firewall_policy").Count(p => p["name"]!.ToString().StartsWith("[IoT] Hub to Cameras")).Should().Be(1);
+        plan.Rehomed.Should().Contain("p-hub");
+    }
+
+    [Fact]
+    public void Rehome_ClientsLandingInDifferentZones_KeepTheirSide_WithANote()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["user"] = [Client("aa:00:00:00:00:03", "n-iot"), Client("aa:00:00:00:00:04", "n-home")];
+        live.Collections["firewall_policy"].Add(Rule("p-mix", "[Mixed] To Cameras", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:03", "aa:00:00:00:00:04"), Side("z-int", "NETWORK", ["n-cam"])));
+
+        var plan = PlanFor(live);
+
+        var policy = Named(plan.Desired, "[Mixed] To Cameras")!;
+        policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        plan.Notes.Should().Contain(n => n.Contains("[Mixed] To Cameras") && n.Contains("different zones"));
+        plan.Notes.Should().NotContain(n => n.Contains("[Mixed] To Cameras") && n.Contains("without a fixed IP"));
+    }
+
+    [Fact]
+    public void Rehome_ClientWithoutFixedIp_KeepsItsSide_AndHomeClientsNeedNoNote()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["user"] = [Client("aa:00:00:00:00:05", null), Client("aa:00:00:00:00:06", "n-home")];
+        live.Collections["firewall_policy"].Add(Rule("p-dyn", "[Phone] To IoT", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:05"), Side("z-int", "NETWORK", ["n-iot"])));
+        live.Collections["firewall_policy"].Add(Rule("p-pc", "[PC] To IoT", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:06"), Side("z-int", "NETWORK", ["n-iot"])));
+
+        var plan = PlanFor(live);
+
+        Named(plan.Desired, "[Phone] To IoT")!["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        Named(plan.Desired, "[Phone] To IoT")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        plan.Notes.Should().Contain(n => n.Contains("[Phone] To IoT") && n.Contains("without a fixed IP"));
+        Named(plan.Desired, "[PC] To IoT")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        plan.Notes.Should().NotContain(n => n.Contains("[PC] To IoT"), "its client is known to stay in Internal");
+    }
+
+    [Fact]
+    public void Rehome_ClientToAddress_MovesTheAddressSide()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-ip", "[Phone] To Hub", "ALLOW", Side("z-int", "CLIENT"), Side("z-int", "IP", ips: ["10.0.30.5"])));
+
+        var plan = PlanFor(live);
+
+        var policy = Named(plan.Desired, "[Phone] To Hub")!;
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        policy["destination"]!["ips"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["10.0.30.5"]);
+        policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        plan.Rehomed.Should().Contain("p-ip");
+    }
+
+    [Fact]
+    public void Rehome_ClientPolicy_NamingNoMovedNetwork_IsLeftAlone()
+    {
+        var live = WithSubnetsAndGateway();
+        var policy = Rule("p-cl3", "[Phones] To Work", "ALLOW", Side("z-int", "CLIENT"), Side("z-int", "NETWORK", ["n-work"]));
+        live.Collections["firewall_policy"].Add(policy);
+
+        var plan = PlanFor(live);
+
+        Named(plan.Desired, "[Phones] To Work")!.ToJsonString().Should().Be(policy.ToJsonString());
+        plan.Rehomed.Should().NotContain("p-cl3");
+        plan.Notes.Should().NotContain(n => n.Contains("[Phones] To Work"));
+    }
+
+    [Fact]
+    public void Rehome_ExcludedNetworkThatStays_IsLeftAlone()
+    {
+        var live = WithSubnetsAndGateway();
+        var except = Side("z-int", "NETWORK", ["n-work"]);
+        except["match_opposite_networks"] = true;
+        var policy = Rule("p-ex3", "[Home] Block All But Work", "BLOCK", Side("z-int", "IP", ips: ["10.0.1.20"]), except);
+        live.Collections["firewall_policy"].Add(policy);
+
+        var plan = PlanFor(live);
+
+        Named(plan.Desired, "[Home] Block All But Work")!.ToJsonString().Should().Be(policy.ToJsonString());
+        plan.Rehomed.Should().NotContain("p-ex3");
+    }
+
+    [Fact]
+    public void Rehome_ExcludedMovedSource_IsDropped_AndTheNetworkDestinationStillMoves()
+    {
+        var live = WithSubnetsAndGateway();
+        var except = Side("z-int", "NETWORK", ["n-media", "n-home"]);
+        except["match_opposite_networks"] = true;
+        live.Collections["firewall_policy"].Add(Rule("p-ex4", "[LAN] To Cameras But Media", "ALLOW", except, Side("z-int", "NETWORK", ["n-cam"])));
+
+        var plan = PlanFor(live);
+
+        var policy = Named(plan.Desired, "[LAN] To Cameras But Media")!;
+        policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        policy["source"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["n-home"]);
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        plan.Rehomed.Should().Contain("p-ex4");
+    }
+
+    [Fact]
+    public void Rehome_ExcludedMovedNetwork_IsDroppedFromTheList_AndRewritten()
+    {
+        var live = WithSubnetsAndGateway();
+        var except = Side("z-int", "NETWORK", ["n-iot", "n-work"]);
+        except["match_opposite_networks"] = true;
+        live.Collections["firewall_policy"].Add(Rule("p-ex", "[Home] Block All But IoT and Work", "BLOCK", Side("z-int", "IP", ips: ["10.0.1.20"]), except));
+        var onlyIot = Side("z-int", "NETWORK", ["n-iot"]);
+        onlyIot["match_opposite_networks"] = true;
+        live.Collections["firewall_policy"].Add(Rule("p-ex2", "[Home] Block All But IoT", "BLOCK", Side("z-int", "IP", ips: ["10.0.1.20"]), onlyIot));
+
+        var plan = PlanFor(live);
+
+        var partial = Named(plan.Desired, "[Home] Block All But IoT and Work")!["destination"]!;
+        partial["zone_id"]!.ToString().Should().Be("z-int");
+        partial["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["n-work"]);
+        partial["match_opposite_networks"]!.GetValue<bool>().Should().BeTrue();
+        var emptied = Named(plan.Desired, "[Home] Block All But IoT")!["destination"]!.AsObject();
+        emptied["matching_target"]!.ToString().Should().Be("ANY", "IoT has left Internal, so every network still there matches");
+        emptied.ContainsKey("network_ids").Should().BeFalse();
+        emptied.ContainsKey("match_opposite_networks").Should().BeFalse();
+        plan.Rehomed.Should().Contain(["p-ex", "p-ex2"], "UniFi pauses them on the zone write, so they are re-written whole");
+        plan.Notes.Should().Contain(n => n.Contains("[Home] Block All But IoT") && n.Contains("exclusion is dropped"));
     }
 
     [Fact]

@@ -563,7 +563,9 @@ public static class ZoneSetup
     /// <summary>
     /// Operator policies naming a moved network, moved to the zone pair it now sits in. UniFi pauses them and strips
     /// the network on the zone write; the update re-writes them whole from the policy read before. A policy whose
-    /// networks land in different zones is split, one per pair. Returns policy ID to its name, for the redundancy pass.
+    /// networks land in different zones is split, one per pair. A client side names no network: it follows its clients'
+    /// network when they have fixed IPs, else keeps its zone. UniFi pauses such a policy and strips the network side but
+    /// leaves its zones as they were (UDR7 on Network 11, 2026-10-30). Returns policy ID to its name, for the redundancy pass.
     /// </summary>
     private static Dictionary<string, string> Rehome(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved,
         Dictionary<string, string> newZoneOf, Func<string?, string> zoneName, List<string> notes, ref int n)
@@ -571,31 +573,32 @@ public static class ZoneSetup
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (moved.Count == 0) return result;
         var networks = live.Get("networkconf");
+        var users = live.Get("user").Where(u => Str(u, "mac") != null)
+            .GroupBy(u => Str(u, "mac")!, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         var def = ConfigCollections.Get("firewall_policy")!;
         foreach (var policy in policies.ToList())
         {
             if (def.IsGenerated?.Invoke(policy) == true || ConfigCollections.OwnedBy(def, policy) != null) continue;
             var src = policy["source"] as JsonObject;
             var dst = policy["destination"] as JsonObject;
-            if (Str(src?["matching_target"]) is "CLIENT" or "MAC" || Str(dst?["matching_target"]) is "CLIENT" or "MAC")
-            {
-                // A client's network is not in the config; the policy keeps its zones.
-                var named = Named(Str(src?["matching_target"]) is "CLIENT" or "MAC" ? dst : src, networks);
-                if (named.Any(moved.Contains))
-                    notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients, so it keeps its zones. Check it once the networks move.");
-                continue;
-            }
-            // "Every network but these": UniFi strips a moved network from the list, which widens what it matches.
-            static bool ExcludesMoved(JsonObject? side, HashSet<string> moved) => side?["match_opposite_networks"]?.GetValueKind() == System.Text.Json.JsonValueKind.True
-                && (side["network_ids"] as JsonArray ?? []).Any(n => Str(n) is { } id && moved.Contains(id));
-            if (ExcludesMoved(src, moved) || ExcludesMoved(dst, moved))
-            {
-                notes.Add($"Firewall Policy {Str(policy, "name")}: excludes a network that moves, and UniFi removes it from that list. Check it once the networks move.");
-                continue;
-            }
+            // "Every network but these": a moved network has left the side's zone, so its exclusion is dropped (the side
+            // still matches what it did). UniFi pauses the policy on the zone write; the update re-writes it whole.
+            var excluded = DropMovedExclusions(src, moved) | DropMovedExclusions(dst, moved);
+            if (excluded)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: excludes a network that moves out of its zone, so that exclusion is dropped.");
+            // A client side follows its clients' network when the config knows it (a fixed IP) and they all land in one zone.
+            var clientsUnknown = false;
+            var clientsMoved = FollowClients(policy, src, users, moved, newZoneOf, zoneName, notes, ref clientsUnknown)
+                | FollowClients(policy, dst, users, moved, newZoneOf, zoneName, notes, ref clientsUnknown);
             var srcNets = Named(src, networks);
             var dstNets = Named(dst, networks);
-            if (!srcNets.Any(moved.Contains) && !dstNets.Any(moved.Contains)) continue;
+            if (!srcNets.Any(moved.Contains) && !dstNets.Any(moved.Contains))
+            {
+                if (excluded || clientsMoved) result[ConfigState.IdOf(policy)] = Str(policy, "name") ?? "";
+                continue;
+            }
+            if (clientsUnknown)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients without a fixed IP, so their side keeps its zone. Check it once the networks move if those clients are on a network that moves.");
 
             // Each side's networks grouped by the zone they now sit in; a side naming no moved network keeps its zone.
             List<(string Zone, List<string> Nets)> Groups(JsonObject? side, List<string> nets) =>
@@ -624,6 +627,53 @@ public static class ZoneSetup
                 notes.Add($"Firewall Policy {Str(policy, "name")}: its networks now sit in {variants.Count} zone pairs, so it is split into {variants.Count} policies.");
         }
         return result;
+    }
+
+    /// <summary>
+    /// A client side moved to the zone its clients' network now sits in. The config knows a client's network only from
+    /// its fixed IP; a side with clients on networks landing in different zones keeps its zone and gets a note. Sets
+    /// <paramref name="unknown"/> when a client's network is not known. Returns whether the side moved.
+    /// </summary>
+    private static bool FollowClients(JsonObject policy, JsonObject? side, Dictionary<string, JsonObject> users, HashSet<string> moved,
+        Dictionary<string, string> newZoneOf, Func<string?, string> zoneName, List<string> notes, ref bool unknown)
+    {
+        if (side == null || Str(side["matching_target"]) is not ("CLIENT" or "MAC")) return false;
+        var macs = (side["client_macs"] as JsonArray ?? []).Concat(side["macs"] as JsonArray ?? []).Select(Str).OfType<string>().ToList();
+        var nets = macs.Select(mac => users.TryGetValue(mac, out var u) && Readdressing.IsTrue(u["use_fixedip"])
+            && Str(u, "network_id") is { Length: > 0 } id ? id : null).ToList();
+        if (!nets.Any(id => id != null && moved.Contains(id)))
+        {
+            if (nets.Count == 0 || nets.Contains(null)) unknown = true;
+            return false;
+        }
+        var zones = nets.Select(id => id == null ? null : newZoneOf.GetValueOrDefault(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (zones is [{ } zone])
+        {
+            side["zone_id"] = zone;
+            notes.Add($"Firewall Policy {Str(policy, "name")}: its clients' network moves to {zoneName(zone)}, so their side moves with it.");
+            return true;
+        }
+        notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients whose networks land in different zones (or have no fixed IP), so their side keeps {zoneName(Str(side["zone_id"]))}. Split it by hand in the Edit tab.");
+        return false;
+    }
+
+    /// <summary>
+    /// Moved networks taken out of a "every network but these" side. A side left with no exclusions matches any network.
+    /// Returns whether the side changed.
+    /// </summary>
+    private static bool DropMovedExclusions(JsonObject? side, HashSet<string> moved)
+    {
+        if (side?["match_opposite_networks"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+            || side["network_ids"] is not JsonArray ids || !ids.Any(id => Str(id) is { } x && moved.Contains(x))) return false;
+        var keep = ids.Select(Str).Where(id => id != null && !moved.Contains(id)).Select(id => (JsonNode?)id).ToArray();
+        if (keep.Length > 0)
+        {
+            side["network_ids"] = new JsonArray(keep);
+            return true;
+        }
+        side["matching_target"] = "ANY";
+        foreach (var key in new[] { "network_ids", "match_opposite_networks", "matching_target_type" }) side.Remove(key);
+        return true;
     }
 
     /// <summary>A side set to one zone and only the networks (or addresses) that sit there.</summary>
