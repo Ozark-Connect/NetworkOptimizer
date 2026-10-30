@@ -69,8 +69,13 @@ public static class LocalTargetResolver
     /// <param name="address">The target's address, a literal or a hostname.</param>
     /// <param name="logger">Optional, for reporting a lookup that failed outright.</param>
     /// <param name="ct">Cancellation.</param>
+    /// <param name="resolveName">
+    /// Resolves a name from the site's vantage. Null asks this server's resolver, which is the
+    /// wrong view of a LAN name when the site is reached through its agent.
+    /// </param>
     public static async Task<(bool? IsLocal, string? ResolvedIp)> ResolveAsync(
-        string? address, ILogger? logger = null, CancellationToken ct = default)
+        string? address, ILogger? logger = null, CancellationToken ct = default,
+        Func<string, CancellationToken, Task<IPAddress[]>>? resolveName = null)
     {
         if (string.IsNullOrWhiteSpace(address)) return (null, null);
         var name = address.Trim();
@@ -79,7 +84,9 @@ public static class LocalTargetResolver
             // A literal answers itself; only a name needs asking.
             var answers = IPAddress.TryParse(name, out var literal)
                 ? new[] { literal }
-                : await Dns.GetHostAddressesAsync(name, ct);
+                : resolveName != null
+                    ? await resolveName(name, ct)
+                    : await Dns.GetHostAddressesAsync(name, ct);
 
             var chosen = NetworkUtilities.SelectUsableAddress(answers);
             if (chosen is null)
@@ -105,8 +112,10 @@ public static class LocalTargetResolver
     /// </summary>
     /// <param name="db">The site's database.</param>
     /// <param name="ct">Cancellation.</param>
+    /// <param name="resolveName">Resolves a name from the site's vantage; see <see cref="ResolveAsync"/>.</param>
     public static async Task<int> SweepUnresolvedAsync(
-        NetworkOptimizerDbContext db, ILogger? logger = null, CancellationToken ct = default)
+        NetworkOptimizerDbContext db, ILogger? logger = null, CancellationToken ct = default,
+        Func<string, CancellationToken, Task<IPAddress[]>>? resolveName = null)
     {
         // Only Custom rows: everything else is decided by what it is or by the WAN it carries, so
         // resolving their addresses would spend DNS on an answer nothing reads.
@@ -121,7 +130,7 @@ public static class LocalTargetResolver
         foreach (var target in pending)
         {
             if (ct.IsCancellationRequested) break;
-            var (answer, ip) = await ResolveAsync(target.Address, logger, ct);
+            var (answer, ip) = await ResolveAsync(target.Address, logger, ct, resolveName);
             if (answer == null) continue;
             target.IsLocal = answer;
             settled++;

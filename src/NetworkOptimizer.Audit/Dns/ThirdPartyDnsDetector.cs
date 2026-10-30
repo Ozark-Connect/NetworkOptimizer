@@ -1,27 +1,80 @@
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using DnsClient;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Monitoring.Providers;
 
 namespace NetworkOptimizer.Audit.Dns;
 
 /// <summary>
 /// Detects third-party LAN DNS servers (like Pi-hole) that are used instead of gateway DNS.
 /// </summary>
-public class ThirdPartyDnsDetector
+public class ThirdPartyDnsDetector : IDisposable
 {
     private readonly ILogger<ThirdPartyDnsDetector> _logger;
     private readonly HttpClient _httpClient;
+    private readonly IDeviceDialer _dialer;
+    private readonly bool _ownsHttpClient;
 
     public ThirdPartyDnsDetector(ILogger<ThirdPartyDnsDetector> logger, HttpClient httpClient)
+        : this(logger, httpClient, DirectDeviceDialer.Instance, ownsHttpClient: false)
+    {
+    }
+
+    private ThirdPartyDnsDetector(ILogger<ThirdPartyDnsDetector> logger, HttpClient httpClient, IDeviceDialer dialer, bool ownsHttpClient)
     {
         _logger = logger;
         _httpClient = httpClient;
+        _dialer = dialer;
+        _ownsHttpClient = ownsHttpClient;
+    }
+
+    /// <summary>
+    /// A detector whose every probe connection is opened by <paramref name="dialer"/>, so a site
+    /// reached through its agent is probed from inside its own network, where its LAN addresses
+    /// answer and its management URL resolves. Dispose it after the run: it owns its HTTP client.
+    /// </summary>
+    public ThirdPartyDnsDetector WithDialer(IDeviceDialer dialer)
+    {
+        var handler = new SocketsHttpHandler
+        {
+            ConnectCallback = DeviceHttp.Via(dialer),
+            // Management UIs sit behind self-signed certificates, as for the default client.
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true }
+        };
+        return new ThirdPartyDnsDetector(_logger, new HttpClient(handler) { Timeout = _httpClient.Timeout }, dialer, ownsHttpClient: true);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_ownsHttpClient)
+            _httpClient.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// A DNS client that asks <paramref name="resolverIp"/> from the probe's vantage. Through an
+    /// agent the dialer hands back a forwarded endpoint, and the tunnel carries TCP only, so the
+    /// query goes over TCP.
+    /// </summary>
+    private async Task<LookupClient> CreateResolverClientAsync(IPAddress resolverIp)
+    {
+        var (host, port) = await _dialer.ResolveAsync(resolverIp.ToString(), 53);
+        var endpointIp = IPAddress.Parse(host);
+        var forwarded = port != 53 || !endpointIp.Equals(resolverIp);
+        return new LookupClient(new LookupClientOptions(new NameServer(endpointIp, port))
+        {
+            Timeout = TimeSpan.FromSeconds(2),
+            UseCache = false,
+            Retries = 0,
+            ContinueOnDnsError = false,
+            UseTcpOnly = forwarded
+        });
     }
 
     private static readonly AsyncLocal<ConcurrentDictionary<string, Task>?> SharedProbes = new();
@@ -486,14 +539,7 @@ public class ThirdPartyDnsDetector
         IPAddress[] resolvedIps;
         try
         {
-            var lookup = new LookupClient(new LookupClientOptions(resolverIp)
-            {
-                Timeout = TimeSpan.FromSeconds(2),
-                UseCache = false,
-                Retries = 0,
-                ContinueOnDnsError = false
-            });
-
+            var lookup = await CreateResolverClientAsync(resolverIp);
             var dnsResult = await lookup.QueryAsync(hostname, QueryType.A, cancellationToken: ct);
             if (dnsResult.HasError)
             {
@@ -531,20 +577,7 @@ public class ThirdPartyDnsDetector
         {
             probeHandler = new SocketsHttpHandler
             {
-                ConnectCallback = async (ctx, cb) =>
-                {
-                    var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                    try
-                    {
-                        await socket.ConnectAsync(probeIp, ctx.DnsEndPoint.Port, cb);
-                        return new NetworkStream(socket, ownsSocket: true);
-                    }
-                    catch
-                    {
-                        socket.Dispose();
-                        throw;
-                    }
-                }
+                ConnectCallback = (ctx, cb) => _dialer.DialAsync(probeIp.ToString(), ctx.DnsEndPoint.Port, cb)
             };
 
             probeClient = new HttpClient(probeHandler, disposeHandler: false)
@@ -629,14 +662,7 @@ public class ThirdPartyDnsDetector
 
         try
         {
-            var lookup = new LookupClient(new LookupClientOptions(resolverIp)
-            {
-                Timeout = TimeSpan.FromSeconds(2),
-                UseCache = false,
-                Retries = 0,
-                ContinueOnDnsError = false
-            });
-
+            var lookup = await CreateResolverClientAsync(resolverIp);
             var dnsResult = await lookup.QueryAsync("verify.controld.com", QueryType.CNAME, cancellationToken: ct);
             if (dnsResult.HasError)
             {

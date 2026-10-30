@@ -57,6 +57,7 @@ public partial class AuditService : IAuditScanService
     private readonly IThreatRepository? _threatRepository;
     private readonly SiteContextService _siteContext;
     private readonly Licensing.LicenseStateService _licenseState;
+    private readonly SiteTunnelRouting? _tunnelRouting;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -71,9 +72,11 @@ public partial class AuditService : IAuditScanService
         SiteContextService siteContext,
         Licensing.LicenseStateService licenseState,
         IAlertEventBus? alertEventBus = null,
-        IThreatRepository? threatRepository = null)
+        IThreatRepository? threatRepository = null,
+        SiteTunnelRouting? tunnelRouting = null)
     {
         _siteContext = siteContext;
+        _tunnelRouting = tunnelRouting;
         _licenseState = licenseState;
         _logger = logger;
         _connectionService = connectionService;
@@ -1644,6 +1647,8 @@ public partial class AuditService : IAuditScanService
                 DnatExcludedVlanIds = options.DnatExcludedVlanIds,
                 PiholeManagementPort = options.PiholeManagementPort,
                 PiholeManagementUrl = options.PiholeManagementUrl,
+                // A site reached through its agent is probed from inside its network, not from here.
+                Dialer = _tunnelRouting?.DialerFor(_siteContext.Slug),
                 TrustedDnsRedirectTargets = options.TrustedDnsRedirectTargets,
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,

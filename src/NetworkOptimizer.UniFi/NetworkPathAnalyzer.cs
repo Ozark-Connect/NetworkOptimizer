@@ -91,6 +91,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private readonly ILogger<NetworkPathAnalyzer> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly bool _isRemoteSite;
+    private readonly Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? _hostnameResolver;
 
     // Cache keys
     private const string TopologyCacheKey = "NetworkTopology";
@@ -182,17 +183,23 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// belong to the central server's network, never the remote site's, and can
     /// coincidentally match an unrelated client there.
     /// </param>
+    /// <param name="hostnameResolver">
+    /// Resolves a target hostname from the site's own vantage. Null asks this host's resolver,
+    /// which is the wrong view of a LAN name when the site is reached through its agent.
+    /// </param>
     public NetworkPathAnalyzer(
         IUniFiClientProvider clientProvider,
         IMemoryCache cache,
         ILoggerFactory loggerFactory,
-        bool isRemoteSite = false)
+        bool isRemoteSite = false,
+        Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? hostnameResolver = null)
     {
         _clientProvider = clientProvider;
         _cache = cache;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<NetworkPathAnalyzer>();
         _isRemoteSite = isRemoteSite;
+        _hostnameResolver = hostnameResolver;
     }
 
     /// <summary>
@@ -1791,7 +1798,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         {
             try
             {
-                var addresses = await System.Net.Dns.GetHostAddressesAsync(name);
+                var addresses = _hostnameResolver != null
+                    ? await _hostnameResolver(name, CancellationToken.None)
+                    : await System.Net.Dns.GetHostAddressesAsync(name);
                 var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
                 if (ipv4 != null)
                 {

@@ -41,6 +41,9 @@ public class SpeedTestServiceRegistry : ISiteScopedRegistry
         _instances.GetOrAdd(slug, s =>
         {
             var connection = _siteConnections.GetFor(s);
+            // A target hostname resolves from the site's vantage, so a LAN-only or split-horizon
+            // name answers the way it does for the site's clients.
+            var dnsResolver = _serviceProvider.GetService<Monitoring.SiteVantageDnsResolver>();
             // Each site's path analyzer gets its own MemoryCache: the analyzer
             // caches topology under fixed keys, so a shared cache would leak
             // one site's topology into another site's path analysis. Non-default
@@ -50,7 +53,8 @@ public class SpeedTestServiceRegistry : ISiteScopedRegistry
                 connection,
                 new MemoryCache(new MemoryCacheOptions()),
                 _serviceProvider.GetRequiredService<ILoggerFactory>(),
-                isRemoteSite: s != SiteManagementService.DefaultSiteSlug);
+                isRemoteSite: s != SiteManagementService.DefaultSiteSlug,
+                hostnameResolver: dnsResolver == null ? null : (host, ct) => dnsResolver.ResolveAddressesAsync(s, host, ct));
             // Wrap the shared bus so every alert event these per-site services publish
             // is stamped with this site's slug, routing it to the site's rules, history,
             // and channels (same pattern as MonitoringAlertRegistry).
