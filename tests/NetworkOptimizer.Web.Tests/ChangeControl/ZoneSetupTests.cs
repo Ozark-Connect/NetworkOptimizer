@@ -381,21 +381,21 @@ public class ZoneSetupTests
         doc.Operations.IndexOf(update).Should().BeGreaterThan(doc.Operations.FindLastIndex(o => o.Collection == "firewall_zone"));
     }
 
-    [Theory]
-    [InlineData("CLIENT")]
-    [InlineData("MAC")]
-    public void Rehome_ClientDestination_MovesTheNetworkSource(string target)
+    [Fact]
+    public void Rehome_MacSource_MovesTheNetworkDestination()
     {
+        // A client is only ever a source: UniFi refuses CLIENT on the destination (400, Network 11, 2026-10-30).
         var live = WithSubnetsAndGateway();
-        live.Collections["firewall_policy"].Add(Rule("p-cam", "[Cameras] To Phones", "ALLOW", Side("z-int", "NETWORK", ["n-cam"]), Side("z-int", target)));
+        live.Collections["firewall_policy"].Add(Rule("p-mac", "[Phones] To Cameras", "ALLOW", ClientSide("z-int", "MAC", "aa:00:00:00:00:09"), Side("z-int", "NETWORK", ["n-cam"])));
 
         var plan = PlanFor(live);
 
-        var policy = Named(plan.Desired, "[Cameras] To Phones")!;
-        policy["source"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
-        policy["source"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["n-cam"]);
-        policy["destination"]!["zone_id"]!.ToString().Should().Be("z-int");
-        plan.Rehomed.Should().Contain("p-cam");
+        var policy = Named(plan.Desired, "[Phones] To Cameras")!;
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        policy["destination"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["n-cam"]);
+        policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        plan.Rehomed.Should().Contain("p-mac");
+        plan.Notes.Should().Contain(n => n.Contains("[Phones] To Cameras") && n.Contains("without a fixed IP"));
     }
 
     [Fact]

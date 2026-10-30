@@ -563,7 +563,7 @@ public static class ZoneSetup
     /// <summary>
     /// Operator policies naming a moved network, moved to the zone pair it now sits in. UniFi pauses them and strips
     /// the network on the zone write; the update re-writes them whole from the policy read before. A policy whose
-    /// networks land in different zones is split, one per pair. A client side names no network: it follows its clients'
+    /// networks land in different zones is split, one per pair. A client source names no network: it follows its clients'
     /// network when they have fixed IPs, else keeps its zone. UniFi pauses such a policy and strips the network side but
     /// leaves its zones as they were (UDR7 on Network 11, 2026-10-30). Returns policy ID to its name, for the redundancy pass.
     /// </summary>
@@ -586,10 +586,10 @@ public static class ZoneSetup
             var excluded = DropMovedExclusions(src, moved) | DropMovedExclusions(dst, moved);
             if (excluded)
                 notes.Add($"Firewall Policy {Str(policy, "name")}: excludes a network that moves out of its zone, so that exclusion is dropped.");
-            // A client side follows its clients' network when the config knows it (a fixed IP) and they all land in one zone.
+            // A client source follows its clients' network when the config knows it (a fixed IP) and they all land in one
+            // zone. Only a source can match clients: UniFi refuses CLIENT on the destination (400, Network 11, 2026-10-30).
             var clientsUnknown = false;
-            var clientsMoved = FollowClients(policy, src, users, moved, newZoneOf, zoneName, notes, ref clientsUnknown)
-                | FollowClients(policy, dst, users, moved, newZoneOf, zoneName, notes, ref clientsUnknown);
+            var clientsMoved = FollowClients(policy, src, users, moved, newZoneOf, zoneName, notes, ref clientsUnknown);
             var srcNets = Named(src, networks);
             var dstNets = Named(dst, networks);
             if (!srcNets.Any(moved.Contains) && !dstNets.Any(moved.Contains))
@@ -630,7 +630,7 @@ public static class ZoneSetup
     }
 
     /// <summary>
-    /// A client side moved to the zone its clients' network now sits in. The config knows a client's network only from
+    /// A client source moved to the zone its clients' network now sits in. The config knows a client's network only from
     /// its fixed IP; a side with clients on networks landing in different zones keeps its zone and gets a note. Sets
     /// <paramref name="unknown"/> when a client's network is not known. Returns whether the side moved.
     /// </summary>
