@@ -191,6 +191,71 @@ public class VodafoneStationProviderTests
         VodafoneStationProvider.AesCcmDecryptText(key, nonce, encrypted, "loginPassword").Should().BeNull();
     }
 
+    // Pinned from System.Security.Cryptography.AesCcm on Windows (CNG): the bytes the modem has
+    // accepted since the provider shipped. Any implementation must reproduce them exactly.
+    public static TheoryData<string, string, string, string, string> KnownAnswers => new()
+    {
+        { "000102030405060708090a0b0c0d0e0f", "a1b2c3d4e5f60718", """{"Password":"secret","Nonce":"session"}""", "loginPassword",
+          "73e78b7630e1e900bf822100a3e1427c69c3378e2e88b40e425a6d2cbdf75ff0547a03bb27a0e8cba87e62cccc7979389c0a0f63ecd5d8" },
+        { "00112233445566778899aabbccddeeff", "0102030405060708090a0b0c0d", "0123456789abcdef0123456789abcdef", "nonce",
+          "953cd9a473b74964a90e1e6ac21916d173de6d5c055ff0412577be5979683b4fde140b3afcfbd5d1384356ab39376139" },
+        { "ffeeddccbbaa99887766554433221100", "0a0b0c0d0e0f10", "x", "loginPassword",
+          "185dcbfb79a320d17fd832346e57ed00d3" },
+    };
+
+    [Theory]
+    [MemberData(nameof(KnownAnswers))]
+    public void AesCcmEncryptHex_MatchesKnownAnswers(string key, string nonce, string plaintext, string aad, string expected)
+    {
+        VodafoneStationProvider.AesCcmEncryptHex(
+            Convert.FromHexString(key), Convert.FromHexString(nonce), Encoding.UTF8.GetBytes(plaintext), aad)
+            .Should().Be(expected);
+    }
+
+    [Theory]
+    [MemberData(nameof(KnownAnswers))]
+    public void AesCcmDecryptText_MatchesKnownAnswers(string key, string nonce, string plaintext, string aad, string encrypted)
+    {
+        VodafoneStationProvider.AesCcmDecryptText(Convert.FromHexString(key), Convert.FromHexString(nonce), encrypted, aad)
+            .Should().Be(plaintext);
+    }
+
+    // Byte-for-byte parity with the platform AesCcm across every nonce size and block boundaries.
+    // macOS has no platform AES-CCM, so there the known answers above are the check.
+    [Fact]
+    public void AesCcmEncryptHex_MatchesPlatformAesCcm()
+    {
+        if (!System.Security.Cryptography.AesCcm.IsSupported)
+            return;
+
+        var key = Convert.FromHexString("2b7e151628aed2a6abf7158809cf4f3c");
+        foreach (var nonceLength in Enumerable.Range(7, 7))
+        foreach (var plaintextLength in new[] { 1, 15, 16, 17, 64, 300 })
+        {
+            var nonce = Enumerable.Range(0, nonceLength).Select(i => (byte)(i * 7 + 1)).ToArray();
+            var plaintext = Enumerable.Range(0, plaintextLength).Select(i => (byte)(i * 13 + 5)).ToArray();
+            var ciphertext = new byte[plaintextLength];
+            var tag = new byte[16];
+            using (var ccm = new System.Security.Cryptography.AesCcm(key))
+                ccm.Encrypt(nonce, plaintext, ciphertext, tag, Encoding.ASCII.GetBytes("loginPassword"));
+
+            VodafoneStationProvider.AesCcmEncryptHex(key, nonce, plaintext, "loginPassword")
+                .Should().Be(Convert.ToHexStringLower(ciphertext) + Convert.ToHexStringLower(tag),
+                    $"nonce {nonceLength} bytes, plaintext {plaintextLength} bytes");
+        }
+    }
+
+    [Theory]
+    [InlineData(6, false)]
+    [InlineData(7, true)]
+    [InlineData(8, true)]
+    [InlineData(13, true)]
+    [InlineData(14, false)]
+    public void IsSupportedNonceSize_AcceptsCcmRange(int length, bool expected)
+    {
+        VodafoneStationProvider.IsSupportedNonceSize(length).Should().Be(expected);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("not-hex")]

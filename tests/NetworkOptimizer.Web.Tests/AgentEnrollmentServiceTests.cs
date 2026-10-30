@@ -18,13 +18,15 @@ public class AgentEnrollmentServiceTests
         public NetworkOptimizerDbContext CreateDbContext() => new(_options);
     }
 
-    /// <summary>No caller in scope, so nothing is narrowed - the background/system behaviour.</summary>
-    private sealed class UnfilteredSiteAccess : NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter
+    /// <summary>A caller granted only the named sites.</summary>
+    private sealed class OnlySites(params string[] slugs) : NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter
     {
-        public Task<IReadOnlySet<string>?> AuthorizedSlugsAsync() => Task.FromResult<IReadOnlySet<string>?>(null);
-        public Task<bool> IsAuthorizedAsync(string? slug) => Task.FromResult(true);
-        public Task<List<T>> FilterAsync<T>(IEnumerable<T> sites, Func<T, string> slugSelector) => Task.FromResult(sites.ToList());
-        public Task<string> FallbackSlugAsync() => Task.FromResult("main");
+        private readonly HashSet<string> _slugs = new(slugs, StringComparer.OrdinalIgnoreCase);
+        public Task<IReadOnlySet<string>?> AuthorizedSlugsAsync() => Task.FromResult<IReadOnlySet<string>?>(_slugs);
+        public Task<bool> IsAuthorizedAsync(string? slug) => Task.FromResult(slug != null && _slugs.Contains(slug));
+        public Task<List<T>> FilterAsync<T>(IEnumerable<T> sites, Func<T, string> slugSelector) =>
+            Task.FromResult(sites.Where(s => _slugs.Contains(slugSelector(s))).ToList());
+        public Task<string> FallbackSlugAsync() => Task.FromResult(_slugs.First());
     }
 
     private readonly TestDbFactory _factory;
@@ -42,7 +44,7 @@ public class AgentEnrollmentServiceTests
         // routing cleanup on agent removal, so it logs and moves on rather than clearing anything -
         // these tests are about enrollment, and the removal must not depend on that tidying working.
         var emptyProvider = new ServiceCollection().BuildServiceProvider();
-        _service = new AgentEnrollmentService(_factory, _tunnelRegistry, new UnfilteredSiteAccess(),
+        _service = new AgentEnrollmentService(_factory, _tunnelRegistry,
             new SiteAgentCoverage(emptyProvider),
             emptyProvider,
             new SiteTunnelRouting(emptyProvider, new SiteAgentCoverage(emptyProvider),
@@ -88,6 +90,55 @@ public class AgentEnrollmentServiceTests
         (await _service.EnrollAsync(theirToken, null)).Success.Should()
             .BeTrue("its token must still work - nothing was reissued out from under it");
         (await _service.GetAgentsForSiteAsync(mine)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SiteScopedService_NarrowsAgentListsToTheCallersSites()
+    {
+        var mine = await SeedSiteAsync("my-site");
+        var theirs = await SeedSiteAsync("their-site");
+        var (myAgent, _) = await _service.CreateAgentAsync("my-site", "Mine");
+        await _service.CreateAgentAsync("their-site", "Theirs");
+
+        IAgentEnrollmentService scoped = new SiteScopedAgentEnrollmentService(_service, new OnlySites("my-site"));
+
+        (await scoped.GetAllAgentsAsync()).Select(a => a.Id).Should().Equal(myAgent.Id);
+        (await scoped.GetAgentsForSiteAsync(mine)).Select(a => a.Id).Should().Equal(myAgent.Id);
+        (await scoped.GetAgentsForSiteAsync(theirs)).Should().BeEmpty();
+        (await _service.GetAllAgentsAsync()).Should().HaveCount(2, "the singleton's own view is the unnarrowed system view");
+    }
+
+    // The singleton must not capture the scoped site filter: captured, it resolves from the root
+    // scope, where there is no caller, and narrows nothing. This wires the services the way
+    // Program.cs does, with the scope validation Development turns on.
+    [Fact]
+    public async Task GatedRegistration_NarrowsPerScope_WithScopeValidation()
+    {
+        await SeedSiteAsync("my-site");
+        await SeedSiteAsync("their-site");
+        await _service.CreateAgentAsync("my-site", "Mine");
+        await _service.CreateAgentAsync("their-site", "Theirs");
+
+        var services = new ServiceCollection()
+            .AddLogging()
+            .AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(_factory)
+            .AddSingleton(_tunnelRegistry)
+            .AddSingleton<SiteAgentCoverage>()
+            .AddSingleton<SiteTunnelRouting>()
+            .AddSingleton<AgentEnrollmentService>()
+            .AddScoped<IAgentEnrollmentService>(sp => ActivatorUtilities.CreateInstance<SiteScopedAgentEnrollmentService>(sp));
+        var grants = new Queue<string>(["my-site", "their-site"]);
+        services.AddScoped<NetworkOptimizer.Web.Services.Authorization.ISiteAccessFilter>(_ => new OnlySites(grants.Dequeue()));
+
+        await using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+
+        foreach (var expected in new[] { "Mine", "Theirs" })
+        {
+            using var scope = provider.CreateScope();
+            var agents = await scope.ServiceProvider.GetRequiredService<IAgentEnrollmentService>().GetAllAgentsAsync();
+            agents.Select(a => a.Name).Should().Equal(expected);
+        }
     }
 
     [Fact]
