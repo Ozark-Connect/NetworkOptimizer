@@ -300,7 +300,7 @@
                                             }
                                             @if (NetworkOptimizer.Web.Services.ChangeControl.DnsFixes.Types.Contains(issue.Type))
                                             {
-                                                <SiteOperatorOnly><button class="btn btn-sm btn-ghost issue-action" disabled="@(_fixing != null)" @onclick="() => FixForMeAsync(issue.Type)" @onclick:stopPropagation="true">
+                                                <SiteOperatorOnly><button class="btn btn-sm btn-primary issue-action" disabled="@(_fixing != null)" @onclick="() => FixForMeAsync(issue.Type)" @onclick:stopPropagation="true">
                                                     @if (_fixing == issue.Type)
                                                     {
                                                         <span class="spinner spinner-sm"></span>

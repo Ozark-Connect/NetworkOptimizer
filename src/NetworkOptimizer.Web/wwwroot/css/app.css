@@ -3938,6 +3938,15 @@ select.form-control {
     opacity: 1;
 }
 
+/* Only the first action pushes right; the ones after it sit beside it. */
+.issue-action + .issue-action {
+    margin-left: 0;
+}
+
+.issue-action.btn-primary {
+    opacity: 1;
+}
+
 .issue-settings-icon {
     width: 20px;
     height: 20px;
