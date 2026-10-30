@@ -34,6 +34,16 @@ public sealed class PlanOptions
     /// </summary>
     public IReadOnlyList<string> ManagementAddresses { get; init; } = [];
 
+    /// <summary>
+    /// The addresses Network Optimizer's own traffic to the console leaves from: on a direct site the routed
+    /// source, not every address of a host with legs on many VLANs. The gateway-policy check uses it; empty
+    /// falls back to <see cref="ManagementAddresses"/>.
+    /// </summary>
+    public IReadOnlyList<string> ReachAddresses { get; init; } = [];
+
+    /// <summary>IPv4 addresses devices inform to (from each device's inform_url), for the inform-path check.</summary>
+    public IReadOnlyList<string> InformAddresses { get; set; } = [];
+
     /// <summary>The target has no gateway adopted yet: gateway-bound collections wait.</summary>
     public bool TargetHasGateway { get; init; } = true;
 

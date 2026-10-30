@@ -4057,6 +4057,37 @@ public class FirewallRuleAnalyzerTests
         issues.Should().BeEmpty();
     }
 
+    private static FirewallZoneLookup LanAndExternalZones() => new(new[]
+    {
+        new UniFiFirewallZone { Id = "z-int", Name = "Internal", ZoneKey = "internal", IsDefaultZone = true },
+        new UniFiFirewallZone { Id = "z-srv", Name = "Servers", ZoneKey = "", IsDefaultZone = false },
+        new UniFiFirewallZone { Id = "z-ext", Name = "External", ZoneKey = "external", IsDefaultZone = true },
+    });
+
+    private static FirewallRule AnyAnyAllow(string src, string dst) => new()
+    {
+        Id = $"{src}-{dst}", Name = $"Allow {src} to {dst}", Action = "ALLOW", Enabled = true, Index = 10000, Protocol = "all",
+        SourceMatchingTarget = "ANY", SourceZoneId = src, DestinationMatchingTarget = "ANY", DestinationZoneId = dst,
+    };
+
+    [Theory]
+    [InlineData("z-int", "z-srv")]
+    [InlineData("z-srv", "z-srv")]
+    public void DetectPermissiveRules_AllowBetweenLanZones_IsTheOperatorsZoneDesign(string src, string dst)
+    {
+        var issues = _analyzer.DetectPermissiveRules([AnyAnyAllow(src, dst)], [], LanAndExternalZones());
+
+        issues.Should().BeEmpty("the isolation rules judge an allow between LAN zones");
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnyAnyFromExternal_StaysCritical()
+    {
+        var issues = _analyzer.DetectPermissiveRules([AnyAnyAllow("z-ext", "z-int")], [], LanAndExternalZones());
+
+        issues.Should().ContainSingle(i => i.Type == "PERMISSIVE_RULE" && i.Severity == AuditSeverity.Critical);
+    }
+
     [Fact]
     public void DetectPermissiveRules_AnySourceInDefaultZoneWithFewNetworks_NotFlaggedAsBroad()
     {

@@ -267,6 +267,11 @@ public class FirewallRuleAnalyzer
             if (rule.ActionType.IsAllowAction() && !rule.AllowsNewConnections())
                 continue;
 
+            // An allow between two LAN zones (Internal or a custom zone) is the operator's zone design, and
+            // the isolation rules judge that pair. Any->any stays Critical out of External, Hotspot, DMZ, or VPN.
+            if (rule.ActionType.IsAllowAction() && IsLanZonePair(rule, zoneLookup))
+                continue;
+
             // Check for any->any rules
             // v2 API uses SourceMatchingTarget/DestinationMatchingTarget = "ANY"
             // Legacy API uses SourceType/DestinationType = "any" or empty Source/Destination
@@ -353,6 +358,16 @@ public class FirewallRuleAnalyzer
         }
 
         return issues;
+    }
+
+    /// <summary>Both zones of a zone-based policy are LAN zones: Internal, or a custom zone (no zone key).</summary>
+    private static bool IsLanZonePair(FirewallRule rule, FirewallZoneLookup? zoneLookup)
+    {
+        if (zoneLookup == null || string.IsNullOrEmpty(rule.SourceZoneId) || string.IsNullOrEmpty(rule.DestinationZoneId))
+            return false;
+        bool IsLan(string zoneId) => zoneLookup.GetZoneById(zoneId) is { } zone
+            && (string.IsNullOrEmpty(zone.ZoneKey) || string.Equals(zone.ZoneKey, FirewallZoneKeys.Internal, StringComparison.OrdinalIgnoreCase));
+        return IsLan(rule.SourceZoneId) && IsLan(rule.DestinationZoneId);
     }
 
     /// <summary>

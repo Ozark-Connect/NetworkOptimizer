@@ -154,7 +154,9 @@ public static class LockoutChecker
         // Networks Network Optimizer reaches the site from (the agent host's, or the server's own).
         var gateways = devicesByMac.Values.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is "ugw" or "udm" or "uxg").Select(Name).ToList();
         // IPv4 only: InSubnet answers true for what it cannot compare, which would match every network.
-        var noAddresses = options.ManagementAddresses
+        // The routed source only for a zone-membership change; every other plan (Re-address) keeps every host address.
+        var zonePlan = doc.Operations.Any(o => o.Collection == "firewall_zone" && o.Action != PlanAction.Delete);
+        var noAddresses = (zonePlan && options.ReachAddresses.Count > 0 ? options.ReachAddresses : options.ManagementAddresses)
             .Where(a => IPAddress.TryParse(a, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip))
             .ToList();
         var managementNetworks = planned.Get("networkconf")
@@ -241,7 +243,104 @@ public static class LockoutChecker
             }
         }
 
+        // 8. Zone-based firewall paths: a network that reaches its DNS resolver or the inform host today
+        //    still does. Devices stay online when DNS breaks, so the commit-confirmed revert never sees it.
+        //    Not across a subnet move (Re-address): live and planned addresses differ, so the paths cannot be compared.
+        var subnetMoves = ImpactAnalyzer.SubnetMoves(live, planned).Count > 0;
+        if (!subnetMoves && doc.Operations.Any(o => o.Collection is "firewall_zone" or "firewall_policy" or "nat")
+            && planned.Collections.ContainsKey("firewall_zone") && planned.Get("firewall_zone").Count > 0)
+            findings.AddRange(PathFindings(live, planned, doc, options, devicesByMac.Values, MgmtNetwork));
+
         return findings;
+    }
+
+    private static IEnumerable<LockoutFinding> PathFindings(ConfigState live, ConfigState planned, PlanDocument doc, PlanOptions options,
+        IEnumerable<JsonObject> devices, Func<JsonObject, string?> mgmtNetwork)
+    {
+        var names = planned.NamesById();
+        var plannedZones = ZonePaths.ZoneOfNetwork(planned);
+        var lanZones = planned.Get("firewall_zone").Where(z => ZonePaths.IsCustom(z) || Str(z["zone_key"]) is "internal" or "hotspot" or "dmz")
+            .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // The zone write that moves the network, else the policies and redirects on its zone.
+        List<string> Keys(string network)
+        {
+            var moves = doc.Operations.Where(o => o.Collection == "firewall_zone"
+                && (o.Body?["network_ids"] as JsonArray ?? []).Any(n => string.Equals(Str(n), network, StringComparison.OrdinalIgnoreCase))).Select(o => o.Key).ToList();
+            if (moves.Count > 0) return moves;
+            var zone = plannedZones.GetValueOrDefault(network);
+            return doc.Operations.Where(o => (o.Collection == "firewall_policy" && string.Equals(Str(o.Body?["source"]?["zone_id"]), zone, StringComparison.OrdinalIgnoreCase))
+                                             || (o.Collection == "nat" && Str(o.Body?["in_interface"]) == network))
+                .Select(o => o.Key).ToList();
+        }
+        string Zone(string? id) => id == null ? "another zone" : names.GetValueOrDefault(id, "another zone");
+
+        foreach (var net in planned.Get("networkconf"))
+        {
+            var id = ConfigState.IdOf(net);
+            if (!plannedZones.TryGetValue(id, out var zone) || !lanZones.Contains(zone)) continue;
+            foreach (var resolver in Resolvers(planned, net).Union(Resolvers(live, live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == id))).Distinct())
+            {
+                if (ZonePaths.Allows(live, id, resolver, "udp", 53) != true || ZonePaths.Allows(planned, id, resolver, "udp", 53) != false) continue;
+                var (dstZone, _) = ZonePaths.ZoneOfAddress(planned, plannedZones, resolver);
+                yield return new LockoutFinding
+                {
+                    Kind = "possible",
+                    Title = $"DNS stops resolving on {names.GetValueOrDefault(id, id)}",
+                    Detail = $"{names.GetValueOrDefault(id, id)} sends DNS to {resolver}, and the planned firewall blocks {Zone(zone)} to {Zone(dstZone)} on port 53. "
+                             + "Devices stay online when DNS fails, so the automatic revert does not catch it.",
+                    Devices = [],
+                    OperationKeys = Keys(id),
+                };
+            }
+        }
+
+        if (options.InformAddresses.Count == 0) yield break;
+        var byNetwork = devices.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is not ("ugw" or "udm" or "uxg"))
+            .GroupBy(d => mgmtNetwork(d)).Where(g => g.Key != null);
+        foreach (var group in byNetwork)
+            foreach (var host in options.InformAddresses)
+            {
+                if (ZonePaths.Allows(live, group.Key!, host, "tcp", 8080) != true || ZonePaths.Allows(planned, group.Key!, host, "tcp", 8080) != false) continue;
+                yield return new LockoutFinding
+                {
+                    Kind = "certain",
+                    Title = $"Devices on {names.GetValueOrDefault(group.Key!, group.Key!)} lose the UniFi Console",
+                    Detail = $"They inform to {host} on TCP 8080, and the planned firewall blocks that path. They go offline and cannot take a revert.",
+                    Devices = group.Select(Name).ToList(),
+                    OperationKeys = Keys(group.Key!),
+                };
+            }
+    }
+
+    /// <summary>
+    /// Where a network's DNS goes: the target of a DNAT that redirects its port 53, else its DHCP DNS servers,
+    /// else its own gateway address.
+    /// </summary>
+    internal static List<string> Resolvers(ConfigState state, JsonObject? network)
+    {
+        if (network == null) return [];
+        var id = ConfigState.IdOf(network);
+        var groups = state.Get("firewallgroup");
+        bool Covers53(JsonObject? filter)
+        {
+            if (filter == null) return true;
+            if (Str(filter["port"]) is { Length: > 0 } port) return ZonePaths.PortListContains(port, 53);
+            var portGroups = (filter["firewall_group_ids"] as JsonArray ?? []).Select(Str)
+                .Select(g => groups.FirstOrDefault(x => ConfigState.IdOf(x) == g)).OfType<JsonObject>()
+                .Where(g => Str(g["group_type"]) == "port-group").ToList();
+            return portGroups.Count == 0 || portGroups.Any(g => ZonePaths.PortListContains(string.Join(",", (g["group_members"] as JsonArray ?? []).Select(Str)), 53));
+        }
+        var dnat = state.Get("nat")
+            .Where(r => Str(r["type"]) == "DNAT" && Str(r["enabled"]) != "false" && Str(r["in_interface"]) == id && Covers53(r["destination_filter"] as JsonObject))
+            .Select(r => Str(r["ip_address"])?.Split('-')[0].Trim()).OfType<string>().Where(a => a.Length > 0).ToList();
+        if (dnat.Count > 0) return dnat;
+        if (Str(network["dhcpd_dns_enabled"]) == "true")
+        {
+            var servers = new[] { "dhcpd_dns_1", "dhcpd_dns_2", "dhcpd_dns_3", "dhcpd_dns_4" }
+                .Select(f => Str(network[f])).OfType<string>().Where(s => Readdressing.ParseIp(s) != null).ToList();
+            if (servers.Count > 0) return servers;
+        }
+        return Str(network["ip_subnet"])?.Split('/')[0] is { Length: > 0 } gw ? [gw] : [];
     }
 
     private static string? Str(JsonNode? n) => n switch
