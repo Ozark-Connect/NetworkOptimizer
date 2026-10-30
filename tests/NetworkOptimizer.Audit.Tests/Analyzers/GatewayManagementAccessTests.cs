@@ -261,6 +261,8 @@ public class GatewayManagementAccessTests
         issue.Message.Should().Contain("Rule 'Block IoT gateway' blocks only specific gateway addresses");
         issue.RecommendedAction.Should().StartWith("Set the destination of rule 'Block IoT gateway' to any address in the Gateway zone");
         issue.Metadata!["address_narrowed_rule_name"].Should().Be("Block IoT gateway");
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+        issue.ScoreImpact.Should().Be(3);
     }
 
     [Fact]
@@ -274,6 +276,8 @@ public class GatewayManagementAccessTests
 
         issue.Message.Should().NotContain("specific gateway addresses");
         issue.RecommendedAction.Should().Be("Block TCP 22, 80, 443 from IoT to the Gateway zone.");
+        issue.Severity.Should().Be(AuditSeverity.Critical);
+        issue.ScoreImpact.Should().Be(12);
     }
 
     [Fact]

@@ -1246,6 +1246,12 @@ public class FirewallRuleAnalyzer
             var addressBlock = userAllowRule == null
                 ? FindAddressNarrowedBlock(rules, network, gatewayZoneId, exposedPorts)
                 : null;
+            // A specific IP block is a real mitigation for current gateway addresses, but the list
+            // can miss new interfaces later; keep it visible as a recommendation with a smaller penalty.
+            var severity = addressBlock != null
+                ? AuditSeverity.Recommended
+                : critical ? AuditSeverity.Critical : AuditSeverity.Recommended;
+            var scoreImpact = addressBlock != null ? 3 : critical ? 12 : 7;
 
             var message = $"{network.Name} ({network.Purpose.ToDisplayString()}) can reach the gateway's management on TCP {portList}{via}{IpFamilyText.Suffix(ipv6Only)}";
             var action = $"Block TCP {portList} from {network.Name} to the Gateway zone.";
@@ -1262,7 +1268,7 @@ public class FirewallRuleAnalyzer
             issues.Add(new AuditIssue
             {
                 Type = IssueTypes.GatewayManagementExposed,
-                Severity = critical ? AuditSeverity.Critical : AuditSeverity.Recommended,
+                Severity = severity,
                 Message = message,
                 RecommendedAction = action,
                 Metadata = IpFamilyText.Tag(new Dictionary<string, object>
@@ -1275,7 +1281,7 @@ public class FirewallRuleAnalyzer
                     { "management_access_networks", accessNames }
                 }, ipv6Only),
                 RuleId = "FW-GATEWAY-MGMT",
-                ScoreImpact = critical ? 12 : 7
+                ScoreImpact = scoreImpact
             });
         }
 
@@ -1316,6 +1322,10 @@ public class FirewallRuleAnalyzer
         !string.IsNullOrEmpty(rule.DestinationMatchingTarget) &&
         !rule.DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsSpecificIpDestination(FirewallRule rule) =>
+        string.Equals(rule.DestinationMatchingTarget, "IP", StringComparison.OrdinalIgnoreCase) &&
+        rule.DestinationIps is { Count: > 0 } && !rule.DestinationMatchOppositeIps;
+
     /// <summary>
     /// The first enabled block rule that would cover an exposed port from this network, except that its
     /// destination names specific gateway addresses. The gateway answers on its address in every network,
@@ -1323,7 +1333,7 @@ public class FirewallRuleAnalyzer
     /// </summary>
     private static FirewallRule? FindAddressNarrowedBlock(
         List<FirewallRule> rules, NetworkInfo network, string gatewayZoneId, List<string> exposedPorts) =>
-        rules.Where(r => r.Enabled && r.ActionType.IsBlockAction() && IsDestinationNarrowed(r))
+        rules.Where(r => r.Enabled && r.ActionType.IsBlockAction() && IsSpecificIpDestination(r))
             .OrderBy(r => r.Index)
             .FirstOrDefault(r => network.EvaluableFamilies.Any(family => exposedPorts.Any(port =>
                 MatchesGatewayManagementTraffic(r, network, gatewayZoneId, port, family, requireAnyDestination: false))));
