@@ -145,7 +145,14 @@
                             {
                                 <div class="cc-problem">
                                     <span class="status-badge @(p.Level switch { "Error" => "status-error", "Warning" => "status-warning", _ => "badge-muted" })">@p.Level</span>
-                                    <code>@p.File:@p.Line</code>
+                                    @if (GroupOfFile(p.File) is { } fileGroup)
+                                    {
+                                        <button type="button" class="cc-problem-loc" aria-label="Go to @p.File line @p.Line" @onclick="() => GoToProblemAsync(fileGroup, p.Line)"><code>@p.File:@p.Line</code></button>
+                                    }
+                                    else
+                                    {
+                                        <code>@p.File:@p.Line</code>
+                                    }
                                     <div>@p.Message</div>
                                 </div>
                             }
@@ -440,6 +447,11 @@
                 await _editor.InvokeVoidAsync("setText", _host, _text, EditKey, FoldScope);
                 await _editor.InvokeVoidAsync("setSchema", _host, _schemas.GetValueOrDefault(_group, "{}"));
                 await PushProblemsAsync();
+                if (_goToLine is { } line)
+                {
+                    _goToLine = null;
+                    await _editor.InvokeVoidAsync("goToLine", _host, line);
+                }
             }
             catch (JSDisconnectedException) { }
         }
@@ -495,6 +507,25 @@
     [JSInvokable]
     public Task<string> GenerateSecret(string kind) =>
         Site.GenerateSecretAsync(Enum.Parse<NetworkOptimizer.Web.Services.Secrets.SecretKind>(kind));
+
+    private string? GroupOfFile(string file) => file.Length == 0 ? null : VisibleGroups.FirstOrDefault(g => FileName(g) == file);
+
+    // A line to put the cursor on once the next text push has run (a Problems row in another collection).
+    private int? _goToLine;
+
+    /// <summary>A Problems row's location: open its collection if needed, then put the cursor on the line.</summary>
+    private async Task GoToProblemAsync(string group, int line)
+    {
+        if (group != _group)
+        {
+            _goToLine = line;
+            await OpenGroupAsync(group);
+            return;
+        }
+        if (_editor == null) return;
+        try { await _editor.InvokeVoidAsync("goToLine", _host, line); }
+        catch (JSDisconnectedException) { }
+    }
 
     private async Task PushProblemsAsync()
     {

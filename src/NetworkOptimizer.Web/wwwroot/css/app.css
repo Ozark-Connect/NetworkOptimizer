@@ -24439,6 +24439,22 @@ body:has(.top-bar-hidden) .btn-fit {
     background: none;
     font-size: 0.75rem;
 }
+
+/* The location goes to its line in the editor. */
+.change-control .cc-problem-loc {
+    justify-self: start;
+    padding: 0;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+
+.change-control .cc-problem-loc:hover code,
+.change-control .cc-problem-loc:focus-visible code {
+    color: var(--text-secondary);
+    text-decoration: underline;
+}
 /* Migrate */
 .change-control .cc-action-cards {
     display: grid;
@@ -24678,7 +24694,8 @@ body:has(.top-bar-hidden) .btn-fit {
         grid-template-columns: 80px minmax(0, 1fr);
     }
 
-    .change-control .cc-problem code {
+    .change-control .cc-problem > code,
+    .change-control .cc-problem > .cc-problem-loc {
         grid-column: 2;
         grid-row: 1;
         justify-self: end;

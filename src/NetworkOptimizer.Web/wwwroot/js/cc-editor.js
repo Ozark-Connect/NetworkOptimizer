@@ -1092,6 +1092,26 @@ export function setProblems(host, problems) {
 }
 
 /**
+ * Puts the cursor on a line (a Problems row's location), opening any fold over it, and scrolls it
+ * to the middle. After setText's own scroll restore, which runs two frames after a document swap.
+ */
+export function goToLine(host, lineNo) {
+    const cc = host?._cc;
+    if (!cc) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (host._cc !== cc) return;
+        const view = cc.view;
+        const doc = view.state.doc;
+        const line = doc.line(Math.min(Math.max(1, lineNo), doc.lines));
+        const at = line.from + (line.text.length - line.text.trimStart().length);
+        const open = [];
+        foldedRanges(view.state).between(line.from, line.to, (from, to) => { if (from <= line.from && to >= line.from) open.push(unfoldEffect.of({ from, to })); });
+        view.dispatch({ effects: [...open, EditorView.scrollIntoView(at, { y: 'center' })], selection: { anchor: at } });
+        view.focus();
+    }));
+}
+
+/**
  * schema: { collections: { yamlName: Shape }, refs: { refKey: [names] } }
  * Shape: { fields: [{ name, values?, ref?, detail?, shape? }] } in display order; shape nests.
  */
