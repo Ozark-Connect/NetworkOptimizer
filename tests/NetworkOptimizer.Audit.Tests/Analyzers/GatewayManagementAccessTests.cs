@@ -250,6 +250,47 @@ public class GatewayManagementAccessTests
     }
 
     [Fact]
+    public void BlockToSpecificGatewayAddress_NamedWithReason()
+    {
+        var iot = Network("IoT", NetworkPurpose.IoT, 20);
+        var block = Rule("Block IoT gateway", "block", networkIds: [iot.Id], protocol: "tcp", port: "22,80,443",
+            destTarget: "IP", destIps: ["192.168.20.1"]);
+
+        var issue = Check([block, StockAllowAll()], iot).Should().ContainSingle().Subject;
+
+        issue.Message.Should().Contain("Rule 'Block IoT gateway' blocks only specific gateway addresses");
+        issue.RecommendedAction.Should().StartWith("Set the destination of rule 'Block IoT gateway' to any address in the Gateway zone");
+        issue.Metadata!["address_narrowed_rule_name"].Should().Be("Block IoT gateway");
+    }
+
+    [Fact]
+    public void BlockToSpecificGatewayAddress_OtherProtocol_NotNamed()
+    {
+        var iot = Network("IoT", NetworkPurpose.IoT, 20);
+        var block = Rule("Block IoT gateway UDP", "block", networkIds: [iot.Id], protocol: "udp", port: "22,80,443",
+            destTarget: "IP", destIps: ["192.168.20.1"]);
+
+        var issue = Check([block, StockAllowAll()], iot).Should().ContainSingle().Subject;
+
+        issue.Message.Should().NotContain("specific gateway addresses");
+        issue.RecommendedAction.Should().Be("Block TCP 22, 80, 443 from IoT to the Gateway zone.");
+    }
+
+    [Fact]
+    public void UserAllowExposes_AddressBlockNotNamed()
+    {
+        var iot = Network("IoT", NetworkPurpose.IoT, 20);
+        var allow = Rule("Let IoT manage", "allow", index: 1, networkIds: [iot.Id], protocol: "tcp", port: "443");
+        var block = Rule("Block IoT gateway", "block", index: 2, networkIds: [iot.Id], protocol: "tcp", port: "22,80,443",
+            destTarget: "IP", destIps: ["192.168.20.1"]);
+        var anyBlock = Rule("Block mgmt", "block", index: 3, networkIds: [iot.Id], protocol: "tcp", port: "22,80");
+
+        var issue = Check([allow, block, anyBlock, StockAllowAll()], iot).Should().ContainSingle().Subject;
+
+        issue.Message.Should().Contain("through rule 'Let IoT manage'").And.NotContain("specific gateway addresses");
+    }
+
+    [Fact]
     public void BlockWithSourcePort_DoesNotDecide()
     {
         var iot = Network("IoT", NetworkPurpose.IoT, 20);

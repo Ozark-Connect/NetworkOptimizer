@@ -1227,7 +1227,20 @@ public class FirewallRuleAnalyzer
             var portList = string.Join(", ", GatewayManagementPorts.Where(exposedPorts.Contains));
             var via = userAllowRule != null ? $" through rule '{userAllowRule.Name}'" : "";
 
+            // A block that only misses because it names specific gateway addresses gets called out by name
+            var addressBlock = userAllowRule == null
+                ? FindAddressNarrowedBlock(rules, network, gatewayZoneId, exposedPorts)
+                : null;
+
+            var message = $"{network.Name} ({network.Purpose.ToDisplayString()}) can reach the gateway's management on TCP {portList}{via}{IpFamilyText.Suffix(ipv6Only)}";
             var action = $"Block TCP {portList} from {network.Name} to the Gateway zone.";
+            if (addressBlock != null)
+            {
+                message += $". Rule '{addressBlock.Name}' blocks only specific gateway addresses, and the gateway " +
+                    "also answers on its address in every other network";
+                action = $"Set the destination of rule '{addressBlock.Name}' to any address in the Gateway zone, " +
+                    "so it covers every gateway address, including networks added later.";
+            }
             if (strict)
                 action += $" Allow access from {accessNames} (Management Access).";
 
@@ -1235,7 +1248,7 @@ public class FirewallRuleAnalyzer
             {
                 Type = IssueTypes.GatewayManagementExposed,
                 Severity = critical ? AuditSeverity.Critical : AuditSeverity.Recommended,
-                Message = $"{network.Name} ({network.Purpose.ToDisplayString()}) can reach the gateway's management on TCP {portList}{via}{IpFamilyText.Suffix(ipv6Only)}",
+                Message = message,
                 RecommendedAction = action,
                 Metadata = IpFamilyText.Tag(new Dictionary<string, object>
                 {
@@ -1243,6 +1256,7 @@ public class FirewallRuleAnalyzer
                     { "source_purpose", network.Purpose.ToString() },
                     { "ports", portList },
                     { "rule_name", userAllowRule?.Name ?? "" },
+                    { "address_narrowed_rule_name", addressBlock?.Name ?? "" },
                     { "management_access_networks", accessNames }
                 }, ipv6Only),
                 RuleId = "FW-GATEWAY-MGMT",
@@ -1259,12 +1273,12 @@ public class FirewallRuleAnalyzer
     /// address, app, or domain do not decide this traffic and are skipped.
     /// </summary>
     private static bool MatchesGatewayManagementTraffic(
-        FirewallRule rule, NetworkInfo network, string gatewayZoneId, string port, IpFamily family)
+        FirewallRule rule, NetworkInfo network, string gatewayZoneId, string port, IpFamily family,
+        bool requireAnyDestination = true)
     {
         if (!string.Equals(rule.DestinationZoneId, gatewayZoneId, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (!string.IsNullOrEmpty(rule.DestinationMatchingTarget) &&
-            !rule.DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+        if (requireAnyDestination && IsDestinationNarrowed(rule))
             return false;
         if (!string.IsNullOrEmpty(rule.SourcePort) ||
             rule.WebDomains is { Count: > 0 } || rule.AppIds is { Count: > 0 } || rule.AppCategoryIds is { Count: > 0 })
@@ -1282,6 +1296,22 @@ public class FirewallRuleAnalyzer
             FirewallGroupHelper.IncludesPort(rule.DestinationPort, port) != rule.DestinationMatchOppositePorts;
         return portCovered && FirewallGroupHelper.AllowsProtocol(rule.Protocol, rule.MatchOppositeProtocol, "tcp");
     }
+
+    private static bool IsDestinationNarrowed(FirewallRule rule) =>
+        !string.IsNullOrEmpty(rule.DestinationMatchingTarget) &&
+        !rule.DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The first enabled block rule that would cover an exposed port from this network, except that its
+    /// destination names specific gateway addresses. The gateway answers on its address in every network,
+    /// so such a rule leaves the others reachable.
+    /// </summary>
+    private static FirewallRule? FindAddressNarrowedBlock(
+        List<FirewallRule> rules, NetworkInfo network, string gatewayZoneId, List<string> exposedPorts) =>
+        rules.Where(r => r.Enabled && r.ActionType.IsBlockAction() && IsDestinationNarrowed(r))
+            .OrderBy(r => r.Index)
+            .FirstOrDefault(r => network.EvaluableFamilies.Any(family => exposedPorts.Any(port =>
+                MatchesGatewayManagementTraffic(r, network, gatewayZoneId, port, family, requireAnyDestination: false))));
 
     /// <summary>
     /// UniFi's predefined Hotspot -> Gateway "Allow Hotspot Portal Redirects" rule. Newer UniFi Network
