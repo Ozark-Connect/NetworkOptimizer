@@ -1418,8 +1418,26 @@ function quoteIfNeeded(s) {
     return plain && !ambiguous ? s : JSON.stringify(s);
 }
 
-// The schema shape for keys written at `indent` on line `lineNo`: walks up to the collection
-// key at column 0, then down through each enclosing mapping key.
+// The top-level collection each line sits under, in one pass, cached per document version.
+const collectionLines = new WeakMap();
+function collectionOfLine(doc, lineNo) {
+    let byLine = collectionLines.get(doc);
+    if (!byLine) {
+        byLine = new Array(doc.lines + 1);
+        let current = null;
+        for (let n = 1; n <= doc.lines; n++) {
+            const m = /^([A-Za-z0-9_.-]+):/.exec(doc.line(n).text);
+            if (m) current = m[1];
+            byLine[n] = current;
+        }
+        collectionLines.set(doc, byLine);
+    }
+    return byLine[lineNo] ?? null;
+}
+
+// The schema shape for keys written at `indent` on line `lineNo`: walks up through each enclosing
+// mapping key to the object's own "- " line at the margin, never further: walking on to the
+// collection key made every line cost the whole collection above it (10 s on Firewall Policies).
 function shapeAt(schema, doc, lineNo, indent) {
     const parents = [];
     let want = indent;
@@ -1431,6 +1449,11 @@ function shapeAt(schema, doc, lineNo, indent) {
         if (!m) continue;
         const keyIndent = m[1].length + (m[2] ? 2 : 0);
         if (keyIndent === 0) { collection = m[3]; break; }
+        if (m[1] === '' && m[2]) {
+            if (keyIndent < want) parents.unshift(m[3]);
+            collection = collectionOfLine(doc, n);
+            break;
+        }
         // A list item's first key ("- name:") sits at its siblings' indent, so it never matches here.
         if (keyIndent < want) {
             parents.unshift(m[3]);
