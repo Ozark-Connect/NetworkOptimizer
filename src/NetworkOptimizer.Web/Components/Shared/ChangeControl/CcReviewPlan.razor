@@ -380,7 +380,7 @@ else
                             <div>@step.Title</div>
                             @foreach (var g in step.Groups)
                             {
-                                <div class="cc-item-detail">@g.Collection: @string.Join(", ", g.Names)</div>
+                                <div class="cc-item-detail">@g.Collection: @string.Join(", ", g.Names.Select(name => DisplayWriteOrderName(g.Collection, name, doc)))</div>
                             }
                             @if (!string.IsNullOrEmpty(step.Detail))
                             {
@@ -668,6 +668,14 @@ else
         if (operation.Action == PlanAction.Reorder && name.StartsWith("Policy order, ", StringComparison.Ordinal))
             return name["Policy order, ".Length..].Replace(" to ", " → ", StringComparison.Ordinal);
         return name;
+    }
+
+    private static string DisplayWriteOrderName(string collection, string name, PlanDocument doc)
+    {
+        var operation = doc.Operations.FirstOrDefault(o => o.ObjectName == name
+            && (ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection) == collection)
+            ?? doc.Operations.FirstOrDefault(o => o.ObjectName == name);
+        return operation == null ? name : DisplayObjectName(operation, doc);
     }
 
     private void AcknowledgeAll(PlanDocument doc)

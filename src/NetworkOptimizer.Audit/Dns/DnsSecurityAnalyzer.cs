@@ -109,7 +109,7 @@ public class DnsSecurityAnalyzer
         }
 
         // Analyze firewall rules
-        if (firewallRules != null && firewallRules.Count > 0)
+        if (firewallRules != null)
         {
             AnalyzeFirewallRules(firewallRules, networks, result, externalZoneId);
         }
@@ -794,6 +794,7 @@ public class DnsSecurityAnalyzer
         // Calculate network coverage stats
         if (networks != null)
         {
+            AddInternetBlockedCoverage(networks, firewallRules, externalZoneId, family, result);
             if (result.HasDns53BlockRule)
                 result.Dns53ProvidesFullCoverage = CalculateCoverage(networks, result.Dns53CoveredNetworkIds, result.Dns53CoveredNetworks, result.Dns53UncoveredNetworks, "DNS53");
             if (result.HasDotBlockRule)
@@ -801,6 +802,61 @@ public class DnsSecurityAnalyzer
             if (result.HasDoqBlockRule)
                 result.DoqProvidesFullCoverage = CalculateCoverage(networks, result.DoqCoveredNetworkIds, result.DoqCoveredNetworks, result.DoqUncoveredNetworks, "DoQ");
         }
+    }
+
+    /// <summary>
+    /// A network that cannot reach the Internet cannot use public DNS on any port. Honor both
+    /// UniFi's Internet Access setting and an effective broad External-zone deny, using the same
+    /// ordering-aware firewall helper as the Internet-access audit. Network isolation is deliberately
+    /// absent here: it governs traffic to other LAN networks, not to the External zone.
+    /// </summary>
+    private void AddInternetBlockedCoverage(
+        List<NetworkInfo> networks,
+        List<FirewallRule> firewallRules,
+        string? externalZoneId,
+        IpFamily family,
+        DnsSecurityResult result)
+    {
+        // A zone ID is required to reason about the broad External-zone policy. It also avoids
+        // treating partial legacy test/config data, which lacks zone semantics, as definitive.
+        if (string.IsNullOrEmpty(externalZoneId)) return;
+
+        foreach (var network in networks)
+        {
+            var coverageName = network.InternetAccessEnabled
+                ? "Internet access blocked by firewall"
+                : "Internet Access disabled";
+            if (FirewallRuleAnalyzer.IsInternetTrafficBlocked(network, firewallRules, externalZoneId, "53", "udp", family))
+            {
+                AddCoverage(result.Dns53CoveredNetworkIds, result.Dns53RuleCoverage, network, coverageName);
+                result.HasDns53BlockRule = true;
+            }
+            if (FirewallRuleAnalyzer.IsInternetTrafficBlocked(network, firewallRules, externalZoneId, "853", "tcp", family))
+            {
+                AddCoverage(result.DotCoveredNetworkIds, result.DotRuleCoverage, network, coverageName);
+                result.HasDotBlockRule = true;
+            }
+            if (FirewallRuleAnalyzer.IsInternetTrafficBlocked(network, firewallRules, externalZoneId, "853", "udp", family))
+            {
+                AddCoverage(result.DoqCoveredNetworkIds, result.DoqRuleCoverage, network, coverageName);
+                result.HasDoqBlockRule = true;
+            }
+        }
+    }
+
+    private static void AddCoverage(
+        HashSet<string> coveredNetworkIds,
+        Dictionary<string, List<string>> coverage,
+        NetworkInfo network,
+        string coverageName)
+    {
+        coveredNetworkIds.Add(network.Id);
+        if (!coverage.TryGetValue(coverageName, out var names))
+        {
+            names = [];
+            coverage[coverageName] = names;
+        }
+        if (!names.Contains(network.Name)) names.Add(network.Name);
     }
 
     /// <summary>
@@ -2899,7 +2955,7 @@ public class DnsSecurityAnalyzer
         var ipv6Networks = networks.Where(n => n.IsIpv6Evaluable && !excludedVlans.Contains(n.VlanId)).ToList();
 
         var ipv6 = new DnsSecurityResult();
-        if (firewallRules is { Count: > 0 })
+        if (firewallRules != null)
             AnalyzeFirewallRules(firewallRules, ipv6Networks, ipv6, externalZoneId, IpFamily.IPv6);
 
         var ipv6DnatCoveredIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

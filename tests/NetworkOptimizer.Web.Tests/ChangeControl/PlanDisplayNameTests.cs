@@ -13,6 +13,10 @@ public class PlanDisplayNameTests
         (string)typeof(CcReviewPlan).GetMethod("DisplayObjectName", BindingFlags.NonPublic | BindingFlags.Static)!
             .Invoke(null, [operation, doc])!;
 
+    private static string DisplayWriteOrder(string collection, string name, PlanDocument doc) =>
+        (string)typeof(CcReviewPlan).GetMethod("DisplayWriteOrderName", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [collection, name, doc])!;
+
     private static PlanOperation Zone(string name, string id) => new()
     {
         Key = $"firewall_zone:create:{name}:{id}", ObjectName = name,
@@ -48,6 +52,22 @@ public class PlanDisplayNameTests
 
         Display(operation, doc).Should().Be("Office → Guest, LAN, Office");
         JsonSerializer.Serialize(doc).Should().Be(original);
+    }
+
+    [Fact]
+    public void Write_order_resolves_references_and_formats_policy_order()
+    {
+        var zone = Zone("Management", "new-zone-management");
+        var rawName = $"Policy order, @ref:{zone.Key} to Gateway";
+        var reorder = new PlanOperation { Collection = "firewall_policy", ObjectName = rawName, Action = PlanAction.Reorder };
+        var doc = new PlanDocument
+        {
+            Operations = [zone, reorder],
+            WriteOrder = [new WriteStep { Groups = [new WriteStepGroup { Collection = "Firewall policies", Names = [rawName] }] }],
+        };
+
+        DisplayWriteOrder("Firewall policies", rawName, doc).Should().Be("Management → Gateway");
+        doc.WriteOrder[0].Groups[0].Names.Should().ContainSingle().Which.Should().Be(rawName, "display formatting must not alter the stored plan");
     }
 
     [Theory]
