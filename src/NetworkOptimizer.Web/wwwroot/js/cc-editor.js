@@ -933,9 +933,16 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                 // closeBrackets, which pairs a quote whenever the next character is not a letter ("[TEST]").
                 Prec.highest(EditorView.inputHandler.of((v, from, to, insert) => {
                     if ((insert !== '"' && insert !== "'") || from !== to) return false;
-                    const end = quotedEnd(v.state.doc.lineAt(from), from);
-                    if (end === null) return false;
-                    v.dispatch({ changes: [{ from, insert }, { from: end, insert }], selection: { anchor: end + 2 }, userEvent: 'input.type' });
+                    const line = v.state.doc.lineAt(from);
+                    const end = quotedEnd(line, from);
+                    if (end !== null) {
+                        v.dispatch({ changes: [{ from, insert }, { from: end, insert }], selection: { anchor: end + 2 }, userEvent: 'input.type' });
+                        return true;
+                    }
+                    // And one typed after a value quotes the value behind it.
+                    const start = quotedStart(line, from);
+                    if (start === null) return false;
+                    v.dispatch({ changes: [{ from: start, insert }, { from, insert }], selection: { anchor: from + 2 }, userEvent: 'input.type' });
                     return true;
                 })),
             ],
@@ -1205,6 +1212,23 @@ export function quotedEnd(line, pos) {
     const stop = rest.search(inList ? /,|\]|\}|\s#/ : /\s#/);
     const value = (stop < 0 ? rest : rest.slice(0, stop)).replace(/\s+$/, '');
     return value ? pos + value.length : null;
+}
+
+/**
+ * Where a quote typed at pos opens when it ends a value: the start of that value (after "key: ",
+ * "- ", or a list's bracket or comma). Null when text follows in the value, nothing precedes it,
+ * or the value already holds a quote. Pure, exported for testing.
+ */
+export function quotedStart(line, pos) {
+    const before = line.text.slice(0, pos - line.from);
+    const rest = line.text.slice(pos - line.from);
+    if (!/^\s*(#.*)?$|^\s*[,\]}]/.test(rest) || !before || /[\s"'[{,:]$/.test(before)) return null;
+    const lead = /[[{,]\s*|:\s+|^\s*-\s+/g;
+    let start = -1;
+    for (let m; (m = lead.exec(before));) start = m.index + m[0].length;
+    if (start < 0) return null;
+    const value = before.slice(start);
+    return value && !/["'#]/.test(value) ? line.from + start : null;
 }
 
 /** The value on pos's "key: value" line, without a trailing comment; '' when none. */
