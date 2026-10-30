@@ -253,8 +253,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             _logger.LogInformation("Change detection for site {Site} reads the UniFi AUDIT log again", _slug);
         _auditUnreadable = !auditOk;
         if (events.Count > 0)
-            _logger.LogDebug("Change detection for site {Site}: {Events} AUDIT event(s), {Named} naming an admin", _slug, events.Count,
-                events.Count(e => !string.IsNullOrEmpty(e.AdminName) || !string.IsNullOrEmpty(e.AdminId)));
+            _logger.LogDebug("Change detection for site {Site}: {Events} AUDIT event(s), {Named} naming an admin: {Keys}", _slug, events.Count,
+                events.Count(e => !string.IsNullOrEmpty(e.AdminName) || !string.IsNullOrEmpty(e.AdminId)),
+                string.Join("; ", events.Select(e => $"{e.Key} {e.Section}/{e.ObjectName} by {e.AdminName ?? "-"}")));
         var seen = state.LastAuditEventIdsJson is { Length: > 0 } j ? JsonSerializer.Deserialize<HashSet<string>>(j) ?? [] : [];
         events = events.Where(e => !seen.Contains(e.Id)).ToList();
 
