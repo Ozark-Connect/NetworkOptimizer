@@ -30,6 +30,36 @@ public class ImpactAnalyzerTests
     }
 
     [Fact]
+    public void ZoneMembership_ANetworkMovedToANewZone_IsAuditedInIt()
+    {
+        // Set Up Zones moves IoT out of Internal into a zone the plan creates; the network's own
+        // firewall_zone_id still names Internal, and the audit read its zone from that.
+        var state = State(
+            ("networkconf", """{"_id":"n1","name":"Default","firewall_zone_id":"z-internal"}"""),
+            ("networkconf", """{"_id":"n2","name":"IoT","firewall_zone_id":"z-internal"}"""),
+            ("firewall_zone", """{"_id":"z-internal","name":"Internal","network_ids":["n1"]}"""),
+            ("firewall_zone", """{"_id":"@ref:firewall_zone:create:IoT","name":"IoT","network_ids":["n2"]}"""));
+
+        var planned = ImpactAnalyzer.WithZoneMembership(state);
+
+        planned.Get("networkconf").Single(n => n["name"]!.ToString() == "IoT")["firewall_zone_id"]!.ToString()
+            .Should().Be("@ref:firewall_zone:create:IoT");
+        planned.Get("networkconf").Single(n => n["name"]!.ToString() == "Default")["firewall_zone_id"]!.ToString().Should().Be("z-internal");
+        // The plan's own state is left as it is: only the audit's copy moves.
+        state.Get("networkconf").Single(n => n["name"]!.ToString() == "IoT")["firewall_zone_id"]!.ToString().Should().Be("z-internal");
+    }
+
+    [Fact]
+    public void ZoneMembership_NothingMoved_IsTheSameState()
+    {
+        var state = State(
+            ("networkconf", """{"_id":"n1","name":"Default","firewall_zone_id":"z-internal"}"""),
+            ("firewall_zone", """{"_id":"z-internal","name":"Internal","network_ids":["n1"]}"""));
+
+        ImpactAnalyzer.WithZoneMembership(state).Should().BeSameAs(state);
+    }
+
+    [Fact]
     public void Overlay_PortTableTakesTheStatesOverrides()
     {
         // The state's port 4 is on a profile; live has since been set to explicit settings.

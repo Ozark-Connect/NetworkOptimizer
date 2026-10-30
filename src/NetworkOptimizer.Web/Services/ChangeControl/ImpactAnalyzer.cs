@@ -60,6 +60,7 @@ public static class ImpactAnalyzer
         IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)>? moves = null)
     {
         if (moves is { Count: > 0 }) state = MoveGenerated(state, moves);
+        state = WithZoneMembership(state);
         return new AuditConfigInputs
         {
             DeviceDataJson = OverlayDevices(state, liveDevicesJson, moves),
@@ -76,6 +77,26 @@ public static class ImpactAnalyzer
             UpnpEnabled = state.Get("setting").FirstOrDefault(s => s["key"]?.ToString() == "usg")?["upnp_enabled"] is JsonValue v
                           && v.TryGetValue<bool>(out var b) ? b : null,
         };
+    }
+
+    /// <summary>
+    /// Each network's firewall_zone_id as the planned zones list it. The audit reads a network's zone from
+    /// that field, which a plan moving networks between zones (Set Up Zones, an edit of a zone's networks)
+    /// does not change: IoT moved to a new zone was audited in Internal, and its block rules never applied.
+    /// </summary>
+    internal static ConfigState WithZoneMembership(ConfigState state)
+    {
+        if (!state.Collections.ContainsKey("firewall_zone") || !state.Collections.ContainsKey("networkconf")) return state;
+        var zoneOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var zone in state.Get("firewall_zone"))
+            foreach (var id in (zone["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>())
+                zoneOf[id] = ConfigState.IdOf(zone);
+        var moved = state.Get("networkconf").Where(n => zoneOf.TryGetValue(ConfigState.IdOf(n), out var z) && n["firewall_zone_id"]?.ToString() != z).ToList();
+        if (moved.Count == 0) return state;
+        var copy = state.Clone();
+        foreach (var n in copy.Get("networkconf"))
+            if (zoneOf.TryGetValue(ConfigState.IdOf(n), out var z)) n["firewall_zone_id"] = z;
+        return copy;
     }
 
     /// <summary>Networks whose subnet differs between two states, matched by ID, as (old, new) pairs.</summary>
