@@ -151,6 +151,7 @@ public static class PlanBuilder
 
         AddPolicyOrder(doc, desired, live, idMap, creates, liveCtx, options);
         CheckReferrers(doc, live, desired, idMap);
+        ZoneMovesAfterTheirTarget(doc, live);
 
         var planned = PlannedState(live, doc);
         foreach (var finding in LockoutChecker.Check(live, planned, doc, options))
@@ -1056,6 +1057,7 @@ public static class PlanBuilder
         // A body naming a create, or an update of an object this plan creates (a new WLAN's WPA3 step).
         var needs = ops.ToDictionary(o => o.Key, o => RefsIn(o.Body)
             .Concat(o.ObjectId is { } id && id.StartsWith(RefPrefix, StringComparison.Ordinal) ? [id[RefPrefix.Length..]] : [])
+            .Concat(o.After)
             .Where(k => k != o.Key && byKey.ContainsKey(k)).ToHashSet(), StringComparer.Ordinal);
         var placed = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<PlanOperation>(ops.Count);
@@ -1068,6 +1070,26 @@ public static class PlanBuilder
             result.Add(next);
         }
         return result;
+    }
+
+    /// <summary>
+    /// A zone that gives up a network writes after the zone that takes it. UniFi refuses to leave a
+    /// network in no zone (api.err.NetworkCantBeRemovedFromDefaultZone), so the name order is not safe.
+    /// </summary>
+    private static void ZoneMovesAfterTheirTarget(PlanDocument doc, ConfigState live)
+    {
+        static HashSet<string> Ids(JsonNode? node) =>
+            (node?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var zones = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action != PlanAction.Delete && o.Body?["network_ids"] is JsonArray).ToList();
+        foreach (var op in zones.Where(o => o.Action == PlanAction.Update))
+        {
+            var liveZone = live.Get("firewall_zone").FirstOrDefault(z => ConfigState.IdOf(z).Equals(op.ObjectId, StringComparison.OrdinalIgnoreCase));
+            var given = Ids(liveZone);
+            given.ExceptWith(Ids(op.Body));
+            if (given.Count == 0) continue;
+            op.After.AddRange(zones.Where(t => t != op && Ids(t.Body).Overlaps(given)).Select(t => t.Key).Except(op.After));
+        }
     }
 
     private static IEnumerable<string> RefsIn(JsonNode? node) => node switch

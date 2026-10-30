@@ -86,6 +86,9 @@ public sealed class PlanOperation
 
     /// <summary>The plan writes this collection only after the gateway is adopted (blank-console restore).</summary>
     public bool NeedsGateway { get; set; }
+
+    /// <summary>Keys of writes that must run first, beyond the creates the body references (a zone's new home for a network it gives up).</summary>
+    public List<string> After { get; set; } = [];
 }
 
 /// <summary>A lockout pre-flight finding.</summary>

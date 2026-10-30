@@ -111,6 +111,20 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void Plan_WritesTheZoneGivingUpANetworkAfterTheZoneTakingIt()
+    {
+        var live = Live();
+        var desired = ZoneSetup.Desired(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode));
+
+        var doc = PlanBuilder.Build(desired, live, ZoneSetup.Options());
+
+        int At(PlanAction action, string name) => doc.Operations.FindIndex(o => o.Collection == "firewall_zone" && o.Action == action && o.ObjectName == name);
+        var internalUpdate = At(PlanAction.Update, "Internal");
+        internalUpdate.Should().BeGreaterThan(At(PlanAction.Create, "IoT"), "UniFi refuses to leave a network in no zone");
+        internalUpdate.Should().BeGreaterThan(At(PlanAction.Create, "Cameras"));
+    }
+
+    [Fact]
     public void LegacySite_IsDetected()
     {
         var s = new ConfigState();
