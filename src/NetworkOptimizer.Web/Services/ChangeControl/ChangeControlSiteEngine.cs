@@ -252,10 +252,11 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         else if (auditOk && _auditUnreadable)
             _logger.LogInformation("Change detection for site {Site} reads the UniFi AUDIT log again", _slug);
         _auditUnreadable = !auditOk;
-        if (events.Count > 0)
-            _logger.LogDebug("Change detection for site {Site}: {Events} AUDIT event(s), {Named} naming an admin: {Keys}", _slug, events.Count,
-                events.Count(e => !string.IsNullOrEmpty(e.AdminName) || !string.IsNullOrEmpty(e.AdminId)),
-                string.Join("; ", events.Select(e => $"{e.Key} {e.Section}/{e.ObjectName} by {e.AdminName ?? "-"}")));
+        // A key this reads as neither a change nor a known non-change is a UniFi event it misses (a create
+        // read Unattributed this way). Information: this logger's category is outside the app's Debug level.
+        foreach (var e in events.Where(e => !e.IsChange && e.Key is not ("GENERATED" or "ADMIN_ACCESS")).DistinctBy(e => e.Key))
+            _logger.LogInformation("Change detection for site {Site}: AUDIT event {Key} ({Section}/{Object} by {Admin}) is not read as a change",
+                _slug, e.Key, e.Section, e.ObjectName, e.AdminName ?? "-");
         var seen = state.LastAuditEventIdsJson is { Length: > 0 } j ? JsonSerializer.Deserialize<HashSet<string>>(j) ?? [] : [];
         events = events.Where(e => !seen.Contains(e.Id)).ToList();
 
