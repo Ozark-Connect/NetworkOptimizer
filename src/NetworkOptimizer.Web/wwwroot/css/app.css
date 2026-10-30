@@ -25445,8 +25445,22 @@ body:has(.top-bar-hidden) .btn-fit {
     transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-.card-index-out {
+/* Idle: a slow dim. Scroll, hover, or focus: back up quickly (the base 0.15s transition). */
+.card-index.card-index-idle {
+    opacity: 0.4;
+    transition: opacity 1.2s ease;
+}
+
+.card-index.card-index-idle:hover,
+.card-index.card-index-idle:focus-within {
+    opacity: 1;
+    transition: opacity 0.15s ease-out;
+}
+
+.card-index.card-index-out,
+.card-index-row.card-index-out {
     opacity: 0;
+    transition: opacity 0.15s ease-in;
 }
 
 @keyframes card-index-in {
@@ -25455,7 +25469,12 @@ body:has(.top-bar-hidden) .btn-fit {
 
 @media (prefers-reduced-motion: reduce) {
     .card-index,
+    .card-index.card-index-idle,
+    .card-index.card-index-idle:hover,
+    .card-index.card-index-idle:focus-within,
+    .card-index.card-index-out,
     .card-index-row,
+    .card-index-row.card-index-out,
     .card-index-link {
         animation: none;
         transition: none;
