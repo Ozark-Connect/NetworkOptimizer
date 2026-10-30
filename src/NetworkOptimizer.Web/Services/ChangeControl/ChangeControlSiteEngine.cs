@@ -537,6 +537,17 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Reads the live config without storing it (plan building, Compare against Now).</summary>
     public Task<ConfigState> ReadLiveAsync(CancellationToken ct) => _reader.ReadAsync(_api, ct);
 
+    /// <summary>Live devices only, read the same way as in <see cref="ReadLiveAsync"/>, for pages that list devices.</summary>
+    public async Task<ConfigState> ReadLiveDevicesAsync(CancellationToken ct)
+    {
+        var state = new ConfigState { ReadAt = DateTime.UtcNow };
+        var def = ConfigCollections.Get("device")!;
+        var (objects, error) = await _reader.ReadCollectionAsync(_api, def, ct);
+        if (error != null) state.ReadErrors[def.Key] = error;
+        else state.Collections[def.Key] = objects!;
+        return state;
+    }
+
     /// <summary>Loads a stored snapshot's state, using the in-memory copy for the newest.</summary>
     public async Task<ConfigState?> LoadSnapshotStateAsync(int snapshotId, CancellationToken ct)
     {

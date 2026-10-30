@@ -70,7 +70,7 @@ public sealed partial class ChangeControlService
     public async Task<ReplaceDevicesView> GetReplaceDevicesAsync(CancellationToken cancellationToken = default)
     {
         var (snap, meta) = await LatestSnapshotStateAsync(cancellationToken);
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveDevicesAsync(cancellationToken);
         var snapMacs = snap?.Get("device").Select(d => d["mac"]?.ToString().ToLowerInvariant()).OfType<string>().ToHashSet() ?? [];
         return new ReplaceDevicesView
         {
@@ -195,7 +195,7 @@ public sealed partial class ChangeControlService
 
     public async Task<List<MigrateDeviceView>> GetPendingAdoptionsAsync(string? sourceSiteSlug, int? snapshotId, CancellationToken cancellationToken = default)
     {
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveDevicesAsync(cancellationToken);
         var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var (latest, _) = await LatestSnapshotStateAsync(cancellationToken);
         foreach (var d in latest?.Get("device") ?? []) if (d["mac"]?.ToString() is { } m) known.Add(m);
