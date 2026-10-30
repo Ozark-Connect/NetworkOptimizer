@@ -624,7 +624,7 @@
                     <tbody>
                         @foreach (var device in devices)
                         {
-                            var rowResult = RowResultFor(_otherRowMessages, device.Host);
+                            var rowResult = RowResultFor(_otherRowMessages, device.Host, device.Name);
                             <tr class="@(rowResult != null ? "has-result" : null)">
                                 <td class="hide-mobile">@device.Name</td>
                                 <td class="hide-mobile"><code>@device.Host</code></td>
@@ -1626,6 +1626,10 @@
     // Newest server-initiated result per DeviceHost, rebuilt from testHistory on every load.
     private Dictionary<string, Iperf3Result> _latestResultByHost = new(StringComparer.OrdinalIgnoreCase);
 
+    // Newest server-initiated result per DeviceName among results stored under an IP. A test that
+    // reaches iperf3 stores the IP it connected to in place of the device's hostname.
+    private Dictionary<string, Iperf3Result> _latestIpResultByName = new(StringComparer.OrdinalIgnoreCase);
+
     // UniFi Device Speed Test search and filters; family and Online only persist per user per site.
     private string _deviceSearch = "";
     private string _deviceFamily = "";
@@ -2411,13 +2415,19 @@
     /// What a device's result row shows: this visit's message when there is one, else the newest stored
     /// result for the host. A result past <see cref="RowResultMaxAge"/> is dropped. Null renders no row.
     /// </summary>
-    private RowMessage? RowResultFor(Dictionary<string, RowMessage> messages, string? host)
+    private RowMessage? RowResultFor(Dictionary<string, RowMessage> messages, string? host, string? name = null)
     {
         if (string.IsNullOrEmpty(host)) return null;
         var cutoff = DateTime.UtcNow - RowResultMaxAge;
         if (messages.TryGetValue(host, out var message) && (message.Result == null || message.Result.TestTime >= cutoff))
             return message;
-        return _latestResultByHost.TryGetValue(host, out var stored) && stored.TestTime >= cutoff ? MessageFor(stored) : null;
+        _latestResultByHost.TryGetValue(host, out var stored);
+        // A hostname row's successful runs are stored under the IP iperf3 connected to, so take those too.
+        if (!string.IsNullOrEmpty(name) && !System.Net.IPAddress.TryParse(host, out _)
+            && _latestIpResultByName.TryGetValue(name, out var byName)
+            && (stored == null || byName.TestTime > stored.TestTime))
+            stored = byName;
+        return stored != null && stored.TestTime >= cutoff ? MessageFor(stored) : null;
     }
 
     /// <summary>A row's text, with the result's age when it carries one ("· 3 hours ago").</summary>
@@ -2427,11 +2437,17 @@
     private void RebuildLatestResults()
     {
         var latest = new Dictionary<string, Iperf3Result>(StringComparer.OrdinalIgnoreCase);
+        var latestIpByName = new Dictionary<string, Iperf3Result>(StringComparer.OrdinalIgnoreCase);
         foreach (var result in testHistory
                      .Where(r => r.Direction == SpeedTestDirection.ServerToDevice && !string.IsNullOrEmpty(r.DeviceHost))
                      .OrderByDescending(r => r.TestTime))
+        {
             latest.TryAdd(result.DeviceHost, result);
+            if (!string.IsNullOrEmpty(result.DeviceName) && System.Net.IPAddress.TryParse(result.DeviceHost, out _))
+                latestIpByName.TryAdd(result.DeviceName, result);
+        }
         _latestResultByHost = latest;
+        _latestIpResultByName = latestIpByName;
 
         // A deleted or cleared result leaves its row; a refusal that was never saved (Id 0) stays for the visit.
         var ids = testHistory.Select(r => r.Id).ToHashSet();
