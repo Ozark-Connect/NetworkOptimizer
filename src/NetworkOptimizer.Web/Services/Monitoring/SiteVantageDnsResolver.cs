@@ -61,6 +61,17 @@ public class SiteVantageDnsResolver
         return ip;
     }
 
+    /// <summary>
+    /// The addresses <paramref name="host"/> has for this site's clients: asked through the agent
+    /// when it owns the site's path measurement, otherwise this server's own resolver, as before.
+    /// </summary>
+    public async Task<IPAddress[]> ResolveAddressesAsync(string slug, string host, CancellationToken ct = default)
+    {
+        if (!_agentCoverage.AgentOwnsPathMeasurement(slug))
+            return await Dns.GetHostAddressesAsync(host, ct);
+        return IPAddress.TryParse(await ResolveAsync(slug, host, ct), out var address) ? [address] : [];
+    }
+
     private async Task<string?> LookupAsync(string slug, string host, CancellationToken ct)
     {
         IProbeExecutor executor = _agentCoverage.AgentOwnsPathMeasurement(slug)

@@ -1,4 +1,5 @@
-﻿using FluentAssertions;
+﻿using System.Net;
+using FluentAssertions;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
 using Xunit;
@@ -114,5 +115,45 @@ public class LocalTargetResolverTests
     {
         (await LocalTargetResolver.ResolveAsync("")).IsLocal.Should().BeNull();
         (await LocalTargetResolver.ResolveAsync(null)).IsLocal.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A split-horizon name answers differently from the site than from this server, so a site's
+    /// own resolver must decide it, not this server's.
+    /// </summary>
+    [Fact]
+    public async Task Resolves_a_name_from_the_site_vantage_when_given_one()
+    {
+        var asked = new List<string>();
+        var (isLocal, ip) = await LocalTargetResolver.ResolveAsync("nas.example.test", resolveName: (name, _) =>
+        {
+            asked.Add(name);
+            return Task.FromResult(new[] { IPAddress.Parse("192.168.1.20") });
+        });
+
+        asked.Should().Equal("nas.example.test");
+        isLocal.Should().BeTrue();
+        ip.Should().Be("192.168.1.20");
+    }
+
+    [Fact]
+    public async Task Leaves_a_name_the_site_cannot_resolve_unresolved()
+    {
+        var (isLocal, ip) = await LocalTargetResolver.ResolveAsync("nas.example.test",
+            resolveName: (_, _) => Task.FromResult(Array.Empty<IPAddress>()));
+
+        isLocal.Should().BeNull();
+        ip.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Does_not_ask_the_site_vantage_about_a_literal()
+    {
+        var asked = false;
+        var (isLocal, _) = await LocalTargetResolver.ResolveAsync("192.168.1.5",
+            resolveName: (_, _) => { asked = true; return Task.FromResult(Array.Empty<IPAddress>()); });
+
+        asked.Should().BeFalse();
+        isLocal.Should().BeTrue();
     }
 }
