@@ -126,6 +126,45 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void RollBack_DeletesAZoneWhoseNetworksThePlanRehomes()
+    {
+        var before = Live();
+        var after = Live();
+        after.Collections["firewall_zone"] =
+        [
+            Zone("z-int", "Internal", "internal", "n-home", "n-work", "n-cam", "n-print"),
+            Zone("z-iot", "IoT", null, "n-iot", "n-media"),
+            Zone("z-ext", "External", "external", "n-wan"),
+            Zone("z-gw", "Gateway", "gateway"),
+            Zone("z-hot", "Hotspot", "hotspot", "n-guest"),
+            Zone("z-dmz", "Dmz", "dmz"),
+        ];
+        // UniFi mirrors membership onto the network.
+        foreach (var n in after.Get("networkconf").Where(n => n["_id"]!.ToString() is "n-iot" or "n-media"))
+            n["firewall_zone_id"] = "z-iot";
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions { Collections = new HashSet<string> { "firewall_zone", "firewall_policy" } });
+
+        doc.Errors.Should().BeEmpty();
+        var delete = doc.Operations.FindIndex(o => o.Action == PlanAction.Delete && o.ObjectName == "IoT");
+        delete.Should().BeGreaterThan(doc.Operations.FindIndex(o => o.Action == PlanAction.Update && o.ObjectName == "Internal"));
+    }
+
+    [Fact]
+    public void ZoneDelete_StillRefusedWhileANetworkHasNoNewZone()
+    {
+        var live = Live();
+        live.Collections["firewall_zone"].Add(Zone("z-iot", "IoT", null, "n-iot"));
+        live.Get("networkconf").First(n => n["_id"]!.ToString() == "n-iot")["firewall_zone_id"] = "z-iot";
+        var desired = live.Clone();
+        desired.Collections["firewall_zone"] = desired.Get("firewall_zone").Where(z => z["_id"]!.ToString() != "z-iot").ToList();
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { Collections = new HashSet<string> { "firewall_zone" } });
+
+        doc.Errors.Should().ContainSingle(e => e.Contains("Network IoT"));
+    }
+
+    [Fact]
     public void LegacySite_IsDetected()
     {
         var s = new ConfigState();

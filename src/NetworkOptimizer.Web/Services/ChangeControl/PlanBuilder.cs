@@ -933,6 +933,10 @@ public static class PlanBuilder
         var deletedIds = deletes.Select(d => d.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var updatesById = doc.Operations.Where(o => o.Action == PlanAction.Update && o.ObjectId != null)
             .GroupBy(o => o.ObjectId!, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        // A network's firewall_zone_id mirrors zone membership: a zone write that takes the network fixes it.
+        var rehomed = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action is PlanAction.Create or PlanAction.Update)
+            .SelectMany(o => o.Body?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var del in deletes)
         {
@@ -949,6 +953,7 @@ public static class PlanBuilder
                     // The referrer is fixed when the plan's update no longer carries the reference.
                     if (updatesById.TryGetValue(oid, out var upd) && upd.Body is JsonObject body && !References(MergeForCheck(o, body), del.ObjectId!))
                         continue;
+                    if (del.Collection == "firewall_zone" && collection == "networkconf" && rehomed.Contains(oid)) continue;
                     if (def?.IsGenerated?.Invoke(o) == true) continue;
                     still.Add($"{def?.Noun ?? collection} {ConfigState.DisplayName(def, o)}");
                 }
