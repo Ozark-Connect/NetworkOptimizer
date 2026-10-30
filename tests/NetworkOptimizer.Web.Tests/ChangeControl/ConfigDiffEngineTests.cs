@@ -81,6 +81,15 @@ public class ConfigDiffEngineTests
     }
 
     [Fact]
+    public void Device_ConfigNetworkLanMove_IsNotAChange()
+    {
+        var before = State(("device", """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"GW","config_network_lan":{"cidr":"192.0.2.1/24","vlan":1}}"""));
+        var after = State(("device", """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"GW","config_network_lan":{"cidr":"198.51.100.1/24","vlan":30}}"""));
+        ConfigDiffEngine.Compare(before, after).IsEmpty.Should().BeTrue();
+        ConfigCollections.Get("device")!.IsReadOnly(null, "config_network_lan").Should().BeTrue();
+    }
+
+    [Fact]
     public void FirewallGroupSource_MissingEqualsStatic_ButDynamicDiffers()
     {
         var none = State(("firewallgroup", """{"_id":"g1","name":"SNMP","group_type":"port-group","group_members":["161"]}"""));

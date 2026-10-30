@@ -817,7 +817,9 @@ public static class ConfigCollections
                 Key = "device", DisplayName = "Devices", Noun = "Device", Group = "Devices",
                 FieldGroups = ConfigFieldOrder.DeviceFields, NestedFieldOrder = ConfigFieldOrder.DeviceNested,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "stat/device", Order = 10, KeepFields = DeviceConfigFields,
-                ReadOnlyFields = Set("model", "type", "version", "adopted", DeviceMetaField),
+                // config_network_lan is UniFi's derived copy of one gateway LAN. A UniFi OS upgrade can move it to
+                // another network with no config change, so it is never diffed or written.
+                ReadOnlyFields = Set("model", "type", "version", "adopted", "config_network_lan", DeviceMetaField),
                 KeyedArrays = new Dictionary<string, string>
                 {
                     ["port_overrides"] = "port_idx", ["radio_table"] = "radio", ["ethernet_overrides"] = "ifname",
