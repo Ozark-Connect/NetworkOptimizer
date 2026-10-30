@@ -23138,9 +23138,14 @@ body:has(.top-bar-hidden) .btn-fit {
     transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-/* Muted at rest, full on hover or focus. Never fade on idle: motion beside the text pulls the eye. */
+/* Three levels: idle dims slowly, a scroll brings it halfway up, hover or focus to full. */
 .card-index {
-    opacity: 0.55;
+    opacity: 0.7;
+}
+
+.card-index.card-index-idle {
+    opacity: 0.4;
+    transition: opacity 1.2s ease;
 }
 
 .card-index:hover,
@@ -23161,6 +23166,7 @@ body:has(.top-bar-hidden) .btn-fit {
 
 @media (prefers-reduced-motion: reduce) {
     .card-index,
+    .card-index.card-index-idle,
     .card-index:hover,
     .card-index:focus-within,
     .card-index.card-index-out,
