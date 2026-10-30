@@ -272,8 +272,29 @@ public class ZoneSetupTests
         moved["source"]!["zone_id"]!.ToString().Should().Be("z-int");
         plan.Rehomed.Should().Contain("p-phone");
         Policy(plan.Desired, "Internal", "IoT")!["name"]!.ToString().Should().Be("[IoT] Allow Phone Inbound Access");
-        plan.Notes.Should().Contain(n => n.Contains("Casting and mDNS") && n.Contains("covered by [IoT] Allow Phone Inbound Access"));
-        Named(plan.Desired, "Casting and mDNS").Should().BeNull("the operator's own allow covers the pair");
+        Named(plan.Desired, "Casting and mDNS").Should().BeNull("the operator's own allow covers the pair, so the board leaves it unticked");
+
+        // Ticked anyway, the plan still skips it and says why.
+        var ticked = ZoneSetup.Plan(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode, exceptions: new Dictionary<string, bool> { ["casting"] = true }));
+        Named(ticked.Desired, "Casting and mDNS").Should().BeNull();
+        ticked.Notes.Should().Contain(n => n.Contains("Casting and mDNS") && n.Contains("covered by [IoT] Allow Phone Inbound Access"));
+    }
+
+    [Fact]
+    public void Board_UnticksAnExceptionTheOperatorsRuleCovers()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.20"]), Side("z-int", "NETWORK", ["n-iot"])));
+
+        var board = ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode);
+
+        var casting = board.Exceptions.Single(e => e.Key == "casting");
+        casting.Enabled.Should().BeFalse();
+        casting.CoveredBy.Should().Be("[IoT] Allow Phone Inbound Access");
+        casting.Why.Should().Be("Covered by your rule [IoT] Allow Phone Inbound Access");
+        ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode, exceptions: new Dictionary<string, bool> { ["casting"] = true })
+            .Exceptions.Single(e => e.Key == "casting").Enabled.Should().BeTrue("the operator's own choice stands");
+        ZoneSetup.Build(WithSubnetsAndGateway(), Networks, ZoneSetup.TrustMode).Exceptions.Single(e => e.Key == "casting").Enabled.Should().BeTrue("uncovered keeps its default");
     }
 
     [Fact]

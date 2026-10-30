@@ -38,9 +38,12 @@ public sealed class ZoneException
     public string Key { get; init; } = "";
     public string Name { get; init; } = "";
     public string FromTo { get; init; } = "";
-    public string Why { get; init; } = "";
+    public string Why { get; set; } = "";
     public bool Enabled { get; set; }
     public bool Applicable { get; set; }
+
+    /// <summary>The operator's own allow that lands in this pair after the move, which makes the exception unnecessary.</summary>
+    public string? CoveredBy { get; set; }
 }
 
 /// <summary>One Security Audit acceptance check.</summary>
@@ -240,11 +243,8 @@ public static class ZoneSetup
             };
         }).ToList();
 
-        foreach (var z in zones.Values.Where(z => z.Key != UnassignedKey))
-            z.Description = z.Kept ? "Your zone; its policies stay as they are" : Describe(z.Role, exceptionViews);
-
         var order = new[] { ZoneRole.Internal, ZoneRole.IoT, ZoneRole.Cameras, ZoneRole.Management, ZoneRole.Servers, ZoneRole.Printers, ZoneRole.Dmz, ZoneRole.Hotspot, ZoneRole.Custom };
-        return new ZoneSetupView
+        var view = new ZoneSetupView
         {
             Mode = mode,
             LegacyFirewall = IsLegacy(live),
@@ -252,7 +252,34 @@ public static class ZoneSetup
             Zones = zones.Values.Where(z => z.Key != UnassignedKey).OrderBy(z => Array.IndexOf(order, z.Role)).ThenBy(z => z.Kept).ThenBy(z => z.Name).Append(unassigned).ToList(),
             Exceptions = exceptionViews,
         };
+
+        // An exception the operator's own allow already gives (re-homed into the same pair) starts unticked, unless chosen.
+        if (exceptionViews.Any(e => e.Applicable) && live.Collections.ContainsKey("firewall_policy"))
+        {
+            var preview = Plan(live, new ZoneSetupView { Mode = mode, Zones = view.Zones, Exceptions = exceptionViews.Select(e => new ZoneException { Key = e.Key, Name = e.Name }).ToList() });
+            string ZoneId(ZoneDraft d) => d.ExistingId ?? NewZonePrefix + d.Key;
+            foreach (var e in exceptionViews.Where(e => e.Applicable))
+            {
+                var role = ExceptionDefs.First(d => d.Key == e.Key).Role;
+                var from = populated.First(z => z.Role == ZoneRole.Internal);
+                var to = populated.First(z => z.Role == role);
+                if (OperatorAllow(preview.Desired.Get("firewall_policy"), ZoneId(from), ZoneId(to)) is not { } covered) continue;
+                e.CoveredBy = Str(covered, "name");
+                e.Why = $"Covered by your rule {e.CoveredBy}";
+                if (exceptions?.ContainsKey(e.Key) != true) e.Enabled = false;
+            }
+        }
+
+        foreach (var z in zones.Values.Where(z => z.Key != UnassignedKey))
+            z.Description = z.Kept ? "Your zone; its policies stay as they are" : Describe(z.Role, exceptionViews);
+        return view;
     }
+
+    /// <summary>An operator allow in a zone pair: enabled, not UniFi's, not one Set Up Zones wrote.</summary>
+    private static JsonObject? OperatorAllow(IEnumerable<JsonObject> policies, string src, string dst) =>
+        policies.FirstOrDefault(p => Str(p, "action") == "ALLOW" && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+            && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True && Str(p, "description") != "Set Up Zones"
+            && Str(p["source"]?["zone_id"]) == src && Str(p["destination"]?["zone_id"]) == dst);
 
     private static string RoleNoun(ZoneRole role) => role switch
     {
@@ -385,15 +412,13 @@ public static class ZoneSetup
         }
 
         // An operator allow already in the pair (re-homed or their own) covers the generic exception.
-        JsonObject? OperatorAllow(string src, string dst) => policies.FirstOrDefault(p => Str(p, "action") == "ALLOW" && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
-            && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True && Str(p, "description") != "Set Up Zones"
-            && Str(p["source"]?["zone_id"]) == src && Str(p["destination"]?["zone_id"]) == dst);
+        JsonObject? Covering(string src, string dst) => OperatorAllow(policies, src, dst);
 
         foreach (var a in active)
             foreach (var b in active.Where(b => b != a))
             {
                 if (Allow(a, b, board.Exceptions) is not { } allow) continue;
-                if (ExceptionDefs.Any(e => e.FromName == allow.Name) && OperatorAllow(ids[a.Key], ids[b.Key]) is { } covered)
+                if (ExceptionDefs.Any(e => e.FromName == allow.Name) && Covering(ids[a.Key], ids[b.Key]) is { } covered)
                 {
                     notes.Add($"Exception: {allow.Name} ({a.Name} to {b.Name}) is covered by {Str(covered, "name")}; not added.");
                     continue;
