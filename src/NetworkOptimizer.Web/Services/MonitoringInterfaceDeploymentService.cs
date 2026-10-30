@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -25,6 +27,9 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
     private readonly IUdmBootService _udmBoot;
     private readonly UniFiConnectionService _connection;
     private readonly IMonitoringInterfaceRepository _repo;
+    private readonly SiteContextService? _siteContext;
+    private readonly SiteTunnelRouting? _routing;
+    private readonly AgentProbeService? _agentProbe;
 
     private const string OnBootDir = "/data/on_boot.d";
 
@@ -45,13 +50,19 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         IGatewaySshService gatewaySsh,
         IUdmBootService udmBoot,
         UniFiConnectionService connection,
-        IMonitoringInterfaceRepository repo)
+        IMonitoringInterfaceRepository repo,
+        SiteContextService? siteContext = null,
+        SiteTunnelRouting? routing = null,
+        AgentProbeService? agentProbe = null)
     {
         _logger = logger;
         _gatewaySsh = gatewaySsh;
         _udmBoot = udmBoot;
         _connection = connection;
         _repo = repo;
+        _siteContext = siteContext;
+        _routing = routing;
+        _agentProbe = agentProbe;
     }
 
     private static string ScriptName(MonitoringInterface mi) => $"30-monitoring-iface-{mi.Name}.sh";
@@ -378,7 +389,7 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         // CheckStatusAsync confirming THIS interface's own signature is present - not just
         // "some route exists" - so a stale or foreign route can't falsely satisfy it.
         var checkIp = mi.AliasIp ?? mi.TargetIp;
-        if (await IsReachableFromServerAsync(checkIp))
+        if (await IsReachableFromPollerAsync(checkIp, ct))
         {
             var status = await CheckStatusAsync(mi);
             if (!status.GatewayReachable)
@@ -920,8 +931,22 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         return PreflightBlock.None;
     }
 
-    private async Task<bool> IsReachableFromServerAsync(string ip)
+    /// <summary>
+    /// Whether <paramref name="ip"/> answers a ping from where this site's devices are polled: the
+    /// site's agent when its devices are reached through it, otherwise this server.
+    /// </summary>
+    private async Task<bool> IsReachableFromPollerAsync(string ip, CancellationToken ct)
     {
+        if (_routing != null && _siteContext != null && _agentProbe != null
+            && await _routing.IsViaAgentAsync(_siteContext.Slug))
+        {
+            var agent = new Monitoring.AgentProbeExecutor(_agentProbe, _siteContext.Slug, _logger);
+            var result = await agent.PingAsync(
+                new ProbeTarget(ip, ProbeMode.Icmp), count: 1, perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
+            // No agent online reads as not reachable, the same as a server that cannot ping.
+            return result.Success;
+        }
+
         try
         {
             using var ping = new Ping();
