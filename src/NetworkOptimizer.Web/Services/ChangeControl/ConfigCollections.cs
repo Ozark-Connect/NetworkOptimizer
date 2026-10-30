@@ -384,7 +384,8 @@ public static class ConfigCollections
 
     private static List<ConfigCollectionDef> Build()
     {
-        var policyAllow = Set("_id", "enabled", "predefined", "name", "description", "action", "index", "source", "destination",
+        // No "index": UniFi ignores it on a write (a create stores 10000); order is the plan's Reorder step.
+        var policyAllow = Set("_id", "enabled", "predefined", "name", "description", "action", "source", "destination",
             "ip_version", "protocol", "icmp_typename", "icmp_v6_typename", "match_opposite_protocol", "connection_state_type",
             "connection_states", "match_ip_sec", "match_ip_sec_type", "logging", "create_allow_respond", "schedule");
 
