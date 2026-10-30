@@ -99,7 +99,10 @@ public static class ChangeAttributor
         IReadOnlyList<ConfigWriteJournalEntry> journal, DateTime now, bool inUpgradeWindow, DateTime? beforeReadAt = null)
     {
         var result = new List<AttributedChange>();
-        var humanEvents = events.Where(e => e.IsChange && !IsOwnEvent(e, journal)).ToList();
+        // A write already in the before state owns only events from before that read: an admin's edit in
+        // UniFi a minute after a plan wrote the same object was dropped as ours, and read Unattributed.
+        var humanEvents = events.Where(e => e.IsChange && !IsOwnEvent(e, beforeReadAt is { } read && e.TimeUtc > read
+            ? journal.Where(j => j.At >= read).ToList() : journal)).ToList();
         var byActor = new Dictionary<string, AttributedChange>(StringComparer.Ordinal);
         var ownObjects = new List<ObjectDiff>();
         var unattributed = new List<ObjectDiff>();

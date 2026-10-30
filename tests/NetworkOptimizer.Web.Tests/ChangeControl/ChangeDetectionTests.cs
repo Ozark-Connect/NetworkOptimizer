@@ -102,6 +102,54 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_AnAdminsEditAMinuteAfterAPlanWroteTheObject_IsTheAdmins()
+    {
+        // The plan created the WLAN 98 s before the admin renamed it in UniFi; the snapshot after the
+        // apply (the before state) already holds the plan's write.
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-98), Method = "POST", Path = "rest/wlanconf", Collection = "wlanconf", ObjectId = "w1", Source = "change-control:plan:80" },
+        };
+        var rename = new AuditLogEvent
+        {
+            Id = "e1", Timestamp = new DateTimeOffset(Now).ToUnixTimeMilliseconds(), Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
+            AdminName = "TJ", Ip = "192.0.2.5", ObjectId = "w1", ObjectName = "Skynet-IoT", Section = "WIFI", SettingField = "name",
+        };
+        var diff = new ObjectDiff
+        {
+            Collection = "wlanconf", ObjectId = "w1", Name = "Skynet-IoT", Action = ConfigChangeAction.Updated,
+            Fields = [new FieldChange("name", "SSID-Here-IoT", "Skynet-IoT")],
+        };
+
+        var g = ChangeAttributor.Attribute([diff], [rename], journal, Now, false, beforeReadAt: Now.AddSeconds(-60)).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.Person);
+        g.ActorName.Should().Be("TJ");
+    }
+
+    [Fact]
+    public void Attribute_APlansOwnEvent_BeforeTheBeforeRead_IsStillOurs()
+    {
+        // The write and its AUDIT event both land before the read; the event must not become a person's.
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-30), Method = "PUT", Path = "rest/wlanconf/w1", Collection = "wlanconf", ObjectId = "w1", FieldsJson = "[\"name\"]", Source = "change-control:plan:81" },
+        };
+        var own = new AuditLogEvent
+        {
+            Id = "e2", Timestamp = new DateTimeOffset(Now.AddSeconds(-29)).ToUnixTimeMilliseconds(), Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
+            AdminName = "netopt", ObjectId = "w1", ObjectName = "Home", Section = "WIFI", SettingField = "name",
+        };
+        var diff = new ObjectDiff
+        {
+            Collection = "wlanconf", ObjectId = "w1", Name = "Home", Action = ConfigChangeAction.Updated,
+            Fields = [new FieldChange("name", "Old", "Home")],
+        };
+
+        var g = ChangeAttributor.Attribute([diff], [own], journal, Now, false, beforeReadAt: Now.AddSeconds(-40)).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+    }
+
+    [Fact]
     public void Attribute_BatchDelete_IsTheDeletingPlans_NotTheCreatesBeforeIt()
     {
         // Plan 76 created the policy; plan 77's batch delete (no object ID in the journal) removed it.
