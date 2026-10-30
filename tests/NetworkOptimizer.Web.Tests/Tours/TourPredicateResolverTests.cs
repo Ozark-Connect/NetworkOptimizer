@@ -271,10 +271,10 @@ public class TourPredicateResolverTests : IDisposable
             collectionRegistry: null!, changeNotifier: null!, access,
             NullLogger<SiteManagementService>.Instance, new NetworkOptimizer.Web.Services.Gates.AuditContext());
         // Only GetAllAgentsAsync is called, and it touches the main database and the filter alone.
-        var agents = new AgentEnrollmentService(_mainDbFactory, tunnelRegistry: null!, access,
+        var agents = new AgentEnrollmentService(_mainDbFactory, tunnelRegistry: null!,
             agentCoverage: null!, serviceProvider: null!, tunnelRouting: null!,
             NullLogger<AgentEnrollmentService>.Instance);
-        return new CountingResolver(siteManagement, agents, _siteDbFactory);
+        return new CountingResolver(siteManagement, agents, access, _siteDbFactory);
     }
 
     private async Task SeedSitesAsync(bool multiSite)
@@ -360,8 +360,9 @@ public class TourPredicateResolverTests : IDisposable
         public readonly HashSet<string> GatewaySshSites = new(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<string, List<UniFiNetworkConfig>?> Wans = new(StringComparer.OrdinalIgnoreCase);
 
-        public CountingResolver(SiteManagementService sites, AgentEnrollmentService agents, SiteDbContextFactory siteDb)
-            : base(sites, gatewaySshRegistry: null!, siteConnections: null!, agents, siteDb, NullLogger<R>.Instance) { }
+        public CountingResolver(SiteManagementService sites, AgentEnrollmentService agents, ISiteAccessFilter access,
+            SiteDbContextFactory siteDb)
+            : base(sites, gatewaySshRegistry: null!, siteConnections: null!, agents, access, siteDb, NullLogger<R>.Instance) { }
 
         protected override Task<List<SiteAgent>> ReadAgentsAsync()
         {

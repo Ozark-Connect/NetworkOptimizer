@@ -384,6 +384,8 @@ See [CODING_STANDARDS.md](CODING_STANDARDS.md) for how AI tooling is used (and n
 
 If you find issues, report them via GitHub Issues. Include your UniFi device models and controller version. Sanitize credentials and IPs before attaching logs.
 
+Network Optimizer is source-available, not open source. Pull requests start with an issue: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Business Source License 1.1

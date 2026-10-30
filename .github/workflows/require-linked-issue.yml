@@ -1,0 +1,43 @@
+# Pull requests start with an issue (CONTRIBUTING.md): close any PR from a new contributor
+# whose description references no issue here. Anyone with a commit already in the repo
+# (CONTRIBUTOR), and collaborators, org members, and owners, skip the check.
+#
+# pull_request_target runs this file from the PR's BASE branch, so it must exist on
+# main, dev, and the active release/X.Y. It never checks out the PR's code, and the PR
+# body reaches the script only through an env var, never through an expression.
+name: Require a linked issue
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  issues: read
+  pull-requests: write
+
+jobs:
+  check:
+    if: >-
+      github.event.pull_request.user.type != 'Bot' &&
+      !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close unless the description references an issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # "#123" or a full issue URL in this repo; a reference to a PR does not count
+          refs=$(printf '%s' "$PR_BODY" | grep -ioE "(#|github\.com/${REPO}/issues/)[0-9]+" | grep -oE '[0-9]+$' | sort -u)
+          for n in $refs; do
+            if gh api "repos/$REPO/issues/$n" --jq 'select(.pull_request == null) | .number' 2>/dev/null | grep -q .; then
+              echo "References issue #$n"
+              exit 0
+            fi
+          done
+
+          gh pr close "$PR_URL" --comment "Thanks for your interest in Network Optimizer. Pull requests here start with an issue, and this one doesn't reference one, so it has been closed automatically.
+
+          Please open an issue describing the problem and the change you have in mind, so we can discuss it first. See [CONTRIBUTING.md](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/CONTRIBUTING.md) for how contributions work."

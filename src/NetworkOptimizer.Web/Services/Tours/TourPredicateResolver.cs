@@ -88,6 +88,7 @@ public class TourPredicateResolver
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
     private readonly AgentEnrollmentService _agentEnrollment;
+    private readonly Authorization.ISiteAccessFilter _siteAccess;
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<TourPredicateResolver> _logger;
 
@@ -96,6 +97,7 @@ public class TourPredicateResolver
         GatewaySshRegistry gatewaySshRegistry,
         SiteConnectionRegistry siteConnections,
         AgentEnrollmentService agentEnrollment,
+        Authorization.ISiteAccessFilter siteAccess,
         SiteDbContextFactory siteDbFactory,
         ILogger<TourPredicateResolver> logger)
     {
@@ -103,6 +105,7 @@ public class TourPredicateResolver
         _gatewaySshRegistry = gatewaySshRegistry;
         _siteConnections = siteConnections;
         _agentEnrollment = agentEnrollment;
+        _siteAccess = siteAccess;
         _siteDbFactory = siteDbFactory;
         _logger = logger;
     }
@@ -282,7 +285,7 @@ public class TourPredicateResolver
     }
 
     /// <summary>Every agent on a site the caller can see. Virtual so tests can count the reads.</summary>
-    protected virtual Task<List<SiteAgent>> ReadAgentsAsync() => _agentEnrollment.GetAllAgentsAsync();
+    protected virtual Task<List<SiteAgent>> ReadAgentsAsync() => _agentEnrollment.GetAllAgentsAsync(_siteAccess);
 
     /// <summary>The site's own database. Virtual so tests can count the opens.</summary>
     protected virtual NetworkOptimizerDbContext OpenSiteDb(Site site) =>
