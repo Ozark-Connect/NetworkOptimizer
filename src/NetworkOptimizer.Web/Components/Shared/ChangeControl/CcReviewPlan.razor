@@ -655,11 +655,16 @@ else
 
     private static string DisplayObjectName(PlanOperation operation, PlanDocument doc)
     {
-        var name = System.Text.RegularExpressions.Regex.Replace(operation.ObjectName, @"@ref:([^\s,]+)", match =>
-        {
-            var key = match.Groups[1].Value;
-            return doc.Operations.FirstOrDefault(o => o.Key == key)?.ObjectName ?? match.Value;
-        });
+        // Keys contain complete object names, including spaces and commas. Match known
+        // references longest first so a shorter key cannot consume a shared prefix.
+        var references = doc.Operations.Where(o => o.Key.Length > 0)
+            .GroupBy(o => PlanBuilder.RefPrefix + o.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().ObjectName, StringComparer.Ordinal);
+        var name = references.Count == 0 ? operation.ObjectName
+            : System.Text.RegularExpressions.Regex.Replace(operation.ObjectName,
+                "(?:" + string.Join("|", references.Keys.OrderByDescending(key => key.Length)
+                    .Select(System.Text.RegularExpressions.Regex.Escape)) + @")(?=\s|,|$)",
+                match => references[match.Value]);
         if (operation.Action == PlanAction.Reorder && name.StartsWith("Policy order, ", StringComparison.Ordinal))
             return name["Policy order, ".Length..].Replace(" to ", " → ", StringComparison.Ordinal);
         return name;

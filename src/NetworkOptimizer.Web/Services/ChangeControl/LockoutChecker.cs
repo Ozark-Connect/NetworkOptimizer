@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
@@ -216,8 +217,13 @@ public static class LockoutChecker
 
         static bool CouldBlockManagementTraffic(JsonObject policy, ConfigState state)
         {
-            var protocol = Str(policy["protocol"]);
-            if (protocol is not (null or "all" or "tcp" or "TCP UDP" or "tcp_udp" or "TCP_UDP")) return false;
+            var protocol = Str(policy["protocol"])?.Trim().ToLowerInvariant() ?? "all";
+            if (protocol == "tcp udp") protocol = "tcp_udp";
+            var opposite = policy["match_opposite_protocol"]?.GetValueKind() == System.Text.Json.JsonValueKind.True;
+            // Management services below use TCP. Inverting ICMP/UDP includes TCP, whereas
+            // inverting TCP, TCP+UDP or ALL excludes it. Unknown protocols cannot prove safety.
+            if (protocol is "all" or "tcp" or "tcp_udp" or "udp" or "icmp"
+                && !FirewallGroupHelper.BlocksProtocol(protocol, opposite, "tcp")) return false;
             var destination = policy["destination"] as JsonObject;
             // An inverted list matches every port except those named; do not mistake it for a narrow block.
             if (destination?["match_opposite_ports"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) return true;
