@@ -595,6 +595,7 @@ else
     private bool _notFound;
     private string? _message;
     private Timer? _refresh;
+    private bool _loadedOffline;
 
     protected override async Task OnInitializedAsync()
     {
@@ -611,14 +612,15 @@ else
         }), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool keepAcks = false)
     {
         try
         {
+            _loadedOffline = !ConnectionService.IsConnected;
             _view = await Site.GetPlanAsync(PlanId);
             _notFound = _view == null;
             if (_view == null) return;
-            _acks = _view.Acks;
+            if (!keepAcks || _acks == null) _acks = _view.Acks;
             if (_view.Plan.ScheduledFor is { } at)
             {
                 _schedule = true;
@@ -798,8 +800,13 @@ else
         await JS.InvokeVoidAsync("downloadFile", $"plan-{PlanId}.yaml", "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
     }
 
-    // Fires from a background thread (console reconnect).
-    private void OnConnectionChanged() => _ = InvokeAsync(StateHasChanged);
+    // Fires from a background thread (console reconnect). A page loaded while the console was down
+    // reloads once it is back: Site, the watch window, and Apply depend on the connection.
+    private void OnConnectionChanged() => _ = InvokeAsync(async () =>
+    {
+        if (_loadedOffline && ConnectionService.IsConnected) await LoadAsync(keepAcks: true);
+        StateHasChanged();
+    });
 
     public void Dispose()
     {
