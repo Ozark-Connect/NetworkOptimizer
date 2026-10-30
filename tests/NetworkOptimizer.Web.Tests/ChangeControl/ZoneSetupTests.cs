@@ -318,6 +318,25 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void ARerun_DeletesZonePairBlocksAnEarlierSetUpZonesWrote()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_zone"].First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().RemoveAt(2);
+        live.Collections["firewall_zone"].Add(Zone("z-iot", "IoT", null, "n-iot"));
+        var old = Rule("p-old", "Block IoT to Internal", "BLOCK", Side("z-iot"), Side("z-int"));
+        old["description"] = "Set Up Zones";
+        live.Collections["firewall_policy"].Add(old);
+        var gateway = Rule("p-gwold", "Block IoT to Gateway Management", "BLOCK", Side("z-iot"), Side("z-gw2", port: "22,80,443"), protocol: "tcp");
+        gateway["description"] = "Set Up Zones";
+        live.Collections["firewall_policy"].Add(gateway);
+
+        var plan = PlanFor(live);
+
+        Named(plan.Desired, "Block IoT to Internal").Should().BeNull();
+        Named(plan.Desired, "Block IoT to Gateway Management").Should().NotBeNull("the Gateway zone is not blocked by default");
+    }
+
+    [Fact]
     public void Rehome_LeavesClientPolicies_WithANote()
     {
         var live = WithSubnetsAndGateway();
@@ -344,6 +363,33 @@ public class ZoneSetupTests
         plan.Desired.Get("firewall_policy").Count(p => p["name"]!.ToString().StartsWith("Net. Opt.")).Should().Be(1);
         plan.Notes.Should().Contain(n => n.Contains("Threat Intelligence"));
         plan.Notes.Should().Contain(n => n.Contains("[Security] Allow TTS HTTPS") && n.Contains("not carried"));
+    }
+
+    [Fact]
+    public void EveryoneButAFewHosts_CountsAsZoneWide()
+    {
+        var live = WithSubnetsAndGateway();
+        var src = Side("z-int", "IP", ips: ["10.0.1.10"]);
+        src["match_opposite_ips"] = true;
+        live.Collections["firewall_policy"].Add(Rule("p-mgmt", "Allow Select Console Management", "BLOCK", src, Side("z-gw2", port: "22,80,443"), protocol: "tcp"));
+
+        var plan = PlanFor(live);
+
+        Named(plan.Desired, "Allow Select Console Management (IoT)")!["source"]!["match_opposite_ips"]!.GetValue<bool>().Should().BeTrue();
+        Named(plan.Desired, "Block IoT to Gateway Management").Should().BeNull("the copied block already covers IoT");
+    }
+
+    [Fact]
+    public void APolicyExcludingAMovedNetwork_IsLeftWithANote()
+    {
+        var live = WithSubnetsAndGateway();
+        var dst = Side("z-int", "NETWORK", ["n-iot"]);
+        dst["match_opposite_networks"] = true;
+        live.Collections["firewall_policy"].Add(Rule("p-opp", "All but IoT", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.20"]), dst));
+
+        var plan = PlanFor(live);
+
+        plan.Notes.Should().Contain(n => n.Contains("All but IoT") && n.Contains("excludes a network that moves"));
     }
 
     [Fact]

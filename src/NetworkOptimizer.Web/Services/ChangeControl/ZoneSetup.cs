@@ -509,6 +509,14 @@ public static class ZoneSetup
                     notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients, so it keeps its zones. Check it once the networks move.");
                 continue;
             }
+            // "Every network but these": UniFi strips a moved network from the list, which widens what it matches.
+            static bool ExcludesMoved(JsonObject? side, HashSet<string> moved) => side?["match_opposite_networks"]?.GetValueKind() == System.Text.Json.JsonValueKind.True
+                && (side["network_ids"] as JsonArray ?? []).Any(n => Str(n) is { } id && moved.Contains(id));
+            if (ExcludesMoved(src, moved) || ExcludesMoved(dst, moved))
+            {
+                notes.Add($"Firewall Policy {Str(policy, "name")}: excludes a network that moves, and UniFi removes it from that list. Check it once the networks move.");
+                continue;
+            }
             var srcNets = Named(src, networks);
             var dstNets = Named(dst, networks);
             if (!srcNets.Any(moved.Contains) && !dstNets.Any(moved.Contains)) continue;
@@ -569,9 +577,12 @@ public static class ZoneSetup
         var lanTargets = moved.GroupBy(id => oldZoneOf[id], StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Select(id => newZoneOf[id]).Where(z => zoneKey.TryGetValue(z, out var k) && k is "" or "internal")
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+        // Zone-wide: ANY, or everyone but a few hosts ([UniFi] Allow Select Console Management's shape).
+        static bool ZoneWide(JsonObject? side) => Str(side?["matching_target"]) is null or "ANY"
+            || (Str(side?["matching_target"]) == "IP" && side?["match_opposite_ips"]?.GetValueKind() == System.Text.Json.JsonValueKind.True);
         var templates = live.Get("firewall_policy")
             .Where(p => def.IsGenerated?.Invoke(p) != true && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
-                        && Str(p["source"]?["matching_target"]) is null or "ANY" && Str(p["source"]?["zone_id"]) is { } z && lanTargets.ContainsKey(z))
+                        && ZoneWide(p["source"] as JsonObject) && Str(p["source"]?["zone_id"]) is { } z && lanTargets.ContainsKey(z))
             .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
         foreach (var t in templates)
         {
@@ -682,7 +693,9 @@ public static class ZoneSetup
         Func<string?, bool> isInternal, Func<string?, string> zoneName, List<string> notes)
     {
         bool Custom(string? zone) => isLan(zone) && !isInternal(zone);
-        foreach (var p in policies.Where(p => rehomed.ContainsKey(ConfigState.IdOf(p)) && Str(p, "action") is "BLOCK" or "REJECT").ToList())
+        // Also the zone-pair blocks an earlier Set Up Zones wrote before it relied on UniFi's defaults.
+        foreach (var p in policies.Where(p => (rehomed.ContainsKey(ConfigState.IdOf(p)) || Str(p, "description") == "Set Up Zones")
+                     && Str(p, "action") is "BLOCK" or "REJECT").ToList())
         {
             var src = Str(p["source"]?["zone_id"]);
             var dst = Str(p["destination"]?["zone_id"]);
