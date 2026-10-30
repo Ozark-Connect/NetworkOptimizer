@@ -69,6 +69,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     private readonly ConcurrentQueue<UniFiWriteRecord> _journalQueue = new();
     // In memory: a restart inside the window only costs the label, so it is not persisted.
     private readonly ConcurrentDictionary<string, DateTime> _firmwareChangedAt = new(StringComparer.OrdinalIgnoreCase);
+    // AUDIT change events of the last few minutes, already consumed or not: a side effect UniFi writes without an
+    // event can land a poll after the event that caused it. In memory for the same reason as above.
+    private readonly List<AuditLogEvent> _recentChangeEvents = [];
     private readonly Func<bool>? _isAgentSite;
     private readonly Func<bool>? _hasNoConsole;
 
@@ -259,6 +262,12 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         _auditUnreadable = !auditOk;
         var seen = state.LastAuditEventIdsJson is { Length: > 0 } j ? JsonSerializer.Deserialize<HashSet<string>>(j) ?? [] : [];
         events = events.Where(e => !seen.Contains(e.Id)).ToList();
+        lock (_recentChangeEvents)
+        {
+            // A failed snapshot leaves its events to be read again; keep one copy.
+            _recentChangeEvents.AddRange(events.Where(e => e.IsChange && !_recentChangeEvents.Any(r => r.Id == e.Id)));
+            _recentChangeEvents.RemoveAll(e => now - e.TimeUtc > ChangeAttributor.SideEffectWindow);
+        }
 
         var devices = await ReadDeviceVersionsAsync(ct);
         var appVersion = await ConfigSnapshotReader.ReadNetworkAppVersionAsync(_api, ct);
@@ -603,7 +612,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             var changes = new List<ConfigChange>();
             if (previous != null && diff != null && (recordable.Count > 0 || diff.PolicyOrder.Count > 0))
             {
-                changes = await RecordChangesAsync(snapshot, previousId, previous, live, recordable, diff, events, journal, inUpgradeWindow, ct);
+                List<AuditLogEvent> recent;
+                lock (_recentChangeEvents) recent = [.. _recentChangeEvents];
+                changes = await RecordChangesAsync(snapshot, previousId, previous, live, recordable, diff, events, journal, inUpgradeWindow, ct, recent);
                 if (Evaluator != null && changes.Count > 0) EvaluateInBackground(Evaluator, changes, previous, live, inUpgradeWindow);
             }
 
@@ -727,7 +738,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
     private async Task<List<ConfigChange>> RecordChangesAsync(
         ConfigSnapshot snapshot, int? previousId, ConfigState before, ConfigState after, List<ObjectDiff> objects, ConfigDiff diff,
-        IReadOnlyList<AuditLogEvent> events, IReadOnlyList<ConfigWriteJournalEntry> journal, bool inUpgradeWindow, CancellationToken ct)
+        IReadOnlyList<AuditLogEvent> events, IReadOnlyList<ConfigWriteJournalEntry> journal, bool inUpgradeWindow, CancellationToken ct,
+        IReadOnlyList<AuditLogEvent>? recentEvents = null)
     {
         var beforeNames = ConfigIdentityContext.ForBefore(before, after);
         var afterNames = new ConfigIdentityContext(after.NamesById());
@@ -739,7 +751,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         foreach (var (mac, at) in _firmwareChangedAt)
             if (now - at >= ChangeAttributor.DeviceUpgradeWindow) _firmwareChangedAt.TryRemove(mac, out _);
         var upgraded = _firmwareChangedAt.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var groups = ChangeAttributor.Attribute(all, events, journal, now, inUpgradeWindow, before.ReadAt, upgraded);
+        var groups = ChangeAttributor.Attribute(all, events, journal, now, inUpgradeWindow, before.ReadAt, upgraded, recentEvents);
         var recorded = new List<ConfigChange>();
         foreach (var g in groups)
         {
