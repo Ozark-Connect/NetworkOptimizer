@@ -24411,9 +24411,18 @@ body:has(.top-bar-hidden) .btn-fit {
     display: none;
 }
 
+/* One column set for every row (subgrid), so the location column fits its longest entry and the
+   messages still line up. */
+.change-control .cc-problems {
+    display: grid;
+    grid-template-columns: 90px minmax(140px, max-content) minmax(0, 1fr);
+    column-gap: 1rem;
+}
+
 .change-control .cc-problem {
     display: grid;
-    grid-template-columns: 90px 140px minmax(0, 1fr);
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
     gap: 0.5rem 1rem;
     padding: 10px 16px;
     border-bottom: 1px solid var(--border-color);
@@ -24658,6 +24667,10 @@ body:has(.top-bar-hidden) .btn-fit {
     }
 
     .change-control .cc-zones {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-problems {
         grid-template-columns: minmax(0, 1fr);
     }
 

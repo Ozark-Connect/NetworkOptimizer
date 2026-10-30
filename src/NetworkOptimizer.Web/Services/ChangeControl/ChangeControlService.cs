@@ -604,7 +604,9 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         if (snapshotId != null) return (await LoadSideAsync(snapshotId, ct)).State;
         if (_editLive is { } cached && cached.Slug == _site.Slug && DateTime.UtcNow - cached.At < EditLiveReuse) return cached.State.Clone();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var live = await Engine.ReadLiveAsync(ct);
+        _logger.LogDebug("Change Control Edit: read the live config of {Site} in {Ms} ms", _site.Slug, watch.ElapsedMilliseconds);
         _editLive = (_site.Slug, DateTime.UtcNow, live);
         return live.Clone();
     }
@@ -687,9 +689,14 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     public async Task<YamlValidation> ValidateYamlAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var baseState = await EditBaseAsync(snapshotId, cancellationToken);
+        var baseMs = watch.ElapsedMilliseconds;
         var (desired, problems, touched) = ParseEdits(baseState, filesByCollection);
+        var parseMs = watch.ElapsedMilliseconds - baseMs;
         var plan = touched.Count == 0 ? null : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched });
+        _logger.LogDebug("Change Control Edit: checked {Files} file(s) ({Touched} collections touched): base {BaseMs} ms, parse {ParseMs} ms, plan {PlanMs} ms",
+            filesByCollection.Count, touched.Count, baseMs, parseMs, watch.ElapsedMilliseconds - baseMs - parseMs);
         var ops = plan?.Operations ?? [];
         // Plan errors (a kept secret with nothing to keep, a dangling reference) block Review Plan too.
         // Only from live: from a snapshot this plans against the snapshot, while Review Plan plans against live.

@@ -138,12 +138,17 @@
                     {
                         <div class="empty-state empty-state-small"><p>@(_edited.Count == 0 ? "Edit a collection to check it." : "No problems.")</p></div>
                     }
-                    @foreach (var p in _validation.Problems.OrderBy(p => p.Level == "Error" ? 0 : p.Level == "Warning" ? 1 : 2))
+                    else
                     {
-                        <div class="cc-problem">
-                            <span class="status-badge @(p.Level switch { "Error" => "status-error", "Warning" => "status-warning", _ => "badge-muted" })">@p.Level</span>
-                            <code>@p.File:@p.Line</code>
-                            <div>@p.Message</div>
+                        <div class="cc-problems">
+                            @foreach (var p in _validation.Problems.OrderBy(p => p.Level == "Error" ? 0 : p.Level == "Warning" ? 1 : 2))
+                            {
+                                <div class="cc-problem">
+                                    <span class="status-badge @(p.Level switch { "Error" => "status-error", "Warning" => "status-warning", _ => "badge-muted" })">@p.Level</span>
+                                    <code>@p.File:@p.Line</code>
+                                    <div>@p.Message</div>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -151,7 +156,7 @@
                 <div class="card">
                     <div class="cc-card-footer">
                         <span class="cc-remaining @(Errors > 0 ? "danger-text" : "muted-text")">
-                            @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before {CommitLabel}" : _edited.Count == 0 ? _saved ?? "No edits yet" : $"Ready to {(TemplateId == null ? "review" : "save")}")
+                            @(Errors > 0 ? $"{CcFormat.Plural(Errors, "error", "errors")} to fix before {CommitLabel}" : _edited.Count == 0 ? _discardNote ?? _saved ?? "No edits yet" : $"Ready to {(TemplateId == null ? "review" : "save")}")
                         </span>
                         <span class="muted-text cc-edit-count">@CcFormat.Plural(_validation.EditedObjects, "object", "objects") edited in @CcFormat.Plural(_validation.EditedCollections, "collection", "collections")</span>
                         @if (TemplateId == null)
@@ -179,6 +184,10 @@
                 @if (_error != null)
                 {
                     <div class="alert alert-danger">@_error</div>
+                }
+                @if (_consoleChanged != null)
+                {
+                    <div class="alert alert-info">@_consoleChanged</div>
                 }
             </div>
         </div>
@@ -533,6 +542,8 @@
 
     private async Task StartOverAsync()
     {
+        _discardNote = null;
+        _consoleChanged = null;
         _generation++;
         _uploaded.Clear();
         _edited.Clear();
@@ -542,17 +553,69 @@
         await OpenGroupAsync(_group);
     }
 
-    private Task DiscardAsync() => StartOverAsync();
+    // Discard puts back the text this page already holds at once, then reads the Console in the
+    // background: a whole-Console read here held the editor for seconds after an upload.
+    private async Task DiscardAsync()
+    {
+        if (!_original.TryGetValue(_group, out var original))
+        {
+            await StartOverAsync();
+            return;
+        }
+        _generation++;
+        _uploaded.Clear();
+        _edited.Clear();
+        _validation = new YamlValidation();
+        _discardNote = null;
+        _consoleChanged = null;
+        _text = original;
+        _pushText = true;
+        StateHasChanged();
+        // A snapshot or a template does not change under the page; only the live config can.
+        if (TemplateId == null && SnapshotId == null) _ = RefreshAfterDiscardAsync(_group, _generation);
+    }
+
+    private string? _discardNote;
+    private string? _consoleChanged;
+
+    private async Task RefreshAfterDiscardAsync(string group, int generation)
+    {
+        try
+        {
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            var loaded = await LoadGroupAsync(group);
+            Logger.LogDebug("Change Control Edit: refreshed {Group} after Discard in {Ms} ms", group, started.ElapsedMilliseconds);
+            if (generation != _generation || _original.GetValueOrDefault(group) == loaded) return;
+            _original[group] = loaded;
+            if (_edited.ContainsKey(group))
+                _consoleChanged = $"The UniFi Console changed {group} since you opened it. Your edits are kept; Review Plan compares them with the Console as it is now.";
+            else if (_group == group)
+            {
+                _text = loaded;
+                _pushText = true;
+                _discardNote = "Updated from the UniFi Console";
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Change Control Edit: refresh after Discard failed");
+        }
+    }
 
     private async Task UploadAsync(InputFileChangeEventArgs e)
     {
         // The editor's spinner covers the whole upload: reading the file, loading each base, checking.
         _loading = true;
+        _discardNote = null;
+        _consoleChanged = null;
         StateHasChanged();
         try
         {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             using var reader = new StreamReader(e.File.OpenReadStream(5 * 1024 * 1024));
             var text = await reader.ReadToEndAsync();
+            var readMs = watch.ElapsedMilliseconds;
             // Split the file at its top-level keys and hand each collection to its group.
             var unknown = new List<string>();
             var segments = new Dictionary<string, StringBuilder>();
@@ -569,9 +632,12 @@
                 _uploaded.Add(group);
             }
             if (segments.Count > 0) await OpenGroupAsync(segments.Keys.First());
+            var openMs = watch.ElapsedMilliseconds;
             _loading = false;
             _pushText = true;
             await ValidateAsync();
+            Logger.LogDebug("Change Control Edit: upload of {Bytes} bytes in {Groups} group(s): file {ReadMs} ms, open {OpenMs} ms, check {CheckMs} ms",
+                text.Length, segments.Count, readMs, openMs - readMs, watch.ElapsedMilliseconds - openMs);
         }
         catch (Exception ex)
         {
