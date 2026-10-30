@@ -291,11 +291,11 @@ public class ZoneSetupTests
     public void Rehome_SplitsAPolicyWhoseNetworksLandInSeveralZones()
     {
         var live = WithSubnetsAndGateway();
-        live.Collections["firewall_policy"].Add(Rule("p-pcs", "[TJ] PCs Access to Sensitive VLANs", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.10-10.0.1.14"]), Side("z-int", "NETWORK", ["n-iot", "n-cam"])));
+        live.Collections["firewall_policy"].Add(Rule("p-pcs", "PCs Access to Sensitive VLANs", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.10-10.0.1.14"]), Side("z-int", "NETWORK", ["n-iot", "n-cam"])));
 
         var plan = PlanFor(live);
 
-        var parts = plan.Desired.Get("firewall_policy").Where(p => p["name"]!.ToString().StartsWith("[TJ] PCs Access")).ToList();
+        var parts = plan.Desired.Get("firewall_policy").Where(p => p["name"]!.ToString().StartsWith("PCs Access")).ToList();
         parts.Should().HaveCount(2);
         parts.Select(p => p["destination"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["new-zone-iot", "new-zone-cameras"]);
         parts.Should().OnlyContain(p => p["destination"]!["network_ids"]!.AsArray().Count == 1);

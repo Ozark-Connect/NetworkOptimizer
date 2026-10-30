@@ -4715,6 +4715,10 @@ select.form-control {
         grid-row: 4;
     }
 
+    .issue-fix-error {
+        grid-column: 1 / -1;
+    }
+
     .issue-recommendation {
         grid-column: 1 / -1;
         grid-row: 5;

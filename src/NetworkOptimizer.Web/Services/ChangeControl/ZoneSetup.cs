@@ -72,8 +72,7 @@ public sealed record ZonePlan(ConfigState Desired, List<string> Notes, HashSet<s
 /// <summary>
 /// Set Up Zones (spec "Legacy firewall to ZBF migration, and zone setup"): proposes zones from the
 /// Security Audit's network purposes, by trust level or by purpose, lets the user regroup, and turns
-/// the board into zone membership plus the policies UniFi's defaults do not already give
-/// (research/config-backup/zone-setup-plan.md).
+/// the board into zone membership plus the policies UniFi's defaults do not already give.
 /// </summary>
 /// <remarks>
 /// UniFi blocks a custom zone from every other LAN zone, both ways, and within itself (UDR7 on
@@ -420,8 +419,8 @@ public static class ZoneSetup
                 Put(ids[cams.Key], externalId, "BLOCK", $"Block {cams.Name} to Internet");
             }
 
-        // The Security Audit's untrusted purposes (IoT, Media, Security, Printer) never need the gateway's SSH or web UI
-        // (research/gateway-mgmt-access/plan.md). An operator block that already covers the zone is used instead.
+        // The Security Audit's untrusted purposes (IoT, Media, Security, Printer) never need the gateway's SSH or web UI:
+        // UniFi devices and Protect cameras use other ports. An operator block that already covers the zone is used instead.
         if (gatewayId != null)
             foreach (var zone in active.Where(z => z.Role is ZoneRole.IoT or ZoneRole.Cameras or ZoneRole.Printers))
             {

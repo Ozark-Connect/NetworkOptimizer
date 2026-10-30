@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity
 @inject AuditService AuditService
+@inject NetworkOptimizer.Web.Services.ChangeControl.IChangeControlService ChangeControl
 @inject IAuditScanService AuditScan
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
@@ -297,12 +298,26 @@
                                             {
                                                 <SiteOperatorOnly><a class="btn btn-sm btn-ghost issue-action" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=zones", SiteContext.Slug)" @onclick:stopPropagation="true">Fix with zones</a></SiteOperatorOnly>
                                             }
+                                            @if (NetworkOptimizer.Web.Services.ChangeControl.DnsFixes.Types.Contains(issue.Type))
+                                            {
+                                                <SiteOperatorOnly><button class="btn btn-sm btn-ghost issue-action" disabled="@(_fixing != null)" @onclick="() => FixForMeAsync(issue.Type)" @onclick:stopPropagation="true">
+                                                    @if (_fixing == issue.Type)
+                                                    {
+                                                        <span class="spinner spinner-sm"></span>
+                                                    }
+                                                    Fix it for me
+                                                </button></SiteOperatorOnly>
+                                            }
                                             <SiteAdminOnly><button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Hide this issue - still scored">
                                                 Acknowledge
                                             </button></SiteAdminOnly>
                                         </div>
                                         <div class="issue-title">@issue.Title</div>
                                         <div class="issue-description">@FormatIssueText(issue.Description)</div>
+                                        @if (_fixError is { } fixError && fixError.Type == issue.Type)
+                                        {
+                                            <div class="alert alert-danger issue-fix-error">@fixError.Message</div>
+                                        }
 
                                         @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
                                         {
@@ -905,6 +920,34 @@
         NetworkOptimizer.Audit.IssueTypes.SecurityNetworkNotIsolated, NetworkOptimizer.Audit.IssueTypes.MgmtNetworkNotIsolated,
         NetworkOptimizer.Audit.IssueTypes.MissingIsolation,
     ];
+
+    private string? _fixing;
+    private (string Type, string Message)? _fixError;
+
+    // Fix it for me: builds the plan from live config and opens Review Plan; nothing is written until apply.
+    private async Task FixForMeAsync(string issueType)
+    {
+        _fixing = issueType;
+        _fixError = null;
+        try
+        {
+            var planId = await ChangeControl.BuildAuditFixPlanAsync(issueType);
+            NavigationManager.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteContext.Slug));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException)
+        {
+            _fixError = (issueType, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Fix it for me failed for {IssueType}", issueType);
+            _fixError = (issueType, "The plan could not be built. Check the UniFi Console connection and try again.");
+        }
+        finally
+        {
+            _fixing = null;
+        }
+    }
 
     private static string FormatCoveringRules(IReadOnlyList<CoveringRuleInfo> rules)
     {

@@ -293,6 +293,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
+  - Flags a firewall change that cuts a network off its DNS server or devices off the UniFi Console
   - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
   - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
 - **Migrate**
@@ -303,6 +304,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - Older firmware on the new device links to Firmware Rollout to align it first
   - **Adopt Pending Devices** whose MAC is in a snapshot
   - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
+    - Carries your firewall policies, DNS blocks, and DNS and console access into the new zones
     - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
   - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
     - Addresses on a WAN's carrier side or a VPN's far side stay as they are
@@ -428,6 +430,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Port Security** - MAC restriction, port lock, unused ports, port isolation, excessive tagged VLANs, subnet mismatches
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
+  - **Fix it for me** extends your DNAT and DNS block rules to uncovered networks, as a [Change Control](#change-control) plan
 - **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network

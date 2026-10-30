@@ -320,18 +320,7 @@ public static class LockoutChecker
     {
         if (network == null) return [];
         var id = ConfigState.IdOf(network);
-        var groups = state.Get("firewallgroup");
-        bool Covers53(JsonObject? filter)
-        {
-            if (filter == null) return true;
-            if (Str(filter["port"]) is { Length: > 0 } port) return ZonePaths.PortListContains(port, 53);
-            var portGroups = (filter["firewall_group_ids"] as JsonArray ?? []).Select(Str)
-                .Select(g => groups.FirstOrDefault(x => ConfigState.IdOf(x) == g)).OfType<JsonObject>()
-                .Where(g => Str(g["group_type"]) == "port-group").ToList();
-            return portGroups.Count == 0 || portGroups.Any(g => ZonePaths.PortListContains(string.Join(",", (g["group_members"] as JsonArray ?? []).Select(Str)), 53));
-        }
-        var dnat = state.Get("nat")
-            .Where(r => Str(r["type"]) == "DNAT" && Str(r["enabled"]) != "false" && Str(r["in_interface"]) == id && Covers53(r["destination_filter"] as JsonObject))
+        var dnat = state.Get("nat").Where(r => Str(r["in_interface"]) == id && RedirectsDns(state, r))
             .Select(r => Str(r["ip_address"])?.Split('-')[0].Trim()).OfType<string>().Where(a => a.Length > 0).ToList();
         if (dnat.Count > 0) return dnat;
         if (Str(network["dhcpd_dns_enabled"]) == "true")
@@ -341,6 +330,19 @@ public static class LockoutChecker
             if (servers.Count > 0) return servers;
         }
         return Str(network["ip_subnet"])?.Split('/')[0] is { Length: > 0 } gw ? [gw] : [];
+    }
+
+    /// <summary>An enabled DNAT whose destination filter takes port 53: a port, a port group holding 53, or no port at all.</summary>
+    internal static bool RedirectsDns(ConfigState state, JsonObject rule)
+    {
+        if (Str(rule["type"]) != "DNAT" || Str(rule["enabled"]) == "false") return false;
+        if (rule["destination_filter"] is not JsonObject filter) return true;
+        if (Str(filter["port"]) is { Length: > 0 } port) return ZonePaths.PortListContains(port, 53);
+        var groups = state.Get("firewallgroup");
+        var portGroups = (filter["firewall_group_ids"] as JsonArray ?? []).Select(Str)
+            .Select(g => groups.FirstOrDefault(x => ConfigState.IdOf(x) == g)).OfType<JsonObject>()
+            .Where(g => Str(g["group_type"]) == "port-group").ToList();
+        return portGroups.Count == 0 || portGroups.Any(g => ZonePaths.PortListContains(string.Join(",", (g["group_members"] as JsonArray ?? []).Select(Str)), 53));
     }
 
     private static string? Str(JsonNode? n) => n switch

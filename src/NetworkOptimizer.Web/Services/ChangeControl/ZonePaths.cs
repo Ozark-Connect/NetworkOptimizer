@@ -70,7 +70,11 @@ public static class ZonePaths
     /// (the network is in no zone, or no policy matches). A policy scoped to some hosts of the network
     /// (IPs, clients) does not decide for the network as a whole; one excluding a few hosts does.
     /// </summary>
-    public static bool? Allows(ConfigState state, string sourceNetworkId, string address, string protocol, int port)
+    public static bool? Allows(ConfigState state, string sourceNetworkId, string address, string protocol, int port) =>
+        Decides(state, sourceNetworkId, address, protocol, port) is { } policy ? Str(policy["action"]) == "ALLOW" : null;
+
+    /// <summary>The policy that decides new traffic from a network to an address and port, or null (see <see cref="Allows"/>).</summary>
+    public static JsonObject? Decides(ConfigState state, string sourceNetworkId, string address, string protocol, int port)
     {
         state = WithCustomZoneDefaults(state);
         var zoneOf = ZoneOfNetwork(state);
@@ -96,10 +100,13 @@ public static class ZonePaths
             if (allow && states == "RESPOND_ONLY") continue;
             // A CUSTOM state set without NEW (Block Invalid Traffic) never decides a new connection.
             if (states == "CUSTOM" && !(p["connection_states"] as JsonArray ?? []).Any(s => Str(s) == "NEW")) continue;
-            return allow;
+            return p;
         }
         return null;
     }
+
+    /// <summary>A policy side covers the network: ANY, its network listed, or everyone but a few hosts.</summary>
+    public static bool SourceCovers(JsonObject? side, string network) => SourceMatches(side, network);
 
     /// <summary>Network ID to the ID of the zone that lists it.</summary>
     public static Dictionary<string, string> ZoneOfNetwork(ConfigState state)
