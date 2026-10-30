@@ -15,6 +15,36 @@ public class YamlConverterTests
         ("wlanconf", """{"_id":"w1","name":"Home","security":"wpapsk","wpa_mode":"wpa2","x_passphrase":"hunter2","networkconf_id":"n1","wlan_bands":["2g","5g","6g"]}"""));
 
     [Fact]
+    public void InOrderOf_ObjectsUniFiMoved_DiffAsTheOneThatChanged()
+    {
+        // UniFi stores an updated WLAN last: diffed by position, Home and Guest read as swapped.
+        var from = State(
+            ("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":false}"""),
+            ("wlanconf", """{"_id":"w2","name":"Guest","hide_ssid":false}"""));
+        var to = State(
+            ("wlanconf", """{"_id":"w2","name":"Guest","hide_ssid":false}"""),
+            ("wlanconf", """{"_id":"w3","name":"New","hide_ssid":false}"""),
+            ("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":true}"""));
+
+        var aligned = YamlConverter.InOrderOf(to, from);
+
+        aligned.Get("wlanconf").Select(ConfigState.IdOf).Should().Equal("w1", "w2", "w3");
+        to.Get("wlanconf").Select(ConfigState.IdOf).Should().Equal("w2", "w3", "w1");
+        var diff = LineDiff.Diff(YamlConverter.Export(from, ["wlanconf"], false).Split('\n'),
+            YamlConverter.Export(aligned, ["wlanconf"], false).Split('\n'));
+        diff.Where(d => d.Kind == '-').Select(d => d.Text.Trim()).Should().Equal("hide_ssid: false");
+    }
+
+    [Fact]
+    public void InOrderOf_FirewallPolicies_KeepTheirOwnOrder()
+    {
+        var from = State(("firewall_policy", """{"_id":"p1","name":"A","index":10000}"""), ("firewall_policy", """{"_id":"p2","name":"B","index":10001}"""));
+        var to = State(("firewall_policy", """{"_id":"p2","name":"B","index":10000}"""), ("firewall_policy", """{"_id":"p1","name":"A","index":10001}"""));
+
+        YamlConverter.InOrderOf(to, from).Get("firewall_policy").Select(ConfigState.IdOf).Should().Equal("p2", "p1");
+    }
+
+    [Fact]
     public void SplitByCollection_KeepsExportedObjects_InTheirCollection()
     {
         var yaml = YamlConverter.Export(Site(), ["networkconf", "wlanconf"], includeSecrets: false) + "bogus: []\n";

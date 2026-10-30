@@ -63,6 +63,10 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlSnapshotUnpinned, TargetType = "config_snapshot")]
     Task UnpinSnapshotAsync(int snapshotId, CancellationToken cancellationToken = default);
 
+    /// <summary>Two snapshots (null: the live config) as YAML for Compare, secrets redacted, the second in the first's object order.</summary>
+    [RequireRole(Roles.Operator)]
+    Task<(string From, string To)> CompareYamlAsync(int? fromSnapshotId, int? toSnapshotId, IReadOnlyCollection<string>? collections = null, CancellationToken cancellationToken = default);
+
     /// <summary>A snapshot (null: the live config) as YAML, secrets redacted.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.ChangeControlYamlDownloaded, TargetType = "config_snapshot")]

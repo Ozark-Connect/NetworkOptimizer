@@ -571,6 +571,13 @@ public sealed partial class ChangeControlService : IChangeControlService
             await r.UpdateSnapshotAsync(s, c);
         }, ct);
 
+    public async Task<(string From, string To)> CompareYamlAsync(int? fromSnapshotId, int? toSnapshotId, IReadOnlyCollection<string>? collections = null, CancellationToken cancellationToken = default)
+    {
+        var from = (await LoadSideAsync(fromSnapshotId, cancellationToken)).State;
+        var to = YamlConverter.InOrderOf((await LoadSideAsync(toSnapshotId, cancellationToken)).State, from);
+        return (YamlConverter.Export(from, collections, includeSecrets: false), YamlConverter.Export(to, collections, includeSecrets: false));
+    }
+
     public async Task<string> DownloadYamlAsync(int? snapshotId, IReadOnlyCollection<string>? collections = null, CancellationToken cancellationToken = default) =>
         YamlConverter.Export((await LoadSideAsync(snapshotId, cancellationToken)).State, collections, includeSecrets: false);
 

@@ -249,6 +249,10 @@ else if (_compare != null)
                     {
                         <div class="loading-container"><div class="spinner spinner-sm"></div></div>
                     }
+                    else if (!_yamlDiff.Any(d => d.Item1 != ' '))
+                    {
+                        <div class="empty-state empty-state-small"><p>No difference in the YAML. It hides secrets, so a changed passphrase or key shows only under Changes.</p></div>
+                    }
                     else
                     {
                         <pre class="gateway-diag-raw" style="margin:0;max-height:520px;overflow:auto">@foreach (var (kind, text) in _yamlDiff){<span class="@(kind == '-' ? "danger-text" : kind == '+' ? "success-text" : "muted-text")">@($"{kind} {text}\n")</span>}</pre>
@@ -413,8 +417,7 @@ else if (_compare != null)
         _compareView = "yaml";
         if (_compare == null || _yamlDiff != null) return;
         var collections = _compare.Objects.Select(o => o.Object.Collection).Distinct().ToList();
-        var a = await Site.DownloadYamlAsync(_compare.FromSnapshotId, collections);
-        var b = await Site.DownloadYamlAsync(_compare.ToSnapshotId, collections);
+        var (a, b) = await Site.CompareYamlAsync(_compare.FromSnapshotId, _compare.ToSnapshotId, collections);
         _yamlDiff = LineDiff.Diff(a.Split('\n'), b.Split('\n'), context: 3);
     }
 

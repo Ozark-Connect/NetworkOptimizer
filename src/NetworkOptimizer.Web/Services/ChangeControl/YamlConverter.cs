@@ -144,6 +144,27 @@ public static partial class YamlConverter
         return sb.ToString();
     }
 
+    /// <summary>
+    /// <paramref name="to"/> with each collection in <paramref name="from"/>'s object order, by ID; objects new in
+    /// <paramref name="to"/> follow, in their own order. For a line diff of two states: UniFi moves an updated
+    /// object in its stored list, and diffed by position, one object's change read as two objects swapped.
+    /// Firewall policies keep their own order, which Export writes by index: there the order is the change.
+    /// </summary>
+    public static ConfigState InOrderOf(ConfigState to, ConfigState from)
+    {
+        var aligned = to.Clone();
+        foreach (var key in aligned.Collections.Keys.ToList())
+        {
+            if (key == "firewall_policy" || !from.Collections.TryGetValue(key, out var before)) continue;
+            var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < before.Count; i++) rank.TryAdd(ConfigState.IdOf(before[i]), i);
+            aligned.Collections[key] = aligned.Collections[key].Select((o, i) => (o, i))
+                .OrderBy(x => rank.TryGetValue(ConfigState.IdOf(x.o), out var r) ? r : int.MaxValue).ThenBy(x => x.i)
+                .Select(x => x.o).ToList();
+        }
+        return aligned;
+    }
+
     /// <summary>The masked form of the secret at <paramref name="path"/> (object ID, then keys and list indexes).</summary>
     public static string SecretToken(string path) => SecretTokenPrefix + path + ">";
 
