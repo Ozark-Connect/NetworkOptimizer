@@ -311,7 +311,9 @@ measurements behind it come from one UCG-Fiber on PPPoE with GRO.
   and never installs one, so it lifts and restores whatever the last deploy left.
 - **Turning it off.** Adaptive SQM cannot rebuild UniFi's HTB tree. A deploy with the option off,
   a disabled WAN, and Remove delete only the CAKE root with handle `ca4e:` and warn that download
-  is unshaped until Smart Queues is applied again in UniFi Network.
+  is unshaped until Smart Queues is applied again in UniFi Network. The delete names handle and
+  kind, so it fails rather than removing an HTB tree UniFi rebuilt in the meantime, and it waits up
+  to 20 s for a running ping script. A calibration that is mid-run can still put CAKE back once.
 - **Readers.** The SQM Monitor, `GatewayShaperProbe` (Config Optimizer) and the ping script read a
   CAKE root's bandwidth as the shaped rate.
 
