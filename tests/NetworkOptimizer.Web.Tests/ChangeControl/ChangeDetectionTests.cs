@@ -127,6 +127,22 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_ACreationInUniFi_IsTheAdmins_WhateverItsKey()
+    {
+        var created = new AuditLogEvent
+        {
+            Id = "e3", Timestamp = new DateTimeOffset(Now.AddSeconds(-20)).ToUnixTimeMilliseconds(), Key = "CONFIG_CREATED",
+            AdminName = "TJ", Ip = "192.0.2.5", ObjectName = "Test-IoT", Section = "WIFI",
+        };
+        var signIn = new AuditLogEvent { Id = "e4", Timestamp = created.Timestamp, Key = "ADMIN_ACCESS", AdminName = "Someone" };
+        var diff = new ObjectDiff { Collection = "wlanconf", ObjectId = "w9", Name = "Test-IoT", Action = ConfigChangeAction.Created };
+
+        var g = ChangeAttributor.Attribute([diff], [signIn, created], [], Now, false, beforeReadAt: Now.AddSeconds(-60)).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.Person);
+        g.ActorName.Should().Be("TJ");
+    }
+
+    [Fact]
     public void Attribute_APlansOwnEvent_BeforeTheBeforeRead_IsStillOurs()
     {
         // The write and its AUDIT event both land before the read; the event must not become a person's.
