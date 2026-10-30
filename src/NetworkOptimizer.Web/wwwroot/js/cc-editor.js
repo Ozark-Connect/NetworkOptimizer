@@ -836,6 +836,21 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
         state: EditorState.create({
             doc: text ?? '',
             extensions: [
+                // A list a click opened on a value already set only offers: Enter is still a line break
+                // until an arrow key picks an entry. On an empty value, or opened by typing, Enter accepts.
+                // First of all: basicSetup carries autocompletion's Prec.highest keymap, and among equal
+                // precedence the earlier runs first, so anywhere after it the list took these keys.
+                Prec.highest(keymap.of([
+                    { key: 'ArrowDown', run: () => { state.clickList = false; return false; } },
+                    { key: 'ArrowUp', run: () => { state.clickList = false; return false; } },
+                    { key: 'Enter', run: v => {
+                        const offerOnly = state.clickList && completionStatus(v.state) === 'active';
+                        state.clickList = false;
+                        if (!offerOnly) return false;
+                        closeCompletion(v);
+                        return yamlNewline(v);
+                    } },
+                ])),
                 // Ahead of basicSetup, so it outranks the default Enter; completion's Enter still wins.
                 keymap.of([{ key: 'Enter', run: yamlNewline }]),
                 basicSetup,
@@ -857,17 +872,6 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
-                // A list a click opened on a value already set only offers: Enter is still a line break
-                // until an arrow key picks an entry. On an empty value, or opened by typing, Enter accepts.
-                Prec.highest(keymap.of([
-                    { key: 'ArrowDown', run: () => { state.clickList = false; return false; } },
-                    { key: 'ArrowUp', run: () => { state.clickList = false; return false; } },
-                    { key: 'Enter', run: v => {
-                        if (state.clickList && completionStatus(v.state) === 'active') closeCompletion(v);
-                        state.clickList = false;
-                        return false;
-                    } },
-                ])),
                 state.editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ 'aria-label': label ?? 'YAML', spellcheck: 'false' }),
                 EditorView.updateListener.of(u => {
