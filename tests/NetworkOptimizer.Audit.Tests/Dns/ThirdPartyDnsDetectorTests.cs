@@ -1,10 +1,12 @@
 using System.Net;
+using System.Net.Sockets;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Monitoring.Providers;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
@@ -301,6 +303,90 @@ public class ThirdPartyDnsDetectorTests : IDisposable
                 DnsServers = ["10.10.20.30"]
             }
         ];
+    }
+
+    [Fact]
+    public async Task WithDialer_ProbesTheManagementUrlAndLanResolverThroughTheDialer()
+    {
+        // A site reached through its agent: the agent dials the URL's host by name inside the
+        // site, so a split-horizon name is never resolved on this server.
+        var dialer = new RecordingDialer();
+        using var detector = CreateDetector().WithDialer(dialer);
+
+        var result = await detector.DetectThirdPartyDnsAsync(CreateTechnitiumTestNetworks(), customUrl: "https://admin.dns.example.test");
+
+        result.Should().ContainSingle();
+        dialer.Dials.Should().Contain(("admin.dns.example.test", 443));
+        dialer.Dials.Should().Contain(d => d.Host == "10.10.20.30");
+    }
+
+    [Fact]
+    public async Task WithDialer_QueriesTheResolverAtTheEndpointTheDialerHandsBack()
+    {
+        ThirdPartyDnsDetector.NextDnsProbeOverride = null;
+        ThirdPartyDnsDetector.ControlDProbeOverride = null;
+        using var forwarded = new ClosingListener();
+        var dialer = new RecordingDialer { ForwardTo = ("127.0.0.1", forwarded.Port) };
+        using var detector = CreateDetector().WithDialer(dialer);
+
+        var result = await detector.DetectThirdPartyDnsAsync(CreateTechnitiumTestNetworks());
+
+        // Both the NextDNS and ControlD probes asked the dialer for the resolver's port 53.
+        dialer.Resolves.Should().HaveCount(2).And.OnlyContain(r => r.Host == "10.10.20.30" && r.Port == 53);
+        forwarded.Accepted.Should().BeGreaterThan(0);
+        result.Should().ContainSingle(r => !r.IsNextDns && !r.IsControlD);
+    }
+
+    /// <summary>Records every dial and refuses it; hands back <see cref="ForwardTo"/> for a library's own socket.</summary>
+    private sealed class RecordingDialer : IDeviceDialer
+    {
+        public List<(string Host, int Port)> Dials { get; } = [];
+        public List<(string Host, int Port)> Resolves { get; } = [];
+        public (string Host, int Port)? ForwardTo { get; init; }
+
+        public ValueTask<Stream> DialAsync(string host, int port, CancellationToken cancellationToken)
+        {
+            lock (Dials) Dials.Add((host, port));
+            return ValueTask.FromException<Stream>(new SocketException((int)SocketError.ConnectionRefused));
+        }
+
+        public Task<(string Host, int Port)> ResolveAsync(string host, int port)
+        {
+            lock (Resolves) Resolves.Add((host, port));
+            return Task.FromResult(ForwardTo ?? (host, port));
+        }
+    }
+
+    /// <summary>A loopback listener that accepts and closes at once, so a query to it fails fast.</summary>
+    private sealed class ClosingListener : IDisposable
+    {
+        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private int _accepted;
+
+        public ClosingListener()
+        {
+            _listener.Start();
+            _ = AcceptLoopAsync();
+        }
+
+        public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+        public int Accepted => Volatile.Read(ref _accepted);
+
+        private async Task AcceptLoopAsync()
+        {
+            try
+            {
+                while (true)
+                {
+                    using var client = await _listener.AcceptTcpClientAsync();
+                    Interlocked.Increment(ref _accepted);
+                }
+            }
+            catch (ObjectDisposedException) { }
+            catch (SocketException) { }
+        }
+
+        public void Dispose() => _listener.Stop();
     }
 
     private ThirdPartyDnsDetector CreateDetector(HttpClient? httpClient = null)
