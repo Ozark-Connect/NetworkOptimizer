@@ -292,11 +292,12 @@ public static class ZoneSetup
                 return;
             }
             n++;
-            // Shape of a custom zone-pair policy, from sample-firewall-policies-response.txt.
+            // Shape of a custom zone-pair policy, from sample-firewall-policies-response.txt. No index: UniFi
+            // ignores it on a create and puts a pair's one custom policy ahead of the predefined ones itself.
             policies.Add(new JsonObject
             {
                 ["_id"] = NewPolicyPrefix + n, ["name"] = name, ["description"] = "Set Up Zones", ["enabled"] = true, ["action"] = action,
-                ["index"] = n, ["ip_version"] = "BOTH", ["protocol"] = "all", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
+                ["ip_version"] = "BOTH", ["protocol"] = "all", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
                 ["create_allow_respond"] = action == "ALLOW", ["logging"] = false, ["match_ip_sec"] = false, ["match_opposite_protocol"] = false,
                 ["icmp_typename"] = "ANY", ["icmp_v6_typename"] = "ANY", ["predefined"] = false, ["schedule"] = new JsonObject { ["mode"] = "ALWAYS" },
                 ["source"] = new JsonObject { ["zone_id"] = srcId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },

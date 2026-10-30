@@ -107,6 +107,7 @@ public class ZoneSetupTests
         var iotPolicy = doc.Operations.First(o => o.Collection == "firewall_policy" && o.Action == PlanAction.Create && o.ObjectName == "Block IoT to Internal");
         iotPolicy.Body!["source"]!["zone_id"]!.ToString().Should().Be(PlanBuilder.RefPrefix + zoneCreate.Key);
         doc.Operations.IndexOf(zoneCreate).Should().BeLessThan(doc.Operations.IndexOf(iotPolicy));
+        iotPolicy.Body!.AsObject().ContainsKey("index").Should().BeFalse("UniFi ignores it on a create");
         doc.Operations.Should().NotContain(o => o.Action == PlanAction.Delete);
     }
 
