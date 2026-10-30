@@ -381,7 +381,7 @@ public static class ZoneSetup
                 ? new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false }
                 : new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "SPECIFIC", ["port"] = ports, ["match_opposite_ports"] = false };
 
-        void Put(string srcId, string dstId, string action, string name, string? ports = null, string protocol = "tcp_udp", string? groupId = null, JsonObject? destination = null)
+        JsonObject Put(string srcId, string dstId, string action, string name, string? ports = null, string protocol = "tcp_udp", string? groupId = null, JsonObject? destination = null)
         {
             var dest = destination ?? Destination(dstId, ports, groupId);
             var specific = ports != null || groupId != null || destination != null;
@@ -396,11 +396,11 @@ public static class ZoneSetup
                     existing["protocol"] = protocol;
                     existing["destination"] = dest;
                 }
-                return;
+                return existing;
             }
             // Shape of a custom zone-pair policy, from sample-firewall-policies-response.txt. No index: UniFi
             // ignores it on a create and puts a pair's one custom policy ahead of the predefined ones itself.
-            policies.Add(new JsonObject
+            var policy = new JsonObject
             {
                 ["_id"] = NewPolicyPrefix + ++n, ["name"] = name, ["description"] = "Set Up Zones", ["enabled"] = true, ["action"] = action,
                 ["ip_version"] = "BOTH", ["protocol"] = specific ? protocol : "all", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
@@ -408,7 +408,9 @@ public static class ZoneSetup
                 ["icmp_typename"] = "ANY", ["icmp_v6_typename"] = "ANY", ["predefined"] = false, ["schedule"] = new JsonObject { ["mode"] = "ALWAYS" },
                 ["source"] = new JsonObject { ["zone_id"] = srcId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },
                 ["destination"] = dest,
-            });
+            };
+            policies.Add(policy);
+            return policy;
         }
 
         // An operator allow already in the pair (re-homed or their own) covers the generic exception.
@@ -436,24 +438,47 @@ public static class ZoneSetup
             var isolated = z.NetworkIds.Where(id => networkById.TryGetValue(id, out var net)
                 && net["network_isolation_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var included = z.NetworkIds.Where(id => !isolated.Contains(id)).ToList();
-            if (included.Count == 0) continue;
+            var name = $"Allow {z.Name} within {z.Name}";
+            var existing = policies.FirstOrDefault(p => Str(p, "name") == name
+                && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && Str(p["source"]?["zone_id"]) == ids[z.Key] && Str(p["destination"]?["zone_id"]) == ids[z.Key]);
+            // The description survives manual edits. Refresh only source shapes the wizard writes.
+            var source = existing?["source"] as JsonObject;
+            var wizardSource = source != null && Str(source["matching_target"]) is "ANY" or "NETWORK"
+                && Str(source["port_matching_type"]) is null or "ANY"
+                && Str(source["matching_target_type"]) != "OBJECT"
+                && source["match_opposite_networks"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && source["match_opposite_ports"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && source["match_mac"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && (Str(source["matching_target"]) != "NETWORK"
+                    || source["network_ids"] is JsonArray { Count: > 0 } members
+                    && members.All(id => newZoneOf.TryGetValue(Str(id) ?? "", out var zone)
+                        && string.Equals(zone, ids[z.Key], StringComparison.OrdinalIgnoreCase)));
+            if (existing != null && (Str(existing, "description") != "Set Up Zones" || !wizardSource))
+            {
+                notes.Add($"{name}: the existing operator policy is kept as it is.");
+                continue;
+            }
+            if (included.Count == 0)
+            {
+                if (existing != null)
+                {
+                    policies.Remove(existing);
+                    notes.Add($"{name}: removed because every network has Isolate Network enabled.");
+                }
+                continue;
+            }
 
-            Put(ids[z.Key], ids[z.Key], "ALLOW", $"Allow {z.Name} within {z.Name}");
+            var policy = Put(ids[z.Key], ids[z.Key], "ALLOW", name);
+            // Refresh only the wizard's source restriction; keep any destination or service limits.
+            policy["source"] = new JsonObject
+            {
+                ["zone_id"] = ids[z.Key], ["matching_target"] = isolated.Count > 0 ? "NETWORK" : "ANY",
+                ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false,
+            };
             if (isolated.Count > 0)
             {
-                var policy = policies.First(p => Str(p, "name") == $"Allow {z.Name} within {z.Name}"
-                    && Str(p["source"]?["zone_id"]) == ids[z.Key] && Str(p["destination"]?["zone_id"]) == ids[z.Key]);
-                policy["source"] = new JsonObject
-                {
-                    ["zone_id"] = ids[z.Key], ["matching_target"] = "NETWORK",
-                    ["network_ids"] = new JsonArray(included.Select(id => (JsonNode?)id).ToArray()),
-                    ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false,
-                };
-                policy["destination"] = new JsonObject
-                {
-                    ["zone_id"] = ids[z.Key], ["matching_target"] = "ANY",
-                    ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false,
-                };
+                policy["source"]!["network_ids"] = new JsonArray(included.Select(id => (JsonNode?)id).ToArray());
                 notes.Add($"{z.Name}: the within-zone allow excludes networks with Isolate Network enabled.");
             }
         }
