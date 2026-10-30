@@ -24426,7 +24426,8 @@ body:has(.top-bar-hidden) .btn-fit {
     gap: 0.5rem 1rem;
     padding: 10px 16px;
     border-bottom: 1px solid var(--border-color);
-    align-items: start;
+    /* On the text's baseline, not the top: the location's smaller monospace sat above the message. */
+    align-items: baseline;
     font-size: 0.875rem;
 }
 
