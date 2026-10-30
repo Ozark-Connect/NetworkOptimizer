@@ -24431,6 +24431,10 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.875rem;
 }
 
+.change-control .cc-problem > div:last-child {
+    font-size: 0.8rem;
+}
+
 .change-control .cc-problem:last-child {
     border-bottom: none;
 }
