@@ -98,6 +98,9 @@ public sealed class PlanCoordinator
         ConfigState? impactBefore = null, int? rollsBackChangeId = null, bool runImpact = true)
     {
         var live = await _engine.ReadLiveAsync(ct);
+        // Same test as a snapshot: a console that answered nothing would plan "Nothing to write".
+        if (live.Collections.Count == 0 || live.ReadErrors.ContainsKey("networkconf"))
+            throw new InvalidOperationException("The UniFi Console is not connected yet. Try again once it is.");
         var doc = PlanBuilder.Build(desired, live, Options(options));
         decorate?.Invoke(doc);
         if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
@@ -697,8 +700,12 @@ public sealed class PlanCoordinator
             }
             steps.Add(new FirmwareRolloutStep
             {
-                DeviceMac = mac, DeviceName = name, Model = model, DeviceType = type,
-                State = FirmwareRolloutStepState.LitmusPassed, BackAt = done,
+                DeviceMac = mac,
+                DeviceName = name,
+                Model = model,
+                DeviceType = type,
+                State = FirmwareRolloutStepState.LitmusPassed,
+                BackAt = done,
                 PreStatsJson = pre == null ? null : JsonSerializer.Serialize(pre),
                 PostStatsJson = post == null ? null : JsonSerializer.Serialize(post),
             });
@@ -818,8 +825,13 @@ public sealed class PlanCoordinator
         {
             await _bus.PublishAsync(new AlertEvent
             {
-                EventType = type, Source = ChangeAlerts.Source, Severity = severity, Title = title, Message = message,
-                SourceUrl = ChangeAlerts.PlanUrl(planId), SiteSlug = Slug,
+                EventType = type,
+                Source = ChangeAlerts.Source,
+                Severity = severity,
+                Title = title,
+                Message = message,
+                SourceUrl = ChangeAlerts.PlanUrl(planId),
+                SiteSlug = Slug,
                 Context = new Dictionary<string, string> { ["plan_id"] = planId.ToString() },
             }, ct);
         }
