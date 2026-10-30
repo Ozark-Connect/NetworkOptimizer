@@ -450,20 +450,23 @@ function managedObjects(state) {
 export function policyOrder(doc, isOutside = () => false) {
     const zoneOf = (lines, side) => {
         const at = lines.findIndex(l => new RegExp(`^\\s+${side}:\\s*$`).test(l));
-        if (at < 0) return '?';
+        if (at < 0) return null;
         const pad = lines[at].length - lines[at].trimStart().length;
         for (let i = at + 1; i < lines.length; i++) {
             const l = lines[i];
             if (l.trim() && l.length - l.trimStart().length <= pad) break;
-            const m = /^\s+zone(?:_id)?:\s*(.+?)\s*$/.exec(l);
-            if (m) return m[1].replace(/^["']|["']$/g, '');
+            const m = /^\s+zone(?:_id)?:\s*(.*?)\s*$/.exec(l);
+            if (m) return m[1].replace(/^["']|["']$/g, '') || null;
         }
-        return '?';
+        return null;
     };
     const policies = itemBlocks(doc).filter(b => b.collection === 'firewall_policies' && !isOutside(b))
         .map(b => {
             const lines = doc.sliceString(b.from, b.to).split('\n');
-            return { block: b, pair: `${zoneOf(lines, 'source')} → ${zoneOf(lines, 'destination')}` };
+            const src = zoneOf(lines, 'source');
+            const dst = zoneOf(lines, 'destination');
+            // A new policy has no zones yet: its own group, unnamed, until both are set.
+            return { block: b, pair: src && dst ? `${src} → ${dst}` : `?${b.from}`, named: !!(src && dst) };
         });
     const byPair = new Map();
     for (const p of policies) {
@@ -488,7 +491,7 @@ export function moveBlock(doc, block, target, up) {
 
 class OrderWidget extends WidgetType {
     constructor(p, state) { super(); this.p = p; this.state = state; }
-    eq(o) { return o.p.pair === this.p.pair && o.p.rank === this.p.rank && o.p.of === this.p.of && !o.p.prev === !this.p.prev && !o.p.next === !this.p.next; }
+    eq(o) { return o.p.pair === this.p.pair && o.p.named === this.p.named && o.p.rank === this.p.rank && o.p.of === this.p.of && !o.p.prev === !this.p.prev && !o.p.next === !this.p.next; }
     toDOM(view) {
         const tail = document.createElement('span');
         tail.className = 'cc-line-tail cc-policy-rank';
@@ -516,7 +519,7 @@ class OrderWidget extends WidgetType {
         tail.append(arrow('↑', this.p.prev, true), arrow('↓', this.p.next, false));
         const label = document.createElement('span');
         label.className = 'cc-policy-rank-label';
-        label.textContent = `${this.p.pair}, ${this.p.rank} of ${this.p.of}`;
+        label.textContent = this.p.named ? `${this.p.pair}, ${this.p.rank} of ${this.p.of}` : `${this.p.rank} of ${this.p.of}`;
         tail.appendChild(label);
         return tail;
     }
@@ -926,14 +929,15 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                     if (insert === ' ' && v.state.sliceDoc(from - 1, from) === ':') setTimeout(() => startCompletion(v), 0);
                     return false;
                 }),
-                // A quote typed before text quotes that text, not an empty pair in front of it.
-                EditorView.inputHandler.of((v, from, to, insert) => {
+                // A quote typed before text quotes that text, not an empty pair in front of it. Ahead of
+                // closeBrackets, which pairs a quote whenever the next character is not a letter ("[TEST]").
+                Prec.highest(EditorView.inputHandler.of((v, from, to, insert) => {
                     if ((insert !== '"' && insert !== "'") || from !== to) return false;
                     const end = quotedEnd(v.state.doc.lineAt(from), from);
                     if (end === null) return false;
                     v.dispatch({ changes: [{ from, insert }, { from: end, insert }], selection: { anchor: end + 2 }, userEvent: 'input.type' });
                     return true;
-                }),
+                })),
             ],
         }),
     });
