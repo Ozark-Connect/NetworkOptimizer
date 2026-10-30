@@ -190,6 +190,24 @@ public sealed class ChangeEvaluator : IChangeEvaluator
         }
     }
 
+    /// <inheritdoc />
+    public async Task RunSecurityAuditAsync(string siteSlug)
+    {
+        try
+        {
+            await using var scope = _scopes.CreateAsyncScope();
+            if (!scope.ServiceProvider.GetRequiredService<Licensing.LicenseStateService>().IsSiteOperational(siteSlug)) return;
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+            if (scope.ServiceProvider.GetRequiredService<AuditService>().IsRunning) return;
+            using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
+            await scope.ServiceProvider.GetRequiredService<IAuditScanService>().RunAuditAsync(new AuditOptions());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Security Audit after an applied plan failed for site {Site}", siteSlug);
+        }
+    }
+
     private async Task<ImpactResult?> RunImpactAsync(IServiceProvider sp, ConfigState before, ConfigState after, CancellationToken ct)
     {
         try

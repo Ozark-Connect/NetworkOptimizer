@@ -357,6 +357,9 @@ public sealed class PlanCoordinator
                 + (result.VerifyDifferences.Count > 0 ? $" {result.VerifyDifferences.Count} differences remain after verify." : "")
                 + (refused.Count > 0 ? $" {plan.Message}" : ""), plan.Id, ct);
             _engine.PollSoon();
+            // In the background: the apply returns now, and the Security Audit page shows the new config without a Run Audit.
+            if (_evaluator != null && ImpactAnalyzer.Triggers(doc.Collections))
+                _ = Task.Run(() => _evaluator.RunSecurityAuditAsync(Slug));
             return null;
         }
         finally

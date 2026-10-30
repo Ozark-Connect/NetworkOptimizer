@@ -37,6 +37,9 @@ public interface IChangeEvaluator
 
     /// <summary>The Security Audit's network purposes for a config (detected, or the user's overrides).</summary>
     Task<List<NetworkOptimizer.Audit.Models.NetworkInfo>?> GetNetworksAsync(string siteSlug, ConfigState state, CancellationToken ct);
+
+    /// <summary>A full Security Audit run, stored like Run Audit (after an applied plan the audit reads).</summary>
+    Task RunSecurityAuditAsync(string siteSlug);
 }
 
 /// <summary>
