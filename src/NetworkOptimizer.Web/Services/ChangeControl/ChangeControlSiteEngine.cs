@@ -252,11 +252,6 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         else if (auditOk && _auditUnreadable)
             _logger.LogInformation("Change detection for site {Site} reads the UniFi AUDIT log again", _slug);
         _auditUnreadable = !auditOk;
-        // A key this reads as neither a change nor a known non-change is a UniFi event it misses (a create
-        // read Unattributed this way). Information: this logger's category is outside the app's Debug level.
-        foreach (var e in events.Where(e => !e.IsChange && e.Key is not ("GENERATED" or "ADMIN_ACCESS")).DistinctBy(e => e.Key))
-            _logger.LogInformation("Change detection for site {Site}: AUDIT event {Key} ({Section}/{Object} by {Admin}) is not read as a change",
-                _slug, e.Key, e.Section, e.ObjectName, e.AdminName ?? "-");
         var seen = state.LastAuditEventIdsJson is { Length: > 0 } j ? JsonSerializer.Deserialize<HashSet<string>>(j) ?? [] : [];
         events = events.Where(e => !seen.Contains(e.Id)).ToList();
 
@@ -724,14 +719,6 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             all.Add(PolicyOrderObject(order, afterNames));
 
         var groups = ChangeAttributor.Attribute(all, events, journal, DateTime.UtcNow, inUpgradeWindow, before.ReadAt);
-        // Diagnostics for unattributed UniFi changes (Information: this logger is outside the app's Debug level).
-        foreach (var e in events)
-            _logger.LogInformation("Change detection for site {Site}: AUDIT event {Key} at {At:O}: section {Section}, collection {Collection}, object {ObjectId} {ObjectName}, admin {Admin}",
-                _slug, e.Key, e.TimeUtc, e.Section, e.SettingCollection, e.ObjectId, e.ObjectName, e.AdminName ?? e.AdminId);
-        foreach (var g in groups.Where(g => g.ActorKind == ConfigChangeActorKind.NoAdminRecorded))
-            foreach (var o in g.Objects)
-                _logger.LogInformation("Change detection for site {Site}: Unattributed {Collection} {ObjectId} {Name} ({Action}), before read at {ReadAt:O}",
-                    _slug, o.Collection, o.ObjectId, o.Name, o.Action, before.ReadAt);
         var recorded = new List<ConfigChange>();
         foreach (var g in groups)
         {

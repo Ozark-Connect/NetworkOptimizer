@@ -127,17 +127,20 @@ public class ChangeDetectionTests
     }
 
     [Fact]
-    public void Attribute_ACreationInUniFi_IsTheAdmins_WhateverItsKey()
+    public void Attribute_ACreationInUniFi_IsTheAdmins()
     {
-        var created = new AuditLogEvent
-        {
-            Id = "e3", Timestamp = new DateTimeOffset(Now.AddSeconds(-20)).ToUnixTimeMilliseconds(), Key = "CONFIG_CREATED",
-            AdminName = "TJ", Ip = "192.0.2.5", ObjectName = "Test-IoT", Section = "WIFI",
-        };
-        var signIn = new AuditLogEvent { Id = "e4", Timestamp = created.Timestamp, Key = "ADMIN_ACCESS", AdminName = "Someone" };
+        // UniFi's own shape for an admin's create (main site, Network 11.0.97): key GENERATED, title "Config Created".
+        var ts = new DateTimeOffset(Now.AddSeconds(-20)).ToUnixTimeMilliseconds();
+        var created = AuditLogReader.Parse("""
+            {"data":[{"category":"AUDIT","event":"GENERATED","id":"e3","key":"GENERATED","title_raw":"Config Created","type":"ADMIN_ACCESS",
+              "parameters":{"ADMIN":{"id":"a1","name":"TJ"},"COUNT":{"name":"35"},"IP":{"id":"192.0.2.5","name":"192.0.2.5"},
+              "OBJECT":{"id":"w9","name":"Test-IoT"},"PLATFORM":{"id":"WEB","name":"web"},"SECTION":{"id":"WLAN_CONFIGURATION"}},
+              "timestamp":TS}]}
+            """.Replace("TS", ts.ToString(System.Globalization.CultureInfo.InvariantCulture))).Single();
         var diff = new ObjectDiff { Collection = "wlanconf", ObjectId = "w9", Name = "Test-IoT", Action = ConfigChangeAction.Created };
 
-        var g = ChangeAttributor.Attribute([diff], [signIn, created], [], Now, false, beforeReadAt: Now.AddSeconds(-60)).Single();
+        created.IsChange.Should().BeTrue();
+        var g = ChangeAttributor.Attribute([diff], [created], [], Now, false, beforeReadAt: Now.AddSeconds(-60)).Single();
         g.ActorKind.Should().Be(ConfigChangeActorKind.Person);
         g.ActorName.Should().Be("TJ");
     }

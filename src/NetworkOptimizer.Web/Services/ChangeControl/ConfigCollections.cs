@@ -578,7 +578,8 @@ public static class ConfigCollections
                 // UniFi keeps a PPSK's password unique on its WLAN, so it names the entry.
                 MergeOnTemplate = new Dictionary<string, string> { ["private_preshared_keys"] = "password" },
                 Write = new CollectionWrite { CreatePath = "rest/wlanconf", UpdatePath = "rest/wlanconf/{id}", DeletePath = "rest/wlanconf/{id}", Proven = true },
-                AuditSections = ["WIFI", "WLAN"], AuditCollectionNames = ["wlanconf"], AuditInput = true,
+                // WLAN_CONFIGURATION: creates and removes (main site, Network 11.0.97, 2026-10-29).
+                AuditSections = ["WIFI", "WLAN", "WLAN_CONFIGURATION"], AuditCollectionNames = ["wlanconf"], AuditInput = true,
                 TagsForField = (_, f) => Tags(f, ("security", ServiceTags.WlanSecurity), ("wpa", ServiceTags.WlanSecurity), ("pmf", ServiceTags.WlanSecurity),
                     ("passphrase", ServiceTags.WlanSecurity), ("radius", ServiceTags.WlanSecurity), ("minrate", ServiceTags.DataRates),
                     ("data_rate", ServiceTags.DataRates), ("basic_rate", ServiceTags.DataRates), ("mcast", ServiceTags.Mdns),

@@ -101,9 +101,7 @@ public static class ChangeAttributor
         var result = new List<AttributedChange>();
         // A write already in the before state owns only events from before that read: an admin's edit in
         // UniFi a minute after a plan wrote the same object was dropped as ours, and read Unattributed.
-        // Any key but a known non-change: UniFi's create key is not one IsChange lists, and a creation read
-        // Unattributed. An event still credits only the object it names (FindEvent).
-        var humanEvents = events.Where(e => (e.IsChange || e.Key is not ("GENERATED" or "ADMIN_ACCESS")) && !IsOwnEvent(e, beforeReadAt is { } read && e.TimeUtc > read
+        var humanEvents = events.Where(e => e.IsChange && !IsOwnEvent(e, beforeReadAt is { } read && e.TimeUtc > read
             ? journal.Where(j => j.At >= read).ToList() : journal)).ToList();
         var byActor = new Dictionary<string, AttributedChange>(StringComparer.Ordinal);
         var ownObjects = new List<ObjectDiff>();

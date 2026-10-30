@@ -27,9 +27,12 @@ public sealed record AuditLogEvent
 
     public DateTime TimeUtc => DateTimeOffset.FromUnixTimeMilliseconds(Timestamp).UtcDateTime;
 
-    /// <summary>A config change event (as opposed to sign-ins and generated/removed entity notices).</summary>
+    /// <summary>
+    /// A config change event, as opposed to a sign-in. GENERATED is an admin's create ("Config Created",
+    /// with ADMIN and OBJECT; main site, Network 11.0.97, 2026-10-29), not only UniFi's own generated policies.
+    /// </summary>
     public bool IsChange => Key.StartsWith("MADE_CHANGES", StringComparison.Ordinal)
-        || Key is "REMOVED_ENTITY" or "PAUSED_ENTITY" or "RESUMED_ENTITY";
+        || Key is "GENERATED" or "REMOVED_ENTITY" or "PAUSED_ENTITY" or "RESUMED_ENTITY";
 }
 
 /// <summary>Reads AUDIT events from <c>v2 system-log/all</c>.</summary>
