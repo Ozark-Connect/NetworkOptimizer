@@ -60,7 +60,7 @@ public sealed class PlanCoordinator
         _stats = stats;
     }
 
-    private static readonly TimeSpan AuditSettleDelay = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan AuditSettleDelay = TimeSpan.FromSeconds(45);
 
     private string Slug => _engine.SiteSlug;
 
