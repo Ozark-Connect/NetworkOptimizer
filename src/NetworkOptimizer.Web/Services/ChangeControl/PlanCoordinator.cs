@@ -60,6 +60,8 @@ public sealed class PlanCoordinator
         _stats = stats;
     }
 
+    private static readonly TimeSpan AuditSettleDelay = TimeSpan.FromSeconds(10);
+
     private string Slug => _engine.SiteSlug;
 
     /// <summary>Serializes and encrypts a plan document for storage.</summary>
@@ -358,8 +360,13 @@ public sealed class PlanCoordinator
                 + (refused.Count > 0 ? $" {plan.Message}" : ""), plan.Id, ct);
             _engine.PollSoon();
             // In the background: the apply returns now, and the Security Audit page shows the new config without a Run Audit.
+            // The wait lets UniFi settle what it derives from the writes: an audit 1.5 s after a zone apply still read the old zones.
             if (_evaluator != null && ImpactAnalyzer.Triggers(doc.Collections))
-                _ = Task.Run(() => _evaluator.RunSecurityAuditAsync(Slug));
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(AuditSettleDelay);
+                    await _evaluator.RunSecurityAuditAsync(Slug);
+                });
             return null;
         }
         finally
