@@ -167,6 +167,16 @@ public static class LockoutChecker
         // 6. Firewall policies that block traffic into the gateway from any source, or from where
         //    Network Optimizer reaches the site.
         var gatewayZone = planned.Get("firewall_zone").FirstOrDefault(z => Str(z["zone_key"]) == "gateway");
+        // A zone this plan creates holds only the networks the plan puts in it, so with Network Optimizer's
+        // and the console's addresses known, an ANY source there is provably not where we manage from.
+        var consoleNetworks = IPAddress.TryParse(options.ConsoleHost, out var consoleIp) && consoleIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+            ? planned.Get("networkconf").Where(n => Str(n["ip_subnet"]) is { } s && s.Contains('/') && InSubnet(consoleIp.ToString(), s)).Select(ConfigState.IdOf).ToHashSet()
+            : [];
+        var createdZones = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Create)
+            .Select(o => PlanBuilder.RefPrefix + o.Key).ToHashSet(StringComparer.Ordinal);
+        bool UnmanagedNewZone(string? zoneId) => noAddresses.Count > 0 && zoneId != null && createdZones.Contains(zoneId)
+            && planned.Get("firewall_zone").FirstOrDefault(z => ConfigState.IdOf(z) == zoneId) is { } zone
+            && !(zone["network_ids"] as JsonArray ?? []).Any(n => managementNetworks.Contains(Str(n) ?? "") || consoleNetworks.Contains(Str(n) ?? ""));
         if (gatewayZone != null)
             foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
             {
@@ -186,6 +196,7 @@ public static class LockoutChecker
                 };
                 var fromNoZone = fromAny && managementZones.Contains(Str(source?["zone_id"]) ?? "");
                 if (!fromAny && !fromNo) continue;
+                if (fromAny && !fromNoZone && UnmanagedNewZone(Str(source?["zone_id"]))) continue;
                 findings.Add(new LockoutFinding
                 {
                     Kind = fromNo || fromNoZone ? (options.AgentSite ? "certain" : "possible") : "possible",

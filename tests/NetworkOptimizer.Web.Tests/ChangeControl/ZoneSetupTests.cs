@@ -175,6 +175,57 @@ public class ZoneSetupTests
         doc.Errors.Should().ContainSingle(e => e.Contains("Network IoT"));
     }
 
+    private static ConfigState WithSubnetsAndGateway()
+    {
+        var live = Live();
+        live.Collections["firewall_zone"].Add(Zone("z-gw2", "Gateway", "gateway"));
+        live.Collections["firewall_zone"].RemoveAll(z => z["_id"]!.ToString() == "z-gw");
+        foreach (var n in live.Get("networkconf"))
+            n["ip_subnet"] = $"10.0.{n["vlan"]}.1/24";
+        return live;
+    }
+
+    [Fact]
+    public void GatewayBlock_FromANewZoneWithoutOurNetwork_IsNoLockout()
+    {
+        var live = WithSubnetsAndGateway();
+        var desired = ZoneSetup.Desired(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode));
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions
+        {
+            Collections = new HashSet<string> { "firewall_zone", "firewall_policy" }, DeleteMissing = false,
+            ManagementAddresses = ["10.0.1.50"],
+        });
+
+        doc.Lockouts.Should().NotContain(l => l.Title.Contains("Block IoT to Gateway Management"));
+    }
+
+    [Fact]
+    public void GatewayBlock_StillALockout_WhenOurAddressIsUnknown()
+    {
+        var live = WithSubnetsAndGateway();
+        var desired = ZoneSetup.Desired(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode));
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { Collections = new HashSet<string> { "firewall_zone", "firewall_policy" }, DeleteMissing = false });
+
+        doc.Lockouts.Should().Contain(l => l.Title.Contains("Block IoT to Gateway Management"));
+    }
+
+    [Fact]
+    public void GatewayBlock_StillALockout_WhenTheNewZoneHoldsOurNetwork()
+    {
+        var live = WithSubnetsAndGateway();
+        var desired = ZoneSetup.Desired(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode));
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions
+        {
+            Collections = new HashSet<string> { "firewall_zone", "firewall_policy" }, DeleteMissing = false,
+            ManagementAddresses = ["10.0.30.50"],
+        });
+
+        doc.Lockouts.Should().Contain(l => l.Title.Contains("Block IoT to Gateway Management"));
+    }
+
     [Fact]
     public void LegacySite_IsDetected()
     {
