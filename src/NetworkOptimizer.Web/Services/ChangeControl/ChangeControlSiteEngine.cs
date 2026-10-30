@@ -67,6 +67,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     private readonly SemaphoreSlim _pollLock = new(1, 1);
     private readonly SemaphoreSlim _evaluateLock = new(1, 1);
     private readonly ConcurrentQueue<UniFiWriteRecord> _journalQueue = new();
+    // In memory: a restart inside the window only costs the label, so it is not persisted.
+    private readonly ConcurrentDictionary<string, DateTime> _firmwareChangedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<bool>? _isAgentSite;
     private readonly Func<bool>? _hasNoConsole;
 
@@ -301,6 +303,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         // A device row also credits a rollout that just ended, but only one that took this device to this version.
         foreach (var d in firmwareChanged)
         {
+            _firmwareChangedAt[d.Mac] = now;
             var planId = RolloutFor != null ? await RolloutFor(d.Mac, d.Version, ct) : null;
             // "<device>: firmware ..." is parsed back: Facts reads the device before ": firmware", and
             // FirmwareHistoryImport.IsSame matches "<device>:". Keep both shapes in step with FirmwareHistoryImport.Summary.
@@ -732,7 +735,11 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         foreach (var order in diff.PolicyOrder)
             all.Add(PolicyOrderObject(order, afterNames));
 
-        var groups = ChangeAttributor.Attribute(all, events, journal, DateTime.UtcNow, inUpgradeWindow, before.ReadAt);
+        var now = DateTime.UtcNow;
+        foreach (var (mac, at) in _firmwareChangedAt)
+            if (now - at >= ChangeAttributor.DeviceUpgradeWindow) _firmwareChangedAt.TryRemove(mac, out _);
+        var upgraded = _firmwareChangedAt.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var groups = ChangeAttributor.Attribute(all, events, journal, now, inUpgradeWindow, before.ReadAt, upgraded);
         var recorded = new List<ConfigChange>();
         foreach (var g in groups)
         {

@@ -34,6 +34,9 @@ public static class ChangeAttributor
     /// <summary>How long after a Network app version change unattributed changes count as likely UniFi.</summary>
     public static readonly TimeSpan UpgradeWindow = TimeSpan.FromMinutes(60);
 
+    /// <summary>How long after a device's firmware changes its own unattributed changes count as likely UniFi.</summary>
+    public static readonly TimeSpan DeviceUpgradeWindow = TimeSpan.FromMinutes(20);
+
     /// <summary>
     /// Fields UniFi itself rewrites (Network app upgrade migrations; nightly channel optimization).
     /// From the 10.6 app's Auto-Optimize removal migration (network-app-10.6-dtos.md).
@@ -87,6 +90,14 @@ public static class ChangeAttributor
             || (obj.Collection == "device" && f.Path.StartsWith("radio_table", StringComparison.Ordinal)
                 && (f.Path.EndsWith(".channel", StringComparison.Ordinal) || f.Path.EndsWith(".ht", StringComparison.Ordinal)))));
 
+    /// <summary>
+    /// The device itself just changed firmware: UniFi re-provisions it after the upgrade. Scoped to that
+    /// device, so an admin's edit elsewhere during a rollout still reads Unattributed.
+    /// </summary>
+    private static bool IsUpgradedDevice(ObjectDiff obj, IReadOnlySet<string>? macs) =>
+        macs is { Count: > 0 } && obj.Collection == "device"
+        && (obj.After ?? obj.Before)?["mac"]?.ToString() is { } mac && macs.Contains(mac);
+
     /// <summary>Groups a diff's objects by actor.</summary>
     /// <param name="objects">Changed objects from the snapshot diff.</param>
     /// <param name="events">AUDIT change events since the previous snapshot.</param>
@@ -94,9 +105,11 @@ public static class ChangeAttributor
     /// <param name="now">Detection time.</param>
     /// <param name="inUpgradeWindow">The Network app version changed recently.</param>
     /// <param name="beforeReadAt">When the diff's before state was read; null when unknown.</param>
+    /// <param name="upgradedDevices">MACs of devices whose firmware changed within <see cref="DeviceUpgradeWindow"/>.</param>
     public static List<AttributedChange> Attribute(
         IReadOnlyList<ObjectDiff> objects, IReadOnlyList<AuditLogEvent> events,
-        IReadOnlyList<ConfigWriteJournalEntry> journal, DateTime now, bool inUpgradeWindow, DateTime? beforeReadAt = null)
+        IReadOnlyList<ConfigWriteJournalEntry> journal, DateTime now, bool inUpgradeWindow, DateTime? beforeReadAt = null,
+        IReadOnlySet<string>? upgradedDevices = null)
     {
         var result = new List<AttributedChange>();
         // A write already in the before state owns only events from before that read: an admin's edit in
@@ -169,7 +182,8 @@ public static class ChangeAttributor
             result.Add(noChange);
         }
 
-        var likely = unattributed.Where(o => inUpgradeWindow || IsLikelyUniFiField(o)).Concat(likelyUniFi).ToList();
+        var likely = unattributed.Where(o => inUpgradeWindow || IsLikelyUniFiField(o) || IsUpgradedDevice(o, upgradedDevices))
+            .Concat(likelyUniFi).ToList();
         var unknown = unattributed.Except(likely).ToList();
         if (likely.Count > 0)
         {

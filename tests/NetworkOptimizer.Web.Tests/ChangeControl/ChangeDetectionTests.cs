@@ -689,6 +689,29 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_UpgradedDevice_IsLikelyUniFi_OnlyForThatDevice()
+    {
+        var gateway = new ObjectDiff
+        {
+            Collection = "device", ObjectId = "d1", Name = "Gateway", Action = ConfigChangeAction.Updated,
+            After = JsonNode.Parse("""{"_id":"d1","mac":"AA:BB:CC:DD:EE:01"}""")!.AsObject(),
+            Fields = [new FieldChange("mgmt_network_id", null, null)],
+        };
+        var switchDiff = new ObjectDiff
+        {
+            Collection = "device", ObjectId = "d2", Name = "Switch", Action = ConfigChangeAction.Updated,
+            After = JsonNode.Parse("""{"_id":"d2","mac":"aa:bb:cc:dd:ee:02"}""")!.AsObject(),
+            Fields = [new FieldChange("mgmt_network_id", null, null)],
+        };
+        var upgraded = new HashSet<string>(["aa:bb:cc:dd:ee:01"], StringComparer.OrdinalIgnoreCase);
+
+        var groups = ChangeAttributor.Attribute([gateway, switchDiff], [], [], Now, false, upgradedDevices: upgraded);
+
+        groups.Single(g => g.ActorKind == ConfigChangeActorKind.LikelyUniFi).Objects.Should().ContainSingle(o => o.ObjectId == "d1");
+        groups.Single(g => g.ActorKind == ConfigChangeActorKind.NoAdminRecorded).Objects.Should().ContainSingle(o => o.ObjectId == "d2");
+    }
+
+    [Fact]
     public void Attribute_ChannelChangeOnly_IsLikelyUniFi()
     {
         var d = Diff("device", "d1", "AP", new FieldChange("radio_table[radio=na].channel", null, null));
