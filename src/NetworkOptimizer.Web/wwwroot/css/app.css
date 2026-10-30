@@ -24746,6 +24746,10 @@ body:has(.top-bar-hidden) .btn-fit {
     .change-control .cc-upgrade-card { order: 4; }
 }
 
+.change-control .cc-attention-card .empty-state p {
+    margin-bottom: 0.25rem;
+}
+
 .change-control td .cc-dot {
     margin-right: 0.35rem;
 }
