@@ -357,7 +357,8 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
     /// <summary>
     /// Server-side preflight (no gateway changes): validates input, checks that the
     /// target subnet does not overlap a UniFi-managed network/VLAN, and checks that the
-    /// target is not already reachable from the Network Optimizer server. The local-IP
+    /// target is not already reachable from where the site is polled (this server, or the
+    /// site's agent when its devices are reached through it). The local-IP
     /// availability gate runs on the gateway during <see cref="DeployAsync"/>.
     /// </summary>
     public async Task<PreflightResult> PreflightAsync(MonitoringInterface mi, CancellationToken ct = default)
@@ -389,8 +390,10 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         // CheckStatusAsync confirming THIS interface's own signature is present - not just
         // "some route exists" - so a stale or foreign route can't falsely satisfy it.
         var checkIp = mi.AliasIp ?? mi.TargetIp;
-        if (await IsReachableFromPollerAsync(checkIp, ct))
+        var viaAgent = await PingsViaAgentAsync();
+        if (await IsReachableFromPollerAsync(checkIp, viaAgent, ct))
         {
+            var vantage = viaAgent ? "the site's On-Site Agent" : "the Network Optimizer server";
             var status = await CheckStatusAsync(mi);
             if (!status.GatewayReachable)
             {
@@ -401,8 +404,8 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
             if (!status.IsOwnDeployment(mi))
             {
                 var message = mi.AliasIp != null
-                    ? $"Alias IP {mi.AliasIp} is already reachable from the Network Optimizer server - pick a different, unused alias."
-                    : $"{mi.TargetIp} is already reachable from the Network Optimizer server. " +
+                    ? $"Alias IP {mi.AliasIp} is already reachable from {vantage} - pick a different, unused alias."
+                    : $"{mi.TargetIp} is already reachable from {vantage}. " +
                       "If monitoring already works, no interface is needed. If a different device also uses this IP, " +
                       "set an Alias IP in Advanced so both can be monitored.";
                 return new PreflightResult(false, PreflightBlock.AlreadyReachable, message);
@@ -931,16 +934,20 @@ public class MonitoringInterfaceDeploymentService : IMonitoringInterfaceDeployme
         return PreflightBlock.None;
     }
 
+    /// <summary>Whether this site's devices are polled through its agent, so the preflight pings from there.</summary>
+    private async Task<bool> PingsViaAgentAsync()
+        => _routing != null && _siteContext != null && _agentProbe != null
+           && await _routing.IsViaAgentAsync(_siteContext.Slug);
+
     /// <summary>
     /// Whether <paramref name="ip"/> answers a ping from where this site's devices are polled: the
-    /// site's agent when its devices are reached through it, otherwise this server.
+    /// site's agent when <paramref name="viaAgent"/>, otherwise this server.
     /// </summary>
-    private async Task<bool> IsReachableFromPollerAsync(string ip, CancellationToken ct)
+    private async Task<bool> IsReachableFromPollerAsync(string ip, bool viaAgent, CancellationToken ct)
     {
-        if (_routing != null && _siteContext != null && _agentProbe != null
-            && await _routing.IsViaAgentAsync(_siteContext.Slug))
+        if (viaAgent)
         {
-            var agent = new Monitoring.AgentProbeExecutor(_agentProbe, _siteContext.Slug, _logger);
+            var agent = new Monitoring.AgentProbeExecutor(_agentProbe!, _siteContext!.Slug, _logger);
             var result = await agent.PingAsync(
                 new ProbeTarget(ip, ProbeMode.Icmp), count: 1, perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
             // No agent online reads as not reachable, the same as a server that cannot ping.
