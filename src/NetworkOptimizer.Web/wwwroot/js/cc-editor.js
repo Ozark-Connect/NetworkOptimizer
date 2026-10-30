@@ -984,7 +984,7 @@ export function setText(host, text, key, scope) {
     // The top line in view, not a pixel offset: CodeMirror keeps its own scroll across a document swap.
     const top = view.lineBlockAtHeight(view.scrollDOM.getBoundingClientRect().top - view.documentTop).from;
     // Not for the empty text the editor starts with before its first collection loads.
-    if (view.state.doc.length > 0) places[placeKey(cc.state, cc.state.key)] = { top, anchor: view.state.selection.main.head, folds };
+    if (view.state.doc.length > 0) places[placeKey(cc.state, cc.state.key)] = { top, anchor: view.state.selection.main.head, folds, ids: foldedIds(view.state), doc: view.state.doc };
     if (scope != null) cc.state.scope = scope;
     const place = places[placeKey(cc.state, key)];
 
@@ -998,11 +998,11 @@ export function setText(host, text, key, scope) {
             selection: { anchor: Math.min(place?.anchor ?? 0, length) },
         });
         view.dispatch(setDiagnostics(view.state, []));
-        // A fold saved against other text (an edit since) is dropped rather than misplaced.
+        // Positions hold only for the same text. Other text (an upload, then Discard) gets its folds
+        // back by object ID: a position fold there spans the wrong lines, from line 1 into a policy.
         const doc = view.state.doc;
-        const valid = (place?.folds ?? []).filter(r => r.to <= doc.length && doc.lineAt(r.from).to === r.from);
-        if (place) { if (valid.length) view.dispatch({ effects: valid.map(r => foldEffect.of(r)) }); }
-        else foldIds(view, loadFolds(cc.state, key));
+        if (place?.doc?.eq(doc)) { if (place.folds.length) view.dispatch({ effects: place.folds.map(r => foldEffect.of(r)) }); }
+        else foldIds(view, place ? place.ids ?? [] : loadFolds(cc.state, key));
     } finally {
         cc.state.silent = false;
     }
