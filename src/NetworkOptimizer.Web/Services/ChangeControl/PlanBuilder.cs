@@ -482,12 +482,11 @@ public static class PlanBuilder
     internal static string? SubnetProblem(JsonObject network)
     {
         if (network["ip_subnet"] is not JsonValue v || !v.TryGetValue<string>(out var text) || string.IsNullOrWhiteSpace(text)) return null;
-        const string Shape = "the gateway's address with its prefix, such as 192.168.30.1/24";
         if (Readdressing.ParseSubnet(text) is not { } subnet || Readdressing.ParseIp(text.Trim().Split('/')[0]) is not { } ip)
-            return $"Subnet {text} is not {Shape}.";
+            return $"Subnet {text} is not the gateway's address with its prefix, such as 192.168.30.1/24.";
         var broadcast = subnet.Network | ~subnet.Mask;
         if (ip == subnet.Network || ip == broadcast)
-            return $"Subnet {text} is the network's {(ip == subnet.Network ? "own" : "broadcast")} address; UniFi needs {Shape} ({Readdressing.Format(subnet.Network + 1)}/{subnet.Prefix} here).";
+            return $"Subnet {text} is the network's {(ip == subnet.Network ? "own" : "broadcast")} address; UniFi needs the gateway's, such as {Readdressing.Format(subnet.Network + 1)}/{subnet.Prefix}.";
         return null;
     }
 

@@ -388,8 +388,8 @@ public class PlanEngineTests
     [Theory]
     [InlineData("192.168.30.1/24", null)]
     [InlineData("10.0.0.254/23", null)]
-    [InlineData("192.168.30.0/24", "Subnet 192.168.30.0/24 is the network's own address; UniFi needs the gateway's address with its prefix, such as 192.168.30.1/24 (192.168.30.1/24 here).")]
-    [InlineData("192.168.30.255/24", "Subnet 192.168.30.255/24 is the network's broadcast address; UniFi needs the gateway's address with its prefix, such as 192.168.30.1/24 (192.168.30.1/24 here).")]
+    [InlineData("192.168.30.0/24", "Subnet 192.168.30.0/24 is the network's own address; UniFi needs the gateway's, such as 192.168.30.1/24.")]
+    [InlineData("192.168.30.255/24", "Subnet 192.168.30.255/24 is the network's broadcast address; UniFi needs the gateway's, such as 192.168.30.1/24.")]
     [InlineData("192.168.30.1", "Subnet 192.168.30.1 is not the gateway's address with its prefix, such as 192.168.30.1/24.")]
     [InlineData("192.168.30.1/33", "Subnet 192.168.30.1/33 is not the gateway's address with its prefix, such as 192.168.30.1/24.")]
     public void Subnet_IsTheGatewaysAddress_NotTheNetworks(string subnet, string? expected)

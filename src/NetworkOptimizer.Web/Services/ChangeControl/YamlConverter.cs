@@ -675,6 +675,17 @@ public static partial class YamlConverter
             }
         }
 
+        // The plan refuses the same subnet (PlanBuilder.SubnetProblem); here it gets its own line, and
+        // ValidateYamlAsync drops the plan's copy filed at line 1.
+        foreach (var (def, node, obj) in raw.Where(r => r.Def.Key == "networkconf"))
+        {
+            var was = baseById.TryGetValue(ConfigState.IdOf(obj), out var before) ? before.Object["ip_subnet"]?.ToString() : null;
+            if (obj["ip_subnet"]?.ToString() == was || PlanBuilder.SubnetProblem(obj) is not { } problem) continue;
+            var keyNode = node.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == "ip_subnet").Key;
+            result.Problems.Add(new YamlProblem("Error", fileName, keyNode == null ? Line(node) : Line(keyNode),
+                $"{def.Noun} {ConfigState.DisplayName(def, obj)}: {problem}"));
+        }
+
         // UniFi's own and Network Optimizer's objects are read-only here; the editor locks them, and an
         // upload or a pasted file is held to the same rule.
         // Compared as resolved (zone names to IDs); raw only gives each object's line.

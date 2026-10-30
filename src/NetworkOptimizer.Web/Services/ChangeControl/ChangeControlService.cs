@@ -705,6 +705,8 @@ public sealed partial class ChangeControlService : IChangeControlService
             var edited = filesByCollection.Keys.Select(ConfigCollections.Get).OfType<ConfigCollectionDef>().ToList();
             foreach (var error in plan?.Errors ?? [])
             {
+                // Already on its own line from the file's check (a network subnet).
+                if (problems.Any(p => p.Message == error)) continue;
                 // Errors start with the object's noun ("WLAN Home: ..."); file them under that collection.
                 var def = edited.FirstOrDefault(d => error.StartsWith(d.Noun + " ", StringComparison.Ordinal)) ?? edited.FirstOrDefault();
                 problems.Add(new YamlProblem("Error", def == null ? "" : YamlConverter.FileName(def), 1, error));
