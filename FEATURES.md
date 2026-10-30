@@ -672,6 +672,7 @@ Requires Gateway SSH.
 - External WAN speed test server for a VPS
 - Installable as an app (PWA) on iPhone, iPad, and Android, with pull-to-refresh and a Back button
 - Guided tours of what's new in each release
+- **On this page** - an index of the cards on long pages, to jump between them
 - Encrypted credential storage, with an optional external key file
 - Daily log file on every platform (`./logs` on Docker), seven days kept
 - Real client addresses behind a reverse proxy or Cloudflare (`TRUSTED_PROXIES`, `TRUST_CF_CONNECTING_IP`)
