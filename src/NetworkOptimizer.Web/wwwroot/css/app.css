@@ -24281,6 +24281,16 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.875rem;
 }
 
+.change-control .cc-remaining-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.change-control .cc-remaining-icon svg {
+    flex-shrink: 0;
+}
+
 .change-control .cc-card-footer .cc-edit-count {
     font-size: 0.875rem;
 }
