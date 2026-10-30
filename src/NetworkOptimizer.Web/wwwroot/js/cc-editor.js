@@ -936,10 +936,20 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                     const line = v.state.doc.lineAt(from);
                     const end = quotedEnd(line, from);
                     if (end !== null) {
-                        v.dispatch({ changes: [{ from, insert }, { from: end, insert }], selection: { anchor: end + 2 }, userEvent: 'input.type' });
+                        // A value already closed by this quote (a misplaced opening one moved) only needs it opened.
+                        const closed = v.state.sliceDoc(end - 1, end) === insert;
+                        v.dispatch(closed
+                            ? { changes: { from, insert }, selection: { anchor: from + 1 }, userEvent: 'input.type' }
+                            : { changes: [{ from, insert }, { from: end, insert }], selection: { anchor: end + 2 }, userEvent: 'input.type' });
                         return true;
                     }
                     // And one typed after a value quotes the value behind it.
+                    // A quote left open on the line, with none after: close it once, never as a pair.
+                    const at = from - line.from, count = s => s.split(insert).length - 1;
+                    if (count(line.text.slice(0, at)) % 2 === 1 && !count(line.text.slice(at))) {
+                        v.dispatch({ changes: { from, insert }, selection: { anchor: from + 1 }, userEvent: 'input.type' });
+                        return true;
+                    }
                     const start = quotedStart(line, from);
                     if (start === null) return false;
                     v.dispatch({ changes: [{ from: start, insert }, { from, insert }], selection: { anchor: from + 2 }, userEvent: 'input.type' });
@@ -1223,12 +1233,21 @@ export function quotedStart(line, pos) {
     const before = line.text.slice(0, pos - line.from);
     const rest = line.text.slice(pos - line.from);
     if (!/^\s*(#.*)?$|^\s*[,\]}]/.test(rest) || !before || /[\s"'[{,:]$/.test(before)) return null;
-    const lead = /[[{,]\s*|:\s+|^\s*-\s+/g;
-    let start = -1;
-    for (let m; (m = lead.exec(before));) start = m.index + m[0].length;
-    if (start < 0) return null;
+    const head = before.match(/^\s*(?:[\w.-]+:\s+|-\s+(?:[\w.-]+:\s+)?)/);
+    if (!head) return null;
+    const base = head[0].length;
+    // Inside a list still open at pos, the item behind it; a bracket closed before pos is text ("[TEST] x").
+    let depth = 0, item = base;
+    for (let i = base; i < before.length; i++) {
+        const c = before[i];
+        if (c === '[' || c === '{') { depth++; item = i + 1; }
+        else if ((c === ']' || c === '}') && depth) depth--;
+        else if (depth && (c === ',' || (c === ':' && before[i + 1] === ' '))) item = i + 1;
+    }
+    let start = depth ? item : base;
+    while (start < before.length && before[start] === ' ') start++;
     const value = before.slice(start);
-    return value && !/["'#]/.test(value) ? line.from + start : null;
+    return value && !(depth ? /["'#[\]{}]/ : /["'#]/).test(value) ? line.from + start : null;
 }
 
 /** The value on pos's "key: value" line, without a trailing comment; '' when none. */
