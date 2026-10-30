@@ -88,6 +88,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     public Func<string, string, CancellationToken, Task<int?>>? RolloutFor { get; set; }
 
     private bool _historyImported;
+    private bool _auditUnreadable;
 
     public ChangeControlSiteEngine(
         string slug, IUniFiConfigApi api, IChangeControlRepositoryAccessor repos, IConfigBlobStore blobs,
@@ -244,7 +245,16 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var fromMs = state.LastAuditEventTimestamp > 0 ? state.LastAuditEventTimestamp : nowMs - (long)TimeSpan.FromHours(1).TotalMilliseconds;
 
-        var (events, auditOk) = await AuditLogReader.ReadAsync(_api, fromMs, nowMs, ct);
+        var (events, auditOk, auditStatus) = await AuditLogReader.ReadAsync(_api, fromMs, nowMs, ct);
+        // Without the AUDIT log every change made in UniFi Network reads Unattributed; say so once per outage.
+        if (!auditOk && !_auditUnreadable)
+            _logger.LogWarning("Change detection for site {Site} cannot read the UniFi AUDIT log (HTTP {Status}): changes made in UniFi Network show as Unattributed", _slug, auditStatus);
+        else if (auditOk && _auditUnreadable)
+            _logger.LogInformation("Change detection for site {Site} reads the UniFi AUDIT log again", _slug);
+        _auditUnreadable = !auditOk;
+        if (events.Count > 0)
+            _logger.LogDebug("Change detection for site {Site}: {Events} AUDIT event(s), {Named} naming an admin", _slug, events.Count,
+                events.Count(e => !string.IsNullOrEmpty(e.AdminName) || !string.IsNullOrEmpty(e.AdminId)));
         var seen = state.LastAuditEventIdsJson is { Length: > 0 } j ? JsonSerializer.Deserialize<HashSet<string>>(j) ?? [] : [];
         events = events.Where(e => !seen.Contains(e.Id)).ToList();
 

@@ -39,8 +39,8 @@ public static class AuditLogReader
     private const int PageSize = 100;
     private const int MaxPages = 50;
 
-    /// <summary>Events after <paramref name="fromMs"/> (inclusive) up to now, oldest first.</summary>
-    public static async Task<(List<AuditLogEvent> Events, bool Ok)> ReadAsync(
+    /// <summary>Events after <paramref name="fromMs"/> (inclusive) up to now, oldest first; Status is the failed page's HTTP status.</summary>
+    public static async Task<(List<AuditLogEvent> Events, bool Ok, int Status)> ReadAsync(
         IUniFiConfigApi api, long fromMs, long toMs, CancellationToken cancellationToken)
     {
         var events = new List<AuditLogEvent>();
@@ -59,12 +59,12 @@ public static class AuditLogReader
                 ["clientDeviceMacs"] = Array.Empty<string>(),
             });
             var response = await api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Post, "system-log/all", body, cancellationToken);
-            if (!response.IsSuccess) return (events, false);
+            if (!response.IsSuccess) return (events, false, response.Status);
             var batch = Parse(response.Body);
             events.AddRange(batch);
             if (batch.Count < PageSize) break;
         }
-        return (events.OrderBy(e => e.Timestamp).ToList(), true);
+        return (events.OrderBy(e => e.Timestamp).ToList(), true, 200);
     }
 
     /// <summary>Parses a system-log response (<c>{data:[...]}</c> or a bare array).</summary>
