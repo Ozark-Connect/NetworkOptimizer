@@ -188,6 +188,25 @@ public class YamlConverterTests
     }
 
     [Fact]
+    public void ANewPolicy_GoesAboveThePredefinedOnes()
+    {
+        var site = State(
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}"""),
+            ("firewall_zone", """{"_id":"z2","name":"External","zone_key":"external","network_ids":[]}"""),
+            ("firewall_policy", """{"_id":"pa","name":"A","index":10000,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""),
+            ("firewall_policy", """{"_id":"pp","name":"Allow All Traffic","index":2147483647,"predefined":true,"action":"ALLOW","source":{"zone_id":"z1"},"destination":{"zone_id":"z2"}}"""));
+        var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true)
+            + "- name: New\n  action: BLOCK\n  source:\n    zone: Internal\n  destination:\n    zone: External\n";
+        var (desired, problems, touched) = ChangeControlService.ParseEdits(site, new Dictionary<string, string> { ["firewall_policy"] = yaml });
+
+        problems.Should().NotContain(p => p.Level == "Error");
+        var reorder = PlanBuilder.Build(desired, site, new PlanOptions { Collections = touched }).Operations
+            .Should().ContainSingle(o => o.Action == PlanAction.Reorder).Subject;
+        reorder.Body!["before_predefined_ids"]!.AsArray().Should().HaveCount(2, "A, then the new policy");
+        reorder.Body!["after_predefined_ids"]!.AsArray().Should().BeEmpty();
+    }
+
+    [Fact]
     public void RollBackOfAReorder_PutsPoliciesBackAboveThePredefinedOnes()
     {
         // The console after a bad reorder moved A and B below the predefined policy; the snapshot had them above.
