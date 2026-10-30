@@ -290,8 +290,10 @@ builder.Services.AddSingleton<AgentEnrollmentService>();
 // Settings hint, and path analysis.
 builder.Services.AddSingleton<SiteSpeedTestHostSelector>();
 // The agent tunnel keeps using the concrete singleton (it authenticates with the agent scheme and
-// runs as system); the admin-facing enrollment surface is gated.
-builder.Services.AddMutatingService<IAgentEnrollmentService>(sp => sp.GetRequiredService<AgentEnrollmentService>());
+// runs as system); the admin-facing enrollment surface is gated, and built per scope so its agent
+// lists narrow to the caller's sites.
+builder.Services.AddMutatingService<IAgentEnrollmentService>(
+    sp => ActivatorUtilities.CreateInstance<SiteScopedAgentEnrollmentService>(sp));
 // Detects agents running on the site's UniFi gateway itself (monitoring-only
 // installs) so speed-test surfaces can gate accordingly.
 builder.Services.AddSiteScopedRegistry<AgentOnGatewayDetector>();

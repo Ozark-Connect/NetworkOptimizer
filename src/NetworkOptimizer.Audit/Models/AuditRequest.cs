@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NetworkOptimizer.Core.Models;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Models;
@@ -109,6 +110,12 @@ public class AuditRequest
     /// Used when Pi-hole/AdGuard Home is behind a reverse proxy.
     /// </summary>
     public string? PiholeManagementUrl { get; init; }
+
+    /// <summary>
+    /// Optional: Opens the third-party DNS probes' connections inside the audited site's network.
+    /// Null probes from this server, which is right only when the server is on that network.
+    /// </summary>
+    public IDeviceDialer? Dialer { get; init; }
 
     /// <summary>
     /// Optional: Whether UPnP is enabled on the gateway (from GetUpnpEnabledAsync)

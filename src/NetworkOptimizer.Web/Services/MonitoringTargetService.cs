@@ -21,6 +21,7 @@ public class MonitoringTargetService : IMonitoringTargetService
     private readonly ProbeExecutorFactory _executorFactory;
     private readonly IAuditContext _audit;
     private readonly ILogger<MonitoringTargetService> _logger;
+    private readonly SiteVantageDnsResolver? _dnsResolver;
 
     public MonitoringTargetService(
         SiteDbContextFactory siteDb,
@@ -28,7 +29,8 @@ public class MonitoringTargetService : IMonitoringTargetService
         AsnResolutionService asnResolution,
         ProbeExecutorFactory executorFactory,
         IAuditContext audit,
-        ILogger<MonitoringTargetService> logger)
+        ILogger<MonitoringTargetService> logger,
+        SiteVantageDnsResolver? dnsResolver = null)
     {
         _siteDb = siteDb;
         _siteContext = siteContext;
@@ -36,6 +38,7 @@ public class MonitoringTargetService : IMonitoringTargetService
         _executorFactory = executorFactory;
         _audit = audit;
         _logger = logger;
+        _dnsResolver = dnsResolver;
     }
 
     private NetworkOptimizerDbContext CreateDb() => _siteDb.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
@@ -55,7 +58,10 @@ public class MonitoringTargetService : IMonitoringTargetService
         var (asnNumber, asnName) = await ResolveAsnAsync(spec.TargetType, address);
         // Settled once, here, while the user is waiting anyway. A failure leaves it unresolved
         // rather than guessed - the sweep will try again, and readers fall back meanwhile.
-        var (isLocal, resolvedIp) = await Monitoring.LocalTargetResolver.ResolveAsync(address, _logger, ct);
+        var resolver = _dnsResolver;
+        var slug = _siteContext.Slug;
+        var (isLocal, resolvedIp) = await Monitoring.LocalTargetResolver.ResolveAsync(address, _logger, ct,
+            resolver == null ? null : (host, token) => resolver.ResolveAddressesAsync(slug, host, token));
         if (isLocal != null)
             _logger.LogInformation("Local check: {Name} ({Address}) resolved to {Ip} - {Verdict}",
                 name, address, resolvedIp, isLocal.Value ? "on this network" : "reached over a WAN");

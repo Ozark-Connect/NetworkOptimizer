@@ -66,6 +66,7 @@ public class SiteRepository : ISiteRepository
 
         existing.Name = site.Name;
         existing.Enabled = site.Enabled;
+        existing.HasNoConsole = site.HasNoConsole;
         existing.SortOrder = site.SortOrder;
         existing.Notes = site.Notes;
         existing.UpdatedAt = DateTime.UtcNow;

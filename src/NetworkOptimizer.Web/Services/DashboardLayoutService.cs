@@ -142,15 +142,14 @@ public interface IDashboardLayoutAdminService
 
 public class DashboardLayoutService : IDashboardLayoutAdminService
 {
-    private readonly ISystemSettingsService _settings;
-
     /// <summary>
-    /// Saving goes through the gated admin path, not the plain settings service. The layout is ONE
-    /// setting shared by the whole site, so rearranging it rearranges the dashboard for everybody -
-    /// a Viewer could quietly reorganise what their colleagues see. Reads stay on the plain service,
-    /// which is what every render and background tick needs.
+    /// The plain settings store, for reads and the save alike. The save's gate is
+    /// <see cref="IDashboardLayoutAdminService"/> (Site Admin on the site in context); never route it
+    /// through the instance-wide <see cref="ISystemSettingsAdmin"/>, which refuses a Site Admin
+    /// without the global Admin role. Callers that save must use the interface, not this class.
     /// </summary>
-    private readonly ISystemSettingsAdmin _settingsAdmin;
+    private readonly ISystemSettingsService _settings;
+    private readonly SiteContextService _siteContext;
     private readonly ILogger<DashboardLayoutService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -161,11 +160,11 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
 
     public DashboardLayoutService(
         ISystemSettingsService settings,
-        ISystemSettingsAdmin settingsAdmin,
+        SiteContextService siteContext,
         ILogger<DashboardLayoutService> logger)
     {
         _settings = settings;
-        _settingsAdmin = settingsAdmin;
+        _siteContext = siteContext;
         _logger = logger;
     }
 
@@ -176,7 +175,7 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     {
         try
         {
-            var json = await _settings.GetAsync(SystemSettingKeys.DashboardLayout);
+            var json = await _settings.GetAsync(_siteContext.Slug, SystemSettingKeys.DashboardLayout);
             if (!string.IsNullOrEmpty(json))
             {
                 var layout = JsonSerializer.Deserialize<DashboardLayout>(json, JsonOptions);
@@ -202,7 +201,7 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     public async Task SaveLayoutAsync(DashboardLayout layout)
     {
         var json = JsonSerializer.Serialize(layout, JsonOptions);
-        await _settingsAdmin.SetAsync(SystemSettingKeys.DashboardLayout, json);
+        await _settings.SetAsync(_siteContext.Slug, SystemSettingKeys.DashboardLayout, json);
         _logger.LogDebug("Saved dashboard layout");
     }
 
@@ -211,7 +210,7 @@ public class DashboardLayoutService : IDashboardLayoutAdminService
     /// </summary>
     public async Task ResetLayoutAsync()
     {
-        await _settings.SetAsync(SystemSettingKeys.DashboardLayout, null);
+        await _settings.SetAsync(_siteContext.Slug, SystemSettingKeys.DashboardLayout, null);
         _logger.LogDebug("Reset dashboard layout to defaults");
     }
 

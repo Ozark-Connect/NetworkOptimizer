@@ -367,6 +367,164 @@ public class RolloutFleetScaleTests
         harness.Commands.UpgradeCommands.Should().NotContain(c => c.Contains(second, StringComparison.OrdinalIgnoreCase));
     }
 
+    private const string MeshSwitchMac = "aa:bb:cc:02:00:01";
+
+    /// <summary>
+    /// Guest mesh plugs, as on the site that reported this: one model, some online and meshed to
+    /// an AP, some offline with no live uplink at all.
+    /// </summary>
+    private static List<PlannerDevice> MeshPlugFleet(int online, int offline)
+    {
+        var devices = new List<PlannerDevice>
+        {
+            new()
+            {
+                Mac = GatewayMac, Name = "Gateway", Model = "SKU-GW", DisplayModel = "SKU-GW",
+                Type = DeviceType.Gateway, Upgradable = false,
+            },
+            New(MeshSwitchMac, DeviceType.Switch, "SKU-SW", "Switch", GatewayMac),
+        };
+        for (var i = 0; i < online; i++)
+            devices.Add(Plug($"aa:bb:cc:04:00:{i:x2}", $"Plug-On-{i}", MeshSwitchMac, offline: false));
+        for (var i = 0; i < offline; i++)
+            devices.Add(Plug($"aa:bb:cc:05:00:{i:x2}", $"Plug-Off-{i}", uplink: null, offline: true));
+        return devices;
+
+        static PlannerDevice Plug(string mac, string name, string? uplink, bool offline) => new()
+        {
+            Mac = mac,
+            Name = name,
+            Model = "SKU-MESH",
+            DisplayModel = "SKU-MESH",
+            Type = DeviceType.AccessPoint,
+            Offline = offline,
+            Upgradable = true,
+            FromVersion = "1.0.0",
+            ToVersion = "1.1.0",
+            UplinkMac = uplink,
+            WirelessUplink = uplink != null,
+            IpAddress = "192.0.2.10",
+        };
+    }
+
+    private static bool Settled(FirmwareRolloutStep s) => s.State
+        is FirmwareRolloutStepState.LitmusPassed or FirmwareRolloutStepState.RegressionFlagged
+        or FirmwareRolloutStepState.Failed or FirmwareRolloutStepState.SkippedExcluded
+        or FirmwareRolloutStepState.AbortedSku;
+
+    /// <summary>
+    /// Runs a seeded plan, answering every command the way a healthy device does, except for the
+    /// devices the test keeps offline. Calls <paramref name="eachTick"/> with the steps after every pass.
+    /// </summary>
+    private static async Task<List<FirmwareRolloutStep>> RunAsync(
+        RolloutHarness harness, int planId, List<PlannerDevice> devices, ISet<string> keptOffline,
+        Action<List<FirmwareRolloutStep>>? eachTick = null)
+    {
+        const int Online = (int)UniFiDeviceState.Connected;
+        const int Upgrading = (int)UniFiDeviceState.Upgrading;
+        const int Offline = (int)UniFiDeviceState.Disconnected;
+
+        harness.Observer.Set(GatewayMac, Online, "1.1.0", model: "SKU-GW", name: "Gateway", isGateway: true);
+        foreach (var d in devices.Where(d => d.Mac != GatewayMac))
+        {
+            harness.Observer.Set(d.Mac, keptOffline.Contains(d.Mac) ? Offline : Online, "1.0.0", upgradeTo: "1.1.0",
+                model: d.Model, name: d.Name, uplinkMac: d.UplinkMac, wirelessUplink: d.WirelessUplink);
+        }
+
+        for (var tick = 0; tick < 1500; tick++)
+        {
+            await harness.TickAsync(TimeSpan.FromMinutes(1));
+            var steps = await harness.Repository.GetStepsAsync(planId);
+            eachTick?.Invoke(steps);
+            if (steps.All(Settled)) return steps;
+
+            foreach (var step in steps)
+            {
+                var d = devices.Single(x => x.Mac == step.DeviceMac);
+                if (step.State == FirmwareRolloutStepState.Commanded)
+                    harness.Observer.Set(step.DeviceMac, Upgrading, "1.0.0", model: d.Model, name: d.Name,
+                        uplinkMac: d.UplinkMac, wirelessUplink: d.WirelessUplink);
+                else if (step.State == FirmwareRolloutStepState.Down)
+                    harness.Observer.Set(step.DeviceMac, Online, "1.1.0", model: d.Model, name: d.Name,
+                        uplinkMac: d.UplinkMac, wirelessUplink: d.WirelessUplink);
+            }
+        }
+
+        return await harness.Repository.GetStepsAsync(planId);
+    }
+
+    private static async Task<(int PlanId, RolloutPlanDocument Document)> SeedAsync(
+        RolloutHarness harness, List<PlannerDevice> devices)
+    {
+        var settings = Settings(FirmwareSpacingProfile.Balanced);
+        var result = new RolloutPlanner().Plan(new RolloutPlanningInput
+        {
+            Devices = devices,
+            Settings = settings,
+            Estimator = new FirmwareTimingEstimator(),
+        });
+        await harness.Repository.SaveSettingsAsync(settings);
+        var plan = await harness.SeedScheduledPlanAsync(result.Document, RolloutHarness.Start, [.. result.Steps]);
+        return (plan.Id, result.Document);
+    }
+
+    [Fact]
+    public async Task MeshPlugs_OfflineAtPlanTime_AreSkipped_AndTheOnlineOnesUpgradeBehindAnOnlineCanary()
+    {
+        var devices = MeshPlugFleet(online: 3, offline: 4);
+        var offline = devices.Where(d => d.Offline).Select(d => d.Mac).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        using var harness = new RolloutHarness();
+        var (planId, doc) = await SeedAsync(harness, devices);
+
+        var canary = doc.Waves.SelectMany(w => w.Steps).Single(s => s.IsCanary);
+        offline.Should().NotContain(canary.Mac, "an offline canary proves nothing");
+
+        var final = await RunAsync(harness, planId, devices, offline);
+
+        final.Should().OnlyContain(s => Settled(s));
+        final.Should().NotContain(s => s.State == FirmwareRolloutStepState.Failed);
+        foreach (var step in final)
+        {
+            if (offline.Contains(step.DeviceMac))
+            {
+                step.State.Should().Be(FirmwareRolloutStepState.AbortedSku);
+                step.Error.Should().Be("Offline when its turn came");
+            }
+            else
+            {
+                step.State.Should().Be(FirmwareRolloutStepState.LitmusPassed);
+            }
+        }
+        harness.Commands.UpgradeCommands.Should().NotContain(c => offline.Contains(c));
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.DeviceStuckOffline
+            || e.EventType == RolloutAlerts.SkuAborted);
+    }
+
+    [Fact]
+    public async Task CanaryOfflineAtItsTurn_NeverLetsAPeerRun()
+    {
+        var devices = MeshPlugFleet(online: 4, offline: 0);
+        using var harness = new RolloutHarness();
+        var (planId, doc) = await SeedAsync(harness, devices);
+
+        // Online when the plan was built, gone by the time the rollout reaches it.
+        var canary = doc.Waves.SelectMany(w => w.Steps).Single(s => s.IsCanary).Mac;
+        var peers = devices.Where(d => d.Model == "SKU-MESH" && d.Mac != canary).Select(d => d.Mac).ToList();
+
+        var final = await RunAsync(harness, planId, devices, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { canary },
+            steps => steps.Where(s => peers.Contains(s.DeviceMac))
+                .Should().OnlyContain(s => s.State == FirmwareRolloutStepState.Held
+                    || s.State == FirmwareRolloutStepState.AbortedSku,
+                    "no peer may leave Held without a passed canary"));
+
+        final.Single(s => s.DeviceMac == canary).Error.Should().Be("Offline when its turn came");
+        final.Where(s => peers.Contains(s.DeviceMac))
+            .Should().OnlyContain(s => s.State == FirmwareRolloutStepState.AbortedSku
+                && s.Error == "No online canary for this model");
+        harness.Commands.UpgradeCommands.Should().NotContain(c => peers.Contains(c) || c == canary);
+        final.Single(s => s.DeviceMac == MeshSwitchMac).State.Should().Be(FirmwareRolloutStepState.LitmusPassed);
+    }
+
     private static int CountOf(PlanWave wave, DeviceType type) =>
         wave.Steps.Count(s => FirmwareDeviceTypes.Parse(s.DeviceType) == type);
 

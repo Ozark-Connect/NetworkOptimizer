@@ -90,8 +90,8 @@ public class SiteSettingsAdminTests
         await scope.ServiceProvider.GetRequiredService<ISiteSettingsAdmin>().SaveAuditOptionsAsync(
             new Dictionary<string, string?> { ["audit:a"] = "true", ["audit:b"] = "5" });
 
-        _settings.Verify(s => s.SetAsync("audit:a", "true"), Times.Once);
-        _settings.Verify(s => s.SetAsync("audit:b", "5"), Times.Once);
+        _settings.Verify(s => s.SetAsync(ThisSite, "audit:a", "true"), Times.Once);
+        _settings.Verify(s => s.SetAsync(ThisSite, "audit:b", "5"), Times.Once);
         _events.Should().ContainSingle(e =>
             e.Action == AuditActions.SettingsChanged && e.Outcome == AuditOutcomes.Success);
     }
@@ -120,7 +120,7 @@ public class SiteSettingsAdminTests
 
         await act.Should().ThrowAsync<ArgumentException>(
             "on the main site the site database also holds instance-wide settings");
-        _settings.Verify(s => s.SetAsync(It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+        _settings.Verify(s => s.SetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -197,8 +198,44 @@ public class CellularModemService : ICellularModemService, IDisposable
         if (provider == null)
             return PollResult<CellularModemStats>.Failed($"No provider is registered for '{modem.Provider}'.");
 
-        var context = ToPollContext(modem);
+        var context = await ToPollContextAsync(modem);
         return await provider.PollAsync(context);
+    }
+
+    private async Task<ModemPollContext> ToPollContextAsync(ModemConfiguration modem)
+    {
+        var context = ToPollContext(modem);
+        if (!OffersStoredKey(modem))
+            return context;
+
+        using var scope = CreateSiteScope();
+        return await WithStoredKeyAsync(context, scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// Whether the modem is offered the site's stored key: opt-in per modem, and per-modem SSH only, so
+    /// a modem that authenticates with a password is never offered a key it does not hold.
+    /// </summary>
+    internal static bool OffersStoredKey(ModemConfiguration modem)
+        => modem.UseManagedSshKey && CellularModemProviders.ModemProviderKeys.UsesPerModemSsh(modem.Provider);
+
+    /// <summary>
+    /// Adds the site's stored SSH key to a per-modem SSH context, the same additive way gateway SSH
+    /// does. The provider must be scoped to the modem's site. Returns the context unchanged without a key.
+    /// </summary>
+    internal static async Task<ModemPollContext> WithStoredKeyAsync(ModemPollContext context, IServiceProvider siteScopedProvider)
+    {
+        // The reader attaches to a connection, so a throwaway one carries the key across.
+        var carrier = new SshConnectionInfo { Host = context.Host, Username = context.Username ?? "" };
+        await StoredSshKeyReader.AttachAsync(siteScopedProvider, carrier);
+        if (string.IsNullOrEmpty(carrier.StoredPrivateKeyPem))
+            return context;
+
+        return context with
+        {
+            StoredPrivateKeyPem = carrier.StoredPrivateKeyPem,
+            StoredPrivateKeyPassphrase = carrier.StoredPrivateKeyPassphrase,
+        };
     }
 
     private ModemPollContext ToPollContext(ModemConfiguration modem)
@@ -243,7 +280,7 @@ public class CellularModemService : ICellularModemService, IDisposable
         if (ResolveProvider(modem) is not ISupportsRadioReset provider)
             return (false, $"{modem.Name} does not support a radio reset.");
 
-        var context = ToPollContext(modem);
+        var context = await ToPollContextAsync(modem);
         var result = await provider.ResetRadioAsync(context);
 
         if (result.success)
@@ -263,7 +300,7 @@ public class CellularModemService : ICellularModemService, IDisposable
         if (provider == null)
             return (false, $"No provider registered for '{modem.Provider}'");
 
-        var context = ToPollContext(modem);
+        var context = await ToPollContextAsync(modem);
         return await provider.TestConnectionAsync(context);
     }
 

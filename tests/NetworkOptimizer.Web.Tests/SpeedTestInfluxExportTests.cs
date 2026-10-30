@@ -722,7 +722,7 @@ public class SpeedTestInfluxExportTests : IAsyncLifetime
             .AddSingleton<SiteAgentCoverage>()
             .AddSingleton<SiteTunnelRouting>()
             .AddSingleton(sp => new AgentIperf3Service(null!, null!, sp.GetRequiredService<ILogger<AgentIperf3Service>>()))
-            .AddSingleton(sp => new AgentEnrollmentService(_mainDbFactory, null!, null!,
+            .AddSingleton(sp => new AgentEnrollmentService(_mainDbFactory, null!,
                 sp.GetRequiredService<SiteAgentCoverage>(), sp, sp.GetRequiredService<SiteTunnelRouting>(),
                 sp.GetRequiredService<ILogger<AgentEnrollmentService>>()))
             .AddSingleton(sp => new LicenseStateService(_mainDbFactory, TimeProvider.System,

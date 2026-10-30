@@ -1,4 +1,5 @@
 using System.Globalization;
+using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
@@ -19,6 +20,18 @@ public static class MonitoringLinks
     public const string TransitCategory = "Transit";
     public const string CustomCategory = "Custom";
     public const string InternetServiceCategory = "InternetService";
+
+    /// <summary>The chart category a target type is drawn under.</summary>
+    public static string CategoryFor(MonitoringTargetType type) => type switch
+    {
+        MonitoringTargetType.Fabric => FabricCategory,
+        MonitoringTargetType.AccessIsp => AccessIspCategory,
+        MonitoringTargetType.Transit => TransitCategory,
+        // Both name the WAN's own service. Falling through to Custom sent an outage on the
+        // service being monitored to the chart for user-added targets.
+        MonitoringTargetType.InternetService or MonitoringTargetType.Wan => InternetServiceCategory,
+        _ => CustomCategory
+    };
 
     /// <summary>Now as the ?at= links frame their window on, for an alert raised at this instant.</summary>
     public static string NowMs() =>

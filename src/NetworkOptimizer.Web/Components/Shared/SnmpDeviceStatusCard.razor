@@ -12,6 +12,7 @@
 @inject ICredentialProtectionService CredentialProtection
 @inject ILoggerFactory LoggerFactory
 @inject AgentSnmpQueryService AgentSnmpQuery
+@inject SiteAgentCoverage AgentCoverage
 @inject ICustomOidService CustomOids
 @inject IHealthCheckService HealthChecks
 @using NetworkOptimizer.Web.Services.Monitoring.HealthChecks
@@ -818,9 +819,9 @@
         try
         {
             // Agent-covered site: the server can't reach the device directly, so run the GET
-            // through the site's agent. Main and any site without an online agent fall through
-            // to the direct poll below (unchanged).
-            if (!SiteCtx.IsDefault && AgentSnmpQuery.HasAgentForSite(SiteCtx.Slug))
+            // through the site's agent. The same test as the oid-check endpoint, so a main site
+            // handed to its agent is covered too; any other site polls directly below.
+            if (AgentCoverage.AgentCovers(SiteCtx.Slug, AgentSnmpQuery.HasAgentForSite(SiteCtx.Slug)))
             {
                 var agentIp = await SnmpEndpoints.ResolveDeviceIpAsync(_expandedDeviceMac, ConnectionService);
                 if (agentIp == null)

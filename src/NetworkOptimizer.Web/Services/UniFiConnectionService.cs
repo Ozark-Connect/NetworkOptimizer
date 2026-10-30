@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
@@ -279,6 +280,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// <summary>Shown while a site's agent-tunneled console waits for the agent to come online.</summary>
     private const string AwaitingAgentMessage =
         "This site's console connects through its on-site agent, which isn't online yet. It'll connect automatically as soon as the agent comes online.";
+
+    /// <summary>Returned to a console Save while the site is marked as having no UniFi Console.</summary>
+    private const string NoConsoleConnectMessage =
+        "This site is set up without a Console. Change that in Settings - Multi-Site to connect one.";
 
     /// <summary>Per-site setting key: the UniFi Console's display name (system.name).</summary>
     public const string ConsoleNameKey = "console.name";
@@ -601,6 +606,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         try
         {
+            _hasNoConsole = await ReadHasNoConsoleAsync();
+            if (_hasNoConsole)
+            {
+                _logger.LogInformation("Site {Slug} has no UniFi Console; not connecting", SiteSlug);
+                return;
+            }
+
             using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
@@ -668,6 +680,72 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             await task;
         }
+    }
+
+    private volatile bool _hasNoConsole;
+
+    /// <summary>
+    /// True when Settings - Multi-Site marks this (default) site as having no UniFi Console. Nothing
+    /// connects or retries while set, and <see cref="IsConnected"/> stays false: callers that treat
+    /// "not connected" as a problem check this first.
+    /// </summary>
+    public bool HasNoConsole => _hasNoConsole;
+
+    /// <summary>
+    /// The flag off the default site's row, honored only while multi-site is on: the setting lives
+    /// in Settings - Multi-Site, so with multi-site off it could not be cleared.
+    /// </summary>
+    private async Task<bool> ReadHasNoConsoleAsync()
+    {
+        if (SiteSlug != SiteManagementService.DefaultSiteSlug)
+            return false;
+
+        try
+        {
+            var factory = _serviceProvider.GetService<IDbContextFactory<NetworkOptimizerDbContext>>();
+            if (factory == null)
+                return false;
+
+            await using var db = await factory.CreateDbContextAsync();
+            var multiSite = await db.SystemSettings.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Key == SystemSettingKeys.MultiSiteEnabled);
+            if (!bool.TryParse(multiSite?.Value, out var enabled) || !enabled)
+                return false;
+
+            return await db.Sites.AsNoTracking().AnyAsync(s => s.IsDefault && s.HasNoConsole);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the no-console flag for site {Slug}", SiteSlug);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Re-reads <see cref="HasNoConsole"/> after the site row or the multi-site toggle changed.
+    /// Setting it drops the connection; clearing it reconnects with the saved settings.
+    /// </summary>
+    public async Task RefreshNoConsoleAsync()
+    {
+        var hasNoConsole = await ReadHasNoConsoleAsync();
+        if (hasNoConsole == _hasNoConsole)
+            return;
+
+        _hasNoConsole = hasNoConsole;
+        _logger.LogInformation("Site {Slug} {State}", SiteSlug,
+            hasNoConsole ? "now has no UniFi Console; disconnecting" : "has a UniFi Console again; reconnecting");
+
+        if (hasNoConsole)
+        {
+            _awaitingAgent = false;
+            _consoleUnresponsive = false;
+            _lastError = null;
+            await DisconnectAsync();
+            return;
+        }
+
+        if (!await ReconnectAsync())
+            OnConnectionChanged?.Invoke();
     }
 
     public bool IsConnected => _isConnected && _client != null;
@@ -822,6 +900,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return false;
         }
 
+        if (_hasNoConsole)
+        {
+            _lastError = NoConsoleConnectMessage;
+            return false;
+        }
+
         _logger.LogInformation("Connecting to UniFi controller at {Url}", config.ControllerUrl);
 
         await _connectGate.WaitAsync();
@@ -940,7 +1024,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     private async Task<bool> ConnectWithSettingsAsync(UniFiConnectionSettings settings)
     {
-        if (!settings.HasCredentials) return false;
+        if (!settings.HasCredentials || _hasNoConsole) return false;
 
         await _connectGate.WaitAsync();
         var notify = false;
@@ -955,8 +1039,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             // Read again under the gate. A caller that fetched settings before queueing behind a
             // Save's connect would otherwise reconnect with the credentials that Save just replaced.
+            // Re-checked under the gate: the flag can be set while this connect waited its turn.
             settings = await GetSettingsAsync();
-            if (!settings.HasCredentials) return false;
+            if (!settings.HasCredentials || _hasNoConsole) return false;
 
             // The automatic reconnects build a new client each time, so the client's own hold on a
             // rejected password does not carry over; the same saved password waits here instead.
@@ -1406,6 +1491,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task<bool> ReconnectAsync()
     {
+        if (_hasNoConsole) return false;
+
         var settings = await GetSettingsAsync();
 
         if (!settings.IsConfigured || !settings.HasCredentials)
@@ -1439,6 +1526,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         // If already connected, return immediately
         if (IsConnected) return true;
 
+        // No console to wait for.
+        if (_hasNoConsole) return false;
+
         // Already flipped to awaiting-agent (tunnel down or proven black-holed):
         // no poll can succeed until the agent reconnects, and pages reload via
         // OnConnectionChanged when it does. Waiting here would stall every page
@@ -1470,6 +1560,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         while (DateTime.UtcNow - startTime < timeout)
         {
             if (IsConnected) return true;
+            if (_hasNoConsole) return false;
             await Task.Delay(pollInterval.Value);
         }
 

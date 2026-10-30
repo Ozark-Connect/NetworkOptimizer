@@ -45,6 +45,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
   - Gets Security Audit, Wi-Fi Optimizer, Performance Tweaks, Adaptive SQM, WAN Steering, and SNMP device health
 - Onboard a site through an [On-Site Agent](#on-site-agent) for the full feature set, including behind CGNAT
 - Per site: rename, disable or enable, remove, and assign users and roles
+- **No UniFi Console at this site** - a main site that only hosts the other sites skips console checks
 - Per site: reach the UniFi Console, devices, modems, and ONTs through the agent tunnel
 - Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
@@ -277,6 +278,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Live map and step table; pause, resume, abort, postpone, deploy now, re-plan
 - Health gate postpones a start while critical alerts are open
 - A dark console or dropped agent pauses the rollout instead of failing it
+- Canaries are online devices; a device offline at its turn is skipped, not failed
 - Tries SSH when a device ignores the upgrade command
 - Optional mute of offline, restart, and WAN outage alerts for each device as it flashes
 - Re-scans mesh backhaul once both halves of a mesh pair are upgraded
@@ -522,6 +524,9 @@ Requires Gateway SSH.
 
 - iperf3 tests from the gateway and to any UniFi device (Gateway SSH, Device SSH)
 - Auto-discovers UniFi devices; add custom devices with their own SSH credentials and iperf3 settings
+- **UniFi Device Speed Test** - search by name, model, or IP; filter by model family; **Online only**
+  - Select devices and test them one after another with **Run Selected**, with **Stop**
+- Each device's latest result shows under its row, with failures summarized and raw output collapsed
 - Path analysis - every hop, link speeds (LAG-aware), bottleneck, Wi-Fi signal, efficiency, inter-VLAN routing
 - Runs from the [On-Site Agent](#on-site-agent) at agent sites
 - History with search across any device in the path; firmware versions recorded
@@ -576,6 +581,7 @@ Requires Gateway SSH.
   - Reconnects on its own after a console outage or restart
 - **Gateway SSH** and **Device SSH** credentials; iperf3 status on the gateway
 - **Managed SSH Key** - generate or upload one key and install it on the gateway, surviving reboots
+  - GL.iNet and MikroTik cellular modems can sign in with it instead of a password, per modem
 - **Monitoring** - SNMP status, InfluxDB, Adaptive SQM monitor, and cable modem, ONT, cellular, and Starlink devices
 - **AP Telemetry** - turn on and manage the AP agents; see [Wi-Fi Optimizer - AP Telemetry](#ap-telemetry)
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
@@ -666,6 +672,7 @@ Requires Gateway SSH.
 - External WAN speed test server for a VPS
 - Installable as an app (PWA) on iPhone, iPad, and Android, with pull-to-refresh and a Back button
 - Guided tours of what's new in each release
+- **On this page** - an index of the cards on long pages, to jump between them
 - Encrypted credential storage, with an optional external key file
 - Daily log file on every platform (`./logs` on Docker), seven days kept
 - Real client addresses behind a reverse proxy or Cloudflare (`TRUSTED_PROXIES`, `TRUST_CF_CONNECTING_IP`)

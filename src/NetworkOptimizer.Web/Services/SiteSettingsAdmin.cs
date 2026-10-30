@@ -44,7 +44,7 @@ public sealed class SiteSettingsAdmin(ISystemSettingsService settings, SiteConte
         if (values.Keys.FirstOrDefault(k => !k.StartsWith(AuditKeyPrefix, StringComparison.Ordinal)) is { } bad)
             throw new ArgumentException($"Not a Security Audit option: {bad}", nameof(values));
         foreach (var (key, value) in values)
-            await settings.SetAsync(key, value);
+            await settings.SetAsync(site.Slug, key, value);
     }
 
     /// <inheritdoc />

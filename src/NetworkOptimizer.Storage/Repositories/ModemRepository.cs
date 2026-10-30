@@ -104,6 +104,7 @@ public class ModemRepository : IModemRepository
                     existing.Username = config.Username;
                     existing.Password = config.Password;
                     existing.PrivateKeyPath = config.PrivateKeyPath;
+                    existing.UseManagedSshKey = config.UseManagedSshKey;
                     existing.ModemType = config.ModemType;
                     existing.QmiDevice = config.QmiDevice;
                     existing.Provider = config.Provider;

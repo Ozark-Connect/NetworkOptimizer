@@ -83,7 +83,8 @@ public sealed class MikroTikRouterOsProvider : ICellularModemProvider
         ModemPollContext context, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(context.Username) ||
-            (string.IsNullOrEmpty(context.Password) && string.IsNullOrEmpty(context.PrivateKeyPath)))
+            (string.IsNullOrEmpty(context.Password) && string.IsNullOrEmpty(context.PrivateKeyPath)
+                && string.IsNullOrEmpty(context.StoredPrivateKeyPem)))
         {
             return (null, "SSH credentials are not configured for this modem.");
         }
@@ -169,7 +170,7 @@ public sealed class MikroTikRouterOsProvider : ICellularModemProvider
     /// Build SSH connection info from per-modem credentials. The <c>+ct</c> login suffix turns off
     /// RouterOS colors and terminal detection, so the output is plain text.
     /// </summary>
-    private static async Task<SshConnectionInfo> ToConnectionInfoAsync(ModemPollContext context)
+    internal static async Task<SshConnectionInfo> ToConnectionInfoAsync(ModemPollContext context)
     {
         var (host, port) = await context.Dialer.ResolveAsync(context.Host, context.Port > 0 ? context.Port : 22);
         return new SshConnectionInfo
@@ -179,6 +180,8 @@ public sealed class MikroTikRouterOsProvider : ICellularModemProvider
             Username = LoginName(context.Username!),
             Password = context.Password,
             PrivateKeyPath = context.PrivateKeyPath,
+            StoredPrivateKeyPem = context.StoredPrivateKeyPem,
+            StoredPrivateKeyPassphrase = context.StoredPrivateKeyPassphrase,
         };
     }
 

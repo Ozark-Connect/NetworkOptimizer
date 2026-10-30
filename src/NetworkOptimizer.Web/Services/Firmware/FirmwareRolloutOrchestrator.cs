@@ -65,6 +65,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// <summary>How long to wait for the console to stage a device's target build before commanding anyway.</summary>
     public static readonly TimeSpan CatalogReflectWait = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// How long a device has to stay Disconnected, from its turn, before it is skipped instead of
+    /// commanded. Long enough that a reboot or a brief drop still gets its upgrade.
+    /// </summary>
+    public static readonly TimeSpan OfflineAtTurnGrace = TimeSpan.FromMinutes(5);
+
     /// <summary>How far a health-gated start is pushed out. One window, per the approved behavior.</summary>
     public static readonly TimeSpan HealthPostponeWindow = TimeSpan.FromHours(24);
 
@@ -167,6 +173,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     // re-queued mesh re-pair; none of it changes whether a step succeeds.
     private readonly ConcurrentDictionary<int, DateTime> _escalatedAt = new();
     private readonly ConcurrentDictionary<int, DateTime> _commandWaitSince = new();
+    private readonly ConcurrentDictionary<int, DateTime> _offlineAtTurnSince = new();
     private readonly HashSet<string> _meshRepairsQueued = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skuAbortsPublished = new(StringComparer.OrdinalIgnoreCase);
     // Devices and vantages each in-flight step has taken dark so far, so one that drops off the
@@ -473,6 +480,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
             plan.Status = FirmwareRolloutStatus.Running;
             await PersistPlanAsync(plan, cancellationToken);
+            // Nothing was watched while paused, so an offline device's grace starts again.
+            _offlineAtTurnSince.Clear();
             _logger.LogInformation("Firmware rollout {Id} on site {Site} resumed", plan.Id, _siteSlug);
         }
         finally
@@ -651,7 +660,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 var kind = UniFiDeviceStateMap.ToStatus(seen.State).Kind;
                 if (step.State == FirmwareRolloutStepState.Commanded)
                 {
-                    if (kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline)
+                    if (kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline
+                        || LostItsMesh(documents[step.PlanId], step, seen))
                     {
                         step.State = FirmwareRolloutStepState.Down;
                         step.WentDownAt = Now;
@@ -1005,6 +1015,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var observations = await _observer.ObserveAsync(cancellationToken);
         var answered = observations.Count > 0;
         var byMac = observations.ToDictionary(o => o.Mac, StringComparer.OrdinalIgnoreCase);
+        // Read before the loop drops pruned devices from the document.
+        var familyOf = FamilyLookup(document);
         foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
         {
             if (!byMac.TryGetValue(step.DeviceMac, out var seen)
@@ -1035,8 +1047,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             // held peers are not left waiting on a step that will never run.
             if (IsCanary(document, step.DeviceMac))
             {
+                var family = familyOf(step);
                 foreach (var held in steps.Where(s => s.State == FirmwareRolloutStepState.Held
-                    && string.Equals(s.Model, step.Model, StringComparison.OrdinalIgnoreCase)))
+                    && string.Equals(familyOf(s), family, StringComparison.OrdinalIgnoreCase)))
                 {
                     held.State = FirmwareRolloutStepState.Pending;
                     await PersistStepAsync(held, cancellationToken);
@@ -2122,7 +2135,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 break;
 
             case FirmwareRolloutStepState.CoolDown:
-                await ProgressCoolDownAsync(document, steps, step, cancellationToken);
+                await ProgressCoolDownAsync(document, steps, step, observation, cancellationToken);
                 break;
         }
     }
@@ -2146,7 +2159,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         var status = UniFiDeviceStateMap.ToStatus(observation.State);
-        if (status.Kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline)
+        if (status.Kind is DeviceStatusKind.Transitional or DeviceStatusKind.Offline
+            || LostItsMesh(document, step, observation))
         {
             await MarkDownAsync(step, cancellationToken);
             return;
@@ -2350,6 +2364,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         RolloutPlanDocument document,
         List<FirmwareRolloutStep> steps,
         FirmwareRolloutStep step,
+        RolloutDeviceObservation? observation,
         CancellationToken cancellationToken)
     {
         var backAt = step.BackAt ?? Now;
@@ -2366,9 +2381,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // to do with this device - another device's reboot cutting the path, a dropped tunnel, the
         // console restarting - and failing it here can roll back a healthy device for someone
         // else's outage. Wait out one more cool-down for the site to come back, then judge on
-        // whatever we have: a device that is genuinely gone still fails, just later.
+        // whatever we have: a device that is genuinely gone still fails, just later. A mesh device
+        // that came back under a different parent gets the same allowance: re-meshing drops its
+        // reporting for a while without saying anything about the build.
         if (verdict is { Passed: false, Silence: true }
-            && WasBlindDuring(windowFrom, Now)
+            && (WasBlindDuring(windowFrom, Now) || ReMeshed(document, step, observation))
             && ElapsedObserved(backAt) < cooldown + cooldown)
         {
             return;
@@ -2535,7 +2552,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     /// <summary>
     /// Releases a model's held peers once its canary is through, which is the whole point of the
-    /// hold: one device of each model proves the build before the rest follow it.
+    /// hold: one device of each model proves the build before the rest follow it. A canary found
+    /// already running the target at its turn proves it as well as a pass does.
     /// </summary>
     private async Task PropagateCanaryOutcomesAsync(
         RolloutPlanDocument document, List<FirmwareRolloutStep> steps, CancellationToken cancellationToken)
@@ -2543,15 +2561,17 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var held = steps.Where(s => s.State == FirmwareRolloutStepState.Held).ToList();
         if (held.Count == 0) return;
 
-        foreach (var group in held.GroupBy(s => s.Model, StringComparer.OrdinalIgnoreCase))
+        var familyOf = FamilyLookup(document);
+        foreach (var group in held.GroupBy(familyOf, StringComparer.OrdinalIgnoreCase))
         {
             var canaries = steps
-                .Where(s => string.Equals(s.Model, group.Key, StringComparison.OrdinalIgnoreCase)
+                .Where(s => string.Equals(familyOf(s), group.Key, StringComparison.OrdinalIgnoreCase)
                     && IsCanary(document, s.DeviceMac))
                 .ToList();
             if (canaries.Count == 0) continue;
 
-            if (canaries.Any(c => c.State is FirmwareRolloutStepState.LitmusPassed or FirmwareRolloutStepState.RegressionFlagged))
+            if (canaries.Any(c => c.State is FirmwareRolloutStepState.LitmusPassed or FirmwareRolloutStepState.RegressionFlagged
+                || IsAlreadyOnTarget(c)))
             {
                 foreach (var step in group)
                 {
@@ -2565,6 +2585,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
         }
     }
+
+    private static bool IsAlreadyOnTarget(FirmwareRolloutStep step) =>
+        step.State == FirmwareRolloutStepState.SkippedExcluded && step.Error == RolloutSkipReasons.AlreadyOnTarget;
 
     private async Task RunDueResourceComparisonsAsync(List<FirmwareRolloutStep> steps,
         FirmwareRolloutPlan? plan, RolloutPlanDocument? document, CancellationToken cancellationToken)
@@ -2698,12 +2721,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var wave = startable;
         var waveSteps = pending.Where(s => s.Wave == wave).ToList();
 
+        // An offline-at-turn grace must be continuous, so any pass that sees the device back resets
+        // it, even one that goes on to hold the wave for another reason.
+        foreach (var step in waveSteps)
+        {
+            if (byMac.TryGetValue(step.DeviceMac, out var seen) && seen.State != (int)UniFiDeviceState.Disconnected)
+                _offlineAtTurnSince.TryRemove(step.Id, out _);
+        }
+
         // A cool-down is a device settling, not the site holding its breath: it blocks only the
         // waves the planner found a topology relationship with. Waves are still commanded in
         // order - a blocked wave ends the pass rather than letting a later one jump it.
         var mayOverlap = document.Waves.FirstOrDefault(w => w.Number == wave)?.MayOverlapWaves ?? [];
         var inFlightWaves = steps.Where(IsInFlight).Select(s => s.Wave).Distinct().ToList();
         if (inFlightWaves.Any(w => w != wave && !mayOverlap.Contains(w)))
+            return;
+
+        // The overlap above is plan-time topology, and a mesh device can re-mesh after planning. A
+        // wave holding a device that is NOW above one in flight would cut that device's path.
+        if (HoldsALiveAncestor(waveSteps, steps, byMac))
             return;
 
         var spacingLimits = ResolvedSpacing.For(settings.SpacingProfile, settings.AdvancedSpacingJson);
@@ -2738,7 +2774,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     foreach (var step in waveSteps.Where(s => !IsSettled(s) && IsAccessPointStep(s)))
                     {
                         step.State = FirmwareRolloutStepState.AbortedSku;
-                        step.Error = "Skipped: it was the last access point still online";
+                        step.Error = RolloutSkipReasons.LastApOnline;
                         await PersistStepAsync(step, cancellationToken);
                         _logger.LogWarning(
                             "Skipped {Ap} on site {Site}: it was the last access point still online",
@@ -2760,18 +2796,25 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (waveSteps.All(s => s.State == FirmwareRolloutStepState.Held))
         {
-            // Nothing in this wave can move and no canary is left to release it. Rather than stall
-            // forever, let it run: the canary that was meant to gate it is already gone.
+            var familyOf = FamilyLookup(document);
+            var waveFamilies = waveSteps.Select(familyOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var stillGating = steps.Any(s => IsCanary(document, s.DeviceMac)
-                && waveSteps.Any(w => string.Equals(w.Model, s.Model, StringComparison.OrdinalIgnoreCase))
+                && waveFamilies.Contains(familyOf(s))
                 && !IsSettled(s));
             if (stillGating) return;
 
+            // Its canary settled without passing, or a pass would have released it already. Never
+            // let it run instead: a model that has not been proven does not upgrade in this plan.
             foreach (var step in waveSteps)
             {
-                step.State = FirmwareRolloutStepState.Pending;
+                step.State = FirmwareRolloutStepState.AbortedSku;
+                step.Error = RolloutSkipReasons.NoCanaryPassed;
                 await PersistStepAsync(step, cancellationToken);
+                _logger.LogWarning(
+                    "Skipped {Device} on site {Site}: no canary passed for its model",
+                    step.DeviceName, _siteSlug);
             }
+            return;
         }
 
         if (settings.PerWaveApproval && document.ApprovedThroughWave < wave)
@@ -2802,8 +2845,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         // Anchor the gap on a command that actually went out. A step the console was too dark to
-        // command is still Pending and must be free to retry on the very next pass.
-        if (commandable.Any(s => s.State != FirmwareRolloutStepState.Pending))
+        // command is still Pending and must be free to retry on the very next pass. A device skipped
+        // as offline was never commanded either.
+        if (commandable.Any(s => s.State is not (FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.AbortedSku)))
         {
             _lastWaveCommandedAt = Now;
             // Persisted as well: this is the only thing spacing overlapping waves apart, and a
@@ -2845,6 +2889,18 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (observation == null)
             return;
 
+        // A command to a device that is offline at its turn runs out its offline budget and reads
+        // as a bad build, so after a continuous grace it is skipped instead. Disconnected only:
+        // Heartbeat Missed also maps to Offline, and a device in it usually still upgrades.
+        if (observation.State == (int)UniFiDeviceState.Disconnected)
+        {
+            var offlineSince = _offlineAtTurnSince.GetOrAdd(step.Id, _ => Now);
+            if (ElapsedObserved(offlineSince) >= OfflineAtTurnGrace)
+                await SkipOfflineAtTurnAsync(document, steps, step, cancellationToken);
+            return;
+        }
+        _offlineAtTurnSince.TryRemove(step.Id, out _);
+
         // The console has to have staged this device's build before there is anything to command.
         // After the wait it is commanded anyway: some models report nothing here even when ready.
         // A pinned image installs by URL, and the Console never stages a build older than it runs.
@@ -2878,7 +2934,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 "Refusing to command {Device} on site {Site}: {Target} is not newer than the installed {Installed}",
                 step.DeviceName, _siteSlug, step.ToVersion ?? "no target", observation.Firmware ?? "unknown");
             step.State = FirmwareRolloutStepState.SkippedExcluded;
-            step.Error = "Nothing newer to install on the planned channel.";
+            step.Error = RolloutSkipReasons.AlreadyOnTarget;
             await PersistStepAsync(step, cancellationToken);
             return;
         }
@@ -2964,6 +3020,43 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _logger.LogInformation(
             "Commanded {Device} ({Model}) on site {Site} to upgrade to {Version}",
             step.DeviceName, step.Model, _siteSlug, step.ToVersion);
+    }
+
+    /// <summary>
+    /// Settles a device that stayed offline through its turn without commanding it. A skip, not a
+    /// failure: nothing is known about the build, so it never drops the model or raises an alert.
+    /// A skipped canary takes its held peers with it, since nothing else may release them; the next
+    /// plan picks them all up again with an online canary.
+    /// </summary>
+    private async Task SkipOfflineAtTurnAsync(
+        RolloutPlanDocument document,
+        List<FirmwareRolloutStep> steps,
+        FirmwareRolloutStep step,
+        CancellationToken cancellationToken)
+    {
+        _offlineAtTurnSince.TryRemove(step.Id, out _);
+        step.State = FirmwareRolloutStepState.AbortedSku;
+        step.Error = RolloutSkipReasons.OfflineAtTurn;
+        await PersistStepAsync(step, cancellationToken);
+        _logger.LogWarning(
+            "Skipped {Device} on site {Site}: it was offline when its turn came", step.DeviceName, _siteSlug);
+
+        if (!IsCanary(document, step.DeviceMac))
+            return;
+
+        var familyOf = FamilyLookup(document);
+        var family = familyOf(step);
+        foreach (var peer in steps.Where(s => s.Id != step.Id
+            && s.State == FirmwareRolloutStepState.Held
+            && string.Equals(familyOf(s), family, StringComparison.OrdinalIgnoreCase)))
+        {
+            peer.State = FirmwareRolloutStepState.AbortedSku;
+            peer.Error = RolloutSkipReasons.NoOnlineCanary;
+            await PersistStepAsync(peer, cancellationToken);
+            _logger.LogWarning(
+                "Skipped {Device} on site {Site}: its model's canary was offline when its turn came",
+                peer.DeviceName, _siteSlug);
+        }
     }
 
     private async Task CompleteAsync(
@@ -3636,6 +3729,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         _escalatedAt.Clear();
         _commandWaitSince.Clear();
+        _offlineAtTurnSince.Clear();
 
         var document = ParseDocument(plan);
         var settings = await _repositories.UseAsync((r, c) => r.GetSettingsAsync(c), cancellationToken);
@@ -3786,6 +3880,39 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         return !document.SiteApMacs.Any(mac => !going.Contains(mac)
             && byMac.TryGetValue(mac, out var seen)
             && seen.State != (int)NetworkOptimizer.UniFi.Models.UniFiDeviceState.Disconnected);
+    }
+
+    /// <summary>
+    /// Whether a device still to be commanded in this wave sits, on the live uplink tree, above a
+    /// device that is in flight or cooling down. Only ever adds a hold on top of the plan's own
+    /// overlap rules, and only while that step is moving.
+    /// </summary>
+    private bool HoldsALiveAncestor(
+        List<FirmwareRolloutStep> waveSteps,
+        List<FirmwareRolloutStep> steps,
+        Dictionary<string, RolloutDeviceObservation> byMac)
+    {
+        var starting = waveSteps
+            .Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held)
+            .Select(s => s.DeviceMac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var moving = steps.Where(IsInFlight).ToList();
+        if (starting.Count == 0 || moving.Count == 0 || byMac.Count == 0)
+            return false;
+
+        var parents = RolloutDarkSet.ParentMap(byMac.Values);
+        foreach (var step in moving)
+        {
+            // ChainToRoot stops at a cycle; index 0 is the device itself.
+            var above = RolloutDarkSet.ChainToRoot(step.DeviceMac, parents).Skip(1).FirstOrDefault(starting.Contains);
+            if (above == null) continue;
+
+            _logger.LogDebug(
+                "Holding wave {Wave} on site {Site}: {Above} is now upstream of {Device}, which is {State}",
+                waveSteps[0].Wave, _siteSlug, above, step.DeviceName, step.State);
+            return true;
+        }
+        return false;
     }
 
     private static int InFlightCount(IEnumerable<FirmwareRolloutStep> steps, DeviceType type) =>
@@ -4012,6 +4139,59 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private static bool IsCanary(RolloutPlanDocument document, string mac) =>
         document.Waves.SelectMany(w => w.Steps)
             .Any(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase) && s.IsCanary);
+
+    private static PlanWaveStep? PlannedStep(RolloutPlanDocument document, string mac) =>
+        document.Waves.SelectMany(w => w.Steps)
+            .FirstOrDefault(s => string.Equals(s.Mac, mac, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether the device rides a wireless mesh backhaul, when planned or now.</summary>
+    private static bool IsMeshUplinked(
+        RolloutPlanDocument document, FirmwareRolloutStep step, RolloutDeviceObservation? observation) =>
+        observation?.WirelessUplink == true || PlannedStep(document, step.DeviceMac)?.WirelessUplink == true;
+
+    /// <summary>
+    /// A mesh device that drops its backhaul to flash reports Isolated or Incorrect Topology rather
+    /// than Offline. Wired devices are left out: for them Isolated after a command is not a reboot,
+    /// and reading it as one would skip the SSH retry for a command that was never taken.
+    /// </summary>
+    private static bool LostItsMesh(
+        RolloutPlanDocument document, FirmwareRolloutStep step, RolloutDeviceObservation observation) =>
+        observation.State is (int)UniFiDeviceState.Isolated or (int)UniFiDeviceState.IncorrectTopology
+        && IsMeshUplinked(document, step, observation);
+
+    /// <summary>
+    /// Whether a mesh device now uplinks through a different parent than it did when the plan was
+    /// built. Both ends must be known: a missing live uplink is no evidence of a move.
+    /// </summary>
+    private static bool ReMeshed(
+        RolloutPlanDocument document, FirmwareRolloutStep step, RolloutDeviceObservation? observation)
+    {
+        if (observation?.UplinkMac is not string live || !IsMeshUplinked(document, step, observation))
+            return false;
+        var planned = PlannedStep(document, step.DeviceMac)?.UplinkMac;
+        return planned != null && !string.Equals(planned, live, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Model family of a step, the key the planner pairs a canary with its peers on. The raw SKU
+    /// is not: the same device in another shell has its own code but shares the canary.
+    /// </summary>
+    private static Func<FirmwareRolloutStep, string> FamilyLookup(RolloutPlanDocument document)
+    {
+        var displayModels = document.Waves.SelectMany(w => w.Steps)
+            .GroupBy(s => s.Mac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().DisplayModel, StringComparer.OrdinalIgnoreCase);
+        var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        return step =>
+        {
+            if (known.TryGetValue(step.DeviceMac, out var cached)) return cached;
+            // An empty display name would come back as the family of every unknown code alike.
+            var display = displayModels.GetValueOrDefault(step.DeviceMac);
+            var family = NetworkOptimizer.UniFi.UniFiProductDatabase.GetModelFamily(
+                step.Model, string.IsNullOrWhiteSpace(display) ? null : display);
+            return known[step.DeviceMac] = string.IsNullOrWhiteSpace(family) ? step.Model : family;
+        };
+    }
 
     /// <summary>
     /// Version equality across the two spellings the console and the feed use. Whitespace and a

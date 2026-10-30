@@ -45,6 +45,7 @@ public class UpstreamRediscoveryService : BackgroundService
     private readonly ILogger<UpstreamRediscoveryService> _logger;
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
+    private readonly SiteVantageDnsResolver? _dnsResolver;
 
     public UpstreamRediscoveryService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -52,8 +53,10 @@ public class UpstreamRediscoveryService : BackgroundService
         UpstreamTracerRegistry tracerRegistry,
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         NetworkOptimizer.Web.Services.AgentTunnelRegistry tunnelRegistry,
-        ILogger<UpstreamRediscoveryService> logger)
+        ILogger<UpstreamRediscoveryService> logger,
+        SiteVantageDnsResolver? dnsResolver = null)
     {
+        _dnsResolver = dnsResolver;
         _tunnelRegistry = tunnelRegistry;
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
@@ -125,7 +128,9 @@ public class UpstreamRediscoveryService : BackgroundService
         // A batch at a time, nulls only, so it costs nothing once a site is settled.
         try
         {
-            var settled = await LocalTargetResolver.SweepUnresolvedAsync(db, _logger, ct);
+            var resolver = _dnsResolver;
+            var settled = await LocalTargetResolver.SweepUnresolvedAsync(db, _logger, ct,
+                resolver == null ? null : (host, token) => resolver.ResolveAddressesAsync(slug, host, token));
             if (settled > 0)
             {
                 await db.SaveChangesAsync(ct);

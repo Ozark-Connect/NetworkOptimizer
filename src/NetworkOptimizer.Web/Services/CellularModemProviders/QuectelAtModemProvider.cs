@@ -147,7 +147,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
     /// <summary>
     /// Build SSH connection info from per-modem credentials in the poll context.
     /// </summary>
-    private static async Task<SshConnectionInfo> ToConnectionInfoAsync(ModemPollContext context)
+    internal static async Task<SshConnectionInfo> ToConnectionInfoAsync(ModemPollContext context)
     {
         var (host, port) = await context.Dialer.ResolveAsync(context.Host, context.Port > 0 ? context.Port : 22);
         return new SshConnectionInfo
@@ -157,6 +157,8 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
             Username = context.Username ?? "root",
             Password = context.Password,
             PrivateKeyPath = context.PrivateKeyPath,
+            StoredPrivateKeyPem = context.StoredPrivateKeyPem,
+            StoredPrivateKeyPassphrase = context.StoredPrivateKeyPassphrase,
         };
     }
 }

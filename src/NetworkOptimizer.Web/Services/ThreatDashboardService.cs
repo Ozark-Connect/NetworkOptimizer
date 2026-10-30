@@ -1,14 +1,13 @@
 using System.Text.Json;
 using NetworkOptimizer.Core.Helpers;
-using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.CrowdSec;
 using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
-using NetworkOptimizer.Storage.Models.Identity;
-using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -881,11 +880,16 @@ public class ThreatDashboardService : IThreatFilterAdminService
 
     private IpPeerGroup BuildPeerGroup(string peerIp, List<ThreatEvent> events)
     {
-        var ports = events.Select(e => e.DestPort).Distinct().OrderBy(p => p).ToList();
-        var portRangesStr = FormatPortRanges(ports);
+        // ICMP, GRE and other port-less protocols carry port 0: name the protocol instead.
+        var portless = events.Where(e => IsPortless(e)).Select(e => e.Protocol.ToUpperInvariant()).Distinct().Order().ToList();
+        var ports = events.Where(e => !IsPortless(e)).Select(e => e.DestPort).Distinct().OrderBy(p => p).ToList();
+        var portRangesStr = portless.Count == 0 ? FormatPortRanges(ports)
+            : ports.Count == 0 ? string.Join(", ", portless)
+            : $"{FormatPortRanges(ports)}, {string.Join(", ", portless)}";
         var services = events
             .Select(e =>
             {
+                if (IsPortless(e)) return e.Protocol.ToUpperInvariant();
                 // Prefer our port lookup over raw CrowdSec service when it's generic
                 if (string.IsNullOrEmpty(e.Service) || string.Equals(e.Service, "other", StringComparison.OrdinalIgnoreCase))
                 {
@@ -909,6 +913,12 @@ public class ThreatDashboardService : IThreatFilterAdminService
             BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked)
         };
     }
+
+    private static bool IsPortless(ThreatEvent e) =>
+        e.DestPort == 0 && !string.IsNullOrEmpty(e.Protocol)
+        && !e.Protocol.Equals("TCP", StringComparison.OrdinalIgnoreCase)
+        && !e.Protocol.Equals("UDP", StringComparison.OrdinalIgnoreCase)
+        && !e.Protocol.Equals("HTTP", StringComparison.OrdinalIgnoreCase);
 
     private static string FormatPortRanges(List<int> sortedPorts)
     {

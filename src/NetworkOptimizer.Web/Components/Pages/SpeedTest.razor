@@ -32,6 +32,7 @@
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
 @inject IApMapAdminService ApMapAdmin
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
@@ -368,7 +369,7 @@
             else
             {
             <p class="section-description">
-                Select any supported non-gateway device to run a speed test. Devices are auto-discovered from your UniFi controller.
+                Select any supported non-gateway device to run a speed test. Devices are auto-discovered from your UniFi Console.
                 <span class="tooltip-wrapper">
                     <span class="tooltip-icon">?</span>
                     <span class="tooltip-content">
@@ -388,7 +389,7 @@
                     {
                         @if (_canConfigure)
                         {
-                            <text>Connect to your UniFi controller in <a href="/settings#console-connection">Settings</a> to discover devices.</text>
+                            <text>Connect to your UniFi Console in <a href="/settings#console-connection">Settings</a> to discover devices.</text>
                         }
                         else
                         {
@@ -399,22 +400,76 @@
             }
             else if (discoveredDevices.Count > 0)
             {
+                var visibleDevices = VisibleDevices;
+                var visibleRunnable = visibleDevices.Where(IsRunnable).ToList();
+                var allVisibleSelected = visibleRunnable.Count > 0 && visibleRunnable.All(d => _selectedDevices.Contains(d.IpAddress));
+                var selectedCount = SelectedRunnable(visibleDevices).Count;
+
+                <div class="device-test-filters">
+                    <div class="form-row">
+                        <div class="form-group device-test-search">
+                            <input type="search" class="form-control" placeholder="Search name, model, or IP"
+                                   @bind="_deviceSearch" @bind:event="oninput" />
+                        </div>
+                        <div class="form-group device-test-family">
+                            <select class="form-control" @bind:get="EffectiveFamily" @bind:set="SetDeviceFamilyAsync">
+                                <option value="">All models</option>
+                                @foreach (var option in _familyOptions)
+                                {
+                                    <option value="@option.Prefix">@option.Label</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-group device-test-online">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind:get="_deviceOnlineOnly" @bind:set="SetDeviceOnlineOnlyAsync" />
+                                <span>Online only</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="device-test-batch">
+                    <span class="device-test-count">Showing @visibleDevices.Count of @discoveredDevices.Count</span>
+                    <SiteOperatorOnly>
+                        <div class="action-buttons">
+                            @if (_batchRunning)
+                            {
+                                <span class="device-test-count">Testing @_batchIndex of @_batchTotal</span>
+                                <button class="btn btn-secondary btn-sm" @onclick="StopBatch" disabled="@_batchStopRequested">Stop</button>
+                            }
+                            else if (_batchSummary != null)
+                            {
+                                <span class="device-test-count">@_batchSummary</span>
+                            }
+                            <button class="btn btn-primary btn-sm" @onclick="RunSelectedAsync"
+                                    disabled="@(selectedCount == 0 || isRunningTest || _batchRunning)">Run Selected (@selectedCount)</button>
+                        </div>
+                    </SiteOperatorOnly>
+                </div>
+
                 <div class="table-responsive">
-                <table class="data-table">
+                <table class="data-table device-test-table">
                     <thead>
                         <tr>
-                            <th></th>
+                            <th class="device-pick-cell">
+                                <SiteOperatorOnly>
+                                    <input type="checkbox" checked="@allVisibleSelected"
+                                           disabled="@(visibleRunnable.Count == 0 || _batchRunning)"
+                                           @onchange="e => ToggleAllVisible(visibleRunnable, e.Value is true)" />
+                                </SiteOperatorOnly>
+                            </th>
                             <th class="hide-mobile">Name</th>
                             <th class="hide-mobile">Model</th>
                             <th class="show-mobile">Device</th>
                             <th class="hide-mobile">IP Address</th>
                             <th class="hide-mobile">Type</th>
-                            <th>Status</th>
+                            <th class="hide-mobile">Status</th>
                             <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var device in discoveredDevices)
+                        @foreach (var device in visibleDevices)
                         {
                             var status = UniFiDeviceStateMap.ToStatus(device.State);
                             var isOnline = status.IsOnline && device.Adopted;
@@ -425,25 +480,43 @@
                                 DeviceStatusKind.Error => "status-error",
                                 _ => "status-disconnected"
                             };
-                            <tr>
-                                <td class="icon-cell"><DeviceIcon Model="@device.FriendlyModelName" Size="md" /></td>
+                            var runnable = IsRunnable(device);
+                            var rowResult = RowResultFor(_unifiRowMessages, device.IpAddress);
+                            <tr class="@(rowResult != null ? "has-result" : null)">
+                                <td class="device-pick-cell">
+                                    <label class="device-pick">
+                                        <DeviceIcon Model="@device.FriendlyModelName" Size="md" />
+                                        <SiteOperatorOnly>
+                                            <input type="checkbox" checked="@_selectedDevices.Contains(device.IpAddress)"
+                                                   disabled="@(!runnable || _batchRunning)"
+                                                   @onchange="e => ToggleDeviceSelected(device, e.Value is true)" />
+                                        </SiteOperatorOnly>
+                                    </label>
+                                </td>
                                 <td class="hide-mobile">@device.Name</td>
                                 <td class="hide-mobile"><code>@device.FriendlyModelName</code></td>
                                 <td class="show-mobile">
                                     @device.Name<br />
                                     <code class="text-muted">@device.FriendlyModelName</code>
+                                    <div class="device-cell-status"><span class="status-badge @badgeClass">@status.Label</span></div>
                                 </td>
                                 <td class="hide-mobile"><code>@device.IpAddress</code></td>
                                 <td class="hide-mobile">@device.Type.ToDisplayName()</td>
-                                <td>
+                                <td class="hide-mobile">
                                     <span class="status-badge @badgeClass">@status.Label</span>
                                 </td>
                                 <td>
                                     <div class="action-buttons">
                                         <SiteOperatorOnly>
+                                        @if (_batchQueue.Contains(device.IpAddress))
+                                        {
+                                            <button class="btn btn-secondary btn-sm test-button" disabled><span>Queued</span></button>
+                                        }
+                                        else
+                                        {
                                         <button class="btn btn-primary btn-sm test-button"
                                                 @onclick="() => RunSpeedTestOnDiscovered(device)"
-                                                disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.IpAddress))">
+                                                disabled="@(isRunningTest || _batchRunning || !runnable)">
                                             @if (runningTestHost == device.IpAddress)
                                             {
                                                 <div class="test-progress">
@@ -456,10 +529,15 @@
                                                 <span>Run Test</span>
                                             }
                                         </button>
+                                        }
                                         </SiteOperatorOnly>
                                     </div>
                                 </td>
                             </tr>
+                            @if (rowResult != null)
+                            {
+                                @DeviceResultRow(rowResult, 8)
+                            }
                         }
                     </tbody>
                 </table>
@@ -532,43 +610,36 @@
             @if (devices.Count > 0)
             {
                 <div class="table-responsive">
-                <table class="data-table">
+                <table class="data-table device-test-table">
                     <thead>
                         <tr>
                             <th class="hide-mobile">Name</th>
                             <th class="hide-mobile">Host</th>
                             <th class="show-mobile">Device</th>
                             <th class="hide-mobile">Type</th>
-                            <th>Status</th>
+                            <th class="hide-mobile">Status</th>
                             <th class="col-actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var device in devices)
                         {
-                            <tr>
+                            var rowResult = RowResultFor(_otherRowMessages, device.Host);
+                            <tr class="@(rowResult != null ? "has-result" : null)">
                                 <td class="hide-mobile">@device.Name</td>
                                 <td class="hide-mobile"><code>@device.Host</code></td>
                                 <td class="show-mobile">
                                     @device.Name<br />
                                     <code class="text-muted host-truncate">@device.Host</code>
+                                    <div class="device-cell-status">@EnabledBadge(device.Enabled)</div>
                                 </td>
                                 <td class="hide-mobile">@device.DeviceType.ToDisplayName()</td>
-                                <td>
-                                    @if (device.Enabled)
-                                    {
-                                        <span class="status-badge status-connected">Enabled</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="status-badge status-disconnected">Disabled</span>
-                                    }
-                                </td>
-                                <td>
+                                <td class="hide-mobile">@EnabledBadge(device.Enabled)</td>
+                                <td class="col-actions">
                                     <div class="action-buttons">
                                         <SiteOperatorOnly>
                                             <button class="btn btn-primary btn-sm test-button" @onclick="() => RunSpeedTest(device)"
-                                                    disabled="@(isRunningTest || !device.Enabled || (!sshConfigured && !device.HasOwnCredentials) || IsLicenseRestricted)">
+                                                    disabled="@(isRunningTest || _batchRunning || !device.Enabled || (!sshConfigured && !device.HasOwnCredentials) || IsLicenseRestricted)">
                                                 @if (runningTestHost == device.Host)
                                                 {
                                                     <div class="test-progress">
@@ -595,6 +666,10 @@
                                     </div>
                                 </td>
                             </tr>
+                            @if (rowResult != null)
+                            {
+                                @DeviceResultRow(rowResult, 6)
+                            }
                         }
                     </tbody>
                 </table>
@@ -789,10 +864,15 @@
                 }
                 else
                 {
+                    var failure = SpeedTestFailureSummary.Summarize(currentResult.ErrorMessage);
                     <div class="alert alert-danger alert-with-tooltip">
-                        <span class="alert-text"><strong>Test Failed:</strong> @currentResult.ErrorMessage</span>
+                        <span class="alert-text"><strong>Test Failed:</strong> @failure.Cause</span>
                         <SshTroubleshootingTooltip Context="devices" />
                     </div>
+                    @if (failure.RawOutput != null)
+                    {
+                        <details class="latest-result-raw"><summary>Raw output</summary><pre class="gateway-diag-raw">@failure.RawOutput</pre></details>
+                    }
                 }
             </div>
         </div>
@@ -1426,6 +1506,38 @@
         color: var(--text-primary);
         background: rgba(255, 255, 255, 0.1);
     }
+
+    .device-test-filters .form-row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+    .device-test-filters .form-row > .form-group { flex: 1 1 180px; min-width: 0; }
+    .device-test-filters .form-row > .device-test-search { flex: 2 1 240px; }
+    .device-test-filters .form-row > .device-test-online { flex: 0 0 auto; }
+    .device-test-batch { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    .device-test-batch .device-test-count { color: var(--text-secondary); font-size: 0.875rem; }
+    .device-test-batch .action-buttons { align-items: center; }
+    .device-test-table .device-pick-cell { width: 1%; }
+    .device-test-table .device-pick { position: relative; display: inline-flex; align-items: center; gap: 0.75rem; vertical-align: middle; }
+    .device-test-table .device-pick .device-icon { display: block; }
+    .device-test-table .device-pick input[type="checkbox"] { order: -1; margin: 0; }
+    .device-test-table code { white-space: nowrap; }
+    .device-test-table tr.device-result-row > td { padding-top: 0; }
+    .device-test-table tr.has-result > td { border-bottom: none; }
+    .device-test-table .alert { margin: 0; }
+    .device-test-table details { margin-top: 0.5rem; }
+    .device-test-table summary { cursor: pointer; font-size: 0.8125rem; }
+    .latest-result-raw summary { cursor: pointer; font-size: 0.8125rem; }
+    .device-test-table .device-cell-status { margin-top: 0.35rem; }
+
+    @@media (max-width: 768px) {
+        .device-test-filters .form-row { gap: 0 0.75rem; }
+        .device-test-filters .form-row > .device-test-search { flex-basis: 100%; }
+        .device-test-filters .form-row > .device-test-family { flex: 1 1 0; }
+        .device-test-table.data-table { min-width: 0; }
+        .device-test-table .device-pick .device-icon-md { width: 48px; height: 48px; }
+        .device-test-table .device-pick input[type="checkbox"] { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .device-test-table .alert-link { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+        .device-test-table .alert-link-hint { margin-left: 0; }
+        .device-test-table .col-actions .action-buttons { display: grid; grid-template-columns: 1fr 1fr; }
+    }
 </style>
 
 @code {
@@ -1503,6 +1615,31 @@
     // Other Device Speed Test messages (saved devices)
     private string savedDeviceMessage = "";
     private string savedDeviceMessageClass = "";
+
+    /// <summary>A message shown in a device's result row. <see cref="Result"/> is set once a test returns one.</summary>
+    private sealed record RowMessage(string Text, string Kind, Iperf3Result? Result = null, bool Progress = false);
+
+    // This visit's per-device messages, keyed by IP (UniFi) or Host (Other). They replace the stored result.
+    private readonly Dictionary<string, RowMessage> _unifiRowMessages = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, RowMessage> _otherRowMessages = new(StringComparer.OrdinalIgnoreCase);
+
+    // Newest server-initiated result per DeviceHost, rebuilt from testHistory on every load.
+    private Dictionary<string, Iperf3Result> _latestResultByHost = new(StringComparer.OrdinalIgnoreCase);
+
+    // UniFi Device Speed Test search and filters; family and Online only persist per user per site.
+    private string _deviceSearch = "";
+    private string _deviceFamily = "";
+    private bool _deviceOnlineOnly;
+    private List<DeviceModelFilterOption> _familyOptions = new();
+
+    // Selection and batch run, keyed by IP (a device without one cannot run).
+    private readonly HashSet<string> _selectedDevices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _batchQueue = new(StringComparer.OrdinalIgnoreCase);
+    private bool _batchRunning;
+    private bool _batchStopRequested;
+    private int _batchIndex;
+    private int _batchTotal;
+    private string? _batchSummary;
 
     // History state
     private bool clearingHistory = false;
@@ -1634,11 +1771,20 @@
         _liveViewLinkEnabled = await Readiness.IsHistoricPlaybackAvailableAsync();
 
         // Check schedule banner dismissal and local iperf3 availability
-        _lanScheduleBannerDismissed = await SettingsService.GetAsync("banner.lan_schedule_dismissed") != null;
+        _lanScheduleBannerDismissed = await SettingsService.GetAsync(SiteContext.Slug, "banner.lan_schedule_dismissed") != null;
         localIperf3Status = await SettingsService.CheckLocalIperf3Async();
 
         // Wait for UniFi controller connection (auto-connect happens in background on startup)
         await ConnectionService.WaitForConnectionAsync();
+
+        try
+        {
+            (_deviceFamily, _deviceOnlineOnly) = await LanDeviceFilterPreference.LoadAsync(UserPreferences, SiteContext.Slug);
+        }
+        catch (Exception)
+        {
+            // A filter that cannot be read starts at All models; the device list still loads.
+        }
 
         try
         {
@@ -1722,7 +1868,7 @@
     private async Task DismissLanScheduleBanner()
     {
         _lanScheduleBannerDismissed = true;
-        await SettingsService.SetAsync("banner.lan_schedule_dismissed", "true");
+        await SettingsService.SetAsync(SiteContext.Slug, "banner.lan_schedule_dismissed", "true");
     }
 
     private async Task RecheckLocalIperf3()
@@ -1953,6 +2099,7 @@
         try
         {
             testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: 0);
+            RebuildLatestResults();
             UpdateMapResults();
             historyPage = 1; // Reset to first page when loading fresh data
             OpenLinkedResult();
@@ -2012,6 +2159,7 @@
         {
             var count = await SpeedTestService.ClearHistoryAsync();
             testHistory.Clear();
+            RebuildLatestResults();
             currentResult = null;
             historyPage = 1;
         }
@@ -2033,6 +2181,7 @@
         if (deleted)
         {
             testHistory.RemoveAll(r => r.Id == resultId);
+            RebuildLatestResults();
             historyPathAnalysis.Remove(resultId);
             if (currentResult?.Id == resultId)
             {
@@ -2178,8 +2327,8 @@
 
     private async Task TestConnection(DeviceSshConfiguration device)
     {
-        savedDeviceMessage = $"Testing SSH connection to {device.Name}...";
-        savedDeviceMessageClass = "info";
+        var host = device.Host;
+        _otherRowMessages[host] = new RowMessage($"Testing SSH connection to {device.Name}...", "info");
         StateHasChanged();
 
         try
@@ -2189,37 +2338,41 @@
             if (success)
             {
                 var (iperf3Available, version) = await SpeedTestService.CheckIperf3AvailableAsync(device);
-                if (iperf3Available)
-                {
-                    savedDeviceMessage = $"SSH OK! iperf3 available: {version}";
-                    savedDeviceMessageClass = "success";
-                }
-                else
-                {
-                    savedDeviceMessage = $"SSH OK. {version}";
-                    savedDeviceMessageClass = "warning";
-                }
+                _otherRowMessages[host] = iperf3Available
+                    ? new RowMessage($"SSH OK! iperf3 available: {version}", "success")
+                    : new RowMessage($"SSH OK. {version}", "warning");
             }
             else
             {
-                savedDeviceMessage = $"SSH connection failed: {msg}";
-                savedDeviceMessageClass = "danger";
+                _otherRowMessages[host] = new RowMessage($"SSH connection failed: {msg}", "danger");
             }
         }
         catch (Exception ex)
         {
-            savedDeviceMessage = $"Error: {ex.Message}";
-            savedDeviceMessageClass = "danger";
+            _otherRowMessages[host] = new RowMessage($"Error: {ex.Message}", "danger");
         }
         StateHasChanged();
     }
 
     private async Task RunSpeedTest(DeviceSshConfiguration device)
     {
+        // A Test Again on a result with no saved device runs a temporary one, which has no row.
+        var host = device.Host;
+        var hasRow = devices.Any(d => string.Equals(d.Host, host, StringComparison.OrdinalIgnoreCase));
+        void Show(RowMessage message)
+        {
+            if (hasRow)
+            {
+                _otherRowMessages[host] = message;
+                return;
+            }
+            savedDeviceMessage = message.Text;
+            savedDeviceMessageClass = message.Kind;
+        }
+
         isRunningTest = true;
         runningTestHost = device.Host;
-        savedDeviceMessage = $"Running speed test to {device.Name}...";
-        savedDeviceMessageClass = "info";
+        Show(new RowMessage($"Running speed test to {device.Name}...", "info", Progress: true));
         var iperf3Settings = await SpeedTestService.GetSettingsAsync();
         StartProgressTimer(device.Iperf3DurationSeconds ?? iperf3Settings.DurationSeconds);
         StateHasChanged();
@@ -2227,24 +2380,12 @@
         try
         {
             currentResult = await SpeedTestService.RunSpeedTestAsync(device);
-
-            if (currentResult.Success)
-            {
-                savedDeviceMessage = $"Speed test completed: {currentResult.DownloadMbps:F1} Mbps from / {currentResult.UploadMbps:F1} Mbps to device";
-                savedDeviceMessageClass = "success";
-            }
-            else
-            {
-                savedDeviceMessage = $"Speed test failed: {currentResult.ErrorMessage}";
-                savedDeviceMessageClass = "danger";
-            }
-
+            Show(MessageFor(currentResult));
             await LoadHistory();
         }
         catch (Exception ex)
         {
-            savedDeviceMessage = $"Error running speed test: {ex.Message}";
-            savedDeviceMessageClass = "danger";
+            Show(new RowMessage($"Error running speed test: {ex.Message}", "danger"));
         }
         finally
         {
@@ -2254,6 +2395,133 @@
             StateHasChanged();
         }
     }
+
+    /// <summary>The row message for a finished test: the result itself, so the row renders it like a stored one.</summary>
+    private static RowMessage MessageFor(Iperf3Result result) => result.Success
+        ? new RowMessage(CompletedText(result), "success", result)
+        : new RowMessage(SpeedTestFailureSummary.Summarize(result.ErrorMessage).Summary, "danger", result);
+
+    private static string CompletedText(Iperf3Result result) =>
+        $"Speed test completed: {result.DownloadMbps:F1} Mbps from / {result.UploadMbps:F1} Mbps to device";
+
+    /// <summary>A test result older than this no longer shows under its device's row.</summary>
+    private static readonly TimeSpan RowResultMaxAge = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// What a device's result row shows: this visit's message when there is one, else the newest stored
+    /// result for the host. A result past <see cref="RowResultMaxAge"/> is dropped. Null renders no row.
+    /// </summary>
+    private RowMessage? RowResultFor(Dictionary<string, RowMessage> messages, string? host)
+    {
+        if (string.IsNullOrEmpty(host)) return null;
+        var cutoff = DateTime.UtcNow - RowResultMaxAge;
+        if (messages.TryGetValue(host, out var message) && (message.Result == null || message.Result.TestTime >= cutoff))
+            return message;
+        return _latestResultByHost.TryGetValue(host, out var stored) && stored.TestTime >= cutoff ? MessageFor(stored) : null;
+    }
+
+    /// <summary>A row's text, with the result's age when it carries one ("· 3 hours ago").</summary>
+    private static string RowText(RowMessage message) =>
+        message.Result is { } result ? $"{message.Text} · {TimeFormatHelper.FormatRelativeTime(result.TestTime)}" : message.Text;
+
+    private void RebuildLatestResults()
+    {
+        var latest = new Dictionary<string, Iperf3Result>(StringComparer.OrdinalIgnoreCase);
+        foreach (var result in testHistory
+                     .Where(r => r.Direction == SpeedTestDirection.ServerToDevice && !string.IsNullOrEmpty(r.DeviceHost))
+                     .OrderByDescending(r => r.TestTime))
+            latest.TryAdd(result.DeviceHost, result);
+        _latestResultByHost = latest;
+
+        // A deleted or cleared result leaves its row; a refusal that was never saved (Id 0) stays for the visit.
+        var ids = testHistory.Select(r => r.Id).ToHashSet();
+        foreach (var messages in new[] { _unifiRowMessages, _otherRowMessages })
+            foreach (var key in messages.Where(m => m.Value.Result is { Id: > 0 } r && !ids.Contains(r.Id)).Select(m => m.Key).ToList())
+                messages.Remove(key);
+    }
+
+    /// <summary>
+    /// The result row under a device. A success links to its details; a failure shows its summary line
+    /// with the raw iperf3 output collapsed beneath it.
+    /// </summary>
+    private RenderFragment DeviceResultRow(RowMessage message, int colspan)
+    {
+        var failure = message is { Kind: "danger", Result: { } failed }
+            ? SpeedTestFailureSummary.Summarize(failed.ErrorMessage)
+            : null;
+        return @<tr class="device-result-row">
+            <td colspan="@colspan">
+                @if (message.Progress && isRunningTest)
+                {
+                    <div class="alert alert-info alert-progress">
+                        <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
+                        <span class="alert-progress-text">@message.Text @testProgressPhaseVerbose...</span>
+                    </div>
+                }
+                else if (message is { Kind: "success", Result: { } succeeded })
+                {
+                    <div class="alert alert-success alert-link" @onclick="() => OpenRowResult(succeeded)">
+                        <span>@RowText(message)</span>
+                        <span class="alert-link-hint">Click to view details →</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-@message.Kind alert-with-tooltip">
+                        @if (message.Kind == "danger")
+                        {
+                            <span class="alert-text">@RowText(message)</span>
+                            <SshTroubleshootingTooltip Context="devices" />
+                        }
+                        else
+                        {
+                            @RowText(message)
+                        }
+                    </div>
+                    @if (failure?.RawOutput != null)
+                    {
+                        <details><summary>Raw output</summary><pre class="gateway-diag-raw">@failure.RawOutput</pre></details>
+                    }
+                }
+            </td>
+        </tr>;
+    }
+
+    /// <summary>
+    /// Opens a row's result: the Latest Test Result card when it is the one shown there, else its row in
+    /// Test History, clearing a history filter that hides it.
+    /// </summary>
+    private async Task OpenRowResult(Iperf3Result result)
+    {
+        if (currentResult?.Id == result.Id)
+        {
+            await ScrollToLatestResult();
+            return;
+        }
+
+        if (filteredHistory.FindIndex(r => r.Id == result.Id) < 0)
+        {
+            deviceFilter = "";
+            deviceFilterName = "";
+            historySearchFilter = "";
+        }
+        var index = filteredHistory.FindIndex(r => r.Id == result.Id);
+        if (index < 0)
+        {
+            await ScrollToLatestResult();
+            return;
+        }
+
+        historyPage = (index / historyPageSize) + 1;
+        expandedHistoryId = result.Id;
+        StateHasChanged();
+        await Task.Delay(100);
+        await JS.InvokeVoidAsync("noHighlightRow", $"result-{result.Id}");
+    }
+
+    private RenderFragment EnabledBadge(bool enabled) => enabled
+        ? @<span class="status-badge status-connected">Enabled</span>
+        : @<span class="status-badge status-disconnected">Disabled</span>;
 
     private async Task ScrollToLatestResult()
     {
@@ -2390,6 +2658,8 @@
                 .Where(d => d.Type != DeviceType.Gateway && d.CanRunIperf3)
                 .OrderBy(d => d.Name)
                 .ToList();
+            _familyOptions = DeviceModelFilter.BuildOptions(discoveredDevices.Select(ModelFamilyOf));
+            _selectedDevices.IntersectWith(discoveredDevices.Select(d => d.IpAddress));
             _discoveredDevicesLoaded = true;
         }
         catch (Exception ex)
@@ -2404,19 +2674,35 @@
         }
     }
 
-    private async Task RunSpeedTestOnDiscovered(DiscoveredDevice device)
+    private Task RunSpeedTestOnDiscovered(DiscoveredDevice device) => RunDiscoveredAsync(device);
+
+    /// <summary>
+    /// Runs one UniFi device's test into its row. A device the filters hide also gets the card-level
+    /// message, so a Test Again from history is never silent. Returns whether the test passed.
+    /// </summary>
+    private async Task<bool> RunDiscoveredAsync(DiscoveredDevice device)
     {
         if (string.IsNullOrEmpty(device.IpAddress))
         {
             unifiMessage = $"Device {device.Name} has no IP address";
             unifiMessageClass = "danger";
-            return;
+            return false;
         }
 
+        var host = device.IpAddress;
+        var hidden = !VisibleDevices.Contains(device);
+        void Show(RowMessage message)
+        {
+            _unifiRowMessages[host] = message;
+            if (!hidden) return;
+            unifiMessage = message.Text;
+            unifiMessageClass = message.Kind;
+        }
+
+        var passed = false;
         isRunningTest = true;
-        runningTestHost = device.IpAddress;
-        unifiMessage = $"Running speed test to {device.Name}...";
-        unifiMessageClass = "info";
+        runningTestHost = host;
+        Show(new RowMessage($"Running speed test to {device.Name}...", "info", Progress: true));
         var iperf3Settings = await SpeedTestService.GetSettingsAsync();
         StartProgressTimer(iperf3Settings.DurationSeconds);
         StateHasChanged();
@@ -2424,24 +2710,13 @@
         try
         {
             currentResult = await SpeedTestService.RunSpeedTestAsync(device);
-
-            if (currentResult.Success)
-            {
-                unifiMessage = $"Speed test completed: {currentResult.DownloadMbps:F1} Mbps from / {currentResult.UploadMbps:F1} Mbps to device";
-                unifiMessageClass = "success";
-            }
-            else
-            {
-                unifiMessage = $"Speed test failed: {currentResult.ErrorMessage}";
-                unifiMessageClass = "danger";
-            }
-
+            passed = currentResult.Success;
+            Show(MessageFor(currentResult));
             await LoadHistory();
         }
         catch (Exception ex)
         {
-            unifiMessage = $"Error running speed test: {ex.Message}";
-            unifiMessageClass = "danger";
+            Show(new RowMessage($"Error running speed test: {ex.Message}", "danger"));
         }
         finally
         {
@@ -2450,11 +2725,114 @@
             runningTestHost = null;
             StateHasChanged();
         }
+        return passed;
     }
+
+    private static string ModelFamilyOf(DiscoveredDevice device) =>
+        UniFiProductDatabase.GetModelFamily(device.Model, device.Shortname);
+
+    private static bool IsDeviceOnline(DiscoveredDevice device) =>
+        UniFiDeviceStateMap.ToStatus(device.State).IsOnline && device.Adopted;
+
+    /// <summary>Whether Run Test is available for the device: online, with an IP, and Device SSH configured.</summary>
+    private bool IsRunnable(DiscoveredDevice device) =>
+        IsDeviceOnline(device) && sshConfigured && !string.IsNullOrEmpty(device.IpAddress);
+
+    /// <summary>The saved family when it is still an option on this site, else All models.</summary>
+    private string EffectiveFamily =>
+        _familyOptions.Any(o => string.Equals(o.Prefix, _deviceFamily, StringComparison.OrdinalIgnoreCase)) ? _deviceFamily : "";
+
+    /// <summary>The discovered devices that pass the search, family/model filter, and Online only.</summary>
+    private List<DiscoveredDevice> VisibleDevices
+    {
+        get
+        {
+            var family = EffectiveFamily;
+            var search = _deviceSearch.Trim();
+            return discoveredDevices.Where(d =>
+                    (family.Length == 0 || DeviceModelFilter.Matches(ModelFamilyOf(d), family))
+                    && (!_deviceOnlineOnly || IsDeviceOnline(d))
+                    && (search.Length == 0
+                        || d.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+                        || d.FriendlyModelName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                        || d.IpAddress.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+    }
+
+    /// <summary>Selected devices that Run Selected would test: visible and runnable, in table order.</summary>
+    private List<DiscoveredDevice> SelectedRunnable(List<DiscoveredDevice> visible) =>
+        visible.Where(d => IsRunnable(d) && _selectedDevices.Contains(d.IpAddress)).ToList();
+
+    private async Task SetDeviceFamilyAsync(string? family)
+    {
+        _deviceFamily = family ?? "";
+        try { await LanDeviceFilterPreference.SaveFamilyAsync(UserPreferences, SiteContext.Slug, _deviceFamily); }
+        catch (Exception) { /* the filter still applies for this visit */ }
+    }
+
+    private async Task SetDeviceOnlineOnlyAsync(bool onlineOnly)
+    {
+        _deviceOnlineOnly = onlineOnly;
+        try { await LanDeviceFilterPreference.SaveOnlineOnlyAsync(UserPreferences, SiteContext.Slug, onlineOnly); }
+        catch (Exception) { /* the filter still applies for this visit */ }
+    }
+
+    private void ToggleDeviceSelected(DiscoveredDevice device, bool selected)
+    {
+        if (selected) _selectedDevices.Add(device.IpAddress);
+        else _selectedDevices.Remove(device.IpAddress);
+    }
+
+    private void ToggleAllVisible(List<DiscoveredDevice> visibleRunnable, bool selected)
+    {
+        foreach (var device in visibleRunnable)
+            ToggleDeviceSelected(device, selected);
+    }
+
+    /// <summary>
+    /// Tests the selected devices one after another. A failure moves on to the next device; Stop
+    /// ends the batch after the device under test.
+    /// </summary>
+    private async Task RunSelectedAsync()
+    {
+        if (isRunningTest || _batchRunning) return;
+        var targets = SelectedRunnable(VisibleDevices);
+        if (targets.Count == 0) return;
+
+        _batchRunning = true;
+        _batchStopRequested = false;
+        _batchSummary = null;
+        _batchTotal = targets.Count;
+        _batchQueue.Clear();
+        _batchQueue.UnionWith(targets.Select(d => d.IpAddress));
+        int passed = 0, failed = 0;
+
+        try
+        {
+            for (var i = 0; i < targets.Count && !_batchStopRequested; i++)
+            {
+                _batchIndex = i + 1;
+                _batchQueue.Remove(targets[i].IpAddress);
+                if (await RunDiscoveredAsync(targets[i])) passed++;
+                else failed++;
+            }
+        }
+        finally
+        {
+            _batchQueue.Clear();
+            _batchRunning = false;
+            _batchStopRequested = false;
+            _batchSummary = $"{passed + failed} tested: {passed} passed, {failed} failed";
+            StateHasChanged();
+        }
+    }
+
+    private void StopBatch() => _batchStopRequested = true;
 
     private async Task HandleTestAgain(Iperf3Result result)
     {
-        if (isRunningTest) return;
+        if (isRunningTest || _batchRunning) return;
 
         // Try saved devices first
         var savedDevice = devices.FirstOrDefault(d =>

@@ -2299,6 +2299,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("UseManagedSshKey")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -3040,6 +3043,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("HasNoConsole")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsDefault")

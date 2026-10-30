@@ -1241,7 +1241,7 @@
             }
 
             <!-- Discovered Modems from UniFi Console -->
-            <h4>Auto-Discovered Modems</h4>
+            <h4>Ubiquiti Modems (Auto-Discovered)</h4>
             <div class="action-buttons" style="margin-top: 0.5rem; margin-bottom: 1rem;">
                 <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
                     @if (loadingDiscoveredModems)
@@ -1386,16 +1386,22 @@
             }
             else
             {
-                <p class="empty-state">No modems configured. Scan for modems above or add one manually.</p>
+                <p class="empty-state">No modems configured. Scan for Ubiquiti modems above, or add any modem below.</p>
             }
 
             <!-- Manual Add Form (collapsed by default, expands when editing) -->
             <details class="add-form" open="@modemFormExpanded">
-                <summary @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
+                <summary @onclick="() => modemFormExpanded = !modemFormExpanded">
+                    @(editingModem?.Id > 0 ? "Edit Modem" : "Add a Modem")
+                    @* Inside the summary so it shows while the form is collapsed. *@
+                    @if (!(editingModem?.Id > 0))
+                    {
+                        <small class="form-help add-form-summary-help">
+                            Ubiquiti modems are found automatically above. Add any other modem here: Netgear Nighthawk, GL-iNet / Quectel, Inseego FX, Zyxel or MikroTik.
+                        </small>
+                    }
+                </summary>
                 <div class="add-form-content">
-                    <p class="form-help" style="margin-bottom: 1rem;">
-                        Only use manual entry if auto-discovery doesn't find your modem.
-                    </p>
 
                     @if (editingModem != null)
                     {
@@ -1464,6 +1470,8 @@
                                     <small class="form-help">Leave empty when the router has one LTE interface. Set it when there is more than one.</small>
                                 </div>
                             </div>
+
+                            @ModemManagedKeyField
                         }
                         else if (ModemProviderKeys.UsesPerModemSsh(editingModem.Provider))
                         {
@@ -1482,6 +1490,8 @@
                                     <small class="form-help">Leave empty to auto-detect. Set this only if detection fails: <code>cpu</code> for a modem built into the router, or a USB path like 1-1.2 for a plug-in module.</small>
                                 </div>
                             </div>
+
+                            @ModemManagedKeyField
                         }
                         else if (editingModem.Provider is "netgear-nighthawk-hotspot" or "inseego-fx" or "zyxel-cpe")
                         {
@@ -4012,6 +4022,14 @@
                                                                     a minute.
                                                                 </label>
                                                             }
+                                                            <AdminOnly>
+                                                                <label class="checkbox-toggle">
+                                                                    <input type="checkbox" checked="@site.HasNoConsole"
+                                                                           @onchange="e => ToggleHasNoConsole((bool)e.Value!)" />
+                                                                    No UniFi Console at this site - this install only hosts your other sites.
+                                                                    Leaves it out of Site Health and console checks.
+                                                                </label>
+                                                            </AdminOnly>
                                                         </div>
 
                                                         <AuthorizeView Policy="@Policies.SiteAdmin" Resource="@site.Slug" Context="blockingAdmin">
@@ -4470,6 +4488,27 @@
         await ScrollToAndHighlightAsync("device-ssh");
     }
 
+    // One heading, the opt-in under it, and the key details only once the modem uses it. Shared by the
+    // MikroTik and GL-iNet/Quectel forms so the two cannot drift.
+    private RenderFragment ModemManagedKeyField => @<text>
+        <div class="form-group">
+            <label class="form-label">Managed SSH Key</label>
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="editingModem.UseManagedSshKey" />
+                <span>Use for this modem</span>
+            </label>
+            @if (editingModem.UseManagedSshKey)
+            {
+                @* With no key yet the row below offers to set one up; the password is not optional until then. *@
+                @if (_sshKey is not null)
+                {
+                    <small class="form-help">Install its public key on the modem first. With this on, the password is optional.</small>
+                }
+                <SshKeyRow Key="_sshKey" OnManage="ShowSshKeyPanel" ShowLabel="false" />
+            }
+        </div>
+    </text>;
+
     /// <summary>Takes the reader to the SSH Key panel from a key row elsewhere on this page.</summary>
     private async Task ShowSshKeyPanel()
     {
@@ -4626,6 +4665,21 @@
         _sites = await SiteManagement.GetSitesAsync();
         await LoadAgentsAsync();
         StateHasChanged();
+    }
+
+    private async Task ToggleHasNoConsole(bool value)
+    {
+        try
+        {
+            await SiteManagement.SetDefaultSiteHasNoConsoleAsync(value);
+        }
+        catch (Exception ex)
+        {
+            _multiSiteMessage = ex.Message;
+            _multiSiteMessageClass = "danger";
+            return;
+        }
+        await RefreshSites();
     }
 
     private async Task ToggleSiteEnabled(Site site)
@@ -6255,6 +6309,26 @@
         return success;
     }
 
+    /// <summary>
+    /// Names of this site's modems that authenticate with the stored key alone, read fresh so a modem
+    /// saved in another tab counts. Wording only: any failure returns none, so it can never block the removal.
+    /// </summary>
+    private async Task<List<string>> KeyOnlyModemNamesAsync()
+    {
+        try
+        {
+            return (await ModemService.GetModemsAsync())
+                .Where(m => CellularModemService.OffersStoredKey(m)
+                            && string.IsNullOrEmpty(m.Password) && string.IsNullOrEmpty(m.PrivateKeyPath))
+                .Select(m => m.Name)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return new List<string>();
+        }
+    }
+
     private async Task RemoveSshKey()
     {
         var installed = _keyDeployStatus?.KeyInstalled == true || _keyDeployStatus?.ScriptInstalled == true;
@@ -6262,6 +6336,11 @@
             ? "Remove the stored SSH key and take it off the gateway? Connections will fall back to the "
               + "password or key file configured for each."
             : "Remove the stored SSH key? Connections will fall back to the password or key file configured for each.";
+
+        // A modem set to use the key with no password or key file has nothing to fall back to.
+        var keyOnlyModems = await KeyOnlyModemNamesAsync();
+        if (keyOnlyModems.Count > 0)
+            prompt += $" These modems use only this key and will stop connecting until each has a password: {string.Join(", ", keyOnlyModems)}.";
 
         if (!await JS.InvokeAsync<bool>("confirm", prompt))
         {
@@ -7162,6 +7241,7 @@
             Username = modem.Username,
             Password = modem.Password,
             PrivateKeyPath = modem.PrivateKeyPath,
+            UseManagedSshKey = modem.UseManagedSshKey,
             ModemType = modem.ModemType,
             QmiDevice = modem.QmiDevice,
             Enabled = modem.Enabled,
@@ -7262,9 +7342,11 @@
             return;
         }
 
-        if (isPerModemSshProvider && string.IsNullOrWhiteSpace(editingModem.Password) && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath))
+        // A modem set to use the site's SSH key needs no password.
+        if (isPerModemSshProvider && string.IsNullOrWhiteSpace(editingModem.Password)
+            && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath) && !(editingModem.UseManagedSshKey && _sshKey is not null))
         {
-            modemMessage = $"SSH password or private key path is required for {sshModemKind} modems";
+            modemMessage = $"An SSH password, or an SSH key for this site, is required for {sshModemKind} modems";
             modemMessageClass = "danger";
             return;
         }
@@ -8459,19 +8541,19 @@
     {
         try
         {
-            var appleStreaming = await SystemSettings.GetAsync("audit:allowAppleStreamingOnMainNetwork");
-            var allStreaming = await SystemSettings.GetAsync("audit:allowAllStreamingOnMainNetwork");
-            var nameBrandTVs = await SystemSettings.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
-            var allTVs = await SystemSettings.GetAsync("audit:allowAllTVsOnMainNetwork");
-            var mediaPlayers = await SystemSettings.GetAsync("audit:allowMediaPlayersOnMainNetwork");
-            var printers = await SystemSettings.GetAsync("audit:allowPrintersOnMainNetwork");
-            var excludedVlans = await SystemSettings.GetAsync("audit:dnatExcludedVlans");
-            var piholePort = await SystemSettings.GetAsync("audit:piholeManagementPort");
-            var trustedTargets = await SystemSettings.GetAsync("audit:trustedDnsRedirectTargets");
-            var unusedPortDays = await SystemSettings.GetAsync("audit:unusedPortInactivityDays");
-            var namedPortDays = await SystemSettings.GetAsync("audit:namedPortInactivityDays");
-            var topSourcesRows = await SystemSettings.GetAsync(ThreatReportRows.TopSourcesSettingKey);
-            var categoryRows = await SystemSettings.GetAsync(ThreatReportRows.CategoryRowsSettingKey);
+            var appleStreaming = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowAppleStreamingOnMainNetwork");
+            var allStreaming = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowAllStreamingOnMainNetwork");
+            var nameBrandTVs = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowNameBrandTVsOnMainNetwork");
+            var allTVs = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowAllTVsOnMainNetwork");
+            var mediaPlayers = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowMediaPlayersOnMainNetwork");
+            var printers = await SystemSettings.GetAsync(SiteContext.Slug, "audit:allowPrintersOnMainNetwork");
+            var excludedVlans = await SystemSettings.GetAsync(SiteContext.Slug, "audit:dnatExcludedVlans");
+            var piholePort = await SystemSettings.GetAsync(SiteContext.Slug, "audit:piholeManagementPort");
+            var trustedTargets = await SystemSettings.GetAsync(SiteContext.Slug, "audit:trustedDnsRedirectTargets");
+            var unusedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:unusedPortInactivityDays");
+            var namedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:namedPortInactivityDays");
+            var topSourcesRows = await SystemSettings.GetAsync(SiteContext.Slug, ThreatReportRows.TopSourcesSettingKey);
+            var categoryRows = await SystemSettings.GetAsync(SiteContext.Slug, ThreatReportRows.CategoryRowsSettingKey);
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";

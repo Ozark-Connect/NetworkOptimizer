@@ -36,6 +36,13 @@ public class Site
     /// <summary>Whether this site is enabled for scheduled operations</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// The site has no UniFi Console: this install only hosts other sites. Its console connection
+    /// is never attempted, and a not-connected console is not reported as a problem. Saved console
+    /// settings are kept. Offered only on the default site.
+    /// </summary>
+    public bool HasNoConsole { get; set; }
+
     /// <summary>Sort order for UI display (lower = first)</summary>
     public int SortOrder { get; set; }
 

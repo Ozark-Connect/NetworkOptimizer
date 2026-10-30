@@ -32,18 +32,15 @@ public class AgentEnrollmentService : IAgentEnrollmentService
     private readonly IServiceProvider _serviceProvider;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILogger<AgentEnrollmentService> _logger;
-    private readonly Authorization.ISiteAccessFilter _siteAccess;
 
     public AgentEnrollmentService(
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         AgentTunnelRegistry tunnelRegistry,
-        Authorization.ISiteAccessFilter siteAccess,
         SiteAgentCoverage agentCoverage,
         IServiceProvider serviceProvider,
         SiteTunnelRouting tunnelRouting,
         ILogger<AgentEnrollmentService> logger)
     {
-        _siteAccess = siteAccess;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _agentCoverage = agentCoverage;
@@ -80,15 +77,24 @@ public class AgentEnrollmentService : IAgentEnrollmentService
         }
     }
 
-    /// <summary>Agents registered for a site, newest first.</summary>
-    public async Task<List<SiteAgent>> GetAgentsForSiteAsync(int siteId)
+    /// <summary>Agents registered for a site, newest first. Unnarrowed: the system view.</summary>
+    public Task<List<SiteAgent>> GetAgentsForSiteAsync(int siteId) => GetAgentsForSiteAsync(siteId, siteAccess: null);
+
+    /// <summary>
+    /// Agents registered for a site, newest first, or none when <paramref name="siteAccess"/> does
+    /// not authorize the caller for it. Null skips the check.
+    /// </summary>
+    public async Task<List<SiteAgent>> GetAgentsForSiteAsync(int siteId, Authorization.ISiteAccessFilter? siteAccess)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
         // The site id arrives from the caller, so authorization for it is asked here rather than
         // assumed from whatever page supplied it.
-        var slug = await db.Sites.Where(x => x.Id == siteId).Select(x => x.Slug).FirstOrDefaultAsync();
-        if (slug is not null && !await _siteAccess.IsAuthorizedAsync(slug))
-            return new List<SiteAgent>();
+        if (siteAccess is not null)
+        {
+            var slug = await db.Sites.Where(x => x.Id == siteId).Select(x => x.Slug).FirstOrDefaultAsync();
+            if (slug is not null && !await siteAccess.IsAuthorizedAsync(slug))
+                return new List<SiteAgent>();
+        }
 
         return await db.SiteAgents
             .Where(a => a.SiteId == siteId)
@@ -96,16 +102,20 @@ public class AgentEnrollmentService : IAgentEnrollmentService
             .ToListAsync();
     }
 
-    /// <summary>All agents across sites (for the overview card).</summary>
-    public async Task<List<SiteAgent>> GetAllAgentsAsync()
+    /// <summary>All agents across sites. Unnarrowed: the system view.</summary>
+    public Task<List<SiteAgent>> GetAllAgentsAsync() => GetAllAgentsAsync(siteAccess: null);
+
+    /// <summary>All agents on the sites <paramref name="siteAccess"/> authorizes. Null skips the narrowing.</summary>
+    public async Task<List<SiteAgent>> GetAllAgentsAsync(Authorization.ISiteAccessFilter? siteAccess)
     {
         await using var db = await _mainDbFactory.CreateDbContextAsync();
         var agents = await db.SiteAgents.ToListAsync();
+        if (siteAccess is null)
+            return agents;
 
-        // Agent rows name the sites they serve, so the same narrowing the site list gets applies
-        // here. Background scopes are unfiltered, as always.
+        // Agent rows name the sites they serve, so the same narrowing the site list gets applies here.
         var slugsById = await db.Sites.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Slug);
-        return await _siteAccess.FilterAsync(agents, a => slugsById.GetValueOrDefault(a.SiteId) ?? "");
+        return await siteAccess.FilterAsync(agents, a => slugsById.GetValueOrDefault(a.SiteId) ?? "");
     }
 
     /// <summary>

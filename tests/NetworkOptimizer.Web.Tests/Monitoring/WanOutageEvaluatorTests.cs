@@ -238,6 +238,87 @@ public class WanOutageEvaluatorTests
 
     #endregion
 
+    #region Alert links open on the targets that went down
+
+    [Fact]
+    public async Task OutageWithTheFirstHopDown_LinksToIsp()
+    {
+        await RoundsAsync(RoundsToConfirm, failing: WanTargets, passing: Wan2Targets);
+
+        _bus.Published.Single().SourceUrl.Should().Contain("category=AccessIsp").And.Contain("wan=wan");
+    }
+
+    [Fact]
+    public async Task OutageBeyondAnAnsweringFirstHop_LinksToTransit()
+    {
+        await RoundsAsync(RoundsToConfirm, failing: [WanTransit, .. WanDestinations],
+            passing: [WanAccess, .. Wan2Targets]);
+
+        var evt = _bus.Published.Should().ContainSingle().Subject;
+        evt.EventType.Should().Be("monitoring.wan_outage");
+        evt.SourceUrl.Should().Contain("category=Transit");
+    }
+
+    [Fact]
+    public async Task PartialWithNoSharedBranch_LinksToInternet()
+    {
+        await RoundsAsync(RoundsToConfirm, failing: WanDestinations,
+            passing: [.. WanPath, .. Wan2Targets]);
+
+        _bus.Published.Single().SourceUrl.Should().Contain("category=InternetService");
+    }
+
+    [Fact]
+    public async Task PartialBehindATransitHop_LinksToTransit()
+    {
+        await RoundsAsync(RoundsToConfirm, failing: [WanTransit, WanResolverA],
+            passing: [WanAccess, WanResolverB, .. Wan2Targets]);
+
+        var evt = _bus.Published.Should().ContainSingle().Subject;
+        evt.EventType.Should().Be("monitoring.wan_outage_partial");
+        evt.SourceUrl.Should().Contain("category=Transit");
+    }
+
+    [Fact]
+    public async Task Recovery_LinksToTheSameViewAsItsOutage()
+    {
+        await RoundsAsync(RoundsToConfirm, failing: [WanTransit, .. WanDestinations],
+            passing: [WanAccess, .. Wan2Targets]);
+        await RoundsAsync(RoundsToConfirm, failing: NoTargets, passing: [.. WanTargets, .. Wan2Targets]);
+
+        _bus.Published.Single(e => e.EventType == "monitoring.wan_recovered")
+            .SourceUrl.Should().Contain("category=Transit");
+    }
+
+    [Fact]
+    public async Task RecoveryAfterRestart_LinksToTheStoredOutagesView()
+    {
+        var stored = OpenAlertTestScope.Alert("monitoring.wan_outage", "wan", TimeSpan.FromMinutes(10));
+        stored.SourceUrl = "/monitoring?tab=performance&category=Transit&at=1&wan=wan";
+        _evaluator = BuildEvaluator(BuildContext(), stored: OpenAlertTestScope.With(stored));
+
+        await RoundsAsync(RoundsToConfirm, failing: NoTargets, passing: [.. WanTargets, .. Wan2Targets]);
+
+        _bus.Published.Should().ContainSingle().Which.SourceUrl.Should().Contain("category=Transit");
+    }
+
+    [Fact]
+    public async Task Rollup_LinksToTheShallowestCategoryDownAcrossTheWans()
+    {
+        await RoundsAsync(RoundsToConfirm, failing: [.. WanTargets, .. Wan2Targets], passing: NoTargets);
+
+        _bus.Published.Single().SourceUrl.Should().Contain("category=AccessIsp").And.Contain("wan=all");
+    }
+
+    [Theory]
+    [InlineData("/monitoring?tab=performance&category=Transit&at=1&wan=wan", "Transit")]
+    [InlineData("/monitoring?tab=performance&at=1", null)]
+    [InlineData(null, null)]
+    public void LinkCategory_ReadsTheCategoryBackOffAStoredLink(string? url, string? expected) =>
+        WanOutageEvaluator.LinkCategory(url).Should().Be(expected);
+
+    #endregion
+
     #region What the WAN alerts must not change
 
     [Theory]

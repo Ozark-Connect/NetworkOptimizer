@@ -9194,6 +9194,16 @@ a.path-hop.hop-clickable:hover {
     margin-bottom: 0.25rem;
 }
 
+/* A help line under the summary title, visible while the form is collapsed. */
+.add-form-summary-help {
+    font-weight: 400;
+    margin-bottom: 0.5rem;
+}
+
+.add-form[open] .add-form-summary-help {
+    margin-bottom: 0.75rem;
+}
+
 .add-form-content {
     padding-top: 0.25rem;
 }
@@ -20572,6 +20582,11 @@ body.kiosk-mode .status-indicators {
     gap: 0.6rem;
 }
 
+.site-switcher-item-name .status-dot.empty,
+.site-card-header .status-dot.empty {
+    visibility: hidden;
+}
+
 .site-card-name {
     margin: 0;
     font-size: 1.05rem;
@@ -23058,5 +23073,107 @@ body:has(.top-bar-hidden) .btn-fit {
 
     .hogs-share .hogs-bar {
         display: none;
+    }
+}
+
+/* "On this page" (js/card-index.js): beside the content when the gutter fits, else a row above the first card. */
+.card-index {
+    position: fixed;
+    z-index: 5;
+    width: 168px;
+    font-size: 0.8125rem;
+}
+
+.card-index-label {
+    margin: 0 0 0.5rem 0.75rem;
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.card-index .card-index-link {
+    display: block;
+    padding: 0.3rem 0.75rem;
+    border-left: 2px solid var(--border-color);
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.card-index-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+}
+
+.card-index-row .card-index-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.card-index .card-index-link:hover,
+.card-index-row .card-index-link:hover {
+    color: var(--text-primary);
+}
+
+.card-index .card-index-link.active {
+    border-left-color: var(--primary-color);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.card-index-row .card-index-link.active {
+    color: var(--text-primary);
+}
+
+.card-index,
+.card-index-row {
+    animation: card-index-in 0.2s ease-out;
+    transition: opacity 0.15s ease-in;
+}
+
+.card-index-link {
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Three levels: idle dims slowly, a scroll brings it halfway up, hover or focus to full. */
+.card-index {
+    opacity: 0.7;
+}
+
+.card-index.card-index-idle {
+    opacity: 0.4;
+    transition: opacity 1.2s ease;
+}
+
+.card-index:hover,
+.card-index:focus-within {
+    opacity: 1;
+    transition: opacity 0.15s ease-out;
+}
+
+.card-index.card-index-out,
+.card-index-row.card-index-out {
+    opacity: 0;
+    transition: opacity 0.15s ease-in;
+}
+
+@keyframes card-index-in {
+    from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .card-index,
+    .card-index.card-index-idle,
+    .card-index:hover,
+    .card-index:focus-within,
+    .card-index.card-index-out,
+    .card-index-row,
+    .card-index-row.card-index-out,
+    .card-index-link {
+        animation: none;
+        transition: none;
     }
 }

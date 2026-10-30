@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.UniFi.Models;
 using static NetworkOptimizer.Core.Enums.DeviceTypeExtensions;
 
@@ -72,7 +73,8 @@ public class DnsSecurityAnalyzer
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
     /// <param name="zoneLookup">Optional firewall zone lookup for DMZ/Hotspot network identification</param>
     /// <param name="trustedDnsRedirectTargets">Optional additional IPs to accept as valid DNAT redirect targets (e.g., keepalived VIPs)</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null, List<UniFiNetworkConfig>? networkConfigs = null, List<string>? trustedDnsRedirectTargets = null)
+    /// <param name="dialer">Optional dialer that opens the third-party DNS probes' connections inside the site's network</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null, List<UniFiNetworkConfig>? networkConfigs = null, List<string>? trustedDnsRedirectTargets = null, IDeviceDialer? dialer = null)
     {
         var result = new DnsSecurityResult();
 
@@ -136,7 +138,7 @@ public class DnsSecurityAnalyzer
         // Detect third-party LAN DNS (Pi-hole, AdGuard Home, etc.)
         if (networks?.Any() == true)
         {
-            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup, customDnsManagementUrl);
+            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup, customDnsManagementUrl, dialer);
         }
 
         // Capture networks the user excluded from coverage checks up front, independent of NAT data, so the
@@ -2322,9 +2324,11 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Detect third-party LAN DNS servers (like Pi-hole, AdGuard Home) across networks
     /// </summary>
-    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null, string? customDnsManagementUrl = null)
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null, string? customDnsManagementUrl = null, IDeviceDialer? dialer = null)
     {
-        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPort, customDnsManagementUrl);
+        using var routedDetector = dialer != null ? _thirdPartyDetector.WithDialer(dialer) : null;
+        var detector = routedDetector ?? _thirdPartyDetector;
+        var thirdPartyResults = await detector.DetectThirdPartyDnsAsync(networks, customPort, customDnsManagementUrl);
 
         if (thirdPartyResults.Any())
         {
@@ -2410,7 +2414,7 @@ public class DnsSecurityAnalyzer
         if (networks.Any(n => n.HasIpv6))
         {
             result.Ipv6ThirdPartyDnsServers.AddRange(
-                await _thirdPartyDetector.DetectThirdPartyIpv6DnsAsync(networks, customPort, customDnsManagementUrl));
+                await detector.DetectThirdPartyIpv6DnsAsync(networks, customPort, customDnsManagementUrl));
 
             var ipv4ThirdPartyNetworks = thirdPartyResults.Select(r => r.NetworkName).ToHashSet(StringComparer.OrdinalIgnoreCase);
             result.Ipv6ThirdPartyBypassNetworks.AddRange(networks
@@ -2424,7 +2428,7 @@ public class DnsSecurityAnalyzer
         // themselves and their presence prevents false "DoH not configured" warnings.
         if (!result.DohConfigured)
         {
-            var gatewayResults = await _thirdPartyDetector.ProbeGatewayDnsAsync(networks);
+            var gatewayResults = await detector.ProbeGatewayDnsAsync(networks);
             if (gatewayResults.Any())
             {
                 result.HasThirdPartyDns = true;

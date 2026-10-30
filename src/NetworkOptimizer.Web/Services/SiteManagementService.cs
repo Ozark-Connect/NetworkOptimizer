@@ -34,6 +34,7 @@ public class SiteManagementService : ISiteManagementService
     private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
     private readonly Authorization.ISiteAccessFilter _siteAccess;
+    private readonly Gates.IAuditContext _auditContext;
 
     public SiteManagementService(
         ISiteRepository siteRepository,
@@ -49,8 +50,10 @@ public class SiteManagementService : ISiteManagementService
         MonitoringCollectionRegistry collectionRegistry,
         SiteRegistryChangeNotifier changeNotifier,
         Authorization.ISiteAccessFilter siteAccess,
-        ILogger<SiteManagementService> logger)
+        ILogger<SiteManagementService> logger,
+        Gates.IAuditContext auditContext)
     {
+        _auditContext = auditContext;
         _siteAccess = siteAccess;
         _siteRepository = siteRepository;
         _siteRoles = siteRoles;
@@ -112,6 +115,8 @@ public class SiteManagementService : ISiteManagementService
         // when the license snapshot is unchanged (e.g. the main site was already covered),
         // so force subscribers to reload rather than relying on a snapshot diff.
         await _licenseState.RecomputeAsync(alwaysNotify: true);
+        // The no-console flag applies only while multi-site is on, where it can be cleared.
+        await _siteConnections.GetDefault().RefreshNoConsoleAsync();
         _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");
@@ -174,6 +179,32 @@ public class SiteManagementService : ISiteManagementService
         await _siteRepository.UpdateAsync(site);
         _siteRoles.InvalidateAll();
         _changeNotifier.NotifySitesChanged();
+    }
+
+    /// <summary>
+    /// Marks the default site as having no UniFi Console (the install only hosts other sites), or
+    /// clears it. Saved console settings are kept; clearing the flag reconnects with them.
+    /// </summary>
+    public async Task SetDefaultSiteHasNoConsoleAsync(bool hasNoConsole)
+    {
+        var site = await _siteRepository.GetDefaultAsync()
+            ?? throw new InvalidOperationException("The default site is not registered.");
+
+        _auditContext.SetTarget(site.Slug, site.Name);
+        if (site.HasNoConsole == hasNoConsole)
+        {
+            _auditContext.SuppressNoChange();
+            return;
+        }
+
+        site.HasNoConsole = hasNoConsole;
+        await _siteRepository.UpdateAsync(site);
+        _auditContext.SetDetails(new { HasNoConsole = hasNoConsole });
+
+        await _siteConnections.GetDefault().RefreshNoConsoleAsync();
+        _changeNotifier.NotifySitesChanged();
+        _logger.LogInformation("Default site {Slug} marked as {State}", site.Slug,
+            hasNoConsole ? "having no UniFi Console" : "having a UniFi Console");
     }
 
     /// <summary>

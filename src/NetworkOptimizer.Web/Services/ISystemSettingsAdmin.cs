@@ -14,15 +14,15 @@ namespace NetworkOptimizer.Web.Services;
 [MutatingService]
 public interface ISystemSettingsAdmin
 {
-    /// <summary>Writes a setting in the current site's database.</summary>
+    /// <summary>Writes a setting in the named site's database: the caller's site in context.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "setting")]
-    Task SetAsync(string key, string? value);
+    Task SetAsync(string siteSlug, string key, string? value);
 
-    /// <summary>Writes an integer setting in the current site's database.</summary>
+    /// <summary>Writes an integer setting in the named site's database: the caller's site in context.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "setting")]
-    Task SetIntAsync(string key, int value);
+    Task SetIntAsync(string siteSlug, string key, int value);
 
     /// <summary>Writes an instance-wide setting in the main database.</summary>
     [RequireRole(Roles.Admin)]
