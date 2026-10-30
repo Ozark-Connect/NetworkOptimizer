@@ -385,6 +385,38 @@ public class PlanEngineTests
         Plan(desired, live).Errors.Should().Contain("WLAN Cool-SSID: WPA3 only needs pmf_mode: required; UniFi refuses optional.");
     }
 
+    [Theory]
+    [InlineData("192.168.30.1/24", null)]
+    [InlineData("10.0.0.254/23", null)]
+    [InlineData("192.168.30.0/24", "Subnet 192.168.30.0/24 is the network's own address; UniFi needs the gateway's address with its prefix, such as 192.168.30.1/24 (192.168.30.1/24 here).")]
+    [InlineData("192.168.30.255/24", "Subnet 192.168.30.255/24 is the network's broadcast address; UniFi needs the gateway's address with its prefix, such as 192.168.30.1/24 (192.168.30.1/24 here).")]
+    [InlineData("192.168.30.1", "Subnet 192.168.30.1 is not the gateway's address with its prefix, such as 192.168.30.1/24.")]
+    [InlineData("192.168.30.1/33", "Subnet 192.168.30.1/33 is not the gateway's address with its prefix, such as 192.168.30.1/24.")]
+    public void Subnet_IsTheGatewaysAddress_NotTheNetworks(string subnet, string? expected)
+    {
+        PlanBuilder.SubnetProblem(new JsonObject { ["ip_subnet"] = subnet }).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Subnet_ANetworkAddressOnACreate_IsAPlanError()
+    {
+        var live = State(("networkconf", Lan));
+        var desired = State(("networkconf", Lan), ("networkconf", Iot.Replace("\"_id\":\"n2\",", "").Replace("192.168.30.1/24", "192.168.30.0/24")));
+
+        Plan(desired, live).Errors.Should().ContainSingle(e => e.StartsWith("Network IoT: Subnet 192.168.30.0/24 is the network's own address"));
+    }
+
+    [Fact]
+    public void Subnet_ALiveValueThePlanDoesNotChange_IsNotRefused()
+    {
+        // UniFi already holds it, however it got there; only a subnet the plan writes is checked.
+        var odd = Iot.Replace("192.168.30.1/24", "192.168.30.0/24");
+        var live = State(("networkconf", Lan), ("networkconf", odd));
+        var desired = State(("networkconf", Lan), ("networkconf", odd.Replace("\"mdns_enabled\":false", "\"mdns_enabled\":true")));
+
+        Plan(desired, live).Errors.Should().BeEmpty();
+    }
+
     [Fact]
     public void PpskWlan_PassphraseIsUniFis_NotComparedOrWritten()
     {

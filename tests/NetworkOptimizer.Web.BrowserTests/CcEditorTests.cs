@@ -715,25 +715,41 @@ public class CcEditorTests
     {
         // Each visible line's schema lookup walked back to the collection's key: 10 s per swap on a
         // site's Firewall Policies scrolled to its end, where an upload restores the scroll.
-        var policies = Enumerable.Range(0, 640).Select(i => Policy(i)).ToArray();
-        var text = Firewall(policies);
-        var page = await OpenAsync(text, Schema(secretName: true), tall: false, height: 900);
+        // A real policy's shape: mostly "key: value" lines, each one a lookup.
+        var sb = new StringBuilder("firewall_policies:\n");
+        for (var i = 0; i < 290; i++)
+        {
+            sb.Append($"- id: {Id(i)}\n  name: \"Policy {i}\"\n  action: BLOCK\n  source:\n    zone: Internal\n")
+              .Append("    matching_target: IP\n    ips:\n      - 192.0.2.1\n  destination:\n    zone: External\n")
+              .Append("    matching_target: ANY\n    port_matching_type: ANY\n");
+            for (var k = 0; k < 22; k++) sb.Append($"  extra_{k}: v\n");
+        }
+        var text = sb.ToString();
+        var schema = """{"collections":{"firewall_policies":{"fields":[{"name":"name","secret":true},{"name":"action"},{"name":"source","shape":{"fields":[{"name":"zone"}]}}]}}}""";
+        var page = await OpenAsync(text, schema, tall: false, height: 1000);
         Assert.True(await page.EvaluateAsync<int>($"{View}.state.doc.lines") > 9000);
         await page.EvaluateAsync($"{View}.scrollDOM.scrollTop = {View}.scrollDOM.scrollHeight");
         await page.WaitForTimeoutAsync(200);
 
+        // As an upload does it: the spinner hides the editor for at least a frame, then it is shown
+        // with the new text. Shown again after hiding, it checks every line; the old lookup took 5 s.
         var upload = text.Replace("action: BLOCK", "action: REJECT");
-        var watch = Stopwatch.StartNew();
-        await page.EvaluateAsync("""
-            ([a, b]) => new Promise(done => {
+        await page.EvaluateAsync("([t]) => cc.setText(document.getElementById('host'), t, '2|Firewall Policies')", new object[] { upload });
+        await page.WaitForTimeoutAsync(100);
+        var ms = await page.EvaluateAsync<int>("""
+            async ([t]) => {
                 const host = document.getElementById('host');
-                cc.setText(host, a, '2|Firewall Policies');
-                cc.setText(host, b, '3|Firewall Policies');
-                requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(done)));
-            })
-            """, new object[] { upload, text });
-        watch.Stop();
-        Assert.True(watch.ElapsedMilliseconds < 1500, $"Two swaps took {watch.ElapsedMilliseconds} ms");
+                const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+                host.classList.add('is-loading');
+                await frame();
+                const start = performance.now();
+                host.classList.remove('is-loading');
+                cc.setText(host, t, '3|Firewall Policies');
+                await frame(); await frame(); await frame();
+                return Math.round(performance.now() - start);
+            }
+            """, new object[] { text });
+        Assert.True(ms < 1500, $"Showing the editor again with the swapped text took {ms} ms");
     }
 
     // ---------- Pure helpers ----------
@@ -758,3 +774,4 @@ public class CcEditorTests
         Assert.Equal(["17", "9", "null", "8", "null", "null"], results);
     }
 }
+

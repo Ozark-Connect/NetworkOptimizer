@@ -304,6 +304,10 @@ public static class PlanBuilder
         var remapped = (JsonObject)Remap(desired, desiredById, idMap, creates, options, doc, $"{def.Noun} {name}")!;
         if (def.Key == "wlanconf" && PmfProblem(remapped) is { } pmf && $"{def.Noun} {name}: {pmf}" is var pmfError && !doc.Errors.Contains(pmfError))
             doc.Errors.Add(pmfError);
+        // Only a subnet the plan writes: a live one UniFi already holds is not ours to refuse.
+        if (def.Key == "networkconf" && remapped["ip_subnet"]?.ToString() != live?["ip_subnet"]?.ToString()
+            && SubnetProblem(remapped) is { } subnetProblem && $"{def.Noun} {name}: {subnetProblem}" is var subnetError && !doc.Errors.Contains(subnetError))
+            doc.Errors.Add(subnetError);
         RestoreKeptSecrets(def, live, remapped, doc, name);
         if (live != null)
             foreach (var field in remapped.Select(p => p.Key).ToList())
@@ -467,6 +471,23 @@ public static class PlanBuilder
             return $"WPA3 only needs pmf_mode: required; UniFi refuses {pmf}.";
         if (On(wlan, "wpa3_transition") && pmf == "disabled")
             return "WPA2/WPA3 transition needs pmf_mode: optional or required; UniFi refuses disabled.";
+        return null;
+    }
+
+    /// <summary>
+    /// A network subnet UniFi refuses (api.err.IncorrectIPSubnetSpec, Network 11, 2026-10-29):
+    /// ip_subnet is the gateway's own address with its prefix ("10.69.30.1/24"), never the network's
+    /// or the broadcast address. Null when it is fine or there is none (a VLAN-only network).
+    /// </summary>
+    internal static string? SubnetProblem(JsonObject network)
+    {
+        if (network["ip_subnet"] is not JsonValue v || !v.TryGetValue<string>(out var text) || string.IsNullOrWhiteSpace(text)) return null;
+        const string Shape = "the gateway's address with its prefix, such as 192.168.30.1/24";
+        if (Readdressing.ParseSubnet(text) is not { } subnet || Readdressing.ParseIp(text.Trim().Split('/')[0]) is not { } ip)
+            return $"Subnet {text} is not {Shape}.";
+        var broadcast = subnet.Network | ~subnet.Mask;
+        if (ip == subnet.Network || ip == broadcast)
+            return $"Subnet {text} is the network's {(ip == subnet.Network ? "own" : "broadcast")} address; UniFi needs {Shape} ({Readdressing.Format(subnet.Network + 1)}/{subnet.Prefix} here).";
         return null;
     }
 
