@@ -44,6 +44,14 @@ public class SqmConfiguration
     public bool RateProportionalDownloadBurst { get; set; } = false;
 
     /// <summary>
+    /// Opt-in, experimental: replace UniFi's download HTB tree on the IFB with a CAKE root that
+    /// Adaptive SQM installs and keeps re-installing after UniFi rebuilds the tree. Per-device
+    /// fairness behind NAT and per-packet overhead accounting; UniFi download QoS classes and the
+    /// download burst setting do not apply while it is on. Upload stays HTB and fq_codel.
+    /// </summary>
+    public bool CakeDownload { get; set; } = false;
+
+    /// <summary>
     /// Upload shaping strength (0-1). 0 keeps the upload rate static at nominal, which is what
     /// every deployment did before this setting existed. Above 0 the upload rate follows the
     /// congestion schedule, its dips scaled by this value, never below <see cref="MinUploadSpeed"/>.

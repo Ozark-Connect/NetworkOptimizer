@@ -387,6 +387,7 @@ public class ScriptGenerator
         if (dynamicUpload)
             sb.AppendLine($"MIN_UPLOAD_SPEED=\"{_config.MinUploadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
+        AppendDownloadQdisc(sb);
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         if (_config.MeasuredToShapedFactor != 1.0)
             sb.AppendLine($"MEASURED_TO_SHAPED=\"{Inv(_config.MeasuredToShapedFactor)}\"");
@@ -614,6 +615,7 @@ public class ScriptGenerator
         if (dynamicUpload)
             sb.AppendLine($"MIN_UPLOAD_SPEED=\"{_config.MinUploadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
+        AppendDownloadQdisc(sb);
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
         // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
@@ -813,10 +815,13 @@ public class ScriptGenerator
 
         // Skip tc update if rate hasn't changed (avoids no-op tc rewrites every minute)
         sb.AppendLine("# Skip tc update if rate unchanged");
-        sb.AppendLine("current_rate=$(tc class show dev $IFB_DEVICE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
+        sb.AppendLine("current_rate=$(read_root_rate_mbps $IFB_DEVICE)");
+        // UniFi may have rebuilt its HTB tree at the very rate we want: that must not read as
+        // unchanged, or CAKE would not come back until the rate moves.
+        sb.AppendLine("if [ \"$DOWNLOAD_QDISC\" = \"cake\" ] && ! device_has_cake_root $IFB_DEVICE; then current_rate=\"\"; fi");
         if (dynamicUpload)
         {
-            sb.AppendLine("current_up_rate=$(tc class show dev $INTERFACE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
+            sb.AppendLine("current_up_rate=$(read_root_rate_mbps $INTERFACE)");
             sb.AppendLine("if [ \"$new_rate_int\" = \"$current_rate\" ] && [ \"$upload_rate\" = \"$current_up_rate\" ]; then");
         }
         else
@@ -937,6 +942,48 @@ if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; f
     /// </summary>
     private string GetTcUpdateFunction() => TcFunctionsText;
 
+    /// <summary>
+    /// The download qdisc the scripts keep on the IFB: UniFi's HTB tree, or the opt-in CAKE root
+    /// with its fixed options. Both scripts define both variables so the tc functions never see
+    /// a half-configured CAKE.
+    /// </summary>
+    private void AppendDownloadQdisc(StringBuilder sb)
+    {
+        sb.AppendLine($"DOWNLOAD_QDISC=\"{(_config.CakeDownload ? "cake" : "htb")}\"");
+        sb.AppendLine($"CAKE_DOWNLOAD_OPTS=\"{CakeDownloadOptions(_config.Interface)}\"");
+    }
+
+    /// <summary>
+    /// Handle of Adaptive SQM's CAKE root. UniFi only builds HTB, so a cake root with this handle
+    /// is ours to remove. TcFunctionsText carries the same value as CAKE_HANDLE.
+    /// </summary>
+    public const string CakeHandle = "ca4e:";
+
+    /// <summary>
+    /// Per-packet overhead CAKE adds on the download IFB. The IFB sees the IP packet, so CAKE has to
+    /// be told what the wire adds: Ethernet header, FCS, preamble and inter-frame gap (38), a VLAN
+    /// tag (4), and PPPoE plus PPP (8). A PPPoE WAN is assumed to ride a VLAN, which is what PPPoE
+    /// ISPs ship; on an untagged carrier that is 4 bytes high, the conservative side.
+    /// </summary>
+    public static int CakeOverheadBytes(string interfaceName)
+    {
+        if (interfaceName.StartsWith("ppp", StringComparison.Ordinal))
+            return 50;
+        return interfaceName.Contains('.') ? 42 : 38;
+    }
+
+    /// <summary>
+    /// The CAKE options for the download IFB, everything but bandwidth and memlimit.
+    /// besteffort: one tin, internet DSCP is not trusted. ingress: count drops against the rate,
+    /// the shaper sits after the bottleneck. dual-dsthost nat: fairness between LAN devices,
+    /// looked up through conntrack. no-split-gso: splitting undoes GRO on the download path (two
+    /// flows fell from 888 to 620 Mbit with one core at 100% on a UCG-Fiber), and CAKE turns
+    /// splitting on below 1 Gbit unless told otherwise. mpu 84: the 64-byte minimum frame plus
+    /// preamble and gap.
+    /// </summary>
+    public static string CakeDownloadOptions(string interfaceName) =>
+        $"besteffort ingress dual-dsthost nat no-split-gso overhead {CakeOverheadBytes(interfaceName)} mpu 84";
+
     /// <summary>The shell arithmetic helpers every generated rate calculation goes through.</summary>
     private static string GetArithmeticFunctions() => ArithmeticFunctionsText;
 
@@ -1031,6 +1078,56 @@ rate_is_valid() {
     echo ""$1"" | grep -q '[1-9]'
 }
 
+# Opt-in CAKE on the download IFB. UniFi only ever builds HTB, so a CAKE root carrying this
+# handle is Adaptive SQM's own: a deploy or Remove that turns CAKE off deletes only that one.
+CAKE_HANDLE=""ca4e:""
+
+device_has_cake_root() {
+    tc qdisc show dev $1 2>/dev/null | grep -qE ""^qdisc cake [0-9a-f]+: root""
+}
+
+# Current root rate in whole Mbps: the HTB root class 1:1, or a CAKE root's bandwidth. Empty when
+# the device has neither (Smart Queues off, UniFi mid-provision, or CAKE unlimited).
+read_root_rate_mbps() {
+    local device=$1
+    local rate_str=$(tc class show dev $device 2>/dev/null | grep ""class htb 1:1 root"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
+    if [ -z ""$rate_str"" ]; then
+        rate_str=$(tc qdisc show dev $device 2>/dev/null | grep -E ""^qdisc cake [0-9a-f]+: root"" | grep -o ""bandwidth [0-9]*[a-zA-Z]*"" | awk '{print $2}')
+    fi
+    [ -z ""$rate_str"" ] && return
+    case ""$rate_str"" in
+        *Gbit)  echo $(( $(echo ""$rate_str"" | sed 's/Gbit//') * 1000 )) ;;
+        *Mbit)  echo ""$rate_str"" | sed 's/Mbit//' ;;
+        *Kbit)  echo $(( ($(echo ""$rate_str"" | sed 's/Kbit//') + 500) / 1000 )) ;;
+        *bit)   echo $(( ($(echo ""$rate_str"" | sed 's/bit//') + 500000) / 1000000 )) ;;
+    esac
+}
+
+# Set the CAKE root's bandwidth, installing it over UniFi's HTB tree when UniFi has (re)built that
+# tree: boot, PPPoE redial, a Smart Queues toggle or a QoS edit. Every call restates the full
+# option set, so no-split-gso can never fall back to the kernel default. memlimit follows the
+# fq_codel memory sizing.
+apply_cake_root() {
+    local device=$1
+    local new_rate=$2
+    local memlimit=$(calc_fq_mem $new_rate)
+    if device_has_cake_root $device; then
+        tc qdisc change dev $device root cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS memlimit $memlimit
+        return
+    fi
+    local qos_classes=$(tc class show dev $device 2>/dev/null | grep -E ""parent 1:1( |$)"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | grep -cvE ""rate (64bit|100Kbit)$"")
+    if [ ""${qos_classes:-0}"" -gt 0 ] 2>/dev/null; then
+        echo ""[$(date)] WARNING: $qos_classes UniFi QoS class(es) on $device do not apply under CAKE"" >> ""${LOG_FILE:-/dev/null}""
+    fi
+    modprobe sch_cake >/dev/null 2>&1
+    if tc qdisc replace dev $device root handle $CAKE_HANDLE cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS memlimit $memlimit; then
+        echo ""[$(date)] CAKE installed on $device at ${new_rate} Mbps"" >> ""${LOG_FILE:-/dev/null}""
+    else
+        echo ""[$(date)] ERROR: could not install CAKE on $device"" >> ""${LOG_FILE:-/dev/null}""
+        return 1
+    fi
+}
+
 update_all_tc_classes() {
     local device=$1
     local new_rate=$2
@@ -1038,6 +1135,23 @@ update_all_tc_classes() {
     if ! rate_is_valid ""$new_rate""; then
         echo ""[$(date)] ERROR: refusing tc update on $device, rate '$new_rate' is not a usable rate"" >> ""${LOG_FILE:-/dev/null}""
         return 1
+    fi
+    # CAKE is download-only and never touches the WAN device itself. DOWNLOAD_QDISC is cake when
+    # the WAN opted in, existing for the shaper lift (retune a CAKE root that is there, install
+    # nothing), and htb or unset otherwise.
+    if [ ""$device"" = ""$IFB_DEVICE"" ]; then
+        case ""${DOWNLOAD_QDISC:-htb}"" in
+            cake)
+                apply_cake_root $device $new_rate
+                return
+                ;;
+            existing)
+                if device_has_cake_root $device; then
+                    apply_cake_root $device $new_rate
+                    return
+                fi
+                ;;
+        esac
     fi
     # Burst mode is per-WAN and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
     # egress callers omit it and stay on the conservative sizing.
@@ -1086,24 +1200,9 @@ update_all_tc_classes() {
 # Reads the current root rate and applies scaled burst/memory params
 tune_tc_performance() {
     local device=$1
+    local current_rate=$(read_root_rate_mbps $device)
 
-    # Read current root rate string from 1:1 class (e.g., ""1Gbit"", ""980Mbit"", ""29Mbit"")
-    local rate_str=$(tc class show dev $device | grep ""class htb 1:1 root"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
-    if [ -z ""$rate_str"" ]; then
-        return
-    fi
-
-    # Convert to Mbps based on unit suffix
-    local current_rate
-    case ""$rate_str"" in
-        *Gbit)  current_rate=$(echo ""$rate_str"" | sed 's/Gbit//') ; current_rate=$((current_rate * 1000)) ;;
-        *Mbit)  current_rate=$(echo ""$rate_str"" | sed 's/Mbit//') ;;
-        *Kbit)  current_rate=$(echo ""$rate_str"" | sed 's/Kbit//') ; current_rate=$(( (current_rate + 500) / 1000 )) ;;
-        *bit)   current_rate=$(echo ""$rate_str"" | sed 's/bit//') ; current_rate=$(( (current_rate + 500000) / 1000000 )) ;;
-        *)      return ;;
-    esac
-
-    if [ ""$current_rate"" -le 0 ] 2>/dev/null; then
+    if [ -z ""$current_rate"" ] || [ ""$current_rate"" -le 0 ] 2>/dev/null; then
         return
     fi
 

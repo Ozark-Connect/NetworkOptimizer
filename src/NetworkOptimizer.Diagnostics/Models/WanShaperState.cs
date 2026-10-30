@@ -40,7 +40,7 @@ public class WanShaperState
 }
 
 /// <summary>
-/// One interface's traffic control state, as read from "tc class show dev &lt;name&gt;".
+/// One interface's traffic control state, as read from "tc class show" and "tc qdisc show" for it.
 /// </summary>
 public class TcDeviceState
 {
@@ -56,4 +56,13 @@ public class TcDeviceState
     /// the kernel's default "mq" classes is not being shaped.
     /// </summary>
     public bool HasRootHtb { get; init; }
+
+    /// <summary>
+    /// True when tc reported a cake root qdisc with a bandwidth limit: Adaptive SQM's opt-in CAKE
+    /// download shaper, which replaces UniFi's htb tree on the ifb companion.
+    /// </summary>
+    public bool HasRootCake { get; init; }
+
+    /// <summary>True when either shaper is running on the device.</summary>
+    public bool IsShaped => HasRootHtb || HasRootCake;
 }
