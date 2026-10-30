@@ -296,7 +296,7 @@
                                             }
                                             @if (ZoneFixTypes.Contains(issue.Type))
                                             {
-                                                <SiteOperatorOnly><a class="btn btn-sm btn-ghost issue-action" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=zones", SiteContext.Slug)" @onclick:stopPropagation="true">Fix with zones</a></SiteOperatorOnly>
+                                                <SiteOperatorOnly><a class="btn btn-sm btn-primary issue-action" title="Review a Set Up Zones plan for this network isolation finding" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=zones", SiteContext.Slug)" @onclick:stopPropagation="true">Fix with zones</a></SiteOperatorOnly>
                                             }
                                             @if (NetworkOptimizer.Web.Services.ChangeControl.DnsFixes.Types.Contains(issue.Type))
                                             {

@@ -56,6 +56,53 @@ public class LockoutCoverageTests
     }
 
     [Fact]
+    public void GatewaySnmpBlock_IsNotFlaggedAsALockout()
+    {
+        var desired = Site();
+        var policy = Block("new-1", new JsonObject { ["zone_id"] = "z-int", ["matching_target"] = "ANY" });
+        policy["protocol"] = "udp";
+        policy["destination"]!["port_matching_type"] = "SPECIFIC";
+        policy["destination"]!["port"] = "161";
+        desired.Collections["firewall_policy"] = [policy];
+
+        Plan(desired, agent: true).Lockouts.Should().BeEmpty("SNMP does not carry the console or management path");
+    }
+
+    [Theory]
+    [InlineData("22,80,443", false, true)]
+    [InlineData("161", false, false)]
+    [InlineData("161", true, true)]
+    public void GatewayTcpPortList_OnlyFlagsManagementPorts(string ports, bool opposite, bool expectedLockout)
+    {
+        var desired = Site();
+        var policy = Block("new-1", new JsonObject { ["zone_id"] = "z-int", ["matching_target"] = "ANY" });
+        policy["protocol"] = "tcp";
+        policy["destination"]!["port_matching_type"] = "SPECIFIC";
+        policy["destination"]!["port"] = ports;
+        policy["destination"]!["match_opposite_ports"] = opposite;
+        desired.Collections["firewall_policy"] = [policy];
+
+        Plan(desired, agent: true).Lockouts.Any(l => l.Title.Contains("blocks traffic to the gateway")).Should().Be(expectedLockout);
+    }
+
+    [Fact]
+    public void GatewayPortGroupContainingManagementPort_IsFlagged()
+    {
+        var desired = Site();
+        desired.Collections["firewallgroup"] =
+        [
+            new JsonObject { ["_id"] = "g-mgmt", ["name"] = "Management ports", ["group_type"] = "port-group", ["group_members"] = new JsonArray("161", "443") },
+        ];
+        var policy = Block("new-1", new JsonObject { ["zone_id"] = "z-int", ["matching_target"] = "ANY" });
+        policy["protocol"] = "TCP UDP";
+        policy["destination"]!["port_matching_type"] = "OBJECT";
+        policy["destination"]!["port_group_id"] = "g-mgmt";
+        desired.Collections["firewall_policy"] = [policy];
+
+        Plan(desired, agent: true).Lockouts.Should().Contain(l => l.Title.Contains("blocks traffic to the gateway"));
+    }
+
+    [Fact]
     public void AgentNetworkVlanChange_IsCertain()
     {
         var desired = Site();

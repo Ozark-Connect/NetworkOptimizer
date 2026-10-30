@@ -186,6 +186,9 @@ public static class LockoutChecker
                 if (policy == null || Str(policy["enabled"]) == "false") continue;
                 if (Str(policy["action"]) is not ("BLOCK" or "REJECT")) continue;
                 if (Str(policy["destination"]?["zone_id"]) != ConfigState.IdOf(gatewayZone)) continue;
+                // A block aimed at SNMP or another unrelated service on the gateway cannot cut off
+                // the console or Network Optimizer. Treat unknown protocol/port shapes conservatively.
+                if (!CouldBlockManagementTraffic(policy, planned)) continue;
                 var source = policy["source"] as JsonObject;
                 var target = Str(source?["matching_target"]);
                 var fromAny = target is null or "ANY";
@@ -210,6 +213,37 @@ public static class LockoutChecker
                     OperationKeys = [op.Key],
                 });
             }
+
+        static bool CouldBlockManagementTraffic(JsonObject policy, ConfigState state)
+        {
+            var protocol = Str(policy["protocol"]);
+            if (protocol is not (null or "all" or "tcp" or "TCP UDP" or "tcp_udp" or "TCP_UDP")) return false;
+            var destination = policy["destination"] as JsonObject;
+            // An inverted list matches every port except those named; do not mistake it for a narrow block.
+            if (destination?["match_opposite_ports"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) return true;
+            var portType = Str(destination?["port_matching_type"]);
+            if (portType is null or "ANY") return true;
+            IEnumerable<int> ports;
+            if (portType == "SPECIFIC" && Str(destination?["port"]) is { } list)
+                ports = list.Split(',').SelectMany(part =>
+                {
+                    var range = part.Trim().Split('-', 2);
+                    if (!int.TryParse(range[0], out var first)) return [];
+                    var last = range.Length == 2 && int.TryParse(range[1], out var end) ? end : first;
+                    return Enumerable.Range(first, Math.Max(0, last - first + 1));
+                });
+            else if (portType == "OBJECT" && Str(destination?["port_group_id"]) is { } groupId
+                     && state.Get("firewallgroup").FirstOrDefault(g => ConfigState.IdOf(g) == groupId) is { } group)
+                ports = (group["group_members"] as JsonArray ?? []).Select(Str).OfType<string>().SelectMany(value =>
+                {
+                    var range = value.Trim().Split('-', 2);
+                    if (!int.TryParse(range[0], out var first)) return [];
+                    var last = range.Length == 2 && int.TryParse(range[1], out var end) ? end : first;
+                    return Enumerable.Range(first, Math.Max(0, last - first + 1));
+                });
+            else return true;
+            return ports.Any(port => port is 22 or 80 or 443 or 8080 or 8443);
+        }
 
         // 7. On an agent site, the agent reaches the server over the WAN and the console over its own
         //    network: a change to either is certain.

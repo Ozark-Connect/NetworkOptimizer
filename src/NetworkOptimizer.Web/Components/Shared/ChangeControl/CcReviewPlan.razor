@@ -173,7 +173,7 @@ else
                         var open = _open.Contains(op.Key);
                         <div class="cc-plan-card @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(_open, op.Key)">
                             <div class="cc-change-card-head">
-                                <span><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span> @op.ObjectName</span>
+                                <span><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span> @DisplayObjectName(op, doc)</span>
                                 <span class="status-badge @CcFormat.TierBadge(op.Tier)">@(op.Tier == PlanTiers.Acknowledge ? "Ack" : PlanTiers.Label(op.Tier))</span>
                             </div>
                             <div class="cc-item-detail">@op.ChangeText</div>
@@ -254,7 +254,7 @@ else
                                         </td>
                                     }
                                     <td><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span></td>
-                                    <td class="@(leftOut.Contains(op.Key) ? "muted-text" : "")">@op.ObjectName</td>
+                                    <td class="@(leftOut.Contains(op.Key) ? "muted-text" : "")">@DisplayObjectName(op, doc)</td>
                                     <td class="hide-mobile">@op.ChangeText@(result != null && result.Outcome != "Applied" ? $" ({result.Outcome}: {result.Message})" : "")</td>
                                     <td><span class="status-badge @CcFormat.TierBadge(op.Tier)">@PlanTiers.Label(op.Tier)</span></td>
                                     <td class="cc-ack-col" @onclick:stopPropagation>
@@ -652,6 +652,18 @@ else
 
     private static string SourceShort(ConfigPlan plan) =>
         plan.SourceDescription.StartsWith("Snapshot, ", StringComparison.Ordinal) ? plan.SourceDescription[10..].Split(',')[0] : "New";
+
+    private static string DisplayObjectName(PlanOperation operation, PlanDocument doc)
+    {
+        var name = System.Text.RegularExpressions.Regex.Replace(operation.ObjectName, @"@ref:([^\s,]+)", match =>
+        {
+            var key = match.Groups[1].Value;
+            return doc.Operations.FirstOrDefault(o => o.Key == key)?.ObjectName ?? match.Value;
+        });
+        if (operation.Action == PlanAction.Reorder && name.StartsWith("Policy order, ", StringComparison.Ordinal))
+            return name["Policy order, ".Length..].Replace(" to ", " → ", StringComparison.Ordinal);
+        return name;
+    }
 
     private void AcknowledgeAll(PlanDocument doc)
     {
