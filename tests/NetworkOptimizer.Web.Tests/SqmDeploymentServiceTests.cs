@@ -24,6 +24,7 @@ public class SqmDeploymentServiceTests
             var command = SqmDeploymentService.BuildRemoveCakeRootsCommand(new[] { "ppp0", "bad name;" })
                 .Replace("/sys/class/net", dir);
             var script = @"
+pgrep() { return 1; }
 tc() {
     case ""$1 $2 $4"" in
         ""qdisc show ifbppp0""|""qdisc show ifbeth4"") echo ""qdisc cake ca4e: root refcnt 2 bandwidth 900Mbit"" ;;
@@ -41,7 +42,7 @@ tc() {
             var output = proc.StandardOutput.ReadToEnd();
             proc.WaitForExit(30_000);
 
-            output.Should().Contain("TC qdisc del dev ifbeth4 root");
+            output.Should().Contain("TC qdisc del dev ifbeth4 root handle ca4e: cake");
             output.Should().NotContain("del dev ifbppp0").And.NotContain("del dev ifbeth5").And.NotContain("del dev ifbeth6");
             SqmDeploymentService.ParseRemovedCakeRoots(output).Should().Equal("ifbeth4");
             command.Should().NotContain("bad name", "only validated interface names reach the command line");

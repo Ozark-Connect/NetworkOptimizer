@@ -3457,6 +3457,7 @@
                 throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
             }
             deploymentWarnings.AddRange(cleanResult.warnings);
+            deploymentSteps.AddRange(cleanResult.warnings.Select(w => $"⚠️ {w}"));
             deploymentSteps.Add("Existing scripts cleaned");
             await ScrollDeploymentLog();
 

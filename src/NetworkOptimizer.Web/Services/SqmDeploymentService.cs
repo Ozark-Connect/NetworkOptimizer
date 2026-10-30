@@ -268,7 +268,11 @@ public class SqmDeploymentService : ISqmDeploymentService
 
     /// <summary>
     /// The command behind <see cref="RemoveCakeRootsAsync"/>. Only a cake root carrying Adaptive
-    /// SQM's handle is deleted; one that UniFi or an admin installed is never touched.
+    /// SQM's handle is deleted; one that UniFi or an admin installed is never touched. The delete
+    /// names handle and kind, so the kernel refuses it if UniFi rebuilt its HTB tree in between.
+    /// A ping run that is mid-measurement still holds the old script and would install CAKE again
+    /// right after the delete, so the command lets it finish first (up to 20 s, as the shaper lift
+    /// does); cron has already been cleared, so no new one starts.
     /// </summary>
     internal static string BuildRemoveCakeRootsCommand(IEnumerable<string> cakeInterfaces)
     {
@@ -279,8 +283,9 @@ public class SqmDeploymentService : ISqmDeploymentService
         return $"KEEP=\" {string.Join(" ", keep)} \"; " +
             "for d in /sys/class/net/ifb*; do [ -e \"$d\" ] || continue; n=${d##*/}; " +
             "case \"$KEEP\" in *\" $n \"*) continue ;; esac; " +
-            $"tc qdisc show dev \"$n\" 2>/dev/null | grep -q '^qdisc cake {Sqm.ScriptGenerator.CakeHandle} root' && " +
-            $"tc qdisc del dev \"$n\" root && echo \"{CakeRemovedMarker}$n\"; " +
+            $"tc qdisc show dev \"$n\" 2>/dev/null | grep -q '^qdisc cake {Sqm.ScriptGenerator.CakeHandle} root' || continue; " +
+            "for _ in $(seq 1 20); do pgrep -f -- '[-]ping\\.sh' >/dev/null 2>&1 || break; sleep 1; done; " +
+            $"tc qdisc del dev \"$n\" root handle {Sqm.ScriptGenerator.CakeHandle} cake && echo \"{CakeRemovedMarker}$n\"; " +
             "done; true";
     }
 
