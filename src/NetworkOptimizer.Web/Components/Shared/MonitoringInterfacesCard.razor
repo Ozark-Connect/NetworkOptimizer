@@ -816,7 +816,12 @@
         if (!deployResult.Success && deployResult.Block == MonitoringInterfaceDeploymentService.PreflightBlock.AlreadyReachable
             && saved.AliasIp == null)
         {
+            // EditInterface clears the message; keep the block's reason, or the reopened form reads as a prompt to deploy again.
+            var steps = _deploySteps.ToList();
             EditInterface(saved);
+            _message = deployResult.Message;
+            _messageSuccess = false;
+            _deploySteps = steps;
             var suggestion = SuggestAliasIp(saved.TargetIp);
             if (!string.IsNullOrEmpty(suggestion))
                 _editing.AliasIp = suggestion;
