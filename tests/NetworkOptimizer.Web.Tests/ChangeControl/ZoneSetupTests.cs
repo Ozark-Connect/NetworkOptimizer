@@ -82,6 +82,12 @@ public class ZoneSetupTests
         casting["destination"]!["port_matching_type"]!.ToString().Should().Be("SPECIFIC");
         casting["destination"]!["port"]!.ToString().Should().Contain("8008-8009").And.Contain("49152-65535");
         Policy(desired, "IoT", "Internal")!["destination"]!["port_matching_type"]!.ToString().Should().Be("ANY", "a block keeps every port");
+        Policy(desired, "Internal", "Cameras")!["destination"]!["port"]!.ToString().Should().Contain("554", "every exception is limited to its ports");
+        var gatewayBlock = Policy(desired, "IoT", "Gateway")!;
+        gatewayBlock["action"]!.ToString().Should().Be("BLOCK");
+        gatewayBlock["protocol"]!.ToString().Should().Be("tcp");
+        gatewayBlock["destination"]!["port"]!.ToString().Should().Be("22,80,443");
+        Policy(desired, "Internal", "Gateway").Should().BeNull("Internal keeps the console's management");
         Policy(desired, "Cameras", "External")!["action"]!.ToString().Should().Be("BLOCK");
         Policy(desired, "IoT", "Cameras")!["action"]!.ToString().Should().Be("BLOCK");
         desired.Get("firewall_policy").Should().NotContain(p => p["source"]!["zone_id"]!.ToString() == "z-hot", "Hotspot keeps UniFi's rules");

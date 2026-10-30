@@ -74,19 +74,19 @@ public static class ZoneSetup
     private const string NewZonePrefix = "new-zone-";
     private const string NewPolicyPrefix = "new-zone-policy-";
 
-    private static readonly (string Key, ZoneRole Role, string FromName, string Why, bool Default)[] ExceptionDefs =
-    [
-        ("casting", ZoneRole.IoT, "Casting and mDNS", "Phones cast to TVs and speakers", true),
-        ("nvr", ZoneRole.Cameras, "NVR access", "View cameras from home devices", true),
-        ("printing", ZoneRole.Printers, "Printing", "Print from home devices", true),
-        ("manage", ZoneRole.Management, "Device management", "Reach switch and AP pages from your computers", false),
-    ];
-
     /// <summary>
-    /// Casting's destination ports: AirPlay (7000, 7100), Google Cast (8008-8009, 8443), Sonos (1400, 1443),
-    /// Roku (8060), and the ephemeral range AirPlay 2 streams on. Ports keep it off the any-to-any audit rule.
+    /// Each exception allows TCP and UDP to its ports only, which keeps it off the any-to-any audit rule.
+    /// Casting: AirPlay (7000, 7100), Google Cast (8008-8009, 8443), Sonos (1400, 1443), Roku (8060), and the
+    /// ephemeral range AirPlay 2 streams on. NVR: web (80, 443), RTSP (554), UniFi Protect (7080, 7441-7447).
+    /// Printing: IPP (631), raw (9100), LPD (515). Management: SSH and the device web pages.
     /// </summary>
-    private const string CastingPorts = "7000,7100,8008-8009,8443,1400,1443,8060,49152-65535";
+    private static readonly (string Key, ZoneRole Role, string FromName, string Why, bool Default, string Ports)[] ExceptionDefs =
+    [
+        ("casting", ZoneRole.IoT, "Casting and mDNS", "Phones cast to TVs and speakers", true, "7000,7100,8008-8009,8443,1400,1443,8060,49152-65535"),
+        ("nvr", ZoneRole.Cameras, "NVR access", "View cameras from home devices", true, "80,443,554,7080,7441-7447"),
+        ("printing", ZoneRole.Printers, "Printing", "Print from home devices", true, "631,9100,515"),
+        ("manage", ZoneRole.Management, "Device management", "Reach switch and AP pages from your computers", false, "22,80,443,8080,8443"),
+    ];
 
     private static (ZoneRole? Role, string Name, string Key) Bucket(NetworkPurpose purpose, string mode) => mode == PurposeMode
         ? purpose switch
@@ -251,7 +251,7 @@ public static class ZoneSetup
             if (b.Role == ZoneRole.Servers) return ("ALLOW", $"Allow {a.Name} to {b.Name}", null);
             var ex = ExceptionDefs.FirstOrDefault(e => e.Role == b.Role);
             if (ex.Key != null && exceptions.Any(e => e.Key == ex.Key && e.Enabled))
-                return ("ALLOW", ex.FromName, ex.Key == "casting" ? CastingPorts : null);
+                return ("ALLOW", ex.FromName, ex.Ports);
         }
         return ("BLOCK", $"Block {a.Name} to {b.Name}", null);
     }
@@ -293,7 +293,7 @@ public static class ZoneSetup
             ? new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false }
             : new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "SPECIFIC", ["port"] = ports, ["match_opposite_ports"] = false };
 
-        void Put(string srcId, string dstId, string action, string name, string? ports = null)
+        void Put(string srcId, string dstId, string action, string name, string? ports = null, string protocol = "tcp_udp")
         {
             var existing = policies.FirstOrDefault(p => Str(p, "name") == name && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
                 && p["source"]?["zone_id"]?.ToString() == srcId && p["destination"]?["zone_id"]?.ToString() == dstId);
@@ -303,7 +303,7 @@ public static class ZoneSetup
                 existing["enabled"] = true;
                 if (ports != null)
                 {
-                    existing["protocol"] = "tcp_udp";
+                    existing["protocol"] = protocol;
                     existing["destination"] = Destination(dstId, ports);
                 }
                 return;
@@ -314,7 +314,7 @@ public static class ZoneSetup
             policies.Add(new JsonObject
             {
                 ["_id"] = NewPolicyPrefix + n, ["name"] = name, ["description"] = "Set Up Zones", ["enabled"] = true, ["action"] = action,
-                ["ip_version"] = "BOTH", ["protocol"] = ports == null ? "all" : "tcp_udp", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
+                ["ip_version"] = "BOTH", ["protocol"] = ports == null ? "all" : protocol, ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
                 ["create_allow_respond"] = action == "ALLOW", ["logging"] = false, ["match_ip_sec"] = false, ["match_opposite_protocol"] = false,
                 ["icmp_typename"] = "ANY", ["icmp_v6_typename"] = "ANY", ["predefined"] = false, ["schedule"] = new JsonObject { ["mode"] = "ALWAYS" },
                 ["source"] = new JsonObject { ["zone_id"] = srcId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },
@@ -329,6 +329,11 @@ public static class ZoneSetup
         if (externalId != null)
             foreach (var cams in active.Where(z => z.Role == ZoneRole.Cameras))
                 Put(ids[cams.Key], externalId, "BLOCK", $"Block {cams.Name} to Internet");
+        // The Security Audit's untrusted purposes (IoT, Media, Security, Printer) never need the gateway's SSH or web UI.
+        var gatewayId = live.Get("firewall_zone").FirstOrDefault(z => Str(z, "zone_key") == "gateway") is { } gw ? ConfigState.IdOf(gw) : null;
+        if (gatewayId != null)
+            foreach (var zone in active.Where(z => z.Role is ZoneRole.IoT or ZoneRole.Cameras or ZoneRole.Printers))
+                Put(ids[zone.Key], gatewayId, "BLOCK", $"Block {zone.Name} to Gateway Management", "22,80,443", "tcp");
         return desired;
     }
 
