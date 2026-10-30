@@ -263,7 +263,7 @@ public class YamlConverterTests
 
         var edited = yaml.Replace("name: Allow All Traffic", "name: Allow Everything");
         YamlConverter.Parse(edited, site, "firewall_policies.yaml").Problems.Should().ContainSingle(p => p.Level == "Error")
-            .Which.Message.Should().Be("Firewall Policy Allow All Traffic is built into UniFi and cannot be edited here.");
+            .Which.Message.Should().Be("Firewall Policy Allow All Traffic is managed by UniFi and cannot be edited here.");
 
         var custom = yaml.Replace("name: Block IoT", "name: Block Cameras");
         YamlConverter.Parse(custom, site, "firewall_policies.yaml").Problems.Should().NotContain(p => p.Level == "Error");

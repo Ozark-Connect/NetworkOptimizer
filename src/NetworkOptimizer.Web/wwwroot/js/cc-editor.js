@@ -399,7 +399,7 @@ class ManagedWidget extends WidgetType {
         label.className = 'cc-managed-label';
         label.textContent = 'Read-only';
         label.dataset.tooltip = this.who === 'UniFi'
-            ? 'Built into UniFi; Change Control does not edit it.'
+            ? 'Managed by UniFi; Change Control does not edit it.'
             : `Managed by ${this.who}; change it there.`;
         const tail = document.createElement('span');
         tail.className = 'cc-line-tail';

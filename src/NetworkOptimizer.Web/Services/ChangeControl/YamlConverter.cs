@@ -690,7 +690,7 @@ public static partial class YamlConverter
                 || ConfigDiffEngine.SharedFieldsEqual(def, before.Object, edited, new Dictionary<string, string>())) continue;
             var name = $"{def.Noun} {ConfigState.DisplayName(def, before.Object)}";
             result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who == "UniFi"
-                ? $"{name} is built into UniFi and cannot be edited here."
+                ? $"{name} is managed by UniFi and cannot be edited here."
                 : $"{name} belongs to {who} and cannot be edited here."));
         }
 
