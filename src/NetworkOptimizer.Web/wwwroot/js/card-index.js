@@ -16,7 +16,7 @@
     var LIST_MAX = 260;     // a wider gutter widens the list up to this, so names wrap less
     var LINE = 48;          // the reading line, in px below the pane's top
     var GAP = 12;          // between the list and the content, and the list and the gutter's far edge
-    var IDLE_MS = 2500;     // the side list dims after this long without a scroll (.card-index-idle)
+    var IDLE_MS = 1000;    // the side list dims after this long without a scroll (.card-index-idle)
     var list = null, row = null, cards = [], signature = '', pending = 0, scroller = null;
     // The card a click jumped to stays highlighted until the reader scrolls: one near the end
     // cannot reach the top, and the page's bottom would otherwise mark the last card.
