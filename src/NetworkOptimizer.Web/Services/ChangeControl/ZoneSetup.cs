@@ -82,6 +82,12 @@ public static class ZoneSetup
         ("manage", ZoneRole.Management, "Device management", "Reach switch and AP pages from your computers", false),
     ];
 
+    /// <summary>
+    /// Casting's destination ports: AirPlay (7000, 7100), Google Cast (8008-8009, 8443), Sonos (1400, 1443),
+    /// Roku (8060), and the ephemeral range AirPlay 2 streams on. Ports keep it off the any-to-any audit rule.
+    /// </summary>
+    private const string CastingPorts = "7000,7100,8008-8009,8443,1400,1443,8060,49152-65535";
+
     private static (ZoneRole? Role, string Name, string Key) Bucket(NetworkPurpose purpose, string mode) => mode == PurposeMode
         ? purpose switch
         {
@@ -236,17 +242,18 @@ public static class ZoneSetup
     }
 
     /// <summary>The policy between two zones, or null to leave it to UniFi (Hotspot and DMZ keep their own rules).</summary>
-    private static (string Action, string Name)? Rule(ZoneDraft a, ZoneDraft b, List<ZoneException> exceptions)
+    private static (string Action, string Name, string? Ports)? Rule(ZoneDraft a, ZoneDraft b, List<ZoneException> exceptions)
     {
         if (a.Role is ZoneRole.Hotspot or ZoneRole.Dmz || b.Role is ZoneRole.Hotspot or ZoneRole.Dmz) return null;
-        if (a.Role == b.Role && a.Role != ZoneRole.Custom) return ("ALLOW", $"Allow {a.Name} to {b.Name}");
+        if (a.Role == b.Role && a.Role != ZoneRole.Custom) return ("ALLOW", $"Allow {a.Name} to {b.Name}", null);
         if (a.Role == ZoneRole.Internal)
         {
-            if (b.Role == ZoneRole.Servers) return ("ALLOW", $"Allow {a.Name} to {b.Name}");
+            if (b.Role == ZoneRole.Servers) return ("ALLOW", $"Allow {a.Name} to {b.Name}", null);
             var ex = ExceptionDefs.FirstOrDefault(e => e.Role == b.Role);
-            if (ex.Key != null && exceptions.Any(e => e.Key == ex.Key && e.Enabled)) return ("ALLOW", ex.FromName);
+            if (ex.Key != null && exceptions.Any(e => e.Key == ex.Key && e.Enabled))
+                return ("ALLOW", ex.FromName, ex.Key == "casting" ? CastingPorts : null);
         }
-        return ("BLOCK", $"Block {a.Name} to {b.Name}");
+        return ("BLOCK", $"Block {a.Name} to {b.Name}", null);
     }
 
     /// <summary>The desired config for the board: zone membership and the zone-pair policies.</summary>
@@ -281,7 +288,12 @@ public static class ZoneSetup
         var externalId = live.Get("firewall_zone").FirstOrDefault(z => Str(z, "zone_key") == "external") is { } ext ? ConfigState.IdOf(ext) : null;
         var n = 0;
 
-        void Put(string srcId, string dstId, string action, string name)
+        // A destination limited to ports, in the shape UniFi stores (sample-firewall-policies-response.txt).
+        static JsonObject Destination(string zoneId, string? ports) => ports == null
+            ? new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false }
+            : new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "SPECIFIC", ["port"] = ports, ["match_opposite_ports"] = false };
+
+        void Put(string srcId, string dstId, string action, string name, string? ports = null)
         {
             var existing = policies.FirstOrDefault(p => Str(p, "name") == name && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
                 && p["source"]?["zone_id"]?.ToString() == srcId && p["destination"]?["zone_id"]?.ToString() == dstId);
@@ -289,6 +301,11 @@ public static class ZoneSetup
             {
                 existing["action"] = action;
                 existing["enabled"] = true;
+                if (ports != null)
+                {
+                    existing["protocol"] = "tcp_udp";
+                    existing["destination"] = Destination(dstId, ports);
+                }
                 return;
             }
             n++;
@@ -297,18 +314,18 @@ public static class ZoneSetup
             policies.Add(new JsonObject
             {
                 ["_id"] = NewPolicyPrefix + n, ["name"] = name, ["description"] = "Set Up Zones", ["enabled"] = true, ["action"] = action,
-                ["ip_version"] = "BOTH", ["protocol"] = "all", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
+                ["ip_version"] = "BOTH", ["protocol"] = ports == null ? "all" : "tcp_udp", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
                 ["create_allow_respond"] = action == "ALLOW", ["logging"] = false, ["match_ip_sec"] = false, ["match_opposite_protocol"] = false,
                 ["icmp_typename"] = "ANY", ["icmp_v6_typename"] = "ANY", ["predefined"] = false, ["schedule"] = new JsonObject { ["mode"] = "ALWAYS" },
                 ["source"] = new JsonObject { ["zone_id"] = srcId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },
-                ["destination"] = new JsonObject { ["zone_id"] = dstId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },
+                ["destination"] = Destination(dstId, ports),
             });
         }
 
         foreach (var a in active)
             foreach (var b in active.Where(b => b != a))
                 if (Rule(a, b, board.Exceptions) is { } rule)
-                    Put(ids[a.Key], ids[b.Key], rule.Action, rule.Name);
+                    Put(ids[a.Key], ids[b.Key], rule.Action, rule.Name, rule.Ports);
         if (externalId != null)
             foreach (var cams in active.Where(z => z.Role == ZoneRole.Cameras))
                 Put(ids[cams.Key], externalId, "BLOCK", $"Block {cams.Name} to Internet");

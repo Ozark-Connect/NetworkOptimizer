@@ -76,7 +76,12 @@ public class ZoneSetupTests
         Members(desired, "IoT").Should().BeEquivalentTo(["n-iot", "n-media"]);
         Members(desired, "External").Should().Equal("n-wan");
         Policy(desired, "IoT", "Internal")!["action"]!.ToString().Should().Be("BLOCK");
-        Policy(desired, "Internal", "IoT")!["name"]!.ToString().Should().Be("Casting and mDNS", "the exception is on by default");
+        var casting = Policy(desired, "Internal", "IoT")!;
+        casting["name"]!.ToString().Should().Be("Casting and mDNS", "the exception is on by default");
+        casting["protocol"]!.ToString().Should().Be("tcp_udp", "an any-protocol allow is the audit's any-to-any rule");
+        casting["destination"]!["port_matching_type"]!.ToString().Should().Be("SPECIFIC");
+        casting["destination"]!["port"]!.ToString().Should().Contain("8008-8009").And.Contain("49152-65535");
+        Policy(desired, "IoT", "Internal")!["destination"]!["port_matching_type"]!.ToString().Should().Be("ANY", "a block keeps every port");
         Policy(desired, "Cameras", "External")!["action"]!.ToString().Should().Be("BLOCK");
         Policy(desired, "IoT", "Cameras")!["action"]!.ToString().Should().Be("BLOCK");
         desired.Get("firewall_policy").Should().NotContain(p => p["source"]!["zone_id"]!.ToString() == "z-hot", "Hotspot keeps UniFi's rules");
