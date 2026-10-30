@@ -387,6 +387,78 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void ZoneWideExternalBlocks_AreNotCopiedToANewZoneWithInternetDisabled()
+    {
+        var live = Live();
+        var management = Net("n-mgmt", "Management", 99, NetworkPurpose.Management);
+        var internalZone = live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int");
+        internalZone["network_ids"]!.AsArray().Add("n-mgmt");
+        live.Collections["networkconf"].Add(new JsonObject
+        {
+            ["_id"] = "n-mgmt", ["name"] = "Management", ["vlan"] = 99, ["internet_access_enabled"] = false,
+        });
+        live.Collections["firewall_policy"].Add(Rule("p-dns", "Block External DNS", "BLOCK", Side("z-int"), Side("z-ext", port: "53"), protocol: "tcp_udp"));
+        var networks = Networks.Append(management).ToList();
+
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode));
+
+        Named(plan.Desired, "Block External DNS (Management)").Should().BeNull("UniFi already blocks Internet access for every network in this zone");
+        Named(plan.Desired, "Block External DNS (IoT)").Should().NotBeNull("the IoT zone still has Internet Access enabled");
+        plan.Notes.Should().Contain(n => n.Contains("Block External DNS") && n.Contains("Management") && n.Contains("Internet Access off"));
+    }
+
+    [Fact]
+    public void ZoneWideExternalBlocks_AreCopiedWhenANewZoneHasMixedInternetSettings()
+    {
+        var live = Live();
+        var management = Net("n-mgmt", "Management", 99, NetworkPurpose.Management);
+        var management2 = Net("n-mgmt2", "Management 2", 100, NetworkPurpose.Management);
+        var internalZone = live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int");
+        internalZone["network_ids"]!.AsArray().Add("n-mgmt");
+        internalZone["network_ids"]!.AsArray().Add("n-mgmt2");
+        live.Collections["networkconf"].Add(new JsonObject
+        {
+            ["_id"] = "n-mgmt", ["name"] = "Management", ["vlan"] = 99, ["internet_access_enabled"] = false,
+        });
+        live.Collections["networkconf"].Add(new JsonObject
+        {
+            ["_id"] = "n-mgmt2", ["name"] = "Management 2", ["vlan"] = 100, ["internet_access_enabled"] = true,
+        });
+        live.Collections["firewall_policy"].Add(Rule("p-dns", "Block External DNS", "BLOCK", Side("z-int"), Side("z-ext", port: "53"), protocol: "tcp_udp"));
+
+        var networks = Networks.Concat(new[] { management, management2 }).ToList();
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode));
+
+        Named(plan.Desired, "Block External DNS (Management)").Should().NotBeNull("the block is still needed for Management 2");
+    }
+
+    [Fact]
+    public void IntraZoneAllow_ExcludesNetworksWithIsolateNetworkEnabled()
+    {
+        var live = Live();
+        live.Get("networkconf").First(n => n["_id"]!.ToString() == "n-iot")["network_isolation_enabled"] = true;
+
+        var desired = ZoneSetup.Desired(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode));
+        var within = Policy(desired, "IoT", "IoT")!;
+
+        within["source"]!["matching_target"]!.ToString().Should().Be("NETWORK");
+        within["source"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal("n-media");
+        within["destination"]!["matching_target"]!.ToString().Should().Be("ANY", "other networks may still initiate traffic to the isolated network");
+    }
+
+    [Fact]
+    public void IntraZoneAllow_IsOmittedWhenEveryNetworkHasIsolateNetworkEnabled()
+    {
+        var live = Live();
+        foreach (var id in new[] { "n-iot", "n-media" })
+            live.Get("networkconf").First(n => n["_id"]!.ToString() == id)["network_isolation_enabled"] = true;
+
+        var desired = ZoneSetup.Desired(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode));
+
+        Policy(desired, "IoT", "IoT").Should().BeNull("UniFi's per-network isolation already blocks outbound traffic, and an allow would bypass it");
+    }
+
+    [Fact]
     public void EveryoneButAFewHosts_CountsAsZoneWide()
     {
         var live = WithSubnetsAndGateway();

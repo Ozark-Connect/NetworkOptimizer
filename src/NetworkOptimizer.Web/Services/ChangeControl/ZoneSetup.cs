@@ -368,7 +368,7 @@ public static class ZoneSetup
         var n = 0;
 
         var rehomed = Rehome(live, desired, policies, moved, newZoneOf, ZoneName, notes, ref n);
-        CopyZoneWide(live, policies, moved, oldZoneOf, newZoneOf, zoneKey, ZoneName, notes, ref n);
+        CopyZoneWide(live, desired, policies, moved, oldZoneOf, newZoneOf, zoneKey, ZoneName, notes, ref n);
 
         var active = board.Zones.Where(z => z.Key != UnassignedKey && !z.Kept && z.NetworkIds.Count > 0 && ids.ContainsKey(z.Key)).ToList();
         var externalId = zones.FirstOrDefault(z => Str(z, "zone_key") == "external") is { } ext ? ConfigState.IdOf(ext) : null;
@@ -427,11 +427,37 @@ public static class ZoneSetup
                 Put(ids[a.Key], ids[b.Key], "ALLOW", allow.Name, allow.Ports, groupId: groupId);
             }
 
-        // UniFi blocks networks that share a custom zone from each other: one zone is one trust level.
-        foreach (var z in active.Where(z => !z.BuiltIn && z.NetworkIds.Count > 1 && z.Role is not (ZoneRole.Hotspot or ZoneRole.Dmz)))
-            Put(ids[z.Key], ids[z.Key], "ALLOW", $"Allow {z.Name} within {z.Name}");
-
         var networkById = desired.Get("networkconf").ToDictionary(ConfigState.IdOf, x => x, StringComparer.OrdinalIgnoreCase);
+        // UniFi blocks networks that share a custom zone from each other: one zone is one trust level.
+        // Isolate Network is outbound-only, so never let this allow match an isolated network as its source;
+        // leave destinations broad because the setting does not block inbound initiations.
+        foreach (var z in active.Where(z => !z.BuiltIn && z.NetworkIds.Count > 1 && z.Role is not (ZoneRole.Hotspot or ZoneRole.Dmz)))
+        {
+            var isolated = z.NetworkIds.Where(id => networkById.TryGetValue(id, out var net)
+                && net["network_isolation_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var included = z.NetworkIds.Where(id => !isolated.Contains(id)).ToList();
+            if (included.Count == 0) continue;
+
+            Put(ids[z.Key], ids[z.Key], "ALLOW", $"Allow {z.Name} within {z.Name}");
+            if (isolated.Count > 0)
+            {
+                var policy = policies.First(p => Str(p, "name") == $"Allow {z.Name} within {z.Name}"
+                    && Str(p["source"]?["zone_id"]) == ids[z.Key] && Str(p["destination"]?["zone_id"]) == ids[z.Key]);
+                policy["source"] = new JsonObject
+                {
+                    ["zone_id"] = ids[z.Key], ["matching_target"] = "NETWORK",
+                    ["network_ids"] = new JsonArray(included.Select(id => (JsonNode?)id).ToArray()),
+                    ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false,
+                };
+                policy["destination"] = new JsonObject
+                {
+                    ["zone_id"] = ids[z.Key], ["matching_target"] = "ANY",
+                    ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false,
+                };
+                notes.Add($"{z.Name}: the within-zone allow excludes networks with Isolate Network enabled.");
+            }
+        }
+
         if (externalId != null)
             foreach (var cams in active.Where(z => z.Role == ZoneRole.Cameras))
             {
@@ -594,7 +620,7 @@ public static class ZoneSetup
     /// Threat Intelligence - Blocking writes one per zone itself. Other allows to LAN zones are not carried, so the
     /// new zone stays isolated; each is named in a note.
     /// </summary>
-    private static void CopyZoneWide(ConfigState live, List<JsonObject> policies, HashSet<string> moved, Dictionary<string, string> oldZoneOf,
+    private static void CopyZoneWide(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved, Dictionary<string, string> oldZoneOf,
         Dictionary<string, string> newZoneOf, Dictionary<string, string> zoneKey, Func<string?, string> zoneName, List<string> notes, ref int n)
     {
         var def = ConfigCollections.Get("firewall_policy")!;
@@ -602,6 +628,7 @@ public static class ZoneSetup
         var lanTargets = moved.GroupBy(id => oldZoneOf[id], StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Select(id => newZoneOf[id]).Where(z => zoneKey.TryGetValue(z, out var k) && k is "" or "internal")
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+        var networksById = desired.Get("networkconf").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
         // Zone-wide: ANY, or everyone but a few hosts ([UniFi] Allow Select Console Management's shape).
         static bool ZoneWide(JsonObject? side) => Str(side?["matching_target"]) is null or "ANY"
             || (Str(side?["matching_target"]) == "IP" && side?["match_opposite_ips"]?.GetValueKind() == System.Text.Json.JsonValueKind.True);
@@ -609,6 +636,12 @@ public static class ZoneSetup
             .Where(p => def.IsGenerated?.Invoke(p) != true && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
                         && ZoneWide(p["source"] as JsonObject) && Str(p["source"]?["zone_id"]) is { } z && lanTargets.ContainsKey(z))
             .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+        bool InternetDisabled(string zone)
+        {
+            var members = newZoneOf.Where(pair => pair.Value == zone).Select(pair => pair.Key).ToList();
+            return members.Count > 0 && members.All(id => networksById.TryGetValue(id, out var net)
+                && net["internet_access_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.False);
+        }
         foreach (var t in templates)
         {
             var from = Str(t["source"]?["zone_id"])!;
@@ -625,6 +658,12 @@ public static class ZoneSetup
             var resolver = Str(t, "action") == "ALLOW" && dstKey is "" or "internal" && CoversPort(t["destination"] as JsonObject, 53, groups);
             foreach (var to in lanTargets[from])
             {
+                if (dstKey == "external" && (Str(t, "action") is "BLOCK" or "REJECT") && InternetDisabled(to))
+                {
+                    var skipped = $"{name}: not copied to {zoneName(to)}; every network there already has Internet Access off.";
+                    if (!notes.Contains(skipped)) notes.Add(skipped);
+                    continue;
+                }
                 if (outward || (resolver && !string.Equals(to, dstZone, StringComparison.OrdinalIgnoreCase)))
                 {
                     var copyName = NameFor(name, zoneName(from), zoneName(to));
