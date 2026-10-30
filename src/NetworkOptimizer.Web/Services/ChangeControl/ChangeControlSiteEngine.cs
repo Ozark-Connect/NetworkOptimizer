@@ -724,6 +724,14 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             all.Add(PolicyOrderObject(order, afterNames));
 
         var groups = ChangeAttributor.Attribute(all, events, journal, DateTime.UtcNow, inUpgradeWindow, before.ReadAt);
+        // Diagnostics for unattributed UniFi changes (Information: this logger is outside the app's Debug level).
+        foreach (var e in events)
+            _logger.LogInformation("Change detection for site {Site}: AUDIT event {Key} at {At:O}: section {Section}, collection {Collection}, object {ObjectId} {ObjectName}, admin {Admin}",
+                _slug, e.Key, e.TimeUtc, e.Section, e.SettingCollection, e.ObjectId, e.ObjectName, e.AdminName ?? e.AdminId);
+        foreach (var g in groups.Where(g => g.ActorKind == ConfigChangeActorKind.NoAdminRecorded))
+            foreach (var o in g.Objects)
+                _logger.LogInformation("Change detection for site {Site}: Unattributed {Collection} {ObjectId} {Name} ({Action}), before read at {ReadAt:O}",
+                    _slug, o.Collection, o.ObjectId, o.Name, o.Action, before.ReadAt);
         var recorded = new List<ConfigChange>();
         foreach (var g in groups)
         {
