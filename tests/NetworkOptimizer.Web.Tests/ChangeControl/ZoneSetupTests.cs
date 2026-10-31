@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.ChangeControl;
 using Xunit;
 
@@ -395,6 +396,39 @@ public class ZoneSetupTests
         });
 
         doc.Lockouts.Should().Contain(l => l.Title.Contains("Block IoT to Gateway Management"));
+    }
+
+    [Fact]
+    public void Reorder_WaitsForALockoutUpdateThatMovesAPolicyIntoItsPair()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-mgmt", "[Gateway] VLAN Mgmt Block", "BLOCK", Side("z-int", "NETWORK", ["n-iot"]), Side("z-gw2", port: "22,80,443"), protocol: "tcp"));
+        live.Collections["firewall_policy"].Add(Rule("p-ntp", "Block Gateway NTP", "BLOCK", Side("z-int"), Side("z-gw2", port: "123"), protocol: "udp"));
+
+        var plan = PlanFor(live);
+        var doc = PlanBuilder.Build(plan.Desired, live, new PlanOptions
+        {
+            Collections = ZoneSetup.Options().Collections, DeleteMissing = true, ManagementAddresses = ["10.0.30.50"],
+        });
+
+        // Lockout writes go last; the reorder naming the moved policy must still follow it, or UniFi answers FirewallPolicyNotFound.
+        var update = doc.Operations.FindIndex(o => o.Action == PlanAction.Update && o.ObjectId == "p-mgmt");
+        doc.Operations[update].ManagementPath.Should().BeTrue("the block matches where Network Optimizer reaches the site from");
+        var reorder = doc.Operations.FindIndex(o => o.Action == PlanAction.Reorder
+            && (o.Body!["before_predefined_ids"]!.AsArray().Concat(o.Body["after_predefined_ids"]!.AsArray())).Any(n => n!.ToString() == "p-mgmt"));
+        reorder.Should().BeGreaterThan(update);
+        doc.Operations.FindIndex(o => o.Action == PlanAction.Delete).Should().BeOneOf(-1, doc.Operations.Count - 1);
+    }
+
+    [Fact]
+    public void AgentReach_IsTheDialAgentsLanAddress_NotEveryAddressItsHostHolds()
+    {
+        // An agent on the gateway holds every VLAN's gateway address.
+        var onGateway = new AgentTunnelConnection(1, "site", "gateway") { LanIp = "10.0.1.1", LocalIps = ["10.0.1.1", "10.0.30.1", "10.0.40.1", "10.0.150.1"] };
+        var old = new AgentTunnelConnection(2, "site", "old") { LocalIps = ["10.0.1.20", "10.0.150.20"] };
+
+        ChangeControlRegistry.AgentReachAddresses(onGateway).Should().Equal(["10.0.1.1"]);
+        ChangeControlRegistry.AgentReachAddresses(old).Should().Equal(["10.0.1.20", "10.0.150.20"], "an agent without a LAN address gives all it has");
     }
 
     private static JsonObject Side(string zone, string target = "ANY", string[]? networks = null, string[]? ips = null, string? port = null)

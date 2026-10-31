@@ -435,6 +435,9 @@ public class AgentTunnelProxyService : IDisposable
         return agent == null || agent.IsStale || IsHeldBack(agent);
     }
 
+    /// <summary>The agent the site's console and device dials go through now (see <see cref="PickAgent"/>).</summary>
+    public AgentTunnelConnection? DialAgent(string siteSlug) => PickAgent(siteSlug);
+
     /// <summary>The agent a dial goes through: the site's first that is neither silent nor held back.</summary>
     private AgentTunnelConnection? PickAgent(string siteSlug) =>
         _registry.PickForSite(siteSlug, a => !IsHeldBack(a));

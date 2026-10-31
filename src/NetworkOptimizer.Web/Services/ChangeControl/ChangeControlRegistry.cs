@@ -116,6 +116,15 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     public void Journal(string slug, UniFiWriteRecord record) => GetFor(slug).Journal(record);
 
     /// <summary>
+    /// Where an agent site is reached from: the LAN address of the agent the console and device dials go through, the one
+    /// it chose for its own traffic. Not every agent's, nor every address its host holds: a second agent on the gateway
+    /// holds every VLAN's gateway address, which made each network look like where Network Optimizer manages from.
+    /// An agent too old to report a LAN address gives all it has.
+    /// </summary>
+    internal static IReadOnlyList<string> AgentReachAddresses(AgentTunnelConnection dial) =>
+        string.IsNullOrWhiteSpace(dial.LanIp) ? dial.HostAddresses : [dial.LanIp!];
+
+    /// <summary>
     /// The addresses this server reaches the console from: the source the OS routes from toward the console
     /// host. Every interface address is not the answer on a host with a leg on many VLANs (the NAS has five):
     /// a policy blocking one of those VLANs from the gateway cannot cut a path that never leaves through it.
@@ -200,7 +209,10 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             ? agents.GetForSite(slug).SelectMany(a => a.LocalIps.Append(a.LanIp ?? "")).Where(a => a.Length > 0).Distinct().ToList()
             : ServerAddresses(null);
         // Narrower than ManagementAddresses, which Re-address also reads for every address the host owns.
-        coordinator.ReachAddresses = () => connection.IsViaAgent ? coordinator.ManagementAddresses() : ServerAddresses(coordinator.ConsoleHost());
+        var proxy = _sp.GetService<AgentTunnelProxyService>();
+        coordinator.ReachAddresses = () => !connection.IsViaAgent ? ServerAddresses(coordinator.ConsoleHost())
+            : proxy?.DialAgent(slug) is { } dial ? AgentReachAddresses(dial)
+            : coordinator.ManagementAddresses();
         coordinator.MoveSettings = (moves, remote, ct) => ReaddressSettingsAsync(slug, moves, remote, apply: true, ct);
         coordinator.ZonesChanged = _ =>
         {

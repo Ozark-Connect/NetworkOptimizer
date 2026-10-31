@@ -965,6 +965,10 @@ public static class PlanBuilder
                 },
                 ChangeText = "Order changed",
                 NeedsGateway = true,
+                // After the updates of the policies it lists: one moving into this pair is not in it until written, and UniFi
+                // refuses a reorder naming it (api.err.FirewallPolicyNotFound). A lockout's update is written last, past the reorders.
+                After = doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action == PlanAction.Update && o.ObjectId != null && listed.Contains(o.ObjectId))
+                    .Select(o => o.Key).ToList(),
             });
         }
     }
