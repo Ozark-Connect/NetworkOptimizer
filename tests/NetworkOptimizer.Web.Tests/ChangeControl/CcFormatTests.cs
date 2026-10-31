@@ -13,11 +13,11 @@ public class CcFormatTests
         values.Select((v, i) => (T.AddMinutes(5 * i), v)).ToList();
 
     [Fact]
-    public void Runs_SpanEachRunFromOneStepBeforeItsFirstPoint()
+    public void AreasUnder_ClosesEachLineDownToTheBaseline()
     {
-        var runs = CcFormat.Runs(Series(null, 2, 3, null, null, 4));
+        var areas = CcFormat.AreasUnder(Series(null, 5, 10, null), T, T.AddMinutes(15), 10);
 
-        runs.Should().Equal((T, T.AddMinutes(10)), (T.AddMinutes(20), T.AddMinutes(25)));
+        areas.Should().ContainSingle().Which.Should().EndWith("66.67,96 33.33,96");
     }
 
     [Fact]

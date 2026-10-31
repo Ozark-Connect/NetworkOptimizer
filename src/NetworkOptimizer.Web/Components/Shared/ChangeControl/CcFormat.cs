@@ -125,32 +125,21 @@ public static class CcFormat
     }
 
     /// <summary>
-    /// The spans where a series has values, for shading. Lane points are stamped at their window's end, so a
-    /// run starts one step (the series' typical spacing) before its first point.
+    /// One SVG polygon per drawn run of <paramref name="series"/>: the line itself, closed down to the lane's
+    /// baseline, for shading under it. Same box and same runs as <see cref="Polylines"/>.
     /// </summary>
-    public static List<(DateTime Start, DateTime End)> Runs(IReadOnlyList<(DateTime Time, double? Value)> series)
+    public static List<string> AreasUnder(IReadOnlyList<(DateTime Time, double? Value)> series, DateTime from, DateTime to, double max)
     {
-        var runs = new List<(DateTime, DateTime)>();
-        if (series.Count < 2) return runs;
-        var gaps = series.Zip(series.Skip(1), (a, b) => b.Time - a.Time).Where(d => d > TimeSpan.Zero).OrderBy(d => d).ToList();
-        var step = gaps.Count > 0 ? gaps[gaps.Count / 2] : TimeSpan.Zero;
-        DateTime? start = null;
-        DateTime last = default;
-        foreach (var (time, value) in series)
+        const string Baseline = "96";
+        var areas = new List<string>();
+        foreach (var line in Polylines(series, from, to, max))
         {
-            if (value != null)
-            {
-                start ??= time - step;
-                last = time;
-            }
-            else if (start is { } s)
-            {
-                runs.Add((s, last));
-                start = null;
-            }
+            var points = line.Split(' ');
+            var firstX = points[0].Split(',')[0];
+            var lastX = points[^1].Split(',')[0];
+            areas.Add($"{line} {lastX},{Baseline} {firstX},{Baseline}");
         }
-        if (start is { } open) runs.Add((open, last));
-        return runs;
+        return areas;
     }
 
     /// <summary>

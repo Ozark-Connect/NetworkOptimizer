@@ -24,10 +24,9 @@
         }
         @if (SplitB)
         {
-            @foreach (var (start, end) in CcFormat.Runs(SeriesB))
+            @foreach (var area in CcFormat.AreasUnder(CcFormat.Bridged(SeriesA, SeriesB), From, To, _max))
             {
-                var left = CcFormat.Pct(start, From, To);
-                <rect x="@F(left)" y="0" width="@F(Math.Max(0.3, CcFormat.Pct(end, From, To) - left))" height="100" style="fill:@ColorB" fill-opacity="0.14" />
+                <polygon points="@area" style="fill:@ColorB" fill-opacity="0.25" />
             }
         }
         @foreach (var layer in Stack)
