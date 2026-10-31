@@ -19,6 +19,10 @@ public sealed class SiteHealthSeries
     public string? TopArea { get; init; }
     /// <summary>"Wi-Fi: Back Yard 5 GHz": the issue up to its first comma, for tiles.</summary>
     public string? TopShort { get; init; }
+    /// <summary>Where to investigate <see cref="TopIssue"/>, as a site-relative URL; null when there is none.</summary>
+    public string? TopHref => SiteHealthSeriesBuilder.IssueHref(TopArea);
+    /// <summary>The page <see cref="TopHref"/> opens, for its tooltip.</summary>
+    public string? TopHrefLabel => SiteHealthSeriesBuilder.IssueHrefLabel(TopArea);
 }
 
 /// <summary>A site on the Dashboard Sites panel and the Sites page.</summary>
@@ -81,6 +85,29 @@ public static class SiteHealthSeriesBuilder
             TopShort = text == null ? null : $"{area}: {text.Split(',')[0]}",
         };
     }
+
+    /// <summary>
+    /// The page that shows an issue area's detail: ISP Health for Internet (outages, loss, latency,
+    /// bufferbloat), the Wi-Fi Optimizer for Wi-Fi, Device Stats for devices offline, Live View for LAN
+    /// links and port errors. Null for an unknown area.
+    /// </summary>
+    internal static string? IssueHref(string? area) => area switch
+    {
+        "Internet" => "/monitoring?tab=isp-health",
+        "Wi-Fi" => "/wifi-optimizer",
+        "Availability" => "/monitoring?tab=devices",
+        "LAN" => "/monitoring?tab=live",
+        _ => null,
+    };
+
+    internal static string? IssueHrefLabel(string? area) => area switch
+    {
+        "Internet" => "Monitoring - ISP Health",
+        "Wi-Fi" => "Wi-Fi Optimizer",
+        "Availability" => "Monitoring - Device Stats",
+        "LAN" => "Monitoring - Live View",
+        _ => null,
+    };
 
     /// <summary>"costs 9 points", "costs &lt; 1 point": the health an issue took.</summary>
     internal static string Costs(double points) =>

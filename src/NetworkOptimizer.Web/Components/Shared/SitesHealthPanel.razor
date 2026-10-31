@@ -92,7 +92,15 @@
                         <polyline points="@Spark(s)" fill="none" class="shp-spark-line @(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
                     </svg>
                     <span class="shp-now num health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>
-                    <span class="shp-issue @(Issue(s) == null ? "muted" : "")">@(Issue(s) ?? "No issues")</span>
+                    @if (s.Online && s.Health.TopIssue != null && s.Health.TopHref is { } issueHref)
+                    {
+                        <a class="shp-issue shp-count-link" href="@SiteContextService.WithSiteParam(issueHref, s.Slug)" data-site-switch="@s.Slug"
+                           data-tooltip="@($"{s.Health.TopIssue}. Open {s.Health.TopHrefLabel}")">@s.Health.TopIssue</a>
+                    }
+                    else
+                    {
+                        <span class="shp-issue @(Issue(s) == null ? "muted" : "")">@(Issue(s) ?? "No issues")</span>
+                    }
                     <a class="num shp-count shp-count-link @(s.Incidents24h > 0 ? "danger-text" : "")" href="@SiteContextService.WithSiteParam("/alerts?tab=incidents", s.Slug)" data-site-switch="@s.Slug"
                        data-tooltip="Open Alerts & Schedule - Incidents">@s.Incidents24h</a>
                     <a class="num shp-count shp-count-link" href="@SiteContextService.WithSiteParam("/change-control/changes", s.Slug)" data-site-switch="@s.Slug"

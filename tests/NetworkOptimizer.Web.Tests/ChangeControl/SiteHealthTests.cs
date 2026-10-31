@@ -288,4 +288,16 @@ public class SiteHealthTests
         w.Total.Should().Be(10);
         w.Saturation.Should().BeApproximately(0.6 / 0.75, 1e-9);
     }
+
+    [Theory]
+    [InlineData("Internet", "/monitoring?tab=isp-health")]
+    [InlineData("Wi-Fi", "/wifi-optimizer")]
+    [InlineData("Availability", "/monitoring?tab=devices")]
+    [InlineData("LAN", "/monitoring?tab=live")]
+    [InlineData(null, null)]
+    public void IssueHref_OpensThePageThatShowsTheArea(string? area, string? href)
+    {
+        SiteHealthSeriesBuilder.IssueHref(area).Should().Be(href);
+        (SiteHealthSeriesBuilder.IssueHrefLabel(area) == null).Should().Be(href == null);
+    }
 }

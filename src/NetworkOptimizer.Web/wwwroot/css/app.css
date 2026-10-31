@@ -20946,6 +20946,11 @@ body.kiosk-mode .status-indicators {
     color: var(--text-muted);
 }
 
+/* A linked issue reads as text until hovered, like the count links beside it. */
+a.shp-issue {
+    color: inherit;
+}
+
 .shp-count {
     color: var(--text-secondary);
 }
