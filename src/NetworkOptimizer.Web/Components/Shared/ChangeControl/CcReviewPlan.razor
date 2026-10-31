@@ -465,7 +465,7 @@ else
 
     @if (_view.Result != null)
     {
-        <div class="card">
+        <div class="card" id="cc-result">
             <div class="card-header">
                 <h3 class="card-title">Result<span class="card-title-suffix">@CcFormat.PlanStatusText(plan.Status)@(plan.Message != null ? $": {plan.Message}" : "")</span></h3>
                 @if (plan.ReportJson != null)
@@ -814,11 +814,18 @@ else
         return null;
     }, "Approved.");
 
-    private Task ApplyAsync() => RunAsync(async () =>
+    private async Task ApplyAsync()
     {
-        await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: false);
-        return await Site.ApplyPlanAsync(PlanId);
-    }, _schedule ? "Scheduled." : "Applied.");
+        await RunAsync(async () =>
+        {
+            await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: false);
+            return await Site.ApplyPlanAsync(PlanId);
+        }, _schedule ? "Scheduled." : "Applied.");
+        // The Result card sits above the buttons; bring it into view once it renders.
+        if (_view?.Result == null) return;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval", "setTimeout(() => document.getElementById('cc-result')?.scrollIntoView({behavior:'smooth', block:'start'}), 100)");
+    }
 
     private Task CancelAsync() => RunAsync(async () =>
     {
