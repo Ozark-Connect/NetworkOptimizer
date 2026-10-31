@@ -75,6 +75,24 @@ public class PlanOrderTests
     }
 
     [Fact]
+    public void Reorder_SurvivesAConsoleThatRepeatsAPolicyId()
+    {
+        // Seen on a UDM Pro: the console lists a derived policy's synthetic id twice (issue #1333).
+        static JsonObject Derived() => new()
+        {
+            ["_id"] = "obj_1040bfb7-6a65-4954-b383-5904c590c836_1", ["name"] = "Derived", ["action"] = "ALLOW", ["predefined"] = true,
+            ["index"] = 30001, ["source"] = new JsonObject { ["zone_id"] = "z-ext" }, ["destination"] = new JsonObject { ["zone_id"] = "z-vpn" },
+        };
+        var desired = Policies(Policy("a", 10001), Policy("b", 10002), Predefined(30000), Derived(), Derived());
+        var live = Policies(Policy("b", 10001), Policy("a", 10002), Predefined(30000), Derived(), Derived());
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+
+        doc.Errors.Should().BeEmpty();
+        Before(doc).Should().Equal("a", "b");
+    }
+
+    [Fact]
     public void Reorder_LeavesOutAThreatIntelligencePolicyTheConsoleDoesNotHaveYet()
     {
         // Return to Baseline mid-provision: Threat Intelligence has not re-created its policy yet. The plan never creates it

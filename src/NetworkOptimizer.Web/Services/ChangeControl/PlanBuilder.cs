@@ -923,8 +923,9 @@ public static class PlanBuilder
             // else the console's: an edited file carries no index, and without this every policy above
             // UniFi's predefined ones would be moved below them. A new one goes before them, where UniFi
             // puts a custom policy: after them it sits below Allow All Traffic and never matches.
-            var liveIndex = live.Get("firewall_policy").ToDictionary(ConfigState.IdOf,
-                p => p["index"] is JsonValue lv && lv.TryGetValue<long>(out var li) ? li : long.MaxValue, StringComparer.OrdinalIgnoreCase);
+            // A console can list one id twice (issue #1333): the first copy stands.
+            var liveIndex = live.Get("firewall_policy").GroupBy(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key,
+                g => g.First()["index"] is JsonValue lv && lv.TryGetValue<long>(out var li) ? li : long.MaxValue, StringComparer.OrdinalIgnoreCase);
             foreach (var p in group.OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue))
             {
                 var id = Map(ConfigState.IdOf(p));
@@ -1235,7 +1236,8 @@ public static class PlanBuilder
         }
         if (zoneKeys.Count == 0) return;
 
-        var livePolicies = live.Get("firewall_policy").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
+        var livePolicies = live.Get("firewall_policy").GroupBy(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         bool NamesMoved(JsonNode? policy) => policy != null && (Ids(policy["source"]).Overlaps(moved) || Ids(policy["destination"]).Overlaps(moved));
         foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
         {
