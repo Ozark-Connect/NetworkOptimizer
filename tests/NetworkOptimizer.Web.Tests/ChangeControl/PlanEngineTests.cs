@@ -218,6 +218,28 @@ public class PlanEngineTests
     }
 
     [Fact]
+    public async Task Executor_NewFirewallPolicy_IsAppliedThoughUniFiAssignsItsOwnIndex()
+    {
+        // A zone-wide copy carries its template's index; UniFi stores its own on a create, and the reorder places it.
+        const string zones = """{"_id":"z1","name":"IoT"}""";
+        const string external = """{"_id":"z2","name":"External"}""";
+        var console = new FakeConsole(State(("firewall_zone", zones), ("firewall_zone", external), ("firewall_policy", """{"_id":"keep","name":"Existing","action":"BLOCK","index":10000,"source":{"zone_id":"z1","matching_target":"ANY"},"destination":{"zone_id":"z2","matching_target":"ANY"}}""")));
+        console.DropFields.Add("index");
+        var desired = console.State.Clone();
+        desired.Collections["firewall_policy"].Add(JsonNode.Parse("""{"_id":"copy","name":"Block External DNS (IoT)","action":"BLOCK","enabled":true,"index":10004,"protocol":"udp","source":{"zone_id":"z1","matching_target":"ANY"},"destination":{"zone_id":"z2","matching_target":"ANY"}}""")!.AsObject());
+        var doc = Plan(desired, console.State.Clone(), new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+
+        var create = doc.Operations.Single(o => o.Action == PlanAction.Create);
+        create.Body!.AsObject().ContainsKey("index").Should().BeTrue("the body is unchanged");
+        create.WriteFields.Should().NotContain("index");
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        result.Operations.Single(o => o.Key == create.Key).Outcome.Should().Be("Applied");
+    }
+
+    [Fact]
     public async Task Executor_RefusedButWritten_CountsAsApplied()
     {
         var console = new FakeConsole(State());

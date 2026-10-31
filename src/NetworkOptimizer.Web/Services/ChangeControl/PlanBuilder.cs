@@ -403,7 +403,9 @@ public static class PlanBuilder
             op.Action = PlanAction.Create;
             op.ObjectName = name;
             op.Body = body;
-            op.WriteFields = body.Select(p => p.Key).Where(k => k is not "_id" and not "id").ToList();
+            // UniFi gives a new firewall policy its own index (grounding.md 2026-10-23: stored 10000 whatever was sent);
+            // the plan's reorder places it, and verify checks that. Checked here, every copy read "Not applied: Index".
+            op.WriteFields = body.Select(p => p.Key).Where(k => k is not "_id" and not "id" && !(def.Key == "firewall_policy" && k == "index")).ToList();
             op.Order = def.Order;
             op.ChangeText = DescribeObject(def, desired, desiredCtx);
             op.NeedsGateway = write.NeedsGateway;

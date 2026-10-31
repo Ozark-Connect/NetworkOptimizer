@@ -52,6 +52,8 @@ internal sealed class FakeConsole : IUniFiConfigApi
             return Ok(scope, State.Get(def.Key).Select(o => (JsonObject)o.DeepClone()).ToList(), list: true);
         }
 
+        // Ahead of the update paths: "firewall-policies/{id}" would take batch-reorder for an ID.
+        if (path == "firewall-policies/batch-reorder") return Task.FromResult(new UniFiRawResponse(200, "{}"));
         foreach (var def in ConfigCollections.All.Where(d => d.Write != null && d.Scope == scope))
         {
             var w = def.Write!;
@@ -87,7 +89,6 @@ internal sealed class FakeConsole : IUniFiConfigApi
                 return Task.FromResult(new UniFiRawResponse(204, ""));
             }
         }
-        if (path == "firewall-policies/batch-reorder") return Task.FromResult(new UniFiRawResponse(200, "{}"));
         return Task.FromResult(new UniFiRawResponse(404, "{}"));
     }
 
