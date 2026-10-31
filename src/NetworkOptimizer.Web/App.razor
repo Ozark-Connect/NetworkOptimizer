@@ -146,11 +146,8 @@
         }
 
         function downloadFile(fileName, contentType, base64Data) {
-            const linkSource = `data:${contentType};base64,${base64Data}`;
-            const downloadLink = document.createElement('a');
-            downloadLink.href = linkSource;
-            downloadLink.download = fileName;
-            downloadLink.click();
+            const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+            saveBlob(new Blob([bytes], { type: contentType }), fileName);
         }
 
         // Downloads a server endpoint's response as a file. Returns null, or why it failed. For files too
@@ -159,17 +156,79 @@
             try {
                 const response = await fetch(url, { credentials: 'same-origin' });
                 if (!response.ok) return `the server answered ${response.status}`;
-                const href = URL.createObjectURL(await response.blob());
-                const downloadLink = document.createElement('a');
-                downloadLink.href = href;
-                downloadLink.download = fileName;
-                downloadLink.click();
-                setTimeout(() => URL.revokeObjectURL(href), 60000);
+                saveBlob(await response.blob(), fileName);
                 return null;
             } catch (e) {
                 console.error('downloadUrl failed', e);
                 return e.message || 'the download did not complete';
             }
+        }
+
+        // An app added to the iOS home screen does nothing with <a download> for a file it cannot show (YAML, JSON,
+        // CSV): no error, no file. A PDF it opens in its viewer, so only other files go to the share sheet there.
+        function isIosHomeScreenApp() {
+            const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            return ios && (navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches);
+        }
+
+        // A File the share sheet accepts: its own type, else plain text for text formats (YAML, JSON, CSV).
+        function shareableFile(blob, fileName) {
+            if (!navigator.canShare) return null;
+            const types = [blob.type || 'application/octet-stream'];
+            if (/^(text\/|application\/(json|yaml|x-yaml|csv))/.test(blob.type)) types.push('text/plain');
+            for (const type of types) {
+                const file = new File([blob], fileName, { type });
+                if (navigator.canShare({ files: [file] })) return file;
+            }
+            return null;
+        }
+
+        // A blob link with download, as the PDF exports already do (a data: URL is not reliable in a Safari PWA).
+        // Returns at once: the share sheet stays open as long as the person likes, past any interop timeout.
+        function saveBlob(blob, fileName) {
+            if (isIosHomeScreenApp() && blob.type !== 'application/pdf') {
+                const file = shareableFile(blob, fileName);
+                if (file) {
+                    // iOS allows the share sheet only during a tap; after the server round trip it can be too
+                    // late. A tap on the prompt opens it. AbortError is the person closing the sheet.
+                    navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') showSavePrompt(file); });
+                    return;
+                }
+            }
+            const href = URL.createObjectURL(blob);
+            const downloadLink = document.createElement('a');
+            downloadLink.href = href;
+            downloadLink.download = fileName;
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            downloadLink.remove();
+            setTimeout(() => URL.revokeObjectURL(href), 60000);
+        }
+
+        function showSavePrompt(file) {
+            document.querySelector('.save-file-prompt')?.remove();
+            const bar = document.createElement('div');
+            bar.className = 'save-file-prompt';
+            bar.setAttribute('role', 'status');
+            const name = document.createElement('span');
+            name.className = 'save-file-name';
+            name.textContent = file.name;
+            const save = document.createElement('button');
+            save.type = 'button';
+            save.className = 'btn btn-primary btn-sm';
+            save.textContent = 'Save file';
+            save.addEventListener('click', async () => {
+                bar.remove();
+                try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') console.error('share failed', e); }
+            });
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'save-file-close';
+            close.setAttribute('aria-label', 'Dismiss');
+            close.textContent = '\u00d7';
+            close.addEventListener('click', () => bar.remove());
+            bar.append(name, save, close);
+            document.body.appendChild(bar);
         }
 
         // Copy a shared secret from the sibling input, stripping the grouping spaces. The key is
