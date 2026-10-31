@@ -91,6 +91,49 @@ public class DnsGuestCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task AFindingNamingAGuestNetwork_PointsAtTheGuestSetting()
+    {
+        var result = await Analyze(HomeBlocks().Concat(HotspotBuiltIns()).ToList(), allowGuestPublicDns: false);
+
+        foreach (var type in new[] { IssueTypes.DnsNoDotBlock, IssueTypes.DnsNoDoqBlock, IssueTypes.DnsNoDohBlock })
+            result.Issues.Single(i => i.Type == type).Metadata!["configurable_setting"].Should().Be(DnsSecurityAnalyzer.GuestSettingHint);
+    }
+
+    [Fact]
+    public async Task AFindingNamingOnlyOtherNetworks_HasNoGuestHint()
+    {
+        // Guest has its own DoT/DoQ block; Home has none, so the DoT finding names Home only.
+        var guestDot = new FirewallRule
+        {
+            Id = "dot-guest", Name = "Block Guest DoT", Enabled = true, Action = "BLOCK", Index = 1, Protocol = "tcp_udp", DestinationPort = "853",
+            SourceZoneId = Hotspot, SourceMatchingTarget = "ANY", DestinationZoneId = External, DestinationMatchingTarget = "ANY"
+        };
+
+        var result = await Analyze([guestDot], allowGuestPublicDns: false);
+
+        var dot = result.Issues.Single(i => i.Type == IssueTypes.DnsNoDotBlock);
+        dot.Message.Should().EndWith("Uncovered networks: Home");
+        (dot.Metadata?.ContainsKey("configurable_setting") ?? false).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task NoDohRuleAnywhere_AppliesToGuestsToo()
+    {
+        var result = await Analyze([], allowGuestPublicDns: false);
+
+        result.Issues.Single(i => i.Type == IssueTypes.DnsNoDohBlock).Metadata!["configurable_setting"].Should().Be(DnsSecurityAnalyzer.GuestSettingHint);
+    }
+
+    [Fact]
+    public async Task WithGuestsAllowedPublicDns_NoFindingCarriesTheGuestHint()
+    {
+        var result = await Analyze([], allowGuestPublicDns: true);
+
+        result.Issues.Should().NotContain(i => i.Metadata != null && i.Metadata.ContainsKey("configurable_setting")
+            && i.Metadata["configurable_setting"].ToString()!.Contains("Allow Guest / Hotspot Public DNS"));
+    }
+
+    [Fact]
     public async Task WithoutAZoneLookup_TheRulesAreReadAsGiven()
     {
         var rules = HotspotBuiltIns();

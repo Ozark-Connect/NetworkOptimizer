@@ -72,9 +72,9 @@ public class AuditIssue
     public string? RecommendedAction { get; init; }
 
     /// <summary>
-    /// Additional metadata about the issue
+    /// Additional metadata about the issue. Settable so an analyzer can add a settings hint once its findings are built.
     /// </summary>
-    public Dictionary<string, object>? Metadata { get; init; }
+    public Dictionary<string, object>? Metadata { get; set; }
 
     /// <summary>
     /// Rule that generated this issue

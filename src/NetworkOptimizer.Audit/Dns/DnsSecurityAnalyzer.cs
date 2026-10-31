@@ -173,6 +173,8 @@ public class DnsSecurityAnalyzer
 
         // Generate issues based on findings (includes async WAN DNS validation)
         await GenerateAuditIssuesAsync(result, networks, zoneLookup);
+        if (!allowGuestPublicDns && coverageNetworks != null)
+            AddGuestSettingHint(result, coverageNetworks.Where(n => IsGuestOrHotspot(n, zoneLookup)).Select(n => n.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
         _logger.LogDebug("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DoQ={DoQBlock}, DoH3={DoH3Block}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
             result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.HasDoqBlockRule, result.HasDoh3BlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
@@ -980,6 +982,50 @@ public class DnsSecurityAnalyzer
     internal static List<FirewallRule>? WithoutHotspotAuthorizationBlocks(List<FirewallRule>? rules, Services.FirewallZoneLookup? zoneLookup) =>
         rules == null || zoneLookup?.GetHotspotZoneId() == null ? rules
             : rules.Where(r => !(r.Predefined && r.ActionType.IsBlockAction() && zoneLookup.IsHotspotZone(r.SourceZoneId))).ToList();
+
+    internal const string GuestSettingHint =
+        "Guest and Hotspot networks are checked for DNS control like any other network. To leave them out, turn on Allow Guest / Hotspot Public DNS in Settings → Audit Settings.";
+
+    /// <summary>
+    /// Points a DNS coverage finding that names a guest network at the setting that leaves guests out (the Settings icon
+    /// on the finding). A finding naming no networks (no rule anywhere) applies to every network, guests included.
+    /// </summary>
+    private static void AddGuestSettingHint(DnsSecurityResult result, HashSet<string> guests)
+    {
+        if (guests.Count == 0) return;
+        foreach (var issue in result.Issues)
+        {
+            IEnumerable<string> named = issue.Type switch
+            {
+                IssueTypes.DnsGuestThirdPartyInfo => guests,
+                IssueTypes.DnsNo53Block or IssueTypes.Dns53PartialCoverage or IssueTypes.DnsDnatPartialCoverage
+                    or IssueTypes.DnsNoDotBlock or IssueTypes.DnsNoDoqBlock or IssueTypes.DnsNoDohBlock => (IEnumerable<string>?)NamedNetworks(issue, result) ?? guests,
+                _ => [],
+            };
+            if (!named.Any(guests.Contains)) continue;
+            issue.Metadata ??= new Dictionary<string, object>();
+            issue.Metadata["configurable_setting"] = issue.Metadata.TryGetValue("configurable_setting", out var other) && other?.ToString() is { Length: > 0 } text
+                ? $"{text}. {GuestSettingHint}"
+                : GuestSettingHint;
+        }
+    }
+
+    /// <summary>The networks a coverage finding names, or null when it names none (nothing blocks anything).</summary>
+    private static List<string>? NamedNetworks(AuditIssue issue, DnsSecurityResult result)
+    {
+        var listed = new[] { "uncovered_networks", "exposed_networks" }
+            .SelectMany(key => issue.Metadata?.TryGetValue(key, out var value) == true && value is IEnumerable<string> names ? names : [])
+            .ToList();
+        if (listed.Count > 0) return listed;
+        var partial = issue.Type switch
+        {
+            IssueTypes.DnsNoDotBlock when result.HasDotBlockRule => result.DotUncoveredNetworks,
+            IssueTypes.DnsNoDoqBlock when result.HasDoqBlockRule => result.DoqUncoveredNetworks,
+            IssueTypes.DnsNoDohBlock when result.HasDohBlockRule => result.DohUncoveredNetworks,
+            _ => null,
+        };
+        return partial is { Count: > 0 } ? partial : null;
+    }
 
     /// <summary>A guest network: UniFi's guest flag or purpose, or a network in the Hotspot zone.</summary>
     private static bool IsGuestOrHotspot(NetworkInfo network, Services.FirewallZoneLookup? zoneLookup) =>
