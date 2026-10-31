@@ -314,10 +314,12 @@ public class AgentProbeResultSink
             // authenticated - so IsConnected is still false for a moment afterwards and an
             // immediate push defers for exactly the reason it was retried. Give it a short while to
             // finish coming up; if it takes longer than this, the periodic refresh has it.
-            for (var i = 0; i < 10 && !siteConnection.IsConnected; i++)
+            // The same condition PushSnmpConfigAsync defers on: IsConnected can flip before Client is set.
+            bool Ready() => siteConnection.IsConnected && siteConnection.Client != null;
+            for (var i = 0; i < 10 && !Ready(); i++)
                 await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None);
 
-            if (siteConnection.IsConnected)
+            if (Ready())
             {
                 await PushSnmpConfigAsync(connection, CancellationToken.None);
 
