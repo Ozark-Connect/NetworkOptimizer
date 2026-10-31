@@ -122,9 +122,15 @@ public sealed class SiteMetricsReader
             var latency = latencyTask.Result;
             var rates = ratesTask.Result;
 
+            // Rates and latency share the lane window and its stamp, so a latency point takes the class of the
+            // rate sample stamped with it. The classifier keys by its own LoadWindowSeconds, not the lane's.
             var load = await ClassifyAsync(rates, ct);
-            bool Loaded(DateTime t) => load.TryGetValue(Floor(t, window), out var w) && (w.IsLoadedDown || w.IsLoadedUp);
-            bool Idle(DateTime t) => !load.TryGetValue(Floor(t, window), out var w) || w.IsIdle;
+            var loadWindow = TimeSpan.FromSeconds(Math.Max(1, _isp.Options.LoadWindowSeconds));
+            var byStamp = new Dictionary<DateTime, LoadWindow>();
+            foreach (var r in rates)
+                if (load.TryGetValue(CongestionDetector.FloorTime(r.Time, loadWindow), out var cls)) byStamp[r.Time] = cls;
+            bool Loaded(DateTime t) => byStamp.TryGetValue(t, out var w) && (w.IsLoadedDown || w.IsLoadedUp);
+            bool Idle(DateTime t) => !byStamp.TryGetValue(t, out var w) || w.IsIdle;
 
             lanes.Add(new TimelineLane
             {
@@ -275,9 +281,6 @@ public sealed class SiteMetricsReader
         var (down, up) = await _isp.GetExpectedWanSpeedsAsync(ct);
         return LoadClassifier.Classify(rates.Select(r => new ThroughputSample(r.Time, r.DownloadBps, r.UploadBps)).ToList(), down, up, _isp.Options);
     }
-
-    private static DateTime Floor(DateTime t, TimeSpan window) =>
-        new(t.Ticks - t.Ticks % window.Ticks, DateTimeKind.Utc);
 
     /// <summary>The start of the window holding t, on Flux's grid (aligned to the Unix epoch).</summary>
     private static DateTime FloorEpoch(DateTime t, TimeSpan window) =>
