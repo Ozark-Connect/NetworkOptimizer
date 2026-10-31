@@ -152,6 +152,27 @@ public class CellularModemService : ICellularModemService, IDisposable
                     _logger.LogInformation("Discovered cellular modem: {Name} ({Model}) at {Host}",
                         device.Name, displayModel, device.Ip);
                 }
+                else if (UniFiProductDatabase.IsCellularGateway(device.Model, device.Shortname))
+                {
+                    // A gateway's device IP is its WAN address, so list it at its LAN address.
+                    // Polls go to the Gateway SSH host either way.
+                    var lanIp = (await _connectionService.GetDiscoveredDevicesAsync())
+                        .FirstOrDefault(d => string.Equals(d.Mac, device.Mac, StringComparison.OrdinalIgnoreCase))
+                        ?.LanIpAddress;
+                    var displayModel = UniFiProductDatabase.GetBestProductName(device.Model, device.Shortname);
+                    discovered.Add(new DiscoveredModem
+                    {
+                        DeviceId = device.Id,
+                        Name = device.Name,
+                        Model = displayModel,
+                        Host = lanIp ?? device.Ip ?? "",
+                        MacAddress = device.Mac,
+                        IsOnline = UniFiDeviceStateMap.IsOnline(device.State) && device.Adopted,
+                        Provider = CellularModemProviders.ModemProviderKeys.UniFiGateway,
+                    });
+                    _logger.LogInformation("Discovered cellular gateway: {Name} ({Model}) at {Host}",
+                        device.Name, displayModel, lanIp ?? device.Ip);
+                }
             }
         }
         catch (Exception ex)
@@ -617,4 +638,10 @@ public class DiscoveredModem
     public string Host { get; set; } = "";
     public string MacAddress { get; set; } = "";
     public bool IsOnline { get; set; }
+
+    /// <summary>The provider key the modem is added with: qmicli, or unifi-gateway for a built-in modem.</summary>
+    public string Provider { get; set; } = CellularModemProviders.ModemProviderKeys.Qmicli;
+
+    /// <summary>True for a gateway's built-in modem, which is polled with the Gateway SSH credentials.</summary>
+    public bool IsGateway => CellularModemProviders.ModemProviderKeys.UsesGatewaySsh(Provider);
 }

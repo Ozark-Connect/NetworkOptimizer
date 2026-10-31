@@ -1047,6 +1047,16 @@ public static class UniFiProductDatabase
     }
 
     /// <summary>
+    /// Check if a device is a gateway with a built-in cellular modem (UDR-5G-Max). These are not
+    /// <see cref="IsCellularModem(string?, string?, string?)"/>: they are gateways, and are polled
+    /// with the gateway's SSH credentials rather than the device ones.
+    /// </summary>
+    /// <param name="model">The model field (internal code)</param>
+    /// <param name="shortname">The shortname field</param>
+    public static bool IsCellularGateway(string? model, string? shortname) =>
+        GetBestProductName(model, shortname) == "UDR-5G-Max";
+
+    /// <summary>
     /// Get the default QMI device path for a cellular modem based on its model.
     /// U-LTE devices use /dev/cdc-wdm0, U5G Backup uses qrtr://3,
     /// U5G-Max and other 5G modems use /dev/wwan0qmi0.
