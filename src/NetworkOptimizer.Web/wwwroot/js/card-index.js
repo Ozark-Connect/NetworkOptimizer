@@ -1,7 +1,8 @@
 // "On this page": an index of the cards on a long page, so a card under a long table is one click
 // away. App-wide and automatic: every page with 2 or more titled cards, one of them starting below
 // the first screen, gets it; a page opts out with data-no-card-index on any element, and a card
-// with no .card-title joins with data-card-index="Name".
+// with no .card-title joins with data-card-index="Name". A card with data-card-index-side-only shows
+// in the side list but not the row, for a card whose own control already sits beside the row.
 //
 // Two forms, by the room there is. Beside the content, when its left gutter fits the list: a list
 // that follows the scroll, the card in view highlighted. Otherwise a row of card names just above
@@ -128,6 +129,11 @@
         if (!root) return clear();
         var found = root.querySelector('[data-no-card-index]') ? [] : findCards(root);
         var sc = found.length ? scrollerOf(found[0]) : null;
+        var gutter = root.getBoundingClientRect().left - (sc ? paneRect(sc).left : 0);
+        var mode = gutter >= LIST_WIDTH + 2 * GAP + 8 ? 'list' : 'row';
+        if (mode === 'row') {
+            found = found.filter(function (c) { return !c.hasAttribute('data-card-index-side-only'); });
+        }
         // Worth it once a card starts below the first screen: two cards are enough when the second is
         // far down (Device Stats under its charts); three that all fit on screen hide nothing.
         var hidden = sc && found.some(function (c) {
@@ -137,8 +143,6 @@
         // Once shown, the same cards keep it: a page near one screen tall (Edit, as its Problems list
         // grows and shrinks) would otherwise add and drop it, shifting the whole page each time.
         var sig = hidden || (names && names === signature) ? names : '';
-        var gutter = root.getBoundingClientRect().left - (sc ? paneRect(sc).left : 0);
-        var mode = gutter >= LIST_WIDTH + 2 * GAP + 8 ? 'list' : 'row';
         // Same cards, same form, row still in the page: keep the index, follow the new nodes.
         if (sig === signature && (sig === '' || (mode === 'list' ? list : row && row.isConnected))) {
             if (sig) cards = found;
