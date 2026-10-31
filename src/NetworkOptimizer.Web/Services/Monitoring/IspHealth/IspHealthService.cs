@@ -1115,17 +1115,7 @@ public class IspHealthService
             .OrderBy(g => g.Key)
             .FirstOrDefault()?.Select(t => t.Address)
             ?? Enumerable.Empty<string>();
-        var loadByTime = wanRates.Select(r =>
-        {
-            double? util = null;
-            if (expectedDown is > 0 || expectedUp is > 0)
-            {
-                var d = expectedDown is > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / (expectedDown.Value * 1_000_000) : 0;
-                var u = expectedUp is > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / (expectedUp.Value * 1_000_000) : 0;
-                util = Math.Max(d, u);
-            }
-            return (r.Time, Utilization: util);
-        }).ToList();
+        var loadByTime = wanRates.Select(r => (r.Time, Utilization: Utilization(r, expectedDown, expectedUp))).ToList();
         var congestionTopology = new CongestionTopology
         {
             AccessEgressHopIps = new HashSet<string>(accessEgressIps, StringComparer.OrdinalIgnoreCase),
@@ -1714,6 +1704,28 @@ public class IspHealthService
     {
         var (report, _) = await ComputeForWindowAsync(windowStart, windowEnd, forceRefresh, ct);
         return report;
+    }
+
+    /// <summary>A rate sample's load as a fraction of the plan, worst direction; null when neither plan speed is known.</summary>
+    private static double? Utilization(ThroughputSample r, double? expectedDown, double? expectedUp)
+    {
+        if (expectedDown is not > 0 && expectedUp is not > 0) return null;
+        var d = expectedDown is > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / (expectedDown.Value * 1_000_000) : 0;
+        var u = expectedUp is > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / (expectedUp.Value * 1_000_000) : 0;
+        return Math.Max(d, u);
+    }
+
+    /// <summary>
+    /// Median WAN utilization over a span, as a fraction of this WAN's plan (worst direction), from the
+    /// same counters and plan speeds the report's load series uses. Null when the plan or the counters
+    /// are unknown - which a caller must read as "could not tell", never as idle.
+    /// </summary>
+    public async Task<double?> GetMedianUtilizationAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var ratesTask = QueryWanRatesAsync(from, to, TimeSpan.FromSeconds(_options.LoadWindowSeconds), ct);
+        var (down, up, _, _, _) = await ResolveExpectedSpeedsAsync(ct);
+        var rates = WanRateSanitizer.Filter(await ratesTask, down, up, _options).Samples;
+        return SeriesStats.Median(rates.Select(r => Utilization(r, down, up)).Where(u => u.HasValue).Select(u => u!.Value).ToList());
     }
 
     private async Task<List<ThroughputSample>> QueryWanRatesAsync(DateTime from, DateTime to, TimeSpan aggregate, CancellationToken ct)

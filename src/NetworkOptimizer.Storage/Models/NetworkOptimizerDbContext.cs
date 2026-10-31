@@ -76,6 +76,9 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<WanDiscoveryContext> WanDiscoveryContexts { get; set; }
     public DbSet<InterfaceNameMap> InterfaceNameMaps { get; set; }
     public DbSet<UpstreamDiscovery> UpstreamDiscoveries { get; set; }
+    public DbSet<PathEpisode> PathEpisodes { get; set; }
+    public DbSet<PathEpisodeTarget> PathEpisodeTargets { get; set; }
+    public DbSet<PathEpisodeTrace> PathEpisodeTraces { get; set; }
     public DbSet<MonitoredSfp> MonitoredSfps { get; set; }
     public DbSet<OuiVendor> OuiVendors { get; set; }
     public DbSet<CmConfiguration> CmConfigurations { get; set; }
@@ -451,6 +454,44 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.MonitoringTargetId);
             entity.Property(e => e.Role).HasConversion<int>();
+        });
+
+        // Path Localization episodes. MonitoringTargetId is a loose reference like UpstreamDiscovery's:
+        // an episode outlives the target it traced, and is pruned on its own retention.
+        modelBuilder.Entity<PathEpisode>(entity =>
+        {
+            entity.ToTable("PathEpisodes");
+            entity.Property(e => e.WanInterface).HasMaxLength(50);
+            entity.Property(e => e.Scope).HasMaxLength(16);
+            entity.Property(e => e.Disposition).HasMaxLength(16);
+            entity.Property(e => e.BottleneckHopIp).HasMaxLength(64);
+            entity.Property(e => e.BottleneckLabel).HasMaxLength(300);
+            entity.Property(e => e.Summary).HasMaxLength(2000);
+            entity.Property(e => e.ReturnPathFinding).HasConversion<int>();
+            entity.HasIndex(e => e.OpenedAt);
+            entity.HasMany(e => e.Targets).WithOne(t => t.Episode!).HasForeignKey(t => t.EpisodeId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.Traces).WithOne(t => t.Episode!).HasForeignKey(t => t.EpisodeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PathEpisodeTarget>(entity =>
+        {
+            entity.ToTable("PathEpisodeTargets");
+            entity.Property(e => e.Role).HasConversion<int>();
+            entity.Property(e => e.Scope).HasMaxLength(16);
+            entity.Property(e => e.Disposition).HasMaxLength(16);
+            entity.Property(e => e.BottleneckHopIp).HasMaxLength(64);
+            entity.Property(e => e.BottleneckLabel).HasMaxLength(300);
+            entity.HasIndex(e => new { e.EpisodeId, e.MonitoringTargetId, e.Role }).IsUnique();
+        });
+
+        modelBuilder.Entity<PathEpisodeTrace>(entity =>
+        {
+            entity.ToTable("PathEpisodeTraces");
+            entity.Property(e => e.Kind).HasConversion<int>();
+            entity.Property(e => e.Vantage).HasMaxLength(32);
+            entity.Property(e => e.SourceInterface).HasMaxLength(50);
+            entity.Property(e => e.ResolvedAddress).HasMaxLength(64);
+            entity.HasIndex(e => e.EpisodeId);
         });
 
         // MonitoredSfp configuration
