@@ -17,10 +17,12 @@ public sealed class ChangeEvaluator : IChangeEvaluator
 {
     private static readonly TimeSpan ManagementCheckDelay = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ManagementCheckHorizon = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan ExternalChangeAuditDelay = TimeSpan.FromSeconds(45);
 
     private readonly IServiceScopeFactory _scopes;
     private readonly IAlertEventBus? _bus;
     private readonly ILogger<ChangeEvaluator> _logger;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _pendingAudits = new();
 
     public ChangeEvaluator(IServiceScopeFactory scopes, ILogger<ChangeEvaluator> logger, IAlertEventBus? bus = null)
     {
@@ -66,7 +68,39 @@ public sealed class ChangeEvaluator : IChangeEvaluator
         }
 
         if (impact != null)
+        {
             await CheckDriftRegressionAsync(scope.ServiceProvider, repo, siteSlug, after, cancellationToken);
+            if ((impact.Regressions.Count > 0 || impact.Fixes.Count > 0)
+                && changes.Any(c => c.ActorKind != ConfigChangeActorKind.NetworkOptimizer))
+                ScheduleExternalChangeAudit(siteSlug);
+        }
+    }
+
+    private void ScheduleExternalChangeAudit(string siteSlug)
+    {
+        var next = new CancellationTokenSource();
+        while (true)
+        {
+            if (_pendingAudits.TryAdd(siteSlug, next)) break;
+            if (!_pendingAudits.TryGetValue(siteSlug, out var current)) continue;
+            if (!_pendingAudits.TryUpdate(siteSlug, next, current)) continue;
+            current.Cancel();
+            break;
+        }
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(ExternalChangeAuditDelay, next.Token);
+                if (_pendingAudits.TryRemove(new KeyValuePair<string, CancellationTokenSource>(siteSlug, next)))
+                    await RunSecurityAuditAsync(siteSlug);
+            }
+            catch (OperationCanceledException) when (next.IsCancellationRequested) { }
+            finally
+            {
+                next.Dispose();
+            }
+        });
     }
 
     /// <inheritdoc />

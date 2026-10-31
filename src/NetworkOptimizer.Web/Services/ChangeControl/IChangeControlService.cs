@@ -191,6 +191,11 @@ public interface IChangeControlService
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
     Task<int> BuildZonePlanAsync(ZoneChoices choices, CancellationToken cancellationToken = default);
 
+    /// <summary>Fix it for me: builds the plan that fixes a Security Audit finding (DnsFixes.Types). Throws when there is nothing to fix.</summary>
+    [RequireRole(Roles.Operator)]
+    [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
+    Task<int> BuildAuditFixPlanAsync(string issueType, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Builds a plan that translates a legacy-firewall snapshot's rules into zone policies on this
     /// zone-based site. Rules the translation cannot prove stop at Review Plan.

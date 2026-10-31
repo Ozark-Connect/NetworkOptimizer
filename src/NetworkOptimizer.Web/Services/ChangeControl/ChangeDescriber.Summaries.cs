@@ -42,6 +42,7 @@ public static partial class ChangeDescriber
         ConfigPlanKind.Baseline => "Return to Baseline",
         ConfigPlanKind.Revert => "Revert",
         ConfigPlanKind.Readdress or ConfigPlanKind.ReaddressPrepare => "Re-address Networks",
+        ConfigPlanKind.AuditFix => "Fix it for me",
         _ => kind.ToString(),
     };
 

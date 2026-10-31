@@ -271,6 +271,8 @@ public sealed class PlanExecutor
     private static bool Equivalent(ConfigCollectionDef def, string field, JsonNode? sent, JsonNode? got)
     {
         if (CanonicalJson.DeepEquals(sent, got)) return true;
+        // An emptied list reads back missing: UniFi stores no empty list.
+        if (sent is JsonArray { Count: 0 } && got is null or JsonArray { Count: 0 }) return true;
         if (def.SetArrays.Contains(field) && sent is JsonArray sa && got is JsonArray ga)
             return sa.Select(CanonicalJson.Serialize).ToHashSet().SetEquals(ga.Select(CanonicalJson.Serialize));
         if (def.KeyedArrays.TryGetValue(field, out var key) && sent is JsonArray s && got is JsonArray g)

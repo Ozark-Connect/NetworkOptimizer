@@ -115,9 +115,35 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     /// <summary>Records one of NO's console writes against its site's journal.</summary>
     public void Journal(string slug, UniFiWriteRecord record) => GetFor(slug).Journal(record);
 
-    /// <summary>This server's own unicast addresses (a direct site reaches the console from here).</summary>
-    private static IReadOnlyList<string> ServerAddresses()
+    /// <summary>
+    /// The addresses this server reaches the console from: the source the OS routes from toward the console
+    /// host. Every interface address is not the answer on a host with a leg on many VLANs (the NAS has five):
+    /// a policy blocking one of those VLANs from the gateway cannot cut a path that never leaves through it.
+    /// Falls back to every address when the host cannot be resolved or routed.
+    /// </summary>
+    internal static IReadOnlyList<string> ServerAddresses(string? consoleHost)
     {
+        if (!string.IsNullOrEmpty(consoleHost))
+        {
+            try
+            {
+                var targets = System.Net.IPAddress.TryParse(consoleHost, out var literal) ? [literal]
+                    : System.Net.Dns.GetHostAddresses(consoleHost);
+                var sources = new List<string>();
+                foreach (var target in targets.Where(t => t.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork))
+                {
+                    // Connect on UDP only asks the routing table; nothing is sent.
+                    using var socket = new System.Net.Sockets.Socket(target.AddressFamily, System.Net.Sockets.SocketType.Dgram, System.Net.Sockets.ProtocolType.Udp);
+                    socket.Connect(target, 443);
+                    if (socket.LocalEndPoint is System.Net.IPEndPoint local) sources.Add(local.Address.ToString());
+                }
+                if (sources.Count > 0) return sources.Distinct().ToList();
+            }
+            catch (Exception ex) when (ex is System.Net.Sockets.SocketException or ArgumentException)
+            {
+                // Unresolvable or unroutable: fall back to every address.
+            }
+        }
         try
         {
             return System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
@@ -172,8 +198,16 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
                 _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlAgentRevert[{slug}]"));
         coordinator.ManagementAddresses = () => connection.IsViaAgent && agents != null
             ? agents.GetForSite(slug).SelectMany(a => a.LocalIps.Append(a.LanIp ?? "")).Where(a => a.Length > 0).Distinct().ToList()
-            : ServerAddresses();
+            : ServerAddresses(null);
+        // Narrower than ManagementAddresses, which Re-address also reads for every address the host owns.
+        coordinator.ReachAddresses = () => connection.IsViaAgent ? coordinator.ManagementAddresses() : ServerAddresses(coordinator.ConsoleHost());
         coordinator.MoveSettings = (moves, remote, ct) => ReaddressSettingsAsync(slug, moves, remote, apply: true, ct);
+        coordinator.ZonesChanged = _ =>
+        {
+            using var scope = _sp.CreateScope();
+            scope.ServiceProvider.GetService<ThreatBlockingOperations>()?.SyncZonesSoon(slug);
+            return Task.CompletedTask;
+        };
         _coordinators[slug] = coordinator;
         var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));

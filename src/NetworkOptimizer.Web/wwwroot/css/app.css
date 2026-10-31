@@ -3938,6 +3938,15 @@ select.form-control {
     opacity: 1;
 }
 
+/* Only the first action pushes right; the ones after it sit beside it. */
+.issue-action + .issue-action {
+    margin-left: 0;
+}
+
+.issue-action.btn-primary {
+    opacity: 1;
+}
+
 .issue-settings-icon {
     width: 20px;
     height: 20px;
@@ -4713,6 +4722,10 @@ select.form-control {
     .issue-context {
         grid-column: 1 / -1;
         grid-row: 4;
+    }
+
+    .issue-fix-error {
+        grid-column: 1 / -1;
     }
 
     .issue-recommendation {
@@ -24268,6 +24281,16 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.875rem;
 }
 
+.change-control .cc-remaining-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.change-control .cc-remaining-icon svg {
+    flex-shrink: 0;
+}
+
 .change-control .cc-card-footer .cc-edit-count {
     font-size: 0.875rem;
 }
@@ -24317,6 +24340,34 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-write-step:last-child {
     border-bottom: none;
+}
+
+.change-control .cc-write-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+}
+
+.change-control .cc-write-summary .cc-link-btn {
+    padding: 0;
+    color: var(--primary-hover);
+}
+
+.change-control .cc-write-list {
+    list-style: none;
+    margin: 0.35rem 0 0.25rem;
+    padding: 0.4rem 0.6rem;
+    max-height: 18rem;
+    overflow-y: auto;
+    border-left: 2px solid var(--border-color);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-write-list li {
+    padding: 0.15rem 0;
+    overflow-wrap: anywhere;
 }
 
 .change-control .cc-step-num {
@@ -25522,4 +25573,41 @@ body:has(.top-bar-hidden) .btn-fit {
         animation: none;
         transition: none;
     }
+}
+
+/* iOS home-screen app: a download goes to the share sheet, opened from this bar when the tap that asked for it has expired. */
+.save-file-prompt {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.75rem 0.75rem 1rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--text-primary);
+}
+
+.save-file-prompt .save-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+}
+
+.save-file-prompt .save-file-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.25rem;
+    line-height: 1;
+    padding: 0.25rem 0.4rem;
+    cursor: pointer;
 }

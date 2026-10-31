@@ -166,7 +166,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         // would run first. Move ours to the front of each zone pair once; later ones land after.
         // Exceptions sit between the site's own blocks and the public lists, as SyncExceptionsAsync orders them.
         var current = await client.GetFirewallPoliciesAsync(ct);
-        var exceptionIds = state.ExceptionPolicies.Select(p => p.Id).ToHashSet();
+        var exceptionIds = ExceptionIds(state, current);
         foreach (var pair in refs.GroupBy(r => r.ZoneId))
         {
             var ids = pair.Select(r => r.Id).ToHashSet();
@@ -218,12 +218,16 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     /// The policies match every state, unlike the source policies, so a session opened before the
     /// list loaded is cut too. Only the narrow <see cref="PublicBlockList.Outbound"/> lists feed them.
     /// </remarks>
-    public async Task<int> SetFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct)
+    public async Task<int> SetFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct) =>
+        (await WriteFeedsOutboundAsync(site, enabled, ct)).Total;
+
+    /// <summary>As <see cref="SetFeedsOutboundAsync"/>, also returning how many policies it created.</summary>
+    private async Task<(int Total, int Created)> WriteFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);
         if (state?.FeedsV4Id == null || state.FeedsV6Id == null)
         {
-            if (!enabled) return 0;
+            if (!enabled) return (0, 0);
             throw new InvalidOperationException("Set up gateway blocking first.");
         }
         var client = Client(site);
@@ -241,7 +245,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                 await client.DeleteFirewallPolicyAsync(id, ct);
             state.OutboundPolicies = [];
             await SaveStateAsync(site, state, ct);
-            return 0;
+            return (0, 0);
         }
 
         var zones = await client.GetFirewallZonesAsync(ct);
@@ -261,14 +265,20 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             await client.DeleteFirewallPolicyAsync(stale.Id, ct);
 
         var refs = new List<GatewayBlockPolicyRef>();
+        var created = 0;
         foreach (var zone in zones.Where(z => z.Id != external.Id && z.ZoneKey != FirewallZoneKeys.Gateway))
         {
             foreach (var (version, groupId) in new[] { ("IPV4", state.FeedsOutV4Id), ("IPV6", state.FeedsOutV6Id) })
             {
                 var existing = policies.FirstOrDefault(p => !p.Predefined
                     && p.Source.ZoneId == zone.Id && p.Destination.ZoneId == external.Id && p.Destination.IpGroupId == groupId);
-                var id = existing?.Id ?? (await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.CreateToGroup(
-                    FeedsOutboundPolicyName, FeedsOutboundDescription, version, zone.Id, external.Id, groupId), ct)).Id;
+                var id = existing?.Id;
+                if (id == null)
+                {
+                    id = (await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.CreateToGroup(
+                        FeedsOutboundPolicyName, FeedsOutboundDescription, version, zone.Id, external.Id, groupId), ct)).Id;
+                    created++;
+                }
                 refs.Add(new GatewayBlockPolicyRef(id, zone.Id, version));
             }
         }
@@ -277,14 +287,14 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
 
         // Ahead of any custom ALLOW to External in each zone pair, as with the inbound ones.
         var current = await client.GetFirewallPoliciesAsync(ct);
-        var exceptionIds = state.ExceptionPolicies.Select(p => p.Id).ToHashSet();
+        var exceptionIds = ExceptionIds(state, current);
         foreach (var pair in refs.GroupBy(r => r.ZoneId))
         {
             if (GatewayExceptionPolicies.Order(current, pair.Key, external.Id, exceptionIds, pair.Select(r => r.Id).ToHashSet()) is { } order)
                 await client.ReorderFirewallPoliciesAsync(pair.Key, external.Id, order.Before, order.After, ct);
         }
-        _logger.LogInformation("Public lists outbound blocking set up: {Count} policies", refs.Count);
-        return refs.Count;
+        _logger.LogInformation("Public lists outbound blocking set up: {Count} policies ({Created} created)", refs.Count, created);
+        return (refs.Count, created);
     }
 
     /// <summary>
@@ -397,6 +407,85 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     }
 
     /// <inheritdoc />
+    public async Task<bool> EnsureZonePoliciesAsync(string? site, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state == null || state.Policies.Count == 0) return false;
+        // An empty zone list is a failed read (the client returns [] on error), never a console without zones.
+        var zones = await Client(site).GetFirewallZonesAsync(ct);
+        var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External);
+        if (zones.Count == 0 || external == null) return false;
+
+        var (inbound, outbound) = Uncovered(state, zones, external.Id);
+        if (!inbound && !outbound) return false;
+        var (added, gone) = ZoneChanges(state, zones, external.Id);
+        var created = 0;
+        if (inbound) created += (await SetUpAsync(site, ct)).PoliciesCreated;
+        if (outbound) created += (await WriteFeedsOutboundAsync(site, true, ct)).Created;
+        var where = site ?? "default";
+        // A zone deleted leaves only gone ones. Nothing created with a zone "added" is the record drifting (a zone re-keyed,
+        // its policies already there), not a change on the site.
+        var removed = gone.Count > 0 && added.Count == 0;
+        if (created > 0)
+            _logger.LogInformation("Gateway blocking on {Site}: {Created} per-zone policies created ({Zones} added)", where, created,
+                added.Count > 0 ? string.Join(", ", added) : "a zone lacked them");
+        else if (removed)
+            _logger.LogInformation("Gateway blocking on {Site}: {Count} zone(s) gone; their policies left the record with them", where, gone.Count);
+        else
+            _logger.LogDebug("Gateway blocking on {Site}: per-zone policy record refreshed; nothing created", where);
+        return created > 0 || removed;
+    }
+
+    /// <summary>
+    /// The exception Allow policies, which order between the site's own blocks and the public lists: the recorded ones
+    /// and any by their reserved name. The record alone can be stale: a Network app upgrade re-keys every policy (10.6 to
+    /// 11, grounding.md phase 4), and only an exception write, held while a gateway agent enforces, rewrites it. A Set Up
+    /// that missed one ordered it behind the public lists, where it never matched.
+    /// </summary>
+    internal static HashSet<string> ExceptionIds(GatewayBlocklistState state, IEnumerable<UniFiFirewallPolicy> current) =>
+        state.ExceptionPolicies.Select(p => p.Id)
+            .Concat(current.Where(p => !p.Predefined && p.Name == GatewayExceptionPolicies.PolicyName).Select(p => p.Id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Exception Allow policies on the console that the record does not hold, by their reserved name. Only Network
+    /// Optimizer writes that name, so each is its own leftover: still allowing traffic nothing tracks.
+    /// </summary>
+    internal static List<string> UntrackedExceptions(IEnumerable<UniFiFirewallPolicy> live, IEnumerable<GatewayExceptionPolicyRef> tracked)
+    {
+        var ids = tracked.Select(r => r.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return live.Where(p => !p.Predefined && p.Name == GatewayExceptionPolicies.PolicyName && !ids.Contains(p.Id)).Select(p => p.Id).ToList();
+    }
+
+    /// <summary>
+    /// Zones with no recorded policy (by name), and recorded zones the site no longer has (by ID: their names are gone
+    /// with them). Neither when only the record drifted, such as a zone ID re-keyed by a Network app upgrade.
+    /// </summary>
+    internal static (List<string> Added, List<string> Gone) ZoneChanges(GatewayBlocklistState state, IReadOnlyList<UniFiFirewallZone> zones, string externalId)
+    {
+        var recorded = state.Policies.Concat(state.OutboundPolicies).Select(r => r.ZoneId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var current = zones.Where(z => z.Id != externalId).ToList();
+        var added = current.Where(z => !recorded.Contains(z.Id)).Select(z => z.Name).ToList();
+        var ids = current.Select(z => z.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var gone = recorded.Where(id => !ids.Contains(id)).ToList();
+        return (added, gone);
+    }
+
+    /// <summary>
+    /// Whether the inbound policies (External to every other zone) and the outbound ones (every zone but External and
+    /// Gateway to External, when set up) no longer cover exactly the site's zones: one was added or removed.
+    /// </summary>
+    internal static (bool Inbound, bool Outbound) Uncovered(GatewayBlocklistState state, IReadOnlyList<UniFiFirewallZone> zones, string externalId)
+    {
+        static bool Covers(IEnumerable<GatewayBlockPolicyRef> refs, IEnumerable<string> zoneIds) =>
+            refs.Select(r => r.ZoneId).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(zoneIds);
+        var inbound = !Covers(state.Policies, zones.Where(z => z.Id != externalId).Select(z => z.Id));
+        var outbound = state.OutboundPolicies.Count > 0
+            && !Covers(state.OutboundPolicies, zones.Where(z => z.Id != externalId && z.ZoneKey != FirewallZoneKeys.Gateway).Select(z => z.Id));
+        return (inbound, outbound);
+    }
+
+    /// <inheritdoc />
     public async Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound,
         CancellationToken ct)
     {
@@ -453,7 +542,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         bool outbound, CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);
-        if (state == null || (exceptions.Count == 0 && state.ExceptionPolicies.Count == 0))
+        // With no exceptions and none recorded, the console is still read: a stale record can leave an untracked one there.
+        if (state == null)
             return exceptions.Count == 0 ? BlockTargetResult.Success(0) : BlockTargetResult.Failure("Set up gateway blocking first.");
         if (exceptions.Count > 0 && (state.FeedsV4Id == null || state.FeedsV6Id == null))
             return BlockTargetResult.Failure("Run Set Up again to add the public block lists to the gateway.");
@@ -493,7 +583,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             }
             var specs = GatewayExceptionPolicies.Build(exceptions, state, external.Id, others,
                 outbound && state.OutboundPolicies.Count > 0);
-            var present = (await client.GetFirewallPoliciesAsync(ct)).Select(p => p.Id).ToHashSet();
+            var livePolicies = await client.GetFirewallPoliciesAsync(ct);
+            var present = livePolicies.Select(p => p.Id).ToHashSet();
             var plan = GatewayExceptionPolicies.Plan(state.ExceptionPolicies, present, specs);
 
             // Every policy still on the console stays tracked until its own write succeeds, so a failure
@@ -519,6 +610,13 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                     var policy = await client.CreateFirewallPolicyAsync(spec.Body, ct);
                     refs.Add(new GatewayExceptionPolicyRef(policy.Id, spec.Key, spec.Hash));
                     created++;
+                }
+                // Last, once every wanted policy is written: an exception policy the record does not hold is a stale
+                // record's leftover (an upgrade re-keyed it, and this sync wrote it again), or one whose exception is gone.
+                foreach (var orphan in UntrackedExceptions(livePolicies, refs))
+                {
+                    await client.DeleteFirewallPolicyAsync(orphan, ct);
+                    deleted++;
                 }
             }
             finally

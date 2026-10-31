@@ -267,6 +267,11 @@ public class FirewallRuleAnalyzer
             if (rule.ActionType.IsAllowAction() && !rule.AllowsNewConnections())
                 continue;
 
+            // An allow between two LAN zones (Internal or a custom zone) is the operator's zone design, and
+            // the isolation rules judge that pair. Any->any stays Critical out of External, Hotspot, DMZ, or VPN.
+            if (rule.ActionType.IsAllowAction() && IsLanZonePair(rule, zoneLookup))
+                continue;
+
             // Check for any->any rules
             // v2 API uses SourceMatchingTarget/DestinationMatchingTarget = "ANY"
             // Legacy API uses SourceType/DestinationType = "any" or empty Source/Destination
@@ -353,6 +358,16 @@ public class FirewallRuleAnalyzer
         }
 
         return issues;
+    }
+
+    /// <summary>Both zones of a zone-based policy are LAN zones: Internal, or a custom zone (no zone key).</summary>
+    private static bool IsLanZonePair(FirewallRule rule, FirewallZoneLookup? zoneLookup)
+    {
+        if (zoneLookup == null || string.IsNullOrEmpty(rule.SourceZoneId) || string.IsNullOrEmpty(rule.DestinationZoneId))
+            return false;
+        bool IsLan(string zoneId) => zoneLookup.GetZoneById(zoneId) is { } zone
+            && (string.IsNullOrEmpty(zone.ZoneKey) || string.Equals(zone.ZoneKey, FirewallZoneKeys.Internal, StringComparison.OrdinalIgnoreCase));
+        return IsLan(rule.SourceZoneId) && IsLan(rule.DestinationZoneId);
     }
 
     /// <summary>
@@ -2432,10 +2447,7 @@ public class FirewallRuleAnalyzer
         string externalZoneId,
         IpFamily family = IpFamily.IPv4)
     {
-        // Use FirewallRuleEvaluator to find the effective rule for internet traffic
-        // Predicate matches rules that target this network's internet access
-        var evalResult = FirewallRuleEvaluator.Evaluate(firewallRules, rule =>
-            MatchesInternetTrafficPattern(rule, network, externalZoneId, family), family: family);
+        var evalResult = EvaluateInternetTraffic(network, firewallRules, externalZoneId, family);
 
         if (evalResult.IsBlocked)
         {
@@ -2459,9 +2471,64 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// Whether UniFi prevents a network from reaching the Internet. This is true when its
+    /// Internet Access setting is off, or when the effective broad External-zone policy blocks it.
+    /// Consumers that reason about a specific service should use this only as a complete
+    /// Internet deny, not as evidence of inter-VLAN isolation.
+    /// </summary>
+    internal static bool IsInternetBlocked(
+        NetworkInfo network,
+        List<FirewallRule>? firewallRules,
+        string? externalZoneId,
+        IpFamily family = IpFamily.IPv4)
+    {
+        if (!network.InternetAccessEnabled)
+            return true;
+        if (firewallRules == null || firewallRules.Count == 0 || string.IsNullOrEmpty(externalZoneId))
+            return false;
+        return EvaluateInternetTraffic(network, firewallRules, externalZoneId, family).IsBlocked;
+    }
+
+    /// <summary>
+    /// Whether a particular new connection to the External zone is blocked. This honors the
+    /// network's Internet Access setting and the first matching External-zone policy, including
+    /// a narrower allow that appears before a broad deny.
+    /// </summary>
+    internal static bool IsInternetTrafficBlocked(
+        NetworkInfo network,
+        List<FirewallRule>? firewallRules,
+        string? externalZoneId,
+        string destinationPort,
+        string protocol,
+        IpFamily family = IpFamily.IPv4)
+    {
+        if (!network.InternetAccessEnabled)
+            return true;
+        if (firewallRules == null || firewallRules.Count == 0 || string.IsNullOrEmpty(externalZoneId))
+            return false;
+        return EvaluateInternetTraffic(network, firewallRules, externalZoneId, family, destinationPort, protocol).IsBlocked;
+    }
+
+    private static FirewallRuleEvaluator.EvaluationResult EvaluateInternetTraffic(
+        NetworkInfo network,
+        List<FirewallRule> firewallRules,
+        string externalZoneId,
+        IpFamily family,
+        string? destinationPort = null,
+        string? protocol = null) =>
+        FirewallRuleEvaluator.Evaluate(firewallRules, rule =>
+            MatchesInternetTrafficPattern(rule, network, externalZoneId, family, destinationPort, protocol), family: family);
+
+    /// <summary>
     /// Check if a rule matches the pattern for blocking internet access from a specific network.
     /// </summary>
-    private static bool MatchesInternetTrafficPattern(FirewallRule rule, NetworkInfo network, string externalZoneId, IpFamily family)
+    private static bool MatchesInternetTrafficPattern(
+        FirewallRule rule,
+        NetworkInfo network,
+        string externalZoneId,
+        IpFamily family,
+        string? destinationPort = null,
+        string? protocol = null)
     {
         // Source must match this network (by network ID, IP/CIDR, or ANY)
         if (!rule.AppliesToSourceNetwork(network, family))
@@ -2475,16 +2542,18 @@ public class FirewallRuleAnalyzer
         if (!string.Equals(rule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        // Protocol must be "all" to affect ALL traffic (not just specific ports/protocols)
-        if (!string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase))
-            return false;
+        if (destinationPort != null && protocol != null)
+        {
+            if (!string.IsNullOrEmpty(rule.SourcePort)) return false;
+            // Ports unknown: a block cannot be credited, but an allow may open this port, so it counts as matching.
+            if (rule.HasUnresolvedDestinationPortGroup)
+                return rule.ActionType.IsAllowAction() && FirewallGroupHelper.BlocksProtocol(rule.Protocol, rule.MatchOppositeProtocol, protocol);
+            return FirewallGroupHelper.RuleMatchesPortAndProtocol(rule, destinationPort, protocol);
+        }
 
-        // Must have no port restriction - a rule with specific ports (e.g., 80,443)
-        // only affects those ports, not all internet traffic
-        if (!string.IsNullOrEmpty(rule.DestinationPort) || !string.IsNullOrEmpty(rule.SourcePort))
-            return false;
-
-        return true;
+        // A general Internet deny must affect every protocol and destination port.
+        return string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrEmpty(rule.DestinationPort) && string.IsNullOrEmpty(rule.SourcePort);
     }
 
     /// <summary>

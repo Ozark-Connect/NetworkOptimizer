@@ -246,6 +246,14 @@ public sealed class ConfigIdentityContext
         return new ConfigIdentityContext(names);
     }
 
+    /// <summary>These names plus <paramref name="more"/> (which win on a clash).</summary>
+    public ConfigIdentityContext With(IEnumerable<(string Id, string Name)> more)
+    {
+        var names = new Dictionary<string, string>(_namesById, StringComparer.OrdinalIgnoreCase);
+        foreach (var (id, name) in more) names[id] = name;
+        return new ConfigIdentityContext(names);
+    }
+
     /// <summary>Display name of the object with this UniFi ID, or the ID itself when unknown.</summary>
     public string NameOf(string? id) =>
         id != null && _namesById.TryGetValue(id, out var name) ? name : id ?? "";

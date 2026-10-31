@@ -23,6 +23,9 @@ internal sealed class FakeConsole : IUniFiConfigApi
     /// <summary>Fields the console silently drops on write.</summary>
     public HashSet<string> DropFields { get; } = [];
 
+    /// <summary>An empty list written reads back missing, as UniFi stores none (grounding.md 2026-10-29).</summary>
+    public bool EmptyListsReadBackMissing { get; set; }
+
     public FakeConsole(ConfigState state) => State = state;
 
     /// <summary>False simulates a console the server cannot reach.</summary>
@@ -49,6 +52,8 @@ internal sealed class FakeConsole : IUniFiConfigApi
             return Ok(scope, State.Get(def.Key).Select(o => (JsonObject)o.DeepClone()).ToList(), list: true);
         }
 
+        // Ahead of the update paths: "firewall-policies/{id}" would take batch-reorder for an ID.
+        if (path == "firewall-policies/batch-reorder") return Task.FromResult(new UniFiRawResponse(200, "{}"));
         foreach (var def in ConfigCollections.All.Where(d => d.Write != null && d.Scope == scope))
         {
             var w = def.Write!;
@@ -71,7 +76,11 @@ internal sealed class FakeConsole : IUniFiConfigApi
             {
                 var target = list.FirstOrDefault(o => ConfigState.IdOf(o) == id);
                 if (target == null) return Task.FromResult(new UniFiRawResponse(400, """{"meta":{"rc":"error","msg":"api.err.IdInvalid"}}"""));
-                foreach (var (k, v) in Clean((JsonObject)JsonNode.Parse(json!)!)) target[k] = v?.DeepClone();
+                foreach (var (k, v) in Clean((JsonObject)JsonNode.Parse(json!)!))
+                {
+                    if (EmptyListsReadBackMissing && v is JsonArray { Count: 0 }) target.Remove(k);
+                    else target[k] = v?.DeepClone();
+                }
                 return Ok(scope, [target]);
             }
             if (w.DeletePath != null && method == HttpMethod.Delete && Matches(w.DeletePath, path, out var did))
@@ -80,7 +89,6 @@ internal sealed class FakeConsole : IUniFiConfigApi
                 return Task.FromResult(new UniFiRawResponse(204, ""));
             }
         }
-        if (path == "firewall-policies/batch-reorder") return Task.FromResult(new UniFiRawResponse(200, "{}"));
         return Task.FromResult(new UniFiRawResponse(404, "{}"));
     }
 

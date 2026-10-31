@@ -62,6 +62,17 @@ public sealed class PlanCoordinator
 
     private static readonly TimeSpan AuditSettleDelay = TimeSpan.FromSeconds(45);
 
+    /// <summary>
+    /// Called once the gateway settles after a plan that created or deleted firewall zones applied (a Roll Back too):
+    /// Threat Intelligence writes its per-zone policies for the zones there are now.
+    /// </summary>
+    public Func<CancellationToken, Task>? ZonesChanged { get; set; }
+
+    // A gateway provisions for about two minutes after a zone write (grounding.md 2026-10-23); it is not in state 5 at once.
+    internal static TimeSpan ZoneSettleFirstWait = TimeSpan.FromSeconds(20);
+    internal static TimeSpan ZoneSettlePoll = TimeSpan.FromSeconds(15);
+    internal static TimeSpan ZoneSettleLimit = TimeSpan.FromMinutes(10);
+
     private string Slug => _engine.SiteSlug;
 
     /// <summary>Serializes and encrypts a plan document for storage.</summary>
@@ -86,10 +97,14 @@ public sealed class PlanCoordinator
         AgentSite = IsAgentSite(),
         ConsoleHost = ConsoleHost(),
         ManagementAddresses = ManagementAddresses(),
+        ReachAddresses = ReachAddresses(),
     };
 
     /// <summary>Addresses Network Optimizer reaches the site from, for the lockout pre-flight.</summary>
     public Func<IReadOnlyList<string>> ManagementAddresses { get; set; } = () => [];
+
+    /// <summary>The addresses Network Optimizer's traffic to the console leaves from (the routed source on a direct site).</summary>
+    public Func<IReadOnlyList<string>> ReachAddresses { get; set; } = () => [];
 
     /// <summary>
     /// Builds a plan against live, runs its impact, and stores it as a Draft. <paramref name="runImpact"/> false
@@ -103,7 +118,10 @@ public sealed class PlanCoordinator
         // Same test as a snapshot: a console that answered nothing would plan "Nothing to write".
         if (live.Collections.Count == 0 || live.ReadErrors.ContainsKey("networkconf"))
             throw new InvalidOperationException("The UniFi Console is not connected yet. Try again once it is.");
-        var doc = PlanBuilder.Build(desired, live, Options(options));
+        var opts = Options(options);
+        if (opts.Collections == null || opts.Collections.Overlaps(["firewall_zone", "firewall_policy", "nat"]))
+            opts.InformAddresses = await InformAddressesAsync(ct);
+        var doc = PlanBuilder.Build(desired, live, opts);
         decorate?.Invoke(doc);
         if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
             doc.Notes.Add("This site's On-Site Agent cannot hold the revert (it needs an agent update). "
@@ -129,6 +147,34 @@ public sealed class PlanCoordinator
             AcknowledgementsJson = JsonSerializer.Serialize(new PlanAcknowledgements()),
         };
         return await _engine.Repositories.UseAsync((r, c) => r.CreatePlanAsync(plan, c), ct);
+    }
+
+    /// <summary>IPv4 addresses devices inform to, from each device's inform_url. Empty when the console does not answer.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/device inform_url")]
+    internal async Task<IReadOnlyList<string>> InformAddressesAsync(CancellationToken ct)
+    {
+        UniFiRawResponse devices;
+        try { devices = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return []; }
+        if (!devices.IsSuccess || ConfigSnapshotReader.ExtractList(devices.Body) is not { } list) return [];
+        var hosts = list.OfType<System.Text.Json.Nodes.JsonObject>()
+            .Select(d => Uri.TryCreate(d["inform_url"]?.ToString(), UriKind.Absolute, out var u) ? u.Host : null)
+            .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase);
+        var addresses = new List<string>();
+        foreach (var host in hosts)
+        {
+            if (Readdressing.ParseIp(host) != null) { addresses.Add(host); continue; }
+            try
+            {
+                addresses.AddRange((await System.Net.Dns.GetHostAddressesAsync(host, ct))
+                    .Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork).Select(a => a.ToString()));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // An inform name that does not resolve here is left out of the check.
+            }
+        }
+        return addresses.Distinct().ToList();
     }
 
     /// <summary>
@@ -359,6 +405,8 @@ public sealed class PlanCoordinator
                 + (result.VerifyDifferences.Count > 0 ? $" {result.VerifyDifferences.Count} differences remain after verify." : "")
                 + (refused.Count > 0 ? $" {plan.Message}" : ""), plan.Id, ct);
             _engine.PollSoon();
+            if (ZonesChanged != null && ChangedZones(doc, result))
+                _ = Task.Run(() => AfterZonesSettleAsync(plan.Id));
             // In the background: the apply returns now, and the Security Audit page shows the new config without a Run Audit.
             // The wait lets UniFi settle what it derives from the writes: an audit 1.5 s after a zone apply still read the old zones.
             if (_evaluator != null && ImpactAnalyzer.Triggers(doc.Collections))
@@ -373,6 +421,40 @@ public sealed class PlanCoordinator
         {
             _applyLock.Release();
         }
+    }
+
+    /// <summary>Whether the plan created or deleted a firewall zone, by a write that applied.</summary>
+    internal static bool ChangedZones(PlanDocument doc, PlanResult result)
+    {
+        var applied = result.Operations.Where(o => o.Outcome == "Applied").Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+        return doc.Operations.Any(o => o.Collection == "firewall_zone" && o.Action is PlanAction.Create or PlanAction.Delete && applied.Contains(o.Key));
+    }
+
+    /// <summary>Waits for the gateway to finish provisioning (or ten minutes at most), then calls <see cref="ZonesChanged"/>.</summary>
+    internal async Task AfterZonesSettleAsync(int planId)
+    {
+        try
+        {
+            await Task.Delay(ZoneSettleFirstWait);
+            var deadline = DateTime.UtcNow + ZoneSettleLimit;
+            while (DateTime.UtcNow < deadline && await GatewaysSettledAsync(CancellationToken.None) == false)
+                await Task.Delay(ZoneSettlePoll);
+            await ZonesChanged!(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Plan {Plan} changed firewall zones; Threat Intelligence was not told", planId);
+        }
+    }
+
+    /// <summary>Whether every adopted gateway is connected (state 1); null when the device list does not load.</summary>
+    private async Task<bool?> GatewaysSettledAsync(CancellationToken ct)
+    {
+        var r = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
+        if (!r.IsSuccess) return null;
+        return (ConfigSnapshotReader.ExtractList(r.Body) ?? [])
+            .Where(d => d["type"]?.ToString() is "ugw" or "udm" or "uxg" && d["adopted"]?.GetValueKind() != System.Text.Json.JsonValueKind.False)
+            .All(d => d["state"]?.ToString() == "1");
     }
 
     /// <summary>

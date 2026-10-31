@@ -173,7 +173,7 @@ else
                         var open = _open.Contains(op.Key);
                         <div class="cc-plan-card @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(_open, op.Key)">
                             <div class="cc-change-card-head">
-                                <span><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span> @op.ObjectName</span>
+                                <span><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span> @DisplayObjectName(op)</span>
                                 <span class="status-badge @CcFormat.TierBadge(op.Tier)">@(op.Tier == PlanTiers.Acknowledge ? "Ack" : PlanTiers.Label(op.Tier))</span>
                             </div>
                             <div class="cc-item-detail">@op.ChangeText</div>
@@ -254,7 +254,7 @@ else
                                         </td>
                                     }
                                     <td><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span></td>
-                                    <td class="@(leftOut.Contains(op.Key) ? "muted-text" : "")">@op.ObjectName</td>
+                                    <td class="@(leftOut.Contains(op.Key) ? "muted-text" : "")">@DisplayObjectName(op)</td>
                                     <td class="hide-mobile">@op.ChangeText@(result != null && result.Outcome != "Applied" ? $" ({result.Outcome}: {result.Message})" : "")</td>
                                     <td><span class="status-badge @CcFormat.TierBadge(op.Tier)">@PlanTiers.Label(op.Tier)</span></td>
                                     <td class="cc-ack-col" @onclick:stopPropagation>
@@ -378,9 +378,27 @@ else
                         <span class="cc-step-num">@(i + 1)</span>
                         <div>
                             <div>@step.Title</div>
-                            @foreach (var g in step.Groups)
+                            @{ var groups = WriteGroups(step, doc); }
+                            @foreach (var g in groups)
                             {
-                                <div class="cc-item-detail">@g.Collection: @string.Join(", ", g.Names)</div>
+                                var stepKey = $"{i}:{g.Collection}";
+                                var listOpen = g.Items.Count <= WriteListInline ? !_openSteps.Contains(stepKey) : _openSteps.Contains(stepKey);
+                                <div class="cc-item-detail cc-write-summary">
+                                    <span>@(groups.Count > 1 ? $"{g.Collection}: " : "")@WriteSummary(g.Items)</span>
+                                    @if (g.Items.Count > 0)
+                                    {
+                                        <button class="cc-link-btn" @onclick="() => Toggle(_openSteps, stepKey)">@(listOpen ? "Hide" : $"Show {g.Items.Count}")</button>
+                                    }
+                                </div>
+                                @if (listOpen)
+                                {
+                                    <ul class="cc-write-list">
+                                        @foreach (var item in g.Items)
+                                        {
+                                            <li><span class="cc-action-text @CcFormat.PlanActionClass(item.Action)">@item.Action</span> @item.Name</li>
+                                        }
+                                    </ul>
+                                }
                             }
                             @if (!string.IsNullOrEmpty(step.Detail))
                             {
@@ -447,7 +465,7 @@ else
 
     @if (_view.Result != null)
     {
-        <div class="card">
+        <div class="card" id="cc-result">
             <div class="card-header">
                 <h3 class="card-title">Result<span class="card-title-suffix">@CcFormat.PlanStatusText(plan.Status)@(plan.Message != null ? $": {plan.Message}" : "")</span></h3>
                 @if (plan.ReportJson != null)
@@ -585,6 +603,7 @@ else
     private PlanView? _view;
     private PlanAcknowledgements _acks = new();
     private readonly HashSet<string> _open = [];
+    private readonly HashSet<string> _openSteps = [];
     private bool _showDirect;
     private bool _schedule;
     private DateTime _date = DateTime.Today;
@@ -652,6 +671,45 @@ else
 
     private static string SourceShort(ConfigPlan plan) =>
         plan.SourceDescription.StartsWith("Snapshot, ", StringComparison.Ordinal) ? plan.SourceDescription[10..].Split(',')[0] : "New";
+
+    /// <summary>An operation's name as listed: a policy order shows its zone pair ("Internal → IoT").</summary>
+    internal static string DisplayObjectName(PlanOperation operation) =>
+        operation.Action == PlanAction.Reorder && operation.ObjectName.StartsWith(PolicyOrderPrefix, StringComparison.Ordinal)
+            ? operation.ObjectName[PolicyOrderPrefix.Length..].Replace(" to ", " → ", StringComparison.Ordinal)
+            : operation.ObjectName;
+
+    private static readonly string PolicyOrderPrefix = ChangeDescriber.PolicyOrderName("");
+
+    /// <summary>A Write Order list this short shows open; a longer one shows its counts and opens on request.</summary>
+    internal const int WriteListInline = 5;
+
+    internal sealed record WriteItem(PlanAction Action, string Name);
+    internal sealed record WriteGroup(string Collection, List<WriteItem> Items);
+
+    /// <summary>A step's objects by collection, in write order, with display names. Plans built before operation keys were kept list names only.</summary>
+    internal static List<WriteGroup> WriteGroups(WriteStep step, PlanDocument doc)
+    {
+        var byKey = doc.Operations.GroupBy(o => o.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var ops = step.OperationKeys.Select(k => byKey.GetValueOrDefault(k)).OfType<PlanOperation>().ToList();
+        if (ops.Count == 0)
+            return step.Groups.Select(g => new WriteGroup(g.Collection, g.Names.Select(n => DisplayWriteOrderItem(g.Collection, n, doc)).ToList())).ToList();
+        return ops.GroupBy(o => ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection)
+            .Select(g => new WriteGroup(g.Key, g.Select(o => new WriteItem(o.Action, DisplayObjectName(o))).ToList())).ToList();
+    }
+
+    private static WriteItem DisplayWriteOrderItem(string collection, string name, PlanDocument doc)
+    {
+        var operation = doc.Operations.FirstOrDefault(o => o.ObjectName == name
+            && (ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection) == collection)
+            ?? doc.Operations.FirstOrDefault(o => o.ObjectName == name);
+        return operation == null ? new WriteItem(PlanAction.Update, name) : new WriteItem(operation.Action, DisplayObjectName(operation));
+    }
+
+    /// <summary>"54 creates, 17 updates, 11 reorders", in that order.</summary>
+    internal static string WriteSummary(IReadOnlyList<WriteItem> items) =>
+        string.Join(", ", new[] { PlanAction.Create, PlanAction.Update, PlanAction.Reorder, PlanAction.Delete }
+            .Select(a => (Action: a, Count: items.Count(i => i.Action == a))).Where(x => x.Count > 0)
+            .Select(x => CcFormat.Plural(x.Count, x.Action.ToString().ToLowerInvariant(), x.Action.ToString().ToLowerInvariant() + "s")));
 
     private void AcknowledgeAll(PlanDocument doc)
     {
@@ -756,11 +814,18 @@ else
         return null;
     }, "Approved.");
 
-    private Task ApplyAsync() => RunAsync(async () =>
+    private async Task ApplyAsync()
     {
-        await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: false);
-        return await Site.ApplyPlanAsync(PlanId);
-    }, _schedule ? "Scheduled." : "Applied.");
+        await RunAsync(async () =>
+        {
+            await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: false);
+            return await Site.ApplyPlanAsync(PlanId);
+        }, _schedule ? "Scheduled." : "Applied.");
+        // The Result card sits above the buttons; bring it into view once it renders.
+        if (_view?.Result == null) return;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval", "setTimeout(() => document.getElementById('cc-result')?.scrollIntoView({behavior:'smooth', block:'start'}), 100)");
+    }
 
     private Task CancelAsync() => RunAsync(async () =>
     {

@@ -1668,6 +1668,224 @@ public class DnsSecurityAnalyzerTests : IDisposable
     #region App-Based Detection Tests
 
     [Fact]
+    public async Task Analyze_InternetAccessDisabled_CoversDnsPortsWithoutCopyingDedicatedRules()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-security", Name = "Security", VlanId = 42, Subnet = "192.0.2.0/24", Gateway = "192.0.2.1",
+                FirewallZoneId = "security-zone", InternetAccessEnabled = false
+            },
+            new()
+            {
+                Id = "net-iot", Name = "IoT", VlanId = 43, Subnet = "198.51.100.0/24", Gateway = "198.51.100.1",
+                FirewallZoneId = "iot-zone", InternetAccessEnabled = true
+            },
+        };
+        var rules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "dot-iot", Name = "Block DoT and DoQ", Enabled = true, Action = "drop", Protocol = "tcp_udp",
+                SourceZoneId = "iot-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = ExternalZoneId, DestinationMatchingTarget = "ANY", DestinationPort = "853"
+            },
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, networks, null, null, null, null, ExternalZoneId);
+
+        result.DotProvidesFullCoverage.Should().BeTrue();
+        result.DoqProvidesFullCoverage.Should().BeTrue();
+        result.DotUncoveredNetworks.Should().BeEmpty();
+        result.DoqUncoveredNetworks.Should().BeEmpty();
+        result.DotRuleCoverage["Internet Access disabled"].Should().ContainSingle().Which.Should().Be("Security");
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNoDotBlock || i.Type == IssueTypes.DnsNoDoqBlock);
+    }
+
+    [Fact]
+    public async Task Analyze_DedicatedPortRule_IsNotLabeledAsInternetBlocked()
+    {
+        var network = new NetworkInfo
+        {
+            Id = "net-iot", Name = "IoT", VlanId = 43, Subnet = "198.51.100.0/24", Gateway = "198.51.100.1",
+            FirewallZoneId = "iot-zone", InternetAccessEnabled = true
+        };
+        var rules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "dns-iot", Name = "Block External DNS", Enabled = true, Action = "drop", Protocol = "tcp_udp",
+                SourceZoneId = "iot-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = ExternalZoneId, DestinationMatchingTarget = "ANY", DestinationPort = "53,853"
+            },
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, [network], null, null, null, null, ExternalZoneId);
+
+        result.Dns53ProvidesFullCoverage.Should().BeTrue();
+        result.DotProvidesFullCoverage.Should().BeTrue();
+        result.DoqProvidesFullCoverage.Should().BeTrue();
+        foreach (var coverage in new[] { result.Dns53RuleCoverage, result.DotRuleCoverage, result.DoqRuleCoverage })
+        {
+            coverage.Keys.Should().Equal(["Block External DNS"], "the network's Internet is open; only its own rule covers it");
+        }
+    }
+
+    [Fact]
+    public async Task Analyze_BroadExternalBlock_WithEarlierDnsAllow_CoversOnlyTheBlockedPorts()
+    {
+        var network = new NetworkInfo
+        {
+            Id = "net-management", Name = "Management", VlanId = 99, Subnet = "203.0.113.0/24", Gateway = "203.0.113.1",
+            FirewallZoneId = "management-zone", InternetAccessEnabled = true
+        };
+        var rules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "allow-dns", Name = "Allow Management DNS", Enabled = true, Action = "accept", Protocol = "udp", Index = 1,
+                SourceZoneId = "management-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = ExternalZoneId, DestinationMatchingTarget = "ANY", DestinationPort = "53"
+            },
+            new()
+            {
+                Id = "block-internet", Name = "Block Management Internet", Enabled = true, Action = "drop", Protocol = "all", Index = 2,
+                SourceZoneId = "management-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = ExternalZoneId, DestinationMatchingTarget = "ANY"
+            },
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, [network], null, null, null, null, ExternalZoneId);
+
+        result.Dns53RuleCoverage.Keys.Should().NotContain("Internet access blocked by firewall", "the earlier allow lets DNS out");
+        result.DotRuleCoverage["Internet access blocked by firewall"].Should().ContainSingle().Which.Should().Be("Management");
+        result.DoqRuleCoverage["Internet access blocked by firewall"].Should().ContainSingle().Which.Should().Be("Management");
+    }
+
+    [Fact]
+    public async Task Analyze_PortLimitedExternalBlock_IsNotAnInternetBlock()
+    {
+        var network = new NetworkInfo
+        {
+            Id = "net-iot", Name = "IoT", VlanId = 43, Subnet = "198.51.100.0/24", Gateway = "198.51.100.1",
+            FirewallZoneId = "iot-zone", InternetAccessEnabled = true
+        };
+        var rules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-web", Name = "Block IoT Web", Enabled = true, Action = "drop", Protocol = "tcp",
+                SourceZoneId = "iot-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = ExternalZoneId, DestinationMatchingTarget = "ANY", DestinationPort = "80,443"
+            },
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, [network], null, null, null, null, ExternalZoneId);
+
+        result.DotRuleCoverage.Should().NotContainKey("Internet access blocked by firewall");
+        result.DotProvidesFullCoverage.Should().BeFalse();
+        result.DoqProvidesFullCoverage.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_InternetAccessDisabled_WithNoFirewallRules_CoversDnsPorts()
+    {
+        var network = new NetworkInfo
+        {
+            Id = "net-security", Name = "Security", VlanId = 42, Subnet = "192.0.2.0/24", Gateway = "192.0.2.1",
+            FirewallZoneId = "security-zone", InternetAccessEnabled = false
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, [], null, [network], null, null, null, null, ExternalZoneId);
+
+        result.Dns53ProvidesFullCoverage.Should().BeTrue();
+        result.DotProvidesFullCoverage.Should().BeTrue();
+        result.DoqProvidesFullCoverage.Should().BeTrue();
+        result.Dns53RuleCoverage["Internet Access disabled"].Should().ContainSingle().Which.Should().Be("Security");
+    }
+
+    [Fact]
+    public async Task Analyze_InternetAccessDisabled_WithoutAnExternalZone_GivesNoCoverage()
+    {
+        var network = new NetworkInfo
+        {
+            Id = "net-security", Name = "Security", VlanId = 42, Subnet = "192.0.2.0/24", Gateway = "192.0.2.1",
+            InternetAccessEnabled = false
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, [], null, [network], null, null, null, null, null);
+
+        result.Dns53RuleCoverage.Should().NotContainKey("Internet Access disabled");
+        result.DotRuleCoverage.Should().NotContainKey("Internet Access disabled");
+    }
+
+    [Fact]
+    public async Task Analyze_EffectiveBroadExternalBlock_CoversDnsPorts()
+    {
+        var network = new NetworkInfo
+        {
+            Id = "net-management", Name = "Management", VlanId = 99, Subnet = "203.0.113.0/24", Gateway = "203.0.113.1",
+            FirewallZoneId = "management-zone", InternetAccessEnabled = true
+        };
+        var rules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-internet", Name = "Block Management Internet", Enabled = true, Action = "drop", Protocol = "all",
+                SourceZoneId = "management-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = ExternalZoneId, DestinationMatchingTarget = "ANY"
+            },
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, [network], null, null, null, null, ExternalZoneId);
+
+        result.DotProvidesFullCoverage.Should().BeTrue();
+        result.DoqProvidesFullCoverage.Should().BeTrue();
+        result.DotRuleCoverage["Internet access blocked by firewall"].Should().ContainSingle().Which.Should().Be("Management");
+    }
+
+    [Fact]
+    public async Task Analyze_NetworkIsolation_DoesNotCountAsInternetDnsCoverage()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-security", Name = "Security", VlanId = 42, Subnet = "192.0.2.0/24", Gateway = "192.0.2.1",
+                FirewallZoneId = "security-zone", InternetAccessEnabled = true, NetworkIsolationEnabled = true
+            },
+            new()
+            {
+                Id = "net-iot", Name = "IoT", VlanId = 43, Subnet = "198.51.100.0/24", Gateway = "198.51.100.1",
+                FirewallZoneId = "iot-zone", InternetAccessEnabled = true
+            },
+        };
+        var rules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "isolated", Name = "Isolated Networks", Enabled = true, Action = "drop", Protocol = "all",
+                SourceZoneId = "security-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = "internal-zone", DestinationMatchingTarget = "ANY"
+            },
+            new()
+            {
+                Id = "dot-iot", Name = "Block DoT and DoQ", Enabled = true, Action = "drop", Protocol = "tcp_udp",
+                SourceZoneId = "iot-zone", SourceMatchingTarget = "ANY",
+                DestinationZoneId = ExternalZoneId, DestinationMatchingTarget = "ANY", DestinationPort = "853"
+            },
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, networks, null, null, null, null, ExternalZoneId);
+
+        result.DotProvidesFullCoverage.Should().BeFalse();
+        result.DoqProvidesFullCoverage.Should().BeFalse();
+        result.DotUncoveredNetworks.Should().ContainSingle().Which.Should().Be("Security");
+        result.DoqUncoveredNetworks.Should().ContainSingle().Which.Should().Be("Security");
+    }
+
+    [Fact]
     public async Task Analyze_AppBasedDnsBlock_DetectsDns53()
     {
         // App-based rule using DNS app ID (589885) should detect DNS53 blocking

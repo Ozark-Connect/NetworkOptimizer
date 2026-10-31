@@ -29,6 +29,8 @@ public enum ConfigPlanKind
     Readdress = 10,
     /// <summary>Re-address Networks, before the move: shorter DHCP leases so clients move quickly.</summary>
     ReaddressPrepare = 11,
+    /// <summary>Fix it for me: a Security Audit finding's fix, built from the operator's own rules.</summary>
+    AuditFix = 12,
 }
 
 /// <summary>Plan lifecycle. Draft, Pending approval, Approved, Applied are the user-facing track.</summary>

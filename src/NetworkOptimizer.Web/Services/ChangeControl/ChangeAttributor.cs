@@ -37,6 +37,9 @@ public static class ChangeAttributor
     /// <summary>How long after a device's firmware changes its own unattributed changes count as likely UniFi.</summary>
     public static readonly TimeSpan DeviceUpgradeWindow = TimeSpan.FromMinutes(20);
 
+    /// <summary>How long a network's AUDIT event can account for a side effect UniFi writes without one.</summary>
+    public static readonly TimeSpan SideEffectWindow = TimeSpan.FromMinutes(10);
+
     /// <summary>
     /// Fields UniFi itself rewrites (Network app upgrade migrations; nightly channel optimization).
     /// From the 10.6 app's Auto-Optimize removal migration (network-app-10.6-dtos.md).
@@ -106,10 +109,11 @@ public static class ChangeAttributor
     /// <param name="inUpgradeWindow">The Network app version changed recently.</param>
     /// <param name="beforeReadAt">When the diff's before state was read; null when unknown.</param>
     /// <param name="upgradedDevices">MACs of devices whose firmware changed within <see cref="DeviceUpgradeWindow"/>.</param>
+    /// <param name="recentEvents">AUDIT change events of the last <see cref="SideEffectWindow"/>, earlier passes' included; used only by <see cref="SideEffectCause"/>.</param>
     public static List<AttributedChange> Attribute(
         IReadOnlyList<ObjectDiff> objects, IReadOnlyList<AuditLogEvent> events,
         IReadOnlyList<ConfigWriteJournalEntry> journal, DateTime now, bool inUpgradeWindow, DateTime? beforeReadAt = null,
-        IReadOnlySet<string>? upgradedDevices = null)
+        IReadOnlySet<string>? upgradedDevices = null, IReadOnlyList<AuditLogEvent>? recentEvents = null)
     {
         var result = new List<AttributedChange>();
         // A write already in the before state owns only events from before that read: an admin's edit in
@@ -120,26 +124,31 @@ public static class ChangeAttributor
         var ownObjects = new List<ObjectDiff>();
         var unattributed = new List<ObjectDiff>();
 
+        void CreditPerson(ObjectDiff obj, AuditLogEvent evt)
+        {
+            var key = ActorKey(evt);
+            if (!byActor.TryGetValue(key, out var group))
+            {
+                byActor[key] = group = new AttributedChange
+                {
+                    ActorKind = ConfigChangeActorKind.Person,
+                    ActorName = evt.AdminName,
+                    ActorIp = evt.Ip,
+                    ActorPlatform = evt.Platform,
+                    OccurredAt = evt.TimeUtc,
+                };
+                result.Add(group);
+            }
+            group.Objects.Add(obj);
+            if (!group.Events.Contains(evt)) group.Events.Add(evt);
+        }
+
         foreach (var obj in objects)
         {
             var evt = FindEvent(obj, humanEvents);
             if (evt != null)
             {
-                var key = $"{evt.AdminId ?? evt.AdminName}|{evt.Ip}";
-                if (!byActor.TryGetValue(key, out var group))
-                {
-                    byActor[key] = group = new AttributedChange
-                    {
-                        ActorKind = ConfigChangeActorKind.Person,
-                        ActorName = evt.AdminName,
-                        ActorIp = evt.Ip,
-                        ActorPlatform = evt.Platform,
-                        OccurredAt = evt.TimeUtc,
-                    };
-                    result.Add(group);
-                }
-                group.Objects.Add(obj);
-                if (!group.Events.Contains(evt)) group.Events.Add(evt);
+                CreditPerson(obj, evt);
                 continue;
             }
 
@@ -165,6 +174,16 @@ public static class ChangeAttributor
             else if (obj.Action == ConfigChangeAction.Deleted && journal.Any(j => j.Collection == "wlanconf" && j.Method == "DELETE")) ownObjects.Add(obj);
             else if (wlan == null && obj.Action == ConfigChangeAction.Deleted) likelyUniFi.Add(obj);
             else unattributed.Add(obj);
+        }
+
+        // Side effects UniFi writes with no AUDIT event of their own follow the network change that caused them.
+        var causes = (recentEvents ?? []).Concat(events).Where(e => e.IsChange).DistinctBy(e => e.Id).ToList();
+        foreach (var obj in unattributed.ToList())
+        {
+            if (SideEffectCause(obj, causes, now) is not { } cause) continue;
+            unattributed.Remove(obj);
+            if (IsOwnEvent(cause, journal)) ownObjects.Add(obj);
+            else CreditPerson(obj, cause);
         }
 
         if (ownObjects.Count > 0)
@@ -199,6 +218,67 @@ public static class ChangeAttributor
         }
         return result.OrderBy(g => g.OccurredAt).ToList();
     }
+
+    private static string ActorKey(AuditLogEvent e) => $"{e.AdminId ?? e.AdminName}|{e.Ip}";
+
+    private static readonly System.Text.RegularExpressions.Regex PortExclusionPath =
+        new(@"^port_overrides\[port_idx=\d+\]\.excluded_networkconf_ids$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The AUDIT event behind a change UniFi writes with no event of its own (UDR7, Network 11, 2026-10-30), held to two shapes:
+    /// <list type="bullet">
+    /// <item>A zone whose only change is its networks: each network added or removed has a network event in the window
+    /// that moves it (created, removed, or its zone changed: see <see cref="MovesZone"/>).</item>
+    /// <item>A device whose only changes are port <c>excluded_networkconf_ids</c> lists: each network added or removed was
+    /// created or removed in the window. UniFi logs the same edit on port profiles, not on devices.</item>
+    /// </list>
+    /// Every network must be accounted for, all by one actor; anything else stays unattributed. Returns the newest such event.
+    /// </summary>
+    internal static AuditLogEvent? SideEffectCause(ObjectDiff obj, IReadOnlyList<AuditLogEvent> events, DateTime now)
+    {
+        if (obj.Action != ConfigChangeAction.Updated || obj.Fields.Count == 0) return null;
+        var zone = obj.Collection == "firewall_zone" && obj.Fields.All(f => f.Path == "network_ids");
+        var device = obj.Collection == "device" && obj.Fields.All(f => PortExclusionPath.IsMatch(f.Path));
+        if (!zone && !device) return null;
+
+        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in obj.Fields)
+        {
+            if (f.Secret || IdList(f.Old) is not { } before || IdList(f.New) is not { } after) return null;
+            changed.UnionWith(before.Except(after, StringComparer.OrdinalIgnoreCase));
+            changed.UnionWith(after.Except(before, StringComparer.OrdinalIgnoreCase));
+        }
+        if (changed.Count == 0) return null;
+
+        var networks = ConfigCollections.Get("networkconf")!;
+        var found = new List<AuditLogEvent>();
+        foreach (var id in changed)
+        {
+            var cause = events.Where(e => Matches(e.ObjectId, id)
+                    && e.TimeUtc <= now + JournalSlack && now - e.TimeUtc <= SideEffectWindow
+                    && (networks.AuditSections.Contains(e.Section ?? "") || networks.AuditCollectionNames.Contains(e.SettingCollection ?? ""))
+                    && (e.Key is "GENERATED" or "REMOVED_ENTITY" || (zone && MovesZone(e))))
+                .MaxBy(e => e.Timestamp);
+            if (cause == null) return null;
+            found.Add(cause);
+        }
+        return found.Select(ActorKey).Distinct(StringComparer.Ordinal).Count() == 1 ? found.MaxBy(e => e.Timestamp) : null;
+    }
+
+    /// <summary>
+    /// A network event that can carry a zone move: one naming <c>firewall_zone_id</c> (zone picked on the network), or a
+    /// multi-setting one, which names no setting (zone created holding the network logs one with COUNT 2).
+    /// </summary>
+    private static bool MovesZone(AuditLogEvent e) =>
+        e.Key == "MADE_CHANGES_MULTIPLE_SETTING_OBJECTS" || (e.Key == "MADE_CHANGES_ONE_SETTING_OBJECT" && e.SettingField == "firewall_zone_id");
+
+    /// <summary>A list of IDs (null or absent reads as empty); null when the value is anything else.</summary>
+    private static List<string>? IdList(JsonNode? node) => node switch
+    {
+        null => [],
+        JsonArray a when a.All(x => x is JsonValue v && v.TryGetValue<string>(out _)) => a.Select(x => x!.GetValue<string>()).ToList(),
+        _ => null,
+    };
 
     /// <summary>
     /// The writes that can account for an object's diff. One that finished before the diff's before

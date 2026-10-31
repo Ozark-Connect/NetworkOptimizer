@@ -34,6 +34,16 @@ public sealed class PlanOptions
     /// </summary>
     public IReadOnlyList<string> ManagementAddresses { get; init; } = [];
 
+    /// <summary>
+    /// The addresses Network Optimizer's own traffic to the console leaves from: on a direct site the routed
+    /// source, not every address of a host with legs on many VLANs. The gateway-policy check uses it; empty
+    /// falls back to <see cref="ManagementAddresses"/>.
+    /// </summary>
+    public IReadOnlyList<string> ReachAddresses { get; init; } = [];
+
+    /// <summary>IPv4 addresses devices inform to (from each device's inform_url), for the inform-path check.</summary>
+    public IReadOnlyList<string> InformAddresses { get; set; } = [];
+
     /// <summary>The target has no gateway adopted yet: gateway-bound collections wait.</summary>
     public bool TargetHasGateway { get; init; } = true;
 
@@ -150,8 +160,10 @@ public static class PlanBuilder
         }
 
         AddPolicyOrder(doc, desired, live, idMap, creates, liveCtx, options);
+        OwnedPoliciesGoWithTheirZone(doc, live, liveCtx);
         CheckReferrers(doc, live, desired, idMap);
         ZoneMovesAfterTheirTarget(doc, live);
+        PolicyWritesAfterZoneMoves(doc, live);
 
         var planned = PlannedState(live, doc);
         foreach (var finding in LockoutChecker.Check(live, planned, doc, options))
@@ -391,7 +403,9 @@ public static class PlanBuilder
             op.Action = PlanAction.Create;
             op.ObjectName = name;
             op.Body = body;
-            op.WriteFields = body.Select(p => p.Key).Where(k => k is not "_id" and not "id").ToList();
+            // UniFi gives a new firewall policy its own index (grounding.md 2026-10-23: stored 10000 whatever was sent);
+            // the plan's reorder places it, and verify checks that. Checked here, every copy read "Not applied: Index".
+            op.WriteFields = body.Select(p => p.Key).Where(k => k is not "_id" and not "id" && !(def.Key == "firewall_policy" && k == "index")).ToList();
             op.Order = def.Order;
             op.ChangeText = DescribeObject(def, desired, desiredCtx);
             op.NeedsGateway = write.NeedsGateway;
@@ -405,8 +419,7 @@ public static class PlanBuilder
             {
                 // Values as written: the mapped body, named as on this site, a reference to another create by its name.
                 var names = live == null ? liveById.ToDictionary(e => e.Key, e => ConfigState.DisplayName(ConfigCollections.Get(e.Value.Collection), e.Value.Object)) : [];
-                foreach (var other in creates.Values.Where(c => c.Key.Length > 0))
-                    names[RefPrefix + other.Key] = other.Key.Split(':') is { Length: > 2 } parts ? parts[2] : other.Key;
+                foreach (var (refId, refName) in RefNames(creates)) names[refId] = refName;
                 var here = new ConfigIdentityContext(names);
                 op.Fields = ChangeDescriber.ForDisplay(written.Fields.SelectMany(f => CreateRows(def, f, remapped, here)).ToList());
             }
@@ -432,12 +445,14 @@ public static class PlanBuilder
         };
         var updateBody = UpdateBody(def, live, remapped, diff, update.WriteFields);
         update.Body = updateBody;
+        // A value can point at an object this plan creates (a policy moving into a new zone): name it as a create's rows do.
+        var updateCtx = liveCtx.With(RefNames(creates));
         update.Fields = diff.Fields.Select(f => new StoredField
         {
             Path = f.Path,
             Label = ChangeDescriber.LabelFor(f.Path, remapped, live),
-            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, liveCtx),
-            New = f.Secret ? null : ChangeDescriber.Value(f.New, liveCtx),
+            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, updateCtx),
+            New = f.Secret ? null : ChangeDescriber.Value(f.New, updateCtx),
             Secret = f.Secret,
         }).ToList();
         if (def.Key == "wlanconf" && ChangeDescriber.Rows(diff).FirstOrDefault(r => r.Label == ChangeDescriber.SecurityProtocol) is { } sec)
@@ -447,7 +462,7 @@ public static class PlanBuilder
         }
         // Display rows only; the write uses Body.
         update.Fields = ChangeDescriber.ForDisplay(update.Fields);
-        update.ChangeText = ChangeDescriber.ChangeText(diff, liveCtx, liveCtx);
+        update.ChangeText = ChangeDescriber.ChangeText(diff, updateCtx, updateCtx);
         ApplyTags(update, diff);
         update.ManagementPath = diff.ManagementPath;
         update.WanPath = diff.WanPath;
@@ -456,6 +471,11 @@ public static class PlanBuilder
         if (update.WanPath) AddReason(update, "WAN path change");
         return update;
     }
+
+    /// <summary>Each object this plan creates, by its <c>@ref:</c> token, named from its operation key ("firewall_zone:create:IoT:..." is IoT).</summary>
+    private static IEnumerable<(string Id, string Name)> RefNames(Dictionary<string, PlanOperation> creates) =>
+        creates.Values.Where(c => c.Key.Length > 0)
+            .Select(c => (RefPrefix + c.Key, c.Key.Split(':') is { Length: > 2 } parts ? parts[2] : c.Key));
 
     /// <summary>
     /// A WPA mode and PMF setting UniFi refuses together (api.err.InvalidSecurityPmfModeCombination,
@@ -804,7 +824,7 @@ public static class PlanBuilder
         {
             var partial = new JsonObject();
             foreach (var field in changedTop)
-                partial[field] = desired[field]?.DeepClone();
+                partial[field] = desired[field]?.DeepClone() ?? EmptiedList(live, field);
             DropAnyMatchType(def, partial);
             return partial;
         }
@@ -815,6 +835,7 @@ public static class PlanBuilder
         foreach (var field in changedTop)
         {
             if (desired.ContainsKey(field)) merged[field] = desired[field]?.DeepClone();
+            else if (EmptiedList(live, field) is { } empty) merged[field] = empty;
             else merged.Remove(field);
         }
         merged.Remove("site_id");
@@ -825,6 +846,13 @@ public static class PlanBuilder
         DropAnyMatchType(def, merged);
         return merged;
     }
+
+    /// <summary>
+    /// An empty list for a list field the desired side leaves out: UniFi stores no empty list (it reads back missing,
+    /// grounding.md 2026-10-29), so "missing" means empty, and a v1 PUT keeps a field it is not sent. Leaving it out
+    /// would keep the live list (a deleted network still in a port profile's excluded networks).
+    /// </summary>
+    private static JsonArray? EmptiedList(JsonObject live, string field) => live[field] is JsonArray ? new JsonArray() : null;
 
     /// <summary>The top-level field of a diff path ("port_overrides[port_idx=4].name" is port_overrides).</summary>
     public static string TopField(string path)
@@ -850,6 +878,8 @@ public static class PlanBuilder
         var def = ConfigCollections.Get("firewall_policy")!;
 
         string Map(string id) => idMap.TryGetValue(id, out var l) ? l : creates.TryGetValue(id, out var c) ? RefPrefix + c.Key : id;
+        // A pair can be a zone this plan creates: named as a create's rows name it.
+        var pairCtx = liveCtx.With(RefNames(creates));
 
         var liveOrder = ConfigDiffEngine.PolicyOrder(live);
         var deleted = doc.Operations.Where(o => o.Action == PlanAction.Delete && o.Collection == "firewall_policy").Select(o => o.ObjectId).ToHashSet();
@@ -891,23 +921,40 @@ public static class PlanBuilder
                     : liveIndex.TryGetValue(id, out var li) ? li : long.MinValue;
                 (idx < predefinedMin ? before : after).Add(id);
             }
-            // The reorder runs before the deletes, and UniFi refuses one that leaves out a policy the
-            // pair still has (ShouldIncludeFirewallPolicyInBatchUpdate): a policy about to be deleted
-            // keeps its slot until then.
-            foreach (var p in live.Get("firewall_policy").Where(p => deleted.Contains(ConfigState.IdOf(p))
-                         && p["source"]?["zone_id"]?.ToString() == src && p["destination"]?["zone_id"]?.ToString() == dst))
+            // UniFi refuses a reorder that leaves out a policy the pair still has (ShouldIncludeFirewallPolicyInBatchUpdate).
+            // The reorder runs before the deletes, so a policy about to be deleted is one, and so is any the desired state
+            // does not place here but the plan leaves here: one outside a Roll Back's objects, Threat Intelligence's under
+            // an ID the Baseline predates. Each keeps its spot, right after the policy it follows on the console now.
+            var inPair = live.Get("firewall_policy")
+                .Where(p => def.IsGenerated?.Invoke(p) != true && p["source"]?["zone_id"]?.ToString() == src && p["destination"]?["zone_id"]?.ToString() == dst)
+                .OrderBy(p => liveIndex.GetValueOrDefault(ConfigState.IdOf(p), long.MaxValue)).ToList();
+            var listed = before.Concat(after).Select(n => n!.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool MovesOut(string id) => doc.Operations.Any(o => o.Action == PlanAction.Update && o.Collection == "firewall_policy"
+                && string.Equals(o.ObjectId, id, StringComparison.OrdinalIgnoreCase) && o.Body is JsonObject b
+                && (b["source"]?["zone_id"]?.ToString() is { } bs && bs != src || b["destination"]?["zone_id"]?.ToString() is { } bd && bd != dst));
+            var order = inPair.Select(ConfigState.IdOf).ToList();
+            foreach (var p in inPair)
             {
-                var idx = p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
-                (idx < predefinedMin ? before : after).Add(ConfigState.IdOf(p));
+                var id = ConfigState.IdOf(p);
+                if (listed.Contains(id) || (!deleted.Contains(id) && MovesOut(id))) continue;
+                var slot = liveIndex.GetValueOrDefault(id, long.MaxValue) < predefinedMin ? before : after;
+                // After the nearest policy ahead of it on the console that this slot lists; first when there is none.
+                var at = 0;
+                for (var k = order.IndexOf(id) - 1; k >= 0; k--)
+                {
+                    var prev = slot.Select(n => n!.ToString()).ToList().FindIndex(x => string.Equals(x, order[k], StringComparison.OrdinalIgnoreCase));
+                    if (prev >= 0) { at = prev + 1; break; }
+                }
+                slot.Insert(at, id);
+                listed.Add(id);
             }
 
-            var pair = $"{liveCtx.NameOf(src)} to {liveCtx.NameOf(dst)}";
             doc.Operations.Add(new PlanOperation
             {
                 Key = $"firewall_policy:reorder:{src}>{dst}",
                 Collection = "firewall_policy",
                 Action = PlanAction.Reorder,
-                ObjectName = $"Policy order, {pair}",
+                ObjectName = ChangeDescriber.PolicyOrderName($"{pairCtx.NameOf(src)} to {pairCtx.NameOf(dst)}"),
                 Order = 7,
                 SourceZoneId = src,
                 DestinationZoneId = dst,
@@ -948,8 +995,9 @@ public static class PlanBuilder
                 {
                     var oid = ConfigState.IdOf(o);
                     if (oid.Equals(del.ObjectId, StringComparison.OrdinalIgnoreCase) || deletedIds.Contains(oid)) continue;
-                    // A reference in a field UniFi manages (Etherlighting's network colors) is UniFi's to clean up.
-                    if (!References(WithoutReadOnly(def, o), del.ObjectId!)) continue;
+                    // A reference in a field UniFi manages (Etherlighting's network colors) is UniFi's to clean up, and so
+                    // is a port's exclusion of a network: UniFi adds each new network to them and takes a deleted one out.
+                    if (!References(WithoutExclusions(WithoutReadOnly(def, o)), del.ObjectId!)) continue;
                     // The referrer is fixed when the plan's update no longer carries the reference.
                     if (updatesById.TryGetValue(oid, out var upd) && upd.Body is JsonObject body && !References(MergeForCheck(o, body), del.ObjectId!))
                         continue;
@@ -972,6 +1020,18 @@ public static class PlanBuilder
             if (!def.IsReadOnly(o, k)) copy[k] = v?.DeepClone();
         return copy;
     }
+
+    /// <summary>
+    /// The object without its excluded-network lists, at any depth (a port profile's, a device port override's). UniFi
+    /// removes a deleted network from them itself (AUDIT, UDR7, Network 11, 2026-10-30: the port profiles' edit on a
+    /// network delete), so an exclusion never keeps a network from being deleted.
+    /// </summary>
+    private static JsonNode? WithoutExclusions(JsonNode? node) => node switch
+    {
+        JsonObject o => new JsonObject(o.Where(p => p.Key != "excluded_networkconf_ids").Select(p => KeyValuePair.Create(p.Key, WithoutExclusions(p.Value)))),
+        JsonArray a => new JsonArray(a.Select(WithoutExclusions).ToArray()),
+        _ => node?.DeepClone(),
+    };
 
     private static JsonObject MergeForCheck(JsonObject live, JsonObject body)
     {
@@ -1094,6 +1154,78 @@ public static class PlanBuilder
             given.ExceptWith(Ids(op.Body));
             if (given.Count == 0) continue;
             op.After.AddRange(zones.Where(t => t != op && Ids(t.Body).Overlaps(given)).Select(t => t.Key).Except(op.After));
+        }
+    }
+
+    /// <summary>
+    /// A zone the plan deletes (a Roll Back of Set Up Zones) takes Network Optimizer's own policies in it with it:
+    /// Threat Intelligence writes one per zone, the plan never writes them otherwise, and the zone cannot go while they
+    /// name it. They are deleted before the zone; Threat Intelligence rewrites its policies for the zones left once the
+    /// plan applies (PlanCoordinator.ZonesChanged).
+    /// </summary>
+    private static void OwnedPoliciesGoWithTheirZone(PlanDocument doc, ConfigState live, ConfigIdentityContext liveCtx)
+    {
+        var zones = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete && o.ObjectId != null)
+            .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (zones.Count == 0) return;
+        var def = ConfigCollections.Get("firewall_policy")!;
+        var deleting = doc.Operations.Where(o => o.Action == PlanAction.Delete && o.Collection == def.Key && o.ObjectId != null)
+            .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var policy in live.Get(def.Key))
+        {
+            var id = ConfigState.IdOf(policy);
+            if (ConfigCollections.OwnedBy(def, policy) is not { } owner || deleting.Contains(id)) continue;
+            if (!zones.Contains(policy["source"]?["zone_id"]?.ToString() ?? "") && !zones.Contains(policy["destination"]?["zone_id"]?.ToString() ?? "")) continue;
+            var name = ConfigState.DisplayName(def, policy);
+            doc.Operations.Add(new PlanOperation
+            {
+                Key = OpKey(def, PlanAction.Delete, name, id),
+                Collection = def.Key,
+                Action = PlanAction.Delete,
+                ObjectId = id,
+                ObjectName = name,
+                Order = def.Order,
+                ChangeText = DescribeObject(def, policy, liveCtx),
+                Tier = PlanTiers.Acknowledge,
+                Reasons = [$"In a zone this plan deletes; {owner} rewrites its policies for the zones left"],
+                NeedsGateway = def.Write!.NeedsGateway,
+            });
+        }
+    }
+
+    /// <summary>
+    /// A plan that moves networks between zones writes every policy after every zone write: the zone write pauses each
+    /// policy naming a network it moves and strips that network (UDR7, Network 11, 2026-10-30), so a policy written
+    /// first is undone. Holds for any such plan: Set Up Zones, its Roll Back (which moves the networks back), an edit.
+    /// A policy update naming a moved network also verifies enabled and both sides, which that zone write changes.
+    /// </summary>
+    private static void PolicyWritesAfterZoneMoves(PlanDocument doc, ConfigState live)
+    {
+        static HashSet<string> Ids(JsonNode? node) =>
+            (node?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var liveZones = live.Get("firewall_zone").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
+        var moved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var zoneKeys = new List<string>();
+        foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action is PlanAction.Create or PlanAction.Update && o.Body?["network_ids"] is JsonArray))
+        {
+            var added = Ids(op.Body);
+            if (op.ObjectId != null && liveZones.TryGetValue(op.ObjectId, out var was)) added.ExceptWith(Ids(was));
+            if (added.Count == 0) continue;
+            moved.UnionWith(added);
+            zoneKeys.Add(op.Key);
+        }
+        if (zoneKeys.Count == 0) return;
+
+        var livePolicies = live.Get("firewall_policy").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
+        bool NamesMoved(JsonNode? policy) => policy != null && (Ids(policy["source"]).Overlaps(moved) || Ids(policy["destination"]).Overlaps(moved));
+        foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
+        {
+            op.After.AddRange(zoneKeys.Except(op.After));
+            if (op.Action != PlanAction.Update || op.Body is not JsonObject body) continue;
+            if (!NamesMoved(body) && !(op.ObjectId != null && NamesMoved(livePolicies.GetValueOrDefault(op.ObjectId)))) continue;
+            foreach (var field in new[] { "enabled", "source", "destination" })
+                if (!op.WriteFields.Contains(field) && body.ContainsKey(field)) op.WriteFields.Add(field);
         }
     }
 

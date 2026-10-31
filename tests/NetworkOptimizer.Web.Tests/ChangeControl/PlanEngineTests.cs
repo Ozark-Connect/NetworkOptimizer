@@ -161,6 +161,84 @@ public class PlanEngineTests
         PlanBuilder.Build(desired, after, new PlanOptions()).Operations.Should().BeEmpty("a second plan finds nothing left to do");
     }
 
+    // A trunk profile with every network tagged has no excluded list; UniFi adds each new network to it (unticked).
+    private const string TrunkAllTagged = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1"}""";
+    private const string TrunkExcludingTestNet = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1","excluded_networkconf_ids":["n2"]}""";
+
+    [Fact]
+    public async Task Baseline_RestoringAProfileWithEveryNetworkTagged_EmptiesItsExclusions_AndDeletesTheNetwork()
+    {
+        var desired = State(("networkconf", Lan), ("portconf", TrunkAllTagged));
+        var console = new FakeConsole(State(("networkconf", Lan), ("networkconf", Iot), ("portconf", TrunkExcludingTestNet))) { EmptyListsReadBackMissing = true };
+        var doc = Plan(desired, console.State.Clone());
+
+        doc.Errors.Should().BeEmpty();
+        var profile = doc.Operations.Single(o => o.Collection == "portconf");
+        profile.Body!["excluded_networkconf_ids"]!.AsArray().Should().BeEmpty("a v1 PUT keeps a field it is not sent, so the list is sent empty");
+        doc.Operations.Should().Contain(o => o.Action == PlanAction.Delete && o.ObjectId == "n2");
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        result.Operations.Single(o => o.Key == profile.Key).Outcome.Should().Be("Applied", "an emptied list reads back missing");
+        var after = await new ConfigSnapshotReader(NullLogger.Instance).ReadAsync(console);
+        after.Get("portconf").Single().ContainsKey("excluded_networkconf_ids").Should().BeFalse();
+        after.Get("networkconf").Should().NotContain(n => ConfigState.IdOf(n) == "n2");
+        PlanBuilder.Build(desired, after, new PlanOptions()).Operations.Should().BeEmpty("a second plan finds nothing left to do");
+    }
+
+    [Fact]
+    public void Delete_OfANetworkAPortOnlyExcludes_IsNotBlocked()
+    {
+        // Roll Back of a plan that created the network: UniFi's exclusions are outside the revert, and UniFi takes the
+        // deleted network out of them itself.
+        var live = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", TrunkExcludingTestNet),
+            ("device", """{"_id":"d1","mac":"aa:00:00:00:00:01","name":"Switch","port_overrides":[{"port_idx":4,"excluded_networkconf_ids":["n2"]}]}"""));
+        var desired = State(("networkconf", Lan), ("portconf", TrunkAllTagged),
+            ("device", """{"_id":"d1","mac":"aa:00:00:00:00:01","name":"Switch","port_overrides":[{"port_idx":4}]}"""));
+
+        var doc = Plan(desired, live, new PlanOptions { OnlyObjects = new HashSet<(string, string)> { ("networkconf", "n2") } });
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().ContainSingle().Which.Action.Should().Be(PlanAction.Delete);
+    }
+
+    [Theory]
+    [InlineData("""{"_id":"p1","name":"[Trunk] Uplink","native_networkconf_id":"n2"}""")]
+    [InlineData("""{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","native_networkconf_id":"n1","tagged_networkconf_ids":["n2"]}""")]
+    [InlineData("""{"_id":"p1","name":"[Voice] Desk","voice_networkconf_id":"n2"}""")]
+    public void Delete_OfANetworkAPortUses_IsStillBlocked(string profile)
+    {
+        var live = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", profile));
+        var desired = State(("networkconf", Lan), ("portconf", profile));
+
+        var doc = Plan(desired, live, new PlanOptions { OnlyObjects = new HashSet<(string, string)> { ("networkconf", "n2") } });
+
+        doc.Errors.Should().ContainSingle().Which.Should().Contain("Port Profile");
+    }
+
+    [Fact]
+    public async Task Executor_NewFirewallPolicy_IsAppliedThoughUniFiAssignsItsOwnIndex()
+    {
+        // A zone-wide copy carries its template's index; UniFi stores its own on a create, and the reorder places it.
+        const string zones = """{"_id":"z1","name":"IoT"}""";
+        const string external = """{"_id":"z2","name":"External"}""";
+        var console = new FakeConsole(State(("firewall_zone", zones), ("firewall_zone", external), ("firewall_policy", """{"_id":"keep","name":"Existing","action":"BLOCK","index":10000,"source":{"zone_id":"z1","matching_target":"ANY"},"destination":{"zone_id":"z2","matching_target":"ANY"}}""")));
+        console.DropFields.Add("index");
+        var desired = console.State.Clone();
+        desired.Collections["firewall_policy"].Add(JsonNode.Parse("""{"_id":"copy","name":"Block External DNS (IoT)","action":"BLOCK","enabled":true,"index":10004,"protocol":"udp","source":{"zone_id":"z1","matching_target":"ANY"},"destination":{"zone_id":"z2","matching_target":"ANY"}}""")!.AsObject());
+        var doc = Plan(desired, console.State.Clone(), new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+
+        var create = doc.Operations.Single(o => o.Action == PlanAction.Create);
+        create.Body!.AsObject().ContainsKey("index").Should().BeTrue("the body is unchanged");
+        create.WriteFields.Should().NotContain("index");
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        result.Operations.Single(o => o.Key == create.Key).Outcome.Should().Be("Applied");
+    }
+
     [Fact]
     public async Task Executor_RefusedButWritten_CountsAsApplied()
     {

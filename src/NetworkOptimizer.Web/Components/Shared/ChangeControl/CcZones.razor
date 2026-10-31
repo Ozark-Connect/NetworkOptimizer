@@ -133,8 +133,21 @@ else
 
     <div class="card">
         <div class="cc-card-footer">
-            <span class="cc-remaining @(b.Unassigned > 0 ? "warning-text" : "muted-text")">
-                @(b.Unassigned > 0 ? $"{CcFormat.Plural(b.Unassigned, "network", "networks")} unassigned: they keep their current zone" : "Every network has a zone")
+            @{
+                var placed = b.Zones.Where(z => z.Key != ZoneSetup.UnassignedKey).ToList();
+                var total = placed.Sum(z => z.NetworkIds.Count) + b.Unassigned;
+            }
+            <span class="cc-remaining cc-remaining-icon @(b.Unassigned > 0 ? "warning-text" : "success-text")">
+                @if (b.Unassigned > 0)
+                {
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M8 1.8l6.6 11.7H1.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M8 6.2v3.4M8 11.6v.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+                    <span>@b.Unassigned of @CcFormat.Plural(total, "network", "networks") unassigned: they keep their current zone</span>
+                }
+                else
+                {
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    <span>All @CcFormat.Plural(total, "network", "networks") assigned to @CcFormat.Plural(placed.Count(z => z.NetworkIds.Count > 0), "zone", "zones")</span>
+                }
             </span>
             <button class="btn btn-contrast hide-mobile" disabled="@_busy" @onclick="ResetAsync">Reset to Suggestion</button>
             <SiteOperatorOnly>

@@ -61,6 +61,8 @@ public static class ImpactAnalyzer
     {
         if (moves is { Count: > 0 }) state = MoveGenerated(state, moves);
         state = WithZoneMembership(state);
+        // A zone the plan creates has no predefined policies until UniFi generates them on create.
+        state = ZonePaths.WithCustomZoneDefaults(state);
         return new AuditConfigInputs
         {
             DeviceDataJson = OverlayDevices(state, liveDevicesJson, moves),

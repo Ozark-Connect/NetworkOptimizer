@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
@@ -32,7 +33,7 @@ public sealed partial class ChangeControlService
         }
         if (runChecks && !board.LegacyFirewall && Engine.Evaluator != null)
         {
-            var impact = await Engine.Evaluator.RunImpactAsync(_site.Slug, live, ZoneSetup.Desired(live, board), cancellationToken);
+            var impact = await Engine.Evaluator.RunImpactAsync(_site.Slug, live, ZoneSetup.Desired(live, board, await ClientNetworksAsync(cancellationToken)), cancellationToken);
             (board.Checks, var pass) = ZoneSetup.Checks(board, networks, impact);
             board.ChecksPass = pass;
         }
@@ -44,18 +45,47 @@ public sealed partial class ChangeControlService
         var (board, live, networks) = await ZoneBoardAsync(choices, cancellationToken);
         if (board.LegacyFirewall)
             throw new InvalidOperationException("This site still runs the legacy firewall. Zones need the zone-based firewall first.");
-        var desired = ZoneSetup.Desired(live, board);
+        var zonePlan = ZoneSetup.Plan(live, board, await Plans.InformAddressesAsync(cancellationToken), await ClientNetworksAsync(cancellationToken));
+        var desired = zonePlan.Desired;
         var impact = Engine.Evaluator == null ? null : await Engine.Evaluator.RunImpactAsync(_site.Slug, live, desired, cancellationToken);
         var (checks, pass) = ZoneSetup.Checks(board, networks, impact);
         var plan = await Plans.CreateAsync(ConfigPlanKind.Zones, $"Set up zones on {await SiteNameAsync(cancellationToken)}",
             choices.Mode == ZoneSetup.PurposeMode ? "Zones by purpose" : "Zones by trust level", null, null, desired, ZoneSetup.Options(), Actor, cancellationToken,
             doc =>
             {
+                AfterZoneWrites(doc, zonePlan.Rehomed);
                 foreach (var e in board.Exceptions.Where(e => e.Enabled)) doc.Notes.Add($"Exception: {e.Name} ({e.FromTo}). {e.Why}.");
+                doc.Notes.AddRange(zonePlan.Notes);
                 foreach (var c in checks.Where(c => c.Level != "ok")) doc.Notes.Add($"Security Audit check: {c.Label}: {c.Status}.");
                 doc.Context["zone_checks"] = pass ? "pass" : "fail";
             });
         return plan.Id;
+    }
+
+    /// <summary>
+    /// Each client's last network, which the config copy of clients leaves out (it is telemetry): a client policy's source
+    /// follows its clients' network when it moves. Empty when the read fails; the plan then notes those policies instead.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_connection_network_id")]
+    private async Task<Dictionary<string, string>> ClientNetworksAsync(CancellationToken ct)
+    {
+        var users = await Engine.Api.SendAsync(NetworkOptimizer.UniFi.UniFiApiScope.SiteV1, HttpMethod.Get, "rest/user", null, ct);
+        if (!users.IsSuccess || ConfigSnapshotReader.ExtractList(users.Body) is not { } list) return [];
+        return list.Where(u => u["mac"]?.ToString() is { Length: > 0 } && u["last_connection_network_id"]?.ToString() is { Length: > 0 })
+            .GroupBy(u => u["mac"]!.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First()["last_connection_network_id"]!.ToString(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A re-homed update verifies its enabled flag and both sides. PlanBuilder already orders every policy write after
+    /// the zone writes and verifies policies naming a moved network; this adds the ones moved for their clients or
+    /// addresses, which UniFi leaves alone but the plan re-writes whole.
+    /// </summary>
+    internal static void AfterZoneWrites(PlanDocument doc, IReadOnlySet<string> rehomed)
+    {
+        foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action == PlanAction.Update && o.ObjectId != null && rehomed.Contains(o.ObjectId)))
+            foreach (var field in new[] { "enabled", "source", "destination" })
+                if (!op.WriteFields.Contains(field) && op.Body is JsonObject body && body.ContainsKey(field)) op.WriteFields.Add(field);
     }
 
     public async Task<int> BuildLegacyTranslationAsync(int snapshotId, CancellationToken cancellationToken = default)
