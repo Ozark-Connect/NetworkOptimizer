@@ -20,9 +20,9 @@ public class GatewayBlocklistVerifyTests
     [Fact]
     public void RepeatedConsoleIds_DoNotThrow()
     {
-        // Seen on a UDM Pro: the console lists the same synthetic obj_ id twice (issue #1333).
-        const string derived = "obj_1040bfb7-6a65-4954-b383-5904c590c836_1";
-        var policies = new[] { P(derived, predefined: true), P(derived, predefined: true), P("ours-1"), P("ours-2") };
+        // Seen on a UDM Pro: the console listed one policy id twice (issue #1333).
+        const string repeated = "repeated-id";
+        var policies = new[] { P(repeated, predefined: true), P(repeated, predefined: true), P("ours-1"), P("ours-2") };
 
         GatewayBlocklist.Verify(State("ours-1", "ours-2"), policies).Should().BeNull();
     }
