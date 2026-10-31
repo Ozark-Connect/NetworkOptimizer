@@ -432,13 +432,14 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Port Security** - MAC restriction, port lock, unused ports, port isolation, excessive tagged VLANs, subnet mismatches
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
-  - **Fix it for me** extends your DNAT and DNS block rules to uncovered networks, as a [Change Control](#change-control) plan
+  - Port 53, DoT, DoQ, and DoH blocking checked per network, Guest and Hotspot networks included
+  - **Fix it for me** extends your DNAT and DNS block rules to uncovered networks, or adds a block where none exists, as a [Change Control](#change-control) plan (zone-based firewall)
 - **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
 - **Download PDF** report
-- Allow-lists in Settings: streaming devices, media players, TVs, printers, grace periods, trusted DNS redirects
+- Allow-lists in Settings: streaming devices, media players, TVs, printers, grace periods, trusted DNS redirects, **Allow Guest / Hotspot Public DNS**
 
 ## UPnP Inspector
 
