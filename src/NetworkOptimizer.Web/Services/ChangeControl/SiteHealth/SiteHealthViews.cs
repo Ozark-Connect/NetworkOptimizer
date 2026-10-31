@@ -82,9 +82,9 @@ public static class SiteHealthSeriesBuilder
         };
     }
 
-    /// <summary>"costs 9 points", "costs under 1 point": the health an issue took.</summary>
+    /// <summary>"costs 9 points", "costs &lt; 1 point": the health an issue took.</summary>
     internal static string Costs(double points) =>
-        points < 1 ? "costs under 1 point" : $"costs {points:0} point{(Math.Round(points) == 1 ? "" : "s")}";
+        points < 1 ? "costs < 1 point" : $"costs {points:0} point{(Math.Round(points) == 1 ? "" : "s")}";
 
     /// <summary>An area is an issue when it averages this many points over the range...</summary>
     private const double IssueAveragePoints = 0.5;
