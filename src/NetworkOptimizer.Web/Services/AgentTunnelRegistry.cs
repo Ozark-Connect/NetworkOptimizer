@@ -274,14 +274,17 @@ public sealed class AgentTunnelConnection
     public bool? OnGateway { get; internal set; }
 
     /// <summary>
-    /// True while this connection, as the site's collector, has been sent its SNMP config; cleared when it
-    /// is pushed as a non-collector. Until it is set the other agents keep polling, so a handover overlaps
-    /// rather than leaving a gap.
+    /// When this connection, as the site's collector, was first sent its SNMP config; null until then, and
+    /// again once it is pushed as a non-collector. The other agents keep polling until a grace has passed
+    /// since it, so a handover overlaps rather than leaving a gap.
     /// </summary>
-    public bool CollectorSnmpPushed { get; internal set; }
+    public DateTime? CollectorSnmpSince { get; internal set; }
 
-    /// <summary>As <see cref="CollectorSnmpPushed"/>, for the site's primary-WAN and fabric probe targets.</summary>
-    public bool CollectorProbesPushed { get; internal set; }
+    /// <summary>As <see cref="CollectorSnmpSince"/>, for the site's primary-WAN and fabric probe targets.</summary>
+    public DateTime? CollectorProbesSince { get; internal set; }
+
+    /// <summary>The last probe config this agent was sent carried the site's primary-WAN and fabric targets.</summary>
+    public bool HoldsSiteTargets { get; internal set; }
 
     private long _probeIssued, _probeSent, _snmpIssued, _snmpSent;
 

@@ -245,6 +245,30 @@ public class AgentTunnelRegistryTests
     }
 
     [Theory]
+    [InlineData(null, false)]
+    [InlineData(0, false)]
+    [InlineData(14, false)]
+    [InlineData(15, true)]
+    [InlineData(120, true)]
+    public void CollectorSettled_OnlyOnceTheCollectorHasHadItsConfigForTheGrace(int? secondsAgo, bool settled)
+    {
+        var now = new DateTime(2026, 10, 31, 12, 0, 0, DateTimeKind.Utc);
+        DateTime? since = secondsAgo is { } s ? now.AddSeconds(-s) : null;
+
+        AgentProbeResultSink.CollectorSettled(since, now).Should().Be(settled);
+    }
+
+    [Fact]
+    public void CollectorSince_IsUnsetOnANewConnection()
+    {
+        var connection = Registry(tunnelEnabled: true).Register(1, "branch-office", "Agent");
+
+        connection.CollectorSnmpSince.Should().BeNull();
+        connection.CollectorProbesSince.Should().BeNull();
+        connection.HoldsSiteTargets.Should().BeFalse();
+    }
+
+    [Theory]
     [InlineData(1, false)]
     [InlineData(29, false)]
     [InlineData(30, true)]
