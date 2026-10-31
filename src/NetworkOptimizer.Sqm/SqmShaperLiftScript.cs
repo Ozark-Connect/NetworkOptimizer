@@ -12,7 +12,8 @@ public static class SqmShaperLiftScript
 {
     /// <summary>
     /// Builds the wrapper script. Only the root rates that exist are touched: no IFB means Smart
-    /// Queues is off and the download side is left alone; no egress HTB likewise.
+    /// Queues is off and the download side is left alone; no egress HTB likewise. A CAKE root on
+    /// the IFB is lifted and restored through its bandwidth.
     /// </summary>
     /// <param name="testCommand">The command whose stdout is the script's output.</param>
     /// <param name="interfaceName">Data-path WAN interface (validated by the caller).</param>
@@ -35,24 +36,15 @@ public static class SqmShaperLiftScript
         sb.Append($"DOWN_PROBE=\"{downloadProbeMbps}\"\n");
         sb.Append($"UP_PROBE=\"{uploadProbeMbps}\"\n");
         sb.Append($"BURST_MODE={(rateProportionalDownloadBurst ? "1" : "0")}\n");
+        // The lift retunes whichever download root is there and never installs CAKE: the shaper the
+        // last deploy left is the one to lift and restore, whatever the saved settings say now.
+        sb.Append("DOWNLOAD_QDISC=\"existing\"\n");
+        sb.Append($"CAKE_DOWNLOAD_OPTS=\"{ScriptGenerator.CakeDownloadOptions(interfaceName)}\"\n");
         sb.Append($"PROBE_LOCK=\"{ScriptGenerator.ProbeLockPath(interfaceName)}\"\n");
         sb.Append('\n');
         sb.Append(ScriptGenerator.TcFunctionsText.Replace("\r\n", "\n"));
         sb.Append('\n');
         sb.Append(@"
-# Current root rate of an HTB in whole Mbps, empty when the device has no HTB root class
-read_root_rate_mbps() {
-    local device=$1
-    local rate_str=$(tc class show dev $device 2>/dev/null | grep ""class htb 1:1 root"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
-    [ -z ""$rate_str"" ] && return
-    case ""$rate_str"" in
-        *Gbit)  echo $(( $(echo ""$rate_str"" | sed 's/Gbit//') * 1000 )) ;;
-        *Mbit)  echo ""$rate_str"" | sed 's/Mbit//' ;;
-        *Kbit)  echo $(( ($(echo ""$rate_str"" | sed 's/Kbit//') + 500) / 1000 )) ;;
-        *bit)   echo $(( ($(echo ""$rate_str"" | sed 's/bit//') + 500000) / 1000000 )) ;;
-    esac
-}
-
 # Let a ping adjustment that is mid-run finish before the rates are read, then hold the lock the
 # ping script stands down for, so nothing rewrites the shaper while the lift is up.
 for _ in $(seq 1 20); do

@@ -2,7 +2,9 @@
 
 Adaptive SQM keeps a UniFi gateway's WAN shaper just below what the line can deliver right now. It
 does not build queues. UniFi Smart Queues creates the HTB tree and the fq_codel leaves, and Adaptive
-SQM rewrites their rates and tunes their parameters.
+SQM rewrites their rates and tunes their parameters. The one exception is the opt-in CAKE download
+shaper (see [CAKE download shaper](#cake-download-shaper)), which replaces the download HTB tree on
+the IFB with a CAKE root of its own.
 
 The runtime is shell. The app generates three scripts per WAN, deploys them over SSH, reads their
 logs and a small HTTP status endpoint, and learns a per-WAN congestion curve. After a deploy the
@@ -47,7 +49,7 @@ gateway shapes on its own, with no dependency on the app being up.
 | `SqmLearningService`, `SqmLearningExecutor` | Web | Starts and stops learning, and takes one sample per scheduled run. |
 | `WanIdleGate`, `GatewayInterfaceRateProbe` | Web | Decide whether the WAN is quiet enough to sample. |
 | `GatewayWanSpeedTestService` | Web | Runs the gateway WAN speed test, wrapped in the shaper lift when a sample asks for it. |
-| `GatewayShaperProbeService` | Web | Config Optimizer check that Smart Queues is actually provisioned on the gateway, not only enabled in UniFi Network. |
+| `GatewayShaperProbeService` | Web | Config Optimizer check that Smart Queues is actually provisioned on the gateway, not only enabled in UniFi Network. An htb root class or a CAKE root qdisc counts. |
 | `SqmWanConfiguration`, `SqmCongestionProfile`, `SqmLearningSample` | Storage | Saved WAN settings, the learned profile per WAN, and the raw samples. |
 
 `SqmManager`, `BaselineCalculator`, `LatencyMonitor` and `SpeedtestIntegration` are C# counterparts
@@ -59,7 +61,8 @@ scripts are the runtime, and a change to the rate logic goes in `ScriptGenerator
 - **Smart Queues on for the WAN.** UniFi Network creates `ifb<interface>` and the HTB root class
   `1:1` for the download direction, and the HTB tree on the WAN interface for upload. A deploy
   refuses when the IFB device is missing. UniFi Network sometimes accepts the Smart Queues toggle
-  without creating the classes; adding any QoS rule makes it provision them.
+  without creating the classes; adding any QoS rule makes it provision them. The CAKE download
+  shaper needs Smart Queues too: the IFB and the redirect that feeds it stay UniFi's.
 - **udm-boot.** Runs `/data/on_boot.d/*` at every boot. The page can install it.
 - **SSH.** Direct, or through the On-Site Agent tunnel on an agent site.
 
@@ -126,11 +129,14 @@ The page drives it; `SqmDeploymentService` does the gateway work.
 
 1. `CleanAllSqmScriptsAsync()` removes every `20-sqm-*.sh` and `21-sqm-*.sh`, everything in
    `/data/sqm`, and every cron line containing `sqm`. This clears scripts left by a renamed WAN.
+   It also deletes Adaptive SQM's CAKE root from every IFB that no enabled CAKE WAN is about to
+   use, and returns a warning for each one (see [CAKE download shaper](#cake-download-shaper)).
 2. The page saves the WAN configurations.
 3. `DeployAsync()` for each enabled WAN:
    - `SqmManager.ValidateConfiguration()` checks ranges and runs `InputSanitizer` on every shell value.
    - A ping to the ping host on the WAN interface must succeed.
    - `ifb<interface>` must exist.
+   - With the CAKE download shaper, `modprobe sch_cake` must succeed.
    - The boot script is uploaded over SFTP (it outgrows an SSH exec packet), made executable, and run
      with a 5 minute timeout. A non-zero exit removes that WAN's scripts and cron lines and fails the
      deploy.
@@ -138,8 +144,8 @@ The page drives it; `SqmDeploymentService` does the gateway work.
      WAN2 when both are enabled, so the two speed tests do not overlap.
 4. `DeploySqmMonitorAsync()` deploys `20-sqm-monitor.sh`.
 
-`RemoveAsync()` deletes the boot scripts, `/data/sqm`, the cron lines, and optionally the SQM Monitor.
-It does not touch the managed Ookla CLI.
+`RemoveAsync()` deletes the boot scripts, `/data/sqm`, the cron lines, Adaptive SQM's CAKE roots,
+and optionally the SQM Monitor. It does not touch the managed Ookla CLI.
 
 ## Files on the gateway
 
@@ -265,10 +271,51 @@ shaper lift all embed it.
   (IFB) side only. The page turns it on for a new WAN; a saved WAN keeps its stored value.
 - **`tune_tc_performance <dev>`.** Re-applies burst and fq_codel at the current root rate without
   changing it. Used on upload when `ShapeUpload` is off.
+- **`read_root_rate_mbps <dev>`.** The current root rate in whole Mbps: the HTB root class `1:1`,
+  else a CAKE root's `bandwidth`. Empty when neither is there. The ping script, `tune_tc_performance`
+  and the shaper lift all read rates through it.
+- **`apply_cake_root <dev> <rate>`.** The CAKE path of `update_all_tc_classes`, see below.
 
 All arithmetic goes through the awk helpers `num_i`, `num_f`, `num_s` and `num_bool`, under
 `LC_ALL=C`. Never reintroduce `bc`: it is not in the UniFi OS firmware base, so every firmware
 upgrade removes it.
+
+## CAKE download shaper
+
+An experimental power-user option per WAN (`CakeDownload`, off by default, also for a new WAN). The
+measurements behind it come from one UCG-Fiber on PPPoE with GRO.
+
+- **Scope.** Download only. `update_all_tc_classes` takes the CAKE path only for `$IFB_DEVICE` and
+  only when `DOWNLOAD_QDISC` is `cake`. Upload stays HTB and fq_codel, burst included. The WAN
+  device, its ingress qdisc and the redirect filter are never touched, so WAN Flood Protection's
+  filters are safe (`ScriptGeneratorTcScopeTests`).
+- **Install and retune.** `apply_cake_root` changes the bandwidth of a CAKE root that is there.
+  When the IFB has UniFi's HTB tree instead, it runs `tc qdisc replace dev ifb<wan> root handle
+  ca4e: cake ...`. Every call restates the full option set: `besteffort ingress dual-dsthost nat
+  no-split-gso overhead <N> mpu 84 memlimit <calc_fq_mem>`.
+  - `dual-dsthost nat` gives each LAN device a fair share (conntrack lookup behind NAT). One device
+    with one flow next to one with eight, at 400 Mbit: 49 Mbit with HTB, about 195 with CAKE.
+  - `no-split-gso` is required on a GRO path: splitting cut two flows from 888 to 620 Mbit with one
+    core at 100%. CAKE turns splitting on below 1 Gbit unless told otherwise.
+  - `overhead` comes from the interface name: 50 for `ppp*` (PPPoE on a VLAN), 42 for a VLAN
+    sub-interface, 38 otherwise (`ScriptGenerator.CakeOverheadBytes`).
+- **Rate.** The rate logic is unchanged and its result is CAKE's `bandwidth`. With overhead
+  accounting that is a wire rate, so on PPPoE the same number gives about 3% less IP throughput
+  than HTB, which under-counts GRO packets (#1324). No CAKE factor is applied until there is data
+  from more than one path.
+- **UniFi resets.** Boot, a PPPoE redial, a Smart Queues toggle or a QoS edit brings UniFi's HTB
+  tree back. The next ping run sees no CAKE root, does not take the rate-unchanged skip, and
+  installs CAKE again; calibration does the same. UniFi download QoS classes do not apply under
+  CAKE; replacing a tree that has any logs a WARNING.
+- **Shaper lift.** The lift sets `DOWNLOAD_QDISC=existing`: it retunes a CAKE root that is there
+  and never installs one, so it lifts and restores whatever the last deploy left.
+- **Turning it off.** Adaptive SQM cannot rebuild UniFi's HTB tree. A deploy with the option off,
+  a disabled WAN, and Remove delete only the CAKE root with handle `ca4e:` and warn that download
+  is unshaped until Smart Queues is applied again in UniFi Network. The delete names handle and
+  kind, so it fails rather than removing an HTB tree UniFi rebuilt in the meantime, and it waits up
+  to 20 s for a running ping script. A calibration that is mid-run can still put CAKE back once.
+- **Readers.** The SQM Monitor, `GatewayShaperProbe` (Config Optimizer) and the ping script read a
+  CAKE root's bandwidth as the shaped rate.
 
 ## Congestion profile learning
 
@@ -308,7 +355,7 @@ record of whether learning is running; the `SqmCongestionProfile` row holds the 
 
 **Shaper lift.** `SqmShaperLiftScript` waits up to 20 s for a running `ping.sh`, creates the probe
 lock, reads both root rates, and installs an `EXIT` trap that restores them and removes the lock. It
-lifts only the devices that have an HTB root, runs the test, and drops stderr so progress lines stay
+lifts only the devices that have a root rate, runs the test, and drops stderr so progress lines stay
 out of the JSON the app parses. The ping script stands down on the lock and the speedtest script
 waits for it, so neither writes over the lift.
 

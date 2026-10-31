@@ -218,8 +218,9 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// Clean ALL SQM scripts and cron entries from the gateway.
     /// Call this ONCE before deploying any WANs to handle renamed connections.
     /// </summary>
-    public async Task<(bool success, string message)> CleanAllSqmScriptsAsync()
+    public async Task<(bool success, string message, List<string> warnings)> CleanAllSqmScriptsAsync(IReadOnlyCollection<string>? cakeInterfaces = null)
     {
+        var warnings = new List<string>();
         try
         {
             _logger.LogInformation("Cleaning all SQM scripts and cron entries");
@@ -236,15 +237,65 @@ public class SqmDeploymentService : ISqmDeploymentService
             await RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
 
+            warnings.AddRange(await RemoveCakeRootsAsync(cakeInterfaces ?? Array.Empty<string>()));
+
             _logger.LogInformation("Successfully cleaned all SQM scripts and cron entries");
-            return (true, "Cleaned all SQM scripts and cron entries");
+            return (true, "Cleaned all SQM scripts and cron entries", warnings);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error cleaning SQM scripts");
-            return (false, ex.Message);
+            return (false, ex.Message, warnings);
         }
     }
+
+    /// <summary>
+    /// Deletes Adaptive SQM's own CAKE download root from every IFB except the ones a CAKE WAN is
+    /// about to use. Nothing rebuilds UniFi's HTB tree from here, so each removal comes back as a
+    /// warning telling the user to re-apply Smart Queues.
+    /// </summary>
+    private async Task<List<string>> RemoveCakeRootsAsync(IReadOnlyCollection<string> cakeInterfaces)
+    {
+        var result = await RunCommandAsync(BuildRemoveCakeRootsCommand(cakeInterfaces));
+        return ParseRemovedCakeRoots(result.output)
+            .Select(ifb => $"Removed Adaptive SQM's CAKE download shaper from {ifb}. Download on that WAN is unshaped " +
+                "until UniFi Network applies Smart Queues again: turn Smart Queues off and on for the WAN, or edit any QoS rule.")
+            .ToList();
+    }
+
+    /// <summary>Prefix of the line the CAKE removal prints for each IFB it cleared.</summary>
+    internal const string CakeRemovedMarker = "CAKE_REMOVED ";
+
+    /// <summary>
+    /// The command behind <see cref="RemoveCakeRootsAsync"/>. Only a cake root carrying Adaptive
+    /// SQM's handle is deleted; one that UniFi or an admin installed is never touched. The delete
+    /// names handle and kind, so the kernel refuses it if UniFi rebuilt its HTB tree in between.
+    /// A ping run that is mid-measurement still holds the old script and would install CAKE again
+    /// right after the delete, so the command lets it finish first (up to 20 s, as the shaper lift
+    /// does); cron has already been cleared, so no new one starts.
+    /// </summary>
+    internal static string BuildRemoveCakeRootsCommand(IEnumerable<string> cakeInterfaces)
+    {
+        var keep = cakeInterfaces
+            .Where(name => Sqm.InputSanitizer.ValidateInterface(name).isValid)
+            .Select(name => $"ifb{name}")
+            .Distinct(StringComparer.Ordinal);
+        return $"KEEP=\" {string.Join(" ", keep)} \"; " +
+            "for d in /sys/class/net/ifb*; do [ -e \"$d\" ] || continue; n=${d##*/}; " +
+            "case \"$KEEP\" in *\" $n \"*) continue ;; esac; " +
+            $"tc qdisc show dev \"$n\" 2>/dev/null | grep -q '^qdisc cake {Sqm.ScriptGenerator.CakeHandle} root' || continue; " +
+            "for _ in $(seq 1 20); do pgrep -f -- '[-]ping\\.sh' >/dev/null 2>&1 || break; sleep 1; done; " +
+            $"tc qdisc del dev \"$n\" root handle {Sqm.ScriptGenerator.CakeHandle} cake && echo \"{CakeRemovedMarker}$n\"; " +
+            "done; true";
+    }
+
+    /// <summary>The IFBs the removal command reports as cleared.</summary>
+    internal static List<string> ParseRemovedCakeRoots(string? output) =>
+        (output ?? string.Empty)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => line.StartsWith(CakeRemovedMarker, StringComparison.Ordinal))
+            .Select(line => line[CakeRemovedMarker.Length..].Trim())
+            .ToList();
 
     /// <summary>
     /// Lightweight cleanup after a failed deployment.
@@ -413,6 +464,28 @@ public class SqmDeploymentService : ISqmDeploymentService
                 return result;
             }
             steps.Add($"IFB device {ifbDevice} is present");
+
+            // CAKE ships as a module (sch_cake) in the UniFi OS firmware tested so far; a build
+            // without it must not end with download unshaped after UniFi's tree is replaced.
+            if (config.CakeDownload)
+            {
+                steps.Add("Checking for CAKE support...");
+                var cakeCheckResult = await RunCommandAsync("modprobe sch_cake");
+                if (!cakeCheckResult.success)
+                {
+                    steps.Add("CAKE is not available, cleaning up...");
+                    await CleanupFailedDeploymentAsync(config.ConnectionName, config.Interface);
+                    steps.Add("Cleanup complete");
+
+                    result.Success = false;
+                    result.Error = "The CAKE download shaper is not available in this gateway's firmware (sch_cake did not load). " +
+                        "Turn the CAKE option off for this WAN to keep UniFi's HTB shaper.";
+                    result.Steps = steps;
+                    _logger.LogWarning("SQM deployment blocked: sch_cake not available on gateway");
+                    return result;
+                }
+                steps.Add("CAKE is available");
+            }
 
             // Step 1: Create directories
             steps.Add("Creating directories...");
@@ -654,6 +727,9 @@ public class SqmDeploymentService : ISqmDeploymentService
             // Remove legacy data files
             await RunCommandAsync(
                 "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
+
+            // Adaptive SQM's own CAKE download root goes with it; UniFi's HTB tree is not rebuilt
+            steps.AddRange(await RemoveCakeRootsAsync(Array.Empty<string>()));
 
             // Remove SQM Monitor if requested
             if (includeTcMonitor)
@@ -1088,7 +1164,10 @@ public class SqmDeploymentService : ISqmDeploymentService
         sb.AppendLine("# Get current TC rate for an interface");
         sb.AppendLine("get_tc_rate() {");
         sb.AppendLine("    local interface=$1");
-        sb.AppendLine("    tc class show dev \"$interface\" 2>/dev/null | grep \"class htb 1:1 root\" | grep -o 'rate [0-9.]*[MGK]bit' | head -n1 | awk '{print $2}'");
+        sb.AppendLine("    local rate=$(tc class show dev \"$interface\" 2>/dev/null | grep \"class htb 1:1 root\" | grep -o 'rate [0-9.]*[MGK]bit' | head -n1 | awk '{print $2}')");
+        // An opt-in CAKE download root has no classes; its bandwidth is the shaped rate.
+        sb.AppendLine("    [ -z \"$rate\" ] && rate=$(tc qdisc show dev \"$interface\" 2>/dev/null | grep -E '^qdisc cake [0-9a-f]+: root' | grep -o 'bandwidth [0-9.]*[MGK]bit' | head -n1 | awk '{print $2}')");
+        sb.AppendLine("    echo \"$rate\"");
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("# Convert rate to Mbps");

@@ -45,7 +45,7 @@ public static partial class GatewayShaperProbe
         var command = new StringBuilder();
         foreach (var name in interfaces)
         {
-            command.Append($"echo '{Marker} {name}'; tc class show dev {name} 2>&1; ");
+            command.Append($"echo '{Marker} {name}'; tc class show dev {name} 2>&1; tc qdisc show dev {name} 2>&1; ");
         }
         command.Append("true");
         return command.ToString();
@@ -104,7 +104,8 @@ public static partial class GatewayShaperProbe
         return new TcDeviceState
         {
             DeviceFound = true,
-            HasRootHtb = RootHtbPattern().IsMatch(section)
+            HasRootHtb = RootHtbPattern().IsMatch(section),
+            HasRootCake = RootCakePattern().IsMatch(section)
         };
     }
 
@@ -143,6 +144,13 @@ public static partial class GatewayShaperProbe
     /// </summary>
     [GeneratedRegex(@"^\s*class\s+htb\s+\S+\s+root\b", RegexOptions.Multiline)]
     private static partial Regex RootHtbPattern();
+
+    /// <summary>
+    /// Adaptive SQM's opt-in download shaper: "qdisc cake ca4e: root refcnt 2 bandwidth 900Mbit ...".
+    /// UniFi's own "qdisc htb 1: root" line is not a class line and never matches the HTB pattern.
+    /// </summary>
+    [GeneratedRegex(@"^\s*qdisc\s+cake\s+\S+\s+root\b.*\bbandwidth\s+\d", RegexOptions.Multiline)]
+    private static partial Regex RootCakePattern();
 
     /// <summary>iproute2's wording when the device does not exist on the box.</summary>
     [GeneratedRegex(@"Cannot find device|does not exist", RegexOptions.IgnoreCase)]

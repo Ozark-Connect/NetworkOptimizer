@@ -9,6 +9,51 @@ namespace NetworkOptimizer.Web.Tests;
 public class SqmDeploymentServiceTests
 {
     [Fact]
+    public void RemoveCakeRoots_DeletesOnlyAdaptiveSqmsOwnCake_AndKeepsTheCakeWans()
+    {
+        var bash = new[] { "/bin/bash", "/usr/bin/bash" }.FirstOrDefault(File.Exists);
+        if (bash == null) return;
+
+        var dir = Path.Combine(Path.GetTempPath(), $"sqm-cake-rm-{Guid.NewGuid():N}");
+        foreach (var ifb in new[] { "ifbppp0", "ifbeth4", "ifbeth5", "ifbeth6" })
+            Directory.CreateDirectory(Path.Combine(dir, ifb));
+        try
+        {
+            // ifbppp0 keeps its CAKE (deploying with it), ifbeth4 has ours and loses it,
+            // ifbeth5 has a cake someone else installed, ifbeth6 is UniFi's htb.
+            var command = SqmDeploymentService.BuildRemoveCakeRootsCommand(new[] { "ppp0", "bad name;" })
+                .Replace("/sys/class/net", dir);
+            var script = @"
+pgrep() { return 1; }
+tc() {
+    case ""$1 $2 $4"" in
+        ""qdisc show ifbppp0""|""qdisc show ifbeth4"") echo ""qdisc cake ca4e: root refcnt 2 bandwidth 900Mbit"" ;;
+        ""qdisc show ifbeth5"") echo ""qdisc cake 8001: root refcnt 2 bandwidth 900Mbit"" ;;
+        ""qdisc show ifbeth6"") echo ""qdisc htb 1: root refcnt 2"" ;;
+        *) echo ""TC $*"" ;;
+    esac
+}
+" + command + "\n";
+
+            var psi = new ProcessStartInfo(bash) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
+            using var proc = Process.Start(psi)!;
+            proc.StandardInput.Write(script);
+            proc.StandardInput.Close();
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(30_000);
+
+            output.Should().Contain("TC qdisc del dev ifbeth4 root handle ca4e: cake");
+            output.Should().NotContain("del dev ifbppp0").And.NotContain("del dev ifbeth5").And.NotContain("del dev ifbeth6");
+            SqmDeploymentService.ParseRemovedCakeRoots(output).Should().Equal("ifbeth4");
+            command.Should().NotContain("bad name", "only validated interface names reach the command line");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DeploymentStatus_ValidatesTheManagedOoklaBuildAndBothParserDependencies()
     {
         var command = SqmDeploymentService.BuildDeploymentStatusCommand();

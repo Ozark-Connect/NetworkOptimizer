@@ -40,7 +40,9 @@ public interface ISqmDeploymentService
     /// <summary>
     /// Remove every SQM script the app has ever deployed, including orphans from earlier versions.
     /// </summary>
-    /// <returns>A tuple indicating success and a descriptive message.</returns>
+    /// <param name="cakeInterfaces">WAN interfaces about to be deployed with the CAKE download
+    /// shaper. Adaptive SQM's CAKE root stays on their IFBs and is removed from every other one.</param>
+    /// <returns>Success, a descriptive message, and warnings for any IFB left without a shaper.</returns>
     /// <remarks>
     /// Operator, despite the name: deploying is its only caller, which clears stale and orphaned
     /// scripts immediately before writing the new ones. It is not a standalone teardown - that is
@@ -49,7 +51,7 @@ public interface ISqmDeploymentService
     /// </remarks>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SqmReverted, TargetType = "wan")]
-    Task<(bool success, string message)> CleanAllSqmScriptsAsync();
+    Task<(bool success, string message, List<string> warnings)> CleanAllSqmScriptsAsync(IReadOnlyCollection<string>? cakeInterfaces = null);
 
     /// <summary>
     /// Check if SQM scripts are already deployed on the gateway.
