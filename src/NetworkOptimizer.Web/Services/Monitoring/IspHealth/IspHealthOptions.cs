@@ -449,7 +449,7 @@ public class IspHealthOptions
     // speedtest degradation) and stands until a replay of a wider set of events confirms or moves it.
 
     /// <summary>Length of one degradation evaluation window, in minutes.</summary>
-    public int PathDegradationWindowMinutes { get; set; } = 1;
+    public int PathDegradationWindowMinutes { get; set; } = 2;
 
     /// <summary>Consecutive degraded windows that make a target degraded (15 min sustained at 5-min windows),
     /// and consecutive clean windows that clear it.</summary>
