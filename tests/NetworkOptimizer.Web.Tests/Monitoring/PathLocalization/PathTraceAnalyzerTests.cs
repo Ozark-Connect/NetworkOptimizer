@@ -156,7 +156,7 @@ public class PathTraceAnalyzerTests
 
         v.Scope.Should().Be(CongestionScope.Hop);
         v.Label.Should().Be("The problem starts after Lumen `198.51.100.4` (`AS3356`): Speedtest DEN goes through that router and stays clean.");
-        v.Summary.Should().EndWith("Compared against Speedtest DEN, which stayed clean.");
+        v.Summary.Should().NotContain("Compared against");
     }
 
     [Fact]

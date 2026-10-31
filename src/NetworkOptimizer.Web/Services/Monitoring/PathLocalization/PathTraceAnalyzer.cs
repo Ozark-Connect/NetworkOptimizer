@@ -180,7 +180,8 @@ public static class PathTraceAnalyzer
     private static EpisodeVerdict FromSingle(TargetVerdict v, IReadOnlyList<string> controlNames)
     {
         var onset = v.Hops.FirstOrDefault(h => h.Has(HopTag.Onset) && !h.Has(HopTag.Destination));
-        var summary = v.Label + ComparedAgainst(controlNames);
+        // A verdict the control decided (it crossed the onset clean) already names it.
+        var summary = v.Scope == CongestionScope.Hop ? v.Label : v.Label + ComparedAgainst(controlNames);
         return new EpisodeVerdict
         {
             Scope = v.Scope,
