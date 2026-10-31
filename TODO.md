@@ -1461,3 +1461,23 @@ dropping off, roll that change back automatically, or offer the Roll Back in the
 questions: opt-in per site, since the operator made the change on purpose and may be mid-work; how
 long to wait after the change before treating a drop as caused by it; and telling a change-caused
 drop from an unrelated outage (ISP Health already separates ISP from local).
+
+## User setting: 12-hour or 24-hour clock, everywhere
+
+Times are formatted inline today and the two styles are mixed: about 30 server-side format strings
+use a 12-hour clock (`h:mm tt`) and about 120 use 24-hour (`HH:mm`), and roughly 18 JS files format
+times on their own (ApexCharts axes and tooltips, `toLocaleTimeString`, hand-built labels). Add a
+per-user preference (`IUserPreferences`, falling back to the install-wide value) for 12- or 24-hour,
+and route every displayed time through it.
+
+- **Server:** `TimeFormatHelper` holds the one time format (`FormatLocalDateTime` and friends, added
+  2026-10-31 for Change Control) and reads the preference; the inline `h:mm tt` / `HH:mm` strings in
+  C# and Razor move onto it. `CcFormat` already delegates there.
+- **JS:** one shared formatter module that chart and page scripts import (axis labels, tooltips,
+  table cells), fed the preference from Razor on page load, so a chart and the card beside it agree.
+- **Out of scope:** outbound notifications (alerts to email, Slack, and other channels) go to people
+  who are not signed-in users, so they keep the install default; logs, CSV/PDF exports, and API
+  responses keep fixed formats a machine can read.
+
+Open question: whether the same setting should choose the date order too (Oct 31 vs 31 Oct), since
+the formats are being centralized anyway.
