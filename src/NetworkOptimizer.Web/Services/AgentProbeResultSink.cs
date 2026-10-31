@@ -170,6 +170,24 @@ public class AgentProbeResultSink
         await PushConntrackConfigAsync(connection, ct);
         await _uciInforms.PushCaptureConfigAsync(connection, ct);
 
+        // The collector is chosen from the connected set, so an agent that connected first (after a
+        // server restart, every agent redials at once) can take the site's probes and SNMP. Told now
+        // that this one is here, rather than collecting alongside it until the 60 s refresh. Off the
+        // connect path: an SNMP push reads the console, and this one's read loop waits on us.
+        if (initialConnect)
+        {
+            var others = _tunnelRegistry.GetForSite(connection.SiteSlug).Where(c => c.AgentId != connection.AgentId).ToList();
+            if (others.Count > 0)
+                _ = Task.Run(async () =>
+                {
+                    foreach (var other in others)
+                    {
+                        await PushProbeConfigAsync(other, CancellationToken.None);
+                        await PushSnmpConfigAsync(other, CancellationToken.None);
+                    }
+                });
+        }
+
         // This site's console reaches the UniFi console THROUGH this agent tunnel.
         // On startup / after an agent restart the console auto-connect can run
         // before the tunnel is up, exhaust its short retry window, and stay
@@ -1157,6 +1175,11 @@ public class AgentProbeResultSink
                     _snmpEmptyEnumerations.TryRemove($"{connection.SiteSlug}:{connection.AgentId}", out _);
                 }
             }
+
+            // The console read above can take seconds, and an agent that ranks ahead can connect
+            // meanwhile; asked again so this push cannot hand polling back to the agent it just left.
+            if (config.Enabled && !ShouldPushSnmpConfig(connection.AgentId, await GetCollectorAgentIdAsync(connection.SiteSlug, ct)))
+                config = new SnmpConfig { Enabled = false };
 
             connection.TrySend(new ServerMessage { SnmpConfig = config });
             if (config.Enabled)
