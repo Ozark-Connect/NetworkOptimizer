@@ -1027,9 +1027,12 @@ public class DnsSecurityAnalyzer
         return partial is { Count: > 0 } ? partial : null;
     }
 
-    /// <summary>A guest network: UniFi's guest flag or purpose, or a network in the Hotspot zone.</summary>
+    /// <summary>
+    /// A guest network as UniFi marks it: its guest purpose or flag, or a network in the Hotspot zone. Not the audit's own
+    /// purpose classification, which can come from the network's name.
+    /// </summary>
     private static bool IsGuestOrHotspot(NetworkInfo network, Services.FirewallZoneLookup? zoneLookup) =>
-        network.IsUniFiGuestNetwork || network.Purpose == NetworkPurpose.Guest || zoneLookup?.IsHotspotZone(network.FirewallZoneId) == true;
+        network.IsUniFiGuestNetwork || zoneLookup?.IsHotspotZone(network.FirewallZoneId) == true;
 
     /// <summary>
     /// Categorize a set of uncovered network names into DMZ, Guest-with-third-party-DNS, and regular

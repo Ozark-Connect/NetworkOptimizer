@@ -142,6 +142,21 @@ public class DnsFixesTests
     }
 
     [Fact]
+    public void ANetworkUniFiFlagsAsGuest_IsLeftAlone_WhenGuestsAreAllowedPublicDns()
+    {
+        // In Internal, not the Hotspot zone, and not guest purpose: only UniFi's is_guest flag marks it.
+        var site = PerZoneSite();
+        var visitors = Net("n-visit", "Visitors", 12, "10.0.12.1/24");
+        visitors["is_guest"] = true;
+        site.Collections["networkconf"].Add(visitors);
+        site.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Add("n-visit");
+
+        var fix = DnsFixes.Build(site, IssueTypes.DnsNoDotBlock, allowGuestPublicDns: true)!;
+
+        fix.Notes.Should().Contain("Visitors: a guest network, left alone (Allow Guest / Hotspot Public DNS is on in Settings).");
+    }
+
+    [Fact]
     public void UniFisHotspotAuthorizationBlocks_DoNotCoverGuest()
     {
         // Post-Authorization Restrictions and Block Unauthorized Traffic hold only until a guest signs in; an authorized

@@ -75,19 +75,34 @@ public class DnsGuestCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task AllowGuestPublicDns_AlsoLeavesOutAGuestPurposeNetworkOutsideTheHotspotZone()
+    public async Task AllowGuestPublicDns_LeavesOutANetworkUniFiFlagsAsGuest_OutsideTheHotspotZone()
     {
         var guest = new NetworkInfo
         {
             Id = "net-visitors", Name = "Visitors", VlanId = 80, Subnet = "198.51.100.0/24", Gateway = "198.51.100.1",
-            FirewallZoneId = "zone-internal", Purpose = NetworkPurpose.Guest, InternetAccessEnabled = true
+            FirewallZoneId = "zone-internal", IsUniFiGuestNetwork = true, Purpose = NetworkPurpose.Guest, InternetAccessEnabled = true
         };
 
         var result = await _analyzer.AnalyzeAsync(Settings(), HomeBlocks(), null, [Home(), guest], null, null, null, null, External, _zones,
             allowGuestPublicDns: true);
 
         result.ExcludedFromCoverageNetworks.Should().Equal("Visitors");
-        result.DotUncoveredNetworks.Should().BeEmpty("Visitors is in Internal, so Home's block covers it anyway; it is excluded either way");
+    }
+
+    [Fact]
+    public async Task AGuestByNameOnly_IsNotAGuestNetwork()
+    {
+        // The audit classifies "Guests" as Guest purpose from its name; UniFi does not flag it, so the setting leaves it in.
+        var named = new NetworkInfo
+        {
+            Id = "net-guests", Name = "Guests", VlanId = 81, Subnet = "198.51.100.0/24", Gateway = "198.51.100.1",
+            FirewallZoneId = "zone-internal", Purpose = NetworkPurpose.Guest, InternetAccessEnabled = true
+        };
+
+        var result = await _analyzer.AnalyzeAsync(Settings(), [], null, [Home(), named], null, null, null, null, External, _zones,
+            allowGuestPublicDns: true);
+
+        result.ExcludedFromCoverageNetworks.Should().BeEmpty();
     }
 
     [Fact]

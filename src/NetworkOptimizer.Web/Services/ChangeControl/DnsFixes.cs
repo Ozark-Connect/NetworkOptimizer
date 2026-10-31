@@ -112,7 +112,9 @@ public static class DnsFixes
             && zones.TryGetValue(z, out var key) && key is "" or "internal" or "hotspot" && !Off(n["enabled"])).ToList();
         var gateways = networks.Select(n => Str(n["ip_subnet"])!.Split('/')[0]).ToHashSet();
         bool Lan(string ip) => !gateways.Contains(ip) && networks.Any(n => Readdressing.ParseSubnet(Str(n["ip_subnet"])) is { } s && Readdressing.ParseIp(ip) is { } a && s.Contains(a));
-        bool IsGuest(JsonObject n) => zones.GetValueOrDefault(zoneOf[ConfigState.IdOf(n)]) == "hotspot" || Str(n["purpose"]) == "guest";
+        // As UniFi marks it (the DNS audit reads the same): guest purpose or flag, or the Hotspot zone.
+        bool IsGuest(JsonObject n) => zones.GetValueOrDefault(zoneOf[ConfigState.IdOf(n)]) == "hotspot" || Str(n["purpose"]) == "guest"
+            || Str(n["is_guest"]) is "true" or "True";
 
         var resolverHosts = networks.SelectMany(n => LockoutChecker.Resolvers(live, n)).Where(Lan)
             .Select(ip => networks.FirstOrDefault(n => Readdressing.ParseSubnet(Str(n["ip_subnet"])) is { } s && s.Contains(Readdressing.ParseIp(ip)!.Value)))
