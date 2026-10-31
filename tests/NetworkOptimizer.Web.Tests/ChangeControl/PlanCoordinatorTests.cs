@@ -288,4 +288,45 @@ public sealed class PlanCoordinatorTests : IDisposable
         // The AUDIT log search is a POST that reads.
         _console.Requests.Should().NotContain(r => r.Method != HttpMethod.Get && r.Item2 != "system-log/all");
     }
+
+    [Fact]
+    public void ChangedZones_OnlyForAZoneCreateOrDeleteThatApplied()
+    {
+        PlanOperation Op(string key, string collection, PlanAction action) => new() { Key = key, Collection = collection, Action = action };
+        var doc = new PlanDocument { Operations = [Op("z1", "firewall_zone", PlanAction.Create), Op("z2", "firewall_zone", PlanAction.Update), Op("p1", "firewall_policy", PlanAction.Create)] };
+        PlanResult Result(params (string Key, string Outcome)[] ops) => new() { Operations = ops.Select(o => new OperationResult { Key = o.Key, Outcome = o.Outcome }).ToList() };
+
+        PlanCoordinator.ChangedZones(doc, Result(("z1", "Applied"), ("z2", "Applied"))).Should().BeTrue();
+        PlanCoordinator.ChangedZones(doc, Result(("z1", "Error"), ("z2", "Applied"), ("p1", "Applied"))).Should().BeFalse("the zone create did not apply; an update adds or removes no zone");
+        PlanCoordinator.ChangedZones(new PlanDocument { Operations = [Op("z3", "firewall_zone", PlanAction.Delete)] }, Result(("z3", "Applied"))).Should().BeTrue("a Roll Back deleting a zone");
+    }
+
+    [Fact]
+    public async Task AfterZonesSettle_WaitsForTheGateway_ThenTellsThreatIntelligence()
+    {
+        var (first, poll) = (PlanCoordinator.ZoneSettleFirstWait, PlanCoordinator.ZoneSettlePoll);
+        PlanCoordinator.ZoneSettleFirstWait = TimeSpan.Zero;
+        PlanCoordinator.ZoneSettlePoll = TimeSpan.FromMilliseconds(10);
+        try
+        {
+            var gateway = new System.Text.Json.Nodes.JsonObject { ["_id"] = "g1", ["mac"] = "aa:00:00:00:00:99", ["type"] = "udm", ["state"] = 5 };
+            _console.State.Collections["device"] = [gateway];
+            var told = new TaskCompletionSource<int>();
+            var checks = 0;
+            _plans.ZonesChanged = _ => { told.TrySetResult(checks); return Task.CompletedTask; };
+
+            var waiting = _plans.AfterZonesSettleAsync(1);
+            while (_console.Requests.Count(r => r.Path == "stat/device") < 2) await Task.Delay(5);
+            told.Task.IsCompleted.Should().BeFalse("the gateway is still provisioning");
+            gateway["state"] = 1;
+            await waiting;
+
+            told.Task.IsCompleted.Should().BeTrue();
+        }
+        finally
+        {
+            (PlanCoordinator.ZoneSettleFirstWait, PlanCoordinator.ZoneSettlePoll) = (first, poll);
+            _plans.ZonesChanged = null;
+        }
+    }
 }

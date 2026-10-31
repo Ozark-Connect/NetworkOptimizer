@@ -160,6 +160,7 @@ public static class PlanBuilder
         }
 
         AddPolicyOrder(doc, desired, live, idMap, creates, liveCtx, options);
+        OwnedPoliciesGoWithTheirZone(doc, live, liveCtx);
         CheckReferrers(doc, live, desired, idMap);
         ZoneMovesAfterTheirTarget(doc, live);
         PolicyWritesAfterZoneMoves(doc, live);
@@ -1133,6 +1134,42 @@ public static class PlanBuilder
             given.ExceptWith(Ids(op.Body));
             if (given.Count == 0) continue;
             op.After.AddRange(zones.Where(t => t != op && Ids(t.Body).Overlaps(given)).Select(t => t.Key).Except(op.After));
+        }
+    }
+
+    /// <summary>
+    /// A zone the plan deletes (a Roll Back of Set Up Zones) takes Network Optimizer's own policies in it with it:
+    /// Threat Intelligence writes one per zone, the plan never writes them otherwise, and the zone cannot go while they
+    /// name it. They are deleted before the zone; Threat Intelligence rewrites its policies for the zones left once the
+    /// plan applies (PlanCoordinator.ZonesChanged).
+    /// </summary>
+    private static void OwnedPoliciesGoWithTheirZone(PlanDocument doc, ConfigState live, ConfigIdentityContext liveCtx)
+    {
+        var zones = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete && o.ObjectId != null)
+            .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (zones.Count == 0) return;
+        var def = ConfigCollections.Get("firewall_policy")!;
+        var deleting = doc.Operations.Where(o => o.Action == PlanAction.Delete && o.Collection == def.Key && o.ObjectId != null)
+            .Select(o => o.ObjectId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var policy in live.Get(def.Key))
+        {
+            var id = ConfigState.IdOf(policy);
+            if (ConfigCollections.OwnedBy(def, policy) is not { } owner || deleting.Contains(id)) continue;
+            if (!zones.Contains(policy["source"]?["zone_id"]?.ToString() ?? "") && !zones.Contains(policy["destination"]?["zone_id"]?.ToString() ?? "")) continue;
+            var name = ConfigState.DisplayName(def, policy);
+            doc.Operations.Add(new PlanOperation
+            {
+                Key = OpKey(def, PlanAction.Delete, name, id),
+                Collection = def.Key,
+                Action = PlanAction.Delete,
+                ObjectId = id,
+                ObjectName = name,
+                Order = def.Order,
+                ChangeText = DescribeObject(def, policy, liveCtx),
+                Tier = PlanTiers.Acknowledge,
+                Reasons = [$"In a zone this plan deletes; {owner} rewrites its policies for the zones left"],
+                NeedsGateway = def.Write!.NeedsGateway,
+            });
         }
     }
 

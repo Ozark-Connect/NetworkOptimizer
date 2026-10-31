@@ -397,6 +397,38 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     }
 
     /// <inheritdoc />
+    public async Task<bool> EnsureZonePoliciesAsync(string? site, CancellationToken ct)
+    {
+        var state = await LoadStateAsync(site, ct);
+        if (state == null || state.Policies.Count == 0) return false;
+        // An empty zone list is a failed read (the client returns [] on error), never a console without zones.
+        var zones = await Client(site).GetFirewallZonesAsync(ct);
+        var external = zones.FirstOrDefault(z => z.ZoneKey == FirewallZoneKeys.External);
+        if (zones.Count == 0 || external == null) return false;
+
+        var (inbound, outbound) = Uncovered(state, zones, external.Id);
+        if (inbound) await SetUpAsync(site, ct);
+        if (outbound) await SetFeedsOutboundAsync(site, true, ct);
+        if (inbound || outbound)
+            _logger.LogInformation("Gateway blocking: the zones on {Site} changed; per-zone policies rewritten", site ?? "default");
+        return inbound || outbound;
+    }
+
+    /// <summary>
+    /// Whether the inbound policies (External to every other zone) and the outbound ones (every zone but External and
+    /// Gateway to External, when set up) no longer cover exactly the site's zones: one was added or removed.
+    /// </summary>
+    internal static (bool Inbound, bool Outbound) Uncovered(GatewayBlocklistState state, IReadOnlyList<UniFiFirewallZone> zones, string externalId)
+    {
+        static bool Covers(IEnumerable<GatewayBlockPolicyRef> refs, IEnumerable<string> zoneIds) =>
+            refs.Select(r => r.ZoneId).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(zoneIds);
+        var inbound = !Covers(state.Policies, zones.Where(z => z.Id != externalId).Select(z => z.Id));
+        var outbound = state.OutboundPolicies.Count > 0
+            && !Covers(state.OutboundPolicies, zones.Where(z => z.Id != externalId && z.ZoneKey != FirewallZoneKeys.Gateway).Select(z => z.Id));
+        return (inbound, outbound);
+    }
+
+    /// <inheritdoc />
     public async Task<BlockTargetResult> SyncFeedsAsync(string? site, IReadOnlyList<string> entries, IReadOnlyList<string> outbound,
         CancellationToken ct)
     {

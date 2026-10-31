@@ -248,6 +248,45 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void RollBack_DeletesThreatIntelligencePoliciesInTheZonesItRemoves_First()
+    {
+        // After the apply, Threat Intelligence wrote its per-zone policies into the new zones. The revert does not
+        // touch them otherwise, but a zone cannot go while they name it.
+        var before = RollbackSite();
+        var plan = PlanFor(before);
+        var after = Applied(plan.Desired);
+        var newZones = after.Get("firewall_zone").Select(z => z["_id"]!.ToString()).Where(id => id.StartsWith("uuid-zone-")).ToList();
+        newZones.Should().NotBeEmpty();
+        foreach (var zone in newZones)
+        {
+            after.Collections["firewall_policy"].Add(Rule($"ti-in-{zone}", "Net. Opt. Blocklist", "BLOCK", Side("z-ext"), Side(zone)));
+            after.Collections["firewall_policy"].Add(Rule($"ti-out-{zone}", "Net. Opt. Public Lists (Outbound)", "BLOCK", Side(zone), Side("z-ext")));
+        }
+        after.Collections["firewall_policy"].Add(Rule("ti-in-z-int", "Net. Opt. Blocklist", "BLOCK", Side("z-ext"), Side("z-int")));
+
+        var revert = Revert(before, after);
+
+        revert.Errors.Should().BeEmpty();
+        var owned = revert.Operations.Where(o => o.Action == PlanAction.Delete && o.ObjectName.StartsWith("Net. Opt.")).ToList();
+        owned.Select(o => o.ObjectId).Should().BeEquivalentTo(newZones.SelectMany(z => new[] { $"ti-in-{z}", $"ti-out-{z}" }),
+            "only the ones in a zone the revert deletes; Internal's stays");
+        owned.Should().OnlyContain(o => o.Reasons.Any(r => r.Contains("Threat Intelligence rewrites")));
+        var firstZoneDelete = revert.Operations.FindIndex(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete);
+        owned.Should().OnlyContain(o => revert.Operations.IndexOf(o) < firstZoneDelete);
+    }
+
+    [Fact]
+    public void ZonePlan_NamesWhenThreatIntelligenceAddsItsPolicies()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-no", "Net. Opt. Public Lists (Outbound)", "BLOCK", Side("z-int"), Side("z-ext", "IP", ips: ["198.51.100.0/24"])));
+
+        var plan = PlanFor(live);
+
+        plan.Notes.Should().Contain("Net. Opt. Public Lists (Outbound): managed by Threat Intelligence, which adds its own for each new zone once the gateway settles after the apply.");
+    }
+
+    [Fact]
     public void RollBack_OfAHalfAppliedZonePlan_RestoresWhatUniFiPausedAndStripped()
     {
         // The zone writes landed, then the apply stopped: no policy written. UniFi paused and stripped every policy

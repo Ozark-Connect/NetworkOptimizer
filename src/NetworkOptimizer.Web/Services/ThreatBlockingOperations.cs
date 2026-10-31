@@ -497,6 +497,9 @@ public sealed class ThreatBlockingOperations
     }
 
     /// <summary>True when Set Up has run for the site (whether or not the objects are still intact).</summary>
+    /// <summary>Asks the next blocking cycle to bring the site's per-zone gateway policies in line with its zones now.</summary>
+    public void SyncZonesSoon(string slug) => _blocking.TriggerConsoleSyncFor(Site(slug));
+
     public async Task<bool> IsGatewaySetUpAsync(string slug, CancellationToken ct) =>
         await _gateway.LoadStateAsync(Site(slug), ct) != null;
 

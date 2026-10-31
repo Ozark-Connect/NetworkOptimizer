@@ -778,7 +778,7 @@ public static class ZoneSetup
             var name = Str(t, "name") ?? "";
             if (ConfigCollections.OwnedBy(def, t) != null)
             {
-                var owned = $"{name}: managed by Threat Intelligence, which writes one per zone on its next sync.";
+                var owned = $"{name}: managed by Threat Intelligence, which adds its own for each new zone once the gateway settles after the apply.";
                 if (!notes.Contains(owned)) notes.Add(owned);
                 continue;
             }

@@ -411,6 +411,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             : [];
         PushToGatewayAgent(site, settings, desired, feeds, feedsOut, exceptions, now);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
+        await EnsureZonePoliciesAsync(site, services, settings, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, consoleFeeds, consoleFeedsOut, now, ct);
         await ReconcileGatewayExceptionsAsync(site, services, settings, exceptions, now, ct);
         await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
@@ -717,6 +718,36 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _logger.LogWarning("Automatic Blocking: public lists not written to the gateway on {Site}: {Error}", site ?? SiteSlugs.Default, result.Error);
         else if (wanted.Count > 0)
             _logger.LogInformation("Automatic Blocking: {Count} public list entries on the gateway of {Site}", result.Count, site ?? SiteSlugs.Default);
+    }
+
+    private readonly ConcurrentDictionary<string, DateTime> _zonesCheckedAt = new();
+    // The console sync request each site's last zone check answered, so one request makes one check.
+    private readonly ConcurrentDictionary<string, DateTime> _zonesRequestSeen = new();
+    private static readonly TimeSpan ZoneCheckEvery = TimeSpan.FromMinutes(5);
+
+    // The per-zone Block policies follow the site's zones, wherever a zone came from (UniFi Network, Set Up Zones, a
+    // Roll Back): checked every few minutes, and at once on a console sync request (Change Control sends one once the
+    // gateway settles after a zone change). A rewrite re-sends the exceptions, whose Allow policies are per zone too.
+    private async Task EnsureZonePoliciesAsync(string? site, IServiceProvider services, BlockingSettings settings, DateTime now, CancellationToken ct)
+    {
+        if (!settings.TargetGateway) return;
+        var key = Key(site);
+        var last = _zonesCheckedAt.GetValueOrDefault(key, DateTime.MinValue);
+        var request = _consoleUrgentSiteAt.TryGetValue(key, out var siteUrgent) && siteUrgent > _consoleUrgentAt ? siteUrgent : _consoleUrgentAt;
+        var requested = request > _zonesRequestSeen.GetValueOrDefault(key, DateTime.MinValue);
+        if (!requested && now - last < ZoneCheckEvery) return;
+        if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
+        _zonesCheckedAt[key] = now;
+        _zonesRequestSeen[key] = request;
+        try
+        {
+            if (await writer.EnsureZonePoliciesAsync(site, ct))
+                _exceptionsWritten.TryRemove(key, out _);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Automatic Blocking: per-zone gateway policies not checked on {Site}", site ?? SiteSlugs.Default);
+        }
     }
 
     private readonly ConcurrentDictionary<string, (string Fingerprint, DateTime At, bool Ok)> _exceptionsWritten = new();

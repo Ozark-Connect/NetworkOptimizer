@@ -95,6 +95,13 @@ public interface IGatewayBlocklistWriter
     Task<BlockTargetResult> SyncMembersAsync(string? site, IReadOnlyList<string> ips, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Brings the site's per-zone Block policies in line with its zones after a zone is added or removed (in UniFi
+    /// Network, by Set Up Zones, or by its Roll Back). True when it rewrote them; false when they already match, the
+    /// gateway is not set up, or the zones could not be read.
+    /// </summary>
+    Task<bool> EnsureZonePoliciesAsync(string? site, CancellationToken cancellationToken) => Task.FromResult(false);
+
+    /// <summary>
     /// Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges,
     /// blocked inbound) and, where outbound blocking is set up, its outbound groups with <paramref name="outbound"/>.
     /// </summary>

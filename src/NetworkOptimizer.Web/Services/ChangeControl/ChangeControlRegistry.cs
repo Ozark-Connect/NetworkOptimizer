@@ -202,6 +202,12 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         // Narrower than ManagementAddresses, which Re-address also reads for every address the host owns.
         coordinator.ReachAddresses = () => connection.IsViaAgent ? coordinator.ManagementAddresses() : ServerAddresses(coordinator.ConsoleHost());
         coordinator.MoveSettings = (moves, remote, ct) => ReaddressSettingsAsync(slug, moves, remote, apply: true, ct);
+        coordinator.ZonesChanged = _ =>
+        {
+            using var scope = _sp.CreateScope();
+            scope.ServiceProvider.GetService<ThreatBlockingOperations>()?.SyncZonesSoon(slug);
+            return Task.CompletedTask;
+        };
         _coordinators[slug] = coordinator;
         var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));
