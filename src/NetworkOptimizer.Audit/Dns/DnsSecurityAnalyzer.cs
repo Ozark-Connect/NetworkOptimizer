@@ -655,6 +655,8 @@ public class DnsSecurityAnalyzer
                     {
                         result.HasDohBlockRule = true;
                         result.DohRuleName ??= name;
+                        if (networks != null)
+                            AddCoveredNetworks(networks, rule, family, result.DohCoveredNetworkIds, result.DohRuleCoverage, name);
                         foreach (var domain in webDomains)
                         {
                             if (DohProviderRegistry.IdentifyProvider(domain) != null && !result.DohBlockedDomains.Contains(domain))
@@ -696,6 +698,8 @@ public class DnsSecurityAnalyzer
                         {
                             result.HasDohBlockRule = true;
                             result.DohRuleName ??= name;
+                            if (networks != null)
+                                AddCoveredNetworks(networks, rule, family, result.DohCoveredNetworkIds, result.DohRuleCoverage, name);
                             _logger.LogDebug("Found IP-based DoH block rule: {Name} (zone={Zone}) matched {Count} IPs across {ProviderCount} providers: {Providers}",
                                 name, destZoneId ?? "any", matchedCount, matchedProviders.Count, string.Join(", ", matchedProviders));
                         }
@@ -777,6 +781,8 @@ public class DnsSecurityAnalyzer
                     {
                         result.HasDohBlockRule = true;
                         result.DohRuleName ??= name;
+                        if (networks != null)
+                            AddCoveredNetworks(networks, rule, family, result.DohCoveredNetworkIds, result.DohRuleCoverage, name);
                         _logger.LogDebug("Found app-based DoH block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
                             name, string.Join(",", appIds!), protocol ?? "all");
                     }
@@ -801,6 +807,8 @@ public class DnsSecurityAnalyzer
                 result.DotProvidesFullCoverage = CalculateCoverage(networks, result.DotCoveredNetworkIds, result.DotCoveredNetworks, result.DotUncoveredNetworks, "DoT");
             if (result.HasDoqBlockRule)
                 result.DoqProvidesFullCoverage = CalculateCoverage(networks, result.DoqCoveredNetworkIds, result.DoqCoveredNetworks, result.DoqUncoveredNetworks, "DoQ");
+            if (result.HasDohBlockRule)
+                result.DohProvidesFullCoverage = CalculateCoverage(networks, result.DohCoveredNetworkIds, result.DohCoveredNetworks, result.DohUncoveredNetworks, "DoH");
         }
     }
 
@@ -845,6 +853,11 @@ public class DnsSecurityAnalyzer
             {
                 AddCoverage(result.DoqCoveredNetworkIds, result.DoqRuleCoverage, network, coverageName);
                 result.HasDoqBlockRule = true;
+            }
+            if (Blocks("443", "tcp"))
+            {
+                AddCoverage(result.DohCoveredNetworkIds, result.DohRuleCoverage, network, coverageName);
+                result.HasDohBlockRule = true;
             }
         }
     }
@@ -1632,6 +1645,20 @@ public class DnsSecurityAnalyzer
                 }
             });
         }
+        else if (result.HasDohBlockRule && !result.DohProvidesFullCoverage && result.DohUncoveredNetworks.Count > 0 && result.DohConfigured)
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsNoDohBlock,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"Public DoH provider blocking has partial coverage. Uncovered networks: {string.Join(", ", result.DohUncoveredNetworks)}",
+                RecommendedAction = "Extend the DoH blocking rule to cover all networks, or create additional rules for uncovered networks.",
+                RuleId = "DNS-LEAK-003",
+                ScoreImpact = 3,
+                CoveringRules = BuildCoveringRules(result.DohRuleCoverage)
+            });
+        }
 
         // Issue: No DoQ (DNS over QUIC) bypass blocking or partial coverage
         if (!result.HasDoqBlockRule && result.DohConfigured)
@@ -1684,13 +1711,15 @@ public class DnsSecurityAnalyzer
         var dns53HasNetworks = result.Dns53CoveredNetworks.Count > 0 || result.Dns53UncoveredNetworks.Count > 0;
         var dotHasNetworks = result.DotCoveredNetworks.Count > 0 || result.DotUncoveredNetworks.Count > 0;
         var doqHasNetworks = result.DoqCoveredNetworks.Count > 0 || result.DoqUncoveredNetworks.Count > 0;
+        var dohHasNetworks = result.DohCoveredNetworks.Count > 0 || result.DohUncoveredNetworks.Count > 0;
         var dns53FullCoverage = result.HasDns53BlockRule && (!dns53HasNetworks || result.Dns53ProvidesFullCoverage) &&
                                 result.Ipv6Dns53UncoveredNetworks.Count == 0;
         var dotFullCoverage = result.HasDotBlockRule && (!dotHasNetworks || result.DotProvidesFullCoverage) &&
                               result.Ipv6DotUncoveredNetworks.Count == 0;
         var doqFullCoverage = result.HasDoqBlockRule && (!doqHasNetworks || result.DoqProvidesFullCoverage) &&
                               result.Ipv6DoqUncoveredNetworks.Count == 0;
-        var dohBlocked = result.HasDohBlockRule && !result.Ipv6DohUnblocked;
+        var dohBlocked = result.HasDohBlockRule && (!dohHasNetworks || result.DohProvidesFullCoverage) &&
+                         !result.Ipv6DohUnblocked && result.Ipv6DohUncoveredNetworks.Count == 0;
 
         if (result.DohConfigured && dns53FullCoverage && dotFullCoverage && dohBlocked && doqFullCoverage)
         {
@@ -2987,13 +3016,18 @@ public class DnsSecurityAnalyzer
         }
 
         result.Ipv6DohUnblocked = result.HasDohBlockRule && !ipv6.HasDohBlockRule;
+        // With no IPv6 DoH block at all, the site-wide finding says it; otherwise name the networks it misses.
+        if (!result.Ipv6DohUnblocked)
+            foreach (var network in ipv6Networks)
+                if (result.DohCoveredNetworkIds.Contains(network.Id) && !ipv6.DohCoveredNetworkIds.Contains(network.Id))
+                    result.Ipv6DohUncoveredNetworks.Add(network.Name);
 
         if (result.HasIpv6DnsGaps)
         {
             _logger.LogInformation(
-                "IPv6 DNS protection gaps: DNS53={Dns53}, DoT={Dot}, DoQ={Doq}, DoH unblocked={Doh}",
+                "IPv6 DNS protection gaps: DNS53={Dns53}, DoT={Dot}, DoQ={Doq}, DoH unblocked={Doh}, DoH={DohNetworks}",
                 string.Join(", ", result.Ipv6Dns53UncoveredNetworks), string.Join(", ", result.Ipv6DotUncoveredNetworks),
-                string.Join(", ", result.Ipv6DoqUncoveredNetworks), result.Ipv6DohUnblocked);
+                string.Join(", ", result.Ipv6DoqUncoveredNetworks), result.Ipv6DohUnblocked, string.Join(", ", result.Ipv6DohUncoveredNetworks));
         }
     }
 
@@ -3237,6 +3271,24 @@ public class DnsSecurityAnalyzer
             });
         }
 
+        if (result.Ipv6DohUncoveredNetworks.Count > 0 && result.DohConfigured)
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsNoDohBlock,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"Public DoH provider blocking has partial coverage{IpFamilyText.OverIpv6}. Uncovered networks: {string.Join(", ", result.Ipv6DohUncoveredNetworks)}",
+                RecommendedAction = "Extend DoH blocking to IPv6 for the uncovered networks.",
+                RuleId = "DNS-LEAK-003",
+                ScoreImpact = 3,
+                Metadata = IpFamilyText.Tag(new Dictionary<string, object>
+                {
+                    { "uncovered_networks", result.Ipv6DohUncoveredNetworks.ToList() }
+                }, ipv6Only: true)
+            });
+        }
+
         if (result.Ipv6DoqUncoveredNetworks.Count > 0 && result.DohConfigured)
         {
             result.Issues.Add(new AuditIssue
@@ -3471,9 +3523,10 @@ public class DnsSecurityAnalyzer
             DotBlocked = result.HasDotBlockRule,
             DotProvidesFullCoverage = result.DotProvidesFullCoverage && result.Ipv6DotUncoveredNetworks.Count == 0,
             DohBypassBlocked = result.HasDohBlockRule && !result.Ipv6DohUnblocked,
+            DohProvidesFullCoverage = result.DohProvidesFullCoverage && result.Ipv6DohUncoveredNetworks.Count == 0,
             DoqBypassBlocked = result.HasDoqBlockRule,
             DoqProvidesFullCoverage = result.DoqProvidesFullCoverage && result.Ipv6DoqUncoveredNetworks.Count == 0,
-            FullyProtected = result.DohConfigured && (result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid)) && result.HasDotBlockRule && result.DotProvidesFullCoverage && result.HasDohBlockRule && result.HasDoqBlockRule && result.DoqProvidesFullCoverage && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway && !result.HasIpv6DnsGaps,
+            FullyProtected = result.DohConfigured && (result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid)) && result.HasDotBlockRule && result.DotProvidesFullCoverage && result.HasDohBlockRule && result.DohProvidesFullCoverage && result.HasDoqBlockRule && result.DoqProvidesFullCoverage && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway && !result.HasIpv6DnsGaps,
             IssueCount = result.Issues.Count,
             CriticalIssueCount = result.Issues.Count(i => i.Severity == AuditSeverity.Critical),
             WanDnsServers = result.WanDnsServers.ToList(),
@@ -3597,6 +3650,17 @@ public class DnsSecurityResult
     /// <summary>Maps each contributing DoQ blocking rule name to the network names it covers</summary>
     public Dictionary<string, List<string>> DoqRuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>DoH (public providers, TCP 443) firewall rule network coverage</summary>
+    public bool DohProvidesFullCoverage { get; set; }
+    /// <summary>Network IDs covered by DoH blocking rules</summary>
+    public HashSet<string> DohCoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Network names covered by DoH blocking rules</summary>
+    public List<string> DohCoveredNetworks { get; } = new();
+    /// <summary>Network names not covered by any DoH blocking rule</summary>
+    public List<string> DohUncoveredNetworks { get; } = new();
+    /// <summary>Maps each contributing DoH blocking rule name to the network names it covers</summary>
+    public Dictionary<string, List<string>> DohRuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     // IPv6-only gaps: networks protected over IPv4 but not over IPv6. The IPv4 fields above
     // describe IPv4 traffic only; these are empty when no network carries IPv6.
     /// <summary>Network names with port 53 blocked or redirected over IPv4 but not over IPv6</summary>
@@ -3607,6 +3671,8 @@ public class DnsSecurityResult
     public List<string> Ipv6DoqUncoveredNetworks { get; } = new();
     /// <summary>DoH providers are blocked over IPv4 but not over IPv6 while IPv6 is enabled on a network</summary>
     public bool Ipv6DohUnblocked { get; set; }
+    /// <summary>Network names with DoH blocked over IPv4 but not over IPv6, when some IPv6 DoH block exists</summary>
+    public List<string> Ipv6DohUncoveredNetworks { get; } = new();
     /// <summary>Third-party LAN resolvers handed out over DHCPv6/RDNSS (IPv4 ones are in <see cref="ThirdPartyDnsServers"/>)</summary>
     public List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> Ipv6ThirdPartyDnsServers { get; } = new();
     /// <summary>Network names that hand out a third-party resolver over IPv4 but the gateway over IPv6</summary>
@@ -3625,7 +3691,7 @@ public class DnsSecurityResult
     public List<string> Ipv6ExpectedDnatDestinations { get; } = new();
     /// <summary>Whether any IPv6-only DNS protection gap was found</summary>
     public bool HasIpv6DnsGaps => Ipv6Dns53UncoveredNetworks.Count > 0 || Ipv6DotUncoveredNetworks.Count > 0 ||
-                                  Ipv6DoqUncoveredNetworks.Count > 0 || Ipv6DohUnblocked || Ipv6InvalidDnatRules.Count > 0 ||
+                                  Ipv6DoqUncoveredNetworks.Count > 0 || Ipv6DohUnblocked || Ipv6DohUncoveredNetworks.Count > 0 || Ipv6InvalidDnatRules.Count > 0 ||
                                   Ipv6ThirdPartyBypassNetworks.Count > 0 || Ipv6WanDnsMismatches.Count > 0 ||
                                   Ipv6WanNoStaticDns.Count > 0;
 
@@ -3768,6 +3834,7 @@ public class DnsSecuritySummary
     public bool DotBlocked { get; init; }
     public bool DotProvidesFullCoverage { get; init; }
     public bool DohBypassBlocked { get; init; }
+    public bool DohProvidesFullCoverage { get; init; }
     public bool DoqBypassBlocked { get; init; }
     public bool DoqProvidesFullCoverage { get; init; }
     public bool FullyProtected { get; init; }

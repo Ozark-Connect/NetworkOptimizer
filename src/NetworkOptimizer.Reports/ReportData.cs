@@ -41,6 +41,7 @@ public class DnsSecuritySummary
     public bool DoqBlocked { get; set; }
     public bool DoqProvidesFullCoverage { get; set; }
     public bool DohBypassBlocked { get; set; }
+    public bool DohProvidesFullCoverage { get; set; } = true;
     public bool FullyProtected { get; set; }
 
     // WAN DNS validation

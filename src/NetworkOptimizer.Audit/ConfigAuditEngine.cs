@@ -1291,6 +1291,7 @@ public class ConfigAuditEngine
             DoqBlocked = dnsSecurityResult.HasDoqBlockRule,
             DoqProvidesFullCoverage = dnsSecurityResult.DoqProvidesFullCoverage,
             DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
+            DohProvidesFullCoverage = dnsSecurityResult.DohProvidesFullCoverage,
             Doh3Blocked = dnsSecurityResult.HasDoh3BlockRule,
             WanDnsServers = dnsSecurityResult.WanDnsServers.ToList(),
             WanDnsPtrResults = dnsSecurityResult.WanDnsPtrResults.ToList(),

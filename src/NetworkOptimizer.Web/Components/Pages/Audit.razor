@@ -627,8 +627,8 @@
                             </tr>
                             <tr>
                                 <td>DoH Bypass Prevention</td>
-                                <td class="@(lastResult.DnsSecurity.DohBypassBlocked ? "status-success" : "status-warning")">
-                                    @(lastResult.DnsSecurity.DohBypassBlocked ? "Blocked" : "Open")
+                                <td class="@(lastResult.DnsSecurity.DohBypassBlocked && lastResult.DnsSecurity.DohProvidesFullCoverage ? "status-success" : "status-warning")">
+                                    @(lastResult.DnsSecurity.DohBypassBlocked ? (lastResult.DnsSecurity.DohProvidesFullCoverage ? "Blocked" : "Partially Blocked") : "Open")
                                 </td>
                                 <td>@GetDohBypassDetails()</td>
                             </tr>
@@ -1328,6 +1328,7 @@
                     DoqBlocked = lastResult.DnsSecurity.DoqBlocked,
                     DoqProvidesFullCoverage = lastResult.DnsSecurity.DoqProvidesFullCoverage,
                     DohBypassBlocked = lastResult.DnsSecurity.DohBypassBlocked,
+                    DohProvidesFullCoverage = lastResult.DnsSecurity.DohProvidesFullCoverage,
                     FullyProtected = lastResult.DnsSecurity.FullyProtected,
                     WanDnsServers = lastResult.DnsSecurity.WanDnsServers.ToList(),
                     WanDnsPtrResults = lastResult.DnsSecurity.WanDnsPtrResults.ToList(),
@@ -1858,6 +1859,7 @@
         if (lastResult?.DnsSecurity == null) return "N/A";
         var dns = lastResult.DnsSecurity;
         if (!dns.DohBypassBlocked) return "Devices can use external DoH";
+        if (!dns.DohProvidesFullCoverage) return "Public DoH providers partially blocked";
         if (dns.Doh3Blocked) return "Public DoH + DoH3 providers blocked";
         return "Public DoH providers blocked";
     }

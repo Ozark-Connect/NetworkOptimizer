@@ -153,6 +153,18 @@ public class DnsFixesTests
         built.Select(p => p["name"]!.ToString()).Should().Contain("Block External DoH and QUIC (Management)");
     }
 
+    [Fact]
+    public void Doh_SkipsAZoneWhoseNetworksHaveInternetAccessOff()
+    {
+        var site = PerZoneSite();
+        site.Get("networkconf").First(n => n["_id"]!.ToString() == "n-mgmt")["internet_access_enabled"] = false;
+
+        var fix = DnsFixes.Build(site, IssueTypes.DnsNoDohBlock, ["dns.google", "cloudflare-dns.com"])!;
+
+        fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-new-"))
+            .Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-int", "z-untr"]);
+    }
+
     /// <summary>Per-network DNAT naming its own network three times, a new network uncovered.</summary>
     [Fact]
     public void DnatCopy_RewritesEveryPlaceTheTemplateNamesItsNetwork()

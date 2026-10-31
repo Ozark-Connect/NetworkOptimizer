@@ -2445,6 +2445,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             HasDotBlockRule = true,
             DotProvidesFullCoverage = true,
             HasDohBlockRule = true,
+            DohProvidesFullCoverage = true,
             HasDoqBlockRule = true,
             DoqProvidesFullCoverage = true,
             WanDnsMatchesDoH = true,

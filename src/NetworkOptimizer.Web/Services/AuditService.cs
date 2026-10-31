@@ -978,6 +978,7 @@ public partial class AuditService : IAuditScanService
                 DoqBlocked = result.DnsSecurity.DoqBlocked,
                 DoqProvidesFullCoverage = result.DnsSecurity.DoqProvidesFullCoverage,
                 DohBypassBlocked = result.DnsSecurity.DohBypassBlocked,
+                DohProvidesFullCoverage = result.DnsSecurity.DohProvidesFullCoverage,
                 FullyProtected = result.DnsSecurity.FullyProtected,
                 WanDnsServers = result.DnsSecurity.WanDnsServers.ToList(),
                 WanDnsPtrResults = result.DnsSecurity.WanDnsPtrResults.ToList(),
@@ -1880,6 +1881,7 @@ public partial class AuditService : IAuditScanService
                 DoqBlocked = dns.DoqBlocked,
                 DoqProvidesFullCoverage = dns.DoqProvidesFullCoverage,
                 DohBypassBlocked = dns.DohBypassBlocked,
+                DohProvidesFullCoverage = dns.DohProvidesFullCoverage,
                 Doh3Blocked = dns.Doh3Blocked,
                 FullyProtected = dns.FullyProtected,
                 WanDnsServers = dns.WanDnsServers.ToList(),
@@ -2348,6 +2350,8 @@ public class DnsSecurityReference
     public bool DoqBlocked { get; set; }
     public bool DoqProvidesFullCoverage { get; set; }
     public bool DohBypassBlocked { get; set; }
+    /// <summary>True by default, so an audit stored before DoH coverage was tracked reads as it did.</summary>
+    public bool DohProvidesFullCoverage { get; set; } = true;
     public bool Doh3Blocked { get; set; }
     public bool FullyProtected { get; set; }
     public List<string> WanDnsServers { get; set; } = new();

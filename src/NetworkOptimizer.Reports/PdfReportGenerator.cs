@@ -346,15 +346,15 @@ public class PdfReportGenerator
                     .Text(dns.DoqBlocked ? (dns.DoqProvidesFullCoverage ? "DoQ queries blocked" : "DoQ queries partially blocked") : "Devices can use external DoQ").FontSize(9);
 
                 // DoH Bypass Blocking row
-                var bypassStatus = dns.DohBypassBlocked ? "Blocked" : "Open";
-                var bypassStatusColor = dns.DohBypassBlocked ? successColor : warningColor;
+                var bypassStatus = dns.DohBypassBlocked ? (dns.DohProvidesFullCoverage ? "Blocked" : "Partially Blocked") : "Open";
+                var bypassStatusColor = dns.DohBypassBlocked && dns.DohProvidesFullCoverage ? successColor : warningColor;
 
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text("DoH Bypass Prevention").FontSize(9);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text(bypassStatus).FontSize(9).FontColor(bypassStatusColor);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                    .Text(dns.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH").FontSize(9);
+                    .Text(dns.DohBypassBlocked ? (dns.DohProvidesFullCoverage ? "Public DoH providers blocked" : "Public DoH providers partially blocked") : "Devices can use external DoH").FontSize(9);
 
                 // WAN DNS Configuration row
                 var neutralColor = "#666666";
