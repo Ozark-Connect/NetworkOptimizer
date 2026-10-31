@@ -322,6 +322,15 @@ public class AgentProbeResultSink
             if (Ready())
             {
                 await PushSnmpConfigAsync(connection, CancellationToken.None);
+                // The console can still drop back for a moment after reading ready, and the push then
+                // defers again. A collector left without its config retries briefly instead of
+                // waiting out the 60 s refresh with no SNMP poller.
+                for (var attempt = 0; attempt < 5 && !connection.CollectorSnmpPushed
+                     && await GetCollectorAgentIdAsync(connection.SiteSlug, CancellationToken.None) == connection.AgentId; attempt++)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken.None);
+                    await PushSnmpConfigAsync(connection, CancellationToken.None);
+                }
 
                 // Both halves are up now, so anything computed before this point saw a partial
                 // site. A report produced between server start and this moment is missing whatever
