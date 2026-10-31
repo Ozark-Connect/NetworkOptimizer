@@ -223,6 +223,33 @@ public class SiteHealthTests
     }
 
     [Fact]
+    public void Loss_WhileTheGatewayIsBusyIsTheGateways()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(2.75, 0, false, 95, 940)) });
+
+        h.Health.Should().Be(91.7);
+        h.InternetIsp.Should().Be(0);
+        h.Worst.Should().Be("Internet: loss 2.75% for 5 min at 940 Mbps (gateway CPU 95%)");
+    }
+
+    [Fact]
+    public void Loss_AlongsideLanLossStaysTheLansEvenWithABusyGateway()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(8, 0, true, 95, 100)) });
+
+        h.Health.Should().Be(100);
+    }
+
+    [Fact]
+    public void Loss_WithTheGatewayUnderTheBusyLineIsTheIsps()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(2.75, 0, false, 60, 940)) });
+
+        h.InternetIsp.Should().BeGreaterThan(0);
+        h.Worst.Should().Be("Internet: loss 2.75% for 5 min (ISP)");
+    }
+
+    [Fact]
     public void Loss_UnderLoadIsJudgedAgainstTheLoadedBand()
     {
         var idle = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(Fiber.LoadedLossDownLowPct, 0, false)) });

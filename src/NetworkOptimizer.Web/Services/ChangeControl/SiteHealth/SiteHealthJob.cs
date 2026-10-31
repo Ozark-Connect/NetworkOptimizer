@@ -150,7 +150,7 @@ public sealed class SiteHealthJob
             ? influx.QueryGatewayWanRatesAsync(gatewayMac, [counterIfs[0]], from, to, RateStep, ct: ct)
             : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>([]);
         var cpuTask = gatewayMac != null
-            ? influx.QueryDeviceCpuAsync(gatewayMac, from, to, TimeSpan.FromHours(1), ct)
+            ? influx.QueryDeviceCpuAsync(gatewayMac, from, to, fine, ct)
             : Task.FromResult<IReadOnlyList<(DateTime Time, double Value)>>([]);
         await Task.WhenAll(lossTask, satisfactionTask, wirelessTask, wiredTask, fabricTask, portsTask, ratesTask, cpuTask);
 
@@ -163,6 +163,8 @@ public sealed class SiteHealthJob
         // The rate query stamps each sample at its window's end and the latency reads at the start;
         // restamped at the start so a sample lands in the 5-minute window it measured.
         var rates = ratesTask.Result.Select(r => new ThroughputSample(r.Time - RateStep, r.DownloadBps, r.UploadBps)).ToList();
+        // CPU comes stamped at window end too; restamped, or each hour reads the hour before it.
+        var cpu = cpuTask.Result.Select(c => (Time: c.Time - fine, c.Value)).ToList();
         var load = expectedDown != null || expectedUp != null
             ? LoadClassifier.Classify(rates, expectedDown, expectedUp, isp.Options)
             : new Dictionary<DateTime, LoadWindow>();
@@ -190,7 +192,7 @@ public sealed class SiteHealthJob
         {
             var end = hour.AddHours(1);
             var inputs = BuildInputs(hour, end, lossPool, firstHopFine, load, windowLoad, satisfactionTask.Result, wirelessTask.Result,
-                wiredTask.Result, fabricTask.Result, portsTask.Result, cpuTask.Result, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
+                wiredTask.Result, fabricTask.Result, portsTask.Result, cpu, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
                 Baseline(history.Concat(result), hour));
             result.Add(SiteHealthScorer.Score(inputs, profile, DateTime.UtcNow));
         }
@@ -263,8 +265,9 @@ public sealed class SiteHealthJob
             localCause = "gateway rebooted";
         else if (alerts.Any(a => a.EventType == "device.offline" && gatewayMacs.Contains(Mac(a.DeviceId)) && Overlap(a, alerts, hour, end) > TimeSpan.Zero))
             localCause = "gateway offline";
-        else if (cpu.Where(c => In(c.Time)).Select(c => c.Value).DefaultIfEmpty(0).Average() >= 90)
-            localCause = "gateway CPU above 90%";
+        else if (cpu.Where(c => In(c.Time)).Select(c => c.Value).DefaultIfEmpty(0).Average() >= SiteHealthScorer.GatewayBusyCpuPct)
+            localCause = $"gateway CPU above {SiteHealthScorer.GatewayBusyCpuPct:0}%";
+        var cpuByWindow = cpu.Where(c => In(c.Time)).GroupBy(c => c.Time).ToDictionary(g => g.Key, g => g.Average(c => c.Value));
 
         // Wi-Fi
         var radios = satisfaction.Where(s => In(s.Hour)).ToList();
@@ -318,7 +321,9 @@ public sealed class SiteHealthJob
             {
                 var loss = Median(g.Select(p => p.LossPercent!.Value));
                 var lan = fabricWindows.TryGetValue(g.Key, out var f) && f >= SiteHealthScorer.NoticeableLossPct && f >= loss / 2;
-                return new LossWindow(loss, windowLoad.GetValueOrDefault(g.Key).Saturation, lan);
+                var w = windowLoad.GetValueOrDefault(g.Key);
+                return new LossWindow(loss, w.Saturation, lan,
+                    cpuByWindow.TryGetValue(g.Key, out var c) ? c : null, w.Total > 0 ? w.WanMbps : null);
             })
             .ToList();
         var hourPorts = ports.Where(p => In(p.Hour) && !gatewayMacs.Contains(Mac(p.DeviceMac)) && topology.IsWiredPort(p.DeviceMac, p.IfName)).ToList();
@@ -434,9 +439,9 @@ public sealed class SiteHealthJob
     /// <summary>
     /// One scoring window's WAN load: rate samples classified loaded and idle out of the total, and its
     /// average utilization (the busier direction against plan, as ISP Health's average load) as a share
-    /// of <c>LossSaturationLoadFraction</c>, capped at 1.
+    /// of <c>LossSaturationLoadFraction</c>, capped at 1, and the busier direction's mean rate in Mbps.
     /// </summary>
-    internal readonly record struct WindowLoadSummary(int Total, int Loaded, int Idle, double Saturation);
+    internal readonly record struct WindowLoadSummary(int Total, int Loaded, int Idle, double Saturation, double WanMbps = 0);
 
     /// <summary>Groups start-stamped rate samples and their load classes into scoring windows.</summary>
     internal static Dictionary<DateTime, WindowLoadSummary> WindowLoad(
@@ -448,6 +453,7 @@ public sealed class SiteHealthJob
         {
             int loaded = 0, idle = 0;
             var utilization = new List<double>();
+            double mbps = 0;
             foreach (var r in g)
             {
                 if (load.TryGetValue(CongestionDetector.FloorTime(r.Time, loadWindow), out var w))
@@ -458,9 +464,10 @@ public sealed class SiteHealthJob
                 var d = expectedDownMbps > 0 ? (r.DownloadBps ?? 0) / (expectedDownMbps.Value * 1_000_000) : 0;
                 var u = expectedUpMbps > 0 ? (r.UploadBps ?? 0) / (expectedUpMbps.Value * 1_000_000) : 0;
                 utilization.Add(Math.Clamp(Math.Max(d, u), 0, 1));
+                mbps += Math.Max(r.DownloadBps ?? 0, r.UploadBps ?? 0) / 1e6;
             }
             var saturation = saturationFraction > 0 ? Math.Min(1, utilization.Average() / saturationFraction) : 0;
-            result[g.Key] = new WindowLoadSummary(g.Count(), loaded, idle, saturation);
+            result[g.Key] = new WindowLoadSummary(g.Count(), loaded, idle, saturation, mbps / g.Count());
         }
         return result;
     }

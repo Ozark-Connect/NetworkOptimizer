@@ -7,9 +7,15 @@ namespace NetworkOptimizer.Web.Services.ChangeControl.SiteHealth;
 /// <summary>
 /// One 5-minute window of the loss pool: the median loss across its targets, how close the WAN came to
 /// saturation (0 idle, 1 at or past <c>LossSaturationLoadFraction</c> of plan), and whether the LAN lost
-/// packets alongside it, which makes the loss local rather than the ISP's.
+/// packets alongside it, which makes the loss the LAN's rather than the ISP's. <paramref name="GatewayCpuPct"/>
+/// is the gateway's mean CPU in the window and <paramref name="WanMbps"/> the busier direction's mean rate,
+/// both for naming a gateway at its limit.
 /// </summary>
-public sealed record LossWindow(double LossPct, double Saturation, bool LanLoss);
+public sealed record LossWindow(double LossPct, double Saturation, bool LanLoss, double? GatewayCpuPct = null, double? WanMbps = null)
+{
+    /// <summary>The gateway was busy enough in this window that its loss is the gateway's, not the ISP's.</summary>
+    public bool GatewayBusy => GatewayCpuPct >= SiteHealthScorer.GatewayBusyCpuPct;
+}
 
 /// <summary>One hour's measurements, gathered by <see cref="SiteHealthJob"/>.</summary>
 public sealed class HealthHourInputs
@@ -66,7 +72,10 @@ public sealed record HealthContributor(string Area, double Impairment, string Te
 public static class SiteHealthScorer
 {
     /// <summary>Bump when the scoring changes; stored hours at an older version are recomputed.</summary>
-    public const int Version = 7;
+    public const int Version = 8;
+
+    /// <summary>Gateway CPU at or above this, averaged over a window or an hour, makes that time's Internet impairment local.</summary>
+    public const double GatewayBusyCpuPct = 90;
 
     /// <summary>Loss below this is not felt, so it costs nothing.</summary>
     internal const double NoticeableLossPct = 0.25;
@@ -86,7 +95,8 @@ public static class SiteHealthScorer
 
         // Internet: outage, loss, latency are the ISP's unless something local explains them.
         var outage = Math.Clamp(x.OutageMinutes / 60.0, 0, 1);
-        var (loss, lossText) = LossImpairment(x, profile);
+        var losses = LossImpairment(x, profile);
+        var loss = losses.Isp;
         double latency = 0;
         if (x.IdleRttMs is { } rtt)
         {
@@ -101,13 +111,14 @@ public static class SiteHealthScorer
 
         var upstream = Combine(outage, loss, latency);
         var isp = x.LocalCause == null ? upstream : 0;
-        var local = Combine(x.LocalCause == null ? 0 : upstream, bloat);
+        var local = Combine(x.LocalCause == null ? 0 : upstream, bloat, losses.Gateway);
         var hasInternet = x.LossPct != null || x.LossWindows.Count > 0 || x.IdleRttMs != null || x.OutageMinutes > 0;
         double? internet = hasInternet ? Combine(isp, local) : null;
 
         var where = x.LocalCause is { } cause ? $" ({cause})" : " (ISP)";
         if (outage > 0) contributors.Add(new("Internet", outage, $"{x.OutageText ?? $"WAN outage, {x.OutageMinutes:0} min"}{where}"));
-        if (loss > 0) contributors.Add(new("Internet", loss, $"{lossText}{where}"));
+        if (loss > 0) contributors.Add(new("Internet", loss, $"{losses.IspText}{where}"));
+        if (losses.Gateway > 0) contributors.Add(new("Internet", losses.Gateway, losses.GatewayText!));
         if (latency > 0)
             contributors.Add(new("Internet", latency, $"latency {x.IdleRttMs:0.#} ms{(x.BaselineRttMs is { } b ? $" vs {b:0.#} normal" : "")}{where}"));
         if (bloat > 0) contributors.Add(new("Internet", bloat, $"latency +{delta:0} ms under load (bufferbloat)"));
@@ -160,35 +171,46 @@ public static class SiteHealthScorer
         };
     }
 
+    /// <summary>An hour's loss split by whose it is: the ISP's (unless the hour has a local cause) and the gateway's.</summary>
+    internal readonly record struct LossSplit(double Isp, string? IspText, double Gateway, string? GatewayText);
+
     /// <summary>
     /// Loss as a share of the hour. Each 5-minute window ramps over <see cref="LossRampPct"/> from a
     /// ceiling that rises with load, and the windows average by time, so a short burst costs its share
-    /// of the hour. A window where the LAN lost packets too is left to LAN, which scores it.
+    /// of the hour. A window where the LAN lost packets too is left to LAN, which scores it; one where
+    /// the gateway was busy is the gateway's. The LAN goes first: it shows the problem is downstream.
     /// </summary>
-    internal static (double Impairment, string? Text) LossImpairment(HealthHourInputs x, AccessProfile profile)
+    internal static LossSplit LossImpairment(HealthHourInputs x, AccessProfile profile)
     {
         if (x.LossWindows.Count == 0)
         {
-            if (x.LossPct is not { } l) return (0, null);
+            if (x.LossPct is not { } l) return default;
             var ceiling = LossCeiling(profile, 0);
             var whole = Ramp(l, ceiling, ceiling + LossRampPct);
-            return whole > 0 ? (whole, $"loss {l:0.##}%") : (0, null);
+            return whole > 0 ? new LossSplit(whole, $"loss {l:0.##}%", 0, null) : default;
         }
 
-        double sum = 0;
-        var hit = new List<LossWindow>();
+        var isp = new List<(LossWindow W, double Impairment)>();
+        var gateway = new List<(LossWindow W, double Impairment)>();
         foreach (var w in x.LossWindows)
         {
             if (w.LanLoss) continue;
             var ceiling = LossCeiling(profile, w.Saturation);
             var impairment = Ramp(w.LossPct, ceiling, ceiling + LossRampPct);
             if (impairment <= 0) continue;
-            sum += impairment;
-            hit.Add(w);
+            (w.GatewayBusy ? gateway : isp).Add((w, impairment));
         }
-        if (hit.Count == 0) return (0, null);
-        var underLoad = hit.Average(w => w.Saturation) >= 0.5 ? " under load" : "";
-        return (sum / x.LossWindows.Count, $"loss {hit.Average(w => w.LossPct):0.##}% for {hit.Count * WindowMinutes} min{underLoad}");
+        var n = x.LossWindows.Count;
+        string? IspText() => isp.Count == 0 ? null
+            : $"loss {isp.Average(h => h.W.LossPct):0.##}% for {isp.Count * WindowMinutes} min{(isp.Average(h => h.W.Saturation) >= 0.5 ? " under load" : "")}";
+        string? GatewayText()
+        {
+            if (gateway.Count == 0) return null;
+            var mbps = gateway.Where(h => h.W.WanMbps != null).Select(h => h.W.WanMbps!.Value).ToList();
+            var at = mbps.Count > 0 ? $" at {mbps.Average():0} Mbps" : "";
+            return $"loss {gateway.Average(h => h.W.LossPct):0.##}% for {gateway.Count * WindowMinutes} min{at} (gateway CPU {gateway.Average(h => h.W.GatewayCpuPct!.Value):0}%)";
+        }
+        return new LossSplit(isp.Sum(h => h.Impairment) / n, IspText(), gateway.Sum(h => h.Impairment) / n, GatewayText());
     }
 
     /// <summary>
