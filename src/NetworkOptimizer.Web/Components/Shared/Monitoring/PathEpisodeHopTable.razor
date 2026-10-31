@@ -15,7 +15,7 @@
     {
         @if (!string.IsNullOrEmpty(_detail.Episode.Summary))
         {
-            <p class="path-episode-summary">@_detail.Episode.Summary</p>
+            <p class="path-episode-summary"><TextWithCode Text="@_detail.Episode.Summary" /></p>
         }
         @if (_detail.Episode.Degraded.Count > 1 || _detail.Episode.Controls.Count > 0)
         {
@@ -97,7 +97,7 @@
                                         <span class="path-hop-tag path-hop-tag-muted" data-tooltip="Its RTT spread dwarfs the next hop's: the router is slow to answer ICMP itself, not slow to forward.">Slow ICMP</span>
                                     }
                                 </td>
-                                <td>@PathTraceAnalyzer.NetworkName(hop, "-")</td>
+                                <td><TextWithCode Text="@PathTraceAnalyzer.NetworkName(hop, "-")" /></td>
                                 <td>@(hop.Sent > 0 && hop.Responses > 0 ? $"{hop.LossPct:0.#}%" : "-")</td>
                                 <td>@RttLabel(hop)</td>
                                 @if (table.Hops.Any(h => h.ReturnHops.HasValue))

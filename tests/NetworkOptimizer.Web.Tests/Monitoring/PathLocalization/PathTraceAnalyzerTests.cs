@@ -91,7 +91,7 @@ public class PathTraceAnalyzerTests
 
         v.Scope.Should().Be(CongestionScope.Segment);
         v.Disposition.Should().Be(CongestionDisposition.Confirmed);
-        v.Label.Should().Be("Between Lumen (AS3356) and Akamai (AS20940) (handoff)");
+        v.Label.Should().Be("Between Lumen `AS3356` and Akamai `AS20940` (handoff)");
         v.BottleneckHopNumber.Should().Be(6);
         var hops = v.Targets[0].Hops;
         hops.Single(h => h.Has(HopTag.LastClean)).Address.Should().Be(LumenEdge);
@@ -109,7 +109,7 @@ public class PathTraceAnalyzerTests
         var v = Analyze(Ord(during, Recovery()));
 
         v.Scope.Should().Be(CongestionScope.Asn);
-        v.Label.Should().Be("Inside Lumen (AS3356)");
+        v.Label.Should().Be("Inside Lumen `AS3356`");
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class PathTraceAnalyzerTests
         var v = Analyze(Ord(during, Recovery()), control);
 
         v.Scope.Should().Be(CongestionScope.Hop);
-        v.Label.Should().Be("Starts at Lumen 198.51.100.4 (AS3356)");
+        v.Label.Should().Be("Starts at Lumen 198.51.100.4 `AS3356`");
         v.Summary.Should().Contain("Clean control: Speedtest DEN");
     }
 
@@ -143,7 +143,7 @@ public class PathTraceAnalyzerTests
 
         v.Scope.Should().Be(CongestionScope.Corridor);
         v.Disposition.Should().Be(CongestionDisposition.Unverifiable);
-        v.Label.Should().Be("Past the last clean hop (Akamai 203.0.113.7 (AS20940)): the far side or the return path");
+        v.Label.Should().Be("Past the last clean hop, Akamai 203.0.113.7 `AS20940`: the far side or the return path");
         v.Targets[0].Hops.Single(h => h.Address == LumenAtl).Has(HopTag.IcmpLimited).Should().BeTrue();
     }
 
@@ -198,7 +198,7 @@ public class PathTraceAnalyzerTests
         var v = Analyze(Ord(during, Recovery()));
 
         v.Targets[0].PathChanged.Should().BeTrue();
-        v.Label.Should().Be("Path moved from Lumen (AS3356) to Cox (AS22773) at hop 3");
+        v.Label.Should().Be("Path moved from Lumen `AS3356` to Cox `AS22773` at hop 3");
         v.Scope.Should().Be(CongestionScope.Segment);
     }
 

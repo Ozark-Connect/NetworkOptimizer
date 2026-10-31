@@ -295,7 +295,7 @@ else
             <div class="banner-content">
                 <span class="banner-icon @(banner.CssClass == "alert-warning" ? "banner-icon-warning" : "banner-icon-info")">@(banner.CssClass == "alert-warning" ? "!" : "i")</span>
                 <div class="banner-text" style="flex: 1;">
-                    <strong>@banner.Lead</strong> @banner.Text
+                    <strong>@banner.Lead</strong> <TextWithCode Text="@banner.Text" />
                     @if (banner.More > 0)
                     {
                         <span> @banner.More more in the last 24 hours.</span>
@@ -413,8 +413,8 @@ else
                     <div class="issue-item @IssueClass(issue.Severity)">
                         <div class="issue-content">
                             <span class="issue-severity">@issue.Severity</span>
-                            <div class="issue-title">@issue.Title</div>
-                            <div class="issue-description">@issue.Description</div>
+                            <div class="issue-title"><TextWithCode Text="@issue.Title" /></div>
+                            <div class="issue-description"><TextWithCode Text="@issue.Description" /></div>
                             @if (!string.IsNullOrEmpty(issue.Recommendation))
                             {
                                 <div class="issue-recommendation">
@@ -922,7 +922,7 @@ else
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">
-                                @entry.Text
+                                <TextWithCode Text="@entry.Text" />
                                 @if (entry.EpisodeId is int episodeId)
                                 {
                                     var episodeKey = $"episode:{episodeId}";

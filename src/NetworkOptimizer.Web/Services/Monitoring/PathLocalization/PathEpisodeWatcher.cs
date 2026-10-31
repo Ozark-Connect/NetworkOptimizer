@@ -190,8 +190,14 @@ public sealed class PathEpisodeWatcher
         lock (_lock) return _runs.Values.Any(r => r.Row.Id == episodeId && r.Row.ClosedAt == null);
     }
 
-    private static GateRole? RoleOf(MonitoringTarget t) => t.TargetType switch
+    /// <summary>
+    /// A local Custom target (the Network Performance LAN filter's rule) gets no role: its trouble is a
+    /// LAN link, which a forward trace cannot localize, and it says nothing about the Internet path as
+    /// a control or in the site-wide count.
+    /// </summary>
+    internal static GateRole? RoleOf(MonitoringTarget t) => t.TargetType switch
     {
+        MonitoringTargetType.Custom when LocalTargetResolver.IsLocal(t) => null,
         MonitoringTargetType.InternetService or MonitoringTargetType.Custom => GateRole.Path,
         MonitoringTargetType.AccessIsp => GateRole.Access,
         _ when t.DiscoveryMethod == DiscoveryMethod.L2Neighbor => GateRole.Access,

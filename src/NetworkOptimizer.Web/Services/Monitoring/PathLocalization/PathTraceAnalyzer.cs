@@ -380,7 +380,7 @@ public static class PathTraceAnalyzer
             scope = CongestionScope.Corridor;
             disposition = CongestionDisposition.Unverifiable;
             label = lastCleanHop != null
-                ? $"Past the last clean hop ({HopName(lastCleanHop)}): the far side or the return path"
+                ? $"Past the last clean hop, {HopName(lastCleanHop)}: the far side or the return path"
                 : "No forward hop answered cleanly: the far side or the return path";
         }
         else if (onsetHop.Address != null && controlMinRtt.ContainsKey(onsetHop.Address))
@@ -570,21 +570,27 @@ public static class PathTraceAnalyzer
         return null;
     }
 
-    /// <summary>"Lumen edge6.Denver2 (AS3356)": the network, the hop's name or address, the ASN.</summary>
+    /// <summary>
+    /// "Lumen edge6.Denver2 `AS3356`": the network, the hop's name or address, the ASN. The ASN sits
+    /// in backticks, which the UI renders as code, so a label never nests parentheses.
+    /// </summary>
     internal static string HopName(HopReading h)
     {
         var name = h.Hostname ?? h.Address ?? $"hop {h.Ttl}";
         return h.Asn is int asn
-            ? (string.IsNullOrEmpty(h.AsnName) ? $"{name} (AS{asn})" : $"{h.AsnName} {name} (AS{asn})")
+            ? (string.IsNullOrEmpty(h.AsnName) ? $"{name} {AsnCode(asn)}" : $"{h.AsnName} {name} {AsnCode(asn)}")
             : name;
     }
 
-    /// <summary>"Akamai (AS20940)"; <paramref name="unknown"/>, else the hop's address, when its network is unknown.</summary>
+    /// <summary>"Akamai `AS20940`"; <paramref name="unknown"/>, else the hop's address, when its network is unknown.</summary>
     internal static string NetworkName(HopReading h, string? unknown = null) =>
         h.Asn is int asn
-            ? (string.IsNullOrEmpty(h.AsnName) ? $"AS{asn}" : $"{h.AsnName} (AS{asn})")
+            ? (string.IsNullOrEmpty(h.AsnName) ? AsnCode(asn) : $"{h.AsnName} {AsnCode(asn)}")
             : unknown ?? h.Address ?? $"hop {h.Ttl}";
 
     private static string NetworkName(AsnLookup a) =>
-        string.IsNullOrEmpty(a.Name) ? $"AS{a.Asn}" : $"{a.Name} (AS{a.Asn})";
+        string.IsNullOrEmpty(a.Name) ? AsnCode(a.Asn) : $"{a.Name} {AsnCode(a.Asn)}";
+
+    /// <summary>"`AS22773`": an AS number marked for code formatting.</summary>
+    internal static string AsnCode(int asn) => $"`AS{asn}`";
 }
