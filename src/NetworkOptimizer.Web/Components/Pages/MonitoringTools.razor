@@ -939,6 +939,12 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (!_consoleDataLoaded)
             _ = WaitForConnectionThenReloadAsync();
 
+        if (!string.IsNullOrWhiteSpace(TargetParam) && TargetParam.Trim().Length <= 253)
+        {
+            _targetAddress = TargetParam.Trim();
+            _probeMode = ProbeMode.Icmp;
+        }
+
         await LoadProbeVantagesAsync();
         await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
@@ -991,6 +997,13 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     /// </summary>
     [SupplyParameterFromQuery(Name = "from")]
     public string? FromParam { get; set; }
+
+    /// <summary>
+    /// Target to start on, sent by a link that wants a specific trace repeated - a Path Localization
+    /// episode's Re-run. Fills the box only; nothing runs until the user asks.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "target")]
+    public string? TargetParam { get; set; }
 
     /// <summary>
     /// Decides the starting vantage once, in OnInitializedAsync after the vantage and device

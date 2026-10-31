@@ -2836,6 +2836,169 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("OutageAcknowledgements", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.PathEpisode", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BottleneckHopIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BottleneckHopNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BottleneckLabel")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Disposition")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("GateSnapshot")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OpenedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RecoveryTracedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ReturnPathFinding")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("WanContextId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WanInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OpenedAt");
+
+                    b.ToTable("PathEpisodes", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.PathEpisodeTarget", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("BaselineLossPct")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("BaselineRttMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("BottleneckHopIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BottleneckHopNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BottleneckLabel")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Disposition")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("EpisodeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MonitoringTargetId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("PeakLossPct")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("PeakRttMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Scope")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EpisodeId", "MonitoringTargetId", "Role")
+                        .IsUnique();
+
+                    b.ToTable("PathEpisodeTargets", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.PathEpisodeTrace", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EpisodeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("HopsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MonitoringTargetId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Reached")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResolvedAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Vantage")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EpisodeId");
+
+                    b.ToTable("PathEpisodeTraces", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.PerfTweakSetting", b =>
                 {
                     b.Property<int>("Id")
@@ -4655,6 +4818,28 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Navigation("FloorPlan");
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.PathEpisodeTarget", b =>
+                {
+                    b.HasOne("NetworkOptimizer.Storage.Models.PathEpisode", "Episode")
+                        .WithMany("Targets")
+                        .HasForeignKey("EpisodeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Episode");
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.PathEpisodeTrace", b =>
+                {
+                    b.HasOne("NetworkOptimizer.Storage.Models.PathEpisode", "Episode")
+                        .WithMany("Traces")
+                        .HasForeignKey("EpisodeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Episode");
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.SiteLicenseAssignment", b =>
                 {
                     b.HasOne("NetworkOptimizer.Storage.Models.LicenseKeyRecord", null)
@@ -4688,6 +4873,13 @@ namespace NetworkOptimizer.Storage.Migrations
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.FloorPlan", b =>
                 {
                     b.Navigation("Images");
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.PathEpisode", b =>
+                {
+                    b.Navigation("Targets");
+
+                    b.Navigation("Traces");
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Threats.Models.ThreatPattern", b =>
