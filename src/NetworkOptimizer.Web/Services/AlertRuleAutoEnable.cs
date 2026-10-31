@@ -122,6 +122,26 @@ public static class AlertRuleAutoEnable
             rule.Name, pattern);
     }
 
+    /// <summary>
+    /// Enables one default rule when its feature is first used, if the rule still has its shipped
+    /// state: disabled and never edited. Every edit or toggle on the Alerts page sets UpdatedAt, so a
+    /// rule a user turned off is never turned back on, and a deleted one stays deleted. Matching the
+    /// shipped name as well leaves alone a rule the user added for the same event.
+    /// </summary>
+    /// <returns>Whether the rule was enabled.</returns>
+    public static async Task<bool> EnableUntouchedDefaultAsync(
+        NetworkOptimizerDbContext db, string pattern, string name, ILogger logger, CancellationToken ct = default)
+    {
+        var rule = await db.AlertRules.FirstOrDefaultAsync(
+            r => r.EventTypePattern == pattern && r.Name == name && !r.IsEnabled && r.UpdatedAt == null, ct);
+        if (rule == null) return false;
+
+        rule.IsEnabled = true;
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Enabled the '{Name}' alert rule now that its feature is in use", rule.Name);
+        return true;
+    }
+
     public static void EnableFreshlySeeded(
         NetworkOptimizerDbContext db, string source, ISet<string> seededPatterns, Func<bool> hasConfigs)
     {
