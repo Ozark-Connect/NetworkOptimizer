@@ -596,7 +596,10 @@ public static class ZoneSetup
             // clients: UniFi refuses CLIENT on the destination (400, Network 11, 2026-10-30).
             var unknownClients = new List<string>();
             var clientNetwork = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            var clientGroups = ClientGroups(src, users, lastSeen, newZoneOf, unknownClients, clientNetwork);
+            var elsewhere = new List<string>();
+            var clientGroups = ClientGroups(src, users, lastSeen, moved, newZoneOf, unknownClients, elsewhere, clientNetwork);
+            if (elsewhere.Count > 0)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: {string.Join(", ", elsewhere)} {(elsewhere.Count == 1 ? "is" : "are")} on a network outside {zoneName(Str(src?["zone_id"]))}, so it does not apply to {(elsewhere.Count == 1 ? "it" : "them")} today. Left as it is.");
             var clientsMove = clientGroups is { } cg && (cg.Count > 1 || cg[0].Zone != Str(src?["zone_id"]));
             var srcNets = Named(src, networks);
             var dstNets = Named(dst, networks);
@@ -658,14 +661,16 @@ public static class ZoneSetup
     }
 
     /// <summary>
-    /// A client source's clients grouped by the zone their network sits in after the move, in list order; null for any
-    /// other side. A client's network is its fixed IP's, else the one it last connected on. A client with no known
-    /// network (or one no longer on the site) stays in the side's zone and is added to <paramref name="unknownClients"/>.
+    /// A client source's clients grouped by zone, in list order; null for any other side. A client on a network the plan
+    /// moves goes with it to its new zone; every other client stays in the side's zone, so the plan changes only what the
+    /// move changes. A client's network is its fixed IP's, else the one it last connected on. A client with no known
+    /// network (or one no longer on the site) is added to <paramref name="unknownClients"/>; one on a network that stays
+    /// outside the side's zone (the policy does not apply to it today) to <paramref name="elsewhere"/>.
     /// </summary>
     /// <param name="networkOf">Filled with each client's network, null when not known.</param>
     private static List<(string Zone, List<string> Members)>? ClientGroups(JsonObject? side, Dictionary<string, JsonObject> users,
-        IReadOnlyDictionary<string, string> clientNetworks, Dictionary<string, string> newZoneOf, List<string> unknownClients,
-        Dictionary<string, string?> networkOf)
+        IReadOnlyDictionary<string, string> clientNetworks, HashSet<string> moved, Dictionary<string, string> newZoneOf,
+        List<string> unknownClients, List<string> elsewhere, Dictionary<string, string?> networkOf)
     {
         if (side == null || Str(side["matching_target"]) is not ("CLIENT" or "MAC")) return null;
         var current = Str(side["zone_id"]) ?? "";
@@ -678,7 +683,9 @@ public static class ZoneSetup
             if (network != null && newZoneOf.TryGetValue(network, out var zone))
             {
                 networkOf[mac] = network;
-                return zone;
+                if (moved.Contains(network)) return zone;
+                if (!string.Equals(zone, current, StringComparison.OrdinalIgnoreCase)) elsewhere.Add(ClientName(users, mac));
+                return current;
             }
             networkOf[mac] = null;
             unknownClients.Add(ClientName(users, mac));

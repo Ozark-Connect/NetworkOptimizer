@@ -553,6 +553,42 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void Rehome_ClientsOnANetworkThatStaysInAnotherZone_AreLeftAlone()
+    {
+        // [TV] Block TV Internet: an Internal policy whose TVs sit on a network in another zone that the plan does not move.
+        // It does not apply to them today; the plan must not start blocking them by copying it into that zone.
+        var live = WithSubnetsAndGateway();
+        var policy = Rule("p-tv", "[TV] Block TV Internet", "BLOCK", ClientSide("z-int", "CLIENT", "aa:00:00:00:04:01", "aa:00:00:00:04:02"), Side("z-ext"));
+        live.Collections["firewall_policy"].Add(policy);
+        var tv = Client("aa:00:00:00:04:02", "n-guest");
+        tv["name"] = "Bedroom TV";
+        live.Collections["user"] = [tv];
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:04:01"] = "n-guest" });
+
+        Named(plan.Desired, "[TV] Block TV Internet")!.ToJsonString().Should().Be(policy.ToJsonString());
+        plan.Desired.Get("firewall_policy").Should().NotContain(p => p["name"]!.ToString().StartsWith("[TV] Block TV Internet ("));
+        plan.Rehomed.Should().NotContain("p-tv");
+        plan.Notes.Should().Contain("Firewall Policy [TV] Block TV Internet: aa:00:00:00:04:01, Bedroom TV are on a network outside Internal, so it does not apply to them today. Left as it is.");
+    }
+
+    [Fact]
+    public void Rehome_OnlyClientsOnAMovingNetworkLeave_ClientsElsewhereStay()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-mixtv", "[TV] Block Internet", "BLOCK", ClientSide("z-int", "CLIENT", "aa:00:00:00:05:01", "aa:00:00:00:05:02"), Side("z-ext")));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:05:01"] = "n-guest", ["aa:00:00:00:05:02"] = "n-iot" });
+
+        var original = Named(plan.Desired, "[TV] Block Internet")!;
+        original["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        original["source"]!["client_macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal(["aa:00:00:00:05:01"]);
+        Named(plan.Desired, "[TV] Block Internet (IoT)")!["source"]!["client_macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal(["aa:00:00:00:05:02"]);
+        plan.Desired.Get("firewall_policy").Should().NotContain(p => p["name"]!.ToString() == "[TV] Block Internet (Hotspot)");
+        plan.Notes.Should().Contain(n => n.Contains("[TV] Block Internet: aa:00:00:00:05:01 is on a network outside Internal"));
+    }
+
+    [Fact]
     public void Rehome_MacListSplit_NarrowsTheMacList()
     {
         var live = WithSubnetsAndGateway();
