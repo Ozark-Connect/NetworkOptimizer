@@ -592,10 +592,10 @@ public static class ZoneSetup
             var excluded = DropMovedExclusions(src, moved) | DropMovedExclusions(dst, moved);
             if (excluded)
                 notes.Add($"Firewall Policy {Str(policy, "name")}: excludes a network that moves out of its zone, so that exclusion is dropped.");
-            // A client source follows its clients' network when the config knows it (a fixed IP) and they all land in one
-            // zone. Only a source can match clients: UniFi refuses CLIENT on the destination (400, Network 11, 2026-10-30).
-            var clientsUnknown = false;
-            var clientsMoved = FollowClients(policy, src, users, lastSeen, moved, newZoneOf, zoneName, notes, ref clientsUnknown);
+            // A client source follows its clients' network when it is known and they all land in one zone. Only a
+            // source can match clients: UniFi refuses CLIENT on the destination (400, Network 11, 2026-10-30).
+            var unknownClients = new List<string>();
+            var clientsMoved = FollowClients(policy, src, users, lastSeen, moved, newZoneOf, zoneName, notes, unknownClients);
             var srcNets = Named(src, networks);
             var dstNets = Named(dst, networks);
             if (!srcNets.Any(moved.Contains) && !dstNets.Any(moved.Contains))
@@ -603,8 +603,8 @@ public static class ZoneSetup
                 if (excluded || clientsMoved) result[ConfigState.IdOf(policy)] = Str(policy, "name") ?? "";
                 continue;
             }
-            if (clientsUnknown)
-                notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients with no known network (no fixed IP, never seen on a current network), so their side keeps its zone. Check it once the networks move if those clients are on a network that moves.");
+            if (unknownClients.Count > 0)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients with no known network ({string.Join(", ", unknownClients)}: no fixed IP, never seen on a current network), so their side keeps its zone. Check it once the networks move if those clients are on a network that moves.");
 
             // Each side's networks grouped by the zone they now sit in; a side naming no moved network keeps its zone.
             List<(string Zone, List<string> Nets)> Groups(JsonObject? side, List<string> nets) =>
@@ -638,32 +638,37 @@ public static class ZoneSetup
     /// <summary>
     /// A client source moved to the zone its clients' network now sits in. A client's network is its fixed IP's, else the
     /// one it last connected on; one no longer on the site counts as unknown. A side with clients on networks landing in
-    /// different zones keeps its zone and gets a note. Sets <paramref name="unknown"/> when a client's network is not
-    /// known. Returns whether the side moved.
+    /// different zones keeps its zone and gets a note naming each client and where it sits. Clients with no known network
+    /// are added to <paramref name="unknownClients"/> by name when nothing else decides. Returns whether the side moved.
     /// </summary>
+    /// <param name="nameOf">Display name of a zone or network by ID.</param>
     private static bool FollowClients(JsonObject policy, JsonObject? side, Dictionary<string, JsonObject> users,
         IReadOnlyDictionary<string, string>? clientNetworks, HashSet<string> moved,
-        Dictionary<string, string> newZoneOf, Func<string?, string> zoneName, List<string> notes, ref bool unknown)
+        Dictionary<string, string> newZoneOf, Func<string?, string> nameOf, List<string> notes, List<string> unknownClients)
     {
         if (side == null || Str(side["matching_target"]) is not ("CLIENT" or "MAC")) return false;
-        var macs = (side["client_macs"] as JsonArray ?? []).Concat(side["macs"] as JsonArray ?? []).Select(Str).OfType<string>().ToList();
+        var macs = (side["client_macs"] as JsonArray ?? []).Concat(side["macs"] as JsonArray ?? []).Select(Str).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         string? NetworkOf(string mac) =>
             (users.TryGetValue(mac, out var u) && Readdressing.IsTrue(u["use_fixedip"]) && Str(u, "network_id") is { Length: > 0 } fixedNet
                 ? fixedNet : clientNetworks?.GetValueOrDefault(mac)) is { } id && newZoneOf.ContainsKey(id) ? id : null;
+        string ClientName(string mac) => users.TryGetValue(mac, out var u) && Str(u, "name") is { Length: > 0 } n ? n : mac;
         var nets = macs.Select(NetworkOf).ToList();
         if (!nets.Any(id => id != null && moved.Contains(id)))
         {
-            if (nets.Count == 0 || nets.Contains(null)) unknown = true;
+            unknownClients.AddRange(macs.Where((_, i) => nets[i] == null).Select(ClientName));
             return false;
         }
         var zones = nets.Select(id => id == null ? null : newZoneOf.GetValueOrDefault(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (zones is [{ } zone])
         {
             side["zone_id"] = zone;
-            notes.Add($"Firewall Policy {Str(policy, "name")}: its clients' network moves to {zoneName(zone)}, so their side moves with it.");
+            notes.Add($"Firewall Policy {Str(policy, "name")}: its clients' network moves to {nameOf(zone)}, so their side moves with it.");
             return true;
         }
-        notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients whose networks land in different zones (or are not known), so their side keeps {zoneName(Str(side["zone_id"]))}. Split it by hand in the Edit tab.");
+        var where = macs.Select((mac, i) => nets[i] is not { } net ? $"{ClientName(mac)} (network unknown)"
+            : $"{ClientName(mac)} ({nameOf(net)}, {(moved.Contains(net) ? "moving to" : "stays in")} {nameOf(newZoneOf[net])})");
+        notes.Add($"Firewall Policy {Str(policy, "name")}: its clients do not land in one zone: {string.Join("; ", where)}. Their side keeps {nameOf(Str(side["zone_id"]))}. Split it by hand in the Edit tab.");
         return false;
     }
 

@@ -500,7 +500,9 @@ public class ZoneSetupTests
     public void Rehome_ClientsLandingInDifferentZones_KeepTheirSide_WithANote()
     {
         var live = WithSubnetsAndGateway();
-        live.Collections["user"] = [Client("aa:00:00:00:00:03", "n-iot"), Client("aa:00:00:00:00:04", "n-home")];
+        var rig = Client("aa:00:00:00:00:04", "n-home");
+        rig["name"] = "Workstation B";
+        live.Collections["user"] = [Client("aa:00:00:00:00:03", "n-iot"), rig];
         live.Collections["firewall_policy"].Add(Rule("p-mix", "[Mixed] To Cameras", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:03", "aa:00:00:00:00:04"), Side("z-int", "NETWORK", ["n-cam"])));
 
         var plan = PlanFor(live);
@@ -508,7 +510,8 @@ public class ZoneSetupTests
         var policy = Named(plan.Desired, "[Mixed] To Cameras")!;
         policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
         policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
-        plan.Notes.Should().Contain(n => n.Contains("[Mixed] To Cameras") && n.Contains("different zones"));
+        plan.Notes.Should().Contain(n => n.Contains("[Mixed] To Cameras")
+            && n.Contains("aa:00:00:00:00:03 (IoT, moving to IoT); Workstation B (Home, stays in Internal)") && n.Contains("keeps Internal"));
         plan.Notes.Should().NotContain(n => n.Contains("[Mixed] To Cameras") && n.Contains("no known network"));
     }
 
@@ -592,7 +595,24 @@ public class ZoneSetupTests
 
         var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:00:24"] = "n-home" });
 
-        plan.Notes.Should().Contain(n => n.Contains("[Phones] To IoT") && n.Contains("no known network"));
+        plan.Notes.Should().Contain(n => n.Contains("[Phones] To IoT") && n.Contains("no known network (aa:00:00:00:00:25:"));
+    }
+
+    [Fact]
+    public void Rehome_ClientsOnAMovingAndAnUnknownNetwork_NameEachInTheNote()
+    {
+        var live = WithSubnetsAndGateway();
+        var rig = Client("aa:00:00:00:00:31", null);
+        rig["name"] = "Workstation A";
+        live.Collections["user"] = [rig];
+        live.Collections["firewall_policy"].Add(Rule("p-ws", "Block Trackers from Workstations", "BLOCK",
+            ClientSide("z-int", "CLIENT", "aa:00:00:00:00:30", "aa:00:00:00:00:31"), Side("z-ext")));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:00:30"] = "n-iot" });
+
+        Named(plan.Desired, "Block Trackers from Workstations")!["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        plan.Notes.Should().Contain(n => n.Contains("Block Trackers from Workstations")
+            && n.Contains("aa:00:00:00:00:30 (IoT, moving to IoT); Workstation A (network unknown)"));
     }
 
     [Fact]
