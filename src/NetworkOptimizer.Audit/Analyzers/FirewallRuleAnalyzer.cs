@@ -2543,8 +2543,13 @@ public class FirewallRuleAnalyzer
             return false;
 
         if (destinationPort != null && protocol != null)
-            return string.IsNullOrEmpty(rule.SourcePort) && !rule.HasUnresolvedDestinationPortGroup
-                && FirewallGroupHelper.RuleMatchesPortAndProtocol(rule, destinationPort, protocol);
+        {
+            if (!string.IsNullOrEmpty(rule.SourcePort)) return false;
+            // Ports unknown: a block cannot be credited, but an allow may open this port, so it counts as matching.
+            if (rule.HasUnresolvedDestinationPortGroup)
+                return rule.ActionType.IsAllowAction() && FirewallGroupHelper.BlocksProtocol(rule.Protocol, rule.MatchOppositeProtocol, protocol);
+            return FirewallGroupHelper.RuleMatchesPortAndProtocol(rule, destinationPort, protocol);
+        }
 
         // A general Internet deny must affect every protocol and destination port.
         return string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase)

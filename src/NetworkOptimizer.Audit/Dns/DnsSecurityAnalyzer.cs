@@ -810,7 +810,7 @@ public class DnsSecurityAnalyzer
     /// ordering-aware firewall helper as the Internet-access audit. Network isolation is deliberately
     /// absent here: it governs traffic to other LAN networks, not to the External zone.
     /// </summary>
-    private void AddInternetBlockedCoverage(
+    private static void AddInternetBlockedCoverage(
         List<NetworkInfo> networks,
         List<FirewallRule> firewallRules,
         string? externalZoneId,
@@ -827,20 +827,21 @@ public class DnsSecurityAnalyzer
             // The per-port check still applies so a narrower allow ahead of the broad deny is honored.
             if (!FirewallRuleAnalyzer.IsInternetBlocked(network, firewallRules, externalZoneId, family))
                 continue;
-            var coverageName = network.InternetAccessEnabled
-                ? "Internet access blocked by firewall"
-                : "Internet Access disabled";
-            if (FirewallRuleAnalyzer.IsInternetTrafficBlocked(network, firewallRules, externalZoneId, "53", "udp", family))
+            var coverageName = network.InternetAccessEnabled ? "Internet access blocked by firewall" : "Internet Access disabled";
+            bool Blocks(string port, string protocol) =>
+                FirewallRuleAnalyzer.IsInternetTrafficBlocked(network, firewallRules, externalZoneId, port, protocol, family);
+
+            if (Blocks("53", "udp"))
             {
                 AddCoverage(result.Dns53CoveredNetworkIds, result.Dns53RuleCoverage, network, coverageName);
                 result.HasDns53BlockRule = true;
             }
-            if (FirewallRuleAnalyzer.IsInternetTrafficBlocked(network, firewallRules, externalZoneId, "853", "tcp", family))
+            if (Blocks("853", "tcp"))
             {
                 AddCoverage(result.DotCoveredNetworkIds, result.DotRuleCoverage, network, coverageName);
                 result.HasDotBlockRule = true;
             }
-            if (FirewallRuleAnalyzer.IsInternetTrafficBlocked(network, firewallRules, externalZoneId, "853", "udp", family))
+            if (Blocks("853", "udp"))
             {
                 AddCoverage(result.DoqCoveredNetworkIds, result.DoqRuleCoverage, network, coverageName);
                 result.HasDoqBlockRule = true;

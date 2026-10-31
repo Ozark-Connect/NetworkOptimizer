@@ -10338,6 +10338,34 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void InternetHelpers_EarlierAllowWithUnknownPorts_MayOpenAnyPort()
+    {
+        var allow = new FirewallRule
+        {
+            Id = "allow-group", Name = "allow-group", Enabled = true, Action = "accept", Protocol = "udp", Index = 1,
+            SourceZoneId = "zone-mgmt", SourceMatchingTarget = "ANY", DestinationZoneId = InternetExternalZone,
+            DestinationMatchingTarget = "ANY", HasUnresolvedDestinationPortGroup = true,
+        };
+        var rules = new List<FirewallRule> { allow, ToExternal("block", "drop", 2) };
+
+        FirewallRuleAnalyzer.IsInternetTrafficBlocked(InternetNet(), rules, InternetExternalZone, "53", "udp").Should().BeFalse("its ports are unknown");
+        FirewallRuleAnalyzer.IsInternetTrafficBlocked(InternetNet(), rules, InternetExternalZone, "853", "tcp").Should().BeTrue("a UDP allow cannot open TCP");
+    }
+
+    [Fact]
+    public void InternetHelpers_BlockWithUnknownPorts_IsNotCredited()
+    {
+        var block = new FirewallRule
+        {
+            Id = "block-group", Name = "block-group", Enabled = true, Action = "drop", Protocol = "udp", Index = 1,
+            SourceZoneId = "zone-mgmt", SourceMatchingTarget = "ANY", DestinationZoneId = InternetExternalZone,
+            DestinationMatchingTarget = "ANY", HasUnresolvedDestinationPortGroup = true,
+        };
+
+        FirewallRuleAnalyzer.IsInternetTrafficBlocked(InternetNet(), [block], InternetExternalZone, "53", "udp").Should().BeFalse();
+    }
+
+    [Fact]
     public void InternetHelpers_EarlierBroadAllow_OverridesALaterDeny()
     {
         var rules = new List<FirewallRule> { ToExternal("allow", "accept", 1), ToExternal("block", "drop", 2) };
