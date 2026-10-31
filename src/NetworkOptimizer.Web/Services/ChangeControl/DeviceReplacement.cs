@@ -595,7 +595,7 @@ public static class DeviceReplacement
             var mapped = members.Where(map.ContainsKey).Select(m => map[m]).OrderBy(m => m).ToList();
             s.Add(mapped.Count == members.Count
                 ? new($"LAG {lagNo}, {members.Count} members", $"Remapped to {Range(mapped)}", "ok")
-                : new($"LAG {lagNo}, {members.Count} members", mapped.Count >= 2 ? $"{members.Count - mapped.Count} members dropped" : "Dropped", "warn"));
+                : new($"LAG {lagNo}, {members.Count} members", mapped.Count >= 2 ? $"{TimeFormatHelper.Pluralize(members.Count - mapped.Count, "member")} dropped" : "Dropped", "warn"));
         }
         var maxLags = (newMeta["switch_caps"] as JsonObject) is { } caps ? Int(caps, "max_aggregate_sessions") : null;
         if (maxLags != null && lagNo > maxLags)

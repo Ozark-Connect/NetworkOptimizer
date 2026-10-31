@@ -202,6 +202,6 @@ else
     private string MinutesAfter(DateTime t)
     {
         var span = t - (Detail?.Row.OccurredAt ?? t);
-        return span.TotalMinutes < 90 ? $"{Math.Max(0, (int)span.TotalMinutes)} min" : $"{span.TotalHours:0.#} h";
+        return NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthPresentation.FormatDuration(span < TimeSpan.Zero ? TimeSpan.Zero : span);
     }
 }

@@ -448,8 +448,8 @@ public sealed class PlanCoordinator
                 await AgentRevert.RearmAsync(plan, doc, after, deadline, ct);
             if (automatic) Audit(AuditActions.ChangeControlPlanApplied, plan, AuditOutcomes.Success, new { scheduled = true });
             await Publish(ChangeAlerts.PlanApplied, AlertSeverity.Info, $"Plan applied: {plan.Name}",
-                $"{doc.Operations.Count} writes by {actor.Name}." + (watch ? $" Watching for {window.TotalMinutes:0} minutes." : "")
-                + (result.VerifyDifferences.Count > 0 ? $" {result.VerifyDifferences.Count} differences remain after verify." : "")
+                $"{TimeFormatHelper.Pluralize(doc.Operations.Count, "write")} by {actor.Name}." + (watch ? $" Watching for {TimeFormatHelper.FormatDurationExact(window)}." : "")
+                + (result.VerifyDifferences.Count > 0 ? $" {TimeFormatHelper.Pluralize(result.VerifyDifferences.Count, "difference")} {(result.VerifyDifferences.Count == 1 ? "remains" : "remain")} after verify." : "")
                 + (refused.Count > 0 ? $" {plan.Message}" : ""), plan.Id, ct);
             _engine.PollSoon();
             if (ZonesChanged != null && ChangedZones(doc, result))

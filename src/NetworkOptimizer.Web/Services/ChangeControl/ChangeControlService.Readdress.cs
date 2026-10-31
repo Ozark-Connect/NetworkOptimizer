@@ -336,11 +336,11 @@ public sealed partial class ChangeControlService
         warnings.Add(prepare switch
         {
             null when lease <= PrepareLeaseSeconds => new("Leases are short",
-                $"{CcHours(TimeSpan.FromSeconds(lease))} or less on every moving network: clients move within minutes."),
+                $"{TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(lease))} or less on every moving network: clients move within minutes."),
             null => new("Clients move as leases renew",
-                $"Within {CcHours(TimeSpan.FromSeconds(lease / 2))} of the move. Lower Lease Times first, or Reconnect Clients after, makes it minutes."),
+                $"Within {TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(lease / 2))} of the move. Lower Lease Times first, or Reconnect Clients after, makes it minutes."),
             { } p when p.ReadyAt > DateTime.UtcNow => new("Leases lowered, not everywhere yet",
-                $"Some clients keep their old lease until {Local(p.ReadyAt):MMM d, h:mm tt}. The plan puts each lease time back."),
+                $"Some clients keep their old lease until {TimeFormatHelper.FormatLocalDateTime(p.ReadyAt)}. The plan puts each lease time back."),
             _ => new("Leases are short", "Clients move within minutes. The plan puts each network's lease time back."),
         });
         return warnings;

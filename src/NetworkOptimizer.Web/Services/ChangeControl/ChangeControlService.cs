@@ -489,10 +489,10 @@ public sealed partial class ChangeControlService : IChangeControlService
             _ => text.ToLowerInvariant() + " snapshot",
         });
         var detail = string.Join(", ", tags);
-        return (state, Local(snap.TakenAt).ToString("MMM d, h:mm tt"), char.ToUpperInvariant(detail[0]) + detail[1..]);
+        return (state, TimeFormatHelper.FormatLocalDateTime(snap.TakenAt), char.ToUpperInvariant(detail[0]) + detail[1..]);
     }
 
-    private static DateTime Local(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
+    private static DateTime Local(DateTime utc) => TimeFormatHelper.ToLocal(utc);
 
     public async Task<CompareView> CompareAsync(int? fromSnapshotId, int? toSnapshotId, CancellationToken cancellationToken = default)
     {
@@ -514,7 +514,7 @@ public sealed partial class ChangeControlService : IChangeControlService
                 string? whenWho = null, note = null;
                 if (latest is { } l)
                 {
-                    whenWho = $"{Local(l.Change.OccurredAt):MMM d}, {Who(l.Change)}";
+                    whenWho = $"{TimeFormatHelper.FormatLocalDate(l.Change.OccurredAt)}, {Who(l.Change)}";
                     if (l.Change.ActorKind is ConfigChangeActorKind.LikelyUniFi or ConfigChangeActorKind.NoAdminRecorded && ChangeDescriber.IsUpgradeSummary(l.Change.Summary))
                         note = "During a Network app upgrade. No AUDIT event matches.";
                 }
@@ -754,7 +754,7 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         var snap = await Repo.UseAsync((r, c) => r.GetSnapshotAsync(snapshotId, c), cancellationToken) ?? throw new InvalidOperationException("Snapshot not found.");
         var state = await Engine.LoadSnapshotStateAsync(snapshotId, cancellationToken) ?? throw new InvalidOperationException("Snapshot content not found.");
-        var label = Local(snap.TakenAt).ToString("MMM d, h:mm tt");
+        var label = TimeFormatHelper.FormatLocalDateTime(snap.TakenAt);
         var plan = await Plans.CreateAsync(ConfigPlanKind.RollbackSnapshot, $"Roll Back {await SiteNameAsync(cancellationToken)} to {label}",
             $"Snapshot, {label}", snapshotId, null, state, new PlanOptions(), Actor, cancellationToken,
             doc =>
@@ -778,7 +778,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var state = await Engine.LoadSnapshotStateAsync(prev, cancellationToken) ?? throw new InvalidOperationException("Snapshot content not found.");
         var only = objects.Where(o => !o.ObjectId.StartsWith("order:", StringComparison.Ordinal)).Select(o => (o.Collection, o.ObjectId)).ToHashSet();
         var plan = await Plans.CreateAsync(ConfigPlanKind.RollbackChange, $"Roll Back: {change.Summary}",
-            $"Change, {Local(change.OccurredAt):MMM d, h:mm tt}", prev, null, state,
+            $"Change, {TimeFormatHelper.FormatLocalDateTime(change.OccurredAt)}", prev, null, state,
             new PlanOptions { OnlyObjects = only, Collections = objects.Select(o => o.Collection).ToHashSet() }, Actor, cancellationToken,
             rollsBackChangeId: change.Id);
         return plan.Id;
@@ -835,7 +835,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var baseline = await Repo.UseAsync((r, c) => r.GetBaselineSnapshotAsync(c), ct);
         if (baseline == null) return null;
         var state = await Engine.LoadSnapshotStateAsync(baseline.Id, ct);
-        return state == null ? null : (state, $"Baseline, {Local(baseline.TakenAt):MMM d, h:mm tt}", new PlanOptions(), baseline.Id);
+        return state == null ? null : (state, $"Baseline, {TimeFormatHelper.FormatLocalDateTime(baseline.TakenAt)}", new PlanOptions(), baseline.Id);
     }
 
     public async Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default)
@@ -926,13 +926,13 @@ public sealed partial class ChangeControlService : IChangeControlService
         StartedAt = p.CompletedAt,
         Detail = p.Status switch
         {
-            ConfigPlanStatus.PendingApproval => $"{p.ObjectCount} objects{(p.ScheduledFor is { } s ? $", scheduled {Local(s):MMM d, h:mm tt}" : "")}",
-            ConfigPlanStatus.Scheduled or ConfigPlanStatus.Approved => p.ScheduledFor is { } s2 ? $"Scheduled {Local(s2):MMM d, h:mm tt}" : "Approved, ready to apply",
+            ConfigPlanStatus.PendingApproval => $"{TimeFormatHelper.Pluralize(p.ObjectCount, "object")}{(p.ScheduledFor is { } s ? $", scheduled {TimeFormatHelper.FormatLocalDateTime(s)}" : "")}",
+            ConfigPlanStatus.Scheduled or ConfigPlanStatus.Approved => p.ScheduledFor is { } s2 ? $"Scheduled {TimeFormatHelper.FormatLocalDateTime(s2)}" : "Approved, ready to apply",
             ConfigPlanStatus.Watching => $"Commit-confirmed until {Local(p.WatchUntil ?? DateTime.UtcNow):h:mm tt}",
-            ConfigPlanStatus.Applied => $"Applied {Local(p.CompletedAt ?? p.UpdatedAt):MMM d, h:mm tt}",
+            ConfigPlanStatus.Applied => $"Applied {TimeFormatHelper.FormatLocalDateTime(p.CompletedAt ?? p.UpdatedAt)}",
             ConfigPlanStatus.Reverted => p.Message ?? "Reverted",
             ConfigPlanStatus.Failed => p.Message ?? "Failed",
-            _ => $"{p.ObjectCount} objects, {p.DeviceCount} devices",
+            _ => $"{TimeFormatHelper.Pluralize(p.ObjectCount, "object")}, {TimeFormatHelper.Pluralize(p.DeviceCount, "device")}",
         },
     };
 

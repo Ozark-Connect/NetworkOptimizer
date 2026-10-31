@@ -1,4 +1,5 @@
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.ChangeControl;
 
 namespace NetworkOptimizer.Web.Components.Shared.ChangeControl;
@@ -6,11 +7,10 @@ namespace NetworkOptimizer.Web.Components.Shared.ChangeControl;
 /// <summary>Display helpers shared by the Change Control components.</summary>
 public static class CcFormat
 {
-    public static DateTime Local(DateTime utc) =>
-        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
+    public static DateTime Local(DateTime utc) => TimeFormatHelper.ToLocal(utc);
 
     /// <summary>"Oct 20, 4:42 PM".</summary>
-    public static string Time(DateTime utc) => Local(utc).ToString("MMM d, h:mm tt");
+    public static string Time(DateTime utc) => TimeFormatHelper.FormatLocalDateTime(utc);
 
     /// <summary>
     /// An option's text with room after it: Chrome ignores padding on a select's open list, which
@@ -19,7 +19,7 @@ public static class CcFormat
     public static string Option(string text) => text + "   ";
 
     /// <summary>"Oct 20".</summary>
-    public static string Day(DateTime utc) => Local(utc).ToString("MMM d");
+    public static string Day(DateTime utc) => TimeFormatHelper.FormatLocalDate(utc);
 
     /// <summary>What "Unattributed" means, for its tooltip.</summary>
     public const string UnattributedTip = "UniFi Network's audit log names no admin for this change.";

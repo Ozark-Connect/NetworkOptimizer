@@ -81,12 +81,12 @@ public sealed partial class ChangeControlService
 
         var longest = TimeSpan.FromSeconds(originals.Values.Max());
         var plan = await Plans.CreateAsync(ConfigPlanKind.ReaddressPrepare, $"Prepare re-address of {await SiteNameAsync(cancellationToken)}",
-            $"DHCP leases to {PrepareLeaseSeconds / 60} minutes", null, null, desired,
+            $"DHCP leases to {TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(PrepareLeaseSeconds))}", null, null, desired,
             new PlanOptions { Collections = new HashSet<string> { "networkconf" }, DeleteMissing = false }, Actor, cancellationToken,
             doc =>
             {
                 doc.Context[PrepareContext] = JsonSerializer.Serialize(originals);
-                doc.Notes.Add($"Every DHCP client is on the short lease {CcHours(longest)} after this applies, the longest current lease. "
+                doc.Notes.Add($"Every DHCP client is on the short lease {TimeFormatHelper.FormatDurationExact(longest)} after this applies, the longest current lease. "
                     + "Apply the re-address after that, and it puts each network's lease time back.");
             },
             // No Security Audit rule reads a lease time, so the before/after audit can only cost time.
@@ -112,8 +112,6 @@ public sealed partial class ChangeControlService
         }, cancellationToken);
         return new(planId, await Plans.ApplyAsync(planId, new PlanActor(Actor, IsSiteAdmin: true), requireApproval: false, automatic: false, cancellationToken));
     }
-
-    private static string CcHours(TimeSpan t) => t.TotalHours >= 1 ? $"{t.TotalHours:0.#} hours" : $"{t.TotalMinutes:0} minutes";
 
     /// <summary>Puts back the lease times a preparation lowered, in the re-address plan itself.</summary>
     private static void RestoreLeases(ReaddressResult result, LeasePrepare? prepare)

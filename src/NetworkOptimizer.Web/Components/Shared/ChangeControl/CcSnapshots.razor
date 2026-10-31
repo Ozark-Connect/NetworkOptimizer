@@ -359,9 +359,11 @@ else if (_compare != null)
     {
         var s = _list?.Settings;
         if (s == null) return "";
-        var daily = s.KeepDailyDays >= 365 ? $"{s.KeepDailyDays / 365} year" + (s.KeepDailyDays >= 730 ? "s" : "") : $"{s.KeepDailyDays} days";
-        var monthly = s.KeepMonthlyMonths == null ? "then monthly" : $"then monthly for {s.KeepMonthlyMonths} months";
-        return $"Every change kept {s.KeepEveryChangeDays} days, then daily to {daily}, {monthly}. Pinned and Baseline kept forever.";
+        // Years only when whole, so 400 days does not read as "1 year".
+        var daily = s.KeepDailyDays >= 365 && s.KeepDailyDays % 365 == 0
+            ? TimeFormatHelper.Pluralize(s.KeepDailyDays / 365, "year") : TimeFormatHelper.Pluralize(s.KeepDailyDays, "day");
+        var monthly = s.KeepMonthlyMonths is { } months ? $"then monthly for {TimeFormatHelper.Pluralize(months, "month")}" : "then monthly";
+        return $"Every change kept {TimeFormatHelper.Pluralize(s.KeepEveryChangeDays, "day")}, then daily to {daily}, {monthly}. Pinned and Baseline kept forever.";
     }
 
     private IEnumerable<SnapshotRowView> Filtered() =>

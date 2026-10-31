@@ -321,7 +321,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     At = p.SubmittedAt ?? p.CreatedAt,
                     PlanId = p.Id,
                     Title = p.Name,
-                    Detail = $"Submitted by {p.SubmittedBy}." + (p.ScheduledFor is { } s ? $" Scheduled {Local(s):MMM d, h:mm tt} once approved." : "")
+                    Detail = $"Submitted by {p.SubmittedBy}." + (p.ScheduledFor is { } s ? $" Scheduled {TimeFormatHelper.FormatLocalDateTime(s)} once approved." : "")
                              + (p.HighestTier >= PlanTiers.Lockout ? " Possible lockout." : ""),
                 });
             // Only automatic reverts: one someone pressed is in the plan history already. A Roll Back's revert plan says "Roll Back".
@@ -427,7 +427,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     public Task RestoreAttentionAsync(string siteSlug, string itemKey, CancellationToken cancellationToken = default) =>
         _registry.GetFor(siteSlug).Repositories.UseAsync((r, c) => r.RemoveDismissalAsync(itemKey, c), cancellationToken);
 
-    private static DateTime Local(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
+    private static DateTime Local(DateTime utc) => TimeFormatHelper.ToLocal(utc);
 
     /// <summary>"at 2:14 PM" today, "Oct 21" this year, "Oct 21, 2025" before that.</summary>
     internal static string LastChangeText(DateTime atUtc, DateTime nowUtc)
@@ -437,7 +437,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
         return at.Date == now.Date ? $"at {at:h:mm tt}" : at.Year == now.Year ? at.ToString("MMM d") : at.ToString("MMM d, yyyy");
     }
 
-    private static string Span(TimeSpan t) => t.TotalMinutes < 90 ? $"{(int)t.TotalMinutes} minutes" : t.TotalHours < 48 ? $"{(int)t.TotalHours} hours" : $"{(int)t.TotalDays} days";
+    private static string Span(TimeSpan t) => TimeFormatHelper.FormatDuration(t < TimeSpan.FromMinutes(1) ? TimeSpan.FromMinutes(1) : t);
 
     public async Task<List<ChangeRowView>> GetChangesAsync(DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string>? sites, CancellationToken cancellationToken = default)
     {

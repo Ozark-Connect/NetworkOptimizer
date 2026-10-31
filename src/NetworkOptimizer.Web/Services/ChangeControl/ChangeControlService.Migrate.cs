@@ -247,7 +247,7 @@ public sealed partial class ChangeControlService
         return snaps.Select(s => new RestoreSnapshotView
         {
             Id = s.Id, TakenAt = s.TakenAt, NetworkAppVersion = s.NetworkAppVersion,
-            Label = $"{Local(s.TakenAt):MMM d, h:mm tt}, {(s.IsBaseline ? "Baseline" : s.Pinned ? s.PinReason ?? "Pinned" : TriggerLabel(s).Text)}",
+            Label = $"{TimeFormatHelper.FormatLocalDateTime(s.TakenAt)}, {(s.IsBaseline ? "Baseline" : s.Pinned ? s.PinReason ?? "Pinned" : TriggerLabel(s).Text)}",
         }).ToList();
     }
 
@@ -269,7 +269,7 @@ public sealed partial class ChangeControlService
         var translation = !devicesOnly && LegacyFirewallTranslator.Applies(state, live)
             ? LegacyFirewallTranslator.Translate(state, live, options.DeleteMissing)
             : null;
-        var label = Local(snap.TakenAt).ToString("MMM d, h:mm tt");
+        var label = TimeFormatHelper.FormatLocalDateTime(snap.TakenAt);
         var sourceName = sameSite ? await SiteNameAsync(cancellationToken) : sourceSiteSlug;
         var plan = await Plans.CreateAsync(ConfigPlanKind.Restore, $"{(devicesOnly ? "Device config from" : "Restore")} {sourceName} snapshot ({label}) onto {await SiteNameAsync(cancellationToken)}",
             $"Snapshot, {label}{(sameSite ? "" : $", site {sourceSiteSlug}")}", sameSite ? snapshotId : null, sameSite ? null : sourceSiteSlug,

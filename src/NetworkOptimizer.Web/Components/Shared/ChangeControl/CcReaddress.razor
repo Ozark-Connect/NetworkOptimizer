@@ -331,20 +331,20 @@
         // A moving network still on a long lease (a preparation missed it, or it was added since) needs lowering again.
         if (v.Prepare is { } p && LeasesShort(v))
             return p.ReadyAt > DateTime.UtcNow
-                ? $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease by {CcFormat.Local(p.ReadyAt):MMM d, h:mm tt}."
-                : $"Lowered {CcFormat.Local(p.LoweredAt):MMM d, h:mm tt}. Every DHCP client is on the short lease: ready to move.";
+                ? $"Lowered {CcFormat.Time(p.LoweredAt)}. Every DHCP client is on the short lease by {CcFormat.Time(p.ReadyAt)}."
+                : $"Lowered {CcFormat.Time(p.LoweredAt)}. Every DHCP client is on the short lease: ready to move.";
         if (v.LongestLeaseSeconds is not { } lease) return "Give at least one network a new subnet first.";
         if (lease <= ChangeControlService.PrepareLeaseSeconds) return $"Leases on the moving networks are already {Hours(lease)} or less: nothing to lower.";
         return $"Leases are up to {Hours(lease)}. Lowered now, every DHCP client is on a {ChangeControlService.PrepareLeaseSeconds / 60}-minute lease by "
-            + $"{CcFormat.Local(DateTime.UtcNow.AddSeconds(lease)):MMM d, h:mm tt}. The re-address puts each lease time back.";
+            + $"{CcFormat.Time(DateTime.UtcNow.AddSeconds(lease))}. The re-address puts each lease time back.";
     }
 
     private static string LastMoveStatus(ReaddressView v) => v.LastMoves.Count == 0 || v.LastAppliedAt is not { } at
         ? "No re-address applied in the last week."
-        : $"For the re-address applied {CcFormat.Local(at):MMM d, h:mm tt}: "
+        : $"For the re-address applied {CcFormat.Time(at)}: "
           + string.Join("; ", v.LastMoves.Select(m => $"{m.NetworkName} {m.OldCidr} to {m.NewCidr}")) + ".";
 
-    private static string Hours(int seconds) => seconds >= 3600 ? $"{seconds / 3600.0:0.#} hours" : $"{seconds / 60} minutes";
+    private static string Hours(int seconds) => TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(seconds));
 
     private async Task ReconnectAsync() => await RunAsync(async () => _reconnect = await Site.ReconnectClientsAsync(_powerCycle));
 

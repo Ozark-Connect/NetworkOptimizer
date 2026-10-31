@@ -267,7 +267,7 @@ public static partial class ChangeDescriber
             case JsonArray arr when arr.Count == 0: return "none";
             case JsonArray arr when arr.All(e => e is JsonValue):
                 return string.Join(", ", arr.Select(e => Value(e, names)));
-            case JsonArray arr: return $"{arr.Count} items";
+            case JsonArray arr: return TimeFormatHelper.Pluralize(arr.Count, "item");
             default:
                 var json = node.ToJsonString();
                 return json.Length > 80 ? json[..77] + "..." : json;

@@ -5,6 +5,16 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public static class TimeFormatHelper
 {
+    /// <summary>A UTC time in the server's local time zone, whatever its Kind says.</summary>
+    public static DateTime ToLocal(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
+
+    /// <summary>"Oct 20, 4:42 PM", in local time.</summary>
+    public static string FormatLocalDateTime(DateTime utc) => ToLocal(utc).ToString("MMM d, h:mm tt");
+
+    /// <summary>"Oct 20", in local time.</summary>
+    public static string FormatLocalDate(DateTime utc) => ToLocal(utc).ToString("MMM d");
+
     /// <summary>
     /// Append the unit to a count, pluralized (e.g., "1 day", "2 days").
     /// </summary>
@@ -27,6 +37,21 @@ public static class TimeFormatHelper
             return Pluralize((int)span.TotalHours, "hour");
 
         return Pluralize((int)span.TotalMinutes, "minute");
+    }
+
+    /// <summary>
+    /// Format a duration exactly, in every non-zero unit (e.g., "1 hour, 30 minutes", "1 day",
+    /// "10 minutes", "45 seconds"). For configured periods, where <see cref="FormatDuration"/>'s rounding
+    /// down to whole hours would misstate the value.
+    /// </summary>
+    public static string FormatDurationExact(TimeSpan span)
+    {
+        var parts = new List<string>();
+        if (span.Days > 0) parts.Add(Pluralize(span.Days, "day"));
+        if (span.Hours > 0) parts.Add(Pluralize(span.Hours, "hour"));
+        if (span.Minutes > 0) parts.Add(Pluralize(span.Minutes, "minute"));
+        if (span.Seconds > 0) parts.Add(Pluralize(span.Seconds, "second"));
+        return parts.Count == 0 ? Pluralize(0, "second") : string.Join(", ", parts);
     }
 
     /// <summary>

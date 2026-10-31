@@ -22,4 +22,18 @@ public class TimeFormatHelperTests
     {
         TimeFormatHelper.FormatRelativeTimeTerse(Now.AddSeconds(offsetSeconds), Now).Should().Be(expected);
     }
+
+    [Theory]
+    [InlineData(600, "10 minutes")]
+    [InlineData(60, "1 minute")]
+    [InlineData(3600, "1 hour")]
+    [InlineData(5400, "1 hour, 30 minutes")]
+    [InlineData(86400, "1 day")]
+    [InlineData(95400, "1 day, 2 hours, 30 minutes")]
+    [InlineData(45, "45 seconds")]
+    [InlineData(0, "0 seconds")]
+    public void FormatDurationExact_StatesEveryNonZeroUnit(int seconds, string expected)
+    {
+        TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(seconds)).Should().Be(expected);
+    }
 }
