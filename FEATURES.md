@@ -123,6 +123,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Per-hop detail: lowest RTT, P90 jitter, loss, address, and reverse DNS
 - **Networks on Your Path** - per-ASN grading, including IX peering
 - **Path & Congestion Events** - congestion events, path shifts, and path changes
+  - **Path Localization** - when an Internet or Custom target degrades and the rest of the connection stays clean, traceroutes from the vantage that measures it place where the degradation first appears, or say it is the return path or far side
+  - Hop table per episode: loss, baseline to episode min RTT, return hops, ICMP-limited hops; **Re-run** in Network Tools
 - **Per-Network RTT** chart; BGP tool links (HE BGP Toolkit, bgp.tools, RIPEstat)
 - Starlink scoring on sky obstruction, dish loss, and outage burden, with hardware-fault caps
 - Per-WAN scores on multi-WAN sites (WAN Vantage)

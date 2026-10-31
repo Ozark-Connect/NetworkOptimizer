@@ -67,6 +67,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
     private readonly Licensing.LicenseStateService _licenseState;
+    private readonly Monitoring.PathLocalization.PathEpisodeWatcher _pathEpisodes;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
 
@@ -172,6 +173,7 @@ public class MonitoringCollectionAgent : BackgroundService
         IEnumerable<IOntProvider> ontProviders,
         SiteTunnelRouting tunnelRouting,
         ApAgent.ApAgentTelemetryRegistry apAgentTelemetryRegistry,
+        Monitoring.PathLocalization.PathEpisodeRegistry pathEpisodeRegistry,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -202,6 +204,7 @@ public class MonitoringCollectionAgent : BackgroundService
             .ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
         _tunnelRouting = tunnelRouting;
         _apAgentTelemetry = apAgentTelemetryRegistry.GetFor(_siteSlug);
+        _pathEpisodes = pathEpisodeRegistry.GetFor(_siteSlug);
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -1726,6 +1729,10 @@ public class MonitoringCollectionAgent : BackgroundService
                 received: ping.Received,
                 timestamp: ping.Timestamp,
                 wanContext: wanContext?.InfluxWanTag);
+
+            // Path Localization watches the same result from the same vantage and bind it was taken with.
+            _pathEpisodes.Observe(target, wanContext, new Monitoring.PathLocalization.PathVantage(null, wanContext?.ProbeSourceIp),
+                ping.Timestamp, ping.RttAvgMs, ping.Sent, ping.Received);
 
             // Surface fabric probe results on the dashboard's device cards (5.6). Other
             // target types (WAN, transit) feed cloud nodes on the 3D map; the per-device

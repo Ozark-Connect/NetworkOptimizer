@@ -15,6 +15,7 @@
 @inject NetworkOptimizer.Web.Services.Identity.IUserDismissals Dismissals
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService PathEpisodes
 @inject ILogger<IspHealthPanel> Logger
 @using NetworkOptimizer.Web.Services.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
@@ -380,12 +381,15 @@ else
         <IspPlanSpeedHint OnDismiss="DismissPlanHintAsync" />
     }
 
-    @if (r.Issues.Count > 0)
+    // Path Localization's findings ride after the report's own: evidence for the same events,
+    // read from the episode store rather than the scorer.
+    var findings = r.Issues.Concat(EpisodeFindings).ToList();
+    @if (findings.Count > 0)
     {
         <div class="card isp-health-card">
             <div class="card-header"><h2 class="card-title">Findings</h2></div>
             <div class="card-body">
-                @foreach (var issue in r.Issues)
+                @foreach (var issue in findings)
                 {
                     <div class="issue-item @IssueClass(issue.Severity)">
                         <div class="issue-content">
@@ -873,7 +877,10 @@ else
         </div>
         <div class="card-body">
             @{
-                var allEvents = EventTimeline(r).Where(InZoomWindow).Where(InVisibleSeries).ToList();
+                var allEvents = EventTimeline(r)
+                    .Concat(_episodeEntries)
+                    .OrderBy(e => e.Time)
+                    .Where(InZoomWindow).Where(InVisibleSeries).ToList();
                 var timeline = allEvents.Where(CategoryVisible).ToList();
             }
             @if (timeline.Count == 0)
@@ -889,12 +896,27 @@ else
                            Tippy caches its content per node, so attribute-swapped reuse shows a stale
                            tooltip (e.g. a congestion tooltip on a Path shift badge). The index is part
                            of the key because records compare by value and duplicate keys throw. *@
-                        <div class="isp-event-item" @key="(entry, i)">
+                        @* An episode row is keyed by its episode and badge instead: its sentence changes
+                           as rounds land, and a new key each time would tear down the hop table open
+                           beneath it. The badge and its tooltip stay in the key for the reason above. *@
+                        <div class="isp-event-item" @key="@(entry.EpisodeId is int eid ? (object)(eid, entry.Badge, entry.BadgeTooltip) : (entry, i))">
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">
                                 @entry.Text
-                                @if (entry.Members is { Count: > 0 })
+                                @if (entry.EpisodeId is int episodeId)
+                                {
+                                    var episodeKey = $"episode:{episodeId}";
+                                    var episodeOpen = _expandedEvents.Contains(episodeKey);
+                                    @(" ")
+                                    <button type="button" class="isp-event-members-toggle" aria-expanded="@episodeOpen"
+                                            @onclick="() => ToggleEventMembers(episodeKey)">@(episodeOpen ? "Hide hop table" : "Show hop table")</button>
+                                    @if (episodeOpen)
+                                    {
+                                        <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" />
+                                    }
+                                }
+                                else if (entry.Members is { Count: > 0 })
                                 {
                                     var key = EventMemberKey(entry);
                                     var open = _expandedEvents.Contains(key);
@@ -1018,6 +1040,44 @@ else
     private readonly HashSet<string> _expandedEvents = new();
 
     private static string EventMemberKey(TimelineEntry e) => $"{e.Time:O}|{e.Badge}|{e.Members?.Count}";
+
+    // Path Localization episodes overlapping the report's window, for the WAN it grades. Re-read when
+    // the report changes and on every auto-reload tick, so an episode that is tracing updates as its
+    // rounds land.
+    private IReadOnlyList<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeView> _episodes =
+        Array.Empty<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeView>();
+    private IspHealthReport? _episodesFor;
+    // Built once per load, not per render: the timeline keys each row by its entry, and a row rebuilt
+    // on every render never matches its last key, so an open hop table would be torn down and
+    // re-read on every 30 s tick.
+    private IReadOnlyList<TimelineEntry> _episodeEntries = Array.Empty<TimelineEntry>();
+    private static readonly IspHealthOptions EpisodeOptions = new();
+
+    private IEnumerable<IspHealthIssue> EpisodeFindings =>
+        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Findings(_episodes, EpisodeOptions);
+
+    private async Task LoadEpisodesAsync()
+    {
+        var r = _report;
+        _episodesFor = r;
+        if (r == null)
+        {
+            _episodes = Array.Empty<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeView>();
+            _episodeEntries = Array.Empty<TimelineEntry>();
+            return;
+        }
+        try
+        {
+            // The live view runs to now, so an episode tracing since the last compute still shows.
+            var to = IsLiveWindow ? DateTime.UtcNow : r.WindowEnd;
+            _episodes = await PathEpisodes.GetEpisodesAsync(r.WindowStart, to, _selectedWanKey, _wanSvc == null);
+            _episodeEntries = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Entries(_episodes).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load path episodes");
+        }
+    }
 
     private void ToggleEventMembers(string key)
     {
@@ -1573,6 +1633,8 @@ else
         }
         // Follow a background auto-fallback: keep the live button on the effective window.
         if (_followLive) _selectedPreset = LiveWindowHours;
+        // Cheap (one site-database read), and what keeps a tracing episode's row live.
+        if (IsLiveWindow || _episodes.Any(e => e.Tracing)) await LoadEpisodesAsync();
         StateHasChanged();
     }
 
@@ -1848,6 +1910,13 @@ else
             _scrollChartAfterRender = false;
             try { await JS.InvokeVoidAsync("__ispHealthCharts.scrollChartIntoView"); }
             catch { /* chart not mounted */ }
+        }
+        // Every path that swaps the report (refresh, window, WAN, access technology) lands here, so
+        // the episodes follow it without each of those having to remember to.
+        if (!ReferenceEquals(_report, _episodesFor))
+        {
+            await LoadEpisodesAsync();
+            StateHasChanged();
         }
         if (_report == null)
         {

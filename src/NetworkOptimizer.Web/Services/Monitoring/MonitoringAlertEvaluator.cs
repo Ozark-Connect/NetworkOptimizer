@@ -85,6 +85,9 @@ public class MonitoringAlertEvaluator
             ? latest.Success
             : null;
 
+    /// <summary>Whether a WAN's outage is open or confirming; null names the primary (see <see cref="WanOutageEvaluator.IsOutageOpen"/>).</summary>
+    public bool IsWanOutageOpen(string? wanKey) => _wanOutages.IsOutageOpen(wanKey);
+
     public async ValueTask EvaluateAsync(MonitoringTarget target, PingProbeResult result, CancellationToken ct = default)
     {
         if (target.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrWhiteSpace(target.DeviceMac))

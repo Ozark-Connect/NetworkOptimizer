@@ -19760,6 +19760,84 @@ a.isp-health-hero-speed:hover {
     color: var(--text-muted);
 }
 
+/* Path Localization: the hop table behind an episode row */
+.path-episode-detail {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.path-episode-summary {
+    margin: 0 0 0.5rem;
+    color: var(--text-muted);
+}
+
+.path-episode-destinations {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-bottom: 0.5rem;
+}
+
+.path-episode-dest-label {
+    display: inline-block;
+    min-width: 4.5rem;
+    color: var(--text-muted);
+}
+
+.path-episode-table-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.path-episode-table-title {
+    font-weight: 600;
+}
+
+.path-episode-rerun {
+    margin-left: auto;
+}
+
+.path-episode-hops td,
+.path-episode-hops th {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+.path-episode-hops tr.path-hop-elevated td {
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.path-episode-hops tr.path-hop-icmp td {
+    color: var(--text-muted);
+}
+
+.path-hop-tag {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+
+.path-hop-tag-onset {
+    color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.path-hop-tag-clean {
+    color: var(--success-color);
+    background: rgba(16, 185, 129, 0.12);
+}
+
+.path-hop-tag-muted {
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+}
+
 .isp-outage-list {
     display: flex;
     flex-direction: column;

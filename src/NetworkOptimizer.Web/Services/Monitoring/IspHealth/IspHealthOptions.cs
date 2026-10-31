@@ -444,6 +444,94 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionLoadCoincidenceFraction { get; set; } = 0.5;
 
+    // ---- Path Localization (reactive traceroutes on a path-specific degradation) ----
+    // Provisional: every number below comes from one case (two evenings of AWS us-east and Chicago
+    // speedtest degradation) and stands until a replay of a wider set of events confirms or moves it.
+
+    /// <summary>Length of one degradation evaluation window, in minutes.</summary>
+    public int PathDegradationWindowMinutes { get; set; } = 5;
+
+    /// <summary>Consecutive degraded windows that make a target degraded (15 min sustained at 5-min windows),
+    /// and consecutive clean windows that clear it.</summary>
+    public int PathDegradationConsecutiveWindows { get; set; } = 3;
+
+    /// <summary>Trailing hours a target's own baseline (median RTT, mean loss) is taken over.</summary>
+    public int PathBaselineHours { get; set; } = 24;
+
+    /// <summary>Closed windows a baseline needs before the target is judged at all (one hour at 5-min windows).</summary>
+    public int PathBaselineMinWindows { get; set; } = 12;
+
+    /// <summary>Window loss at or above this percentage, and at least <see cref="PathLossDeltaPct"/> over baseline, is a loss signal.</summary>
+    public double PathLossMinPct { get; set; } = 2.0;
+
+    /// <summary>Percentage points of loss above the target's baseline a window must reach.</summary>
+    public double PathLossDeltaPct { get; set; } = 2.0;
+
+    /// <summary>Probes a window needs before its loss is read: a 5-min window of 5-ping bursts every 15 s.</summary>
+    public int PathLossMinProbes { get; set; } = 20;
+
+    /// <summary>Window median RTT this many ms above baseline is an RTT signal (or <see cref="PathRttDeltaFraction"/>, whichever is larger).</summary>
+    public double PathRttMinDeltaMs { get; set; } = 8.0;
+
+    /// <summary>Fraction of baseline RTT a window's median must rise by, when that exceeds <see cref="PathRttMinDeltaMs"/>.</summary>
+    public double PathRttDeltaFraction { get; set; } = 0.20;
+
+    /// <summary>A sample older than this says nothing about a target's current state.</summary>
+    public int PathTargetStaleMinutes { get; set; } = 10;
+
+    /// <summary>Seconds between path rounds while an episode's targets stay degraded.</summary>
+    public int PathRoundIntervalSeconds { get; set; } = 60;
+
+    /// <summary>Path rounds per degraded target per episode.</summary>
+    public int PathMaxRoundsPerTarget { get; set; } = 10;
+
+    /// <summary>Degraded targets traced per episode, worst by loss then RTT rise.</summary>
+    public int PathMaxTracedTargets { get; set; } = 4;
+
+    /// <summary>Probes per hop for every episode trace (MTR-shaped).</summary>
+    public int PathProbesPerHop { get; set; } = 5;
+
+    /// <summary>TTL ceiling for episode traces.</summary>
+    public int PathMaxHops { get; set; } = 30;
+
+    /// <summary>Minutes after an episode clears before its recovery round, the per-hop baseline.</summary>
+    public int PathRecoveryDelayMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Hours an episode may stay open. A target that never clears (a step that is the new normal)
+    /// would otherwise hold its context's only episode, and keep its own windows out of the
+    /// baseline that would let it clear, for good.
+    /// </summary>
+    public int PathMaxEpisodeHours { get; set; } = 6;
+
+    /// <summary>A traced hop's pooled loss at or above this percentage is elevated.</summary>
+    public double PathHopLossElevatedPct { get; set; } = 3.0;
+
+    /// <summary>A traced hop whose episode min RTT rose this many ms over its baseline min is elevated
+    /// (or <see cref="PathHopRttDeltaFraction"/>, whichever is larger).</summary>
+    public double PathHopRttMinDeltaMs { get; set; } = 5.0;
+
+    /// <summary>Fraction of a hop's baseline min RTT its episode min must rise by, when that exceeds <see cref="PathHopRttMinDeltaMs"/>.</summary>
+    public double PathHopRttDeltaFraction { get; set; } = 0.15;
+
+    /// <summary>
+    /// A hop's (max - median) RTT spread this many times the next responding hop's, and at least
+    /// <see cref="PathHopSlowPathMinSpreadMs"/>, reads as slow-path ICMP generation at that hop.
+    /// </summary>
+    public double PathHopSlowPathSpreadFactor { get; set; } = 3.0;
+
+    /// <summary>Floor on the spread the slow-path tell needs, so sub-ms jitter never trips it.</summary>
+    public double PathHopSlowPathMinSpreadMs { get; set; } = 10.0;
+
+    /// <summary>A return hop count this far from the forward position reads as an asymmetric return.</summary>
+    public int PathReturnAsymmetryHops { get; set; } = 3;
+
+    /// <summary>Days an Unverifiable episode must repeat (same targets, same label) on before it becomes a finding.</summary>
+    public int PathRepeatFindingDays { get; set; } = 2;
+
+    /// <summary>Days episodes are kept in the site database.</summary>
+    public int PathEpisodeRetentionDays { get; set; } = 90;
+
     /// <summary>
     /// Fraction of a hop's in-window RTT samples that must exceed its own baseline p90 (by the
     /// congestion RTT floor) for the localizer to count it as elevated when testing propagation.
