@@ -276,6 +276,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Backfills 90 days from history at first start
 - **Changes** - multi-site timeline of every config change, firmware step, and Network app upgrade, with who made it
   - Source: the admin from UniFi's audit log, Network Optimizer's own writes, or "No admin recorded"
+  - Zone and switch port updates UniFi makes on its own after a network change are credited to that change
   - Site Health lane, and stat lanes on the same time axis (InfluxDB): primary WAN latency and loss, WAN throughput, gateway CPU, Wi-Fi clients by band, and Wi-Fi PHY rate per band
   - Each change shows the fields that moved, Site Health and the Security Audit before and after, and incidents that followed
   - Alert when Site Health falls after a change
@@ -305,6 +306,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **Adopt Pending Devices** whose MAC is in a snapshot
   - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
     - Carries your firewall policies, DNS blocks, and DNS and console access into the new zones
+    - Splits a policy whose networks or clients land in different zones, and deletes blocks the new zones' defaults already cover
     - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
   - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
     - Addresses on a WAN's carrier side or a VPN's far side stay as they are
@@ -476,6 +478,7 @@ Set up in **Settings - Security & Alerts**, per site.
 - Blocks the sources the WAF and attack pattern detection flag, with longer bans for repeat offenders
 - **Where Blocks Are Enforced** - the gateway, the [Web Application Firewall](#web-application-firewall), and **Cloudflare Edge Blocking**
   - With an [On-Site Agent](#on-site-agent) on the gateway, blocks apply in seconds with no gateway reprovisioning
+  - Gateway policies follow the site's zones, including zones added later in UniFi Network
 - Every site starts in **Detection Only**, which writes nothing; **Turn On Recommended** switches it to **Blocking**
   - Picks the **Home** or **Self-Hosting** profile from the site's port forwards; **Business** and **Lockdown** in the profile picker
 - **Cross-site blocking** - a source attacking one site is blocked at every site sharing blocks
