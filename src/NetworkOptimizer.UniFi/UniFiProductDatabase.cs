@@ -1058,7 +1058,7 @@ public static class UniFiProductDatabase
 
     /// <summary>
     /// Get the default QMI device path for a cellular modem based on its model.
-    /// U-LTE devices use /dev/cdc-wdm0, U5G Backup uses qrtr://3,
+    /// U-LTE devices use /dev/cdc-wdm0, U5G Backup uses qrtr://3, the UDR-5G-Max an MHI pipe,
     /// U5G-Max and other 5G modems use /dev/wwan0qmi0.
     /// </summary>
     /// <param name="model">The model code or product name</param>
@@ -1086,6 +1086,14 @@ public static class UniFiProductDatabase
             model.Equals("U5G-EU", StringComparison.OrdinalIgnoreCase))
         {
             return "qrtr://3";
+        }
+
+        // UDR-5G-Max's built-in modem is QMI over MBIM on an MHI pipe (UniFi OS's MBIM_IFACE)
+        if (model.Equals("UDR-5G-Max", StringComparison.OrdinalIgnoreCase) ||
+            model.Equals("UDMA6B9", StringComparison.OrdinalIgnoreCase) ||
+            model.Equals("UDR5G", StringComparison.OrdinalIgnoreCase))
+        {
+            return "/dev/mhi_0308_02.01.00_pipe_12";
         }
 
         // U5G-Max and other 5G modems use /dev/wwan0qmi0

@@ -1467,7 +1467,7 @@
                                 <div class="form-group" style="flex: 2;">
                                     <label class="form-label">QMI Device Path (optional)</label>
                                     <input type="text" class="form-control" @bind="editingModem.QmiDevice" @bind:event="oninput" placeholder="" />
-                                    <small class="form-help">Stats are polled automatically via uiwwand. Only needed as a fallback if uiwwand is unavailable on your firmware. LTE: <code>/dev/cdc-wdm0</code> · 5G-Max: <code>/dev/wwan0qmi0</code> · U5G-Backup: <code>qrtr://3</code></small>
+                                    <small class="form-help">Stats are polled automatically via uiwwand. Only needed as a fallback if uiwwand is unavailable on your firmware. LTE: <code>/dev/cdc-wdm0</code> · 5G-Max: <code>/dev/wwan0qmi0</code> · U5G-Backup: <code>qrtr://3</code> · UDR-5G-Max: <code>/dev/mhi_0308_02.01.00_pipe_12</code></small>
                                 </div>
                             </div>
                         }
@@ -6940,6 +6940,7 @@
             return;
 
         editingModem.Host = gatewaySettings?.Host ?? "";
+        editingModem.QmiDevice = "";
         if (string.IsNullOrEmpty(editingModem.ModemType) || editingModem.ModemType == "U5G-Max")
             editingModem.ModemType = "UDR-5G-Max";
     }

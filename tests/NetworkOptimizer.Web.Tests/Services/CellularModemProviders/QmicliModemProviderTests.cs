@@ -25,6 +25,7 @@ public class QmicliModemProviderTests
     [InlineData("/dev/wwan0qmi0", "/dev/wwan0qmi0")]
     [InlineData("qrtr://3", "qrtr://3")]
     [InlineData("qrtr://12", "qrtr://12")]
+    [InlineData("/dev/mhi_0308_02.01.00_pipe_12", "/dev/mhi_0308_02.01.00_pipe_12")]
     [InlineData(" /dev/wwan0qmi0 ", "/dev/wwan0qmi0")]
     [InlineData("", "/dev/wwan0qmi0")]
     [InlineData("   ", "/dev/wwan0qmi0")]
@@ -40,6 +41,7 @@ public class QmicliModemProviderTests
     [InlineData("qrtr://3;id")]
     [InlineData("qrtr://x")]
     [InlineData("/dev/../etc/passwd")]
+    [InlineData("/dev/..")]
     [InlineData("$(id)")]
     public void QmiDevice_RefusesAnythingElse(string configured)
     {
@@ -63,5 +65,38 @@ public class QmicliModemProviderTests
         gateway.Verify(g => g.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
         gateway.Verify(g => g.TestConnectionAsync(), Times.Once);
+    }
+
+    // U-LTE, U5G-Max and U5G-Backup keep the exact commands they had before the gateway dialect
+    // existed; the device paths come from the configured TransportPath, unchanged.
+    [Fact]
+    public void ModemDialect_IsUnchanged()
+    {
+        var modem = QmicliModemProvider.Dialect.Modem;
+
+        modem.Uiwwand("get-radio-status").Should().Be("ubus call uiwwand call '{\"method\":\"get-radio-status\",\"params\":{}}'");
+        modem.Uiwwand("get-cell-tower-info").Should().Be("ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'");
+        modem.QmiOpen.Should().Be("--device-open-proxy");
+        modem.DefaultDevice.Should().Be("/dev/wwan0qmi0");
+    }
+
+    // UniFi OS on the UDR-5G-Max ships no ubus: uiwwand answers through uiwwand-ctl, and the
+    // modem's QMI device is an MHI pipe opened over MBIM (the firmware's /etc/mbbcfg/functions.sh).
+    [Fact]
+    public async Task ForGateway_SpeaksUniFiOsDialect()
+    {
+        var commands = new List<string>();
+        var gateway = new Mock<IGatewaySshService>();
+        gateway.Setup(g => g.RunCommandAsync(Capture.In(commands), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, ""));
+
+        var provider = QmicliModemProvider.ForGateway(NullLogger<QmicliModemProvider>.Instance, gateway.Object);
+        await provider.PollAsync(Context(""));
+        await provider.ResetRadioAsync(Context(""));
+
+        commands.Should().Contain(c => c.Contains("echo '{\"method\":\"get-radio-status\"}' | uiwwand-ctl"));
+        commands.Should().NotContain(c => c.Contains("ubus"));
+        commands.Where(c => c.Contains("qmicli")).Should().NotBeEmpty()
+            .And.OnlyContain(c => c.Contains($"-d {QmicliModemProvider.GatewayQmiDevice} --device-open-proxy --device-open-mbim"));
     }
 }
