@@ -274,6 +274,20 @@ public static class DefaultAlertRules
             CooldownSeconds = 3600 // 1 hour
         },
 
+        // --- Client Speed Test (disabled - opt-in) ---
+        // Client and browser tests run from whatever device and network the user is on, so a drop is
+        // often the client's Wi-Fi or the moment, not the network: a high threshold keeps it to real falls.
+        new AlertRule
+        {
+            Name = "Client Speed Test: Regression",
+            IsEnabled = false,
+            EventTypePattern = "speedtest.client_regression",
+            Source = "speedtest",
+            MinSeverity = AlertSeverity.Warning,
+            ThresholdPercent = 50,
+            CooldownSeconds = 3600 // 1 hour
+        },
+
         // --- Schedule (enabled - monitors scheduled task failures) ---
         new AlertRule
         {
