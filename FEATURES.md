@@ -39,7 +39,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 
 - Manage many UniFi sites from one server, each with its own database and InfluxDB buckets
 - **Sites** page - per-site cards with console status, license, agents online, Site Health, and quick switch
-- Dashboard **Sites** card - every site's Site Health and top issue, worst first; **Less** / **More** views; click a row to switch to that site
+- Dashboard **Sites** card - every site's Site Health and top issue, worst first; **Less** / **More** views; click a row to switch to that site; a Firmware Rollout that is scheduled, running, paused, soaking, or reported in the last 24 hours shows on its site and opens Firmware Rollout (a finished one opens its report)
 - Site switcher in the top bar on every page
 - **Add a site** wizard - create the site, connect its console, then set up an [On-Site Agent](#on-site-agent) or skip it
 - Onboard a site over an existing site-to-site VPN with no agent

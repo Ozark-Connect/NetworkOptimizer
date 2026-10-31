@@ -586,11 +586,29 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 // Counted as Needs Attention shows them: fixed or dismissed regressions drop out.
                 Regressions24h = OpenRegressions(changes, snapshots).Where(r => !dismissed.Contains(r.Key)).Sum(r => r.Lines.Count),
                 PendingApprovals = plans.Count(p => p.Status == ConfigPlanStatus.PendingApproval),
+                Rollout = await RolloutAsync(site.Slug, now, cancellationToken),
             });
         }
         // Worst first: no data from an unreachable site, then lowest health. Ties keep the natural
         // site order SitesAsync returns, since OrderBy is stable.
         return result.OrderBy(s => s.Online ? 1 : 0).ThenBy(s => s.Health.Latest ?? s.Health.Average ?? 101).ToList();
+    }
+
+    /// <summary>The site's rollout to surface, read from its database; null when none or unreadable.</summary>
+    private async Task<Firmware.SiteRolloutStatus?> RolloutAsync(string siteSlug, DateTime now, CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopes.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+            var repository = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Interfaces.IFirmwareRolloutRepository>();
+            return await Firmware.SiteRolloutStatus.ReadAsync(repository, now, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Firmware rollout status failed for {Site}", siteSlug);
+            return null;
+        }
     }
 
     public async Task<ChangeDetailView?> GetChangeDetailAsync(string siteSlug, int changeId, CancellationToken cancellationToken = default)

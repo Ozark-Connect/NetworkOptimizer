@@ -36,6 +36,8 @@ public sealed class SiteHealthSummary
     public int Changes24h { get; init; }
     public int Regressions24h { get; init; }
     public int PendingApprovals { get; init; }
+    /// <summary>A rollout scheduled, running, paused, soaking, or reported in the last 24 hours; null when none.</summary>
+    public Firmware.SiteRolloutStatus? Rollout { get; init; }
 }
 
 /// <summary>Turns stored hours into what pages draw.</summary>

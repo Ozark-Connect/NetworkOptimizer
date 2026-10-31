@@ -982,6 +982,11 @@ else
         await OpenAlignAsync();
     }
 
+    /// <summary>A rollout whose report to open on arrival (<c>?report=planId</c>), from the Dashboard Sites panel.</summary>
+    [SupplyParameterFromQuery(Name = "report")] public int? ReportPlanId { get; set; }
+
+    private bool _reportLinkOpened;
+
     /// <summary>Device to align, from Change Control's Replace Device or Restore (<c>?align=mac&amp;build=version</c>).</summary>
     [SupplyParameterFromQuery(Name = "align")] public string? AlignMac { get; set; }
 
@@ -2371,7 +2376,14 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var wantsViz = (_wizardOpen && _step == 3 && _preview != null) || ActivePlanHasMap;
+        // Once the page has loaded and rendered, so the report card exists to scroll to.
+        if (!_reportLinkOpened && !_loading && ReportPlanId is { } reportPlanId)
+        {
+            _reportLinkOpened = true;
+            await OpenReportAsync(reportPlanId);
+        }
+
+        var wantsViz =(_wizardOpen && _step == 3 && _preview != null) || ActivePlanHasMap;
         if (!wantsViz)
         {
             if (_vizMounted) await DisposeVizAsync();

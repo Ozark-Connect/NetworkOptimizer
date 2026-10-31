@@ -20790,6 +20790,36 @@ body.kiosk-mode .status-indicators {
 .shp-chip.danger { background: rgba(238, 99, 104, 0.14); color: #f38d91; }
 .shp-chip.warning { background: rgba(231, 150, 19, 0.14); color: #f0b14d; }
 .shp-chip.info { background: rgba(71, 151, 255, 0.14); color: #8ab9ff; }
+.shp-chip.success { background: rgba(36, 188, 112, 0.14); color: var(--success-color); }
+
+/* Firmware Rollout pill: a compact chip that links past the row or tile link under it. */
+.shp-chip.shp-rollout {
+    position: relative;
+    z-index: 1;
+    gap: 0.3rem;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.shp-chip.shp-rollout:hover {
+    filter: brightness(1.2);
+}
+
+.shp-chip.shp-rollout .shp-chip-dot {
+    width: 6px;
+    height: 6px;
+}
+
+/* Scheduled: a hollow dot, not yet under way. */
+.shp-chip.shp-rollout.muted .shp-chip-dot {
+    display: inline-block;
+    background: none;
+    box-shadow: inset 0 0 0 1.5px currentColor;
+}
 
 .shp-head-row,
 .shp-row {
@@ -20855,6 +20885,14 @@ body.kiosk-mode .status-indicators {
     color: var(--text-secondary);
 }
 
+.shp-name-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.2rem 0.5rem;
+    min-width: 0;
+}
+
 .shp-spark {
     width: 100%;
     height: 28px;
@@ -20897,6 +20935,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .shp-tile {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
@@ -20940,6 +20979,13 @@ body.kiosk-mode .status-indicators {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Pinned to the tile's foot, so pills line up across a row of tiles. */
+.shp-tile .shp-rollout {
+    align-self: flex-start;
+    max-width: 100%;
+    margin-top: auto;
 }
 
 .shp-footer {

@@ -79,7 +79,14 @@
                     <span class="status-dot @(s.Online ? "online" : "offline")"></span>
                     <span class="shp-name">
                         <span class="shp-site">@s.Name</span>
-                        <span class="shp-sub">@s.Connection</span>
+                        <span class="shp-name-meta">
+                            <span class="shp-sub">@s.Connection</span>
+                            @if (s.Rollout is { } r)
+                            {
+                                <a class="shp-chip shp-rollout @r.Tone" href="@SiteContextService.WithSiteParam(r.Href, s.Slug)" data-site-switch="@s.Slug"
+                                   data-tooltip="@($"{r.Describe(DateTime.UtcNow)}. Open Firmware Rollout")"><span class="shp-chip-dot"></span>@r.Label</a>
+                            }
+                        </span>
                     </span>
                     <svg class="shp-spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="@SparkLabel(s)">
                         <polyline points="@Spark(s)" fill="none" class="shp-spark-line @(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
@@ -105,12 +112,16 @@
                 {
                     var now = Now(s);
                     var level = s.Online ? SiteHealthSeriesBuilder.Level(now) : "down";
-                    <a class="shp-tile @level" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug"
-                       data-tooltip="@(Issue(s) ?? "No issues")">
+                    <div class="shp-tile @level" data-tooltip="@TileTip(s)">
+                        <a class="shp-row-link" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug" aria-label="@s.Name"></a>
                         <span class="shp-tile-name"><span class="status-dot @(s.Online ? "online" : "offline")"></span>@s.Name</span>
                         <span class="shp-tile-health health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>
                         <span class="shp-tile-issue hide-mobile">@(ShortIssue(s) ?? "No issues")</span>
-                    </a>
+                        @if (s.Rollout is { } r)
+                        {
+                            <a class="shp-chip shp-rollout @r.Tone" href="@SiteContextService.WithSiteParam(r.Href, s.Slug)" data-site-switch="@s.Slug"><span class="shp-chip-dot"></span>@r.Label</a>
+                        }
+                    </div>
                 }
             </div>
         }
@@ -196,6 +207,10 @@
     private static string? Issue(SiteHealthSummary s) => !s.Online
         ? (s.UnreachableSince is { } since ? $"No data for {Span(DateTime.UtcNow - since)}" : "No data")
         : s.Health.TopIssue;
+
+    /// <summary>The tile's hover: the issue, then the rollout, since the pill sits inside the tile's tooltip.</summary>
+    private static string TileTip(SiteHealthSummary s) =>
+        s.Rollout is { } r ? $"{Issue(s) ?? "No issues"}. {r.Describe(DateTime.UtcNow)}" : Issue(s) ?? "No issues";
 
     private static string? ShortIssue(SiteHealthSummary s) => !s.Online
         ? (s.AgentOffline ? "Agent offline" : "Console unreachable")
