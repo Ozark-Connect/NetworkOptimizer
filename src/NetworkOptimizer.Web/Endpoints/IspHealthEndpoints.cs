@@ -84,6 +84,8 @@ public static class IspHealthEndpoints
             string? wan,
             IspHealthRegistry ispHealthRegistry,
             SiteContextService siteContext,
+            NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService pathEpisodes,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             // from/to (the tab's date/time filter) make the chart follow a custom window off
@@ -173,6 +175,27 @@ public static class IspHealthEndpoints
                         shared = false,
                         targets = e.TargetIds
                     })));
+
+                // Path Localization episodes, as congestion marks on the lines they traced: the
+                // events list files them under Congestion too, so the one filter governs both.
+                try
+                {
+                    var isPrimary = string.IsNullOrEmpty(wan) || ReferenceEquals(ispHealth, ispHealthRegistry.GetFor(siteContext.Slug, null));
+                    var episodes = await pathEpisodes.GetEpisodesAsync(report.WindowStart, to ?? DateTime.UtcNow, wan, isPrimary, ct);
+                    events.AddRange(episodes.Select(e => (object)new
+                    {
+                        type = "congestion",
+                        start = e.OpenedAt.ToString("o"),
+                        end = (e.ClosedAt ?? DateTime.UtcNow).ToString("o"),
+                        label = e.Tracing ? "Tracing now" : "Path trace",
+                        shared = false,
+                        targets = e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList()
+                    }));
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    loggerFactory.CreateLogger("IspHealthChart").LogDebug(ex, "ISP Health chart: could not load path episodes");
+                }
             }
 
             return Results.Ok(new { asns, events });
