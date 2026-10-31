@@ -995,48 +995,41 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 }
             });
 
-            // Check for regression vs recent average for same device and direction
+            // Check for regression vs recent results of the same device and test kind, in both directions
             try
             {
                 await using var db = await CreateSiteDbAsync();
                 var recent = await db.Iperf3Results
                     .AsNoTracking()
                     .Where(r => r.DeviceHost == result.DeviceHost && r.Id != result.Id && r.Success
-                        && r.Direction == result.Direction
-                        && r.DownloadBitsPerSecond > 0)
+                        && r.Direction == result.Direction)
                     .OrderByDescending(r => r.TestTime)
-                    .Take(5)
+                    .Take(SpeedTestRegression.RecentToRead)
                     .ToListAsync();
 
-                if (recent.Count >= 3)
+                if (SpeedTestRegression.Worst(result, recent) is { } drop)
                 {
-                    var avgDownload = recent.Average(r => r.DownloadMbps);
-                    var dropPercent = avgDownload > 0 ? (avgDownload - downloadMbps) / avgDownload * 100 : 0;
-
-                    if (dropPercent > 0)
+                    await _alertEventBus.PublishAsync(new AlertEvent
                     {
-                        await _alertEventBus.PublishAsync(new AlertEvent
+                        EventType = "speedtest.regression",
+                        Severity = SpeedTestRegression.Severity(drop),
+                        Source = "speedtest",
+                        Title = $"Speed regression: {deviceLabel}, {drop.Direction} at {drop.CurrentMbps:F0} Mbps ({drop.DropPercent:F0}% below average){_siteSuffix}",
+                        Message = $"{deviceLabel}: {drop.Direction} is {drop.DropPercent:F0}% below the recent average of {drop.AverageMbps:F0} Mbps",
+                        DeviceIp = result.DeviceHost,
+                        DeviceName = result.DeviceName,
+                        MetricValue = drop.CurrentMbps,
+                        ThresholdValue = drop.AverageMbps,
+                        SourceUrl = $"/speedtest?result={result.Id}",
+                        Context = new Dictionary<string, string>
                         {
-                            EventType = "speedtest.regression",
-                            Severity = dropPercent >= 50 ? AlertSeverity.Error
-                                : dropPercent >= 25 ? AlertSeverity.Warning : AlertSeverity.Info,
-                            Source = "speedtest",
-                            Title = $"Speed regression: {deviceLabel} at {downloadMbps:F0} Mbps ({dropPercent:F0}% below average){_siteSuffix}",
-                            Message = $"{deviceLabel} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
-                            DeviceIp = result.DeviceHost,
-                            DeviceName = result.DeviceName,
-                            MetricValue = downloadMbps,
-                            ThresholdValue = avgDownload,
-                            SourceUrl = $"/speedtest?result={result.Id}",
-                            Context = new Dictionary<string, string>
-                            {
-                                ["current_mbps"] = downloadMbps.ToString("F1"),
-                                ["average_mbps"] = avgDownload.ToString("F1"),
-                                ["drop_percent"] = dropPercent.ToString("F0"),
-                                ["sample_count"] = recent.Count.ToString()
-                            }
-                        });
-                    }
+                            ["drop_direction"] = drop.Direction,
+                            ["current_mbps"] = drop.CurrentMbps.ToString("F1"),
+                            ["average_mbps"] = drop.AverageMbps.ToString("F1"),
+                            ["drop_percent"] = drop.DropPercent.ToString("F0"),
+                            ["sample_count"] = drop.Samples.ToString()
+                        }
+                    });
                 }
             }
             catch (Exception regressEx)

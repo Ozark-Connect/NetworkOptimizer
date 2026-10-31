@@ -7,8 +7,8 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Publishes the WAN speed test alert events: <c>wan.speed_completed</c> for every
-/// successful result and <c>wan.speed_degradation</c> when the download falls below
-/// the recent average for the same WAN and direction. Shared by the server-side WAN
+/// successful result and <c>wan.speed_degradation</c> when the download or upload falls
+/// below the recent average for the same WAN and test kind. Shared by the server-side WAN
 /// tests (<see cref="WanSpeedTestServiceBase"/>) and the gateway WAN test so both
 /// emit the same event shapes. Callers pass their per-site alert bus, so events
 /// carry the originating site.
@@ -58,7 +58,7 @@ public static class WanSpeedAlertPublisher
                 }
             });
 
-            // Check for degradation vs recent average (same WAN, same direction)
+            // Check for degradation vs recent results (same WAN, same test kind), in both directions
             try
             {
                 await using var db = await openSiteDb();
@@ -66,37 +66,31 @@ public static class WanSpeedAlertPublisher
                     .AsNoTracking()
                     .Where(r => r.Direction == result.Direction && r.WanName == result.WanName && r.Id != result.Id && r.Success)
                     .OrderByDescending(r => r.TestTime)
-                    .Take(5)
+                    .Take(SpeedTestRegression.RecentToRead)
                     .ToListAsync();
 
-                if (recent.Count >= 3)
+                if (SpeedTestRegression.Worst(result, recent) is { } drop)
                 {
-                    var avgDownload = recent.Average(r => r.DownloadMbps);
-                    var dropPercent = avgDownload > 0 ? (avgDownload - downloadMbps) / avgDownload * 100 : 0;
-
-                    if (dropPercent > 0)
+                    await alertEventBus.PublishAsync(new AlertEvent
                     {
-                        await alertEventBus.PublishAsync(new AlertEvent
+                        EventType = "wan.speed_degradation",
+                        Severity = SpeedTestRegression.Severity(drop),
+                        Source = "wan",
+                        Title = $"WAN degradation: {drop.Direction} at {drop.CurrentMbps:F0} Mbps ({drop.DropPercent:F0}% below average)",
+                        Message = $"{wanName}: {drop.Direction} is {drop.DropPercent:F0}% below the recent average of {drop.AverageMbps:F0} Mbps",
+                        MetricValue = drop.CurrentMbps,
+                        ThresholdValue = drop.AverageMbps,
+                        SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
+                        Context = new Dictionary<string, string>
                         {
-                            EventType = "wan.speed_degradation",
-                            Severity = dropPercent >= 50 ? AlertSeverity.Error
-                                : dropPercent >= 25 ? AlertSeverity.Warning : AlertSeverity.Info,
-                            Source = "wan",
-                            Title = $"WAN degradation: {downloadMbps:F0} Mbps ({dropPercent:F0}% below average)",
-                            Message = $"{wanName} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
-                            MetricValue = downloadMbps,
-                            ThresholdValue = avgDownload,
-                            SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
-                            Context = new Dictionary<string, string>
-                            {
-                                ["wan_name"] = wanName,
-                                ["current_mbps"] = downloadMbps.ToString("F1"),
-                                ["average_mbps"] = avgDownload.ToString("F1"),
-                                ["drop_percent"] = dropPercent.ToString("F0"),
-                                ["sample_count"] = recent.Count.ToString()
-                            }
-                        });
-                    }
+                            ["wan_name"] = wanName,
+                            ["drop_direction"] = drop.Direction,
+                            ["current_mbps"] = drop.CurrentMbps.ToString("F1"),
+                            ["average_mbps"] = drop.AverageMbps.ToString("F1"),
+                            ["drop_percent"] = drop.DropPercent.ToString("F0"),
+                            ["sample_count"] = drop.Samples.ToString()
+                        }
+                    });
                 }
             }
             catch (Exception degradeEx)
