@@ -173,30 +173,7 @@
         }
     }
 
-    private sealed record LossDisplay(double Shown, double? Higher, string HigherSource, string? Tooltip);
-
-    /// <summary>
-    /// The loss forwarding can account for, lowest first: the trace's loss capped at what the hops
-    /// beyond it lost, or the hop's own pings. The highest raw figure follows in parentheses when it
-    /// differs. Null for a hop that never answered.
-    /// </summary>
-    private LossDisplay? LossCell(HopReading hop)
-    {
-        if (hop.Sent == 0 || hop.Responses == 0) return null;
-        var ping = hop.Address != null ? _detail!.HopPings?.GetValueOrDefault(hop.Address) : null;
-        var pingLoss = ping is { Sent: > 0 } ? ping.LossPct : (double?)null;
-
-        var shown = Math.Min(hop.EffectiveLossPct, pingLoss ?? double.MaxValue);
-        var higher = Math.Max(hop.LossPct, pingLoss ?? double.MinValue);
-        var source = pingLoss is double p && p > hop.LossPct ? "ping" : "trace";
-
-        var notes = new List<string>();
-        if (pingLoss is double pl)
-            notes.Add($"Pinged during the episode: {ping!.Received} of {ping.Sent} answered ({pl:0.#}% lost).");
-        if (hop.EffectiveLossPct < hop.LossPct)
-            notes.Add($"The trace lost {hop.LossPct:0.#}% here but only {hop.DownstreamFloorPct:0.#}% further along, so the rest is this router limiting its replies, not forwarding loss.");
-        return new LossDisplay(shown, higher - shown >= 0.5 ? higher : null, source, notes.Count > 0 ? string.Join(" ", notes) : null);
-    }
+    private PathHopLoss? LossCell(HopReading hop) => PathEpisodePresentation.HopLoss(hop, _detail!);
 
     // A reply that came home by as many hops as it went out says nothing, and is most of them.
     private static bool ReturnHopsWorthShowing(HopReading h) =>

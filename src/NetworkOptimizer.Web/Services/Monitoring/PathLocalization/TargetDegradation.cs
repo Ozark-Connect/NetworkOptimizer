@@ -117,6 +117,15 @@ public sealed class TargetDegradation
         return judged.Any(w => w.Signal != DegradationSignal.None);
     }
 
+    /// <summary>Pooled loss over the windows starting at or after <paramref name="from"/>, with the probes behind it; null when none closed.</summary>
+    public (double LossPct, int Probes)? LossSince(DateTime from)
+    {
+        var windows = _windows.Where(w => w.Start + _windowLength > from && w.Probes > 0).ToList();
+        if (windows.Count == 0) return null;
+        var probes = windows.Sum(w => w.Probes);
+        return (windows.Sum(w => w.LossPct * w.Probes) / probes, probes);
+    }
+
     /// <summary>
     /// Pre-loads history (5-min means from InfluxDB) so a restart does not cost a day of baseline.
     /// Seeded windows only feed the baseline; they never move the degraded state. Samples recorded
@@ -182,8 +191,9 @@ public sealed class TargetDegradation
         if (judged)
         {
             var baseLoss = BaselineLossPct ?? 0;
-            if (_openSent >= _options.PathLossMinProbes
-                && loss >= Math.Max(_options.PathLossMinPct, baseLoss + _options.PathLossDeltaPct))
+            var (pooledLoss, pooledProbes) = PooledLoss(loss);
+            if (pooledProbes >= _options.PathLossMinProbes
+                && pooledLoss >= Math.Max(_options.PathLossMinPct, baseLoss + _options.PathLossDeltaPct))
                 signal |= DegradationSignal.Loss;
             if (median is double m && BaselineRttMs is double b
                 && m >= b + Math.Max(_options.PathRttMinDeltaMs, b * _options.PathRttDeltaFraction))
@@ -196,6 +206,25 @@ public sealed class TargetDegradation
         Trim();
         Advance(window);
         return window;
+    }
+
+    /// <summary>
+    /// The closing window's loss, pooled with the windows just before it while it has too few probes
+    /// to read alone: a target polled every minute sends 25 probes in five minutes, not 20 in one.
+    /// Never reaches back further than the windows that make a degraded run.
+    /// </summary>
+    private (double LossPct, int Probes) PooledLoss(double openLoss)
+    {
+        var probes = _openSent;
+        var lost = openLoss * _openSent / 100.0;
+        var reach = Math.Max(1, _options.PathDegradationConsecutiveWindows) - 1;
+        for (var node = _windows.Last; node != null && reach > 0 && probes < _options.PathLossMinProbes; node = node.Previous, reach--)
+        {
+            if (node.Value.Excluded) break;
+            probes += node.Value.Probes;
+            lost += node.Value.LossPct * node.Value.Probes / 100.0;
+        }
+        return (probes == 0 ? 0 : 100.0 * lost / probes, probes);
     }
 
     private void Advance(DegradationWindow w)

@@ -126,6 +126,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Hop table per episode: loss, baseline to episode min RTT, return hops, ICMP-limited hops; **Re-run** in Network Tools
   - Hops a trace reads as elevated are pinged during the episode, so a router that limits traceroute replies is not blamed; a hostname target is traced at one address for the whole episode
   - Banner at the top of ISP Health while a path is being traced and for 24 hours after; dismissible, and a new episode shows again
+  - The ISP Health PDF carries the episodes: their findings and events, and a Path Traces section with each verdict and hop table
 - **Per-Network RTT** chart; BGP tool links (HE BGP Toolkit, bgp.tools, RIPEstat)
 - Starlink scoring on sky obstruction, dish loss, and outage burden, with hardware-fault caps
 - Per-WAN scores on multi-WAN sites (WAN Vantage)

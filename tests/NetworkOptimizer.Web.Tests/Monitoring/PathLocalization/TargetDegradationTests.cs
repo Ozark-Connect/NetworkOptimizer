@@ -72,14 +72,25 @@ public class TargetDegradationTests
     }
 
     [Fact]
-    public void FewerThanTwentyProbes_LossIsNotRead()
+    public void FewerThanTwentyProbes_PoolWithTheWindowsBefore()
     {
         var t = WithBaseline(out var now);
-        // A burst every 100 s puts 3 bursts (15 probes) in a window, short of the 20-probe floor, so
-        // even 40% loss is not read.
+        // A burst every 100 s puts 3 bursts (15 probes) in a window, short of the 20-probe floor on its
+        // own, so each window is read together with the one before it.
         for (var i = 0; i < 20; i++)
             t.Record(now.AddSeconds(i * 100), 42, 5, 3, () => false);
-        t.Degraded.Should().BeFalse();
+        t.Degraded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void LossSince_PoolsTheWindowsFromAPoint()
+    {
+        var t = WithBaseline(out var now);
+        var from = now;
+        now = Feed(t, now, TimeSpan.FromMinutes(10), 42, lostPerBurst: 1);
+        t.Record(now, 42, 5, 5, () => false);
+
+        t.LossSince(from)!.Value.LossPct.Should().BeApproximately(20, 0.01);
     }
 
     [Fact]

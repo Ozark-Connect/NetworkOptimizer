@@ -2,6 +2,9 @@ using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 
+/// <summary>A hop's Loss cell: the figure shown, and the highest raw one with its source when it differs.</summary>
+public sealed record PathHopLoss(double Shown, double? Higher, string HigherSource, string? Tooltip);
+
 /// <summary>The ISP Health banner for one episode.</summary>
 /// <param name="EpisodeId">The episode it is about.</param>
 /// <param name="Phase">"tracing" or "done": a dismissal covers one phase, so the verdict still shows after the tracing banner was dismissed.</param>
@@ -177,6 +180,39 @@ public static class PathEpisodePresentation
             _ => "degraded"
         };
     }
+
+    /// <summary>
+    /// A hop's Loss cell, lowest first: the trace's loss capped at what the hops beyond it lost, the
+    /// hop's own pings, or a monitored hop's own series. The highest raw figure follows, named by its
+    /// source, when it differs. Null for a hop that never answered. Shared by the page and the PDF.
+    /// </summary>
+    public static PathHopLoss? HopLoss(HopReading hop, PathEpisodeDetail detail)
+    {
+        if (hop.Sent == 0 || hop.Responses == 0) return null;
+        var ping = hop.Address != null ? detail.HopPings?.GetValueOrDefault(hop.Address) : null;
+        var pingLoss = ping is { Sent: > 0 } ? ping.LossPct : (double?)null;
+        var seriesLoss = hop.Address != null && detail.MonitoredLoss?.TryGetValue(hop.Address, out var s) == true ? s : (double?)null;
+
+        var figures = new List<(string Source, double Raw, double Forwarding)> { ("trace", hop.LossPct, hop.EffectiveLossPct) };
+        if (pingLoss is double pf) figures.Add(("ping", pf, pf));
+        if (seriesLoss is double sf) figures.Add(("monitored", sf, sf));
+        var shown = figures.Min(f => f.Forwarding);
+        var highest = figures.OrderByDescending(f => f.Raw).First();
+
+        var notes = new List<string>();
+        if (pingLoss is double pl)
+            notes.Add($"Pinged during the episode: {ping!.Received} of {ping.Sent} answered ({pl:0.#}% lost).");
+        if (seriesLoss is double sl)
+            notes.Add($"Its own monitored ping series lost {sl:0.#}% over the episode, which is what decided it.");
+        if (hop.EffectiveLossPct < hop.LossPct)
+            notes.Add($"The trace lost {hop.LossPct:0.#}% here but only {hop.DownstreamFloorPct:0.#}% further along, so the rest is this router limiting its replies, not forwarding loss.");
+        return new PathHopLoss(shown, highest.Raw - shown >= 0.5 ? highest.Raw : null, highest.Source,
+            notes.Count > 0 ? string.Join(" ", notes) : null);
+    }
+
+    /// <summary>"0% (trace 85%)": a hop's Loss cell as text, for the PDF.</summary>
+    public static string HopLossText(PathHopLoss? loss) => loss == null ? "-"
+        : loss.Higher is double h ? $"{loss.Shown:0.#}% ({loss.HigherSource} {h:0.#}%)" : $"{loss.Shown:0.#}%";
 
     /// <summary>"Today, 14:38 to 14:54", or both ends in full when they fall on different days.</summary>
     private static string Span(DateTime fromUtc, DateTime toUtc) =>

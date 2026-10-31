@@ -167,7 +167,8 @@ public sealed class PathEpisodeWatcher
     }
 
     /// <summary>The analysis over the rounds so far, and which hops' own series decided them.</summary>
-    private sealed record Analysis(EpisodeVerdict Verdict, Dictionary<string, bool> Anchors, HashSet<string> Pinged, HashSet<string> Monitored);
+    private sealed record Analysis(EpisodeVerdict Verdict, Dictionary<string, bool> Anchors, HashSet<string> Pinged, HashSet<string> Monitored,
+        Dictionary<string, double> MonitoredLoss);
 
     /// <summary>Most hops pinged in one round, across the episode's targets.</summary>
     private const int MaxPingedHopsPerRound = 8;
@@ -779,13 +780,24 @@ public sealed class PathEpisodeWatcher
         await _traceSlots.WaitAsync(ct);
         try
         {
+            // Back to back, a trace starts while the gateway is still refilling its Time Exceeded
+            // bucket from the last one's TTL-1 burst, and the first hop reads as lossy.
+            var wait = _lastTraceEnded + TraceGap - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
             await TraceAsync(run, target, kind, ct);
         }
         finally
         {
+            _lastTraceEnded = DateTime.UtcNow;
             _traceSlots.Release();
         }
     }
+
+    /// <summary>The gap between one trace and the next: a 5-probe TTL-1 burst refills at one token a second.</summary>
+    private static readonly TimeSpan TraceGap = TimeSpan.FromSeconds(5);
+
+    // Written and read only while holding _traceSlots.
+    private DateTime _lastTraceEnded = DateTime.MinValue;
 
     private async Task TraceAsync(EpisodeRun run, RunTarget target, PathEpisodeTraceKind kind, CancellationToken ct)
     {
@@ -888,14 +900,17 @@ public sealed class PathEpisodeWatcher
         var openedAt = run.Row.OpenedAt;
         var anchors = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         var pinged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var monitoredLoss = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         bool? Anchor(string ip)
         {
-            bool? monitored;
+            bool? monitored = null;
             lock (_lock)
             {
-                monitored = monitoredByAddress.TryGetValue(ip, out var id) && _trackers.TryGetValue(id, out var t)
-                    ? t.ElevatedSince(openedAt)
-                    : null;
+                if (monitoredByAddress.TryGetValue(ip, out var id) && _trackers.TryGetValue(id, out var t))
+                {
+                    monitored = t.ElevatedSince(openedAt);
+                    if (monitored != null && t.LossSince(openedAt) is { } series) monitoredLoss[ip] = series.LossPct;
+                }
             }
             if (monitored is bool m) { anchors[ip] = m; return m; }
             if (PingAnchor(run, ip) is bool p) { anchors[ip] = p; pinged.Add(ip); return p; }
@@ -910,7 +925,7 @@ public sealed class PathEpisodeWatcher
                 .Select(t => ((double?)t!.PeakLossPct, t.BaselineRttMs, t.PeakRttMs)));
         }
         var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together);
-        return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase));
+        return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase), monitoredLoss);
     }
 
     /// <summary>
@@ -983,12 +998,13 @@ public sealed class PathEpisodeWatcher
     /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
     private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
     {
-        var (verdict, anchors, pinged, _) = await AnalyzeAsync(run, ct);
+        var (verdict, anchors, pinged, _, monitoredLoss) = await AnalyzeAsync(run, ct);
 
         var row = run.Row;
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         snapshot.Anchors = anchors;
         snapshot.PingedHops = pinged.ToList();
+        snapshot.MonitoredLoss = monitoredLoss;
         snapshot.HopPings = run.HopPings.ToDictionary(kv => kv.Key,
             kv => new PathGateSnapshot.HopPingStats(kv.Value.Sent, kv.Value.Received, kv.Value.MinRttMs), StringComparer.OrdinalIgnoreCase);
         row.GateSnapshot = JsonSerializer.Serialize(snapshot);
