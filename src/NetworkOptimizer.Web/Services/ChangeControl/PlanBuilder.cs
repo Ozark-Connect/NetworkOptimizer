@@ -919,14 +919,32 @@ public static class PlanBuilder
                     : liveIndex.TryGetValue(id, out var li) ? li : long.MinValue;
                 (idx < predefinedMin ? before : after).Add(id);
             }
-            // The reorder runs before the deletes, and UniFi refuses one that leaves out a policy the
-            // pair still has (ShouldIncludeFirewallPolicyInBatchUpdate): a policy about to be deleted
-            // keeps its slot until then.
-            foreach (var p in live.Get("firewall_policy").Where(p => deleted.Contains(ConfigState.IdOf(p))
-                         && p["source"]?["zone_id"]?.ToString() == src && p["destination"]?["zone_id"]?.ToString() == dst))
+            // UniFi refuses a reorder that leaves out a policy the pair still has (ShouldIncludeFirewallPolicyInBatchUpdate).
+            // The reorder runs before the deletes, so a policy about to be deleted is one, and so is any the desired state
+            // does not place here but the plan leaves here: one outside a Roll Back's objects, Threat Intelligence's under
+            // an ID the Baseline predates. Each keeps its spot, right after the policy it follows on the console now.
+            var inPair = live.Get("firewall_policy")
+                .Where(p => def.IsGenerated?.Invoke(p) != true && p["source"]?["zone_id"]?.ToString() == src && p["destination"]?["zone_id"]?.ToString() == dst)
+                .OrderBy(p => liveIndex.GetValueOrDefault(ConfigState.IdOf(p), long.MaxValue)).ToList();
+            var listed = before.Concat(after).Select(n => n!.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool MovesOut(string id) => doc.Operations.Any(o => o.Action == PlanAction.Update && o.Collection == "firewall_policy"
+                && string.Equals(o.ObjectId, id, StringComparison.OrdinalIgnoreCase) && o.Body is JsonObject b
+                && (b["source"]?["zone_id"]?.ToString() is { } bs && bs != src || b["destination"]?["zone_id"]?.ToString() is { } bd && bd != dst));
+            var order = inPair.Select(ConfigState.IdOf).ToList();
+            foreach (var p in inPair)
             {
-                var idx = p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
-                (idx < predefinedMin ? before : after).Add(ConfigState.IdOf(p));
+                var id = ConfigState.IdOf(p);
+                if (listed.Contains(id) || (!deleted.Contains(id) && MovesOut(id))) continue;
+                var slot = liveIndex.GetValueOrDefault(id, long.MaxValue) < predefinedMin ? before : after;
+                // After the nearest policy ahead of it on the console that this slot lists; first when there is none.
+                var at = 0;
+                for (var k = order.IndexOf(id) - 1; k >= 0; k--)
+                {
+                    var prev = slot.Select(n => n!.ToString()).ToList().FindIndex(x => string.Equals(x, order[k], StringComparison.OrdinalIgnoreCase));
+                    if (prev >= 0) { at = prev + 1; break; }
+                }
+                slot.Insert(at, id);
+                listed.Add(id);
             }
 
             doc.Operations.Add(new PlanOperation
