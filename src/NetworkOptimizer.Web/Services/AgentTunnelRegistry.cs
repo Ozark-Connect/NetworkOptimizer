@@ -273,6 +273,12 @@ public sealed class AgentTunnelConnection
     /// </summary>
     public bool? OnGateway { get; internal set; }
 
+    /// <summary>
+    /// Set once this connection, as the site's collector, has been sent its SNMP config. Until then
+    /// the other agents keep polling, so a handover overlaps rather than leaving a gap.
+    /// </summary>
+    public bool CollectorSnmpPushed { get; internal set; }
+
     /// <summary>Feature capabilities from the hello (e.g. "conntrack-accounting"). Empty from older agents.</summary>
     public IReadOnlyList<string> Capabilities { get; internal set; } = Array.Empty<string>();
 
