@@ -821,7 +821,7 @@ public static class PlanBuilder
         {
             var partial = new JsonObject();
             foreach (var field in changedTop)
-                partial[field] = desired[field]?.DeepClone();
+                partial[field] = desired[field]?.DeepClone() ?? EmptiedList(live, field);
             DropAnyMatchType(def, partial);
             return partial;
         }
@@ -832,6 +832,7 @@ public static class PlanBuilder
         foreach (var field in changedTop)
         {
             if (desired.ContainsKey(field)) merged[field] = desired[field]?.DeepClone();
+            else if (EmptiedList(live, field) is { } empty) merged[field] = empty;
             else merged.Remove(field);
         }
         merged.Remove("site_id");
@@ -842,6 +843,13 @@ public static class PlanBuilder
         DropAnyMatchType(def, merged);
         return merged;
     }
+
+    /// <summary>
+    /// An empty list for a list field the desired side leaves out: UniFi stores no empty list (it reads back missing,
+    /// grounding.md 2026-10-29), so "missing" means empty, and a v1 PUT keeps a field it is not sent. Leaving it out
+    /// would keep the live list (a deleted network still in a port profile's excluded networks).
+    /// </summary>
+    private static JsonArray? EmptiedList(JsonObject live, string field) => live[field] is JsonArray ? new JsonArray() : null;
 
     /// <summary>The top-level field of a diff path ("port_overrides[port_idx=4].name" is port_overrides).</summary>
     public static string TopField(string path)
@@ -966,8 +974,9 @@ public static class PlanBuilder
                 {
                     var oid = ConfigState.IdOf(o);
                     if (oid.Equals(del.ObjectId, StringComparison.OrdinalIgnoreCase) || deletedIds.Contains(oid)) continue;
-                    // A reference in a field UniFi manages (Etherlighting's network colors) is UniFi's to clean up.
-                    if (!References(WithoutReadOnly(def, o), del.ObjectId!)) continue;
+                    // A reference in a field UniFi manages (Etherlighting's network colors) is UniFi's to clean up, and so
+                    // is a port's exclusion of a network: UniFi adds each new network to them and takes a deleted one out.
+                    if (!References(WithoutExclusions(WithoutReadOnly(def, o)), del.ObjectId!)) continue;
                     // The referrer is fixed when the plan's update no longer carries the reference.
                     if (updatesById.TryGetValue(oid, out var upd) && upd.Body is JsonObject body && !References(MergeForCheck(o, body), del.ObjectId!))
                         continue;
@@ -990,6 +999,18 @@ public static class PlanBuilder
             if (!def.IsReadOnly(o, k)) copy[k] = v?.DeepClone();
         return copy;
     }
+
+    /// <summary>
+    /// The object without its excluded-network lists, at any depth (a port profile's, a device port override's). UniFi
+    /// removes a deleted network from them itself (AUDIT, UDR7, Network 11, 2026-10-30: the port profiles' edit on a
+    /// network delete), so an exclusion never keeps a network from being deleted.
+    /// </summary>
+    private static JsonNode? WithoutExclusions(JsonNode? node) => node switch
+    {
+        JsonObject o => new JsonObject(o.Where(p => p.Key != "excluded_networkconf_ids").Select(p => KeyValuePair.Create(p.Key, WithoutExclusions(p.Value)))),
+        JsonArray a => new JsonArray(a.Select(WithoutExclusions).ToArray()),
+        _ => node?.DeepClone(),
+    };
 
     private static JsonObject MergeForCheck(JsonObject live, JsonObject body)
     {
