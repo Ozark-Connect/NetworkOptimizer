@@ -500,6 +500,7 @@ public static class ZoneSetup
 
         // The Security Audit's untrusted purposes (IoT, Media, Security, Printer) never need the gateway's SSH or web UI:
         // UniFi devices and Protect cameras use other ports. An operator block that already covers the zone is used instead.
+        var gatewayCovered = new List<string>();
         if (gatewayId != null)
             foreach (var zone in active.Where(z => z.Role is ZoneRole.IoT or ZoneRole.Cameras or ZoneRole.Printers))
             {
@@ -508,11 +509,14 @@ public static class ZoneSetup
                     && new[] { 22, 80, 443 }.All(port => ZonePaths.Allows(current, id, gwIp, "tcp", port) == false));
                 if (covered)
                 {
-                    notes.Add($"{zone.Name}: the gateway's SSH and web UI are already blocked by an existing policy; no Block {zone.Name} to Gateway Management is added.");
+                    gatewayCovered.Add(zone.Name);
                     continue;
                 }
                 Put(ids[zone.Key], gatewayId, "BLOCK", $"Block {zone.Name} to Gateway Management", "22,80,443", "tcp");
             }
+        if (gatewayCovered.Count > 0)
+            notes.Add($"{Join(gatewayCovered, "and")}: the gateway's SSH and web UI are already blocked by an existing policy; no "
+                + (gatewayCovered.Count == 1 ? $"Block {gatewayCovered[0]} to Gateway Management is" : "Gateway Management blocks are") + " added.");
 
         KeepPaths(live, desired, policies, moved, ZoneName, informAddresses ?? [], ref n);
         DropRedundantBlocks(policies, rehomed, IsLan, IsInternal, ZoneName, notes);
@@ -568,7 +572,8 @@ public static class ZoneSetup
     /// the network on the zone write; the update re-writes them whole from the policy read before. A policy whose
     /// networks land in different zones is split, one per pair. A client source names no network: it follows its clients'
     /// network when they have fixed IPs, else keeps its zone. UniFi pauses such a policy and strips the network side but
-    /// leaves its zones as they were (UDR7 on Network 11, 2026-10-30). Returns policy ID to its name, for the redundancy pass.
+    /// leaves its zones as they were (UDR7 on Network 11, 2026-10-30). Returns policy ID (a copy's too) to the original
+    /// policy's name, for the redundancy pass.
     /// </summary>
     private static Dictionary<string, string> Rehome(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved,
         Dictionary<string, string> newZoneOf, IReadOnlyDictionary<string, string>? clientNetworks, Func<string?, string> zoneName, List<string> notes, ref int n)
@@ -651,7 +656,7 @@ public static class ZoneSetup
                     target["name"] = $"{Str(policy, "name")} ({zoneName(s.Zone != Str(src?["zone_id"]) ? s.Zone : d.Zone)})";
                     policies.Add(target);
                 }
-                result[ConfigState.IdOf(target)] = Str(target, "name") ?? "";
+                result[ConfigState.IdOf(target)] = Str(policy, "name") ?? "";
             }
             // A split by clients alone is described above.
             if (variants.Count > 1 && variants.Count != (clientGroups?.Count ?? 1))
@@ -784,12 +789,13 @@ public static class ZoneSetup
             }
             var outward = dstKey is "external" or "gateway";
             var resolver = Str(t, "action") == "ALLOW" && dstKey is "" or "internal" && CoversPort(t["destination"] as JsonObject, 53, groups);
+            var offline = new List<string>();
+            var isolated = new List<string>();
             foreach (var to in lanTargets[from])
             {
                 if (dstKey == "external" && (Str(t, "action") is "BLOCK" or "REJECT") && InternetDisabled(to))
                 {
-                    var skipped = $"{name}: not copied to {zoneName(to)}; every network there already has Internet Access off.";
-                    if (!notes.Contains(skipped)) notes.Add(skipped);
+                    offline.Add(zoneName(to));
                     continue;
                 }
                 if (outward || (resolver && !string.Equals(to, dstZone, StringComparison.OrdinalIgnoreCase)))
@@ -803,10 +809,20 @@ public static class ZoneSetup
                     policies.Add(copy);
                 }
                 else if (Str(t, "action") == "ALLOW" && dstKey is "" or "internal")
-                    notes.Add($"Firewall Policy {name} ({zoneName(from)} to {zoneName(dstZone)}): not carried to {zoneName(to)}, which stays isolated. Copy it in the Edit tab if {zoneName(to)} needs it.");
+                    isolated.Add(zoneName(to));
             }
+            // One note per policy, naming every zone it applies to.
+            if (offline.Count > 0)
+                notes.Add($"{name}: not copied to {Join(offline, "or")}; every network there already has Internet Access off.");
+            if (isolated.Count > 0)
+                notes.Add($"Firewall Policy {name} ({zoneName(from)} to {zoneName(dstZone)}): not carried to {Join(isolated, "or")}, which "
+                    + (isolated.Count == 1 ? "stays" : "stay") + $" isolated. Copy it in the Edit tab if {Join(isolated, "or")} needs it.");
         }
     }
+
+    /// <summary>"A", "A and B", "A, B and C" (or "or").</summary>
+    private static string Join(IReadOnlyList<string> items, string conjunction) =>
+        items.Count <= 1 ? string.Join("", items) : $"{string.Join(", ", items.Take(items.Count - 1))} {conjunction} {items[^1]}";
 
     /// <summary>A copy's name: the source zone's name swapped in when the template names it ("from Home" to "from IoT"), else the zone appended.</summary>
     internal static string NameFor(string template, string fromZone, string toZone) =>
@@ -886,6 +902,7 @@ public static class ZoneSetup
         Func<string?, bool> isInternal, Func<string?, string> zoneName, List<string> notes)
     {
         bool Custom(string? zone) => isLan(zone) && !isInternal(zone);
+        var dropped = new List<(string Original, string Name, string Pair)>();
         // A copy keeps its original's index; a policy the plan creates has none, and the reorder puts it after the rest.
         static long Index(JsonObject p) => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
         // Also the zone-pair blocks an earlier Set Up Zones wrote before it relied on UniFi's defaults.
@@ -905,7 +922,20 @@ public static class ZoneSetup
                 continue;
             }
             policies.Remove(p);
-            notes.Add($"Firewall Policy {Str(p, "name")}: deleted. UniFi already blocks {zoneName(src)} to {zoneName(dst)} by default.");
+            dropped.Add((rehomed.GetValueOrDefault(ConfigState.IdOf(p)) ?? Str(p, "name") ?? "", Str(p, "name") ?? "", $"{zoneName(src)} to {zoneName(dst)}"));
+        }
+        foreach (var policy in dropped.GroupBy(d => d.Original))
+        {
+            var parts = rehomed.Values.Count(v => v == policy.Key);
+            if (parts > 1 && policy.Count() == parts)
+            {
+                // Every part of a split goes: the plan deletes the policy, so the split is not news.
+                notes.RemoveAll(n => n.StartsWith($"Firewall Policy {policy.Key}: its ", StringComparison.Ordinal) && n.Contains("so it is split", StringComparison.Ordinal));
+                notes.Add($"Firewall Policy {policy.Key}: deleted. UniFi already blocks {Join(policy.Select(d => d.Pair).ToList(), "and")} by default.");
+            }
+            else
+                foreach (var d in policy)
+                    notes.Add($"Firewall Policy {d.Name}: deleted. UniFi already blocks {d.Pair} by default.");
         }
     }
 

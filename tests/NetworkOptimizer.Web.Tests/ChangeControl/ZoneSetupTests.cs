@@ -631,6 +631,9 @@ public class ZoneSetupTests
         doc.Operations.Should().NotContain(o => o.Action == PlanAction.Create && o.ObjectName.StartsWith("[VLAN] Block Access to Isolated VLANs"));
         Named(plan.Desired, "[IoT] Allow Phone Inbound Access")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
         Named(plan.Desired, "[Security] Allow NVR Direct")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        // Split and wholly deleted: one note, and no word of the split.
+        plan.Notes.Where(n => n.Contains("[VLAN] Block Access to Isolated VLANs")).Should().Equal(
+            "Firewall Policy [VLAN] Block Access to Isolated VLANs: deleted. UniFi already blocks Internal to IoT and Internal to Cameras by default.");
     }
 
     [Fact]
@@ -1181,6 +1184,8 @@ public class ZoneSetupTests
 
         Named(plan.Desired, "Allow Select Console Management (IoT)")!["source"]!["match_opposite_ips"]!.GetValue<bool>().Should().BeTrue();
         Named(plan.Desired, "Block IoT to Gateway Management").Should().BeNull("the copied block already covers IoT");
+        plan.Notes.Where(n => n.Contains("already blocked by an existing policy")).Should().ContainSingle()
+            .Which.Should().Match("IoT and Cameras*: the gateway's SSH and web UI are already blocked by an existing policy; no Gateway Management blocks are added.");
     }
 
     [Fact]
@@ -1285,6 +1290,20 @@ public class ZoneSetupTests
 
         Policy(plan.Desired, "Cameras", "External").Should().BeNull();
         plan.Notes.Should().Contain(n => n.Contains("Internet Access off"));
+    }
+
+    [Fact]
+    public void AZoneWideInternetBlock_NotCopiedToSeveralZones_GetsOneNote()
+    {
+        var live = WithSubnetsAndGateway();
+        foreach (var id in new[] { "n-cam", "n-iot", "n-media" })
+            live.Get("networkconf").First(n => n["_id"]!.ToString() == id)["internet_access_enabled"] = false;
+        live.Collections["firewall_policy"].Add(Rule("p-dot", "[DNS] Block DoT / DoQ", "BLOCK", Side("z-int"), Side("z-ext", port: "853"), protocol: "tcp_udp"));
+
+        var plan = PlanFor(live);
+
+        plan.Notes.Where(n => n.StartsWith("[DNS] Block DoT / DoQ: not copied")).Should().ContainSingle()
+            .Which.Should().Be("[DNS] Block DoT / DoQ: not copied to IoT or Cameras; every network there already has Internet Access off.");
     }
 
     [Fact]
