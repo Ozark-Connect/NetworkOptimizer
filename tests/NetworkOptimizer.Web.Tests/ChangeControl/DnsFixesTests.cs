@@ -205,6 +205,44 @@ public class DnsFixesTests
         DnsFixes.Build(site, IssueTypes.Dns53PartialCoverage).Should().BeNull();
     }
 
+    [Theory]
+    [InlineData(IssueTypes.DnsNoDotBlock)]
+    [InlineData(IssueTypes.DnsNoDoqBlock)]
+    public void ANetworkWithInternetAccessOff_GetsNoDotOrDoqCopy(string issue)
+    {
+        // UniFi's own "Block <subnet> Internet Access" policy keeps it off the Internet; no copy for its zone.
+        var site = PerZoneSite();
+        site.Get("networkconf").First(n => n["_id"]!.ToString() == "n-mgmt")["internet_access_enabled"] = false;
+
+        DnsFixes.Build(site, issue).Should().BeNull("Management, the only network without a block, has Internet Access off");
+    }
+
+    [Fact]
+    public void Port53_LeavesANetworkWithInternetAccessOffAlone()
+    {
+        var site = PiHoleSite();
+        site.Collections["nat"].RemoveAll(r => r["in_interface"]!.ToString() == "n-zt");
+        site.Get("networkconf").First(n => n["_id"]!.ToString() == "n-zt")["internet_access_enabled"] = false;
+
+        DnsFixes.Build(site, IssueTypes.Dns53PartialCoverage).Should().BeNull();
+    }
+
+    [Fact]
+    public void AZoneWithOneNetworkOffline_ListsOnlyTheOneThatIsOnline()
+    {
+        var site = PerZoneSite();
+        var cams = Net("n-cams", "Cameras", 12, "10.0.12.1/24");
+        cams["internet_access_enabled"] = false;
+        site.Collections["networkconf"].Add(cams);
+        site.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-mgmt")["network_ids"]!.AsArray().Add("n-cams");
+
+        var fix = DnsFixes.Build(site, IssueTypes.DnsNoDotBlock)!;
+
+        var copy = fix.Desired.Get("firewall_policy").Single(p => p["_id"]!.ToString().StartsWith("fix-"));
+        copy["source"]!["matching_target"]!.ToString().Should().Be("NETWORK");
+        copy["source"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal("n-mgmt");
+    }
+
     [Fact]
     public void FullyCovered_HasNothingToFix() =>
         DnsFixes.Build(PerZoneSite(), IssueTypes.DnsDnatPartialCoverage).Should().BeNull("Guest is out of scope and the rest are redirected");

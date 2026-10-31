@@ -128,12 +128,15 @@ public static class DnsFixes
     private static bool Covered(ConfigState state, Kind kind, JsonObject network)
     {
         var id = ConfigState.IdOf(network);
+        // Internet Access off keeps a network off public DNS on every port, as the DNS audit counts it (DnsSecurityAnalyzer).
+        // UniFi enforces it with its own policy on the network's subnet, which the zone check does not read as the whole network.
+        var offline = Off(network["internet_access_enabled"]);
         return kind switch
         {
             Kind.Dnat => Dnats(state).Any(d => Str(d["in_interface"]) == id),
-            Kind.Port53 => Dnats(state).Any(d => Str(d["in_interface"]) == id) || ZonePaths.Allows(state, id, Internet, "udp", 53) == false,
-            Kind.Dot => ZonePaths.Allows(state, id, Internet, "tcp", 853) == false,
-            Kind.Doq => ZonePaths.Allows(state, id, Internet, "udp", 853) == false,
+            Kind.Port53 => offline || Dnats(state).Any(d => Str(d["in_interface"]) == id) || ZonePaths.Allows(state, id, Internet, "udp", 53) == false,
+            Kind.Dot => offline || ZonePaths.Allows(state, id, Internet, "tcp", 853) == false,
+            Kind.Doq => offline || ZonePaths.Allows(state, id, Internet, "udp", 853) == false,
             _ => DohBlocks(state).Any(p => ZonePaths.ZoneOfNetwork(state).GetValueOrDefault(id) == Str(p["source"]?["zone_id"]) && ZonePaths.SourceCovers(p["source"] as JsonObject, id)),
         };
     }
