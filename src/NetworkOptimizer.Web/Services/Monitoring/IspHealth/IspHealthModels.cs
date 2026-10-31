@@ -250,6 +250,9 @@ public class IspHealthIssue
     /// the per-event "that was me" exclusion on the finding itself. Empty for non-outage findings.
     /// </summary>
     public List<DateTime> OutageStarts { get; init; } = new();
+
+    /// <summary>The Path Localization episode behind this finding, so its link opens that episode's hop table.</summary>
+    public int? EpisodeId { get; init; }
 }
 
 /// <summary>

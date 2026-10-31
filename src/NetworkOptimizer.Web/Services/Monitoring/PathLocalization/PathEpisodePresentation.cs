@@ -83,7 +83,8 @@ public static class PathEpisodePresentation
                     Description = $"{names} degraded while the rest of your connection stayed clean ({when}). {latest.Summary}",
                     Recommendation = "This is where the degradation first appears on the forward path, which is the hop table to hand your ISP.",
                     LinkUrl = "#isp-events",
-                    LinkText = "See the trace"
+                    LinkText = "See the trace",
+                    EpisodeId = latest.Id
                 };
             }
             else if (days >= options.PathRepeatFindingDays)
@@ -95,7 +96,8 @@ public static class PathEpisodePresentation
                     Description = $"{names} degraded{(latest.Degraded.Count > 1 ? " together" : "")} while the rest of your connection stayed clean, {when}. {Sentence(latest.Label!)}",
                     Recommendation = "A traceroute cannot see the return path, so this cannot be pinned on a forward hop. A pattern that repeats at the same hours is worth raising with your ISP with these times.",
                     LinkUrl = "#isp-events",
-                    LinkText = "See the traces"
+                    LinkText = "See the traces",
+                    EpisodeId = latest.Id
                 };
             }
         }

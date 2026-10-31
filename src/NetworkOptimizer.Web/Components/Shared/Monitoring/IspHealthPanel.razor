@@ -416,7 +416,11 @@ else
                             {
                                 <div class="issue-recommendation">
                                     @issue.Recommendation
-                                    @if (!string.IsNullOrEmpty(issue.LinkUrl))
+                                    @if (issue.EpisodeId is int findingEpisode)
+                                    {
+                                        <a href="javascript:void(0)" @onclick="() => ShowEpisodeTraceAsync(findingEpisode)" style="margin-left: 0.4rem;">@(issue.LinkText ?? "See the trace")</a>
+                                    }
+                                    else if (!string.IsNullOrEmpty(issue.LinkUrl))
                                     {
                                         @if (issue.LinkUrl!.StartsWith("#"))
                                         {
