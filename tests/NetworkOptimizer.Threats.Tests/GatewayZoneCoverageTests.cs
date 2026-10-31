@@ -142,4 +142,34 @@ public class GatewayZoneCoverageTests
 
         order!.Value.Before.Should().Equal("bl4", "bl6", "exc-uuid", "pl4", "pl6");
     }
+
+    [Fact]
+    public void UntrackedExceptions_AreTheLeftoversOfAStaleRecord()
+    {
+        // Main site after the exception re-sync: the fresh policies are tracked, the old ones (the Baseline's) are not.
+        var live = new List<UniFiFirewallPolicy>
+        {
+            Policy("fresh-in", 10002, "Net. Opt. Exception", "ext", "vpn"),
+            Policy("old-in", 10005, "Net. Opt. Exception", "ext", "vpn"),
+            Policy("fresh-out", 10000, "Net. Opt. Exception", "vpn", "ext"),
+            Policy("old-out", 10003, "Net. Opt. Exception", "vpn", "ext"),
+            Policy("lists", 10003, "Net. Opt. Public Lists", "ext", "vpn"),
+            Policy("user", 10006, "[VPN] Allow Exception Host", "ext", "vpn"),
+        };
+        var tracked = new[] { new GatewayExceptionPolicyRef("fresh-in", "e1:in:vpn:4"), new GatewayExceptionPolicyRef("FRESH-OUT", "e1:out:vpn:4") };
+
+        GatewayBlocklist.UntrackedExceptions(live, tracked).Should().Equal("old-in", "old-out");
+    }
+
+    [Fact]
+    public void UntrackedExceptions_NeverIncludePredefinedOrOtherPolicies()
+    {
+        var live = new List<UniFiFirewallPolicy>
+        {
+            new() { Id = "pre", Name = "Net. Opt. Exception", Predefined = true },
+            Policy("bl", 10001, "Net. Opt. Blocklist", "ext", "vpn"),
+        };
+
+        GatewayBlocklist.UntrackedExceptions(live, []).Should().BeEmpty();
+    }
 }

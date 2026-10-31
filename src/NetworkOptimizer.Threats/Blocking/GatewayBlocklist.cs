@@ -448,6 +448,16 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Exception Allow policies on the console that the record does not hold, by their reserved name. Only Network
+    /// Optimizer writes that name, so each is its own leftover: still allowing traffic nothing tracks.
+    /// </summary>
+    internal static List<string> UntrackedExceptions(IEnumerable<UniFiFirewallPolicy> live, IEnumerable<GatewayExceptionPolicyRef> tracked)
+    {
+        var ids = tracked.Select(r => r.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return live.Where(p => !p.Predefined && p.Name == GatewayExceptionPolicies.PolicyName && !ids.Contains(p.Id)).Select(p => p.Id).ToList();
+    }
+
+    /// <summary>
     /// Zones with no recorded policy (by name), and recorded zones the site no longer has (by ID: their names are gone
     /// with them). Neither when only the record drifted, such as a zone ID re-keyed by a Network app upgrade.
     /// </summary>
@@ -532,7 +542,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         bool outbound, CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);
-        if (state == null || (exceptions.Count == 0 && state.ExceptionPolicies.Count == 0))
+        // With no exceptions and none recorded, the console is still read: a stale record can leave an untracked one there.
+        if (state == null)
             return exceptions.Count == 0 ? BlockTargetResult.Success(0) : BlockTargetResult.Failure("Set up gateway blocking first.");
         if (exceptions.Count > 0 && (state.FeedsV4Id == null || state.FeedsV6Id == null))
             return BlockTargetResult.Failure("Run Set Up again to add the public block lists to the gateway.");
@@ -572,7 +583,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             }
             var specs = GatewayExceptionPolicies.Build(exceptions, state, external.Id, others,
                 outbound && state.OutboundPolicies.Count > 0);
-            var present = (await client.GetFirewallPoliciesAsync(ct)).Select(p => p.Id).ToHashSet();
+            var livePolicies = await client.GetFirewallPoliciesAsync(ct);
+            var present = livePolicies.Select(p => p.Id).ToHashSet();
             var plan = GatewayExceptionPolicies.Plan(state.ExceptionPolicies, present, specs);
 
             // Every policy still on the console stays tracked until its own write succeeds, so a failure
@@ -598,6 +610,13 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                     var policy = await client.CreateFirewallPolicyAsync(spec.Body, ct);
                     refs.Add(new GatewayExceptionPolicyRef(policy.Id, spec.Key, spec.Hash));
                     created++;
+                }
+                // Last, once every wanted policy is written: an exception policy the record does not hold is a stale
+                // record's leftover (an upgrade re-keyed it, and this sync wrote it again), or one whose exception is gone.
+                foreach (var orphan in UntrackedExceptions(livePolicies, refs))
+                {
+                    await client.DeleteFirewallPolicyAsync(orphan, ct);
+                    deleted++;
                 }
             }
             finally
