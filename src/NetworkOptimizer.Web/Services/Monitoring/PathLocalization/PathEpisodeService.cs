@@ -89,7 +89,8 @@ public sealed class PathEpisodeService : IPathEpisodeService
         foreach (var address in PathTraceAnalyzer.AddressesOf(degraded.Concat(controls)))
             asns[address] = await _asn.ResolveAsync(address, ct);
 
-        var anchors = PathGateSnapshot.Read(row.GateSnapshot).Anchors;
+        var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
+        var anchors = snapshot.Anchors;
         var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip),
             ip => anchors.TryGetValue(ip, out var a) ? a : null, _options);
 
@@ -101,10 +102,11 @@ public sealed class PathEpisodeService : IPathEpisodeService
             var tt = degraded.First(d => d.TargetId == t.TargetId);
             var vantage = trace?.Vantage ?? "server";
             return new PathEpisodeHopTable(t, tt.Address, vantage, trace?.SourceInterface,
-                tt.PathRounds.Count, tt.Recovery != null, v?.Hops ?? Array.Empty<HopReading>(), VantageName(vantage, agentNames));
+                tt.PathRounds.Count, tt.Recovery != null, v?.Hops ?? Array.Empty<HopReading>(), VantageName(vantage, agentNames),
+                trace?.ResolvedAddress);
         }).ToList();
 
-        return new PathEpisodeDetail(view, tables);
+        return new PathEpisodeDetail(view, tables, new HashSet<string>(snapshot.PingedHops, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>The site's agents by id, for naming a trace's vantage.</summary>

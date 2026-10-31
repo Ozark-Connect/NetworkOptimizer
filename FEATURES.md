@@ -124,6 +124,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Path & Congestion Events** - congestion events, path shifts, and path changes
   - **Path Localization** - when an Internet or Custom target degrades and the rest of the connection stays clean, traceroutes from the vantage that measures it place where the degradation first appears, or say it is the return path or far side
   - Hop table per episode: loss, baseline to episode min RTT, return hops, ICMP-limited hops; **Re-run** in Network Tools
+  - Hops a trace reads as elevated are pinged during the episode, so a router that limits traceroute replies is not blamed; a hostname target is traced at one address for the whole episode
   - Banner at the top of ISP Health while a path is being traced and for 24 hours after; dismissible, and a new episode shows again
 - **Per-Network RTT** chart; BGP tool links (HE BGP Toolkit, bgp.tools, RIPEstat)
 - Starlink scoring on sky obstruction, dish loss, and outage burden, with hardware-fault caps

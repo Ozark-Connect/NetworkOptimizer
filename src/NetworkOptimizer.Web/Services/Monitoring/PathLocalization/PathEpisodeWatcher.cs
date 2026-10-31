@@ -116,7 +116,7 @@ public sealed class PathEpisodeWatcher
         public required PathEpisodeTargetRole Role { get; init; }
         public List<TracerouteResult> Rounds { get; } = new();
         public TracerouteResult? Recovery { get; set; }
-        /// <summary>What a hostname target resolves to from its vantage, looked up once if a trace does not say.</summary>
+        /// <summary>The one address a hostname target is traced at for the whole episode, recovery included.</summary>
         public string? ResolvedAddress { get; set; }
         public bool ResolveTried { get; set; }
         public int RoundsRun { get; set; }
@@ -147,7 +147,33 @@ public sealed class PathEpisodeWatcher
         public bool Busy { get; set; }
         /// <summary>Changed outside a round (resumed), so the next tick saves it even with nothing to trace.</summary>
         public bool Dirty { get; set; }
+        /// <summary>Echo pings to unmonitored hops a trace marked elevated, by address. Touched only by AdvanceAsync.</summary>
+        public Dictionary<string, HopPing> HopPings { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Pooled echo pings to one hop. A router limits the Time Exceeded replies a trace reads far more
+    /// than echo replies, yet an echo to it crosses the same forward path, so a clean echo series
+    /// means the trace's loss there was reply generation, not forwarding.
+    /// </summary>
+    private sealed class HopPing
+    {
+        public required PathVantage Vantage { get; init; }
+        public int Sent { get; set; }
+        public int Received { get; set; }
+        public double? MinRttMs { get; set; }
+        /// <summary>The hop's min RTT outside the episode (recovery, else control), when a round had one.</summary>
+        public double? BaselineMinRttMs { get; set; }
+    }
+
+    /// <summary>The analysis over the rounds so far, and which hops' own series decided them.</summary>
+    private sealed record Analysis(EpisodeVerdict Verdict, Dictionary<string, bool> Anchors, HashSet<string> Pinged, HashSet<string> Monitored);
+
+    /// <summary>Most hops pinged in one round, across the episode's targets.</summary>
+    private const int MaxPingedHopsPerRound = 8;
+
+    /// <summary>Echoes a hop needs before its series decides it.</summary>
+    private const int MinHopPings = 10;
 
     /// <summary>
     /// One latency result for a target, as recorded. Cheap: folds the sample into the target's window
@@ -698,6 +724,9 @@ public sealed class PathEpisodeWatcher
 
         if (work.Count > 0)
             await Task.WhenAll(work.Select(w => TraceBoundedAsync(run, w.Target, w.Kind, ct)));
+        // After a path round, so the hops it read as elevated get their echoes before the verdict is saved.
+        if (work.Any(w => w.Kind == PathEpisodeTraceKind.Path))
+            await PingHopsAsync(run, ct);
 
         if (closing)
         {
@@ -761,12 +790,31 @@ public sealed class PathEpisodeWatcher
     private async Task TraceAsync(EpisodeRun run, RunTarget target, PathEpisodeTraceKind kind, CancellationToken ct)
     {
         var vantage = target.Target.Vantage;
-        IProbeExecutor executor = vantage.AgentId is int agentId
-            ? new AgentProbeExecutor(_agentProbe, _slug, _loggerFactory.CreateLogger<AgentProbeExecutor>(), agentId)
-            : _localProbe;
+        var executor = ExecutorFor(vantage);
+        // A hostname is pinned to one address for the whole episode: a name that rotates (a CDN, an
+        // AWS endpoint) would otherwise send each round, and the recovery round, down a different
+        // path, and pooling those per TTL compares different routers. Resolved once from the vantage;
+        // if that fails, the first trace's own header names the address it went to.
+        var isHostname = !System.Net.IPAddress.TryParse(target.Target.Address, out _);
+        if (isHostname && target.ResolvedAddress == null && !target.ResolveTried)
+        {
+            target.ResolveTried = true;
+            try
+            {
+                var lookup = await executor.LookupAsync(
+                    new ProbeTarget(target.Target.Address, ProbeMode.Icmp, null, vantage.SourceInterface), ct: ct);
+                target.ResolvedAddress = lookup.Addresses.FirstOrDefault(a =>
+                    System.Net.IPAddress.TryParse(a, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogDebug(ex, "Path Localization could not resolve {Target} from its vantage", target.Target.Address);
+            }
+        }
+
         // ICMP whatever the target's own probe mode: a TCP-only destination simply never answers the
         // last TTL, and its own series still speaks for it.
-        var probe = new ProbeTarget(target.Target.Address, ProbeMode.Icmp, null, vantage.SourceInterface);
+        var probe = new ProbeTarget(target.ResolvedAddress ?? target.Target.Address, ProbeMode.Icmp, null, vantage.SourceInterface);
         var result = await executor.TracerouteAsync(
             probe,
             maxHops: _options.PathMaxHops,
@@ -775,28 +823,13 @@ public sealed class PathEpisodeWatcher
             probesPerHop: _options.PathProbesPerHop,
             ct: ct);
 
-        // A hostname's destination hop is found by the address it resolved to. Linux traceroute says so
-        // in its header; BSD and BusyBox print that header to stderr, and an older agent drops it, so the
-        // vantage's own resolver is asked once instead - never a guess at which hop answered last.
-        if (!System.Net.IPAddress.TryParse(target.Target.Address, out _))
+        if (isHostname)
         {
-            if (result.ResolvedAddress != null) target.ResolvedAddress = result.ResolvedAddress;
-            else if (!target.ResolveTried)
-            {
-                target.ResolveTried = true;
-                try
-                {
-                    var lookup = await executor.LookupAsync(probe, ct: ct);
-                    target.ResolvedAddress = lookup.Addresses.FirstOrDefault(a =>
-                        System.Net.IPAddress.TryParse(a, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-                }
-                catch (Exception ex) when (!ct.IsCancellationRequested)
-                {
-                    // The round still counts; its destination ends the path on the target's own series.
-                    _logger.LogDebug(ex, "Path Localization could not resolve {Target} from its vantage", target.Target.Address);
-                }
-            }
-            if (result.ResolvedAddress == null && target.ResolvedAddress != null)
+            // Traced by name (the lookup failed): pin whatever its header says it went to.
+            target.ResolvedAddress ??= result.ResolvedAddress;
+            // The analyzer finds the destination hop by this address; a trace sent to the pinned
+            // literal reports none of its own.
+            if (target.ResolvedAddress != null)
                 result = result with { ResolvedAddress = target.ResolvedAddress };
         }
 
@@ -828,8 +861,11 @@ public sealed class PathEpisodeWatcher
         }, ct);
     }
 
-    /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
-    private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
+    /// <summary>
+    /// Analyzes every round so far. A monitored hop is decided by its own series; an unmonitored one
+    /// the episode has pinged enough, by those pings; anything else by the trace.
+    /// </summary>
+    private async Task<Analysis> AnalyzeAsync(EpisodeRun run, CancellationToken ct)
     {
         List<TargetTraces> degraded, controls;
         Dictionary<string, string> monitoredByAddress;
@@ -850,28 +886,101 @@ public sealed class PathEpisodeWatcher
             asns[address] = await ResolveAsnAsync(address, ct);
 
         var openedAt = run.Row.OpenedAt;
+        var anchors = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var pinged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool? Anchor(string ip)
         {
+            bool? monitored;
             lock (_lock)
             {
-                return monitoredByAddress.TryGetValue(ip, out var id) && _trackers.TryGetValue(id, out var t)
+                monitored = monitoredByAddress.TryGetValue(ip, out var id) && _trackers.TryGetValue(id, out var t)
                     ? t.ElevatedSince(openedAt)
                     : null;
             }
+            if (monitored is bool m) { anchors[ip] = m; return m; }
+            if (PingAnchor(run, ip) is bool p) { anchors[ip] = p; pinged.Add(ip); return p; }
+            return null;
+        }
+        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options);
+        return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// A pinged hop's verdict: elevated on echo loss or a min-RTT rise over its baseline, clean
+    /// otherwise. Null until it has enough echoes, and for a hop that answers no echo at all: that
+    /// is a router ignoring ping, not one losing everything.
+    /// </summary>
+    private bool? PingAnchor(EpisodeRun run, string ip)
+    {
+        if (!run.HopPings.TryGetValue(ip, out var p) || p.Sent < MinHopPings || p.Received == 0) return null;
+        var loss = 100.0 * (p.Sent - p.Received) / p.Sent;
+        if (loss >= _options.PathHopLossElevatedPct) return true;
+        return p.MinRttMs is double m && p.BaselineMinRttMs is double b
+            && m - b >= Math.Max(_options.PathHopRttMinDeltaMs, b * _options.PathHopRttDeltaFraction);
+    }
+
+    /// <summary>
+    /// Pings, from the target's own vantage and bind, every unmonitored hop the trace reads as elevated,
+    /// plus the hops already being pinged, so the next analysis decides them on echoes.
+    /// </summary>
+    private async Task PingHopsAsync(EpisodeRun run, CancellationToken ct)
+    {
+        var analysis = await AnalyzeAsync(run, ct);
+        Dictionary<string, PathVantage> vantageOf;
+        lock (_lock) vantageOf = run.Degraded.ToDictionary(d => d.Target.TargetId, d => d.Target.Vantage, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var t in analysis.Verdict.Targets)
+        {
+            if (!vantageOf.TryGetValue(t.TargetId, out var vantage)) continue;
+            foreach (var h in t.Hops)
+            {
+                if (h.Address == null || h.Responses == 0 || h.Has(HopTag.Destination) || analysis.Monitored.Contains(h.Address)) continue;
+                if (run.HopPings.TryGetValue(h.Address, out var known))
+                {
+                    known.BaselineMinRttMs ??= h.BaselineMinRttMs;
+                    continue;
+                }
+                if (h.Elevated != true || run.HopPings.Count >= MaxPingedHopsPerRound) continue;
+                run.HopPings[h.Address] = new HopPing { Vantage = vantage, BaselineMinRttMs = h.BaselineMinRttMs };
+            }
         }
 
-        var anchors = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        bool? Recorded(string ip)
+        foreach (var (address, hop) in run.HopPings.ToList())
         {
-            var a = Anchor(ip);
-            if (a is bool b) anchors[ip] = b;
-            return a;
+            await _traceSlots.WaitAsync(ct);
+            try
+            {
+                var result = await ExecutorFor(hop.Vantage).PingAsync(
+                    new ProbeTarget(address, ProbeMode.Icmp, null, hop.Vantage.SourceInterface),
+                    count: MinHopPings, perPingTimeout: PerHopTimeout, ct: ct);
+                hop.Sent += result.Sent;
+                hop.Received += result.Received;
+                if (result.RttMinMs is double min) hop.MinRttMs = hop.MinRttMs is double cur ? Math.Min(cur, min) : min;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogDebug(ex, "Path Localization could not ping hop {Address}", address);
+            }
+            finally
+            {
+                _traceSlots.Release();
+            }
         }
-        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Recorded, _options);
+    }
+
+    private IProbeExecutor ExecutorFor(PathVantage vantage) => vantage.AgentId is int agentId
+        ? new AgentProbeExecutor(_agentProbe, _slug, _loggerFactory.CreateLogger<AgentProbeExecutor>(), agentId)
+        : _localProbe;
+
+    /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
+    private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
+    {
+        var (verdict, anchors, pinged, _) = await AnalyzeAsync(run, ct);
 
         var row = run.Row;
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         snapshot.Anchors = anchors;
+        snapshot.PingedHops = pinged.ToList();
         row.GateSnapshot = JsonSerializer.Serialize(snapshot);
         row.Scope = verdict.Scope.ToString();
         row.Disposition = verdict.Disposition.ToString();

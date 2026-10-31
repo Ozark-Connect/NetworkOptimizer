@@ -34,7 +34,11 @@
                 <span class="text-muted">
                     @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @table.VantageName@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
                 </span>
-                <a class="path-episode-rerun" href="@PathEpisodePresentation.RerunUrl(table.Address, table.Vantage, _detail.Episode.WanContextId)"
+                @if (table.TracedAddress != null && table.TracedAddress != table.Address)
+                {
+                    <span class="text-muted">Traced @table.TracedAddress</span>
+                }
+                <a class="path-episode-rerun" href="@PathEpisodePresentation.RerunUrl(table.TracedAddress ?? table.Address, table.Vantage, _detail.Episode.WanContextId)"
                    data-tooltip="Fill Network Tools with this target and vantage" data-tooltip-hover-only>Re-run</a>
             </div>
             @if (table.Hops.Count == 0)
@@ -51,7 +55,7 @@
                             <th>Network</th>
                             <th>Loss</th>
                             <th data-tooltip="Minimum RTT: after the episode (or on the clean control), then during it. Minimum rather than average, which ICMP slow-path handling inflates.">RTT (baseline &rarr; episode min)</th>
-                            @if (table.Hops.Any(h => h.ReturnHops.HasValue))
+                            @if (table.Hops.Any(ReturnHopsWorthShowing))
                             {
                                 <th data-tooltip="How many hops the reply took to come back, from its TTL. Far from the hop number means a different way home.">Return hops</th>
                             }
@@ -84,7 +88,11 @@
                                     {
                                         <span class="path-hop-tag @TagClass(hop)" data-tooltip="@TagTooltip(hop)">@tag</span>
                                     }
-                                    @if (hop.Has(HopTag.Anchored))
+                                    @if (hop.Has(HopTag.Anchored) && hop.Address != null && _detail.PingedHops?.Contains(hop.Address) == true)
+                                    {
+                                        <span class="path-hop-tag path-hop-tag-muted" data-tooltip="Pinged directly during the episode, which decided it. A router limits the replies a traceroute reads far more than ping replies, and a ping to it crosses the same path.">Pinged</span>
+                                    }
+                                    else if (hop.Has(HopTag.Anchored))
                                     {
                                         <span class="path-hop-tag path-hop-tag-muted" data-tooltip="A monitored hop: its own ping series over the episode decided it, not these few trace probes.">Monitored</span>
                                     }
@@ -100,10 +108,10 @@
                                 <td><TextWithCode Text="@PathTraceAnalyzer.NetworkName(hop, "-")" /></td>
                                 <td>@(hop.Sent > 0 && hop.Responses > 0 ? $"{hop.LossPct:0.#}%" : "-")</td>
                                 <td>@RttLabel(hop)</td>
-                                @if (table.Hops.Any(h => h.ReturnHops.HasValue))
+                                @if (table.Hops.Any(ReturnHopsWorthShowing))
                                 {
                                     <td>
-                                        @if (hop.ReturnHops is int rh)
+                                        @if (ReturnHopsWorthShowing(hop) && hop.ReturnHops is int rh)
                                         {
                                             <span>@(hop.BaselineReturnHops is int b && b != rh ? $"{b} → {rh}" : rh.ToString())</span>
                                             @if (hop.Has(HopTag.ReturnDiffers))
@@ -151,6 +159,10 @@
             _failed = true;
         }
     }
+
+    // A reply that came home by as many hops as it went out says nothing, and is most of them.
+    private static bool ReturnHopsWorthShowing(HopReading h) =>
+        (h.ReturnHops is int rh && rh != h.Ttl) || (h.BaselineReturnHops is int b && b != h.ReturnHops);
 
     private static string RowClass(HopReading h) =>
         h.Has(HopTag.InRun) ? "path-hop-elevated" : h.Has(HopTag.IcmpLimited) ? "path-hop-icmp" : "";

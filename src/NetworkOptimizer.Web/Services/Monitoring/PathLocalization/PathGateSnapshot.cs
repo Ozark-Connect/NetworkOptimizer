@@ -23,6 +23,9 @@ public sealed class PathGateSnapshot
     /// <summary>Monitored hop address to whether its series was elevated during the episode.</summary>
     public Dictionary<string, bool> Anchors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The anchors that came from pinging an unmonitored hop during the episode, not from a monitored series.</summary>
+    public List<string> PingedHops { get; set; } = new();
+
     /// <summary>Reads a stored snapshot; an unreadable or empty one reads as empty rather than failing the episode.</summary>
     public static PathGateSnapshot Read(string? json)
     {

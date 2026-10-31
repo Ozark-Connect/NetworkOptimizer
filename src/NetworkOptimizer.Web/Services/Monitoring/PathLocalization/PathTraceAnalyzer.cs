@@ -372,6 +372,12 @@ public static class PathTraceAnalyzer
             };
         }
 
+        // The destination is degraded by definition, so it cannot confirm anything on its own: a hop
+        // that rate-limits its own replies right before a silent stretch would always be the onset.
+        // Confirmation needs a hop past the onset that answers and carries the elevation too.
+        var corroborated = Enumerable.Range(onset + 1, Math.Max(0, hops.Count - onset - 1))
+            .Any(j => decided[j] == true && !hops[j].Has(HopTag.Destination));
+
         CongestionScope scope;
         CongestionDisposition disposition;
         string label;
@@ -410,6 +416,13 @@ public static class PathTraceAnalyzer
             label = lastCleanHop != null
                 ? $"Between {HopName(lastCleanHop)} and {HopName(onsetHop)}"
                 : $"Starts at {HopName(onsetHop)}";
+        }
+
+        // A clean control crossing the onset already confirmed it (the Hop branch above).
+        if (disposition == CongestionDisposition.Confirmed && scope != CongestionScope.Hop && !corroborated)
+        {
+            disposition = CongestionDisposition.Unverifiable;
+            label += ", unconfirmed: no hop past it answers";
         }
 
         return new TargetVerdict

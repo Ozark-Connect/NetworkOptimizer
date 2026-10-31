@@ -918,7 +918,7 @@ else
                         @* An episode row is keyed by its episode and badge instead: its sentence changes
                            as rounds land, and a new key each time would tear down the hop table open
                            beneath it. The badge and its tooltip stay in the key for the reason above. *@
-                        <div class="isp-event-item" @key="@(entry.EpisodeId is int eid ? (object)(eid, entry.Badge, entry.BadgeTooltip) : (entry, i))">
+                        <div class="isp-event-item" id="@(entry.EpisodeId is int rowEpisode ? $"isp-episode-{rowEpisode}" : null)" @key="@(entry.EpisodeId is int eid ? (object)(eid, entry.Badge, entry.BadgeTooltip) : (entry, i))">
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
                             <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">
@@ -1111,12 +1111,29 @@ else
         }
     }
 
+    // Set by See the trace; OnAfterRenderAsync scrolls once the opened hop table is in the DOM.
+    private int? _scrollToEpisode;
+
     /// <summary>Opens the episode's hop table in Path &amp; Congestion Events and scrolls to it.</summary>
-    private async Task ShowEpisodeTraceAsync(int episodeId)
+    private Task ShowEpisodeTraceAsync(int episodeId)
     {
         _expandedEvents.Add($"episode:{episodeId}");
+        _scrollToEpisode = episodeId;
         StateHasChanged();
-        try { await JS.InvokeVoidAsync("eval", "document.getElementById('isp-events')?.scrollIntoView({ behavior: 'smooth', block: 'start' });"); }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Scrolls to the episode's row, or the events card when a filter hides it. Aims again once the
+    /// page settles: the hop table and the cards above it change height as they load, which left the
+    /// first scroll short.
+    /// </summary>
+    private async Task ScrollToEpisodeAsync(int episodeId)
+    {
+        var js = "(() => { const go = () => (document.getElementById('isp-episode-" + episodeId
+            + "') || document.getElementById('isp-events'))?.scrollIntoView({ behavior: 'smooth', block: 'start' });"
+            + " go(); setTimeout(go, 600); })();";
+        try { await JS.InvokeVoidAsync("eval", js); }
         catch { /* the events card is not rendered */ }
     }
 
@@ -1964,6 +1981,11 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollToEpisode is int scrollTo)
+        {
+            _scrollToEpisode = null;
+            await ScrollToEpisodeAsync(scrollTo);
+        }
         // Interop is unavailable during prerender, so the remembered WAN can only be applied here -
         // and the report waits for it. Restoring first means one compute, for the WAN the user
         // actually left the tab on, and the toolbar stays hidden behind _loading until the right

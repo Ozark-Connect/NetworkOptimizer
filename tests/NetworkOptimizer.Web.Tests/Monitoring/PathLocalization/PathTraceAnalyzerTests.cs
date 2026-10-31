@@ -80,6 +80,23 @@ public class PathTraceAnalyzerTests
         PathTraceAnalyzer.Analyze(new[] { t }, controls, AsnOf, Anchors, Options);
 
     [Fact]
+    public void ElevatedHopFollowedOnlyBySilenceAndTheDestination_IsUnconfirmed()
+    {
+        // Akamai DEN loses most of a burst, nothing past it answers, and the destination is degraded on
+        // its own series: the shape a rate-limiting router before a silent stretch leaves.
+        // Varying loss, so it does not read as a fixed per-round rate limit.
+        var during = Enumerable.Range(0, 5).Select(i => Round(
+            new(Gw, 0.5), new(Bng, 2), new(LumenFirst, 9.5), new(LumenAtl, 14), new(LumenEdge, 15),
+            new(AkamaiAtl, 16, Lost: 3 + i % 2), new(null, 0), new(LinodeOrd, 32, Lost: 2)));
+
+        var v = Analyze(Ord(during, Recovery()));
+
+        v.Disposition.Should().Be(CongestionDisposition.Unverifiable);
+        v.Label.Should().Be("Between Lumen `AS3356` and Akamai `AS20940` (handoff), unconfirmed: no hop past it answers");
+        v.Targets[0].Hops.Single(h => h.Has(HopTag.Onset) && !h.Has(HopTag.Destination)).Address.Should().Be(AkamaiAtl);
+    }
+
+    [Fact]
     public void ElevationStartingAtAkamai_ReadsAsTheHandoff()
     {
         // Clean through the Lumen edge, then every hop to the destination carries +40 ms and loss.
