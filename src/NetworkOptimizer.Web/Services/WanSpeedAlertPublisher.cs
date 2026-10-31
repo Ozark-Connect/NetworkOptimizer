@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
@@ -11,7 +12,8 @@ namespace NetworkOptimizer.Web.Services;
 /// below the recent average for the same WAN and test kind. Shared by the server-side WAN
 /// tests (<see cref="WanSpeedTestServiceBase"/>) and the gateway WAN test so both
 /// emit the same event shapes. Callers pass their per-site alert bus, so events
-/// carry the originating site.
+/// carry the originating site. The site's first successful test also turns on the
+/// degradation rule, which ships disabled, unless a user has edited it.
 /// </summary>
 public static class WanSpeedAlertPublisher
 {
@@ -57,6 +59,21 @@ public static class WanSpeedAlertPublisher
                     ["wan_name"] = wanName
                 }
             });
+
+            // The degradation rule ships disabled; a WAN test that works is the sign it is wanted.
+            if (result.Success)
+            {
+                try
+                {
+                    await using var rulesDb = await openSiteDb();
+                    await AlertRuleAutoEnable.EnableUntouchedDefaultAsync(rulesDb, "wan.speed_degradation",
+                        DefaultAlertRules.WanSpeedDegradationRuleName, logger);
+                }
+                catch (Exception enableEx)
+                {
+                    logger.LogDebug(enableEx, "Failed to enable the WAN speed degradation rule");
+                }
+            }
 
             // Check for degradation vs recent results (same WAN, same test kind), in both directions
             try

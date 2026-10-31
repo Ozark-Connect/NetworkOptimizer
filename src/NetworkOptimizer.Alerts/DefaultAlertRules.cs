@@ -11,6 +11,9 @@ namespace NetworkOptimizer.Alerts;
 /// </summary>
 public static class DefaultAlertRules
 {
+    /// <summary>The WAN speed test degradation rule's shipped name, which its first-use enable matches.</summary>
+    public const string WanSpeedDegradationRuleName = "WAN Speed Test: Degradation";
+
     public static List<AlertRule> GetDefaults() =>
     [
         // --- Security Audit rules (enabled - only needs UniFi connection) ---
@@ -224,10 +227,11 @@ public static class DefaultAlertRules
             CooldownSeconds = 3600 // 1 hour
         },
 
-        // --- WAN Speed Test (disabled - needs gateway SSH configured) ---
+        // --- WAN Speed Test (disabled until the site's first successful WAN speed test, from the
+        // server, a site agent, or the gateway; see WanSpeedAlertPublisher) ---
         new AlertRule
         {
-            Name = "WAN Speed Test: Degradation",
+            Name = WanSpeedDegradationRuleName,
             IsEnabled = false,
             EventTypePattern = "wan.speed_degradation",
             Source = "wan",
