@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Threats.Models;
@@ -465,7 +465,7 @@ public class NetworkOptimizerDbContext : DbContext
             entity.Property(e => e.Scope).HasMaxLength(16);
             entity.Property(e => e.Disposition).HasMaxLength(16);
             entity.Property(e => e.BottleneckHopIp).HasMaxLength(64);
-            entity.Property(e => e.BottleneckLabel).HasMaxLength(300);
+            entity.Property(e => e.BottleneckLabel).HasMaxLength(1000);
             entity.Property(e => e.Summary).HasMaxLength(2000);
             entity.Property(e => e.ReturnPathFinding).HasConversion<int>();
             entity.HasIndex(e => e.OpenedAt);
@@ -480,7 +480,7 @@ public class NetworkOptimizerDbContext : DbContext
             entity.Property(e => e.Scope).HasMaxLength(16);
             entity.Property(e => e.Disposition).HasMaxLength(16);
             entity.Property(e => e.BottleneckHopIp).HasMaxLength(64);
-            entity.Property(e => e.BottleneckLabel).HasMaxLength(300);
+            entity.Property(e => e.BottleneckLabel).HasMaxLength(1000);
             entity.HasIndex(e => new { e.EpisodeId, e.MonitoringTargetId, e.Role }).IsUnique();
         });
 

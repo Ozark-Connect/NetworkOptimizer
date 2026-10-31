@@ -92,7 +92,8 @@ public sealed class PathEpisodeService : IPathEpisodeService
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         var anchors = snapshot.Anchors;
         var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip),
-            ip => anchors.TryGetValue(ip, out var a) ? a : null, _options);
+            ip => anchors.TryGetValue(ip, out var a) ? a : null, _options,
+            PathEpisodePresentation.Together(view.Degraded.Select(d => (d.PeakLossPct, d.BaselineRttMs, d.PeakRttMs))));
 
         var agentNames = await AgentNamesAsync(ct);
         var tables = view.Degraded.Select(t =>

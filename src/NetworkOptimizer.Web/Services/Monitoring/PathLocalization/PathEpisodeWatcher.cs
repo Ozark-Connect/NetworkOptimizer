@@ -901,7 +901,15 @@ public sealed class PathEpisodeWatcher
             if (PingAnchor(run, ip) is bool p) { anchors[ip] = p; pinged.Add(ip); return p; }
             return null;
         }
-        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options);
+        string together;
+        lock (_lock)
+        {
+            together = PathEpisodePresentation.Together(run.Degraded
+                .Select(d => _trackers.GetValueOrDefault(d.Target.TargetId))
+                .Where(t => t != null)
+                .Select(t => ((double?)t!.PeakLossPct, t.BaselineRttMs, t.PeakRttMs)));
+        }
+        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together);
         return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase));
     }
 
@@ -988,7 +996,7 @@ public sealed class PathEpisodeWatcher
         row.Disposition = verdict.Disposition.ToString();
         row.BottleneckHopIp = verdict.BottleneckHopIp;
         row.BottleneckHopNumber = verdict.BottleneckHopNumber;
-        row.BottleneckLabel = Truncate(verdict.Label, 300);
+        row.BottleneckLabel = Truncate(verdict.Label, 1000);
         row.ReturnPathFinding = verdict.ReturnFinding;
         var summary = verdict.Summary;
         if (row.ClosedAt == null)
@@ -1022,7 +1030,7 @@ public sealed class PathEpisodeWatcher
                 stored.Disposition = v.Disposition.ToString();
                 stored.BottleneckHopIp = v.OnsetIp;
                 stored.BottleneckHopNumber = v.OnsetTtl;
-                stored.BottleneckLabel = Truncate(v.Label, 300);
+                stored.BottleneckLabel = Truncate(v.Label, 1000);
             }
         }
 

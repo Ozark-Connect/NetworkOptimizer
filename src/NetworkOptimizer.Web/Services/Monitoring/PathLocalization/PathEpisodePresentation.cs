@@ -32,10 +32,11 @@ public static class PathEpisodePresentation
         {
             var names = Names(e.Degraded);
             var end = e.ClosedAt ?? DateTime.UtcNow;
-            var label = string.IsNullOrEmpty(e.Label) ? "no trace has completed yet" : e.Label;
+            var label = string.IsNullOrEmpty(e.Label) ? "No trace has completed yet." : e.Label;
+            var one = e.Degraded.Count == 1;
             var lead = e.Tracing
-                ? $"{names} degraded ({Magnitude(e)}), tracing from the vantage that measures {(e.Degraded.Count == 1 ? "it" : "them")}."
-                : $"{IspHealthPresentation.FormatDuration(end - e.OpenedAt)} of loss or added latency on {names} while the rest of the connection stayed clean ({Magnitude(e)}).";
+                ? $"{names} {(one ? "is" : "are")} {Symptom(e)}. Tracing the route to {(one ? "it" : "them")} every minute."
+                : $"{names} {PastSymptom(e, IspHealthPresentation.FormatDuration(end - e.OpenedAt))} while the rest of your connection stayed clean.";
             var confirmed = e.Disposition == CongestionDisposition.Confirmed;
             return new TimelineEntry(e.OpenedAt,
                 e.Tracing ? "Tracing now" : "Path trace",
@@ -75,7 +76,7 @@ public static class PathEpisodePresentation
                 yield return new IspHealthIssue
                 {
                     Severity = IspIssueSeverity.Warning,
-                    Title = $"Path degradation localized: {latest.Label}",
+                    Title = $"Path degradation localized on {names}",
                     Description = $"{names} degraded while the rest of your connection stayed clean ({when}). {latest.Summary}",
                     Recommendation = "This is where the degradation first appears on the forward path, which is the hop table to hand your ISP.",
                     LinkUrl = "#isp-events",
@@ -88,7 +89,7 @@ public static class PathEpisodePresentation
                 {
                     Severity = IspIssueSeverity.Info,
                     Title = $"Recurring path degradation on {names}",
-                    Description = $"{names} degraded{(latest.Degraded.Count > 1 ? " together" : "")} while the rest of your connection stayed clean, {when}. {latest.Label}.",
+                    Description = $"{names} degraded{(latest.Degraded.Count > 1 ? " together" : "")} while the rest of your connection stayed clean, {when}. {Sentence(latest.Label!)}",
                     Recommendation = "A traceroute cannot see the return path, so this cannot be pinned on a forward hop. A pattern that repeats at the same hours is worth raising with your ISP with these times.",
                     LinkUrl = "#isp-events",
                     LinkText = "See the traces"
@@ -135,10 +136,46 @@ public static class PathEpisodePresentation
     {
         var worst = e.Degraded.OrderByDescending(t => t.PeakLossPct ?? 0).ThenByDescending(t => (t.PeakRttMs ?? 0) - (t.BaselineRttMs ?? 0)).FirstOrDefault();
         var parts = new List<string>();
-        if (worst?.PeakLossPct is double loss && loss >= 0.5) parts.Add($"losing packets (peak {loss:0.#}%)");
+        if (worst?.PeakLossPct is double loss && loss >= 0.5) parts.Add($"losing packets (peak {Percent(loss)})");
         // A few ms either way is ordinary window-to-window noise, not a symptom worth naming.
         if (worst?.BaselineRttMs is double b && worst.PeakRttMs is double p && p - b >= 5) parts.Add($"running {p - b:0} ms slower");
         return parts.Count == 0 ? "degraded" : string.Join(" and ", parts);
+    }
+
+    /// <summary>"lost packets for 18 min (peak 46%)", "ran 42 ms slower for 18 min", or both, from the worst degraded target.</summary>
+    internal static string PastSymptom(PathEpisodeView e, string duration)
+    {
+        var worst = e.Degraded.OrderByDescending(t => t.PeakLossPct ?? 0).ThenByDescending(t => (t.PeakRttMs ?? 0) - (t.BaselineRttMs ?? 0)).FirstOrDefault();
+        var lost = worst?.PeakLossPct is double loss && loss >= 0.5 ? loss : (double?)null;
+        var slower = worst?.BaselineRttMs is double b && worst.PeakRttMs is double p && p - b >= 5 ? p - b : (double?)null;
+        return (lost, slower) switch
+        {
+            (double l, double s) => $"lost packets and ran {s:0} ms slower for {duration} (peak {Percent(l)} loss)",
+            (double l, null) => $"lost packets for {duration} (peak {Percent(l)})",
+            (null, double s) => $"ran {s:0} ms slower for {duration}",
+            _ => $"degraded for {duration}"
+        };
+    }
+
+    /// <summary>"46%", or "4.5%" under ten, where the decimal still says something.</summary>
+    private static string Percent(double pct) => pct >= 10 ? $"{pct:0}%" : $"{pct:0.#}%";
+
+    /// <summary>
+    /// What several degraded targets did, for "… lost packets together": "lost packets", "slowed
+    /// down", or both, by the same thresholds as <see cref="Symptom"/>.
+    /// </summary>
+    internal static string Together(IEnumerable<(double? PeakLossPct, double? BaselineRttMs, double? PeakRttMs)> targets)
+    {
+        var list = targets.ToList();
+        var lost = list.Any(t => t.PeakLossPct >= 0.5);
+        var slow = list.Any(t => t.BaselineRttMs is double b && t.PeakRttMs is double p && p - b >= 5);
+        return (lost, slow) switch
+        {
+            (true, true) => "lost packets and slowed down",
+            (true, false) => "lost packets",
+            (false, true) => "slowed down",
+            _ => "degraded"
+        };
     }
 
     /// <summary>"Today, 14:38 to 14:54", or both ends in full when they fall on different days.</summary>
@@ -154,17 +191,6 @@ public static class PathEpisodePresentation
         1 => targets[0].Name,
         _ => $"{string.Join(", ", targets.Take(targets.Count - 1).Select(t => t.Name))} and {targets[^1].Name}"
     };
-
-    /// <summary>The worst degraded target's readings: "peak 13% loss, 42 to 55 ms".</summary>
-    internal static string Magnitude(PathEpisodeView e)
-    {
-        var worst = e.Degraded.OrderByDescending(t => t.PeakLossPct ?? 0).ThenByDescending(t => (t.PeakRttMs ?? 0) - (t.BaselineRttMs ?? 0)).FirstOrDefault();
-        if (worst == null) return "no readings yet";
-        var parts = new List<string>();
-        if (worst.PeakLossPct is double loss && loss >= 0.5) parts.Add($"peak {loss:0.#}% loss");
-        if (worst.BaselineRttMs is double b && worst.PeakRttMs is double p && p > b) parts.Add($"{b:0} to {p:0} ms");
-        return parts.Count == 0 ? "no readings yet" : string.Join(", ", parts);
-    }
 
     private static string Sentence(string s) => s.EndsWith('.') ? s : $"{char.ToUpperInvariant(s[0])}{s[1..]}.";
 

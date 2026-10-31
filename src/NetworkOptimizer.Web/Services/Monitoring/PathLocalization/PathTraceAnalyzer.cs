@@ -115,12 +115,15 @@ public static class PathTraceAnalyzer
     /// <param name="asnOf">ASN of an address, or null when unknown (private, unresolved).</param>
     /// <param name="anchorOf">For a hop that is also a monitored target: whether its own series was
     /// elevated over the episode. Null when it is not monitored or its series says nothing.</param>
+    /// <param name="together">What the degraded targets did, for the sentence about several of them:
+    /// "lost packets", "slowed down", or both. The caller knows from the targets' own series.</param>
     public static EpisodeVerdict Analyze(
         IReadOnlyList<TargetTraces> degraded,
         IReadOnlyList<TargetTraces> controls,
         Func<string, AsnLookup?> asnOf,
         Func<string, bool?> anchorOf,
-        IspHealthOptions options)
+        IspHealthOptions options,
+        string together = "degraded")
     {
         var controlHops = controls
             .SelectMany(c => c.PathRounds.SelectMany(r => r.Hops))
@@ -128,26 +131,56 @@ public static class PathTraceAnalyzer
             .GroupBy(h => h.Address!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Min(h => h.RttMinMs!.Value), StringComparer.OrdinalIgnoreCase);
 
+        // Which control crossed each hop, so a verdict can name the clean destination that went through it.
+        var controlNameByHop = controls
+            .SelectMany(c => c.PathRounds.SelectMany(r => r.Hops).Where(h => h.Responded).Select(h => (h.Address!, c.Name)))
+            .GroupBy(x => x.Item1, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase);
+
         var verdicts = degraded
             .Where(t => t.PathRounds.Count > 0)
-            .Select(t => AnalyzeTarget(t, controlHops, asnOf, anchorOf, options))
+            .Select(t => AnalyzeTarget(t, controlHops, controlNameByHop, asnOf, anchorOf, options))
             .ToList();
         if (verdicts.Count == 0)
             return new EpisodeVerdict { Summary = "No trace has completed yet." };
 
         var controlNames = controls.Select(c => c.Name).ToList();
-        return verdicts.Count == 1
+        var verdict = verdicts.Count == 1
             ? FromSingle(verdicts[0], controlNames)
-            : FromSet(verdicts, controlNames);
+            : FromSet(verdicts, controlNames, together);
+        return verdict with { Summary = verdict.Summary + ReturnSentences(verdicts) };
     }
+
+    /// <summary>
+    /// " AWS us-east-1's replies came back over 15 hops during the problem and 12 after it." for each
+    /// destination whose return hop count changed against the recovery round: the one view of the
+    /// return path a forward trace gets.
+    /// </summary>
+    private static string ReturnSentences(IEnumerable<TargetVerdict> verdicts) => string.Concat(verdicts
+        .Select(v => (v.Name, Dest: v.Hops.FirstOrDefault(h => h.Has(HopTag.Destination))))
+        .Where(x => x.Dest is { ReturnHops: int d, BaselineReturnHops: int a } && d != a)
+        .Select(x => $" {x.Name}'s replies came back over {x.Dest!.ReturnHops} hops during the problem and {x.Dest.BaselineReturnHops} after it."));
+
+    /// <summary>"A", "A and B", "A, B and C".</summary>
+    private static string JoinNames(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "",
+        1 => names[0],
+        _ => $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}"
+    };
+
+    /// <summary>" Compared against AWS us-west-1, which stayed clean.", or nothing without a control.</summary>
+    private static string ComparedAgainst(IReadOnlyList<string> controlNames) => controlNames.Count switch
+    {
+        0 => "",
+        1 => $" Compared against {controlNames[0]}, which stayed clean.",
+        _ => $" Compared against {JoinNames(controlNames)}, which stayed clean."
+    };
 
     private static EpisodeVerdict FromSingle(TargetVerdict v, IReadOnlyList<string> controlNames)
     {
         var onset = v.Hops.FirstOrDefault(h => h.Has(HopTag.Onset) && !h.Has(HopTag.Destination));
-        var summary = v.Disposition == CongestionDisposition.Confirmed
-            ? $"{v.Name}: {v.Label}. Every responding hop past it and the destination carried it."
-            : $"{v.Name}: {v.Label}. A forward traceroute cannot see the return path, so this is where it first appears, not a broken link.";
-        if (controlNames.Count > 0) summary += $" Clean control: {string.Join(", ", controlNames)}.";
+        var summary = v.Label + ComparedAgainst(controlNames);
         return new EpisodeVerdict
         {
             Scope = v.Scope,
@@ -166,12 +199,11 @@ public static class PathTraceAnalyzer
     /// path past its last clean hop. Something they all share is the forward candidate; sharing nothing
     /// means the common factor is not on the forward path at all.
     /// </summary>
-    private static EpisodeVerdict FromSet(List<TargetVerdict> verdicts, IReadOnlyList<string> controlNames)
+    private static EpisodeVerdict FromSet(List<TargetVerdict> verdicts, IReadOnlyList<string> controlNames, string together)
     {
-        var names = string.Join(", ", verdicts.Select(v => v.Name));
-        var sideBySide = controlNames.Count > 0
-            ? $" Degraded: {names}. Clean: {string.Join(", ", controlNames)}."
-            : $" Degraded: {names}.";
+        var names = JoinNames(verdicts.Select(v => v.Name).ToList());
+        var sideBySide = controlNames.Count == 0 ? ""
+            : $" {JoinNames(controlNames)} stayed clean meanwhile.";
         var returnFinding = verdicts.Select(v => v.ReturnFinding).FirstOrDefault(f => f != ReturnPathFinding.None);
 
         var segments = verdicts.Select(Unexplained).ToList();
@@ -193,11 +225,9 @@ public static class PathTraceAnalyzer
                 Disposition = inEveryRun ? CongestionDisposition.Confirmed : CongestionDisposition.Unverifiable,
                 BottleneckHopIp = hop.Address,
                 BottleneckHopNumber = hop.Ttl,
-                Label = $"Shared by {verdicts.Count} degraded paths at {HopName(hop)}",
+                Label = SharedHopSentence(names, hop, inEveryRun),
                 ReturnFinding = returnFinding,
-                Summary = (inEveryRun
-                    ? $"The degraded destinations share {HopName(hop)} past their last clean hops, and every one carries the elevation from there."
-                    : $"The degraded destinations share {HopName(hop)} past their last clean hops, but not every one carries the elevation from there.") + sideBySide,
+                Summary = SharedHopSentence(names, hop, inEveryRun) + sideBySide,
                 Targets = verdicts
             };
         }
@@ -217,31 +247,45 @@ public static class PathTraceAnalyzer
             var network = NetworkName(sample);
             var farSide = destAsns.Count == 1 && destAsns.Contains(asn);
             var inEveryRun = !farSide && verdicts.All(v => v.Hops.Any(h => h.Has(HopTag.InRun) && !h.Has(HopTag.Destination) && h.Asn == asn));
+            var asnLabel = farSide
+                ? $"{names} all sit inside {network} and their routes share nothing before it, so the problem is inside {network} or on the return path."
+                : inEveryRun
+                    ? $"{names} all cross {network} after their last clean router, and every one shows the problem inside it."
+                    : $"{names} all cross {network} after their last clean router, but not every one shows the problem inside it.";
             return new EpisodeVerdict
             {
                 Scope = CongestionScope.Asn,
                 Disposition = inEveryRun ? CongestionDisposition.Confirmed : CongestionDisposition.Unverifiable,
-                Label = farSide ? $"Inside {network}, the destinations' own network: the far side or the return path" : $"Inside {network}",
+                Label = asnLabel,
                 ReturnFinding = returnFinding,
-                Summary = (farSide
-                    ? $"The degraded destinations all sit inside {network} and nothing forward of it is shared, so it is that network's far side or the return path."
-                    : inEveryRun
-                        ? $"The degraded destinations' paths share {network} past their last clean hops, and every one carries the elevation inside it."
-                        : $"The degraded destinations' paths share {network} past their last clean hops, but not every one carries the elevation inside it.") + sideBySide,
+                Summary = asnLabel + sideBySide,
                 Targets = verdicts
             };
         }
 
+        // Nothing forward in common. The one segment every path shares is the access ISP, and on the way
+        // in, its return path: named when the first public hop says which network that is.
+        var lastCleans = verdicts.Select(v => v.Hops.LastOrDefault(h => h.Has(HopTag.LastClean))).ToList();
+        var sharedLastClean = lastCleans.All(h => h?.Address != null && string.Equals(h.Address, lastCleans[0]!.Address, StringComparison.OrdinalIgnoreCase))
+            ? $"after {HopName(lastCleans[0]!)}, the last router that stayed clean"
+            : "after their last clean routers";
+        var access = verdicts[0].Hops.FirstOrDefault(h => h.Asn is > 0 && !string.IsNullOrEmpty(h.AsnName))?.AsnName;
+        var corridorLabel = $"{names} {together} together, but their routes share nothing {sharedLastClean}. "
+            + $"The common factor is most likely the return path into {access ?? "your ISP"}, which a traceroute can't see.";
         return new EpisodeVerdict
         {
             Scope = CongestionScope.Corridor,
             Disposition = CongestionDisposition.Unverifiable,
-            Label = "Return path or far side: the degraded destinations share no forward hop",
+            Label = corridorLabel,
             ReturnFinding = ReturnPathFinding.NoSharedForwardHop,
-            Summary = "These destinations degraded together, yet their forward paths share nothing past their last clean hops, so the common factor is not on the forward path: most likely a shared return path into your ISP." + sideBySide,
+            Summary = corridorLabel + sideBySide,
             Targets = verdicts
         };
     }
+
+    private static string SharedHopSentence(string names, HopReading hop, bool inEveryRun) => inEveryRun
+        ? $"{names} all go through {HopName(hop)} after their last clean router, and every one shows the problem from there."
+        : $"{names} all go through {HopName(hop)} after their last clean router, but not every one shows the problem from there.";
 
     /// <summary>A target's hops past its last clean one, through the destination.</summary>
     private static List<HopReading> Unexplained(TargetVerdict v)
@@ -263,6 +307,7 @@ public static class PathTraceAnalyzer
     internal static TargetVerdict AnalyzeTarget(
         TargetTraces t,
         IReadOnlyDictionary<string, double> controlMinRtt,
+        IReadOnlyDictionary<string, string> controlNameByHop,
         Func<string, AsnLookup?> asnOf,
         Func<string, bool?> anchorOf,
         IspHealthOptions options)
@@ -362,7 +407,7 @@ public static class PathTraceAnalyzer
                 Name = t.Name,
                 Scope = CongestionScope.Segment,
                 Disposition = CongestionDisposition.Confirmed,
-                Label = $"Path moved from {pc.From} to {pc.To} at hop {pc.Ttl}",
+                Label = $"The route moved from {pc.From} to {pc.To} at hop {pc.Ttl} during the problem, and moved back after it.",
                 OnsetIp = pc.Address,
                 OnsetTtl = pc.Ttl,
                 LastCleanIp = lastCleanHop?.Address,
@@ -378,6 +423,9 @@ public static class PathTraceAnalyzer
         var corroborated = Enumerable.Range(onset + 1, Math.Max(0, hops.Count - onset - 1))
             .Any(j => decided[j] == true && !hops[j].Has(HopTag.Destination));
 
+        // Every label is the sentence a user reads: a traceroute sees the forward path only, so the
+        // wording says where the problem shows, and names the return path wherever it could be there.
+        var showsThrough = $"Every router from there to {t.Name} shows it.";
         CongestionScope scope;
         CongestionDisposition disposition;
         string label;
@@ -385,44 +433,45 @@ public static class PathTraceAnalyzer
         {
             scope = CongestionScope.Corridor;
             disposition = CongestionDisposition.Unverifiable;
+            var farSide = string.IsNullOrEmpty(onsetHop.AsnName) ? t.Name : onsetHop.AsnName;
             label = lastCleanHop != null
-                ? $"Past the last clean hop, {HopName(lastCleanHop)}: the far side or the return path"
-                : "No forward hop answered cleanly: the far side or the return path";
+                ? $"Every router on the way answered cleanly through {HopName(lastCleanHop)}, the last one that responds. The problem is past it: inside {farSide}, or on the return path, which a traceroute can't see."
+                : $"No router on the way answered cleanly, so the problem could be anywhere up to {t.Name}, or on the return path.";
         }
-        else if (onsetHop.Address != null && controlMinRtt.ContainsKey(onsetHop.Address))
+        else if (onsetHop.Address != null && controlNameByHop.TryGetValue(onsetHop.Address, out var controlName))
         {
             // The control crossed this hop and stayed clean, so the hop itself carries traffic fine
             // and the elevation starts on its way toward the degraded destination.
             scope = CongestionScope.Hop;
             disposition = CongestionDisposition.Confirmed;
-            label = $"Starts at {HopName(onsetHop)}";
+            label = $"The problem starts after {HopName(onsetHop)}: {controlName} goes through that router and stays clean.";
         }
         else if (lastCleanHop?.Asn is int a1 && onsetHop.Asn is int a2 && a1 != a2)
         {
             scope = CongestionScope.Segment;
             disposition = CongestionDisposition.Confirmed;
-            label = $"Between {NetworkName(lastCleanHop)} and {NetworkName(onsetHop)} (handoff)";
+            label = $"The problem starts where {NetworkName(lastCleanHop)} hands off to {NetworkName(onsetHop)}. {showsThrough}";
         }
         else if (onsetHop.Asn is int asn && lastCleanHop?.Asn == asn)
         {
             scope = CongestionScope.Asn;
             disposition = CongestionDisposition.Confirmed;
-            label = $"Inside {NetworkName(onsetHop)}";
+            label = $"The problem starts inside {NetworkName(onsetHop)}, at `{onsetHop.Hostname ?? onsetHop.Address}`. {showsThrough}";
         }
         else
         {
             scope = CongestionScope.Segment;
             disposition = CongestionDisposition.Confirmed;
             label = lastCleanHop != null
-                ? $"Between {HopName(lastCleanHop)} and {HopName(onsetHop)}"
-                : $"Starts at {HopName(onsetHop)}";
+                ? $"The problem starts between {HopName(lastCleanHop)} and {HopName(onsetHop)}. {showsThrough}"
+                : $"The problem starts at {HopName(onsetHop)}. {showsThrough}";
         }
 
         // A clean control crossing the onset already confirmed it (the Hop branch above).
         if (disposition == CongestionDisposition.Confirmed && scope != CongestionScope.Hop && !corroborated)
         {
             disposition = CongestionDisposition.Unverifiable;
-            label += ", unconfirmed: no hop past it answers";
+            label = $"The problem first shows at {HopName(onsetHop)}, but no router after it responds, so it could also be further along or on the return path.";
         }
 
         return new TargetVerdict
@@ -584,25 +633,25 @@ public static class PathTraceAnalyzer
     }
 
     /// <summary>
-    /// "Lumen edge6.Denver2 `AS3356`": the network, the hop's name or address, the ASN. The ASN sits
-    /// in backticks, which the UI renders as code, so a label never nests parentheses.
+    /// "Lumen `edge6.Denver2` (`AS3356`)": the network, the hop's name or address, the ASN. Backticks
+    /// render as code in the UI; the parentheses wrap only the ASN, so a sentence never nests them.
     /// </summary>
     internal static string HopName(HopReading h)
     {
-        var name = h.Hostname ?? h.Address ?? $"hop {h.Ttl}";
+        var name = $"`{h.Hostname ?? h.Address ?? $"hop {h.Ttl}"}`";
         return h.Asn is int asn
-            ? (string.IsNullOrEmpty(h.AsnName) ? $"{name} {AsnCode(asn)}" : $"{h.AsnName} {name} {AsnCode(asn)}")
+            ? (string.IsNullOrEmpty(h.AsnName) ? $"{name} ({AsnCode(asn)})" : $"{h.AsnName} {name} ({AsnCode(asn)})")
             : name;
     }
 
-    /// <summary>"Akamai `AS20940`"; <paramref name="unknown"/>, else the hop's address, when its network is unknown.</summary>
+    /// <summary>"Akamai (`AS20940`)"; <paramref name="unknown"/>, else the hop's address, when its network is unknown.</summary>
     internal static string NetworkName(HopReading h, string? unknown = null) =>
         h.Asn is int asn
-            ? (string.IsNullOrEmpty(h.AsnName) ? AsnCode(asn) : $"{h.AsnName} {AsnCode(asn)}")
+            ? (string.IsNullOrEmpty(h.AsnName) ? AsnCode(asn) : $"{h.AsnName} ({AsnCode(asn)})")
             : unknown ?? h.Address ?? $"hop {h.Ttl}";
 
     private static string NetworkName(AsnLookup a) =>
-        string.IsNullOrEmpty(a.Name) ? AsnCode(a.Asn) : $"{a.Name} {AsnCode(a.Asn)}";
+        string.IsNullOrEmpty(a.Name) ? AsnCode(a.Asn) : $"{a.Name} ({AsnCode(a.Asn)})";
 
     /// <summary>"`AS22773`": an AS number marked for code formatting.</summary>
     internal static string AsnCode(int asn) => $"`AS{asn}`";

@@ -74,6 +74,24 @@ public class PathEpisodeBannerTests
     }
 
     [Fact]
+    public void PastSymptom_NamesWhatHappenedAndForHowLong()
+    {
+        PathEpisodePresentation.PastSymptom(Episode(1, Now, Now, peakLoss: 45.7), "18 min")
+            .Should().Be("lost packets for 18 min (peak 46%)");
+        PathEpisodePresentation.PastSymptom(Episode(1, Now, Now, peakLoss: 0, baseRtt: 40, peakRtt: 82), "18 min")
+            .Should().Be("ran 42 ms slower for 18 min");
+    }
+
+    [Fact]
+    public void Together_SaysWhatTheTargetsDid()
+    {
+        PathEpisodePresentation.Together(new[] { ((double?)5, (double?)40, (double?)41) }).Should().Be("lost packets");
+        PathEpisodePresentation.Together(new[] { ((double?)0, (double?)40, (double?)60) }).Should().Be("slowed down");
+        PathEpisodePresentation.Together(new[] { ((double?)5, (double?)40, (double?)41), ((double?)0, (double?)40, (double?)60) })
+            .Should().Be("lost packets and slowed down");
+    }
+
+    [Fact]
     public void DismissKey_IsPerSiteEpisodeAndPhase()
     {
         var b = PathEpisodePresentation.Banner(new[] { Episode(7, Now.AddHours(-1), null, tracing: true) }, Now)!;

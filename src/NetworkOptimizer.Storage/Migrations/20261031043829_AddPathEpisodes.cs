@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -27,7 +27,7 @@ namespace NetworkOptimizer.Storage.Migrations
                     Disposition = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
                     BottleneckHopIp = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
                     BottleneckHopNumber = table.Column<int>(type: "INTEGER", nullable: true),
-                    BottleneckLabel = table.Column<string>(type: "TEXT", maxLength: 300, nullable: true),
+                    BottleneckLabel = table.Column<string>(type: "TEXT", maxLength: 1000, nullable: true),
                     ReturnPathFinding = table.Column<int>(type: "INTEGER", nullable: false),
                     Summary = table.Column<string>(type: "TEXT", maxLength: 2000, nullable: true),
                     UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
@@ -54,7 +54,7 @@ namespace NetworkOptimizer.Storage.Migrations
                     Disposition = table.Column<string>(type: "TEXT", maxLength: 16, nullable: true),
                     BottleneckHopIp = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
                     BottleneckHopNumber = table.Column<int>(type: "INTEGER", nullable: true),
-                    BottleneckLabel = table.Column<string>(type: "TEXT", maxLength: 300, nullable: true)
+                    BottleneckLabel = table.Column<string>(type: "TEXT", maxLength: 1000, nullable: true)
                 },
                 constraints: table =>
                 {

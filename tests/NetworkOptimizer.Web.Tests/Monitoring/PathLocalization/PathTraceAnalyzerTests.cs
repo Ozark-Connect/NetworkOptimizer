@@ -80,6 +80,18 @@ public class PathTraceAnalyzerTests
         PathTraceAnalyzer.Analyze(new[] { t }, controls, AsnOf, Anchors, Options);
 
     [Fact]
+    public void DestinationReturnHopsChanging_IsToldInTheSummary()
+    {
+        var during = Enumerable.Range(0, 3).Select(_ => Round(
+            new(Gw, 0.5), new(Bng, 2), new(LumenFirst, 9.5), new(LumenAtl, 14), new(LumenEdge, 15),
+            new(AkamaiAtl, 16), new(AkamaiOrd, 31), new(LinodeOrd, 45, Lost: 1, Back: 11)));
+
+        var v = Analyze(Ord(during, Recovery(destBack: 8)));
+
+        v.Summary.Should().Contain("Speedtest ORD's replies came back over 11 hops during the problem and 8 after it.");
+    }
+
+    [Fact]
     public void ElevatedHopFollowedOnlyBySilenceAndTheDestination_IsUnconfirmed()
     {
         // Akamai DEN loses most of a burst, nothing past it answers, and the destination is degraded on
@@ -92,7 +104,7 @@ public class PathTraceAnalyzerTests
         var v = Analyze(Ord(during, Recovery()));
 
         v.Disposition.Should().Be(CongestionDisposition.Unverifiable);
-        v.Label.Should().Be("Between Lumen `AS3356` and Akamai `AS20940` (handoff), unconfirmed: no hop past it answers");
+        v.Label.Should().Be("The problem first shows at Akamai `203.0.113.6` (`AS20940`), but no router after it responds, so it could also be further along or on the return path.");
         v.Targets[0].Hops.Single(h => h.Has(HopTag.Onset) && !h.Has(HopTag.Destination)).Address.Should().Be(AkamaiAtl);
     }
 
@@ -108,7 +120,7 @@ public class PathTraceAnalyzerTests
 
         v.Scope.Should().Be(CongestionScope.Segment);
         v.Disposition.Should().Be(CongestionDisposition.Confirmed);
-        v.Label.Should().Be("Between Lumen `AS3356` and Akamai `AS20940` (handoff)");
+        v.Label.Should().Be("The problem starts where Lumen (`AS3356`) hands off to Akamai (`AS20940`). Every router from there to Speedtest ORD shows it.");
         v.BottleneckHopNumber.Should().Be(6);
         var hops = v.Targets[0].Hops;
         hops.Single(h => h.Has(HopTag.LastClean)).Address.Should().Be(LumenEdge);
@@ -126,7 +138,7 @@ public class PathTraceAnalyzerTests
         var v = Analyze(Ord(during, Recovery()));
 
         v.Scope.Should().Be(CongestionScope.Asn);
-        v.Label.Should().Be("Inside Lumen `AS3356`");
+        v.Label.Should().Be("The problem starts inside Lumen (`AS3356`), at `198.51.100.4`. Every router from there to Speedtest ORD shows it.");
     }
 
     [Fact]
@@ -143,8 +155,8 @@ public class PathTraceAnalyzerTests
         var v = Analyze(Ord(during, Recovery()), control);
 
         v.Scope.Should().Be(CongestionScope.Hop);
-        v.Label.Should().Be("Starts at Lumen 198.51.100.4 `AS3356`");
-        v.Summary.Should().Contain("Clean control: Speedtest DEN");
+        v.Label.Should().Be("The problem starts after Lumen `198.51.100.4` (`AS3356`): Speedtest DEN goes through that router and stays clean.");
+        v.Summary.Should().EndWith("Compared against Speedtest DEN, which stayed clean.");
     }
 
     [Fact]
@@ -160,7 +172,7 @@ public class PathTraceAnalyzerTests
 
         v.Scope.Should().Be(CongestionScope.Corridor);
         v.Disposition.Should().Be(CongestionDisposition.Unverifiable);
-        v.Label.Should().Be("Past the last clean hop, Akamai 203.0.113.7 `AS20940`: the far side or the return path");
+        v.Label.Should().Be("Every router on the way answered cleanly through Akamai `203.0.113.7` (`AS20940`), the last one that responds. The problem is past it: inside Linode, or on the return path, which a traceroute can't see.");
         v.Targets[0].Hops.Single(h => h.Address == LumenAtl).Has(HopTag.IcmpLimited).Should().BeTrue();
     }
 
@@ -215,7 +227,7 @@ public class PathTraceAnalyzerTests
         var v = Analyze(Ord(during, Recovery()));
 
         v.Targets[0].PathChanged.Should().BeTrue();
-        v.Label.Should().Be("Path moved from Lumen `AS3356` to Cox `AS22773` at hop 3");
+        v.Label.Should().Be("The route moved from Lumen (`AS3356`) to Cox (`AS22773`) at hop 3 during the problem, and moved back after it.");
         v.Scope.Should().Be(CongestionScope.Segment);
     }
 
@@ -293,8 +305,8 @@ public class PathTraceAnalyzerTests
         v.Scope.Should().Be(CongestionScope.Corridor);
         v.Disposition.Should().Be(CongestionDisposition.Unverifiable);
         v.ReturnFinding.Should().Be(ReturnPathFinding.NoSharedForwardHop);
-        v.Label.Should().Be("Return path or far side: the degraded destinations share no forward hop");
-        v.Summary.Should().Contain("Degraded: AWS us-east-1, Speedtest ORD. Clean: Speedtest DEN.");
+        v.Label.Should().StartWith("AWS us-east-1 and Speedtest ORD degraded together, but their routes share nothing after").And.EndWith("The common factor is most likely the return path into Access ISP, which a traceroute can't see.");
+        v.Summary.Should().Contain("Speedtest DEN stayed clean meanwhile.");
     }
 
     [Fact]

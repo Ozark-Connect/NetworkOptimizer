@@ -2850,7 +2850,7 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("BottleneckLabel")
-                        .HasMaxLength(300)
+                        .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("ClosedAt")
@@ -2920,7 +2920,7 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("BottleneckLabel")
-                        .HasMaxLength(300)
+                        .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Disposition")
