@@ -188,16 +188,16 @@ public class IspHealthPdfGenerator
                 foreach (var table in detail.Tables.Where(t => t.Hops.Count > 0))
                 {
                     var traced = table.TracedAddress != null && table.TracedAddress != table.Address ? $", traced at {table.TracedAddress}" : "";
-                    column.Item().PaddingTop(6).Text(
+                    column.Item().PaddingTop(6).PaddingBottom(4).Text(
                             $"{table.Target.Name}: {table.Rounds} {(table.Rounds == 1 ? "round" : "rounds")} from {table.VantageName}{traced}"
                             + (table.HasRecovery ? ", baseline from the recovery round" : ""))
                         .FontSize(8).FontColor(Colors.Grey.Darken1);
 
-                    column.Item().PaddingTop(2).Table(t =>
+                    column.Item().PaddingBottom(12).Table(t =>
                     {
                         t.ColumnsDefinition(columns =>
                         {
-                            columns.ConstantColumn(28);
+                            columns.ConstantColumn(40);
                             columns.RelativeColumn(3f);
                             columns.RelativeColumn(2f);
                             columns.RelativeColumn(1.2f);

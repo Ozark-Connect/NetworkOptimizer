@@ -190,7 +190,8 @@ public static class PathEpisodePresentation
     {
         if (hop.Sent == 0 || hop.Responses == 0) return null;
         var ping = hop.Address != null ? detail.HopPings?.GetValueOrDefault(hop.Address) : null;
-        var pingLoss = ping is { Sent: > 0 } ? ping.LossPct : (double?)null;
+        // A router that answered no ping at all ignores ping; its 100% is not loss, as the analysis reads it.
+        var pingLoss = ping is { Sent: > 0, Received: > 0 } ? ping.LossPct : (double?)null;
         var seriesLoss = hop.Address != null && detail.MonitoredLoss?.TryGetValue(hop.Address, out var s) == true ? s : (double?)null;
 
         var figures = new List<(string Source, double Raw, double Forwarding)> { ("trace", hop.LossPct, hop.EffectiveLossPct) };
