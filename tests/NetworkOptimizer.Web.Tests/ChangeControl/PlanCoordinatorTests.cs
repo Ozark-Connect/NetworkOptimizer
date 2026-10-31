@@ -288,6 +288,46 @@ public sealed class PlanCoordinatorTests : IDisposable
         quiets.Should().Be(2);
     }
 
+    private void ProvisioningGateway() => _console.State.Collections["device"].Add(new JsonObject
+    {
+        ["_id"] = "gw", ["mac"] = "aa:bb:cc:00:00:09", ["name"] = "Gateway", ["type"] = "udm", ["adopted"] = true, ["state"] = 5,
+    });
+
+    [Fact]
+    public async Task APlanForTheGateway_IsNotBuiltWhileItProvisions()
+    {
+        ProvisioningGateway();
+        _console.State.Collections["firewall_zone"] = [new JsonObject { ["_id"] = "z-int", ["name"] = "Internal", ["zone_key"] = "internal", ["network_ids"] = new JsonArray("n1") }];
+        var desired = _console.State.Clone();
+        desired.Collections["firewall_zone"].Add(new JsonObject { ["_id"] = "new-zone", ["name"] = "IoT", ["network_ids"] = new JsonArray() });
+        var (limit, poll) = (PlanCoordinator.ProvisionWaitLimit, PlanCoordinator.ProvisionWaitPoll);
+        (PlanCoordinator.ProvisionWaitLimit, PlanCoordinator.ProvisionWaitPoll) = (TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(10));
+        try
+        {
+            var build = () => _plans.CreateAsync(ConfigPlanKind.Edit, "Add a zone", "test", null, null, desired,
+                new PlanOptions { Collections = new HashSet<string> { "firewall_zone" } }, "Alex", CancellationToken.None);
+
+            await build.Should().ThrowAsync<InvalidOperationException>().WithMessage(PlanCoordinator.StillProvisioning);
+            _console.Requests.Should().NotContain(r => r.Item2.StartsWith("firewall/zone") || r.Item2.StartsWith("rest/networkconf"),
+                "nothing is read for the plan until the gateway settles");
+
+            _console.State.Get("device").Single(d => d["_id"]!.ToString() == "gw")["state"] = 1;
+            (await build()).Should().NotBeNull();
+        }
+        finally
+        {
+            (PlanCoordinator.ProvisionWaitLimit, PlanCoordinator.ProvisionWaitPoll) = (limit, poll);
+        }
+    }
+
+    [Fact]
+    public async Task APlanThatDoesNotWriteToTheGateway_DoesNotWaitForIt()
+    {
+        ProvisioningGateway();
+
+        await ApplyManagementPlanAsync();
+    }
+
     [Fact]
     public async Task APlanWithoutZoneWrites_LeavesDeviceAlertsOn()
     {

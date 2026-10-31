@@ -76,6 +76,29 @@ public sealed class PlanCoordinator
     internal static TimeSpan ZoneSettlePoll = TimeSpan.FromSeconds(15);
     internal static TimeSpan ZoneSettleLimit = TimeSpan.FromMinutes(10);
 
+    // How long building or applying a plan that writes to the gateway waits for one still provisioning.
+    internal static TimeSpan ProvisionWaitPoll = TimeSpan.FromSeconds(5);
+    internal static TimeSpan ProvisionWaitLimit = TimeSpan.FromMinutes(3);
+    internal const string StillProvisioning = "The gateway is still provisioning after 3 minutes. Try again once it has finished.";
+
+    /// <summary>
+    /// Waits while the gateway provisions, for a plan that writes to it (<paramref name="collections"/> null is every collection).
+    /// Mid-provision, UniFi is still applying the last write (a zone write pausing and stripping policies), so a plan read then
+    /// diffs against a passing state: writes that are no-ops once it settles, and gateway writes left waiting. False on timeout;
+    /// true at once when nothing writes to the gateway or the device list does not load.
+    /// </summary>
+    private async Task<bool> GatewaySettledForAsync(IEnumerable<string>? collections, CancellationToken ct)
+    {
+        if (collections != null && !collections.Any(c => ConfigCollections.Get(c)?.Write?.NeedsGateway == true)) return true;
+        var deadline = DateTime.UtcNow + ProvisionWaitLimit;
+        while (await GatewaysSettledAsync(ct) == false)
+        {
+            if (DateTime.UtcNow >= deadline) return false;
+            await Task.Delay(ProvisionWaitPoll, ct);
+        }
+        return true;
+    }
+
     private string Slug => _engine.SiteSlug;
 
     /// <summary>Serializes and encrypts a plan document for storage.</summary>
@@ -123,6 +146,7 @@ public sealed class PlanCoordinator
         ConfigState desired, PlanOptions options, string createdBy, CancellationToken ct, Action<PlanDocument>? decorate = null,
         ConfigState? impactBefore = null, int? rollsBackChangeId = null, bool runImpact = true)
     {
+        if (!await GatewaySettledForAsync(options.Collections, ct)) throw new InvalidOperationException(StillProvisioning);
         var live = await _engine.ReadLiveAsync(ct);
         // Same test as a snapshot: a console that answered nothing would plan "Nothing to write".
         if (live.Collections.Count == 0 || live.ReadErrors.ContainsKey("networkconf"))
@@ -301,6 +325,7 @@ public sealed class PlanCoordinator
             var remaining = PlanReadiness.Remaining(doc, acks, actor.IsSiteAdmin);
             if (remaining.Count > 0) return "Still open: " + string.Join(", ", remaining) + ".";
 
+            if (!await GatewaySettledForAsync(doc.Operations.Select(o => o.Collection).Distinct(), ct)) return StillProvisioning;
             var live = await _engine.ReadLiveAsync(ct);
             if (PlanReadiness.TouchedHash(doc, live) != plan.ApprovedLiveHash)
             {
