@@ -100,4 +100,46 @@ public class GatewayZoneCoverageTests
         added.Should().BeEmpty();
         gone.Should().BeEmpty();
     }
+
+    private static UniFiFirewallPolicy Policy(string id, long index, string name, string src, string dst) => new()
+    {
+        Id = id, Index = index, Name = name,
+        Source = new UniFiFirewallPolicyEndpoint { ZoneId = src },
+        Destination = new UniFiFirewallPolicyEndpoint { ZoneId = dst },
+    };
+
+    [Fact]
+    public void ExceptionIds_IncludeExceptionsTheRecordLost()
+    {
+        // The record still holds the ID from before the Network 11 upgrade re-keyed it.
+        var state = new GatewayBlocklistState { ExceptionPolicies = [new GatewayExceptionPolicyRef("old-objectid", "e1:in:vpn:4")] };
+        var current = new List<UniFiFirewallPolicy>
+        {
+            Policy("exc-uuid", 10003, "Net. Opt. Exception", "ext", "vpn"),
+            Policy("user-allow", 10006, "[VPN] Allow Admin", "ext", "vpn"),
+        };
+
+        GatewayBlocklist.ExceptionIds(state, current).Should().BeEquivalentTo(["old-objectid", "exc-uuid"]);
+    }
+
+    [Fact]
+    public void SetUpOrder_KeepsAnUnrecordedExceptionAheadOfThePublicLists()
+    {
+        // External to Vpn after the drift: the exception pushed behind the public lists, where it never matches.
+        var current = new List<UniFiFirewallPolicy>
+        {
+            Policy("bl4", 10001, "Net. Opt. Blocklist", "ext", "vpn"),
+            Policy("bl6", 10002, "Net. Opt. Blocklist", "ext", "vpn"),
+            Policy("pl4", 10003, "Net. Opt. Public Lists", "ext", "vpn"),
+            Policy("pl6", 10004, "Net. Opt. Public Lists", "ext", "vpn"),
+            Policy("exc-uuid", 10005, "Net. Opt. Exception", "ext", "vpn"),
+        };
+        var state = new GatewayBlocklistState { ExceptionPolicies = [new GatewayExceptionPolicyRef("old-objectid", "e1:in:vpn:4")] };
+        var own = new HashSet<string> { "bl4", "bl6" };
+        var ids = new HashSet<string> { "bl4", "bl6", "pl4", "pl6" };
+
+        var order = GatewayExceptionPolicies.Order(current, "ext", "vpn", own, GatewayBlocklist.ExceptionIds(state, current), ids);
+
+        order!.Value.Before.Should().Equal("bl4", "bl6", "exc-uuid", "pl4", "pl6");
+    }
 }

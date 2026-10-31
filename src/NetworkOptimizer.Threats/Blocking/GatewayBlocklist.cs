@@ -166,7 +166,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         // would run first. Move ours to the front of each zone pair once; later ones land after.
         // Exceptions sit between the site's own blocks and the public lists, as SyncExceptionsAsync orders them.
         var current = await client.GetFirewallPoliciesAsync(ct);
-        var exceptionIds = state.ExceptionPolicies.Select(p => p.Id).ToHashSet();
+        var exceptionIds = ExceptionIds(state, current);
         foreach (var pair in refs.GroupBy(r => r.ZoneId))
         {
             var ids = pair.Select(r => r.Id).ToHashSet();
@@ -287,7 +287,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
 
         // Ahead of any custom ALLOW to External in each zone pair, as with the inbound ones.
         var current = await client.GetFirewallPoliciesAsync(ct);
-        var exceptionIds = state.ExceptionPolicies.Select(p => p.Id).ToHashSet();
+        var exceptionIds = ExceptionIds(state, current);
         foreach (var pair in refs.GroupBy(r => r.ZoneId))
         {
             if (GatewayExceptionPolicies.Order(current, pair.Key, external.Id, exceptionIds, pair.Select(r => r.Id).ToHashSet()) is { } order)
@@ -435,6 +435,17 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             _logger.LogDebug("Gateway blocking on {Site}: per-zone policy record refreshed; nothing created", where);
         return created > 0 || removed;
     }
+
+    /// <summary>
+    /// The exception Allow policies, which order between the site's own blocks and the public lists: the recorded ones
+    /// and any by their reserved name. The record alone can be stale: a Network app upgrade re-keys every policy (10.6 to
+    /// 11, grounding.md phase 4), and only an exception write, held while a gateway agent enforces, rewrites it. A Set Up
+    /// that missed one ordered it behind the public lists, where it never matched.
+    /// </summary>
+    internal static HashSet<string> ExceptionIds(GatewayBlocklistState state, IEnumerable<UniFiFirewallPolicy> current) =>
+        state.ExceptionPolicies.Select(p => p.Id)
+            .Concat(current.Where(p => !p.Predefined && p.Name == GatewayExceptionPolicies.PolicyName).Select(p => p.Id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Zones with no recorded policy (by name), and recorded zones the site no longer has (by ID: their names are gone
