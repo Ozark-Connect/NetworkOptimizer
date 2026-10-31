@@ -624,9 +624,12 @@ public class ThirdPartyDnsDetector : IDisposable
     /// <remarks>
     /// ControlD doesn't have a random-subdomain correlation endpoint like NextDNS.
     /// Instead we query <c>verify.controld.com</c> through the audited resolver and
-    /// check whether the CNAME chain includes <c>api.controld.com</c>. When the
-    /// resolver is the local ctrld daemon, it forwards the query upstream to
-    /// ControlD's authoritative servers which return the expected CNAME.
+    /// check whether the answer chains to <c>api.controld.com</c>. The name has no
+    /// public record (NODATA on any other resolver); ControlD's resolvers synthesize
+    /// the CNAME, so it only appears when the query actually traverses ControlD, as
+    /// it does through a ctrld daemon. They synthesize it for an A query only - a
+    /// CNAME-type query comes back NODATA even through ControlD - so the probe asks
+    /// for A and reads the CNAME out of the chain the resolver returns with it.
     /// </remarks>
     private async Task<bool> ProbeControlDAsync(string ipAddress, CancellationToken ct = default)
     {
@@ -641,7 +644,7 @@ public class ThirdPartyDnsDetector : IDisposable
         try
         {
             var lookup = await CreateResolverClientAsync(resolverIp);
-            var dnsResult = await lookup.QueryAsync("verify.controld.com", QueryType.CNAME, cancellationToken: ct);
+            var dnsResult = await lookup.QueryAsync("verify.controld.com", QueryType.A, cancellationToken: ct);
             if (dnsResult.HasError)
             {
                 _logger.LogDebug("ControlD probe: lookup error for verify.controld.com via {Resolver}: {Error}",
