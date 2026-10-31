@@ -68,6 +68,9 @@ public sealed class PlanCoordinator
     /// </summary>
     public Func<CancellationToken, Task>? ZonesChanged { get; set; }
 
+    /// <summary>Mutes device offline and reboot alerts for a few minutes from now (a zone write re-provisions the gateway).</summary>
+    public Action? QuietDevices { get; set; }
+
     // A gateway provisions for about two minutes after a zone write (grounding.md 2026-10-23); it is not in state 5 at once.
     internal static TimeSpan ZoneSettleFirstWait = TimeSpan.FromSeconds(20);
     internal static TimeSpan ZoneSettlePoll = TimeSpan.FromSeconds(15);
@@ -107,6 +110,12 @@ public sealed class PlanCoordinator
     public Func<IReadOnlyList<string>> ReachAddresses { get; set; } = () => [];
 
     /// <summary>
+    /// The console's address and port when Network Optimizer reaches it through an On-Site Agent on the gateway,
+    /// resolved by that agent; null when it does not, or the agent cannot resolve it.
+    /// </summary>
+    public Func<CancellationToken, Task<(string Address, int Port)?>>? GatewayConsole { get; set; }
+
+    /// <summary>
     /// Builds a plan against live, runs its impact, and stores it as a Draft. <paramref name="runImpact"/> false
     /// skips the Security Audit, only for a change no audit rule reads (a lease time).
     /// </summary>
@@ -120,7 +129,11 @@ public sealed class PlanCoordinator
             throw new InvalidOperationException("The UniFi Console is not connected yet. Try again once it is.");
         var opts = Options(options);
         if (opts.Collections == null || opts.Collections.Overlaps(["firewall_zone", "firewall_policy", "nat"]))
+        {
             opts.InformAddresses = await InformAddressesAsync(ct);
+            if (GatewayConsole != null && await GatewayConsole(ct) is { } console)
+                (opts.GatewayConsoleAddress, opts.GatewayConsolePort) = console;
+        }
         var doc = PlanBuilder.Build(desired, live, opts);
         decorate?.Invoke(doc);
         if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
@@ -328,10 +341,14 @@ public sealed class PlanCoordinator
             if (watch && AgentRevert != null && pre != null && !MovesConsolePath(doc))
                 plan.AgentRevertArmed = await AgentRevert.ArmAsync(plan, doc, pre.Id, window, ct);
 
+            // Once as the writes start and again as they end, so the window spans the gateway's provisioning after them.
+            var zoneWrites = doc.Operations.Any(o => o.Collection == "firewall_zone");
+            if (zoneWrites) QuietDevices?.Invoke();
             bool ok;
             PlanResult result;
             using (UniFiWriteSource.Use($"{ChangeAttributor.PlanSourcePrefix}{plan.Id}"))
                 (ok, result) = await new PlanExecutor(_engine.Api, _logger).ApplyAsync(doc, HasGateway(live), null, ct);
+            if (zoneWrites) QuietDevices?.Invoke();
 
             // Verify: a fresh snapshot, compared with what the plan meant to write.
             var post = await _engine.TakeSnapshotAsync(ConfigSnapshotTrigger.AfterApply, plan.Name, null, ct);

@@ -215,7 +215,7 @@ public static class LockoutChecker
                 });
             }
 
-        static bool CouldBlockManagementTraffic(JsonObject policy, ConfigState state)
+        static bool CouldBlockManagementTraffic(JsonObject policy, ConfigState state, int? onlyPort = null)
         {
             var protocol = Str(policy["protocol"])?.Trim().ToLowerInvariant() ?? "all";
             if (protocol == "tcp udp") protocol = "tcp_udp";
@@ -248,7 +248,44 @@ public static class LockoutChecker
                     return Enumerable.Range(first, Math.Max(0, last - first + 1));
                 });
             else return true;
-            return ports.Any(port => port is 22 or 80 or 443 or 8080 or 8443);
+            return ports.Any(port => onlyPort is { } only ? port == only : port is 22 or 80 or 443 or 8080 or 8443);
+        }
+
+        // 6b. The console is not on the gateway, and Network Optimizer reaches it through the On-Site Agent on the gateway:
+        //     a policy from the Gateway zone that blocks the console's address and port cuts that path. UniFi's default for
+        //     Gateway to a LAN zone is Allow All, so only a policy the plan writes can.
+        if (gatewayZone != null && IPAddress.TryParse(options.GatewayConsoleAddress, out var viaGateway)
+            && viaGateway.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var console = viaGateway.ToString();
+            var (consoleZone, consoleNetwork) = ZonePaths.ZoneOfAddress(planned, ZonePaths.ZoneOfNetwork(planned), console);
+            if (consoleZone != null && consoleZone != ConfigState.IdOf(gatewayZone))
+                foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
+                {
+                    if (op.Body is not JsonObject policy || Str(policy["enabled"]) == "false") continue;
+                    if (Str(policy["action"]) is not ("BLOCK" or "REJECT")) continue;
+                    if (Str(policy["source"]?["zone_id"]) != ConfigState.IdOf(gatewayZone) || Str(policy["destination"]?["zone_id"]) != consoleZone) continue;
+                    if (!CouldBlockManagementTraffic(policy, planned, options.GatewayConsolePort)) continue;
+                    var destination = policy["destination"] as JsonObject;
+                    bool Opposite(string field) => destination?[field]?.GetValueKind() == System.Text.Json.JsonValueKind.True;
+                    var covers = Str(destination?["matching_target"]) switch
+                    {
+                        null or "ANY" => true,
+                        "NETWORK" => (destination?["network_ids"] as JsonArray ?? []).Any(n => Str(n) == consoleNetwork) != Opposite("match_opposite_networks"),
+                        "IP" => (destination?["ips"] as JsonArray ?? []).Select(Str).OfType<string>()
+                            .Any(ip => ip == console || (ip.Contains('/') && InSubnet(console, ip))) != Opposite("match_opposite_ips"),
+                        _ => false,
+                    };
+                    if (!covers) continue;
+                    findings.Add(new LockoutFinding
+                    {
+                        Kind = "certain",
+                        Title = $"Firewall Policy {op.ObjectName} blocks the gateway from the UniFi Console",
+                        Detail = $"Network Optimizer reaches the UniFi Console at {console} through the On-Site Agent on the gateway, and this policy blocks that path.",
+                        Devices = gateways,
+                        OperationKeys = [op.Key],
+                    });
+                }
         }
 
         // 7. On an agent site, the agent reaches the server over the WAN and the console over its own

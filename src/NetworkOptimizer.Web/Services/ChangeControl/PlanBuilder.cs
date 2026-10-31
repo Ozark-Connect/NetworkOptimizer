@@ -44,6 +44,15 @@ public sealed class PlanOptions
     /// <summary>IPv4 addresses devices inform to (from each device's inform_url), for the inform-path check.</summary>
     public IReadOnlyList<string> InformAddresses { get; set; } = [];
 
+    /// <summary>
+    /// The console's IPv4 address, as the On-Site Agent on the gateway resolves it, when that agent carries Network
+    /// Optimizer's console traffic; null otherwise. A policy from the Gateway zone blocking it is a lockout.
+    /// </summary>
+    public string? GatewayConsoleAddress { get; set; }
+
+    /// <summary>The console's port with <see cref="GatewayConsoleAddress"/>, from the Console URL.</summary>
+    public int? GatewayConsolePort { get; set; }
+
     /// <summary>The target has no gateway adopted yet: gateway-bound collections wait.</summary>
     public bool TargetHasGateway { get; init; } = true;
 

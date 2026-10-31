@@ -34,6 +34,15 @@ public class RolloutSuppressionRegistry
     private readonly ConcurrentDictionary<string, DateTime> _consoleCyclingAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _osCyclingAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _siteActiveAt = new();
+    private readonly ConcurrentDictionary<string, DateTime> _devicesQuietAt = new();
+
+    /// <summary>
+    /// Mutes every device's offline and reboot alerts on a site for <see cref="WindowFreshness"/> from now: a Change Control
+    /// plan that writes firewall zones re-provisions the gateway, and devices can drop off for a moment. Devices only; the
+    /// console's own alerts still flow. Lapses on its own, and a firmware rollout's <see cref="ClearSite"/> leaves it be.
+    /// </summary>
+    public void RefreshDevicesQuiet(string siteSlug, DateTime observedAt) =>
+        _devicesQuietAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
 
     /// <summary>
     /// Marks the entire site as cycling a console-level step (Network app or UniFi OS update, or a
@@ -179,6 +188,8 @@ public class RolloutSuppressionRegistry
             return true;
 
         if (string.IsNullOrWhiteSpace(deviceMac)) return false;
+        if (_devicesQuietAt.TryGetValue(site, out var quietAt) && utcNow - quietAt <= WindowFreshness)
+            return true;
 
         var key = (site, Normalize(deviceMac));
         return (_windowRefreshedAt.TryGetValue(key, out var at) && utcNow - at <= WindowFreshness)

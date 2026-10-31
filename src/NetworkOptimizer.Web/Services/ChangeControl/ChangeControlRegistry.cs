@@ -119,10 +119,30 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     /// Where an agent site is reached from: the LAN address of the agent the console and device dials go through, the one
     /// it chose for its own traffic. Not every agent's, nor every address its host holds: a second agent on the gateway
     /// holds every VLAN's gateway address, which made each network look like where Network Optimizer manages from.
-    /// An agent too old to report a LAN address gives all it has.
+    /// An agent too old to report a LAN address gives all it has. An agent on the gateway reaches the console from the
+    /// gateway itself, which no policy into the Gateway zone matches: loopback, which the lockout check reads as no LAN
+    /// network. Its path to a console elsewhere on the LAN is checked apart (<see cref="PlanCoordinator.GatewayConsole"/>).
     /// </summary>
     internal static IReadOnlyList<string> AgentReachAddresses(AgentTunnelConnection dial) =>
-        string.IsNullOrWhiteSpace(dial.LanIp) ? dial.HostAddresses : [dial.LanIp!];
+        dial.OnGateway == true ? ["127.0.0.1"]
+        : string.IsNullOrWhiteSpace(dial.LanIp) ? dial.HostAddresses : [dial.LanIp!];
+
+    /// <summary>
+    /// The console's address and port when its traffic goes through an agent on the gateway: the Console URL's host, a name
+    /// resolved by that agent (never by this server, which may see another answer), with the URL's port.
+    /// </summary>
+    private async Task<(string Address, int Port)?> GatewayConsoleAsync(string slug, UniFiConnectionService connection, AgentTunnelProxyService? proxy, CancellationToken ct)
+    {
+        if (!connection.IsViaAgent || proxy?.DialAgent(slug) is not { OnGateway: true } dial) return null;
+        if (!Uri.TryCreate(connection.CurrentConfig?.ControllerUrl, UriKind.Absolute, out var url)) return null;
+        if (System.Net.IPAddress.TryParse(url.Host, out var ip))
+            return ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? (ip.ToString(), url.Port) : null;
+        if (_sp.GetService<AgentProbeService>() is not { } probes) return null;
+        var lookup = await new Monitoring.AgentProbeExecutor(probes, slug, _sp.GetRequiredService<ILoggerFactory>().CreateLogger("ChangeControlConsoleLookup"), dial.AgentId)
+            .LookupAsync(new NetworkOptimizer.Monitoring.Probes.ProbeTarget(url.Host, NetworkOptimizer.Core.Enums.ProbeMode.Icmp), ct: ct);
+        return lookup.Addresses.FirstOrDefault(a => System.Net.IPAddress.TryParse(a, out var r) && r.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) is { } address
+            ? (address, url.Port) : null;
+    }
 
     /// <summary>
     /// The addresses this server reaches the console from: the source the OS routes from toward the console
@@ -213,6 +233,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         coordinator.ReachAddresses = () => !connection.IsViaAgent ? ServerAddresses(coordinator.ConsoleHost())
             : proxy?.DialAgent(slug) is { } dial ? AgentReachAddresses(dial)
             : coordinator.ManagementAddresses();
+        coordinator.GatewayConsole = ct => GatewayConsoleAsync(slug, connection, proxy, ct);
         coordinator.MoveSettings = (moves, remote, ct) => ReaddressSettingsAsync(slug, moves, remote, apply: true, ct);
         coordinator.ZonesChanged = _ =>
         {
@@ -220,6 +241,8 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             scope.ServiceProvider.GetService<ThreatBlockingOperations>()?.SyncZonesSoon(slug);
             return Task.CompletedTask;
         };
+        if (_sp.GetService<RolloutSuppressionRegistry>() is { } suppression)
+            coordinator.QuietDevices = () => suppression.RefreshDevicesQuiet(slug, DateTime.UtcNow);
         _coordinators[slug] = coordinator;
         var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));

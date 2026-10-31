@@ -423,12 +423,50 @@ public class ZoneSetupTests
     [Fact]
     public void AgentReach_IsTheDialAgentsLanAddress_NotEveryAddressItsHostHolds()
     {
-        // An agent on the gateway holds every VLAN's gateway address.
-        var onGateway = new AgentTunnelConnection(1, "site", "gateway") { LanIp = "10.0.1.1", LocalIps = ["10.0.1.1", "10.0.30.1", "10.0.40.1", "10.0.150.1"] };
+        // A host with a leg on several VLANs, and an agent on the gateway, which holds every VLAN's gateway address.
+        var host = new AgentTunnelConnection(1, "site", "nas") { LanIp = "10.0.1.219", LocalIps = ["10.0.1.219", "10.0.150.219"] };
+        var onGateway = new AgentTunnelConnection(3, "site", "gateway") { LanIp = "10.0.1.1", LocalIps = ["10.0.1.1", "10.0.30.1", "10.0.40.1", "10.0.150.1"], OnGateway = true };
         var old = new AgentTunnelConnection(2, "site", "old") { LocalIps = ["10.0.1.20", "10.0.150.20"] };
 
-        ChangeControlRegistry.AgentReachAddresses(onGateway).Should().Equal(["10.0.1.1"]);
+        ChangeControlRegistry.AgentReachAddresses(host).Should().Equal(["10.0.1.219"]);
+        ChangeControlRegistry.AgentReachAddresses(onGateway).Should().Equal(["127.0.0.1"], "no policy into the Gateway zone matches the gateway's own traffic");
         ChangeControlRegistry.AgentReachAddresses(old).Should().Equal(["10.0.1.20", "10.0.150.20"], "an agent without a LAN address gives all it has");
+    }
+
+    [Fact]
+    public void GatewayBlock_FromNetworks_IsNoLockout_WhenTheConsoleAgentIsOnTheGateway()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-mgmt", "[Gateway] VLAN Mgmt Block", "BLOCK", Side("z-int", "NETWORK", ["n-iot", "n-cam"]), Side("z-gw2", port: "22,80,443"), protocol: "tcp"));
+        var plan = PlanFor(live);
+
+        var doc = PlanBuilder.Build(plan.Desired, live, new PlanOptions
+        {
+            Collections = ZoneSetup.Options().Collections, DeleteMissing = true, AgentSite = true,
+            ManagementAddresses = ["10.0.1.1", "10.0.30.1", "10.0.40.1"], ReachAddresses = ["127.0.0.1"],
+        });
+
+        doc.Lockouts.Should().NotContain(l => l.Title.Contains("VLAN Mgmt Block"));
+    }
+
+    [Theory]
+    [InlineData("10.0.30.5", 11443, true)]  // a UniFi OS Server on IoT, which the policy now blocks the gateway from
+    [InlineData("10.0.30.5", 8443, false)]  // a block on another port
+    [InlineData("10.0.1.5", 11443, false)]  // a console on Home, which stays in Internal
+    [InlineData("10.0.30.1", 11443, false)] // the gateway's own address: the console is the gateway
+    public void GatewayToConsoleBlock_IsALockout_WhenTheConsoleIsReachedThroughTheGatewayAgent(string console, int port, bool lockout)
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-gwiot", "Block Gateway to IoT Admin", "BLOCK", Side("z-gw2"), Side("z-int", "NETWORK", ["n-iot"], port: "11443"), protocol: "tcp"));
+        var plan = PlanFor(live);
+
+        var doc = PlanBuilder.Build(plan.Desired, live, new PlanOptions
+        {
+            Collections = ZoneSetup.Options().Collections, DeleteMissing = true, AgentSite = true, ReachAddresses = ["127.0.0.1"],
+            GatewayConsoleAddress = console, GatewayConsolePort = port,
+        });
+
+        doc.Lockouts.Any(l => l.Title == "Firewall Policy Block Gateway to IoT Admin blocks the gateway from the UniFi Console").Should().Be(lockout);
     }
 
     private static JsonObject Side(string zone, string target = "ANY", string[]? networks = null, string[]? ips = null, string? port = null)

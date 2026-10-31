@@ -268,6 +268,38 @@ public sealed class PlanCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task AZonePlan_QuietsDeviceAlerts_AsItsWritesStartAndEnd()
+    {
+        var quiets = 0;
+        _plans.QuietDevices = () => quiets++;
+        _console.State.Collections["firewall_zone"] = [new JsonObject { ["_id"] = "z-int", ["name"] = "Internal", ["zone_key"] = "internal", ["network_ids"] = new JsonArray("n1") }];
+        var desired = _console.State.Clone();
+        desired.Collections["firewall_zone"].Add(new JsonObject { ["_id"] = "new-zone", ["name"] = "IoT", ["network_ids"] = new JsonArray() });
+        var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Add a zone", "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "firewall_zone" } }, "Alex", CancellationToken.None);
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements
+        {
+            Items = doc.Operations.Select(o => o.Key).ToHashSet(), TypedConfirmation = PlanReadiness.ConfirmationText(doc),
+        }, CancellationToken.None);
+
+        (await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), false, false, CancellationToken.None)).Should().BeNull();
+
+        quiets.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task APlanWithoutZoneWrites_LeavesDeviceAlertsOn()
+    {
+        var quiets = 0;
+        _plans.QuietDevices = () => quiets++;
+
+        await ApplyManagementPlanAsync();
+
+        quiets.Should().Be(0);
+    }
+
+    [Fact]
     public async Task FailedPreApplySnapshot_WritesNothing()
     {
         var desired = _console.State.Clone();
