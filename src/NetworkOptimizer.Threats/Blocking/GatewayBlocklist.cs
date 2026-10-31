@@ -218,12 +218,16 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     /// The policies match every state, unlike the source policies, so a session opened before the
     /// list loaded is cut too. Only the narrow <see cref="PublicBlockList.Outbound"/> lists feed them.
     /// </remarks>
-    public async Task<int> SetFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct)
+    public async Task<int> SetFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct) =>
+        (await WriteFeedsOutboundAsync(site, enabled, ct)).Total;
+
+    /// <summary>As <see cref="SetFeedsOutboundAsync"/>, also returning how many policies it created.</summary>
+    private async Task<(int Total, int Created)> WriteFeedsOutboundAsync(string? site, bool enabled, CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);
         if (state?.FeedsV4Id == null || state.FeedsV6Id == null)
         {
-            if (!enabled) return 0;
+            if (!enabled) return (0, 0);
             throw new InvalidOperationException("Set up gateway blocking first.");
         }
         var client = Client(site);
@@ -241,7 +245,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                 await client.DeleteFirewallPolicyAsync(id, ct);
             state.OutboundPolicies = [];
             await SaveStateAsync(site, state, ct);
-            return 0;
+            return (0, 0);
         }
 
         var zones = await client.GetFirewallZonesAsync(ct);
@@ -261,14 +265,20 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             await client.DeleteFirewallPolicyAsync(stale.Id, ct);
 
         var refs = new List<GatewayBlockPolicyRef>();
+        var created = 0;
         foreach (var zone in zones.Where(z => z.Id != external.Id && z.ZoneKey != FirewallZoneKeys.Gateway))
         {
             foreach (var (version, groupId) in new[] { ("IPV4", state.FeedsOutV4Id), ("IPV6", state.FeedsOutV6Id) })
             {
                 var existing = policies.FirstOrDefault(p => !p.Predefined
                     && p.Source.ZoneId == zone.Id && p.Destination.ZoneId == external.Id && p.Destination.IpGroupId == groupId);
-                var id = existing?.Id ?? (await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.CreateToGroup(
-                    FeedsOutboundPolicyName, FeedsOutboundDescription, version, zone.Id, external.Id, groupId), ct)).Id;
+                var id = existing?.Id;
+                if (id == null)
+                {
+                    id = (await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.CreateToGroup(
+                        FeedsOutboundPolicyName, FeedsOutboundDescription, version, zone.Id, external.Id, groupId), ct)).Id;
+                    created++;
+                }
                 refs.Add(new GatewayBlockPolicyRef(id, zone.Id, version));
             }
         }
@@ -283,8 +293,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             if (GatewayExceptionPolicies.Order(current, pair.Key, external.Id, exceptionIds, pair.Select(r => r.Id).ToHashSet()) is { } order)
                 await client.ReorderFirewallPoliciesAsync(pair.Key, external.Id, order.Before, order.After, ct);
         }
-        _logger.LogInformation("Public lists outbound blocking set up: {Count} policies", refs.Count);
-        return refs.Count;
+        _logger.LogInformation("Public lists outbound blocking set up: {Count} policies ({Created} created)", refs.Count, created);
+        return (refs.Count, created);
     }
 
     /// <summary>
@@ -407,11 +417,37 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         if (zones.Count == 0 || external == null) return false;
 
         var (inbound, outbound) = Uncovered(state, zones, external.Id);
-        if (inbound) await SetUpAsync(site, ct);
-        if (outbound) await SetFeedsOutboundAsync(site, true, ct);
-        if (inbound || outbound)
-            _logger.LogInformation("Gateway blocking: the zones on {Site} changed; per-zone policies rewritten", site ?? "default");
-        return inbound || outbound;
+        if (!inbound && !outbound) return false;
+        var (added, gone) = ZoneChanges(state, zones, external.Id);
+        var created = 0;
+        if (inbound) created += (await SetUpAsync(site, ct)).PoliciesCreated;
+        if (outbound) created += (await WriteFeedsOutboundAsync(site, true, ct)).Created;
+        var where = site ?? "default";
+        // A zone deleted leaves only gone ones. Nothing created with a zone "added" is the record drifting (a zone re-keyed,
+        // its policies already there), not a change on the site.
+        var removed = gone.Count > 0 && added.Count == 0;
+        if (created > 0)
+            _logger.LogInformation("Gateway blocking on {Site}: {Created} per-zone policies created ({Zones} added)", where, created,
+                added.Count > 0 ? string.Join(", ", added) : "a zone lacked them");
+        else if (removed)
+            _logger.LogInformation("Gateway blocking on {Site}: {Count} zone(s) gone; their policies left the record with them", where, gone.Count);
+        else
+            _logger.LogDebug("Gateway blocking on {Site}: per-zone policy record refreshed; nothing created", where);
+        return created > 0 || removed;
+    }
+
+    /// <summary>
+    /// Zones with no recorded policy (by name), and recorded zones the site no longer has (by ID: their names are gone
+    /// with them). Neither when only the record drifted, such as a zone ID re-keyed by a Network app upgrade.
+    /// </summary>
+    internal static (List<string> Added, List<string> Gone) ZoneChanges(GatewayBlocklistState state, IReadOnlyList<UniFiFirewallZone> zones, string externalId)
+    {
+        var recorded = state.Policies.Concat(state.OutboundPolicies).Select(r => r.ZoneId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var current = zones.Where(z => z.Id != externalId).ToList();
+        var added = current.Where(z => !recorded.Contains(z.Id)).Select(z => z.Name).ToList();
+        var ids = current.Select(z => z.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var gone = recorded.Where(id => !ids.Contains(id)).ToList();
+        return (added, gone);
     }
 
     /// <summary>

@@ -58,4 +58,46 @@ public class GatewayZoneCoverageTests
     {
         GatewayBlocklist.Uncovered(State(["GW", "INT", "IOT"], ["INT", "IOT"]), Zones, "ext").Should().Be((false, false));
     }
+
+    [Fact]
+    public void ZoneChanges_NameTheZoneAdded()
+    {
+        var zones = Zones.Append(Z("Test Zone")).ToList();
+
+        GatewayBlocklist.ZoneChanges(State(["gw", "int", "iot"], ["int", "iot"]), zones, "ext")
+            .Should().BeEquivalentTo((Added: new List<string> { "Test Zone" }, Gone: new List<string>()));
+    }
+
+    [Fact]
+    public void ZoneChanges_ListTheZoneGone()
+    {
+        var zones = Zones.Where(z => z.Id != "iot").ToList();
+
+        var (added, gone) = GatewayBlocklist.ZoneChanges(State(["gw", "int", "iot"], ["int", "iot"]), zones, "ext");
+
+        added.Should().BeEmpty();
+        gone.Should().Equal(["iot"]);
+    }
+
+    [Fact]
+    public void ZoneChanges_ForAReKeyedZone_LookLikeBoth()
+    {
+        // A Network app upgrade re-keyed the zone: its policies are already there under the new ID, so Set Up creates
+        // nothing and the check logs a record refresh, not a change.
+        var zones = Zones.Select(z => z.Id == "iot" ? Z("iot-uuid") : z).ToList();
+
+        var (added, gone) = GatewayBlocklist.ZoneChanges(State(["gw", "int", "iot"], ["int", "iot"]), zones, "ext");
+
+        added.Should().Equal(["iot-uuid"]);
+        gone.Should().Equal(["iot"]);
+    }
+
+    [Fact]
+    public void ZoneChanges_NoneWhenTheyMatch()
+    {
+        var (added, gone) = GatewayBlocklist.ZoneChanges(State(["gw", "int", "iot"], ["int", "iot"]), Zones, "ext");
+
+        added.Should().BeEmpty();
+        gone.Should().BeEmpty();
+    }
 }
