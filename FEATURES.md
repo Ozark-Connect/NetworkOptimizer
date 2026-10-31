@@ -271,7 +271,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Sites ranked worst first by Site Health
 - **Site Health** - one hourly score per site: the share of user-time the network served well
   - Internet (outages, loss, latency, bufferbloat on the primary WAN), device availability, Wi-Fi satisfaction, and LAN errors and loss
-  - Separates ISP impairment from local causes (gateway reboot, gateway offline, gateway CPU)
+  - Separates ISP impairment from local causes (gateway reboot, gateway offline, gateway CPU, LAN loss at the same time)
+  - Loss is scored in 5-minute windows, so a short burst costs its share of the hour, and loss while the WAN is busy is judged against the access technology's loaded-loss band
   - Names the top issue in words, with the points it cost and a trend arrow
   - Backfills 90 days from history at first start
 - **Changes** - multi-site timeline of every config change, firmware step, and Network app upgrade, with who made it

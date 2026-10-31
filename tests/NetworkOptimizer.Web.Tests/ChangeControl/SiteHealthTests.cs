@@ -200,4 +200,65 @@ public class SiteHealthTests
         rows[0].Should().Be(new MetricDelta("Site Health (3 h)", "100", "60", true));
         rows.Should().Contain(r => r.Label == "Wi-Fi, points lost" && r.After == "40");
     }
+
+    private static List<LossWindow> QuietHour(LossWindow burst) =>
+        [burst, .. Enumerable.Range(0, 11).Select(_ => new LossWindow(0, 0, false))];
+
+    [Fact]
+    public void Loss_ShortBurstCostsItsShareOfTheHour()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(2.75, 0, false)) });
+
+        h.Health.Should().Be(91.7);
+        h.Worst.Should().Be("Internet: loss 2.75% for 5 min (ISP)");
+    }
+
+    [Fact]
+    public void Loss_AlongsideLanLossIsNotTheIsps()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(8, 0, true)) });
+
+        h.Health.Should().Be(100);
+        h.InternetIsp.Should().Be(0);
+    }
+
+    [Fact]
+    public void Loss_UnderLoadIsJudgedAgainstTheLoadedBand()
+    {
+        var idle = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(Fiber.LoadedLossDownLowPct, 0, false)) });
+        var loaded = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossWindows = QuietHour(new LossWindow(Fiber.LoadedLossDownLowPct, 1, false)) });
+
+        idle.Health.Should().BeLessThan(100);
+        loaded.Health.Should().Be(100);
+    }
+
+    [Fact]
+    public void LossCeiling_RisesQuadraticallyFromIdleToTheLoadedBand()
+    {
+        SiteHealthScorer.LossCeiling(Fiber, 0).Should().Be(Math.Max(SiteHealthScorer.NoticeableLossPct, Fiber.IdleLossAcceptablePct));
+        SiteHealthScorer.LossCeiling(Fiber, 1).Should().BeApproximately(Fiber.LoadedLossDownLowPct, 1e-9);
+        SiteHealthScorer.LossCeiling(Fiber, 0.5).Should().BeApproximately(
+            Math.Max(SiteHealthScorer.NoticeableLossPct, Fiber.IdleLossAcceptablePct + 0.25 * (Fiber.LoadedLossDownLowPct - Fiber.IdleLossAcceptablePct)), 1e-9);
+    }
+
+    [Fact]
+    public void FabricLoss_ShortBurstCostsItsShareOfTheHour()
+    {
+        var h = Score(new HealthHourInputs { Hour = T, IdleRttMs = 2, LossPct = 0, FabricWindows = [5, .. Enumerable.Repeat(0.0, 11)] });
+
+        h.Health.Should().Be(91.7);
+        h.Worst.Should().Be("LAN: LAN loss 5% for 5 min");
+    }
+
+    [Fact]
+    public void WindowLoad_AveragesUtilizationAgainstSaturation()
+    {
+        var start = T;
+        var rates = Enumerable.Range(0, 10).Select(i => new ThroughputSample(start.AddSeconds(30 * i), i < 5 ? 1000e6 : 200e6, 0)).ToList();
+
+        var w = SiteHealthJob.WindowLoad(rates, [], TimeSpan.FromSeconds(7), TimeSpan.FromMinutes(5), 1000, 1000, 0.75)[start];
+
+        w.Total.Should().Be(10);
+        w.Saturation.Should().BeApproximately(0.6 / 0.75, 1e-9);
+    }
 }

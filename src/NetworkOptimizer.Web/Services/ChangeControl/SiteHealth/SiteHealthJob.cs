@@ -25,6 +25,9 @@ public sealed class SiteHealthJob
     private static readonly TimeSpan SlowRun = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SlowPause = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan ChangeWindow = TimeSpan.FromHours(3);
+    // WAN rate resolution for load. The classifier needs two loaded samples in a row, so a transfer of
+    // a minute or more registers; 5-minute means made a 5-minute download one sample, thrown out as a glitch.
+    internal static readonly TimeSpan RateStep = TimeSpan.FromSeconds(30);
 
     private static readonly string[] AlertTypes =
         ["device.offline", "device.rebooted", "monitoring.wan_outage", "monitoring.wan_outage_partial", "device.recovered", "monitoring.wan_recovered"];
@@ -131,33 +134,36 @@ public sealed class SiteHealthJob
         var scope = await isp.GetLatencyWanScopeAsync(ct);
         var (gatewayMac, counterIfs) = await isp.GetWanCounterInterfacesAsync(ct);
         var (expectedDown, expectedUp) = await isp.GetExpectedWanSpeedsAsync(ct);
-        var fine = TimeSpan.FromMinutes(5);
+        var fine = TimeSpan.FromMinutes(SiteHealthScorer.WindowMinutes);
 
-        var hourlyTask = influx.QueryTargetLatencyMeansAsync(from, to, poolIds, null, TimeSpan.FromHours(1), scope, ct);
+        var lossTask = influx.QueryTargetLatencyMeansAsync(from, to, poolIds, null, fine, scope, ct);
         var satisfactionTask = influx.QuerySatisfactionCountsAsync(from, to, ct);
         var wirelessTask = influx.QueryDistinctClientsByDeviceAsync("wifi_client", from, to, ct);
         var wiredTask = influx.QueryDistinctClientsByDeviceAsync("wired_client", from, to, ct);
-        var fabricTask = influx.QueryTargetLatencyMeansAsync(from, to, null, "fabric", TimeSpan.FromHours(1), null, ct);
+        var fabricTask = influx.QueryTargetLatencyMeansAsync(from, to, null, "fabric", fine, null, ct);
         var portsTask = influx.QueryPortErrorRisesAsync(from, to, ct);
         var ratesTask = gatewayMac != null && counterIfs.Count > 0
-            ? influx.QueryGatewayWanRatesAsync(gatewayMac, [counterIfs[0]], from, to, fine, ct: ct)
+            ? influx.QueryGatewayWanRatesAsync(gatewayMac, [counterIfs[0]], from, to, RateStep, ct: ct)
             : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>([]);
         var cpuTask = gatewayMac != null
             ? influx.QueryDeviceCpuAsync(gatewayMac, from, to, TimeSpan.FromHours(1), ct)
             : Task.FromResult<IReadOnlyList<(DateTime Time, double Value)>>([]);
-        await Task.WhenAll(hourlyTask, satisfactionTask, wirelessTask, wiredTask, fabricTask, portsTask, ratesTask, cpuTask);
+        await Task.WhenAll(lossTask, satisfactionTask, wirelessTask, wiredTask, fabricTask, portsTask, ratesTask, cpuTask);
 
         // The first clean hop: the access target with the lowest median RTT, as ISP Health picks it.
-        var hourly = hourlyTask.Result;
-        var firstHop = hourly.Where(p => p.TargetType == "accessisp" && p.RttAvgMs != null)
+        var lossPool = lossTask.Result;
+        var firstHop = lossPool.Where(p => p.TargetType == "accessisp" && p.RttAvgMs != null)
             .GroupBy(p => p.TargetId).OrderBy(g => Median(g.Select(p => p.RttAvgMs!.Value))).Select(g => g.Key).FirstOrDefault();
         var firstHopFine = firstHop == null ? []
             : await influx.QueryTargetLatencyMeansAsync(from, to, [firstHop], null, fine, scope, ct);
+        // The rate query stamps each sample at its window's end and the latency reads at the start;
+        // restamped at the start so a sample lands in the 5-minute window it measured.
+        var rates = ratesTask.Result.Select(r => new ThroughputSample(r.Time - RateStep, r.DownloadBps, r.UploadBps)).ToList();
         var load = expectedDown != null || expectedUp != null
-            ? LoadClassifier.Classify(ratesTask.Result.Select(r => new ThroughputSample(r.Time, r.DownloadBps, r.UploadBps)).ToList(),
-                expectedDown, expectedUp, isp.Options)
+            ? LoadClassifier.Classify(rates, expectedDown, expectedUp, isp.Options)
             : new Dictionary<DateTime, LoadWindow>();
-        var loadWindow = TimeSpan.FromSeconds(isp.Options.LoadWindowSeconds);
+        var windowLoad = WindowLoad(rates, load, TimeSpan.FromSeconds(isp.Options.LoadWindowSeconds), fine,
+            expectedDown, expectedUp, isp.Options.LossSaturationLoadFraction);
 
         // A day past the batch, so a recovery just after it still ends an outage that began inside it.
         var alerts = await _repos.UseAsync((r, c) => r.GetAlertsActiveAsync(from, to.AddDays(1), AlertTypes, c), ct);
@@ -179,7 +185,7 @@ public sealed class SiteHealthJob
         for (var hour = from; hour < to; hour = hour.AddHours(1))
         {
             var end = hour.AddHours(1);
-            var inputs = BuildInputs(hour, end, hourly, firstHopFine, load, loadWindow, satisfactionTask.Result, wirelessTask.Result,
+            var inputs = BuildInputs(hour, end, lossPool, firstHopFine, load, windowLoad, satisfactionTask.Result, wirelessTask.Result,
                 wiredTask.Result, fabricTask.Result, portsTask.Result, cpuTask.Result, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
                 Baseline(history.Concat(result), hour));
             result.Add(SiteHealthScorer.Score(inputs, profile, DateTime.UtcNow));
@@ -189,9 +195,9 @@ public sealed class SiteHealthJob
 
     private HealthHourInputs BuildInputs(
         DateTime hour, DateTime end,
-        IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> hourly,
+        IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> lossPool,
         IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> firstHopFine,
-        Dictionary<DateTime, LoadWindow> load, TimeSpan loadWindow,
+        Dictionary<DateTime, LoadWindow> load, Dictionary<DateTime, WindowLoadSummary> windowLoad,
         IReadOnlyList<MonitoringInfluxClient.SatisfactionCounts> satisfaction,
         IReadOnlyList<(DateTime Hour, string DeviceMac, int Clients)> wireless,
         IReadOnlyList<(DateTime Hour, string DeviceMac, int Clients)> wired,
@@ -203,15 +209,14 @@ public sealed class SiteHealthJob
     {
         bool In(DateTime t) => t >= hour && t < end;
 
-        // Internet
-        var losses = hourly.Where(p => In(p.Time) && p.LossPercent != null).Select(p => p.LossPercent!.Value).ToList();
+        // Internet. A 5-minute RTT counts as loaded when most of its window was, idle when all of it was.
         var idle = new List<double>();
         var loaded = new List<double>();
         foreach (var p in firstHopFine.Where(p => In(p.Time) && p.RttAvgMs != null))
         {
-            var key = new DateTime(p.Time.Ticks - p.Time.Ticks % loadWindow.Ticks, DateTimeKind.Utc);
-            if (load.TryGetValue(key, out var w) && (w.IsLoadedDown || w.IsLoadedUp)) loaded.Add(p.RttAvgMs!.Value);
-            else if (load.Count == 0 || (load.TryGetValue(key, out var w2) && w2.IsIdle)) idle.Add(p.RttAvgMs!.Value);
+            var w = windowLoad.GetValueOrDefault(p.Time);
+            if (w.Total > 0 && w.Loaded * 2 >= w.Total) loaded.Add(p.RttAvgMs!.Value);
+            else if (load.Count == 0 || (w.Total > 0 && w.Idle == w.Total)) idle.Add(p.RttAvgMs!.Value);
         }
         // The provisional hour has not ended: outage and offline time count against the part that has elapsed.
         var elapsed = Min(end, DateTime.UtcNow) - hour;
@@ -295,17 +300,31 @@ public sealed class SiteHealthJob
 
         // LAN. A device that is down is Availability's, weighted by the clients behind it, so the pings it
         // (or anything behind it) missed are not LAN loss as well.
-        var fabricLoss = fabric
+        var fabricWindows = fabric
             .Where(p => In(p.Time) && p.LossPercent != null
                 && !(fabricDevices.TryGetValue(p.TargetId, out var dev) && topology.IsOut(Mac(dev), offline)))
-            .Select(p => p.LossPercent!.Value).ToList();
+            .GroupBy(p => p.Time)
+            .ToDictionary(g => g.Key, g => Median(g.Select(p => p.LossPercent!.Value)));
+
+        // Internet loss per window: the pool's median, how loaded the WAN was, and whether the LAN lost
+        // packets alongside it (the probes' own path, not the ISP).
+        var lossWindows = lossPool.Where(p => In(p.Time) && p.LossPercent != null)
+            .GroupBy(p => p.Time).OrderBy(g => g.Key)
+            .Select(g =>
+            {
+                var loss = Median(g.Select(p => p.LossPercent!.Value));
+                var lan = fabricWindows.TryGetValue(g.Key, out var f) && f >= SiteHealthScorer.NoticeableLossPct && f >= loss / 2;
+                return new LossWindow(loss, windowLoad.GetValueOrDefault(g.Key).Saturation, lan);
+            })
+            .ToList();
         var hourPorts = ports.Where(p => In(p.Hour) && !gatewayMacs.Contains(Mac(p.DeviceMac)) && topology.IsWiredPort(p.DeviceMac, p.IfName)).ToList();
         var (link, linkText) = topology.LinkErrors(hourPorts, clientsByDevice);
 
         return new HealthHourInputs
         {
             Hour = hour,
-            LossPct = losses.Count > 0 ? Median(losses) : null,
+            LossPct = lossWindows.Count > 0 ? lossWindows.Average(w => w.LossPct) : null,
+            LossWindows = lossWindows,
             IdleRttMs = idle.Count > 0 ? Median(idle) : null,
             LoadedRttMs = loaded.Count > 0 ? Median(loaded) : null,
             LoadedShare = loadedShare,
@@ -322,7 +341,8 @@ public sealed class SiteHealthJob
             WiredClients = wired.Count > 0 ? wiredClients : null,
             Availability = availability,
             AvailabilityText = availabilityText,
-            FabricLossPct = fabricLoss.Count > 0 ? Median(fabricLoss) : null,
+            FabricLossPct = fabricWindows.Count > 0 ? fabricWindows.Values.Average() : null,
+            FabricWindows = fabricWindows.OrderBy(kv => kv.Key).Select(kv => kv.Value).ToList(),
             HasLinkData = hourPorts.Count > 0,
             LinkImpairment = link,
             LinkText = linkText,
@@ -406,6 +426,40 @@ public sealed class SiteHealthJob
     }
 
     // ---------- Helpers ----------
+
+    /// <summary>
+    /// One scoring window's WAN load: rate samples classified loaded and idle out of the total, and its
+    /// average utilization (the busier direction against plan, as ISP Health's average load) as a share
+    /// of <c>LossSaturationLoadFraction</c>, capped at 1.
+    /// </summary>
+    internal readonly record struct WindowLoadSummary(int Total, int Loaded, int Idle, double Saturation);
+
+    /// <summary>Groups start-stamped rate samples and their load classes into scoring windows.</summary>
+    internal static Dictionary<DateTime, WindowLoadSummary> WindowLoad(
+        IReadOnlyList<ThroughputSample> rates, Dictionary<DateTime, LoadWindow> load, TimeSpan loadWindow, TimeSpan window,
+        double? expectedDownMbps, double? expectedUpMbps, double saturationFraction)
+    {
+        var result = new Dictionary<DateTime, WindowLoadSummary>();
+        foreach (var g in rates.GroupBy(r => CongestionDetector.FloorTime(r.Time, window)))
+        {
+            int loaded = 0, idle = 0;
+            var utilization = new List<double>();
+            foreach (var r in g)
+            {
+                if (load.TryGetValue(CongestionDetector.FloorTime(r.Time, loadWindow), out var w))
+                {
+                    if (w.IsLoadedDown || w.IsLoadedUp) loaded++;
+                    else if (w.IsIdle) idle++;
+                }
+                var d = expectedDownMbps > 0 ? (r.DownloadBps ?? 0) / (expectedDownMbps.Value * 1_000_000) : 0;
+                var u = expectedUpMbps > 0 ? (r.UploadBps ?? 0) / (expectedUpMbps.Value * 1_000_000) : 0;
+                utilization.Add(Math.Clamp(Math.Max(d, u), 0, 1));
+            }
+            var saturation = saturationFraction > 0 ? Math.Min(1, utilization.Average() / saturationFraction) : 0;
+            result[g.Key] = new WindowLoadSummary(g.Count(), loaded, idle, saturation);
+        }
+        return result;
+    }
 
     internal static DateTime FloorHour(DateTime t) => new(t.Year, t.Month, t.Day, t.Hour, 0, 0, DateTimeKind.Utc);
 
