@@ -61,7 +61,7 @@ public sealed class PlanExecutor
             {
                 if (op.NeedsGateway && !hasGateway)
                 {
-                    Record(result, progress, new OperationResult { Key = op.Key, Outcome = "Waiting", Message = "Needs the gateway adopted first" });
+                    Record(result, progress, new OperationResult { Key = op.Key, Outcome = "Waiting", Message = NeedsGatewayMessage });
                     continue;
                 }
                 sent.Add(op);
@@ -163,6 +163,8 @@ public sealed class PlanExecutor
             return new OperationResult { Key = op.Key, Outcome = "Applied", Message = "Already gone" };
         return new OperationResult { Key = op.Key, Outcome = "Error", Message = Error(response), NoReply = response.Status == 0 };
     }
+
+    internal const string NeedsGatewayMessage = "Needs the gateway adopted first";
 
     /// <summary>The created object's ID from a v1 envelope or a v2 object.</summary>
     internal static string? NewId(string body)

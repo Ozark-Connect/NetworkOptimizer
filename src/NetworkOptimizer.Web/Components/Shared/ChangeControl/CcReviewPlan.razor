@@ -477,7 +477,7 @@ else
                 <div class="cc-kv"><span>Writes applied</span><span>@_view.Result.Operations.Count(o => o.Outcome == "Applied") of @_view.Result.Operations.Count</span></div>
                 @foreach (var o in _view.Result.Operations.Where(o => o.Outcome != "Applied" || o.Message != null))
                 {
-                    <div class="cc-kv"><span>@o.Key.Split(':').ElementAtOrDefault(2)</span><span class="@(o.Outcome == "Error" ? "danger-text" : o.Outcome == "Partial" ? "warning-text" : "")">@o.Outcome@(o.Message != null ? $": {o.Message}" : "")</span></div>
+                    <div class="cc-kv"><span>@(_view.Doc.Operations.FirstOrDefault(d => d.Key == o.Key) is { } written ? DisplayObjectName(written) : o.Key.Split(':').ElementAtOrDefault(2))</span><span class="@(o.Outcome == "Error" ? "danger-text" : o.Outcome == "Partial" ? "warning-text" : "")">@o.Outcome@(o.Message != null ? $": {o.Message}" : "")</span></div>
                 }
                 @if (_view.Result.VerifyDifferences.Count > 0)
                 {

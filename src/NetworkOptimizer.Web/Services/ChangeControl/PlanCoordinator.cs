@@ -424,9 +424,14 @@ public sealed class PlanCoordinator
             }
 
             plan.CompletedAt = DateTime.UtcNow;
-            var waiting = result.Operations.Count(o => o.Outcome == "Waiting");
-            if (waiting > 0)
-                plan.Message = (accepted ? plan.Message + " " : "") + $"{waiting} write{(waiting == 1 ? "" : "s")} need the gateway adopted first. Run the plan again once it is.";
+            // Only a write held for the gateway waits on its adoption; one naming an object not created is not sent at all.
+            var waiting = result.Operations.Where(o => o.Outcome == "Waiting").ToList();
+            var forGateway = waiting.Count(o => o.Message == PlanExecutor.NeedsGatewayMessage);
+            var held = new List<string>();
+            if (forGateway > 0) held.Add($"{forGateway} write{(forGateway == 1 ? "" : "s")} need the gateway adopted first. Run the plan again once it is.");
+            if (waiting.Count > forGateway) held.Add($"{waiting.Count - forGateway} write{(waiting.Count - forGateway == 1 ? " was" : "s were")} not sent: {waiting.First(o => o.Message != PlanExecutor.NeedsGatewayMessage).Message}.");
+            if (held.Count > 0)
+                plan.Message = (accepted ? plan.Message + " " : "") + string.Join(" ", held);
             if (watch)
             {
                 plan.Status = ConfigPlanStatus.Watching;

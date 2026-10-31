@@ -886,11 +886,15 @@ public static class PlanBuilder
         if (!desired.Collections.ContainsKey("firewall_policy") || !live.Collections.ContainsKey("firewall_policy")) return;
         var def = ConfigCollections.Get("firewall_policy")!;
 
-        string Map(string id) => idMap.TryGetValue(id, out var l) ? l : creates.TryGetValue(id, out var c) ? RefPrefix + c.Key : id;
+        // Only a create the plan writes: one it registered and then left out (a Threat Intelligence policy the Baseline has and
+        // the console does not yet) would sit in the reorder unresolved, and the reorder would wait on it forever.
+        string Map(string id) => idMap.TryGetValue(id, out var l) ? l
+            : creates.TryGetValue(id, out var c) && doc.Operations.Contains(c) ? RefPrefix + c.Key : id;
         // A pair can be a zone this plan creates: named as a create's rows name it.
         var pairCtx = liveCtx.With(RefNames(creates));
 
         var liveOrder = ConfigDiffEngine.PolicyOrder(live);
+        var onConsole = live.Get("firewall_policy").Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var deleted = doc.Operations.Where(o => o.Action == PlanAction.Delete && o.Collection == "firewall_policy").Select(o => o.ObjectId).ToHashSet();
         foreach (var group in desired.Get("firewall_policy").Where(p => def.IsGenerated?.Invoke(p) != true)
                      .GroupBy(p => (Src: p["source"]?["zone_id"]?.ToString() ?? "", Dst: p["destination"]?["zone_id"]?.ToString() ?? "")))
@@ -900,7 +904,8 @@ public static class PlanBuilder
             var desiredIds = group.OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue)
                 .Select(p => Map(ConfigState.IdOf(p))).ToList();
             var current = liveOrder.GetValueOrDefault($"{src}>{dst}", []).Where(id => !deleted.Contains(id)).ToList();
-            var desiredExisting = desiredIds.Where(id => !id.StartsWith(RefPrefix, StringComparison.Ordinal)).ToList();
+            // One the console does not have and the plan does not create (Threat Intelligence's, not re-created yet) is no order to write.
+            var desiredExisting = desiredIds.Where(onConsole.Contains).ToList();
             var needs = desiredIds.Any(id => id.StartsWith(RefPrefix, StringComparison.Ordinal))
                 ? desiredIds.Count > 1
                 : !current.Where(desiredExisting.Contains).SequenceEqual(desiredExisting);

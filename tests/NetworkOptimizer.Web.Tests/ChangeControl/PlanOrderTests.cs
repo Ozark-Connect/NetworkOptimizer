@@ -75,6 +75,32 @@ public class PlanOrderTests
     }
 
     [Fact]
+    public void Reorder_LeavesOutAThreatIntelligencePolicyTheConsoleDoesNotHaveYet()
+    {
+        // Return to Baseline mid-provision: Threat Intelligence has not re-created its policy yet. The plan never creates it
+        // (Threat Intelligence does), so the reorder must not name it: it would wait on a create that never comes.
+        var baseline = Policies(Policy("a", 10001), Policy("bl", 10002, name: "Net. Opt. Blocklist"), Policy("b", 10003), Predefined(30000));
+        var live = Policies(Policy("b", 10001), Policy("a", 10002), Predefined(30000));
+
+        var doc = PlanBuilder.Build(baseline, live, new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+
+        doc.Operations.Should().NotContain(o => o.Action == PlanAction.Create);
+        doc.Operations.Should().NotContain(o => o.Body != null && o.Body.ToJsonString().Contains(PlanBuilder.RefPrefix));
+        Before(doc).Should().Equal("a", "b");
+    }
+
+    [Fact]
+    public void Reorder_IsNotWritten_WhenOnlyAThreatIntelligencePolicyTheConsoleLacksDiffers()
+    {
+        var baseline = Policies(Policy("a", 10001), Policy("bl", 10002, name: "Net. Opt. Blocklist"), Policy("b", 10003), Predefined(30000));
+        var live = Policies(Policy("a", 10001), Policy("b", 10002), Predefined(30000));
+
+        var doc = PlanBuilder.Build(baseline, live, new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+
+        doc.Operations.Should().BeEmpty("the order the plan writes is already the console's");
+    }
+
+    [Fact]
     public void Reorder_InARollBack_ListsPoliciesOutsideItsObjects()
     {
         var before = Policies(Policy("a", 10001), Policy("b", 10002), Predefined(30000));
