@@ -1480,6 +1480,15 @@ public class UniFiProductDatabaseTests
     #region GetDefaultQmiDevicePath Tests
 
     [Theory]
+    [InlineData("UDR-5G-Max")]
+    [InlineData("UDMA6B9")]
+    [InlineData("UDR5G")]
+    public void GetDefaultQmiDevicePath_Udr5GMax_ReturnsMhiPipe(string model)
+    {
+        UniFiProductDatabase.GetDefaultQmiDevicePath(model).Should().Be("/dev/mhi_0308_02.01.00_pipe_12");
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     public void GetDefaultQmiDevicePath_NullOrEmpty_ReturnsDefaultPath(string? model)
@@ -1537,9 +1546,6 @@ public class UniFiProductDatabaseTests
     [InlineData("U5GMAX")]
     [InlineData("U5G-Max")]
     [InlineData("U5G-Max-Outdoor")]
-    [InlineData("UDMA6B9")]      // UDR-5G-Max model code
-    [InlineData("UDR5G")]        // UDR-5G-Max legacy SKU
-    [InlineData("UDR-5G-Max")]   // UDR-5G-Max product name
     public void GetDefaultQmiDevicePath_5gModems_ReturnsWwan0Qmi0(string model)
     {
         // Act
