@@ -88,6 +88,19 @@ public class SiteRolloutStatusTests
         SiteRolloutStatus.From(null, plans, Now)!.Stage.Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData(SiteRolloutStage.Running, 0, true)]
+    [InlineData(SiteRolloutStage.Paused, 0, true)]
+    [InlineData(SiteRolloutStage.Soaking, 0, true)]
+    [InlineData(SiteRolloutStage.Scheduled, 23, true)]
+    [InlineData(SiteRolloutStage.Scheduled, 25, false)]
+    [InlineData(SiteRolloutStage.Completed, -2, false)]
+    [InlineData(SiteRolloutStage.Failed, -2, false)]
+    public void NeedsAttention_UnderWayOrStartingWithinADay(SiteRolloutStage stage, int hoursFromNow, bool expected)
+    {
+        new SiteRolloutStatus(1, stage, Now.AddHours(hoursFromNow)).NeedsAttention(Now).Should().Be(expected);
+    }
+
     [Fact]
     public void Describe_SaysWhenAScheduledRolloutStarts()
     {

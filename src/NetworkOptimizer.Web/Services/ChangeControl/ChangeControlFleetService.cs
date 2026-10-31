@@ -589,9 +589,22 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 Rollout = await RolloutAsync(site.Slug, now, cancellationToken),
             });
         }
-        // Worst first: no data from an unreachable site, then lowest health. Ties keep the natural
-        // site order SitesAsync returns, since OrderBy is stable.
-        return result.OrderBy(s => s.Online ? 1 : 0).ThenBy(s => s.Health.Latest ?? s.Health.Average ?? 101).ToList();
+        // Worst first, by tier, then lowest health. Ties keep the natural site order SitesAsync
+        // returns, since OrderBy is stable.
+        return result.OrderBy(s => AttentionTier(s, now)).ThenBy(s => s.Health.Latest ?? s.Health.Average ?? 101).ToList();
+    }
+
+    /// <summary>
+    /// Unreachable, then down, then a rollout under way or imminent, then degraded, then the rest:
+    /// a rollout outranks a minor health issue but not users having a bad time now.
+    /// </summary>
+    private static int AttentionTier(SiteHealth.SiteHealthSummary s, DateTime now)
+    {
+        if (!s.Online) return 0;
+        var level = SiteHealth.SiteHealthSeriesBuilder.Level(s.Health.Latest ?? s.Health.Average);
+        if (level == "down") return 1;
+        if (s.Rollout?.NeedsAttention(now) == true) return 2;
+        return level == "degraded" ? 3 : 4;
     }
 
     /// <summary>The site's rollout to surface, read from its database; null when none or unreadable.</summary>

@@ -27,6 +27,20 @@ public sealed record SiteRolloutStatus(int PlanId, SiteRolloutStage Stage, DateT
     /// <summary>How long a finished rollout stays surfaced after its report.</summary>
     public static readonly TimeSpan RecentWindow = TimeSpan.FromHours(24);
 
+    /// <summary>How soon a scheduled rollout has to start to count as <see cref="NeedsAttention"/>.</summary>
+    public static readonly TimeSpan ImminentWindow = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// True while the rollout is running, paused, or soaking, or scheduled to start within
+    /// <see cref="ImminentWindow"/>: the site ranks above minor health issues on the Dashboard.
+    /// </summary>
+    public bool NeedsAttention(DateTime nowUtc) => Stage switch
+    {
+        SiteRolloutStage.Running or SiteRolloutStage.Paused or SiteRolloutStage.Soaking => true,
+        SiteRolloutStage.Scheduled => At is not { } at || at - nowUtc <= ImminentWindow,
+        _ => false,
+    };
+
     /// <summary>True once the soak is over and the report exists.</summary>
     public bool IsFinished => Stage is SiteRolloutStage.Completed or SiteRolloutStage.Partial or SiteRolloutStage.Failed;
 
