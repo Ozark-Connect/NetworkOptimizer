@@ -2596,6 +2596,19 @@
         // link asked for whenever the two disagreed.
         if (_wanOptions.Count == 0) return;
 
+        // The LAN scope: the same claim on the restore and the same never-persisted narrowing as a
+        // WAN link below, with the WAN selection left as it was, as the LAN pill leaves it.
+        if (IsLanScopeToken(WanParam))
+        {
+            _appliedLinkWanKey = LinkWanKey;
+            _linkNarrowedWanSelection = true;
+            _wanSelectionRestored = true;
+            _lanScope = true;
+            _allScope = false;
+            await ApplyWanSelectionAsync(persist: false);
+            return;
+        }
+
         var keys = ResolveLinkWanKeys(WanParam);
         // Stamped before the resolve is judged: the link has been CONSIDERED either way, and the
         // options are loaded by here, so a WAN this site does not have will not resolve on a later
@@ -2861,12 +2874,6 @@
     private string LinkWanKey => $"{_activeTab}|{WanParam}|{AtParam}|{CategoryParam}|{InvestigateParam}";
 
     /// <summary>
-    /// Whether the link in the address bar is one whose <c>?wan=</c> should narrow this filter. A
-    /// category jump from Live View and an ISP Health investigate jump both are: each says which
-    /// WAN's trouble you came to look at. A discovery link carries a WAN too and is NOT - it is
-    /// asking to run discovery on that WAN, not to re-scope the analysis.
-    /// </summary>
-    /// <summary>
     /// Whether the WAN scope a link asked for is in place, so an investigation fired from that link
     /// searches the WAN the link named rather than whatever the tab loaded with. The investigation
     /// runs from OnAfterRenderAsync ahead of the chart-mount block that applies the link's WAN, so
@@ -2883,10 +2890,22 @@
         || _appliedLinkWanKey == LinkWanKey
         || (_wanOptionsLoaded && _wanOptions.Count == 0);
 
+    /// <summary>
+    /// Whether the link in the address bar is one whose <c>?wan=</c> should narrow this filter. A
+    /// category jump from Live View and an ISP Health investigate jump both are: each says which
+    /// WAN's trouble you came to look at. So is <c>?wan=lan</c> on its own (the Sites card's LAN
+    /// issue): it names the LAN scope outright. A discovery link carries a WAN too and is NOT - it is
+    /// asking to run discovery on that WAN, not to re-scope the analysis.
+    /// </summary>
     private bool LinkNarrowsWanFilter =>
         !string.IsNullOrWhiteSpace(WanParam)
         && (!string.IsNullOrEmpty(CategoryParam)
-            || InvestigateParam is "packet-loss" or "loaded-loss");
+            || InvestigateParam is "packet-loss" or "loaded-loss"
+            || (IsLanScopeToken(WanParam) && _activeTab == "performance"));
+
+    /// <summary>Whether a link's <c>?wan=</c> asks for the LAN scope rather than WANs.</summary>
+    private static bool IsLanScopeToken(string? wanParam) =>
+        string.Equals(wanParam?.Trim(), LanScopeToken, StringComparison.OrdinalIgnoreCase);
 
     private bool _linkNarrowedWanSelection;
 

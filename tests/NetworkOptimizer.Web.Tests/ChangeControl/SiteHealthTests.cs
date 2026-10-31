@@ -293,7 +293,7 @@ public class SiteHealthTests
     [InlineData("Internet", "/monitoring?tab=isp-health")]
     [InlineData("Wi-Fi", "/wifi-optimizer")]
     [InlineData("Availability", "/monitoring?tab=devices")]
-    [InlineData("LAN", "/monitoring?tab=live")]
+    [InlineData("LAN", "/monitoring?tab=performance&wan=lan")]
     [InlineData(null, null)]
     public void IssueHref_OpensThePageThatShowsTheArea(string? area, string? href)
     {

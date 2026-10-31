@@ -88,15 +88,15 @@ public static class SiteHealthSeriesBuilder
 
     /// <summary>
     /// The page that shows an issue area's detail: ISP Health for Internet (outages, loss, latency,
-    /// bufferbloat), the Wi-Fi Optimizer for Wi-Fi, Device Stats for devices offline, Live View for LAN
-    /// links and port errors. Null for an unknown area.
+    /// bufferbloat), the Wi-Fi Optimizer for Wi-Fi, Device Stats for devices offline, Network Performance on the LAN
+    /// scope for LAN loss and port errors (each Fabric target's loss, side by side). Null for an unknown area.
     /// </summary>
     internal static string? IssueHref(string? area) => area switch
     {
         "Internet" => "/monitoring?tab=isp-health",
         "Wi-Fi" => "/wifi-optimizer",
         "Availability" => "/monitoring?tab=devices",
-        "LAN" => "/monitoring?tab=live",
+        "LAN" => "/monitoring?tab=performance&wan=lan",
         _ => null,
     };
 
@@ -105,7 +105,7 @@ public static class SiteHealthSeriesBuilder
         "Internet" => "Monitoring - ISP Health",
         "Wi-Fi" => "Wi-Fi Optimizer",
         "Availability" => "Monitoring - Device Stats",
-        "LAN" => "Monitoring - Live View",
+        "LAN" => "Monitoring - Network Performance",
         _ => null,
     };
 
