@@ -158,8 +158,8 @@ public sealed partial class ChangeControlService
             var mac = c["mac"]?.ToString()?.ToLowerInvariant() ?? "";
             var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
             // Network Optimizer's own host: never cut. No lease and no reservation: set on the device, nothing to gain.
-            // No lease with a reservation is either static or a lease that lapsed while the client slept (a TV in
-            // standby): a wireless rejoin settles it, but a power-cycle is only for clients known to be on DHCP.
+            // No lease with a reservation is set on the device or served by another DHCP server: a wireless rejoin
+            // is harmless and settles it, but a power-cycle is only for clients known to be on this gateway's DHCP.
             var reserved = Readdressing.IsTrue(c["use_fixedip"]);
             var noLease = leased != null && !leased.Contains(mac);
             if (own.Contains(ip) || (noLease && !reserved)) continue;

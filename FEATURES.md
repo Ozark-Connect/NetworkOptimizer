@@ -311,7 +311,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
   - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
     - Addresses on a WAN's carrier side or a VPN's far side stay as they are
-    - The dry run lists clients with the address set on the device (from the gateway's DHCP leases, Gateway SSH), telling them from reserved clients that are only idle or offline
+    - The dry run lists every connected client with no DHCP lease from the gateway (Gateway SSH), reserved or not, and offline clients likely set on the device
     - Warns when Network Optimizer's host, a management network, or the console moves, and names devices that need a new inform address
     - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
