@@ -274,10 +274,41 @@ public sealed class AgentTunnelConnection
     public bool? OnGateway { get; internal set; }
 
     /// <summary>
-    /// Set once this connection, as the site's collector, has been sent its SNMP config. Until then
-    /// the other agents keep polling, so a handover overlaps rather than leaving a gap.
+    /// True while this connection, as the site's collector, has been sent its SNMP config; cleared when it
+    /// is pushed as a non-collector. Until it is set the other agents keep polling, so a handover overlaps
+    /// rather than leaving a gap.
     /// </summary>
     public bool CollectorSnmpPushed { get; internal set; }
+
+    /// <summary>As <see cref="CollectorSnmpPushed"/>, for the site's primary-WAN and fabric probe targets.</summary>
+    public bool CollectorProbesPushed { get; internal set; }
+
+    private long _probeIssued, _probeSent, _snmpIssued, _snmpSent;
+
+    /// <summary>Numbers a probe push at its start, before it reads the registry.</summary>
+    internal long BeginProbePush() => Interlocked.Increment(ref _probeIssued);
+
+    /// <summary>
+    /// False when a probe push that started later has already been sent: this one read an older registry
+    /// and must not overwrite it.
+    /// </summary>
+    internal bool CommitProbePush(long seq) => Commit(ref _probeSent, seq);
+
+    /// <summary>Numbers an SNMP push at its start.</summary>
+    internal long BeginSnmpPush() => Interlocked.Increment(ref _snmpIssued);
+
+    /// <summary>As <see cref="CommitProbePush"/>, for SNMP config.</summary>
+    internal bool CommitSnmpPush(long seq) => Commit(ref _snmpSent, seq);
+
+    private static bool Commit(ref long sent, long seq)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref sent);
+            if (seq < current) return false;
+            if (Interlocked.CompareExchange(ref sent, seq, current) == current) return true;
+        }
+    }
 
     /// <summary>Feature capabilities from the hello (e.g. "conntrack-accounting"). Empty from older agents.</summary>
     public IReadOnlyList<string> Capabilities { get; internal set; } = Array.Empty<string>();

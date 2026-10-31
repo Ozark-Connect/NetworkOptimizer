@@ -211,4 +211,48 @@ public class AgentTunnelRegistryTests
         registry.IsUnstable(1).Should().BeTrue();
         registry.IsUnstable(2).Should().BeFalse();
     }
+
+    [Fact]
+    public void ConfigPush_StartedEarlierCannotLandAfterALaterOne()
+    {
+        var connection = Registry(tunnelEnabled: true).Register(1, "branch-office", "Agent");
+        var earlier = connection.BeginProbePush();
+        var later = connection.BeginProbePush();
+
+        connection.CommitProbePush(later).Should().BeTrue();
+        connection.CommitProbePush(earlier).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ConfigPush_EarlierOneStillLandsWhenTheLaterNeverSent()
+    {
+        var connection = Registry(tunnelEnabled: true).Register(1, "branch-office", "Agent");
+        var earlier = connection.BeginSnmpPush();
+        _ = connection.BeginSnmpPush(); // held or failed: never committed
+
+        connection.CommitSnmpPush(earlier).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConfigPush_ProbeAndSnmpAreNumberedSeparately()
+    {
+        var connection = Registry(tunnelEnabled: true).Register(1, "branch-office", "Agent");
+        var snmp = connection.BeginSnmpPush();
+        connection.CommitProbePush(connection.BeginProbePush()).Should().BeTrue();
+        _ = connection.BeginProbePush();
+
+        connection.CommitSnmpPush(snmp).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(29, false)]
+    [InlineData(30, true)]
+    [InlineData(65, true)]
+    public void EmptySnmpEnumeration_ConfirmsOnlyAfterTheGap(int secondsLater, bool confirmed)
+    {
+        var first = new DateTime(2026, 10, 31, 12, 0, 0, DateTimeKind.Utc);
+
+        AgentProbeResultSink.EmptyEnumerationConfirmed(first, first.AddSeconds(secondsLater)).Should().Be(confirmed);
+    }
 }
