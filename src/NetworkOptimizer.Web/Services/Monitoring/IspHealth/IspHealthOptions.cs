@@ -449,7 +449,7 @@ public class IspHealthOptions
     // speedtest degradation) and stands until a replay of a wider set of events confirms or moves it.
 
     /// <summary>Length of one degradation evaluation window, in minutes.</summary>
-    public int PathDegradationWindowMinutes { get; set; } = 5;
+    public int PathDegradationWindowMinutes { get; set; } = 1;
 
     /// <summary>Consecutive degraded windows that make a target degraded (15 min sustained at 5-min windows),
     /// and consecutive clean windows that clear it.</summary>
@@ -495,7 +495,7 @@ public class IspHealthOptions
     public int PathMaxHops { get; set; } = 30;
 
     /// <summary>Minutes after an episode clears before its recovery round, the per-hop baseline.</summary>
-    public int PathRecoveryDelayMinutes { get; set; } = 15;
+    public int PathRecoveryDelayMinutes { get; set; } = 3;
 
     /// <summary>
     /// Hours an episode may stay open. A target that never clears (a step that is the new normal)
