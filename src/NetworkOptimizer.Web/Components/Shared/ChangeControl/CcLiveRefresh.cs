@@ -3,8 +3,9 @@ using NetworkOptimizer.Web.Services.ChangeControl;
 namespace NetworkOptimizer.Web.Components.Shared.ChangeControl;
 
 /// <summary>
-/// Refreshes a Change Control tab when a site it shows records a snapshot or change: once per burst, a
-/// moment after the last one, on the component's own dispatcher. Dispose with the component.
+/// Refreshes a Change Control tab when a site it shows records a snapshot or change, or with
+/// <c>healthScored</c>, when its Site Health rescores: once per burst, a moment after the last one, on the
+/// component's own dispatcher. Dispose with the component.
 /// </summary>
 internal sealed class CcLiveRefresh : IDisposable
 {
@@ -23,15 +24,21 @@ internal sealed class CcLiveRefresh : IDisposable
     /// <param name="invoke">The component's InvokeAsync.</param>
     /// <param name="refresh">Reloads the tab in place.</param>
     /// <param name="logger">Logs a failed refresh.</param>
-    public CcLiveRefresh(ChangeControlRegistry registry, Func<string, bool> wants, Func<Func<Task>, Task> invoke, Func<Task> refresh, ILogger logger)
+    /// <param name="healthScored">Follow Site Health rescoring instead of recorded changes.</param>
+    public CcLiveRefresh(ChangeControlRegistry registry, Func<string, bool> wants, Func<Func<Task>, Task> invoke, Func<Task> refresh, ILogger logger,
+        bool healthScored = false)
     {
         _registry = registry;
         _wants = wants;
         _invoke = invoke;
         _refresh = refresh;
         _logger = logger;
-        _registry.Changed += OnChanged;
+        _healthScored = healthScored;
+        if (healthScored) _registry.HealthScored += OnChanged;
+        else _registry.Changed += OnChanged;
     }
+
+    private readonly bool _healthScored;
 
     private void OnChanged(string slug)
     {
@@ -49,6 +56,7 @@ internal sealed class CcLiveRefresh : IDisposable
     public void Dispose()
     {
         _disposed = true;
-        _registry.Changed -= OnChanged;
+        if (_healthScored) _registry.HealthScored -= OnChanged;
+        else _registry.Changed -= OnChanged;
     }
 }

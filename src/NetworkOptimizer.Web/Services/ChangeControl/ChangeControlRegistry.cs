@@ -39,6 +39,12 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
     /// <summary>Raised with a site's slug after it records a snapshot or change, so open pages can refresh.</summary>
     public event Action<string>? Changed;
 
+    /// <summary>
+    /// Raised with a site's slug after its Site Health job rescores the current hour (every few minutes).
+    /// Separate from <see cref="Changed"/> so only health lines redraw, not change lists.
+    /// </summary>
+    public event Action<string>? HealthScored;
+
     /// <summary>The engine for a site, created on first use (not started until reconcile).</summary>
     public ChangeControlSiteEngine GetFor(string slug) => _engines.GetOrAdd(slug, Build);
 
@@ -252,6 +258,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             () => connection, _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"SiteHealth[{slug}]"));
         _health[slug] = health;
+        health.Scored += () => HealthScored?.Invoke(slug);
         engine.OnTick = async ct =>
         {
             await coordinator.TickAsync(ct);

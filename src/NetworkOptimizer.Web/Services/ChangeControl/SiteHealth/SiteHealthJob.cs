@@ -62,6 +62,9 @@ public sealed class SiteHealthJob
     /// </summary>
     public IReadOnlyList<SiteHealthHour> Provisional { get; private set; } = [];
 
+    /// <summary>Raised after a run rescores the provisional hours, so open health lines can redraw.</summary>
+    public event Action? Scored;
+
     /// <summary>Stored hours plus any provisional hour not stored yet, ordered by hour.</summary>
     public static List<SiteHealthHour> WithProvisional(IEnumerable<SiteHealthHour> stored, IReadOnlyList<SiteHealthHour> provisional)
     {
@@ -115,6 +118,7 @@ public sealed class SiteHealthJob
             var sw2 = Stopwatch.StartNew();
             Provisional = await ComputeAsync(latest.AddHours(1), FloorHour(now).AddHours(1), stored, ct);
             if (sw2.Elapsed > SlowRun) _next = DateTime.UtcNow + SlowPause;
+            Scored?.Invoke();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

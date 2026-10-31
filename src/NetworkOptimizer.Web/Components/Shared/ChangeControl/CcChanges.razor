@@ -510,6 +510,9 @@
         _live = new CcLiveRefresh(Registry,
             slug => _range != "custom" && (string.IsNullOrEmpty(SiteFilter) || string.Equals(SiteFilter, slug, StringComparison.OrdinalIgnoreCase)),
             InvokeAsync, RefreshAsync, Logger);
+        _liveHealth = new CcLiveRefresh(Registry,
+            slug => _range != "custom" && (string.IsNullOrEmpty(SiteFilter) || string.Equals(SiteFilter, slug, StringComparison.OrdinalIgnoreCase)),
+            InvokeAsync, RefreshTimelineAsync, Logger, healthScored: true);
         // Open with the site in context expanded into its lanes; the busiest site when it is not listed.
         if ((_timeline?.FirstOrDefault(r => string.Equals(r.Site.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
              ?? _timeline?.OrderByDescending(r => r.ChangeCount).FirstOrDefault()) is { } open)
@@ -638,7 +641,27 @@
         StateHasChanged();
     }
 
-    public void Dispose() => _live?.Dispose();
+    private CcLiveRefresh? _liveHealth;
+
+    /// <summary>Redraws the timeline and open lanes up to now as Site Health rescores; the change list stays as it is.</summary>
+    private async Task RefreshTimelineAsync()
+    {
+        if (_timeline == null) return;
+        (_from, _to) = Range();
+        if (_to - _from > SiteMetricsReader.MaxRange) _from = _to - SiteMetricsReader.MaxRange;
+        var filter = string.IsNullOrEmpty(SiteFilter) ? null : new[] { SiteFilter };
+        var timeline = await Fleet.GetTimelineAsync(_from, _to, filter);
+        foreach (var slug in _expandedSites.Where(s => timeline.Any(r => r.Site.Slug == s)).ToList())
+            _lanes[slug] = await Fleet.GetLanesAsync(slug, _from, _to);
+        _timeline = timeline;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _live?.Dispose();
+        _liveHealth?.Dispose();
+    }
 
     /// <summary>A single-site filter opens that site into its lanes, as the busiest site is on first load.</summary>
     private async Task SiteFilterChangedAsync()
