@@ -72,9 +72,11 @@ public sealed class PathEpisodeWatcher
     private readonly Dictionary<string, DateTime?> _exhausted = new(StringComparer.OrdinalIgnoreCase);
     private bool _started;
 
-    // Traces in flight at once across this site's episodes. Each one holds a process slot on the local
-    // executor that the latency pings share, and those pings are what decide degradation and outages.
-    private readonly SemaphoreSlim _traceSlots = new(2, 2);
+    // One trace at a time across this site's episodes. Linux routers rate-limit Time Exceeded per
+    // source (icmp_ratelimit, burst 6), so two traces' 5 TTL-1 probes at once lose replies at the
+    // gateway, which then reads as a lossy hop. One also leaves the local executor's process slots
+    // to the latency pings that decide degradation and outages.
+    private readonly SemaphoreSlim _traceSlots = new(1, 1);
 
 
     public PathEpisodeWatcher(
@@ -554,7 +556,7 @@ public sealed class PathEpisodeWatcher
             due = _runs.Values.Where(r => !r.Busy).ToList();
             foreach (var r in due) r.Busy = true;
         }
-        // Episodes on different WANs advance side by side; _traceSlots bounds the traces they run.
+        // Episodes on different WANs advance side by side; _traceSlots serializes the traces they run.
         await Task.WhenAll(due.Select(run => AdvanceGuardedAsync(run, ct)));
     }
 

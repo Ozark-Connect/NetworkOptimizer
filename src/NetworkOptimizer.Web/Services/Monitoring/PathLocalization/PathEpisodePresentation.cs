@@ -2,6 +2,20 @@ using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 
+/// <summary>The ISP Health banner for one episode.</summary>
+/// <param name="EpisodeId">The episode it is about.</param>
+/// <param name="Phase">"tracing" or "done": a dismissal covers one phase, so the verdict still shows after the tracing banner was dismissed.</param>
+/// <param name="CssClass">The alert class.</param>
+/// <param name="Lead">The bold opening.</param>
+/// <param name="Text">The rest of the sentence.</param>
+/// <param name="More">Other episodes that would have qualified.</param>
+public sealed record PathEpisodeBanner(int EpisodeId, string Phase, string CssClass, string Lead, string Text, int More)
+{
+    /// <summary>The per-user dismissal key. Keyed by episode, so a new episode shows again; the slug
+    /// because episode ids repeat across site databases.</summary>
+    public string DismissKey(string siteSlug) => $"PathEpisodeBannerDismissed:{siteSlug}:{EpisodeId}:{Phase}";
+}
+
 /// <summary>
 /// How Path Localization episodes read on ISP Health: their Path &amp; Congestion Events rows and the
 /// findings they raise. Like <see cref="IspHealthPresentation"/>, wording only - nothing here scores.
@@ -82,6 +96,56 @@ public static class PathEpisodePresentation
             }
         }
     }
+
+    /// <summary>How long after an episode closes its banner stays up.</summary>
+    public static readonly TimeSpan BannerHold = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// The banner at the top of ISP Health: the newest tracing episode, else the newest one that closed
+    /// within <see cref="BannerHold"/>. Null when there is neither.
+    /// </summary>
+    /// <param name="episodes">Episodes overlapping the last <see cref="BannerHold"/>, any order.</param>
+    public static PathEpisodeBanner? Banner(IReadOnlyList<PathEpisodeView> episodes, DateTime nowUtc)
+    {
+        var shown = episodes
+            .Where(e => e.Tracing || (e.ClosedAt is DateTime c && nowUtc - c <= BannerHold))
+            .OrderByDescending(e => e.Tracing).ThenByDescending(e => e.OpenedAt)
+            .ToList();
+        if (shown.Count == 0) return null;
+
+        var e = shown[0];
+        var names = Names(e.Degraded);
+        var label = string.IsNullOrEmpty(e.Label) ? null : Sentence(e.Label);
+        if (e.Tracing)
+        {
+            var verb = e.Degraded.Count == 1 ? "is" : "are";
+            return new PathEpisodeBanner(e.Id, "tracing", "alert-info", "Tracing now:",
+                $"{names} {verb} {Symptom(e)} while the rest of your connection is clean. Network Optimizer is tracing the path every minute to find where it starts.",
+                shown.Count - 1);
+        }
+
+        var confirmed = e.Disposition == CongestionDisposition.Confirmed;
+        var text = $"{names}, {Span(e.OpenedAt, e.ClosedAt!.Value)}.{(label == null ? "" : $" {label}")}";
+        return new PathEpisodeBanner(e.Id, "done", confirmed ? "alert-warning" : "alert-info",
+            confirmed ? "Path degradation localized:" : "Path trace finished:", text, shown.Count - 1);
+    }
+
+    /// <summary>"losing packets (peak 27%)", "running 42 ms slower", or both, from the worst degraded target.</summary>
+    internal static string Symptom(PathEpisodeView e)
+    {
+        var worst = e.Degraded.OrderByDescending(t => t.PeakLossPct ?? 0).ThenByDescending(t => (t.PeakRttMs ?? 0) - (t.BaselineRttMs ?? 0)).FirstOrDefault();
+        var parts = new List<string>();
+        if (worst?.PeakLossPct is double loss && loss >= 0.5) parts.Add($"losing packets (peak {loss:0.#}%)");
+        // A few ms either way is ordinary window-to-window noise, not a symptom worth naming.
+        if (worst?.BaselineRttMs is double b && worst.PeakRttMs is double p && p - b >= 5) parts.Add($"running {p - b:0} ms slower");
+        return parts.Count == 0 ? "degraded" : string.Join(" and ", parts);
+    }
+
+    /// <summary>"Today, 14:38 to 14:54", or both ends in full when they fall on different days.</summary>
+    private static string Span(DateTime fromUtc, DateTime toUtc) =>
+        fromUtc.ToLocalTime().Date == toUtc.ToLocalTime().Date
+            ? $"{IspHealthPresentation.EventTimeLabel(fromUtc)} to {toUtc.ToLocalTime():HH:mm}"
+            : $"{IspHealthPresentation.EventTimeLabel(fromUtc)} to {IspHealthPresentation.EventTimeLabel(toUtc)}";
 
     /// <summary>"AWS us-east-1, AWS us-east-2 and Speedtest ORD".</summary>
     internal static string Names(IReadOnlyList<PathEpisodeTargetView> targets) => targets.Count switch

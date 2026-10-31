@@ -289,6 +289,25 @@ else
             </div>
         </div>
     }
+    @if (_episodeBanner is { } banner && !_episodeBannerDismissed)
+    {
+        <div class="alert @banner.CssClass" style="margin-bottom: 0.75rem;">
+            <div class="banner-content">
+                <span class="banner-icon @(banner.CssClass == "alert-warning" ? "banner-icon-warning" : "banner-icon-info")">@(banner.CssClass == "alert-warning" ? "!" : "i")</span>
+                <div class="banner-text" style="flex: 1;">
+                    <strong>@banner.Lead</strong> @banner.Text
+                    @if (banner.More > 0)
+                    {
+                        <span> @banner.More more in the last 24 hours.</span>
+                    }
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="() => ShowEpisodeTraceAsync(banner.EpisodeId)">See the trace</button>
+                    <button class="btn btn-sm btn-contrast" @onclick="DismissEpisodeBannerAsync">Dismiss</button>
+                </div>
+            </div>
+        </div>
+    }
     @* While an explicit recompute is in flight (Refresh, a time-window change, or an access-tech
        change) swap just the hero for the same area spinner shown on initial load, so the headline
        score never displays a stale number mid-recompute. The detail cards below stay put. *@
@@ -1053,6 +1072,54 @@ else
     private IReadOnlyList<TimelineEntry> _episodeEntries = Array.Empty<TimelineEntry>();
     private static readonly IspHealthOptions EpisodeOptions = new();
 
+    // The banner reads the last 24 hours whatever the report window, so a 1-hour view still shows
+    // yesterday evening's verdict and a 7-day view does not hold it for a week.
+    private NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeBanner? _episodeBanner;
+    private bool _episodeBannerDismissed = true;
+
+    private async Task LoadEpisodeBannerAsync()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var recent = await PathEpisodes.GetEpisodesAsync(
+                now - NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.BannerHold,
+                now, _selectedWanKey, _wanSvc == null);
+            var banner = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Banner(recent, now);
+            // A failed read keeps it hidden, like the plan-speed hint.
+            var dismissed = banner == null || await Dismissals.IsDismissedAsync(banner.DismissKey(SiteContext.Slug));
+            _episodeBanner = banner;
+            _episodeBannerDismissed = dismissed;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load the path episode banner");
+        }
+    }
+
+    private async Task DismissEpisodeBannerAsync()
+    {
+        if (_episodeBanner is not { } banner) return;
+        _episodeBannerDismissed = true;
+        try
+        {
+            await Dismissals.DismissAsync(banner.DismissKey(SiteContext.Slug));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not save the path episode banner dismissal");
+        }
+    }
+
+    /// <summary>Opens the episode's hop table in Path &amp; Congestion Events and scrolls to it.</summary>
+    private async Task ShowEpisodeTraceAsync(int episodeId)
+    {
+        _expandedEvents.Add($"episode:{episodeId}");
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("eval", "document.getElementById('isp-events')?.scrollIntoView({ behavior: 'smooth', block: 'start' });"); }
+        catch { /* the events card is not rendered */ }
+    }
+
     private IEnumerable<IspHealthIssue> EpisodeFindings =>
         NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Findings(_episodes, EpisodeOptions);
 
@@ -1077,6 +1144,7 @@ else
         {
             Logger.LogDebug(ex, "Could not load path episodes");
         }
+        await LoadEpisodeBannerAsync();
     }
 
     private void ToggleEventMembers(string key)
@@ -1635,6 +1703,8 @@ else
         if (_followLive) _selectedPreset = LiveWindowHours;
         // Cheap (one site-database read), and what keeps a tracing episode's row live.
         if (IsLiveWindow || _episodes.Any(e => e.Tracing)) await LoadEpisodesAsync();
+        // Every window: the banner is about the last 24 hours, not the one on screen.
+        else await LoadEpisodeBannerAsync();
         StateHasChanged();
     }
 
