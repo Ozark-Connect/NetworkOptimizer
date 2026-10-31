@@ -126,7 +126,7 @@ SFP-based ONT monitoring (modules plugged into your gateway that expose DDM opti
 
 **Cellular Modems** - RSRP, RSRQ, SNR, and Signal Quality charted over time with per-band, per-device series and filter badges.
 
-- **Ubiquiti** - U-LTE, U5G-Max, U5G-Backup
+- **Ubiquiti** - U-LTE, U5G-Max, U5G-Backup, and the UDR-5G-Max's built-in modem (over Gateway SSH)
 - **Netgear Nighthawk** - modems and hotspots
 - **GL-iNet / Quectel** - modems and routers
 - **Inseego** - FX4100 5G gateway
@@ -230,7 +230,7 @@ With HTTPS enabled, browser tests can collect location data (with permission) to
 
 ### Cellular Modem Monitoring
 
-If you're running a U-LTE or U5G-Max for backup (or primary) connectivity, you can monitor signal quality from the dashboard: RSRP, RSRQ, SNR, cell tower info, and connection status. Supports multiple modems with easy navigation between them.
+If you're running a U-LTE, U5G-Max, or UDR-5G-Max for backup (or primary) connectivity, you can monitor signal quality from the dashboard: RSRP, RSRQ, SNR, cell tower info, and connection status. Supports multiple modems with easy navigation between them.
 
 ![Cellular Stats Demo](docs/images/cellular-stats.gif)
 
