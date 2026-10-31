@@ -808,7 +808,7 @@ public class RolloutConsoleChannelTests
     [Fact]
     public async Task AConsoleUpdateBehindTheInstalledBuild_IsRefused()
     {
-        // Live on atl-1365: the console ran 5.1.28 and, once GA was selected, offered 5.1.19 as its
+        // Live on a branch site: the console ran 5.1.28 and, once GA was selected, offered 5.1.19 as its
         // pending update. Installing it would have rebooted the console onto an older UniFi OS.
         using var harness = new RolloutHarness();
         harness.Commands.ConsoleInfo = Console(osChannel: "release", installedOs: "5.1.28");
