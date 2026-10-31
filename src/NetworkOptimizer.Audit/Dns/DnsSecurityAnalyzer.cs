@@ -73,10 +73,16 @@ public class DnsSecurityAnalyzer
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
     /// <param name="zoneLookup">Optional firewall zone lookup for DMZ/Hotspot network identification</param>
     /// <param name="trustedDnsRedirectTargets">Optional additional IPs to accept as valid DNAT redirect targets (e.g., keepalived VIPs)</param>
+    /// <param name="allowGuestPublicDns">Leave Guest and Hotspot networks out of DNS coverage checks (Settings: Allow Guest / Hotspot Public DNS). Off by default: guest DNS is checked like any other network's.</param>
     /// <param name="dialer">Optional dialer that opens the third-party DNS probes' connections inside the site's network</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null, List<UniFiNetworkConfig>? networkConfigs = null, List<string>? trustedDnsRedirectTargets = null, IDeviceDialer? dialer = null)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null, List<UniFiNetworkConfig>? networkConfigs = null, List<string>? trustedDnsRedirectTargets = null, IDeviceDialer? dialer = null, bool allowGuestPublicDns = false)
     {
         var result = new DnsSecurityResult();
+        firewallRules = WithoutHotspotAuthorizationBlocks(firewallRules, zoneLookup);
+        // The networks DNS coverage is checked for; the rest of the analysis still sees every network.
+        var coverageNetworks = allowGuestPublicDns ? networks?.Where(n => !IsGuestOrHotspot(n, zoneLookup)).ToList() : networks;
+        if (allowGuestPublicDns && networks != null)
+            result.ExcludedFromCoverageNetworks.AddRange(networks.Where(n => IsGuestOrHotspot(n, zoneLookup) && !string.IsNullOrEmpty(n.Name)).Select(n => n.Name));
 
         // Analyze DoH configuration from settings
         if (settingsData.HasValue)
@@ -111,7 +117,7 @@ public class DnsSecurityAnalyzer
         // Analyze firewall rules
         if (firewallRules != null)
         {
-            AnalyzeFirewallRules(firewallRules, networks, result, externalZoneId);
+            AnalyzeFirewallRules(firewallRules, coverageNetworks, result, externalZoneId);
         }
         else
         {
@@ -153,16 +159,16 @@ public class DnsSecurityAnalyzer
         }
 
         // Analyze DNAT DNS rules (alternative to firewall blocking)
-        if (natRulesData.HasValue && networks?.Any() == true)
+        if (natRulesData.HasValue && coverageNetworks?.Any() == true)
         {
-            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds, firewallGroups, trustedDnsRedirectTargets);
+            AnalyzeDnatDnsRules(natRulesData.Value, coverageNetworks, result, dnatExcludedVlanIds, firewallGroups, trustedDnsRedirectTargets);
         }
 
         // Everything above describes IPv4 traffic. Where a network carries IPv6, find the
         // protection that holds over IPv4 but not over IPv6.
-        if (networks?.Any(n => n.HasIpv6) == true)
+        if (coverageNetworks?.Any(n => n.HasIpv6) == true)
         {
-            AnalyzeIpv6Coverage(firewallRules, natRulesData, networks, result, externalZoneId, dnatExcludedVlanIds, firewallGroups, trustedDnsRedirectTargets);
+            AnalyzeIpv6Coverage(firewallRules, natRulesData, coverageNetworks, result, externalZoneId, dnatExcludedVlanIds, firewallGroups, trustedDnsRedirectTargets);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -965,6 +971,19 @@ public class DnsSecurityAnalyzer
             .Select(kvp => new CoveringRuleInfo { RuleName = kvp.Key, CoveredNetworks = kvp.Value })
             .ToList();
     }
+
+    /// <summary>
+    /// The rules without UniFi's own Hotspot blocks (Post-Authorization Restrictions, Block Unauthorized Traffic): predefined
+    /// blocks from the Hotspot zone that hold only until a guest is authorized, which the API does not show. An authorized
+    /// guest goes on to Allow All Traffic, so they block no guest's DNS. Unchanged without a zone lookup to find the Hotspot zone.
+    /// </summary>
+    internal static List<FirewallRule>? WithoutHotspotAuthorizationBlocks(List<FirewallRule>? rules, Services.FirewallZoneLookup? zoneLookup) =>
+        rules == null || zoneLookup?.GetHotspotZoneId() == null ? rules
+            : rules.Where(r => !(r.Predefined && r.ActionType.IsBlockAction() && zoneLookup.IsHotspotZone(r.SourceZoneId))).ToList();
+
+    /// <summary>A guest network: UniFi's guest flag or purpose, or a network in the Hotspot zone.</summary>
+    private static bool IsGuestOrHotspot(NetworkInfo network, Services.FirewallZoneLookup? zoneLookup) =>
+        network.IsUniFiGuestNetwork || network.Purpose == NetworkPurpose.Guest || zoneLookup?.IsHotspotZone(network.FirewallZoneId) == true;
 
     /// <summary>
     /// Categorize a set of uncovered network names into DMZ, Guest-with-third-party-DNS, and regular

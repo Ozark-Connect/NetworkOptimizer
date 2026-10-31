@@ -53,6 +53,7 @@ public class ConfigAuditEngine
         public string? PiholeManagementUrl { get; init; }
         public Monitoring.Providers.IDeviceDialer? Dialer { get; init; }
         public List<string>? TrustedDnsRedirectTargets { get; init; }
+        public bool AllowGuestPublicDns { get; init; }
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
         public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
@@ -435,6 +436,7 @@ public class ConfigAuditEngine
             PiholeManagementUrl = request.PiholeManagementUrl,
             Dialer = request.Dialer,
             TrustedDnsRedirectTargets = request.TrustedDnsRedirectTargets,
+            AllowGuestPublicDns = request.AllowGuestPublicDns,
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules,
             NetworkConfigs = request.NetworkConfigs,
@@ -1004,7 +1006,7 @@ public class ConfigAuditEngine
                 .Where(g => !string.IsNullOrEmpty(g.Id))
                 .ToDictionary(g => g.Id, g => g);
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup, firewallGroupsDict, ctx.PiholeManagementUrl, ctx.NetworkConfigs, ctx.TrustedDnsRedirectTargets, ctx.Dialer);
+                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup, firewallGroupsDict, ctx.PiholeManagementUrl, ctx.NetworkConfigs, ctx.TrustedDnsRedirectTargets, ctx.Dialer, ctx.AllowGuestPublicDns);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

@@ -100,6 +100,12 @@ public class AuditRequest
     public List<string>? TrustedDnsRedirectTargets { get; init; }
 
     /// <summary>
+    /// Optional: leave Guest and Hotspot networks out of DNS coverage checks (Settings: Allow Guest / Hotspot Public DNS).
+    /// Off by default: guest DNS is checked like any other network's.
+    /// </summary>
+    public bool AllowGuestPublicDns { get; init; }
+
+    /// <summary>
     /// Optional: Custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)
     /// If not specified, auto-probes ports 80, 443, 8080, 3000
     /// </summary>

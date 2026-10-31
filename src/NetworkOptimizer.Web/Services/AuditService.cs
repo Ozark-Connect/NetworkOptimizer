@@ -197,6 +197,7 @@ public partial class AuditService : IAuditScanService
             var dnatExcludedVlans = await _settingsRepository.GetSystemSettingAsync("audit:dnatExcludedVlans");
             var piholeEndpoint = await _settingsRepository.GetSystemSettingAsync("audit:piholeManagementPort");
             var trustedDnsTargets = await _settingsRepository.GetSystemSettingAsync("audit:trustedDnsRedirectTargets");
+            var allowGuestPublicDns = await _settingsRepository.GetSystemSettingAsync(AuditOptions.AllowGuestPublicDnsKey);
             var unusedPortDays = await _settingsRepository.GetSystemSettingAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await _settingsRepository.GetSystemSettingAsync("audit:namedPortInactivityDays");
 
@@ -220,6 +221,8 @@ public partial class AuditService : IAuditScanService
             }
             // Trusted DNS redirect targets (VIPs, anycast IPs not in LAN DNS config)
             options.TrustedDnsRedirectTargets = ParseIpList(trustedDnsTargets);
+            // Guest and Hotspot networks are checked for DNS control unless the operator allows them public DNS
+            options.AllowGuestPublicDns = allowGuestPublicDns?.ToLower() == "true";
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
@@ -1651,6 +1654,7 @@ public partial class AuditService : IAuditScanService
                 // A site reached through its agent is probed from inside its network, not from here.
                 Dialer = _tunnelRouting?.DialerFor(_siteContext.Slug),
                 TrustedDnsRedirectTargets = options.TrustedDnsRedirectTargets,
+                AllowGuestPublicDns = options.AllowGuestPublicDns,
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,
                 NetworkConfigs = networkConfigs,
@@ -2310,6 +2314,10 @@ public class AuditOptions
     public int? PiholeManagementPort { get; set; }
     public string? PiholeManagementUrl { get; set; }
     public List<string>? TrustedDnsRedirectTargets { get; set; }
+
+    /// <summary>System setting: leave Guest and Hotspot networks out of DNS coverage checks and Fix it for me. Off by default.</summary>
+    public const string AllowGuestPublicDnsKey = "audit:allowGuestPublicDns";
+    public bool AllowGuestPublicDns { get; set; }
 
     // Unused port detection thresholds
     public int UnusedPortInactivityDays { get; set; } = 15;

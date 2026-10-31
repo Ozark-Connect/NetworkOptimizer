@@ -59,21 +59,40 @@ public static class DnsFixes
     /// <param name="live">Live config.</param>
     /// <param name="issueType">The finding's issue type.</param>
     /// <param name="dohDomains">DoH provider hostnames for a new DoH block; the analyzer's registry by default.</param>
-    public static DnsFix? Build(ConfigState live, string issueType, IReadOnlyList<string>? dohDomains = null)
+    /// <param name="allowGuestPublicDns">Leave Guest and Hotspot networks alone (Settings: Allow Guest / Hotspot Public DNS).</param>
+    public static DnsFix? Build(ConfigState live, string issueType, IReadOnlyList<string>? dohDomains = null, bool allowGuestPublicDns = false)
     {
         if (KindOf(issueType) is not { } kind || live.Get("firewall_zone").Count == 0) return null;
         var desired = live.Clone();
         desired.Collections["firewall_policy"] = desired.Get("firewall_policy").Select(p => (JsonObject)p.DeepClone()).ToList();
         desired.Collections["nat"] = desired.Get("nat").Select(p => (JsonObject)p.DeepClone()).ToList();
         var notes = new List<string>();
-        var scope = Scope(live, kind, notes);
-        var uncovered = scope.Where(n => !Covered(live, kind, n)).ToList();
+        // Coverage is read without UniFi's Hotspot authorization blocks; the fix still writes onto the config as it is.
+        var view = WithoutHotspotAuthorizationBlocks(live);
+        var scope = Scope(view, kind, notes, allowGuestPublicDns);
+        var uncovered = scope.Where(n => !Covered(view, kind, n)).ToList();
         if (uncovered.Count == 0) return null;
 
         var changed = kind == Kind.Dnat
-            ? ExtendDnat(live, desired, uncovered, notes)
-            : ExtendBlock(live, desired, kind, scope, uncovered, notes, dohDomains ?? DefaultDohDomains());
+            ? ExtendDnat(view, desired, uncovered, notes)
+            : ExtendBlock(view, desired, kind, scope, uncovered, notes, dohDomains ?? DefaultDohDomains());
         return changed ? new DnsFix(desired, notes, TitleOf(kind)) : null;
+    }
+
+    /// <summary>
+    /// The config without UniFi's own Hotspot blocks (Post-Authorization Restrictions, Block Unauthorized Traffic): they hold
+    /// only until a guest is authorized, which the config does not show, and an authorized guest goes on to Allow All Traffic.
+    /// Read as blocks, they made a guest network look covered for port 53, DoT, and DoQ but not for DoH (Allow Hotspot Portal
+    /// opens 443 first). The DNS audit leaves them out the same way (DnsSecurityAnalyzer.WithoutHotspotAuthorizationBlocks).
+    /// </summary>
+    private static ConfigState WithoutHotspotAuthorizationBlocks(ConfigState live)
+    {
+        var hotspot = live.Get("firewall_zone").FirstOrDefault(z => Str(z["zone_key"]) == "hotspot") is { } h ? ConfigState.IdOf(h) : null;
+        if (hotspot == null) return live;
+        var view = live.Clone();
+        view.Collections["firewall_policy"] = live.Get("firewall_policy").Where(p => !(Str(p["predefined"]) is "true" or "True"
+            && Str(p["action"]) is "BLOCK" or "REJECT" && Str(p["source"]?["zone_id"]) == hotspot)).ToList();
+        return view;
     }
 
     private static IReadOnlyList<string> DefaultDohDomains() =>
@@ -82,10 +101,10 @@ public static class DnsFixes
     /// <summary>
     /// The LAN networks a fix may touch. Out: VPN and WAN networks; the network that holds a LAN resolver (a block
     /// there can cut its upstream; a gateway resolver's upstream leaves from the Gateway zone, so it excludes nothing);
-    /// Hotspot and guest networks unless the operator already filters guest DNS; and, for port 53, a network whose
+    /// Hotspot and guest networks only when the operator allows them public DNS; and, for port 53, a network whose
     /// DHCP DNS is a public resolver, which a port 53 block would cut off.
     /// </summary>
-    private static List<JsonObject> Scope(ConfigState live, Kind kind, List<string> notes)
+    private static List<JsonObject> Scope(ConfigState live, Kind kind, List<string> notes, bool allowGuestPublicDns)
     {
         var zoneOf = ZonePaths.ZoneOfNetwork(live);
         var zones = live.Get("firewall_zone").ToDictionary(ConfigState.IdOf, z => Str(z["zone_key"]) ?? "", StringComparer.OrdinalIgnoreCase);
@@ -98,8 +117,6 @@ public static class DnsFixes
         var resolverHosts = networks.SelectMany(n => LockoutChecker.Resolvers(live, n)).Where(Lan)
             .Select(ip => networks.FirstOrDefault(n => Readdressing.ParseSubnet(Str(n["ip_subnet"])) is { } s && s.Contains(Readdressing.ParseIp(ip)!.Value)))
             .OfType<JsonObject>().Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        // The operator filtering guest DNS anywhere shows the site's posture: guests are then in scope.
-        var guestsFiltered = networks.Where(IsGuest).Any(g => Enum.GetValues<Kind>().Any(k => Covered(live, k, g)));
 
         var scope = new List<JsonObject>();
         foreach (var n in networks)
@@ -110,7 +127,11 @@ public static class DnsFixes
                 notes.Add($"{name}: holds the DNS resolver, so it is left alone.");
                 continue;
             }
-            if (IsGuest(n) && !guestsFiltered) continue;
+            if (IsGuest(n) && allowGuestPublicDns)
+            {
+                notes.Add($"{name}: a guest network, left alone (Allow Guest / Hotspot Public DNS is on in Settings).");
+                continue;
+            }
             if (kind == Kind.Port53 && DhcpDns(n).Any(ip => !Lan(ip) && !gateways.Contains(ip)))
             {
                 notes.Add($"{name}: hands out a public DNS server, which a port 53 block would cut off; left alone.");

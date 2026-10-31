@@ -121,25 +121,43 @@ public class DnsFixesTests
     }
 
     [Fact]
-    public void PerZoneSite_NamesTheCopyAfterTheOperatorsPattern_AndLeavesGuestOut()
+    public void PerZoneSite_NamesTheCopyAfterTheOperatorsPattern_AndCoversGuest()
     {
         var fix = DnsFixes.Build(PerZoneSite(), IssueTypes.DnsNoDotBlock)!;
 
         var copies = fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-")).ToList();
-        copies.Should().ContainSingle();
-        copies[0]["name"]!.ToString().Should().Be("[DNS] Block DoQ / DoT from Management");
-        copies[0]["source"]!["zone_id"]!.ToString().Should().Be("z-mgmt", "a gateway resolver excludes nothing, the native network included");
+        copies.Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-mgmt", "z-hot"], "guest DNS is controlled like any other network's");
+        copies.Single(p => p["source"]!["zone_id"]!.ToString() == "z-mgmt")["name"]!.ToString()
+            .Should().Be("[DNS] Block DoQ / DoT from Management", "a gateway resolver excludes nothing, the native network included");
     }
 
     [Fact]
-    public void PerZoneSite_CoversGuest_WhenTheOperatorAlreadyFiltersGuestDns()
+    public void PerZoneSite_LeavesGuestAlone_WhenGuestsAreAllowedPublicDns()
     {
+        var fix = DnsFixes.Build(PerZoneSite(), IssueTypes.DnsNoDotBlock, allowGuestPublicDns: true)!;
+
+        fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-"))
+            .Select(p => p["source"]!["zone_id"]!.ToString()).Should().Equal("z-mgmt");
+        fix.Notes.Should().Contain("Guest: a guest network, left alone (Allow Guest / Hotspot Public DNS is on in Settings).");
+    }
+
+    [Fact]
+    public void UniFisHotspotAuthorizationBlocks_DoNotCoverGuest()
+    {
+        // Post-Authorization Restrictions and Block Unauthorized Traffic hold only until a guest signs in; an authorized
+        // guest goes on to Allow All Traffic, so they are no DoT block for Guest.
         var site = PerZoneSite();
-        site.Collections["nat"].Add(NetworkDnat("d-guest", "[DNAT] Guest DNS Redir", "n-guest", "10.0.1.1", "10.0.1.1"));
+        var postAuth = Predefined("z-hot", "z-ext", "BLOCK");
+        postAuth["_id"] = "pre-hot-postauth";
+        postAuth["index"] = 30002L;
+        site.Collections["firewall_policy"].Add(postAuth);
+        site.Collections["firewall_policy"].Add(Block("p-mgmt", "[DNS] Block DoQ / DoT from Management", "z-mgmt", "z-ext", "853"));
 
         var fix = DnsFixes.Build(site, IssueTypes.DnsNoDotBlock)!;
 
-        fix.Desired.Get("firewall_policy").Should().Contain(p => p["_id"]!.ToString().StartsWith("fix-") && p["source"]!["zone_id"]!.ToString() == "z-hot");
+        fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-"))
+            .Select(p => p["source"]!["zone_id"]!.ToString()).Should().Equal("z-hot");
+        fix.Desired.Get("firewall_policy").Should().Contain(p => p["_id"]!.ToString() == "pre-hot-postauth", "the fix writes onto the config as it is");
     }
 
     [Fact]
@@ -148,7 +166,7 @@ public class DnsFixesTests
         var fix = DnsFixes.Build(PerZoneSite(), IssueTypes.DnsNoDohBlock, ["dns.google", "cloudflare-dns.com"])!;
 
         var built = fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-new-")).ToList();
-        built.Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-int", "z-mgmt", "z-untr"]);
+        built.Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-int", "z-mgmt", "z-untr", "z-hot"]);
         built.Should().OnlyContain(p => p["destination"]!["matching_target"]!.ToString() == "WEB" && p["destination"]!["port"]!.ToString() == "443");
         built.Select(p => p["name"]!.ToString()).Should().Contain("Block External DoH and QUIC (Management)");
     }
@@ -162,7 +180,7 @@ public class DnsFixesTests
         var fix = DnsFixes.Build(site, IssueTypes.DnsNoDohBlock, ["dns.google", "cloudflare-dns.com"])!;
 
         fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-new-"))
-            .Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-int", "z-untr"]);
+            .Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-int", "z-untr", "z-hot"]);
     }
 
     /// <summary>Per-network DNAT naming its own network three times, a new network uncovered.</summary>
@@ -226,7 +244,7 @@ public class DnsFixesTests
         var site = PerZoneSite();
         site.Get("networkconf").First(n => n["_id"]!.ToString() == "n-mgmt")["internet_access_enabled"] = false;
 
-        DnsFixes.Build(site, issue).Should().BeNull("Management, the only network without a block, has Internet Access off");
+        DnsFixes.Build(site, issue, allowGuestPublicDns: true).Should().BeNull("Management, the only network without a block, has Internet Access off");
     }
 
     [Fact]
@@ -248,7 +266,7 @@ public class DnsFixesTests
         site.Collections["networkconf"].Add(cams);
         site.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-mgmt")["network_ids"]!.AsArray().Add("n-cams");
 
-        var fix = DnsFixes.Build(site, IssueTypes.DnsNoDotBlock)!;
+        var fix = DnsFixes.Build(site, IssueTypes.DnsNoDotBlock, allowGuestPublicDns: true)!;
 
         var copy = fix.Desired.Get("firewall_policy").Single(p => p["_id"]!.ToString().StartsWith("fix-"));
         copy["source"]!["matching_target"]!.ToString().Should().Be("NETWORK");
@@ -257,7 +275,7 @@ public class DnsFixesTests
 
     [Fact]
     public void FullyCovered_HasNothingToFix() =>
-        DnsFixes.Build(PerZoneSite(), IssueTypes.DnsDnatPartialCoverage).Should().BeNull("Guest is out of scope and the rest are redirected");
+        DnsFixes.Build(PerZoneSite(), IssueTypes.DnsDnatPartialCoverage, allowGuestPublicDns: true).Should().BeNull("Guest is out of scope and the rest are redirected");
 
     [Fact]
     public void ThePlan_WritesOnlyTheFix()

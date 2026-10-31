@@ -2708,6 +2708,14 @@
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowGuestPublicDns" />
+                    <span>Allow Guest / Hotspot Public DNS</span>
+                </label>
+                <small class="form-help">Leaves Guest and Hotspot networks out of DNS leak checks (port 53, DNAT, DoT, DoQ, DoH) and out of Fix it for me. Off by default: guest networks get the same DNS control as every other network.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">DNAT DNS Coverage: Excluded VLANs (optional)</label>
                 <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" placeholder="e.g., 100, 200" style="width: 240px;" />
                 <small class="form-help">Comma-separated VLAN IDs to exclude from DNAT DNS coverage checks. Use this for networks that intentionally bypass DNS redirection (e.g., management VLANs).</small>
@@ -5490,6 +5498,7 @@
     private string dnatExcludedVlans = "";
     private string? piholeManagementEndpoint;
     private string trustedDnsRedirectTargets = "";
+    private bool allowGuestPublicDns = false;
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
     private int pdfTopSourcesRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
@@ -8550,6 +8559,7 @@
             var excludedVlans = await SystemSettings.GetAsync(SiteContext.Slug, "audit:dnatExcludedVlans");
             var piholePort = await SystemSettings.GetAsync(SiteContext.Slug, "audit:piholeManagementPort");
             var trustedTargets = await SystemSettings.GetAsync(SiteContext.Slug, "audit:trustedDnsRedirectTargets");
+            var guestPublicDns = await SystemSettings.GetAsync(SiteContext.Slug, AuditOptions.AllowGuestPublicDnsKey);
             var unusedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:unusedPortInactivityDays");
             var namedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:namedPortInactivityDays");
             var topSourcesRows = await SystemSettings.GetAsync(SiteContext.Slug, ThreatReportRows.TopSourcesSettingKey);
@@ -8568,6 +8578,8 @@
             piholeManagementEndpoint = string.IsNullOrWhiteSpace(piholePort) ? null : piholePort;
             // Trusted DNS redirect targets (VIPs, anycast)
             trustedDnsRedirectTargets = trustedTargets ?? "";
+            // Guest and Hotspot networks are checked for DNS control unless allowed public DNS
+            allowGuestPublicDns = guestPublicDns?.ToLower() == "true";
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
@@ -8616,6 +8628,7 @@
                 ["audit:dnatExcludedVlans"] = dnatExcludedVlans ?? "",
                 ["audit:piholeManagementPort"] = endpoint ?? "",
                 ["audit:trustedDnsRedirectTargets"] = trustedDnsRedirectTargets ?? "",
+                [AuditOptions.AllowGuestPublicDnsKey] = allowGuestPublicDns.ToString().ToLower(),
                 ["audit:unusedPortInactivityDays"] = unusedPortInactivityDays.ToString(),
                 ["audit:namedPortInactivityDays"] = namedPortInactivityDays.ToString(),
                 [ThreatReportRows.TopSourcesSettingKey] = pdfTopSourcesRows.ToString(),

@@ -150,6 +150,7 @@ public partial class AuditService
                 PiholeManagementPort = options.PiholeManagementPort,
                 PiholeManagementUrl = options.PiholeManagementUrl,
                 TrustedDnsRedirectTargets = options.TrustedDnsRedirectTargets,
+                AllowGuestPublicDns = options.AllowGuestPublicDns,
                 UpnpEnabled = config.UpnpEnabled,
                 PortForwardRules = [.. config.PortForwardRules ?? [], .. upnpMappings],
                 NetworkConfigs = config.NetworkConfigs,
