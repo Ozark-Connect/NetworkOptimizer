@@ -879,12 +879,15 @@ public static class ZoneSetup
 
     /// <summary>
     /// A block a re-home puts on a pair UniFi already blocks (two different LAN zones, at least one custom, or within a
-    /// custom zone) with no allow in that pair for it to order against, is deleted: Block All does the same.
+    /// custom zone) is deleted when no allow comes after it in that pair: Block All drops whatever it matches, and an
+    /// allow ahead of it already wins. An allow after it is one it holds back, so it stays.
     /// </summary>
     private static void DropRedundantBlocks(List<JsonObject> policies, Dictionary<string, string> rehomed, Func<string?, bool> isLan,
         Func<string?, bool> isInternal, Func<string?, string> zoneName, List<string> notes)
     {
         bool Custom(string? zone) => isLan(zone) && !isInternal(zone);
+        // A copy keeps its original's index; a policy the plan creates has none, and the reorder puts it after the rest.
+        static long Index(JsonObject p) => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
         // Also the zone-pair blocks an earlier Set Up Zones wrote before it relied on UniFi's defaults.
         foreach (var p in policies.Where(p => (rehomed.ContainsKey(ConfigState.IdOf(p)) || Str(p, "description") == "Set Up Zones")
                      && Str(p, "action") is "BLOCK" or "REJECT").ToList())
@@ -892,8 +895,15 @@ public static class ZoneSetup
             var src = Str(p["source"]?["zone_id"]);
             var dst = Str(p["destination"]?["zone_id"]);
             if (!isLan(src) || !isLan(dst) || !(Custom(src) || Custom(dst))) continue;
-            if (policies.Any(o => o != p && Str(o, "action") == "ALLOW" && o["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
-                    && Str(o["source"]?["zone_id"]) == src && Str(o["destination"]?["zone_id"]) == dst)) continue;
+            // Return-only allows never meet new traffic the block drops.
+            var later = policies.FirstOrDefault(o => o != p && Str(o, "action") == "ALLOW" && o["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+                    && Str(o, "connection_state_type") != "RESPOND_ONLY" && Index(o) >= Index(p)
+                    && Str(o["source"]?["zone_id"]) == src && Str(o["destination"]?["zone_id"]) == dst);
+            if (later != null)
+            {
+                notes.Add($"Firewall Policy {Str(p, "name")}: kept. {Str(later, "name")} comes after it in {zoneName(src)} to {zoneName(dst)}; move that above it and a re-run deletes it.");
+                continue;
+            }
             policies.Remove(p);
             notes.Add($"Firewall Policy {Str(p, "name")}: deleted. UniFi already blocks {zoneName(src)} to {zoneName(dst)} by default.");
         }

@@ -543,6 +543,43 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void Rehome_DeletesABlockUniFiNowDoesItself_WhenItsPairsAllowsAllComeFirst()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.10"]), Side("z-int", "NETWORK", ["n-iot"]), index: 10001));
+        live.Collections["firewall_policy"].Add(Rule("p-nvr", "[Security] Allow NVR Direct", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.20"]), Side("z-int", "NETWORK", ["n-cam"]), index: 10002));
+        live.Collections["firewall_policy"].Add(Rule("p-iso", "[VLAN] Block Access to Isolated VLANs", "BLOCK", Side("z-int"), Side("z-int", "NETWORK", ["n-iot", "n-cam"]), index: 10003));
+
+        var plan = PlanFor(live);
+        var doc = PlanBuilder.Build(plan.Desired, live, ZoneSetup.Options());
+
+        plan.Desired.Get("firewall_policy").Should().NotContain(p => p["name"]!.ToString().StartsWith("[VLAN] Block Access to Isolated VLANs"),
+            "each copy only drops what Block All drops, and the allows in its pair come before it");
+        doc.Operations.Should().ContainSingle(o => o.Action == PlanAction.Delete && o.ObjectId == "p-iso");
+        doc.Operations.Should().NotContain(o => o.Action == PlanAction.Create && o.ObjectName.StartsWith("[VLAN] Block Access to Isolated VLANs"));
+        Named(plan.Desired, "[IoT] Allow Phone Inbound Access")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        Named(plan.Desired, "[Security] Allow NVR Direct")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+    }
+
+    [Fact]
+    public void Rehome_KeepsABlock_ThatHoldsBackAnAllowAfterIt()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-iso", "[VLAN] Block Access to Isolated VLANs", "BLOCK", Side("z-int"), Side("z-int", "NETWORK", ["n-iot", "n-cam"]), index: 10001));
+        live.Collections["firewall_policy"].Add(Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.10"]), Side("z-int", "NETWORK", ["n-iot"]), index: 10002));
+        var respond = Rule("p-ret", "[Security] Return Only", "ALLOW", Side("z-int"), Side("z-int", "NETWORK", ["n-cam"]), index: 10003);
+        respond["connection_state_type"] = "RESPOND_ONLY";
+        live.Collections["firewall_policy"].Add(respond);
+
+        var plan = PlanFor(live);
+
+        // Deleting it would let the phone reach IoT, which it does not today.
+        Named(plan.Desired, "[VLAN] Block Access to Isolated VLANs")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        Named(plan.Desired, "[VLAN] Block Access to Isolated VLANs (Cameras)").Should().BeNull("a return-only allow after it meets no new traffic");
+        plan.Notes.Should().Contain(n => n.StartsWith("Firewall Policy [VLAN] Block Access to Isolated VLANs: kept.") && n.Contains("[IoT] Allow Phone Inbound Access"));
+    }
+
+    [Fact]
     public void ARerun_DeletesZonePairBlocksAnEarlierSetUpZonesWrote()
     {
         var live = WithSubnetsAndGateway();
