@@ -7548,6 +7548,26 @@ a.path-hop.hop-clickable:hover {
     }
 }
 
+/* Settings - Monitoring: the auto-discovered modems heading shares its row with Scan for Modems */
+.modem-discovery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.modem-discovery-header h4 {
+    margin: 0;
+}
+
+.modem-scan-result {
+    color: var(--success-color);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
 /* Its primary button, floated while the row is scrolled out of view (settings-section-save.js) */
 .settings-floating-save {
     position: fixed;
