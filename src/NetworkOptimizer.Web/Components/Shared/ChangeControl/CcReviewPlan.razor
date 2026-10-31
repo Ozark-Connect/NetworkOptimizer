@@ -251,8 +251,9 @@ else
                                     <td class="expand-chevron">@(open ? "▲" : "▼")</td>
                                     @if (editable)
                                     {
-                                        <td class="cc-ack-col" @onclick:stopPropagation>
-                                            <input type="checkbox" checked="@(!leftOut.Contains(op.Key))" disabled="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key))"
+                                        @* Only the controls keep a click from the row: the rest of a cell expands it, like the rest of the row. *@
+                                        <td class="cc-ack-col">
+                                            <input type="checkbox" @onclick:stopPropagation checked="@(!leftOut.Contains(op.Key))" disabled="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key))"
                                                    data-tooltip="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key) ? "Left out: it uses an object an unticked item creates" : null)"
                                                    @onchange="() => Toggle(_acks.Excluded, op.Key)" />
                                         </td>
@@ -261,14 +262,14 @@ else
                                     <td class="@(leftOut.Contains(op.Key) ? "muted-text" : "")">@DisplayObjectName(op)</td>
                                     <td class="hide-mobile">@op.ChangeText@(result != null && result.Outcome != "Applied" ? $" ({result.Outcome}: {result.Message})" : "")</td>
                                     <td><span class="status-badge @CcFormat.TierBadge(op.Tier)">@PlanTiers.Label(op.Tier)</span></td>
-                                    <td class="cc-ack-col" @onclick:stopPropagation>
+                                    <td class="cc-ack-col">
                                         @if (op.Tier == PlanTiers.Lockout)
                                         {
                                             <span class="muted-text">See Impact</span>
                                         }
                                         else if (op.Tier == PlanTiers.Acknowledge)
                                         {
-                                            <label class="checkbox-label">
+                                            <label class="checkbox-label" @onclick:stopPropagation>
                                                 <input type="checkbox" disabled="@(!editable)" checked="@_acks.Items.Contains(op.Key)" @onchange="() => Toggle(_acks.Items, op.Key)" />
                                                 <span>OK</span>
                                             </label>
