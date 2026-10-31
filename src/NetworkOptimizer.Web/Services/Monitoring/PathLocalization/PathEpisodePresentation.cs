@@ -74,7 +74,7 @@ public static class PathEpisodePresentation
                 {
                     Severity = IspIssueSeverity.Info,
                     Title = $"Recurring path degradation on {names}",
-                    Description = $"{names} degraded together while the rest of your connection stayed clean, {when}. {latest.Label}.",
+                    Description = $"{names} degraded{(latest.Degraded.Count > 1 ? " together" : "")} while the rest of your connection stayed clean, {when}. {latest.Label}.",
                     Recommendation = "A traceroute cannot see the return path, so this cannot be pinned on a forward hop. A pattern that repeats at the same hours is worth raising with your ISP with these times.",
                     LinkUrl = "#isp-events",
                     LinkText = "See the traces"

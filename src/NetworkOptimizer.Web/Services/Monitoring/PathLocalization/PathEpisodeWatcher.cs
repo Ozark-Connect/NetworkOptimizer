@@ -39,6 +39,9 @@ public sealed class PathEpisodeWatcher
     /// <summary>How far back the gate reads WAN load: the sustained span that made a target degraded.</summary>
     private static readonly TimeSpan LoadLookback = TimeSpan.FromMinutes(15);
 
+    private const string WaitingOnRecoveryNote = " Waiting on the recovery round for the per-hop baseline.";
+    private const string RecoveryLostNote = " Network Optimizer restarted before the recovery round, so this rests on the onset alone.";
+
     private static readonly TimeSpan PerHopTimeout = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan TraceDeadline = TimeSpan.FromSeconds(25);
 
@@ -216,6 +219,13 @@ public sealed class PathEpisodeWatcher
                 open.ClosedAt = open.UpdatedAt;
                 open.Summary = $"{open.Summary} Tracing stopped when Network Optimizer restarted.".Trim();
                 await repo.UpdateAsync(open);
+            }
+            // The recovery round was also in memory, so one that was still due never runs.
+            foreach (var waiting in (await repo.GetClosedWithoutRecoveryAsync())
+                         .Where(e => e.Summary?.EndsWith(WaitingOnRecoveryNote, StringComparison.Ordinal) == true))
+            {
+                waiting.Summary = waiting.Summary![..^WaitingOnRecoveryNote.Length] + RecoveryLostNote;
+                await repo.UpdateAsync(waiting);
             }
         }
         catch (Exception ex)
@@ -544,20 +554,23 @@ public sealed class PathEpisodeWatcher
             due = _runs.Values.Where(r => !r.Busy).ToList();
             foreach (var r in due) r.Busy = true;
         }
-        foreach (var run in due)
+        // Episodes on different WANs advance side by side; _traceSlots bounds the traces they run.
+        await Task.WhenAll(due.Select(run => AdvanceGuardedAsync(run, ct)));
+    }
+
+    private async Task AdvanceGuardedAsync(EpisodeRun run, CancellationToken ct)
+    {
+        try
         {
-            try
-            {
-                await AdvanceAsync(run, ct);
-            }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
-            {
-                _logger.LogWarning(ex, "Path Localization episode {Id} on site {Slug} failed a round", run.Row.Id, _slug);
-            }
-            finally
-            {
-                lock (_lock) run.Busy = false;
-            }
+            await AdvanceAsync(run, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Path Localization episode {Id} on site {Slug} failed a round", run.Row.Id, _slug);
+        }
+        finally
+        {
+            lock (_lock) run.Busy = false;
         }
     }
 
@@ -863,7 +876,7 @@ public sealed class PathEpisodeWatcher
             summary = run.PausedBy != null ? $"Paused: {run.PausedBy}. {summary}" : $"Tracing now. {summary}";
         else if (run.StopNote != null) summary += $" {run.StopNote}";
         else if (run.Metered) summary += " This WAN is metered, so it was traced once and no recovery round ran.";
-        else if (row.RecoveryTracedAt == null) summary += " Waiting on the recovery round for the per-hop baseline.";
+        else if (row.RecoveryTracedAt == null) summary += WaitingOnRecoveryNote;
         row.Summary = Truncate(summary, 2000);
         row.UpdatedAt = DateTime.UtcNow;
 

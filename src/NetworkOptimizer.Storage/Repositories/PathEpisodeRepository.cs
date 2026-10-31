@@ -103,6 +103,12 @@ public class PathEpisodeRepository : IPathEpisodeRepository
             .Where(e => e.ClosedAt == null)
             .ToListAsync(cancellationToken);
 
+    public Task<List<PathEpisode>> GetClosedWithoutRecoveryAsync(CancellationToken cancellationToken = default) =>
+        _context.PathEpisodes.AsNoTracking()
+            .Include(e => e.Targets)
+            .Where(e => e.ClosedAt != null && e.RecoveryTracedAt == null)
+            .ToListAsync(cancellationToken);
+
     public async Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default)
     {
         // Children first: ExecuteDelete bypasses the change tracker, so EF's cascade never runs, and

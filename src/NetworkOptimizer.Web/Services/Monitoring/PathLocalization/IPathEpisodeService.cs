@@ -34,8 +34,9 @@ public sealed record PathEpisodeView
 /// <param name="Address">The address the rounds traced.</param>
 /// <param name="Vantage">"server" or "agent-N": where they ran from.</param>
 /// <param name="SourceInterface">The bind they used, or null for the default route.</param>
+/// <param name="VantageName">Where they ran from, as the page names it: "this server" or the agent's name.</param>
 public sealed record PathEpisodeHopTable(PathEpisodeTargetView Target, string Address, string Vantage, string? SourceInterface,
-    int Rounds, bool HasRecovery, IReadOnlyList<HopReading> Hops);
+    int Rounds, bool HasRecovery, IReadOnlyList<HopReading> Hops, string VantageName);
 
 /// <summary>An episode with its hop tables.</summary>
 public sealed record PathEpisodeDetail(PathEpisodeView Episode, IReadOnlyList<PathEpisodeHopTable> Tables);

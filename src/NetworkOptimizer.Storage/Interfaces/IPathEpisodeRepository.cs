@@ -30,6 +30,9 @@ public interface IPathEpisodeRepository
     /// <summary>Episodes still open (no ClosedAt).</summary>
     Task<List<PathEpisode>> GetOpenAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Closed episodes with no recovery round recorded (metered, stopped short, or still waiting).</summary>
+    Task<List<PathEpisode>> GetClosedWithoutRecoveryAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Deletes episodes (and their targets and traces) opened before <paramref name="before"/>.</summary>
     Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default);
 }

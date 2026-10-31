@@ -32,7 +32,7 @@
             <div class="path-episode-table-head">
                 <span class="path-episode-table-title">@table.Target.Name</span>
                 <span class="text-muted">
-                    @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @VantageLabel(table.Vantage)@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
+                    @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @table.VantageName@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
                 </span>
                 <a class="path-episode-rerun" href="@PathEpisodePresentation.RerunUrl(table.Address, table.Vantage, _detail.Episode.WanContextId)"
                    data-tooltip="Fill Network Tools with this target and vantage" data-tooltip-hover-only>Re-run</a>
@@ -151,9 +151,6 @@
             _failed = true;
         }
     }
-
-    private static string VantageLabel(string vantage) =>
-        vantage.StartsWith("agent-", StringComparison.Ordinal) ? $"agent {vantage[6..]}" : "this server";
 
     private static string RowClass(HopReading h) =>
         h.Has(HopTag.InRun) ? "path-hop-elevated" : h.Has(HopTag.IcmpLimited) ? "path-hop-icmp" : "";

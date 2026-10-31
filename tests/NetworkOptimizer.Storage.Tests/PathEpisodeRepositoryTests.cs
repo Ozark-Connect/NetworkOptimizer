@@ -75,6 +75,20 @@ public class PathEpisodeRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task ClosedWithoutRecovery_SkipsOpenAndRecoveredEpisodes()
+    {
+        await _repository.AddAsync(Episode(T0));
+        var recovered = Episode(T0, T0.AddHours(1));
+        recovered.RecoveryTracedAt = T0.AddHours(2);
+        await _repository.AddAsync(recovered);
+        var waitingId = await _repository.AddAsync(Episode(T0, T0.AddHours(1)));
+
+        var r = await _repository.GetClosedWithoutRecoveryAsync();
+
+        r.Should().ContainSingle().Which.Id.Should().Be(waitingId);
+    }
+
+    [Fact]
     public async Task Prune_RemovesOldEpisodesWithTheirTargetsAndTraces()
     {
         var oldId = await _repository.AddAsync(Episode(T0.AddDays(-100), T0.AddDays(-100)));
