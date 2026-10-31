@@ -781,7 +781,7 @@
             ? configuredModems[currentModemIndex].Provider
             : null;
 
-    private bool IsUniFiModem() => CurrentProvider == "qmicli";
+    private bool IsUniFiModem() => CurrentProvider is "qmicli" or "unifi-gateway";
 
     /// <summary>
     /// The brand the owner bought, which is not the module maker inside it. Taken from the
@@ -789,7 +789,7 @@
     /// </summary>
     private string? DeviceBrand() => CurrentProvider switch
     {
-        "qmicli" => "UniFi",
+        "qmicli" or "unifi-gateway" => "UniFi",
         "quectel-at" => "GL.iNet",
         "netgear-nighthawk-hotspot" => "Netgear",
         "inseego-fx" => "Inseego",

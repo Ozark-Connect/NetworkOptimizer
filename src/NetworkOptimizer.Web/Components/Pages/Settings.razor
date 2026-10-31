@@ -1216,7 +1216,7 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Monitor cellular modems (Ubiquiti U5G-Max/U5G Backup, Netgear Nighthawk hotspots, Inseego FX gateways, Zyxel 5G/LTE CPEs, GL-iNet routers, etc.)
+                Monitor cellular modems (Ubiquiti U5G-Max/U5G Backup/UDR-5G-Max, Netgear Nighthawk hotspots, Inseego FX gateways, Zyxel 5G/LTE CPEs, GL-iNet routers, etc.)
                 for signal strength and cell info. Stats are polled every 5 minutes.
                 SSH credentials are required for Ubiquiti and GL-iNet modems.
             </p>
@@ -1231,12 +1231,21 @@
                 </div>
             }
 
-            @if (sshSettings?.HasCredentials != true &&
+            @if (!DeviceHasCredentials &&
                  modemConfigs.Any(m => ModemProviderKeys.UsesSharedSsh(m.Provider)))
             {
                 <div class="alert alert-warning" style="margin-bottom: 1rem;">
                     <strong>SSH credentials required:</strong> One or more configured modems use the qmicli provider, which needs SSH credentials. Configure them in the Device SSH section above.
                     <a href="#device-ssh" style="margin-left: 0.5rem;">Go to Device SSH Settings</a>
+                </div>
+            }
+
+            @if (!GatewayHasCredentials &&
+                 modemConfigs.Any(m => ModemProviderKeys.UsesGatewaySsh(m.Provider)))
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                    <strong>Gateway SSH required:</strong> A UDR-5G-Max modem is polled with the Gateway SSH credentials. Configure them in the Gateway SSH section above.
+                    <a href="#gateway-ssh" style="margin-left: 0.5rem;">Go to Gateway SSH Settings</a>
                 </div>
             }
 
@@ -1276,7 +1285,7 @@
                     <tbody>
                         @foreach (var discovered in discoveredModems)
                         {
-                            var isConfigured = modemConfigs.Any(m => m.Host == discovered.Host);
+                            var isConfigured = IsDiscoveredModemConfigured(discovered);
                             <tr>
                                 <td>@discovered.Name</td>
                                 <td><code>@discovered.Model</code></td>
@@ -1296,7 +1305,11 @@
                                     {
                                         <span class="status-badge status-connected">Configured</span>
                                     }
-                                    else if (sshSettings?.HasCredentials != true)
+                                    else if (discovered.IsGateway && !GatewayHasCredentials)
+                                    {
+                                        <span class="status-badge status-warning" data-tooltip="Configure Gateway SSH credentials first">Gateway SSH Required</span>
+                                    }
+                                    else if (!discovered.IsGateway && !DeviceHasCredentials)
                                     {
                                         <span class="status-badge status-warning" title="Configure SSH credentials first">SSH Required</span>
                                     }
@@ -1315,7 +1328,7 @@
             }
             else if (ConnectionService.IsConnected && !loadingDiscoveredModems)
             {
-                <p class="form-help">No cellular modems (UniFi 5G Max, 5G Backup, LTE Backup Pro) found. Click "Scan for Modems" to search.</p>
+                <p class="form-help">No cellular modems (UniFi 5G Max, 5G Backup, LTE Backup Pro, UDR-5G-Max) found. Click "Scan for Modems" to search.</p>
             }
 
             <!-- Configured Modems -->
@@ -1408,8 +1421,9 @@
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">Provider</label>
-                                <select class="form-control" @bind="editingModem.Provider">
+                                <select class="form-control" @bind="editingModem.Provider" @bind:after="OnModemProviderChanged">
                                     <option value="qmicli">Ubiquiti modem (SSH)</option>
+                                    <option value="unifi-gateway">UniFi UDR-5G-Max (Gateway SSH)</option>
                                     <option value="netgear-nighthawk-hotspot">Netgear Nighthawk hotspot (HTTP)</option>
                                     <option value="quectel-at">GL-iNet / Quectel modem (SSH)</option>
                                     <option value="inseego-fx">Inseego FX gateway (HTTPS)</option>
@@ -1427,8 +1441,13 @@
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">Host / IP</label>
-                                <input type="text" class="form-control" @bind="editingModem.Host" @bind:event="oninput" placeholder="192.168.1.100" />
-                                @if (!IsUniFiSshModem(editingModem.Provider))
+                                <input type="text" class="form-control" @bind="editingModem.Host" @bind:event="oninput" placeholder="192.168.1.100"
+                                       disabled="@ModemProviderKeys.UsesGatewaySsh(editingModem.Provider)" />
+                                @if (ModemProviderKeys.UsesGatewaySsh(editingModem.Provider))
+                                {
+                                    <small class="form-help">The modem is built into the gateway, so it is polled at the Gateway SSH host with the Gateway SSH credentials. <a href="#gateway-ssh">Gateway SSH Settings</a></small>
+                                }
+                                else if (!IsUniFiSshModem(editingModem.Provider))
                                 {
                                     <small class="form-help">
                                         Can you only reach the management page of this device when directly connected?
@@ -1442,7 +1461,7 @@
                             </div>
                         </div>
 
-                        @if (ModemProviderKeys.UsesSharedSsh(editingModem.Provider))
+                        @if (ModemProviderKeys.IsUniFi(editingModem.Provider))
                         {
                             <div class="form-row">
                                 <div class="form-group" style="flex: 2;">
@@ -6001,6 +6020,12 @@
         !string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) || gatewayKeyFileConfigured;
 
     /// <summary>
+    /// Whether the saved Gateway SSH settings can sign in. Counts a key file below global Admin too,
+    /// where the loaded settings carry the path redacted and so read as having no credential.
+    /// </summary>
+    private bool GatewayHasCredentials => gatewaySettings?.HasCredentials == true || gatewayKeyFileConfigured;
+
+    /// <summary>
     /// Reads the same way as the gateway, deliberately, even though there is nothing to confirm it
     /// against: keys reach switches and APs through UniFi Network's Device SSH Settings, which we do
     /// not read. A stored key therefore means "a key is meant to be doing this", not "a key is proven
@@ -6014,6 +6039,9 @@
 
     private bool DeviceKeyPathSet =>
         !string.IsNullOrWhiteSpace(sshPrivateKeyPath) || deviceKeyFileConfigured;
+
+    /// <summary>The device-SSH twin of <see cref="GatewayHasCredentials"/>.</summary>
+    private bool DeviceHasCredentials => sshSettings?.HasCredentials == true || deviceKeyFileConfigured;
 
     /// <summary>Dims the header of an option that is not configured.</summary>
     private static string UnusedLabel(bool inUse) => inUse ? "" : "form-label-unused";
@@ -6897,10 +6925,37 @@
         }
     }
 
+    /// <summary>
+    /// A gateway's built-in modem always polls the Gateway SSH host, so one gateway row covers it
+    /// whatever host the row was saved with.
+    /// </summary>
+    private bool IsDiscoveredModemConfigured(DiscoveredModem discovered) => discovered.IsGateway
+        ? modemConfigs.Any(m => ModemProviderKeys.UsesGatewaySsh(m.Provider))
+        : modemConfigs.Any(m => m.Host == discovered.Host);
+
+    /// <summary>Choosing the gateway provider points the form at the Gateway SSH host.</summary>
+    private void OnModemProviderChanged()
+    {
+        if (!ModemProviderKeys.UsesGatewaySsh(editingModem.Provider))
+            return;
+
+        editingModem.Host = gatewaySettings?.Host ?? "";
+        if (string.IsNullOrEmpty(editingModem.ModemType) || editingModem.ModemType == "U5G-Max")
+            editingModem.ModemType = "UDR-5G-Max";
+    }
+
     private async Task AddDiscoveredModem(DiscoveredModem discovered)
     {
         // Check if SSH credentials are configured
-        if (sshSettings?.HasCredentials != true)
+        if (discovered.IsGateway && !GatewayHasCredentials)
+        {
+            modemMessage = "Gateway SSH credentials must be configured before adding a UDR-5G-Max. Please configure them in the Gateway SSH section above.";
+            modemMessageClass = "warning";
+            StateHasChanged();
+            return;
+        }
+
+        if (!discovered.IsGateway && !DeviceHasCredentials)
         {
             modemMessage = "SSH credentials must be configured before adding modems. Please configure them in the Device SSH section above.";
             modemMessageClass = "warning";
@@ -6909,7 +6964,7 @@
         }
 
         // Check if already configured
-        if (modemConfigs.Any(m => m.Host == discovered.Host))
+        if (IsDiscoveredModemConfigured(discovered))
         {
             modemMessage = $"{discovered.Name} is already configured";
             modemMessageClass = "warning";
@@ -6925,10 +6980,11 @@
         {
             var config = new ModemConfiguration
             {
+                Provider = discovered.Provider,
                 Name = discovered.Name,
-                Host = discovered.Host,
+                Host = discovered.IsGateway && !string.IsNullOrEmpty(gatewaySettings?.Host) ? gatewaySettings.Host : discovered.Host,
                 Port = 22,
-                Username = "root",
+                Username = discovered.IsGateway ? "" : "root",
                 ModemType = discovered.Model,
                 QmiDevice = UniFiProductDatabase.GetDefaultQmiDevicePath(discovered.Model),
                 PollingIntervalSeconds = 300,
@@ -7308,6 +7364,7 @@
     private async Task SaveModem()
     {
         var isUniFiProvider = ModemProviderKeys.UsesSharedSsh(editingModem.Provider);
+        var isGatewayProvider = ModemProviderKeys.UsesGatewaySsh(editingModem.Provider);
         var isPerModemSshProvider = ModemProviderKeys.UsesPerModemSsh(editingModem.Provider);
         var isGlInetProvider = editingModem.Provider == ModemProviderKeys.QuectelAt;
         var isInseegoProvider = editingModem.Provider == "inseego-fx";
@@ -7317,11 +7374,31 @@
         var sshModemKind = isGlInetProvider ? "GL-iNet" : isMikroTikProvider ? "MikroTik" : "Quectel";
 
         // UniFi modems use shared SSH credentials; require them to be configured
-        if (editingModem.Id == 0 && isUniFiProvider && sshSettings?.HasCredentials != true)
+        if (editingModem.Id == 0 && isUniFiProvider && !DeviceHasCredentials)
         {
             modemMessage = "SSH credentials must be configured before adding Ubiquiti modems. Please configure them in the Device SSH section above.";
             modemMessageClass = "warning";
             return;
+        }
+
+        // The gateway's built-in modem polls the Gateway SSH host and credentials, not the row's.
+        if (isGatewayProvider)
+        {
+            if (editingModem.Id == 0 && !GatewayHasCredentials)
+            {
+                modemMessage = "Gateway SSH credentials must be configured before adding a UDR-5G-Max. Please configure them in the Gateway SSH section above.";
+                modemMessageClass = "warning";
+                return;
+            }
+
+            editingModem.Host = gatewaySettings?.Host ?? editingModem.Host;
+            editingModem.Port = gatewaySettings?.Port ?? 22;
+            editingModem.Username = "";
+            editingModem.Password = null;
+            editingModem.PrivateKeyPath = "";
+            editingModem.UseManagedSshKey = false;
+            if (string.IsNullOrEmpty(editingModem.ModemType) || editingModem.ModemType == "U5G-Max")
+                editingModem.ModemType = "UDR-5G-Max";
         }
 
         // People paste the modem's management page URL here - strip it down to the host.

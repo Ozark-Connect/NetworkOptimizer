@@ -1213,6 +1213,25 @@ public class UniFiProductDatabaseTests
 
     #endregion
 
+    #region IsCellularGateway Tests
+
+    [Theory]
+    [InlineData("UDMA6B9", "UDR5G", true)]
+    [InlineData("UDMA6B9", null, true)]
+    [InlineData(null, "UDR5G", true)]
+    [InlineData("UDR", null, false)]
+    [InlineData("UMBBE630", null, false)]   // U5G-Max is a modem, not a gateway
+    [InlineData(null, null, false)]
+    public void IsCellularGateway_OnlyTheUdr5GMax(string? model, string? shortname, bool expected)
+    {
+        UniFiProductDatabase.IsCellularGateway(model, shortname).Should().Be(expected);
+        if (expected)
+            UniFiProductDatabase.IsCellularModem(model, shortname, "udm").Should().BeFalse(
+                "a cellular gateway must not also be listed as a modem polled with device SSH");
+    }
+
+    #endregion
+
     #region IsCellularModem Tests (Single Parameter)
 
     [Theory]

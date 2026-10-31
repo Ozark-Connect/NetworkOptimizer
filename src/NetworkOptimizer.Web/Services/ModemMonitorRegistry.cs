@@ -58,11 +58,15 @@ public class ModemMonitorRegistry : BackgroundService, ISiteScopedRegistry
             // The cellular provider set is built per site: the qmicli provider
             // carries the site's device SSH service (which applies tunnel routing
             // itself); the HTTP and per-modem-SSH providers are context-driven,
-            // so fresh instances per site are cheap and uniform.
+            // so fresh instances per site are cheap and uniform. The gateway variant
+            // carries the site's Gateway SSH service, for a modem built into the gateway.
             var siteSsh = _serviceProvider.GetRequiredService<UniFiSshRegistry>().GetFor(s);
+            var siteGatewaySsh = _serviceProvider.GetRequiredService<GatewaySshRegistry>().GetFor(s);
             var cellularProviders = new List<ICellularModemProvider>
             {
                 ActivatorUtilities.CreateInstance<QmicliModemProvider>(_serviceProvider, siteSsh),
+                QmicliModemProvider.ForGateway(
+                    _serviceProvider.GetRequiredService<ILogger<QmicliModemProvider>>(), siteGatewaySsh),
                 ActivatorUtilities.CreateInstance<NetgearNighthawkHotspotProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<QuectelAtModemProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<InseegoFxProvider>(_serviceProvider),

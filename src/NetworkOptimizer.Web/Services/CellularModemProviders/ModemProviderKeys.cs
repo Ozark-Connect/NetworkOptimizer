@@ -10,6 +10,12 @@ public static class ModemProviderKeys
     /// <summary>UniFi modems, polled with the site's shared device SSH credentials.</summary>
     public const string Qmicli = "qmicli";
 
+    /// <summary>
+    /// UniFi gateways with a built-in modem (UDR-5G-Max), polled like a UniFi modem but with the
+    /// site's Gateway SSH host and credentials, because the modem is the gateway.
+    /// </summary>
+    public const string UniFiGateway = "unifi-gateway";
+
     /// <summary>GL.iNet routers, polled through their own <c>gl_modem</c> and ubus service.</summary>
     public const string QuectelAt = "quectel-at";
 
@@ -26,6 +32,13 @@ public static class ModemProviderKeys
     public static bool UsesSharedSsh(string? provider) =>
         string.IsNullOrWhiteSpace(provider) || provider.Equals(Qmicli, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Whether the provider polls with the site's Gateway SSH host and credentials.</summary>
+    public static bool UsesGatewaySsh(string? provider) =>
+        provider != null && provider.Equals(UniFiGateway, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether the provider polls a UniFi device through uiwwand and qmicli, by either SSH path.</summary>
+    public static bool IsUniFi(string? provider) => UsesSharedSsh(provider) || UsesGatewaySsh(provider);
+
     /// <summary>Whether the provider polls over SSH with credentials stored on the modem row.</summary>
     public static bool UsesPerModemSsh(string? provider) =>
         provider != null &&
@@ -37,5 +50,6 @@ public static class ModemProviderKeys
     /// Whether the provider is reached over SSH at all. Everything else is HTTP(S), whose save path
     /// forces port 80 or 443 and clears the SSH-only fields.
     /// </summary>
-    public static bool IsSsh(string? provider) => UsesSharedSsh(provider) || UsesPerModemSsh(provider);
+    public static bool IsSsh(string? provider) =>
+        UsesSharedSsh(provider) || UsesGatewaySsh(provider) || UsesPerModemSsh(provider);
 }
