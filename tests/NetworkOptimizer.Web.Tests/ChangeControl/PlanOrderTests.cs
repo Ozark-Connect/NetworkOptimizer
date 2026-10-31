@@ -77,10 +77,10 @@ public class PlanOrderTests
     [Fact]
     public void Reorder_SurvivesAConsoleThatRepeatsAPolicyId()
     {
-        // Seen on a UDM Pro: the console lists a derived policy's synthetic id twice (issue #1333).
+        // Seen on a UDM Pro: the console listed one policy id twice (issue #1333).
         static JsonObject Derived() => new()
         {
-            ["_id"] = "obj_1040bfb7-6a65-4954-b383-5904c590c836_1", ["name"] = "Derived", ["action"] = "ALLOW", ["predefined"] = true,
+            ["_id"] = "repeated-id", ["name"] = "Derived", ["action"] = "ALLOW", ["predefined"] = true,
             ["index"] = 30001, ["source"] = new JsonObject { ["zone_id"] = "z-ext" }, ["destination"] = new JsonObject { ["zone_id"] = "z-vpn" },
         };
         var desired = Policies(Policy("a", 10001), Policy("b", 10002), Predefined(30000), Derived(), Derived());
