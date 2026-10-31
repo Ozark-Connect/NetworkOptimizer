@@ -28,7 +28,7 @@ public sealed class SiteHealthSummary
     public string Name { get; init; } = "";
     public bool Online { get; init; }
     public bool AgentOffline { get; init; }
-    /// <summary>"Console connected", "Agent online", "Agent offline", "Console unreachable".</summary>
+    /// <summary>"Console up", "Agent online", "Agent offline", "Console unreachable".</summary>
     public string Connection { get; init; } = "";
     public DateTime? UnreachableSince { get; init; }
     public SiteHealthSeries Health { get; init; } = new();

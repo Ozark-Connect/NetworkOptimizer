@@ -577,7 +577,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 AgentOffline = connection.IsAwaitingAgent,
                 Connection = connection.IsAwaitingAgent ? "Agent offline"
                     : !connection.IsConnected ? "Console unreachable"
-                    : connection.IsViaAgent ? "Agent online" : "Console connected",
+                    : connection.IsViaAgent ? "Agent online" : "Console up",
                 UnreachableSince = connection.IsConnected ? null : gaps.Where(g => g.EndedAt == null).Select(g => (DateTime?)g.StartedAt).FirstOrDefault(),
                 Health = SiteHealth.SiteHealthSeriesBuilder.Build(hours, SiteHealth.SiteHealthJob.FloorHour(now.AddHours(-24)), now,
                     hours.Where(h => h.HourStart < SiteHealth.SiteHealthJob.FloorHour(now.AddHours(-24))).ToList()),
