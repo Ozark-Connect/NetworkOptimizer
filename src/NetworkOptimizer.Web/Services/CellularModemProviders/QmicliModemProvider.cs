@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 
 /// <summary>
 /// Cellular modem provider for Ubiquiti modems (U-LTE, U5G-Max, U5G Backup, ...).
-/// Tries the uiwwand ubus command first (available on all modern UniFi modems),
+/// Tries uiwwand first (available on all modern UniFi modems and the UDR-5G-Max),
 /// then falls back to raw qmicli commands for older firmware.
 /// SSH transport uses the shared UniFiSshService, or the Gateway SSH service for a gateway
 /// with a built-in modem (<see cref="ForGateway"/>).
@@ -19,20 +19,44 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     private const string DefaultQmiDevice = "/dev/wwan0qmi0";
 
     /// <summary>
+    /// The UDR-5G-Max's modem: QMI over MBIM on an MHI pipe, the device UniFi OS's own modem
+    /// scripts use (/etc/mbbcfg/functions.sh, MBIM_IFACE).
+    /// </summary>
+    internal const string GatewayQmiDevice = "/dev/mhi_0308_02.01.00_pipe_12";
+
+    /// <summary>
     /// The QMI device to command, defaulting when the configuration leaves it blank. The value
     /// is interpolated into a root shell command, so it may only look like what qmicli -d takes:
-    /// a /dev node (LTE: /dev/cdc-wdm0, 5G-Max: /dev/wwan0qmi0) or a QRTR node (U5G-Backup:
-    /// qrtr://3) - same guard the GL transport puts on its own bus and device values.
+    /// a /dev node (LTE: /dev/cdc-wdm0, 5G-Max: /dev/wwan0qmi0, UDR-5G-Max: an MHI pipe) or a
+    /// QRTR node (U5G-Backup: qrtr://3) - same guard the GL transport puts on its own bus and device values.
     /// </summary>
-    internal static string QmiDevice(ModemPollContext context)
+    internal static string QmiDevice(ModemPollContext context, string defaultDevice = DefaultQmiDevice)
     {
         var path = string.IsNullOrWhiteSpace(context.TransportPath)
-            ? DefaultQmiDevice
+            ? defaultDevice
             : context.TransportPath.Trim();
 
-        return Regex.IsMatch(path, @"^(/dev/[A-Za-z0-9_-]+|qrtr://[0-9]+)$")
+        return Regex.IsMatch(path, @"^(/dev/(?!.*\.\.)[A-Za-z0-9_.-]+|qrtr://[0-9]+)$")
             ? path
             : throw new ArgumentException($"Invalid QMI device path: {path}");
+    }
+
+    /// <summary>
+    /// How a UniFi device is asked for its modem data. A UniFi modem (OpenWrt) exposes uiwwand on ubus
+    /// and its QMI device through qmi-proxy. UniFi OS on a gateway has no ubus: uiwwand answers on its
+    /// socket through uiwwand-ctl, and the modem's QMI device is reached over MBIM.
+    /// </summary>
+    internal sealed record Dialect(Func<string, string> Uiwwand, string QmiOpen, string DefaultDevice)
+    {
+        public static readonly Dialect Modem = new(
+            method => $"ubus call uiwwand call '{{\"method\":\"{method}\",\"params\":{{}}}}'",
+            "--device-open-proxy",
+            DefaultQmiDevice);
+
+        public static readonly Dialect Gateway = new(
+            method => $"echo '{{\"method\":\"{method}\"}}' | uiwwand-ctl",
+            "--device-open-proxy --device-open-mbim",
+            GatewayQmiDevice);
     }
 
     /// <inheritdoc/>
@@ -43,6 +67,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
 
     private readonly ILogger<QmicliModemProvider> _logger;
     private readonly IModemShell _shell;
+    private readonly Dialect _dialect;
 
     /// <summary>
     /// Which module is fitted. Read once per modem: an EM9291 does not become something else.
@@ -59,25 +84,27 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     public QmicliModemProvider(
         ILogger<QmicliModemProvider> logger,
         UniFiSshService sshService)
-        : this(logger, ModemProviderKeys.Qmicli, "Ubiquiti modem (SSH)", new DeviceShell(sshService))
+        : this(logger, ModemProviderKeys.Qmicli, "Ubiquiti modem (SSH)", new DeviceShell(sshService), Dialect.Modem)
     {
     }
 
     private QmicliModemProvider(
-        ILogger<QmicliModemProvider> logger, string providerKey, string displayName, IModemShell shell)
+        ILogger<QmicliModemProvider> logger, string providerKey, string displayName, IModemShell shell, Dialect dialect)
     {
         _logger = logger;
         ProviderKey = providerKey;
         DisplayName = displayName;
         _shell = shell;
+        _dialect = dialect;
     }
 
     /// <summary>
-    /// The provider for a gateway whose modem is built in (UDR-5G-Max). Same commands, but every one
-    /// runs on the site's Gateway SSH host with its credentials, so the modem row's host is not dialed.
+    /// The provider for a gateway whose modem is built in (UDR-5G-Max). Same queries and parsing, asked
+    /// in UniFi OS's dialect (<see cref="Dialect.Gateway"/>), and every command runs on the site's
+    /// Gateway SSH host with its credentials, so the modem row's host is not dialed.
     /// </summary>
     public static QmicliModemProvider ForGateway(ILogger<QmicliModemProvider> logger, IGatewaySshService gatewaySsh) =>
-        new(logger, ModemProviderKeys.UniFiGateway, "UniFi UDR-5G-Max (Gateway SSH)", new GatewayShell(gatewaySsh));
+        new(logger, ModemProviderKeys.UniFiGateway, "UniFi UDR-5G-Max (Gateway SSH)", new GatewayShell(gatewaySsh), Dialect.Gateway);
 
     /// <summary>Where the provider's commands run: device SSH to the modem host, or gateway SSH.</summary>
     private interface IModemShell
@@ -133,7 +160,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     {
         try
         {
-            var command = "ubus call uiwwand call '{\"method\":\"get-radio-status\",\"params\":{}}'";
+            var command = _dialect.Uiwwand("get-radio-status");
             var (success, output) = await _shell.RunCommandAsync(context.Host, command);
 
             if (!success || string.IsNullOrWhiteSpace(output))
@@ -142,8 +169,8 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 return null;
             }
 
-            // ubus returns "not found" when the service doesn't exist,
-            // or a JSON object without "result" when the method is unknown
+            // ubus returns "not found" when the service doesn't exist (uiwwand-ctl prints "socket
+            // error"), or a JSON object without "result" when the method is unknown
             if (output.Contains("not found") || !output.Contains("\"result\""))
             {
                 _logger.LogDebug("uiwwand not available on {Name}, falling back to qmicli", context.Name);
@@ -187,10 +214,10 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     {
         try
         {
-            var qmiDevice = QmiDevice(context);
+            var qmiDevice = QmiDevice(context, _dialect.DefaultDevice);
             var combinedCommand =
-                "echo '===TOWER===' && ubus call uiwwand call '{\"method\":\"get-cell-tower-info\",\"params\":{}}'; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
+                $"echo '===TOWER===' && {_dialect.Uiwwand("get-cell-tower-info")}; " +
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --nas-get-system-info" +
                 ModuleCommands(qmiDevice, context);
 
             var (success, output) = await _shell.RunCommandAsync(context.Host, combinedCommand);
@@ -229,14 +256,14 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
 
         try
         {
-            var qmiDevice = QmiDevice(context);
+            var qmiDevice = QmiDevice(context, _dialect.DefaultDevice);
 
             // Six seconds of low-power, then back online. The modem watchdog needs two failed
             // 60 s checks before it forces a reset, so this must stay well under a minute.
             var command =
-                $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=low-power && " +
+                $"qmicli -d {qmiDevice} {_dialect.QmiOpen} --dms-set-operating-mode=low-power && " +
                 "sleep 6 && " +
-                $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=online";
+                $"qmicli -d {qmiDevice} {_dialect.QmiOpen} --dms-set-operating-mode=online";
 
             var (success, output) = await _shell.RunCommandAsync(context.Host, command);
 
@@ -267,12 +294,12 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     /// </summary>
     private string ModuleCommands(string qmiDevice, ModemPollContext context)
     {
-        var commands = $"; echo '===REVISION===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-revision || true";
+        var commands = $"; echo '===REVISION===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --dms-get-revision || true";
 
         if (KnownModule(context) == null)
         {
-            commands += $"; echo '===MODULE===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-model || true" +
-                        $"; echo '===MAKER===' && qmicli -d {qmiDevice} --device-open-proxy --dms-get-manufacturer || true";
+            commands += $"; echo '===MODULE===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --dms-get-model || true" +
+                        $"; echo '===MAKER===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --dms-get-manufacturer || true";
         }
 
         return commands;
@@ -328,7 +355,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     {
         try
         {
-            var qmiDevice = QmiDevice(context);
+            var qmiDevice = QmiDevice(context, _dialect.DefaultDevice);
             var stats = new CellularModemStats
             {
                 ModemHost = context.Host,
@@ -338,11 +365,11 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
             };
 
             var combinedCommand =
-                $"echo '===SIGNAL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-signal-info; " +
-                $"echo '===SERVING===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system; " +
-                $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
-                $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info; " +
-                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
+                $"echo '===SIGNAL===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --nas-get-signal-info; " +
+                $"echo '===SERVING===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --nas-get-serving-system; " +
+                $"echo '===CELL===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --nas-get-cell-location-info; " +
+                $"echo '===BAND===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --nas-get-rf-band-info; " +
+                $"echo '===SYSINFO===' && qmicli -d {qmiDevice} {_dialect.QmiOpen} --nas-get-system-info" +
                 ModuleCommands(qmiDevice, context);
 
             var (success, output) = await _shell.RunCommandAsync(context.Host, combinedCommand);
