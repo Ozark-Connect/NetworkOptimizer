@@ -232,8 +232,7 @@
 
     private static string F(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
-    private static string Span(TimeSpan t) => t.TotalMinutes < 90 ? CcFormat.Plural(Math.Max(1, (int)t.TotalMinutes), "minute", "minutes")
-        : t.TotalHours < 48 ? CcFormat.Plural((int)t.TotalHours, "hour", "hours") : CcFormat.Plural((int)t.TotalDays, "day", "days");
+    private static string Span(TimeSpan t) => TimeFormatHelper.FormatDuration(t < TimeSpan.FromMinutes(1) ? TimeSpan.FromMinutes(1) : t);
 
     public void Dispose()
     {

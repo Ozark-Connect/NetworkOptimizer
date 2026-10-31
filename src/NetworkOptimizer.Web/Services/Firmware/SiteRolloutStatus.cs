@@ -128,10 +128,5 @@ public sealed record SiteRolloutStatus(int PlanId, SiteRolloutStage Stage, DateT
         return From(null, await repository.GetPlanHistoryAsync(5, cancellationToken), nowUtc);
     }
 
-    private static string Span(TimeSpan t) =>
-        t.TotalMinutes < 90 ? Plural(Math.Max(1, (int)t.TotalMinutes), "minute")
-        : t.TotalHours < 48 ? Plural((int)t.TotalHours, "hour")
-        : Plural((int)t.TotalDays, "day");
-
-    private static string Plural(int n, string unit) => n == 1 ? $"1 {unit}" : $"{n} {unit}s";
+    private static string Span(TimeSpan t) => TimeFormatHelper.FormatDuration(t < TimeSpan.FromMinutes(1) ? TimeSpan.FromMinutes(1) : t);
 }
