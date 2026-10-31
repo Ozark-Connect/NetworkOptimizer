@@ -497,7 +497,7 @@ public class ZoneSetupTests
     }
 
     [Fact]
-    public void Rehome_ClientsLandingInDifferentZones_KeepTheirSide_WithANote()
+    public void Rehome_ClientsLandingInDifferentZones_SplitByZone_WithTheNetworkSideMovingToo()
     {
         var live = WithSubnetsAndGateway();
         var rig = Client("aa:00:00:00:00:04", "n-home");
@@ -507,12 +507,75 @@ public class ZoneSetupTests
 
         var plan = PlanFor(live);
 
-        var policy = Named(plan.Desired, "[Mixed] To Cameras")!;
-        policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
-        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
-        plan.Notes.Should().Contain(n => n.Contains("[Mixed] To Cameras")
-            && n.Contains("aa:00:00:00:00:03 (IoT, moving to IoT); Workstation B (Home, stays in Internal)") && n.Contains("keeps Internal"));
+        var original = Named(plan.Desired, "[Mixed] To Cameras")!;
+        original["_id"]!.ToString().Should().Be("p-mix");
+        original["source"]!["zone_id"]!.ToString().Should().Be("z-int", "the original keeps the clients that stay");
+        original["source"]!["client_macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal(["aa:00:00:00:00:04"]);
+        original["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        var copy = Named(plan.Desired, "[Mixed] To Cameras (IoT)")!;
+        copy["source"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        copy["source"]!["client_macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal(["aa:00:00:00:00:03"]);
+        copy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
+        plan.Rehomed.Should().Contain("p-mix");
+        plan.Notes.Should().Contain("Firewall Policy [Mixed] To Cameras: its clients sit in 2 zones, so it is split. "
+            + "Internal keeps Workstation B on Home; a copy for IoT takes aa:00:00:00:00:03 on IoT.");
         plan.Notes.Should().NotContain(n => n.Contains("[Mixed] To Cameras") && n.Contains("no known network"));
+    }
+
+    [Fact]
+    public void Rehome_WorkstationsOnTwoNetworks_SplitWithAShortNote()
+    {
+        // Block Trackers from Workstations: five workstation NICs on the home network, one admin NIC on a network that moves.
+        var live = WithSubnetsAndGateway();
+        var macs = Enumerable.Range(1, 6).Select(i => $"aa:00:00:00:01:0{i}").ToArray();
+        var admin = Client(macs[5], "n-iot");
+        admin["name"] = "Workstation A - Admin NIC";
+        live.Collections["user"] = [.. macs.Take(5).Select(m => Client(m, "n-home")), admin];
+        live.Collections["firewall_policy"].Add(Rule("p-ws", "Block Trackers from Workstations", "BLOCK", ClientSide("z-int", "CLIENT", macs), Side("z-ext", port: "6969"), protocol: "tcp_udp"));
+
+        var plan = PlanFor(live);
+
+        var original = Named(plan.Desired, "Block Trackers from Workstations")!;
+        original["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        original["source"]!["client_macs"]!.AsArray().Should().HaveCount(5);
+        var copy = Named(plan.Desired, "Block Trackers from Workstations (IoT)")!;
+        copy["source"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        copy["source"]!["client_macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal([macs[5]]);
+        copy["destination"]!["zone_id"]!.ToString().Should().Be("z-ext");
+        copy["destination"]!["port"]!.ToString().Should().Be("6969", "the copy keeps everything but the clients and zone");
+        plan.Notes.Should().Contain("Firewall Policy Block Trackers from Workstations: its clients sit in 2 zones, so it is split. "
+            + "Internal keeps 5 clients on Home; a copy for IoT takes Workstation A - Admin NIC on IoT.");
+        plan.Notes.Should().NotContain(n => n.Contains("Block Trackers from Workstations") && n.Contains("zone pairs"), "the split note already says it");
+
+        var doc = PlanBuilder.Build(plan.Desired, live, ZoneSetup.Options());
+        doc.Operations.Should().Contain(o => o.Action == PlanAction.Create && o.ObjectName == "Block Trackers from Workstations (IoT)");
+        doc.Operations.Should().Contain(o => o.Action == PlanAction.Update && o.ObjectId == "p-ws");
+    }
+
+    [Fact]
+    public void Rehome_MacListSplit_NarrowsTheMacList()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-macs", "[Devices] To Internet", "ALLOW", ClientSide("z-int", "MAC", "aa:00:00:00:02:01", "aa:00:00:00:02:02"), Side("z-ext")));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:02:01"] = "n-home", ["aa:00:00:00:02:02"] = "n-iot" });
+
+        Named(plan.Desired, "[Devices] To Internet")!["source"]!["macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal(["aa:00:00:00:02:01"]);
+        Named(plan.Desired, "[Devices] To Internet (IoT)")!["source"]!["macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal(["aa:00:00:00:02:02"]);
+    }
+
+    [Fact]
+    public void Rehome_ClientsAllMovingToTwoNewZones_TheOriginalTakesTheFirst()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-two", "[Devices] To Internet", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:03:01", "aa:00:00:00:03:02"), Side("z-ext")));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:03:01"] = "n-iot", ["aa:00:00:00:03:02"] = "n-cam" });
+
+        var zones = plan.Desired.Get("firewall_policy").Where(p => p["name"]!.ToString().StartsWith("[Devices] To Internet"))
+            .ToDictionary(p => p["name"]!.ToString(), p => p["source"]!["zone_id"]!.ToString());
+        zones.Should().BeEquivalentTo(new Dictionary<string, string> { ["[Devices] To Internet"] = "new-zone-iot", ["[Devices] To Internet (Cameras)"] = "new-zone-cameras" });
+        plan.Notes.Should().Contain(n => n.Contains("so it is split. It moves to IoT with aa:00:00:00:03:01 on IoT; a copy for Cameras takes aa:00:00:00:03:02 on Cameras."));
     }
 
     [Fact]
@@ -599,7 +662,7 @@ public class ZoneSetupTests
     }
 
     [Fact]
-    public void Rehome_ClientsOnAMovingAndAnUnknownNetwork_NameEachInTheNote()
+    public void Rehome_ClientsOnAMovingAndAnUnknownNetwork_UnknownStaysWithTheOriginal()
     {
         var live = WithSubnetsAndGateway();
         var rig = Client("aa:00:00:00:00:31", null);
@@ -610,9 +673,12 @@ public class ZoneSetupTests
 
         var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:00:30"] = "n-iot" });
 
-        Named(plan.Desired, "Block Trackers from Workstations")!["source"]!["zone_id"]!.ToString().Should().Be("z-int");
-        plan.Notes.Should().Contain(n => n.Contains("Block Trackers from Workstations")
-            && n.Contains("aa:00:00:00:00:30 (IoT, moving to IoT); Workstation A (network unknown)"));
+        var original = Named(plan.Desired, "Block Trackers from Workstations")!;
+        original["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        original["source"]!["client_macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal(["aa:00:00:00:00:31"]);
+        Named(plan.Desired, "Block Trackers from Workstations (IoT)")!["source"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        plan.Notes.Should().Contain(n => n.Contains("Internal keeps Workstation A with no known network; a copy for IoT takes aa:00:00:00:00:30 on IoT"));
+        plan.Notes.Should().Contain(n => n.Contains("no known network (Workstation A:") && n.Contains("stay in Internal"));
     }
 
     [Fact]
