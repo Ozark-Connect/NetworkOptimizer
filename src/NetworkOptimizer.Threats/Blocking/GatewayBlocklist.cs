@@ -682,8 +682,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     /// <summary>What <see cref="VerifyAsync"/> reports for <paramref name="state"/> against the console's policies.</summary>
     internal static string? Verify(GatewayBlocklistState state, IEnumerable<UniFiFirewallPolicy> policies)
     {
-        // The console's list is not always unique by id: some consoles repeat a synthetic obj_<uuid>_<n> id
-        // (issue #1333). Ours are ids the console gave our own policies, so keep the first of any repeat.
+        // The console's list is not always unique by id: one has been seen listing an id twice (issue #1333).
+        // Ours are ids the console gave our own policies, so keep the first of any repeat.
         var byId = new Dictionary<string, UniFiFirewallPolicy>();
         foreach (var p in policies)
             byId.TryAdd(p.Id, p);
