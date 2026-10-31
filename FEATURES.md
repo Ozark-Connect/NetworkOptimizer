@@ -624,7 +624,7 @@ Requires Gateway SSH.
   - Any other SFP module with DDM
   - Any device through the Network Optimizer Custom JSON contract
 - **Cellular**
-  - Ubiquiti - U-LTE, U5G-Max, U5G-Backup
+  - Ubiquiti - U-LTE, U5G-Max, U5G-Backup, UDR-5G-Max built-in modem (Gateway SSH)
   - Netgear Nighthawk - modems and hotspots (MR5200, M6)
   - GL.iNet / Quectel - GL-X3000, GL-XE3000, GL-X2000, GL-E750V2, GL-E5800 (Mudi 7)
   - Inseego - FX4100

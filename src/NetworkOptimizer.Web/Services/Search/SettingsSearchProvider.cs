@@ -198,7 +198,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("monitoring", "Monitoring", "cellular-modem",
             "Cellular Modem (5G/LTE)",
             ["Cellular Modem", "Cellular Stats"],
-            ["5g", "lte", "signal strength", "cell info", "u5g-max", "u5g backup",
+            ["5g", "lte", "signal strength", "cell info", "u5g-max", "u5g backup", "udr-5g-max",
              "ubiquiti modem", "netgear nighthawk hotspot", "gl-inet", "quectel", "qmicli",
              "inseego", "fx4100", "zyxel", "nr7302", "nr7101", "nr5103",
              "mikrotik", "routeros", "chateau", "lte interface",
