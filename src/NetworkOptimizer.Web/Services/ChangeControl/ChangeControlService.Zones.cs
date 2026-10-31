@@ -33,7 +33,7 @@ public sealed partial class ChangeControlService
         }
         if (runChecks && !board.LegacyFirewall && Engine.Evaluator != null)
         {
-            var impact = await Engine.Evaluator.RunImpactAsync(_site.Slug, live, ZoneSetup.Desired(live, board), cancellationToken);
+            var impact = await Engine.Evaluator.RunImpactAsync(_site.Slug, live, ZoneSetup.Desired(live, board, await ClientNetworksAsync(cancellationToken)), cancellationToken);
             (board.Checks, var pass) = ZoneSetup.Checks(board, networks, impact);
             board.ChecksPass = pass;
         }
@@ -45,7 +45,7 @@ public sealed partial class ChangeControlService
         var (board, live, networks) = await ZoneBoardAsync(choices, cancellationToken);
         if (board.LegacyFirewall)
             throw new InvalidOperationException("This site still runs the legacy firewall. Zones need the zone-based firewall first.");
-        var zonePlan = ZoneSetup.Plan(live, board, await Plans.InformAddressesAsync(cancellationToken));
+        var zonePlan = ZoneSetup.Plan(live, board, await Plans.InformAddressesAsync(cancellationToken), await ClientNetworksAsync(cancellationToken));
         var desired = zonePlan.Desired;
         var impact = Engine.Evaluator == null ? null : await Engine.Evaluator.RunImpactAsync(_site.Slug, live, desired, cancellationToken);
         var (checks, pass) = ZoneSetup.Checks(board, networks, impact);
@@ -60,6 +60,20 @@ public sealed partial class ChangeControlService
                 doc.Context["zone_checks"] = pass ? "pass" : "fail";
             });
         return plan.Id;
+    }
+
+    /// <summary>
+    /// Each client's last network, which the config copy of clients leaves out (it is telemetry): a client policy's source
+    /// follows its clients' network when it moves. Empty when the read fails; the plan then notes those policies instead.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_connection_network_id")]
+    private async Task<Dictionary<string, string>> ClientNetworksAsync(CancellationToken ct)
+    {
+        var users = await Engine.Api.SendAsync(NetworkOptimizer.UniFi.UniFiApiScope.SiteV1, HttpMethod.Get, "rest/user", null, ct);
+        if (!users.IsSuccess || ConfigSnapshotReader.ExtractList(users.Body) is not { } list) return [];
+        return list.Where(u => u["mac"]?.ToString() is { Length: > 0 } && u["last_connection_network_id"]?.ToString() is { Length: > 0 })
+            .GroupBy(u => u["mac"]!.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First()["last_connection_network_id"]!.ToString(), StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

@@ -322,13 +322,16 @@ public static class ZoneSetup
     }
 
     /// <summary>The desired config for the board: zone membership and the policies it needs.</summary>
-    public static ConfigState Desired(ConfigState live, ZoneSetupView board) => Plan(live, board).Desired;
+    public static ConfigState Desired(ConfigState live, ZoneSetupView board, IReadOnlyDictionary<string, string>? clientNetworks = null) =>
+        Plan(live, board, clientNetworks: clientNetworks).Desired;
 
     /// <summary>The desired config for the board, with its plan notes and the operator policies it re-homes.</summary>
     /// <param name="live">Live config, read before any write.</param>
     /// <param name="board">The board.</param>
     /// <param name="informAddresses">Where devices inform to; a zone that would lose that path gets an allow.</param>
-    public static ZonePlan Plan(ConfigState live, ZoneSetupView board, IReadOnlyList<string>? informAddresses = null)
+    /// <param name="clientNetworks">Client MAC to the network it last connected on (rest/user <c>last_connection_network_id</c>), for clients with no fixed IP.</param>
+    public static ZonePlan Plan(ConfigState live, ZoneSetupView board, IReadOnlyList<string>? informAddresses = null,
+        IReadOnlyDictionary<string, string>? clientNetworks = null)
     {
         var notes = new List<string>();
         var desired = live.Clone();
@@ -367,7 +370,7 @@ public static class ZoneSetup
         bool IsInternal(string? zone) => zone != null && zoneKey.TryGetValue(zone, out var k) && k == "internal";
         var n = 0;
 
-        var rehomed = Rehome(live, desired, policies, moved, newZoneOf, ZoneName, notes, ref n);
+        var rehomed = Rehome(live, desired, policies, moved, newZoneOf, clientNetworks, ZoneName, notes, ref n);
         CopyZoneWide(live, desired, policies, moved, oldZoneOf, newZoneOf, zoneKey, ZoneName, notes, ref n);
 
         var active = board.Zones.Where(z => z.Key != UnassignedKey && !z.Kept && z.NetworkIds.Count > 0 && ids.ContainsKey(z.Key)).ToList();
@@ -568,13 +571,15 @@ public static class ZoneSetup
     /// leaves its zones as they were (UDR7 on Network 11, 2026-10-30). Returns policy ID to its name, for the redundancy pass.
     /// </summary>
     private static Dictionary<string, string> Rehome(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved,
-        Dictionary<string, string> newZoneOf, Func<string?, string> zoneName, List<string> notes, ref int n)
+        Dictionary<string, string> newZoneOf, IReadOnlyDictionary<string, string>? clientNetworks, Func<string?, string> zoneName, List<string> notes, ref int n)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (moved.Count == 0) return result;
         var networks = live.Get("networkconf");
         var users = live.Get("user").Where(u => Str(u, "mac") != null)
             .GroupBy(u => Str(u, "mac")!, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var lastSeen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (mac, network) in clientNetworks ?? new Dictionary<string, string>()) lastSeen.TryAdd(mac, network);
         var def = ConfigCollections.Get("firewall_policy")!;
         foreach (var policy in policies.ToList())
         {
@@ -590,7 +595,7 @@ public static class ZoneSetup
             // A client source follows its clients' network when the config knows it (a fixed IP) and they all land in one
             // zone. Only a source can match clients: UniFi refuses CLIENT on the destination (400, Network 11, 2026-10-30).
             var clientsUnknown = false;
-            var clientsMoved = FollowClients(policy, src, users, moved, newZoneOf, zoneName, notes, ref clientsUnknown);
+            var clientsMoved = FollowClients(policy, src, users, lastSeen, moved, newZoneOf, zoneName, notes, ref clientsUnknown);
             var srcNets = Named(src, networks);
             var dstNets = Named(dst, networks);
             if (!srcNets.Any(moved.Contains) && !dstNets.Any(moved.Contains))
@@ -599,7 +604,7 @@ public static class ZoneSetup
                 continue;
             }
             if (clientsUnknown)
-                notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients without a fixed IP, so their side keeps its zone. Check it once the networks move if those clients are on a network that moves.");
+                notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients with no known network (no fixed IP, never seen on a current network), so their side keeps its zone. Check it once the networks move if those clients are on a network that moves.");
 
             // Each side's networks grouped by the zone they now sit in; a side naming no moved network keeps its zone.
             List<(string Zone, List<string> Nets)> Groups(JsonObject? side, List<string> nets) =>
@@ -631,17 +636,21 @@ public static class ZoneSetup
     }
 
     /// <summary>
-    /// A client source moved to the zone its clients' network now sits in. The config knows a client's network only from
-    /// its fixed IP; a side with clients on networks landing in different zones keeps its zone and gets a note. Sets
-    /// <paramref name="unknown"/> when a client's network is not known. Returns whether the side moved.
+    /// A client source moved to the zone its clients' network now sits in. A client's network is its fixed IP's, else the
+    /// one it last connected on; one no longer on the site counts as unknown. A side with clients on networks landing in
+    /// different zones keeps its zone and gets a note. Sets <paramref name="unknown"/> when a client's network is not
+    /// known. Returns whether the side moved.
     /// </summary>
-    private static bool FollowClients(JsonObject policy, JsonObject? side, Dictionary<string, JsonObject> users, HashSet<string> moved,
+    private static bool FollowClients(JsonObject policy, JsonObject? side, Dictionary<string, JsonObject> users,
+        IReadOnlyDictionary<string, string>? clientNetworks, HashSet<string> moved,
         Dictionary<string, string> newZoneOf, Func<string?, string> zoneName, List<string> notes, ref bool unknown)
     {
         if (side == null || Str(side["matching_target"]) is not ("CLIENT" or "MAC")) return false;
         var macs = (side["client_macs"] as JsonArray ?? []).Concat(side["macs"] as JsonArray ?? []).Select(Str).OfType<string>().ToList();
-        var nets = macs.Select(mac => users.TryGetValue(mac, out var u) && Readdressing.IsTrue(u["use_fixedip"])
-            && Str(u, "network_id") is { Length: > 0 } id ? id : null).ToList();
+        string? NetworkOf(string mac) =>
+            (users.TryGetValue(mac, out var u) && Readdressing.IsTrue(u["use_fixedip"]) && Str(u, "network_id") is { Length: > 0 } fixedNet
+                ? fixedNet : clientNetworks?.GetValueOrDefault(mac)) is { } id && newZoneOf.ContainsKey(id) ? id : null;
+        var nets = macs.Select(NetworkOf).ToList();
         if (!nets.Any(id => id != null && moved.Contains(id)))
         {
             if (nets.Count == 0 || nets.Contains(null)) unknown = true;
@@ -654,7 +663,7 @@ public static class ZoneSetup
             notes.Add($"Firewall Policy {Str(policy, "name")}: its clients' network moves to {zoneName(zone)}, so their side moves with it.");
             return true;
         }
-        notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients whose networks land in different zones (or have no fixed IP), so their side keeps {zoneName(Str(side["zone_id"]))}. Split it by hand in the Edit tab.");
+        notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients whose networks land in different zones (or are not known), so their side keeps {zoneName(Str(side["zone_id"]))}. Split it by hand in the Edit tab.");
         return false;
     }
 

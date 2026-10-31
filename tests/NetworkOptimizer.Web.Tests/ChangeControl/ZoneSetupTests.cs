@@ -252,8 +252,9 @@ public class ZoneSetupTests
         ["source"] = Side(src), ["destination"] = Side(dst),
     };
 
-    private static ZonePlan PlanFor(ConfigState live, IReadOnlyList<string>? inform = null, IReadOnlyDictionary<string, bool>? exceptions = null) =>
-        ZoneSetup.Plan(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode, exceptions: exceptions), inform);
+    private static ZonePlan PlanFor(ConfigState live, IReadOnlyList<string>? inform = null, IReadOnlyDictionary<string, bool>? exceptions = null,
+        IReadOnlyDictionary<string, string>? clientNetworks = null) =>
+        ZoneSetup.Plan(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode, exceptions: exceptions), inform, clientNetworks);
 
     private static JsonObject? Named(ConfigState s, string name) => s.Get("firewall_policy").FirstOrDefault(p => p["name"]!.ToString() == name);
 
@@ -430,7 +431,7 @@ public class ZoneSetupTests
         policy["destination"]!["network_ids"]!.AsArray().Select(n => n!.ToString()).Should().Equal(["n-cam"]);
         policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
         plan.Rehomed.Should().Contain("p-mac");
-        plan.Notes.Should().Contain(n => n.Contains("[Phones] To Cameras") && n.Contains("without a fixed IP"));
+        plan.Notes.Should().Contain(n => n.Contains("[Phones] To Cameras") && n.Contains("no known network"));
     }
 
     [Fact]
@@ -508,7 +509,7 @@ public class ZoneSetupTests
         policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
         policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras");
         plan.Notes.Should().Contain(n => n.Contains("[Mixed] To Cameras") && n.Contains("different zones"));
-        plan.Notes.Should().NotContain(n => n.Contains("[Mixed] To Cameras") && n.Contains("without a fixed IP"));
+        plan.Notes.Should().NotContain(n => n.Contains("[Mixed] To Cameras") && n.Contains("no known network"));
     }
 
     [Fact]
@@ -523,9 +524,75 @@ public class ZoneSetupTests
 
         Named(plan.Desired, "[Phone] To IoT")!["source"]!["zone_id"]!.ToString().Should().Be("z-int");
         Named(plan.Desired, "[Phone] To IoT")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
-        plan.Notes.Should().Contain(n => n.Contains("[Phone] To IoT") && n.Contains("without a fixed IP"));
+        plan.Notes.Should().Contain(n => n.Contains("[Phone] To IoT") && n.Contains("no known network"));
         Named(plan.Desired, "[PC] To IoT")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
         plan.Notes.Should().NotContain(n => n.Contains("[PC] To IoT"), "its client is known to stay in Internal");
+    }
+
+    [Fact]
+    public void Rehome_ClientsLastSeenOnAStayingNetwork_NeedNoNote()
+    {
+        // [IoT] Allow Phone Inbound Access: phones with no fixed IP, last on the home network, which stays in Internal.
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW",
+            ClientSide("z-int", "CLIENT", "aa:00:00:00:06:01", "aa:00:00:00:06:02"), Side("z-int", "NETWORK", ["n-iot"])));
+        var seen = new Dictionary<string, string> { ["AA:00:00:00:06:01"] = "n-home", ["aa:00:00:00:06:02"] = "n-home" };
+
+        var plan = PlanFor(live, clientNetworks: seen);
+
+        var policy = Named(plan.Desired, "[IoT] Allow Phone Inbound Access")!;
+        policy["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        policy["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        plan.Notes.Should().NotContain(n => n.Contains("[IoT] Allow Phone Inbound Access"));
+    }
+
+    [Fact]
+    public void Rehome_ClientsLastSeenOnAMovingNetwork_SourceFollows()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-plug2", "[IoT] Plug to Internet", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:21"), Side("z-ext")));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:00:21"] = "n-iot" });
+
+        Named(plan.Desired, "[IoT] Plug to Internet")!["source"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
+        plan.Rehomed.Should().Contain("p-plug2");
+    }
+
+    [Fact]
+    public void Rehome_ClientLastSeenOnANetworkNoLongerThere_IsUnknown()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-old", "[Phone] To IoT", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:22"), Side("z-int", "NETWORK", ["n-iot"])));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:00:22"] = "n-deleted" });
+
+        Named(plan.Desired, "[Phone] To IoT")!["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        plan.Notes.Should().Contain(n => n.Contains("[Phone] To IoT") && n.Contains("no known network"));
+    }
+
+    [Fact]
+    public void Rehome_FixedIpNetwork_WinsOverTheLastSeenOne()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["user"] = [Client("aa:00:00:00:00:23", "n-home")];
+        live.Collections["firewall_policy"].Add(Rule("p-fixed", "[PC] To Internet", "ALLOW", ClientSide("z-int", "CLIENT", "aa:00:00:00:00:23"), Side("z-ext")));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:00:23"] = "n-iot" });
+
+        Named(plan.Desired, "[PC] To Internet")!["source"]!["zone_id"]!.ToString().Should().Be("z-int");
+        plan.Rehomed.Should().NotContain("p-fixed");
+    }
+
+    [Fact]
+    public void Rehome_OneKnownAndOneUnknownClient_StillNotes()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-two", "[Phones] To IoT", "ALLOW",
+            ClientSide("z-int", "CLIENT", "aa:00:00:00:00:24", "aa:00:00:00:00:25"), Side("z-int", "NETWORK", ["n-iot"])));
+
+        var plan = PlanFor(live, clientNetworks: new Dictionary<string, string> { ["aa:00:00:00:00:24"] = "n-home" });
+
+        plan.Notes.Should().Contain(n => n.Contains("[Phones] To IoT") && n.Contains("no known network"));
     }
 
     [Fact]
