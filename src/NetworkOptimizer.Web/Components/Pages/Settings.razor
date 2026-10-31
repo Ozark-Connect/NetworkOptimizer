@@ -1250,9 +1250,14 @@
             }
 
             <!-- Discovered Modems from UniFi Console -->
+            <div class="modem-discovery-header">
             <h4>Ubiquiti Modems (Auto-Discovered)</h4>
-            <div class="action-buttons" style="margin-top: 0.5rem; margin-bottom: 1rem;">
-                <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
+            <div class="action-buttons">
+                @if (!string.IsNullOrEmpty(modemScanResult) && !loadingDiscoveredModems)
+                {
+                    <span class="modem-scan-result">@modemScanResult</span>
+                }
+                <button class="btn btn-secondary" @onclick="ScanForModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
                     @if (loadingDiscoveredModems)
                     {
                         <span class="spinner"></span>
@@ -1263,6 +1268,7 @@
                         <span>Scan for Modems</span>
                     }
                 </button>
+            </div>
             </div>
 
             @if (!ConnectionService.IsConnected)
@@ -5331,6 +5337,7 @@
     private string? _modemTestedProvider;
     private List<DiscoveredModem> discoveredModems = new();
     private bool loadingDiscoveredModems = false;
+    private string modemScanResult = "";
     private bool modemFormExpanded = false;
 
     // Cable Modem Monitoring
@@ -6908,7 +6915,9 @@
         }
     }
 
-    private async Task LoadDiscoveredModems()
+    private Task ScanForModems() => LoadDiscoveredModems(manual: true);
+
+    private async Task LoadDiscoveredModems(bool manual = false)
     {
         if (!ConnectionService.IsConnected)
         {
@@ -6916,11 +6925,24 @@
         }
 
         loadingDiscoveredModems = true;
+        modemScanResult = "";
         StateHasChanged();
 
         try
         {
-            discoveredModems = await ModemService.DiscoverModemsAsync();
+            // A manual scan holds the spinner briefly: discovery reads cached devices and returns too fast to see.
+            var discovery = ModemService.DiscoverModemsAsync();
+            if (manual)
+            {
+                await Task.WhenAll(discovery, Task.Delay(600));
+            }
+            discoveredModems = await discovery;
+            if (manual)
+            {
+                modemScanResult = discoveredModems.Count > 0
+                    ? $"Scan complete: found {TimeFormatHelper.Pluralize(discoveredModems.Count, "modem")}"
+                    : "Scan complete: no modems found";
+            }
         }
         catch (Exception ex)
         {
