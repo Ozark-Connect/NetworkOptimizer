@@ -1,6 +1,9 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
+using NetworkOptimizer.Web.Services.Ssh;
 using Xunit;
 
 namespace NetworkOptimizer.Web.Tests.Services.CellularModemProviders;
@@ -42,5 +45,23 @@ public class QmicliModemProviderTests
     {
         var act = () => QmicliModemProvider.QmiDevice(Context(configured));
         act.Should().Throw<ArgumentException>().WithMessage("Invalid QMI device path:*");
+    }
+
+    [Fact]
+    public async Task ForGateway_RunsEveryCommandOverGatewaySsh()
+    {
+        var gateway = new Mock<IGatewaySshService>();
+        gateway.Setup(g => g.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((false, "Gateway SSH access is disabled"));
+        gateway.Setup(g => g.TestConnectionAsync()).ReturnsAsync((true, "SSH connection successful"));
+
+        var provider = QmicliModemProvider.ForGateway(NullLogger<QmicliModemProvider>.Instance, gateway.Object);
+
+        provider.ProviderKey.Should().Be(ModemProviderKeys.UniFiGateway);
+        (await provider.TestConnectionAsync(Context(""))).success.Should().BeTrue();
+        (await provider.PollAsync(Context(""))).Success.Should().BeFalse();
+        gateway.Verify(g => g.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()),
+            Times.AtLeastOnce);
+        gateway.Verify(g => g.TestConnectionAsync(), Times.Once);
     }
 }

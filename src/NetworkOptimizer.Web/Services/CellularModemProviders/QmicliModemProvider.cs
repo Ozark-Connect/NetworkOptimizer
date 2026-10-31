@@ -11,7 +11,8 @@ namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 /// Cellular modem provider for Ubiquiti modems (U-LTE, U5G-Max, U5G Backup, ...).
 /// Tries the uiwwand ubus command first (available on all modern UniFi modems),
 /// then falls back to raw qmicli commands for older firmware.
-/// SSH transport uses the shared UniFiSshService.
+/// SSH transport uses the shared UniFiSshService, or the Gateway SSH service for a gateway
+/// with a built-in modem (<see cref="ForGateway"/>).
 /// </summary>
 public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadioReset
 {
@@ -35,13 +36,13 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     }
 
     /// <inheritdoc/>
-    public string ProviderKey => "qmicli";
+    public string ProviderKey { get; }
 
     /// <inheritdoc/>
-    public string DisplayName => "Ubiquiti modem (SSH)";
+    public string DisplayName { get; }
 
     private readonly ILogger<QmicliModemProvider> _logger;
-    private readonly UniFiSshService _sshService;
+    private readonly IModemShell _shell;
 
     /// <summary>
     /// Which module is fitted. Read once per modem: an EM9291 does not become something else.
@@ -58,9 +59,49 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
     public QmicliModemProvider(
         ILogger<QmicliModemProvider> logger,
         UniFiSshService sshService)
+        : this(logger, ModemProviderKeys.Qmicli, "Ubiquiti modem (SSH)", new DeviceShell(sshService))
+    {
+    }
+
+    private QmicliModemProvider(
+        ILogger<QmicliModemProvider> logger, string providerKey, string displayName, IModemShell shell)
     {
         _logger = logger;
-        _sshService = sshService;
+        ProviderKey = providerKey;
+        DisplayName = displayName;
+        _shell = shell;
+    }
+
+    /// <summary>
+    /// The provider for a gateway whose modem is built in (UDR-5G-Max). Same commands, but every one
+    /// runs on the site's Gateway SSH host with its credentials, so the modem row's host is not dialed.
+    /// </summary>
+    public static QmicliModemProvider ForGateway(ILogger<QmicliModemProvider> logger, IGatewaySshService gatewaySsh) =>
+        new(logger, ModemProviderKeys.UniFiGateway, "UniFi UDR-5G-Max (Gateway SSH)", new GatewayShell(gatewaySsh));
+
+    /// <summary>Where the provider's commands run: device SSH to the modem host, or gateway SSH.</summary>
+    private interface IModemShell
+    {
+        Task<(bool success, string output)> RunCommandAsync(string host, string command);
+        Task<(bool success, string message)> TestConnectionAsync(string host);
+    }
+
+    private sealed class DeviceShell(UniFiSshService ssh) : IModemShell
+    {
+        public Task<(bool success, string output)> RunCommandAsync(string host, string command) =>
+            ssh.RunCommandAsync(host, command);
+
+        public Task<(bool success, string message)> TestConnectionAsync(string host) =>
+            ssh.TestConnectionAsync(host);
+    }
+
+    private sealed class GatewayShell(IGatewaySshService ssh) : IModemShell
+    {
+        public Task<(bool success, string output)> RunCommandAsync(string host, string command) =>
+            ssh.RunCommandAsync(command);
+
+        public Task<(bool success, string message)> TestConnectionAsync(string host) =>
+            ssh.TestConnectionAsync();
     }
 
     /// <inheritdoc/>
@@ -93,7 +134,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         try
         {
             var command = "ubus call uiwwand call '{\"method\":\"get-radio-status\",\"params\":{}}'";
-            var (success, output) = await _sshService.RunCommandAsync(context.Host, command);
+            var (success, output) = await _shell.RunCommandAsync(context.Host, command);
 
             if (!success || string.IsNullOrWhiteSpace(output))
             {
@@ -152,7 +193,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
                 ModuleCommands(qmiDevice, context);
 
-            var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
+            var (success, output) = await _shell.RunCommandAsync(context.Host, combinedCommand);
             if (!success || string.IsNullOrWhiteSpace(output))
             {
                 _logger.LogDebug("Cell tower enrichment unavailable on {Name}", context.Name);
@@ -197,7 +238,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 "sleep 6 && " +
                 $"qmicli -d {qmiDevice} --device-open-proxy --dms-set-operating-mode=online";
 
-            var (success, output) = await _sshService.RunCommandAsync(context.Host, command);
+            var (success, output) = await _shell.RunCommandAsync(context.Host, command);
 
             if (!success)
             {
@@ -304,7 +345,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
                 $"echo '===SYSINFO===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-system-info" +
                 ModuleCommands(qmiDevice, context);
 
-            var (success, output) = await _sshService.RunCommandAsync(context.Host, combinedCommand);
+            var (success, output) = await _shell.RunCommandAsync(context.Host, combinedCommand);
 
             if (!success)
             {
@@ -386,7 +427,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider, ISupportsRadio
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        var (success, message) = await _sshService.TestConnectionAsync(context.Host);
+        var (success, message) = await _shell.TestConnectionAsync(context.Host);
         return success
             ? (true, message)
             : (false, SshFailureSummary.Describe(message, context.Host));
