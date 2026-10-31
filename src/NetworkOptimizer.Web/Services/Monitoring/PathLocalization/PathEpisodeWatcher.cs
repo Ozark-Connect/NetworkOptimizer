@@ -981,6 +981,8 @@ public sealed class PathEpisodeWatcher
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         snapshot.Anchors = anchors;
         snapshot.PingedHops = pinged.ToList();
+        snapshot.HopPings = run.HopPings.ToDictionary(kv => kv.Key,
+            kv => new PathGateSnapshot.HopPingStats(kv.Value.Sent, kv.Value.Received, kv.Value.MinRttMs), StringComparer.OrdinalIgnoreCase);
         row.GateSnapshot = JsonSerializer.Serialize(snapshot);
         row.Scope = verdict.Scope.ToString();
         row.Disposition = verdict.Disposition.ToString();

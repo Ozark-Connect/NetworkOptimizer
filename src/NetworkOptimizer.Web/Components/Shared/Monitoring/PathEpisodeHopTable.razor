@@ -106,7 +106,17 @@
                                     }
                                 </td>
                                 <td><TextWithCode Text="@PathTraceAnalyzer.NetworkName(hop, "-")" /></td>
-                                <td>@(hop.Sent > 0 && hop.Responses > 0 ? $"{hop.LossPct:0.#}%" : "-")</td>
+                                <td>
+                                    @if (hop.Address != null && _detail.HopPings?.GetValueOrDefault(hop.Address) is { Sent: > 0 } ping)
+                                    {
+                                        <span data-tooltip="@($"Pinged during the episode: {ping.Received} of {ping.Sent} answered. The trace's own probes lost {hop.LossPct:0.#}%; routers limit traceroute replies far more than ping replies.")">@($"{ping.LossPct:0.#}%")</span>
+                                        <span class="text-muted">(trace @($"{hop.LossPct:0.#}%"))</span>
+                                    }
+                                    else
+                                    {
+                                        @(hop.Sent > 0 && hop.Responses > 0 ? $"{hop.LossPct:0.#}%" : "-")
+                                    }
+                                </td>
                                 <td>@RttLabel(hop)</td>
                                 @if (table.Hops.Any(ReturnHopsWorthShowing))
                                 {

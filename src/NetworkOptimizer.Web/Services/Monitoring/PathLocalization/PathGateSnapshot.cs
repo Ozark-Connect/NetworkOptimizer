@@ -26,6 +26,15 @@ public sealed class PathGateSnapshot
     /// <summary>The anchors that came from pinging an unmonitored hop during the episode, not from a monitored series.</summary>
     public List<string> PingedHops { get; set; } = new();
 
+    /// <summary>One pinged hop's pooled echoes, for the hop table.</summary>
+    public sealed record HopPingStats(int Sent, int Received, double? MinRttMs)
+    {
+        public double LossPct => Sent == 0 ? 0 : 100.0 * (Sent - Received) / Sent;
+    }
+
+    /// <summary>Every hop pinged during the episode, by address, with what its echoes returned.</summary>
+    public Dictionary<string, HopPingStats> HopPings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Reads a stored snapshot; an unreadable or empty one reads as empty rather than failing the episode.</summary>
     public static PathGateSnapshot Read(string? json)
     {
@@ -34,6 +43,7 @@ public sealed class PathGateSnapshot
         {
             var snapshot = JsonSerializer.Deserialize<PathGateSnapshot>(json) ?? new PathGateSnapshot();
             snapshot.Anchors = new Dictionary<string, bool>(snapshot.Anchors, StringComparer.OrdinalIgnoreCase);
+            snapshot.HopPings = new Dictionary<string, HopPingStats>(snapshot.HopPings, StringComparer.OrdinalIgnoreCase);
             return snapshot;
         }
         catch (JsonException)

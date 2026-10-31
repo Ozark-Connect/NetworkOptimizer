@@ -106,7 +106,7 @@ public sealed class PathEpisodeService : IPathEpisodeService
                 trace?.ResolvedAddress);
         }).ToList();
 
-        return new PathEpisodeDetail(view, tables, new HashSet<string>(snapshot.PingedHops, StringComparer.OrdinalIgnoreCase));
+        return new PathEpisodeDetail(view, tables, new HashSet<string>(snapshot.PingedHops, StringComparer.OrdinalIgnoreCase), snapshot.HopPings);
     }
 
     /// <summary>The site's agents by id, for naming a trace's vantage.</summary>
