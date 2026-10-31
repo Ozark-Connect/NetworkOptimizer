@@ -19624,7 +19624,7 @@ a.isp-health-hero-speed:hover {
 .isp-event-item {
     position: relative;
     display: grid;
-    grid-template-columns: 7.5rem 5.5rem 1fr;
+    grid-template-columns: 7.5rem 5.5rem minmax(0, 1fr);
     justify-items: start;
     align-items: baseline;
     column-gap: 0.6rem;
@@ -19725,6 +19725,10 @@ a.isp-health-hero-speed:hover {
     font-size: 0.85rem;
     color: var(--text-secondary);
     flex: 1 1 240px;
+    /* With the minmax(0, ...) text track, this keeps an open hop table from widening the row past
+       the card: it scrolls inside its .table-responsive instead. */
+    min-width: 0;
+    justify-self: stretch;
 }
 
 .isp-event-members-toggle {
@@ -20143,7 +20147,7 @@ a.isp-outage-ack:hover {
         padding-left: 0.75rem;
     }
     .isp-event-item {
-        grid-template-columns: auto auto;
+        grid-template-columns: auto minmax(0, 1fr);
         row-gap: 0.15rem;
     }
     .isp-event-text {
