@@ -80,6 +80,21 @@ public class PathTraceAnalyzerTests
         PathTraceAnalyzer.Analyze(new[] { t }, controls, AsnOf, Anchors, Options);
 
     [Fact]
+    public void HopLossierThanEverythingAfterIt_IsCappedAtTheDownstreamFloor()
+    {
+        // Akamai DEN loses 3-4 of 5 a round; Akamai ORD and the destination lose 1 or none.
+        var during = Enumerable.Range(0, 4).Select(i => Round(
+            new(Gw, 0.5), new(Bng, 2), new(LumenFirst, 9.5), new(LumenAtl, 14), new(LumenEdge, 15),
+            new(AkamaiAtl, 16, Lost: 3 + i % 2), new(AkamaiOrd, 31, Lost: i % 2), new(LinodeOrd, 32, Lost: i % 2)));
+
+        var hop = Analyze(Ord(during, Recovery())).Targets[0].Hops.Single(h => h.Address == AkamaiAtl);
+
+        hop.LossPct.Should().Be(70);
+        hop.DownstreamFloorPct.Should().Be(10);
+        hop.EffectiveLossPct.Should().Be(10);
+    }
+
+    [Fact]
     public void DestinationReturnHopsChanging_IsToldInTheSummary()
     {
         var during = Enumerable.Range(0, 3).Select(_ => Round(

@@ -41,6 +41,13 @@ public sealed record HopReading
     public int Sent { get; init; }
     public int Responses { get; init; }
     public double LossPct => Sent == 0 ? 0 : 100.0 * (Sent - Responses) / Sent;
+    /// <summary>The lowest loss of any answering hop after this one, the destination included; null when none answers.</summary>
+    public double? DownstreamFloorPct { get; init; }
+    /// <summary>
+    /// The loss forwarding can account for. A forwarding loss here would carry to every hop after it,
+    /// so anything above the least-lossy one beyond is this router limiting its own replies.
+    /// </summary>
+    public double EffectiveLossPct => DownstreamFloorPct is double f ? Math.Min(LossPct, f) : LossPct;
     public double? MinRttMs { get; init; }
     public double? MedianRttMs { get; init; }
     public double? MaxRttMs { get; init; }
@@ -341,6 +348,15 @@ public static class PathTraceAnalyzer
             });
         }
 
+        // Each hop's downstream floor, walking back from the end over the hops that answered.
+        double? floor = null;
+        for (var i = hops.Count - 1; i >= 0; i--)
+        {
+            hops[i] = hops[i] with { DownstreamFloorPct = floor };
+            if (hops[i].Responses > 0)
+                floor = floor is double f ? Math.Min(f, hops[i].LossPct) : hops[i].LossPct;
+        }
+
         // Decide every forward hop. The destination is degraded by definition (it triggered the episode),
         // and its dense ping series outweighs a handful of trace probes.
         var decided = new bool?[hops.Count];
@@ -357,7 +373,7 @@ public static class PathTraceAnalyzer
                 tags[i] |= HopTag.Anchored;
                 continue;
             }
-            var lossArm = h.LossPct >= options.PathHopLossElevatedPct && !h.Has(HopTag.RateLimited);
+            var lossArm = h.EffectiveLossPct >= options.PathHopLossElevatedPct && !h.Has(HopTag.RateLimited);
             var rttArm = h.DeltaRttMs is double d && h.BaselineMinRttMs is double b
                 && d >= Math.Max(options.PathHopRttMinDeltaMs, b * options.PathHopRttDeltaFraction);
             decided[i] = lossArm || rttArm;
@@ -381,6 +397,10 @@ public static class PathTraceAnalyzer
         {
             if (i >= onset && decided[i] == true) tags[i] |= HopTag.InRun;
             else if (decided[i] == true) tags[i] |= HopTag.IcmpLimited;
+            // Absolved by the downstream floor: its own loss was over the line, forwarding's is not.
+            else if (decided[i] == false && !tags[i].HasFlag(HopTag.Anchored)
+                     && hops[i].LossPct >= options.PathHopLossElevatedPct && hops[i].EffectiveLossPct < options.PathHopLossElevatedPct)
+                tags[i] |= HopTag.IcmpLimited;
         }
         tags[onset] |= HopTag.Onset;
         int? lastClean = null;

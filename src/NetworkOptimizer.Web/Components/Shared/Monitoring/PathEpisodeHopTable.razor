@@ -107,15 +107,17 @@
                                 </td>
                                 <td><TextWithCode Text="@PathTraceAnalyzer.NetworkName(hop, "-")" /></td>
                                 <td>
-                                    @if (hop.Address != null && _detail.HopPings?.GetValueOrDefault(hop.Address) is { Sent: > 0 } ping)
+                                    @if (LossCell(hop) is { } loss)
                                     {
-                                        var pingLower = ping.LossPct <= hop.LossPct;
-                                        <span data-tooltip="@($"Pinged during the episode: {ping.Received} of {ping.Sent} answered, {ping.LossPct:0.#}% lost. The trace's own probes lost {hop.LossPct:0.#}%; routers limit traceroute replies far more than ping replies.")">@($"{Math.Min(ping.LossPct, hop.LossPct):0.#}%")</span>
-                                        <span class="text-muted">(@(pingLower ? "trace" : "ping") @($"{Math.Max(ping.LossPct, hop.LossPct):0.#}%"))</span>
+                                        <span data-tooltip="@loss.Tooltip">@($"{loss.Shown:0.#}%")</span>
+                                        @if (loss.Higher is double higher)
+                                        {
+                                            <span class="text-muted">(@loss.HigherSource @($"{higher:0.#}%"))</span>
+                                        }
                                     }
                                     else
                                     {
-                                        @(hop.Sent > 0 && hop.Responses > 0 ? $"{hop.LossPct:0.#}%" : "-")
+                                        <span>-</span>
                                     }
                                 </td>
                                 <td>@RttLabel(hop)</td>
@@ -169,6 +171,31 @@
             Logger.LogDebug(ex, "Could not load path episode {Id}", EpisodeId);
             _failed = true;
         }
+    }
+
+    private sealed record LossDisplay(double Shown, double? Higher, string HigherSource, string? Tooltip);
+
+    /// <summary>
+    /// The loss forwarding can account for, lowest first: the trace's loss capped at what the hops
+    /// beyond it lost, or the hop's own pings. The highest raw figure follows in parentheses when it
+    /// differs. Null for a hop that never answered.
+    /// </summary>
+    private LossDisplay? LossCell(HopReading hop)
+    {
+        if (hop.Sent == 0 || hop.Responses == 0) return null;
+        var ping = hop.Address != null ? _detail!.HopPings?.GetValueOrDefault(hop.Address) : null;
+        var pingLoss = ping is { Sent: > 0 } ? ping.LossPct : (double?)null;
+
+        var shown = Math.Min(hop.EffectiveLossPct, pingLoss ?? double.MaxValue);
+        var higher = Math.Max(hop.LossPct, pingLoss ?? double.MinValue);
+        var source = pingLoss is double p && p > hop.LossPct ? "ping" : "trace";
+
+        var notes = new List<string>();
+        if (pingLoss is double pl)
+            notes.Add($"Pinged during the episode: {ping!.Received} of {ping.Sent} answered ({pl:0.#}% lost).");
+        if (hop.EffectiveLossPct < hop.LossPct)
+            notes.Add($"The trace lost {hop.LossPct:0.#}% here but only {hop.DownstreamFloorPct:0.#}% further along, so the rest is this router limiting its replies, not forwarding loss.");
+        return new LossDisplay(shown, higher - shown >= 0.5 ? higher : null, source, notes.Count > 0 ? string.Join(" ", notes) : null);
     }
 
     // A reply that came home by as many hops as it went out says nothing, and is most of them.
