@@ -281,6 +281,41 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void RehomedUpdate_NamesTheNewZone_NotItsReference()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW", Side("z-int", "CLIENT"), Side("z-int", "NETWORK", ["n-iot"])));
+        var plan = PlanFor(live);
+
+        var doc = PlanBuilder.Build(plan.Desired, live, ZoneSetup.Options());
+
+        var update = doc.Operations.Single(o => o.ObjectId == "p-phone");
+        var zoneField = update.Fields.Single(f => f.Path == "destination.zone_id");
+        zoneField.Old.Should().Be("Internal");
+        zoneField.New.Should().Be("IoT");
+        update.ChangeText.Should().Contain("IoT").And.NotContain(PlanBuilder.RefPrefix);
+        update.Fields.Should().NotContain(f => (f.New ?? "").Contains(PlanBuilder.RefPrefix) || (f.Old ?? "").Contains(PlanBuilder.RefPrefix));
+        update.Body!["destination"]!["zone_id"]!.ToString().Should().StartWith(PlanBuilder.RefPrefix, "the write still carries the token the apply resolves");
+    }
+
+    [Fact]
+    public void PolicyOrder_ForANewZone_IsNamedByTheZone()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW", Side("z-int", "CLIENT"), Side("z-int", "NETWORK", ["n-iot"])));
+        var plan = PlanFor(live);
+
+        var doc = PlanBuilder.Build(plan.Desired, live, ZoneSetup.Options());
+
+        var reorders = doc.Operations.Where(o => o.Action == PlanAction.Reorder).ToList();
+        reorders.Should().NotBeEmpty();
+        reorders.Should().OnlyContain(o => !o.ObjectName.Contains(PlanBuilder.RefPrefix));
+        reorders.Should().Contain(o => o.ObjectName == ChangeDescriber.PolicyOrderName("Internal to IoT"));
+        doc.WriteOrder.SelectMany(w => w.Groups).SelectMany(g => g.Names).Should().NotContain(n => n.Contains(PlanBuilder.RefPrefix));
+        reorders.Should().Contain(o => o.Body!["destination_zone_id"]!.ToString().StartsWith(PlanBuilder.RefPrefix), "the write keeps the token the apply resolves");
+    }
+
+    [Fact]
     public void Board_UnticksAnExceptionTheOperatorsRuleCovers()
     {
         var live = WithSubnetsAndGateway();

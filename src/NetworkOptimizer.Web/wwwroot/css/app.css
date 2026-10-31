@@ -24342,6 +24342,34 @@ body:has(.top-bar-hidden) .btn-fit {
     border-bottom: none;
 }
 
+.change-control .cc-write-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+}
+
+.change-control .cc-write-summary .cc-link-btn {
+    padding: 0;
+    color: var(--primary-hover);
+}
+
+.change-control .cc-write-list {
+    list-style: none;
+    margin: 0.35rem 0 0.25rem;
+    padding: 0.4rem 0.6rem;
+    max-height: 18rem;
+    overflow-y: auto;
+    border-left: 2px solid var(--border-color);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-write-list li {
+    padding: 0.15rem 0;
+    overflow-wrap: anywhere;
+}
+
 .change-control .cc-step-num {
     width: 24px;
     height: 24px;

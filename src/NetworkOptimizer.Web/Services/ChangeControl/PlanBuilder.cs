@@ -415,8 +415,7 @@ public static class PlanBuilder
             {
                 // Values as written: the mapped body, named as on this site, a reference to another create by its name.
                 var names = live == null ? liveById.ToDictionary(e => e.Key, e => ConfigState.DisplayName(ConfigCollections.Get(e.Value.Collection), e.Value.Object)) : [];
-                foreach (var other in creates.Values.Where(c => c.Key.Length > 0))
-                    names[RefPrefix + other.Key] = other.Key.Split(':') is { Length: > 2 } parts ? parts[2] : other.Key;
+                foreach (var (refId, refName) in RefNames(creates)) names[refId] = refName;
                 var here = new ConfigIdentityContext(names);
                 op.Fields = ChangeDescriber.ForDisplay(written.Fields.SelectMany(f => CreateRows(def, f, remapped, here)).ToList());
             }
@@ -442,12 +441,14 @@ public static class PlanBuilder
         };
         var updateBody = UpdateBody(def, live, remapped, diff, update.WriteFields);
         update.Body = updateBody;
+        // A value can point at an object this plan creates (a policy moving into a new zone): name it as a create's rows do.
+        var updateCtx = liveCtx.With(RefNames(creates));
         update.Fields = diff.Fields.Select(f => new StoredField
         {
             Path = f.Path,
             Label = ChangeDescriber.LabelFor(f.Path, remapped, live),
-            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, liveCtx),
-            New = f.Secret ? null : ChangeDescriber.Value(f.New, liveCtx),
+            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, updateCtx),
+            New = f.Secret ? null : ChangeDescriber.Value(f.New, updateCtx),
             Secret = f.Secret,
         }).ToList();
         if (def.Key == "wlanconf" && ChangeDescriber.Rows(diff).FirstOrDefault(r => r.Label == ChangeDescriber.SecurityProtocol) is { } sec)
@@ -457,7 +458,7 @@ public static class PlanBuilder
         }
         // Display rows only; the write uses Body.
         update.Fields = ChangeDescriber.ForDisplay(update.Fields);
-        update.ChangeText = ChangeDescriber.ChangeText(diff, liveCtx, liveCtx);
+        update.ChangeText = ChangeDescriber.ChangeText(diff, updateCtx, updateCtx);
         ApplyTags(update, diff);
         update.ManagementPath = diff.ManagementPath;
         update.WanPath = diff.WanPath;
@@ -466,6 +467,11 @@ public static class PlanBuilder
         if (update.WanPath) AddReason(update, "WAN path change");
         return update;
     }
+
+    /// <summary>Each object this plan creates, by its <c>@ref:</c> token, named from its operation key ("firewall_zone:create:IoT:..." is IoT).</summary>
+    private static IEnumerable<(string Id, string Name)> RefNames(Dictionary<string, PlanOperation> creates) =>
+        creates.Values.Where(c => c.Key.Length > 0)
+            .Select(c => (RefPrefix + c.Key, c.Key.Split(':') is { Length: > 2 } parts ? parts[2] : c.Key));
 
     /// <summary>
     /// A WPA mode and PMF setting UniFi refuses together (api.err.InvalidSecurityPmfModeCombination,
@@ -860,6 +866,8 @@ public static class PlanBuilder
         var def = ConfigCollections.Get("firewall_policy")!;
 
         string Map(string id) => idMap.TryGetValue(id, out var l) ? l : creates.TryGetValue(id, out var c) ? RefPrefix + c.Key : id;
+        // A pair can be a zone this plan creates: named as a create's rows name it.
+        var pairCtx = liveCtx.With(RefNames(creates));
 
         var liveOrder = ConfigDiffEngine.PolicyOrder(live);
         var deleted = doc.Operations.Where(o => o.Action == PlanAction.Delete && o.Collection == "firewall_policy").Select(o => o.ObjectId).ToHashSet();
@@ -911,13 +919,12 @@ public static class PlanBuilder
                 (idx < predefinedMin ? before : after).Add(ConfigState.IdOf(p));
             }
 
-            var pair = $"{liveCtx.NameOf(src)} to {liveCtx.NameOf(dst)}";
             doc.Operations.Add(new PlanOperation
             {
                 Key = $"firewall_policy:reorder:{src}>{dst}",
                 Collection = "firewall_policy",
                 Action = PlanAction.Reorder,
-                ObjectName = $"Policy order, {pair}",
+                ObjectName = ChangeDescriber.PolicyOrderName($"{pairCtx.NameOf(src)} to {pairCtx.NameOf(dst)}"),
                 Order = 7,
                 SourceZoneId = src,
                 DestinationZoneId = dst,

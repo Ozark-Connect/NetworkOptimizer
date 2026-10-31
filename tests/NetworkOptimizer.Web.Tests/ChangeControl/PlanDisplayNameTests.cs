@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 using FluentAssertions;
 using NetworkOptimizer.Web.Components.Shared.ChangeControl;
@@ -7,16 +6,12 @@ using Xunit;
 
 namespace NetworkOptimizer.Web.Tests.ChangeControl;
 
+/// <summary>
+/// Review Plan display. Names are resolved when the plan is built (PlanBuilder names a reference to an object the plan
+/// creates, see ZoneSetupTests.RehomedUpdate_NamesTheNewZone_NotItsReference); the page only formats them.
+/// </summary>
 public class PlanDisplayNameTests
 {
-    private static string Display(PlanOperation operation, PlanDocument doc) =>
-        (string)typeof(CcReviewPlan).GetMethod("DisplayObjectName", BindingFlags.NonPublic | BindingFlags.Static)!
-            .Invoke(null, [operation, doc])!;
-
-    private static string DisplayWriteOrder(string collection, string name, PlanDocument doc) =>
-        (string)typeof(CcReviewPlan).GetMethod("DisplayWriteOrderName", BindingFlags.NonPublic | BindingFlags.Static)!
-            .Invoke(null, [collection, name, doc])!;
-
     private static PlanOperation Zone(string name, string id) => new()
     {
         Key = $"firewall_zone:create:{name}:{id}", ObjectName = name,
@@ -24,72 +19,98 @@ public class PlanDisplayNameTests
     };
 
     [Theory]
-    [InlineData("Office LAN")]
-    [InlineData("Office, LAN")]
-    [InlineData("Office, Guest LAN")]
-    public void Resolves_complete_reference_with_legal_zone_name(string name)
-    {
-        var zone = Zone(name, "new-zone");
-        var operation = new PlanOperation { ObjectName = $"Policy order, @ref:{zone.Key} to External", Action = PlanAction.Reorder };
-        var doc = new PlanDocument { Operations = [zone, operation] };
-
-        Display(operation, doc).Should().Be($"{name} → External");
-    }
-
-    [Fact]
-    public void Resolves_multiple_references_using_longest_known_key_and_preserves_plan()
-    {
-        var prefix = Zone("Office", "zone");
-        var longer = Zone("Office", "zone-extension");
-        var comma = Zone("Guest, LAN", "guest");
-        var operation = new PlanOperation
-        {
-            ObjectName = $"Policy order, @ref:{longer.Key} to @ref:{comma.Key}, @ref:{prefix.Key}",
-            Action = PlanAction.Reorder,
-        };
-        var doc = new PlanDocument { Operations = [prefix, longer, comma, operation] };
-        var original = JsonSerializer.Serialize(doc);
-
-        Display(operation, doc).Should().Be("Office → Guest, LAN, Office");
-        JsonSerializer.Serialize(doc).Should().Be(original);
-    }
-
-    [Fact]
-    public void Write_order_resolves_references_and_formats_policy_order()
-    {
-        var zone = Zone("Management", "new-zone-management");
-        var rawName = $"Policy order, @ref:{zone.Key} to Gateway";
-        var reorder = new PlanOperation { Collection = "firewall_policy", ObjectName = rawName, Action = PlanAction.Reorder };
-        var doc = new PlanDocument
-        {
-            Operations = [zone, reorder],
-            WriteOrder = [new WriteStep { Groups = [new WriteStepGroup { Collection = "Firewall policies", Names = [rawName] }] }],
-        };
-
-        DisplayWriteOrder("Firewall policies", rawName, doc).Should().Be("Management → Gateway");
-        doc.WriteOrder[0].Groups[0].Names.Should().ContainSingle().Which.Should().Be(rawName, "display formatting must not alter the stored plan");
-    }
-
-    [Theory]
-    [InlineData("-unknown")]
-    [InlineData(":unknown")]
-    public void Preserves_unknown_reference_with_known_key_prefix(string suffix)
-    {
-        var zone = Zone("Office LAN", "zone");
-        var operation = new PlanOperation { ObjectName = $"@ref:{zone.Key}{suffix} to External" };
-        var doc = new PlanDocument { Operations = [zone, operation] };
-
-        Display(operation, doc).Should().Be(operation.ObjectName);
-    }
-
-    [Theory]
     [InlineData("Plain zone name", PlanAction.Create, "Plain zone name")]
     [InlineData("Policy order, Internal to External", PlanAction.Reorder, "Internal → External")]
+    [InlineData("Policy order, Office, LAN to Guest LAN", PlanAction.Reorder, "Office, LAN → Guest LAN")]
     [InlineData("Policy order, Internal to External", PlanAction.Update, "Policy order, Internal to External")]
-    [InlineData("@ref:unknown:key to External", PlanAction.Update, "@ref:unknown:key to External")]
-    public void Preserves_existing_formats_and_unknown_references(string name, PlanAction action, string expected)
+    public void Formats_policy_order_and_leaves_other_names(string name, PlanAction action, string expected) =>
+        CcReviewPlan.DisplayObjectName(new PlanOperation { ObjectName = name, Action = action }).Should().Be(expected);
+
+    private static PlanOperation Policy(string name, PlanAction action) => new()
     {
-        var operation = new PlanOperation { ObjectName = name, Action = action };
-        Display(operation, new PlanDocument { Operations = [operation] }).Should().Be(expected);
+        Key = $"firewall_policy:{action.ToString().ToLowerInvariant()}:{name}:id-{name}", ObjectName = name, Collection = "firewall_policy", Action = action,
+    };
+
+    [Fact]
+    public void Write_order_groups_by_collection_in_order_with_resolved_names()
+    {
+        var zone = Zone("Management", "new-zone-management");
+        var create = Policy("Block SNMP (Management)", PlanAction.Create);
+        var update = Policy("[IoT] Allow Phone Inbound Access", PlanAction.Update);
+        var reorder = new PlanOperation
+        {
+            Key = "firewall_policy:reorder:mgmt-gw", Collection = "firewall_policy", Action = PlanAction.Reorder,
+            ObjectName = "Policy order, Management to Gateway",
+        };
+        var doc = new PlanDocument { Operations = [zone, create, update, reorder] };
+        var step = new WriteStep
+        {
+            OperationKeys = [zone.Key, create.Key, update.Key, reorder.Key],
+            Groups = [new WriteStepGroup { Collection = "Firewall zones", Names = ["Management"] }],
+        };
+        var original = JsonSerializer.Serialize(doc);
+
+        var groups = CcReviewPlan.WriteGroups(step, doc);
+
+        groups.Select(g => g.Collection).Should().Equal("Firewall zones", "Firewall policies");
+        groups[1].Items.Should().Equal(
+            new CcReviewPlan.WriteItem(PlanAction.Create, "Block SNMP (Management)"),
+            new CcReviewPlan.WriteItem(PlanAction.Update, "[IoT] Allow Phone Inbound Access"),
+            new CcReviewPlan.WriteItem(PlanAction.Reorder, "Management → Gateway"));
+        JsonSerializer.Serialize(doc).Should().Be(original, "display formatting must not alter the stored plan");
+    }
+
+    [Fact]
+    public void Write_order_skips_keys_the_plan_no_longer_has()
+    {
+        var create = Policy("A", PlanAction.Create);
+        var doc = new PlanDocument { Operations = [create] };
+
+        var groups = CcReviewPlan.WriteGroups(new WriteStep { OperationKeys = ["gone", create.Key] }, doc);
+
+        groups.Should().ContainSingle().Which.Items.Should().ContainSingle().Which.Name.Should().Be("A");
+    }
+
+    [Fact]
+    public void Write_order_of_a_plan_built_before_operation_keys_falls_back_to_names()
+    {
+        var rawName = "Policy order, Management to Gateway";
+        var reorder = new PlanOperation { Collection = "firewall_policy", ObjectName = rawName, Action = PlanAction.Reorder };
+        var doc = new PlanDocument { Operations = [reorder] };
+        var step = new WriteStep { Groups = [new WriteStepGroup { Collection = "Firewall policies", Names = [rawName, "Not in the plan"] }] };
+
+        var groups = CcReviewPlan.WriteGroups(step, doc);
+
+        groups.Should().ContainSingle().Which.Items.Should().Equal(
+            new CcReviewPlan.WriteItem(PlanAction.Reorder, "Management → Gateway"),
+            new CcReviewPlan.WriteItem(PlanAction.Update, "Not in the plan"));
+        step.Groups[0].Names[0].Should().Be(rawName);
+    }
+
+    [Fact]
+    public void Write_summary_counts_each_action_in_a_fixed_order()
+    {
+        var items = new List<CcReviewPlan.WriteItem>
+        {
+            new(PlanAction.Reorder, "r1"), new(PlanAction.Update, "u1"), new(PlanAction.Create, "c1"),
+            new(PlanAction.Create, "c2"), new(PlanAction.Delete, "d1"), new(PlanAction.Reorder, "r2"),
+        };
+
+        CcReviewPlan.WriteSummary(items).Should().Be("2 creates, 1 update, 2 reorders, 1 delete");
+        CcReviewPlan.WriteSummary([new(PlanAction.Update, "u")]).Should().Be("1 update");
+        CcReviewPlan.WriteSummary([]).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Identity_context_with_adds_names_and_wins_on_a_clash()
+    {
+        var ctx = new ConfigIdentityContext(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["z-int"] = "Internal", ["n1"] = "Old" });
+
+        var more = ctx.With([("@ref:firewall_zone:create:IoT:new-zone-iot", "IoT"), ("N1", "New")]);
+
+        more.NameOf("@ref:firewall_zone:create:IoT:new-zone-iot").Should().Be("IoT");
+        more.NameOf("z-int").Should().Be("Internal");
+        more.NameOf("n1").Should().Be("New", "IDs compare without case, as NamesById does");
+        ctx.NameOf("@ref:firewall_zone:create:IoT:new-zone-iot").Should().Be("@ref:firewall_zone:create:IoT:new-zone-iot", "the original is unchanged");
     }
 }
