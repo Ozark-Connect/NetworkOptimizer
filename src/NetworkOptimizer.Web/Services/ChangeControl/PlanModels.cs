@@ -84,6 +84,9 @@ public sealed class PlanOperation
     public string? SourceZoneId { get; set; }
     public string? DestinationZoneId { get; set; }
 
+    /// <summary>For Reorder: the policies it moves or adds, by name with their neighbors. Null on plans built before it.</summary>
+    public List<OrderMove>? OrderMoves { get; set; }
+
     /// <summary>The plan writes this collection only after the gateway is adopted (blank-console restore).</summary>
     public bool NeedsGateway { get; set; }
 

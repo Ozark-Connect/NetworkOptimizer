@@ -4,19 +4,35 @@
 {
     <div class="cc-order-move">
         <div class="cc-order-move-head">
-            <span><span class="cc-action-text updated">Moved</span> @m.Name</span>
-            <span class="cc-order-pos">#@m.From<CcTo />#@m.To</span>
+            @if (m.From == 0)
+            {
+                <span><span class="cc-action-text created">Added</span> @m.Name</span>
+                <span class="cc-order-pos">#@m.To</span>
+            }
+            else
+            {
+                <span><span class="cc-action-text updated">Moved</span> @m.Name</span>
+                <span class="cc-order-pos">#@m.From<CcTo />#@m.To</span>
+            }
         </div>
         <div class="cc-order-cols">
-            <div>
-                <div class="cc-order-col-title">Before</div>
-                <ul class="cc-order-list">
-                    @foreach (var n in m.Before)
-                    {
-                        <li class="@Row(n)"><span class="n">@(n.IsEnd ? "" : n.Position)</span>@n.Name</li>
-                    }
-                </ul>
-            </div>
+            @if (m.From != 0)
+            {
+                <div>
+                    <div class="cc-order-col-title">Before</div>
+                    <ul class="cc-order-list">
+                        @foreach (var n in m.Before)
+                        {
+                            <li class="@Row(n)"><span class="n">@(n.IsEnd ? "" : n.Position)</span>@n.Name</li>
+                        }
+                    </ul>
+                </div>
+            }
+            else
+            {
+                @* Holds the Before column's place, so an added policy's After lines up with a move's. *@
+                <div class="hide-mobile"></div>
+            }
             <div>
                 <div class="cc-order-col-title">After</div>
                 <ul class="cc-order-list">
@@ -31,7 +47,7 @@
 }
 @if (Moves.Count > PolicyOrderMoves.MaxShown)
 {
-    <div class="cc-order-more">and @(Moves.Count - PolicyOrderMoves.MaxShown) more moved</div>
+    <div class="cc-order-more">and @(Moves.Count - PolicyOrderMoves.MaxShown) more @(Moves.Skip(PolicyOrderMoves.MaxShown).Any(m => m.From == 0) ? "changed" : "moved")</div>
 }
 
 @code {

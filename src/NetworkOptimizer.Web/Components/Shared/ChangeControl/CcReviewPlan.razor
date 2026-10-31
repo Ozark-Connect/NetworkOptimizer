@@ -186,6 +186,10 @@ else
                             }
                             <div class="expand-wrapper @(open ? "expanded" : "")">
                                 <div class="expand-content">
+                                    @if (op.OrderMoves is { } moves)
+                                    {
+                                        <div class="cc-inset" style="margin:0.5rem 0 0"><CcOrderMoves Moves="moves" /></div>
+                                    }
                                     @if (op.Fields.Count > 0)
                                     {
                                         <div class="cc-inset" style="margin:0.5rem 0 0">
@@ -277,7 +281,11 @@ else
                                             <div class="expand-content">
                                                 <div class="cc-inset" style="margin-top:0.75rem">
                                                     <table class="cc-field-table">
-                                                        @if (op.Fields.Count == 0)
+                                                        @if (op.OrderMoves is { } moves)
+                                                        {
+                                                            <tr><td colspan="3"><CcOrderMoves Moves="moves" /></td></tr>
+                                                        }
+                                                        else if (op.Fields.Count == 0)
                                                         {
                                                             <tr><td class="label">@op.Action</td><td colspan="2">@op.ChangeText</td></tr>
                                                         }

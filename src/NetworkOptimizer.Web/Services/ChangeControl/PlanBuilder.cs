@@ -964,6 +964,9 @@ public static class PlanBuilder
                 listed.Add(id);
             }
 
+            // For Review Plan: worked out on IDs, since two policies can share a name, and shown with names.
+            var moves = PolicyOrderMoves.ComputeWithAdded(order, before.Concat(after).Select(n => n!.ToString()).ToList())
+                .Select(m => PolicyOrderMoves.Named(m, pairCtx.NameOf)).ToList();
             doc.Operations.Add(new PlanOperation
             {
                 Key = $"firewall_policy:reorder:{src}>{dst}",
@@ -979,6 +982,7 @@ public static class PlanBuilder
                     ["before_predefined_ids"] = before, ["after_predefined_ids"] = after,
                 },
                 ChangeText = "Order changed",
+                OrderMoves = moves.Count > 0 ? moves : null,
                 NeedsGateway = true,
                 // After the updates of the policies it lists: one moving into this pair is not in it until written, and UniFi
                 // refuses a reorder naming it (api.err.FirewallPolicyNotFound). A lockout's update is written last, past the reorders.

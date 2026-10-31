@@ -75,6 +75,44 @@ public class PlanOrderTests
     }
 
     [Fact]
+    public void Reorder_CarriesItsMovesByName_ForReviewPlan()
+    {
+        // Two live policies share a name; the moves are worked out on IDs and shown by name.
+        var desired = Policies(Policy("c", 10001, name: "Gamma"), Policy("d1", 10002, name: "Same"), Policy("a", 10003, name: "Alpha"),
+            Policy("b", 10004, name: "Beta"), Policy("d2", 10005, name: "Same"), Predefined(30000));
+        var live = Policies(Policy("d1", 10001, name: "Same"), Policy("a", 10002, name: "Alpha"), Policy("b", 10003, name: "Beta"),
+            Policy("c", 10004, name: "Gamma"), Policy("d2", 10005, name: "Same"), Predefined(30000));
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+
+        var move = doc.Operations.Single(o => o.Action == PlanAction.Reorder).OrderMoves.Should().ContainSingle().Subject;
+        move.Name.Should().Be("Gamma");
+        (move.From, move.To).Should().Be((4, 1));
+        move.Before.Select(n => n.Name).Should().Equal("Alpha", "Beta", "Gamma", "Same");
+        move.After.Select(n => n.Name).Should().Equal("Gamma", "Same", "Alpha");
+    }
+
+    [Fact]
+    public void Reorder_CarriesANewPolicyAsAdded_AndSurvivesStorage()
+    {
+        var live = Policies(Policy("a", 10001, name: "Alpha"), Predefined(30000));
+        var desired = Policies(Policy("a", 10001, name: "Alpha"), Predefined(30000));
+        desired.Collections["firewall_policy"].Add(new JsonObject
+        {
+            ["name"] = "Test", ["action"] = "BLOCK", ["enabled"] = true, ["predefined"] = false,
+            ["source"] = new JsonObject { ["zone_id"] = "z-ext", ["matching_target"] = "ANY" },
+            ["destination"] = new JsonObject { ["zone_id"] = "z-vpn", ["matching_target"] = "ANY" },
+        });
+
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+        var stored = System.Text.Json.JsonSerializer.Deserialize<PlanDocument>(System.Text.Json.JsonSerializer.Serialize(doc))!;
+
+        var added = stored.Operations.Single(o => o.Action == PlanAction.Reorder).OrderMoves.Should().ContainSingle().Subject;
+        (added.Name, added.From, added.To).Should().Be(("Test", 0, 2));
+        added.After.Select(n => n.Name).Should().Equal("Alpha", "Test", "end of list");
+    }
+
+    [Fact]
     public void Reorder_SurvivesAConsoleThatRepeatsAPolicyId()
     {
         // Seen on a UDM Pro: the console listed one policy id twice (issue #1333).

@@ -49,4 +49,36 @@ public class PolicyOrderMovesTests
     {
         PolicyOrderMoves.Compute(["A", "B"], ["A", "B"]).Should().BeEmpty();
     }
+    [Fact]
+    public void ComputeWithAdded_ListsANewPolicyWhereItLands_AndMovesByNewPosition()
+    {
+        var changes = PolicyOrderMoves.ComputeWithAdded(["A", "B", "C", "D", "E"], ["E", "A", "B", "X", "C", "D"]);
+
+        changes.Select(m => (m.Name, m.From, m.To)).Should().Equal(("E", 5, 1), ("X", 0, 4));
+        var added = changes[1];
+        added.Before.Should().BeEmpty();
+        added.After.Select(n => n.Name).Should().Equal("A", "B", "X", "C", "D");
+        added.After.Single(n => n.IsSubject).Position.Should().Be(4);
+    }
+
+    [Fact]
+    public void ComputeWithAdded_IsComputeWhenNothingIsAdded()
+    {
+        List<string> before = ["A", "B", "C"];
+        List<string> after = ["B", "A", "C"];
+
+        PolicyOrderMoves.ComputeWithAdded(before, after).Should().BeEquivalentTo(PolicyOrderMoves.Compute(before, after));
+    }
+
+    [Fact]
+    public void Named_RenamesEveryRowButTheEndMarker()
+    {
+        var move = PolicyOrderMoves.Compute(["a", "b"], ["b", "a"]).Single();
+
+        var named = PolicyOrderMoves.Named(move, id => id.ToUpperInvariant());
+
+        named.Name.Should().Be(move.Name.ToUpperInvariant());
+        named.Before.Concat(named.After).Where(n => !n.IsEnd).Should().OnlyContain(n => n.Name == "A" || n.Name == "B");
+        named.Before.Concat(named.After).Where(n => n.IsEnd).Should().OnlyContain(n => n.Name == "end of list");
+    }
 }
