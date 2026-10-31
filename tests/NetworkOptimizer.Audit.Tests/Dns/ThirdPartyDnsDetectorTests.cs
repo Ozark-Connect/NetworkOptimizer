@@ -337,6 +337,133 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         result.Should().ContainSingle(r => !r.IsNextDns && !r.IsControlD);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ProbeGatewayDnsAsync_RealControlDProbe_DetectsOnlyWhenResolverChainsToControlD(bool throughControlD)
+    {
+        // ctrld on the gateway: the resolver only answers verify.controld.com when the query
+        // traverses ControlD, and then only for an A query (a CNAME-type query is NODATA).
+        ThirdPartyDnsDetector.NextDnsProbeOverride = null;
+        ThirdPartyDnsDetector.ControlDProbeOverride = null;
+        using var resolver = new FakeTcpResolver(throughControlD);
+        var dialer = new RecordingDialer { ForwardTo = ("127.0.0.1", resolver.Port) };
+        using var detector = CreateDetector().WithDialer(dialer);
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Default", VlanId = 1, Enabled = true, DhcpEnabled = true,
+                    Subnet = "192.168.1.0/24", Gateway = "192.168.1.1" }
+        };
+
+        var result = await detector.ProbeGatewayDnsAsync(networks);
+
+        resolver.Queries.Should().Contain(("verify.controld.com", (ushort)1));
+        if (throughControlD)
+            result.Should().ContainSingle(r => r.IsControlD && r.DnsServerIp == "192.168.1.1");
+        else
+            result.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// A loopback DNS-over-TCP resolver. With <c>throughControlD</c> it answers an A query for
+    /// verify.controld.com the way ControlD does (CNAME to api.controld.com plus its A record);
+    /// every other query, and every query without it, gets NOERROR with no answers.
+    /// </summary>
+    private sealed class FakeTcpResolver : IDisposable
+    {
+        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly bool _throughControlD;
+
+        public FakeTcpResolver(bool throughControlD)
+        {
+            _throughControlD = throughControlD;
+            _listener.Start();
+            _ = AcceptLoopAsync();
+        }
+
+        public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+        public List<(string Name, ushort Type)> Queries { get; } = [];
+
+        private async Task AcceptLoopAsync()
+        {
+            try
+            {
+                while (true)
+                {
+                    var client = await _listener.AcceptTcpClientAsync();
+                    _ = ServeAsync(client);
+                }
+            }
+            catch (ObjectDisposedException) { }
+            catch (SocketException) { }
+        }
+
+        private async Task ServeAsync(TcpClient client)
+        {
+            using (client)
+            {
+                try
+                {
+                    var stream = client.GetStream();
+                    var lengthPrefix = new byte[2];
+                    while (true)
+                    {
+                        await stream.ReadExactlyAsync(lengthPrefix);
+                        var query = new byte[(lengthPrefix[0] << 8) | lengthPrefix[1]];
+                        await stream.ReadExactlyAsync(query);
+                        var response = Answer(query);
+                        await stream.WriteAsync(new[] { (byte)(response.Length >> 8), (byte)response.Length });
+                        await stream.WriteAsync(response);
+                    }
+                }
+                catch (EndOfStreamException) { }
+                catch (IOException) { }
+            }
+        }
+
+        private byte[] Answer(byte[] query)
+        {
+            // Question starts after the 12-byte header: labels, then QTYPE and QCLASS.
+            var offset = 12;
+            var labels = new List<string>();
+            while (query[offset] != 0)
+            {
+                labels.Add(System.Text.Encoding.ASCII.GetString(query, offset + 1, query[offset]));
+                offset += query[offset] + 1;
+            }
+            var questionEnd = offset + 5;
+            var name = string.Join('.', labels).ToLowerInvariant();
+            var type = (ushort)((query[offset + 1] << 8) | query[offset + 2]);
+            lock (Queries) Queries.Add((name, type));
+
+            var chain = _throughControlD && name == "verify.controld.com" && type == 1;
+            var response = new List<byte>
+            {
+                query[0], query[1], 0x81, 0x80, 0, 1, 0, (byte)(chain ? 2 : 0), 0, 0, 0, 0
+            };
+            response.AddRange(query[12..questionEnd]);
+            if (chain)
+            {
+                var target = EncodeName("api.controld.com");
+                // verify.controld.com (pointer to the question) CNAME api.controld.com
+                response.AddRange(new byte[] { 0xC0, 0x0C, 0, 5, 0, 1, 0, 0, 0, 20, 0, (byte)target.Length });
+                response.AddRange(target);
+                // api.controld.com A 147.185.34.1
+                response.AddRange(target);
+                response.AddRange(new byte[] { 0, 1, 0, 1, 0, 0, 0, 20, 0, 4, 147, 185, 34, 1 });
+            }
+            return response.ToArray();
+        }
+
+        private static byte[] EncodeName(string name) =>
+            name.Split('.')
+                .SelectMany(label => new[] { (byte)label.Length }.Concat(System.Text.Encoding.ASCII.GetBytes(label)))
+                .Append((byte)0)
+                .ToArray();
+
+        public void Dispose() => _listener.Stop();
+    }
+
     /// <summary>Records every dial and refuses it; hands back <see cref="ForwardTo"/> for a library's own socket.</summary>
     private sealed class RecordingDialer : IDeviceDialer
     {
