@@ -295,11 +295,8 @@ else
             <div class="banner-content">
                 <span class="banner-icon @(banner.CssClass == "alert-warning" ? "banner-icon-warning" : "banner-icon-info")">@(banner.CssClass == "alert-warning" ? "!" : "i")</span>
                 <div class="banner-text" style="flex: 1;">
-                    <strong>@banner.Lead</strong> <TextWithCode Text="@banner.Text" />
-                    @if (banner.More > 0)
-                    {
-                        <span> @banner.More more in the last 24 hours.</span>
-                    }
+                    <strong>@banner.Lead</strong>
+                    <span><TextWithCode Text="@banner.Text" />@(banner.More > 0 ? $" {banner.More} more in the last 24 hours." : "")</span>
                 </div>
                 <div class="banner-actions">
                     <button class="btn btn-sm btn-primary" @onclick="() => ShowEpisodeTraceAsync(banner.EpisodeId)">See the trace</button>

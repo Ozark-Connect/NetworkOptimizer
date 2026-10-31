@@ -2693,6 +2693,15 @@ a.stat-card-link:active {
     font-size: 0.8125rem;
 }
 
+/* Inline code inside running text (TextWithCode): the table look, wherever the text lands. */
+code.text-code {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 0.0625rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.8125em;
+}
+
 /* Text truncation utilities for table cells */
 .text-truncate-200 { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .text-truncate-300 { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

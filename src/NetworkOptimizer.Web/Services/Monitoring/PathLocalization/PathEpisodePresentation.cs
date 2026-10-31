@@ -119,7 +119,7 @@ public static class PathEpisodePresentation
         if (e.Tracing)
         {
             var verb = e.Degraded.Count == 1 ? "is" : "are";
-            return new PathEpisodeBanner(e.Id, "tracing", "alert-info", "Tracing now:",
+            return new PathEpisodeBanner(e.Id, "tracing", "alert-info", "Tracing now",
                 $"{names} {verb} {Symptom(e)} while the rest of your connection is clean. Network Optimizer is tracing the path every minute to find where it starts.",
                 shown.Count - 1);
         }
@@ -127,7 +127,7 @@ public static class PathEpisodePresentation
         var confirmed = e.Disposition == CongestionDisposition.Confirmed;
         var text = $"{names}, {Span(e.OpenedAt, e.ClosedAt!.Value)}.{(label == null ? "" : $" {label}")}";
         return new PathEpisodeBanner(e.Id, "done", confirmed ? "alert-warning" : "alert-info",
-            confirmed ? "Path degradation localized:" : "Path trace finished:", text, shown.Count - 1);
+            confirmed ? "Path degradation localized" : "Path trace finished", text, shown.Count - 1);
     }
 
     /// <summary>"losing packets (peak 27%)", "running 42 ms slower", or both, from the worst degraded target.</summary>

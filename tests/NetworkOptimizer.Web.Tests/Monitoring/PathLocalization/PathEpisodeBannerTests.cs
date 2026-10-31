@@ -36,7 +36,7 @@ public class PathEpisodeBannerTests
 
         b!.EpisodeId.Should().Be(1);
         b.Phase.Should().Be("tracing");
-        b.Lead.Should().Be("Tracing now:");
+        b.Lead.Should().Be("Tracing now");
         b.Text.Should().StartWith("Target A is losing packets (peak 27%) while the rest");
         b.More.Should().Be(1);
     }
@@ -56,12 +56,12 @@ public class PathEpisodeBannerTests
         var confirmed = PathEpisodePresentation.Banner(new[]
             { Episode(1, Now.AddHours(-2), Now.AddHours(-1), disposition: CongestionDisposition.Confirmed) }, Now)!;
         confirmed.CssClass.Should().Be("alert-warning");
-        confirmed.Lead.Should().Be("Path degradation localized:");
+        confirmed.Lead.Should().Be("Path degradation localized");
         confirmed.Text.Should().EndWith("Past the last clean hop.");
 
         var unverifiable = PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-2), Now.AddHours(-1)) }, Now)!;
         unverifiable.CssClass.Should().Be("alert-info");
-        unverifiable.Lead.Should().Be("Path trace finished:");
+        unverifiable.Lead.Should().Be("Path trace finished");
     }
 
     [Fact]
