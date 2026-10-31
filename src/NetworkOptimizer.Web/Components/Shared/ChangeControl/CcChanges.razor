@@ -156,7 +156,8 @@
                                             </div>
                                             <CcTrack From="_from" To="_to" Lane="true" ShowMarkers="false" Markers="markers" Bands="row.Bands"
                                                      SeriesA="lane.SeriesA" SeriesB="lane.SeriesB" Stack="lane.Stack" Lines="lane.Lines"
-                                                     ColorA="@LaneColorA(lane.Key)" ColorB="@LaneColorB(lane.Key)" SelectedId="_selected?.Id" />
+                                                     ColorA="@LaneColorA(lane.Key)" ColorB="@LaneColorB(lane.Key)" SelectedId="_selected?.Id"
+                                                     SplitB="@(lane.Key is "latency" or "loss")" />
                                             <div class="cc-lane-latest">
                                                 @if (lane.LatestA != null)
                                                 {

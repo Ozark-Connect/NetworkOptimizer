@@ -22,6 +22,14 @@
         {
             <line x1="0" y1="96" x2="100" y2="96" stroke="#374151" stroke-width="1" vector-effect="non-scaling-stroke" />
         }
+        @if (SplitB)
+        {
+            @foreach (var (start, end) in CcFormat.Runs(SeriesB))
+            {
+                var left = CcFormat.Pct(start, From, To);
+                <rect x="@F(left)" y="0" width="@F(Math.Max(0.3, CcFormat.Pct(end, From, To) - left))" height="100" style="fill:@ColorB" fill-opacity="0.14" />
+            }
+        }
         @foreach (var layer in Stack)
         {
             <polygon points="@CcFormat.Area(layer.Points, From, To, _max)" style="fill:@layer.Color" fill-opacity="0.45" />
@@ -46,7 +54,7 @@
                 <polyline points="@line" fill="none" style="stroke:@named.Color" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
             }
         }
-        @foreach (var line in CcFormat.Polylines(SeriesB, From, To, _max))
+        @foreach (var line in CcFormat.Polylines(SplitB ? CcFormat.Bridged(SeriesA, SeriesB) : SeriesB, From, To, _max))
         {
             <polyline points="@line" fill="none" style="stroke:@ColorB" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
         }
@@ -100,6 +108,11 @@
     [Parameter] public int? SelectedId { get; set; }
     [Parameter] public bool Lane { get; set; }
     [Parameter] public bool ShowMarkers { get; set; } = true;
+    /// <summary>
+    /// SeriesB is the same measurement as SeriesA, split out where it held (idle vs loaded): its runs are
+    /// shaded and joined to the A points either side, so the two read as one continuous line.
+    /// </summary>
+    [Parameter] public bool SplitB { get; set; }
     [Parameter] public EventCallback<ChangeRowView> OnMarker { get; set; }
 
     private double _max = 1;

@@ -124,6 +124,57 @@ public static class CcFormat
         return string.Join(" ", points.Select(p => P(p.Time, p.Upper)).Concat(points.Reverse().Select(p => P(p.Time, p.Lower))));
     }
 
+    /// <summary>
+    /// The spans where a series has values, for shading. Lane points are stamped at their window's end, so a
+    /// run starts one step (the series' typical spacing) before its first point.
+    /// </summary>
+    public static List<(DateTime Start, DateTime End)> Runs(IReadOnlyList<(DateTime Time, double? Value)> series)
+    {
+        var runs = new List<(DateTime, DateTime)>();
+        if (series.Count < 2) return runs;
+        var gaps = series.Zip(series.Skip(1), (a, b) => b.Time - a.Time).Where(d => d > TimeSpan.Zero).OrderBy(d => d).ToList();
+        var step = gaps.Count > 0 ? gaps[gaps.Count / 2] : TimeSpan.Zero;
+        DateTime? start = null;
+        DateTime last = default;
+        foreach (var (time, value) in series)
+        {
+            if (value != null)
+            {
+                start ??= time - step;
+                last = time;
+            }
+            else if (start is { } s)
+            {
+                runs.Add((s, last));
+                start = null;
+            }
+        }
+        if (start is { } open) runs.Add((open, last));
+        return runs;
+    }
+
+    /// <summary>
+    /// <paramref name="b"/> with the <paramref name="a"/> point either side of each of its runs added, for two
+    /// series that split one measurement (idle vs loaded): the B line then meets the A line instead of floating
+    /// apart, and a one-point B run still draws.
+    /// </summary>
+    public static List<(DateTime Time, double? Value)> Bridged(
+        IReadOnlyList<(DateTime Time, double? Value)> a, IReadOnlyList<(DateTime Time, double? Value)> b)
+    {
+        var aByTime = new Dictionary<DateTime, double?>();
+        foreach (var p in a) aByTime[p.Time] = p.Value;
+        var result = b.ToList();
+        for (var i = 0; i < b.Count; i++)
+        {
+            if (b[i].Value != null) continue;
+            var nextStartsRun = i + 1 < b.Count && b[i + 1].Value != null;
+            var prevEndsRun = i > 0 && b[i - 1].Value != null;
+            if ((nextStartsRun || prevEndsRun) && aByTime.TryGetValue(b[i].Time, out var av) && av != null)
+                result[i] = (b[i].Time, av);
+        }
+        return result;
+    }
+
     /// <summary>The max of two series, for a shared axis.</summary>
     public static double Max(IEnumerable<(DateTime, double?)> a, IEnumerable<(DateTime, double?)>? b = null)
     {
