@@ -164,6 +164,135 @@ public class ZoneSetupTests
         delete.Should().BeGreaterThan(doc.Operations.FindIndex(o => o.Action == PlanAction.Update && o.ObjectName == "Internal"));
     }
 
+    // --- Roll Back of a Set Up Zones apply -------------------------------------------------------------------------
+
+    /// <summary>A site with the policy shapes Set Up Zones changes: re-homed, split by networks, split by clients, copied zone-wide.</summary>
+    private static ConfigState RollbackSite()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW", Side("z-int", "CLIENT"), Side("z-int", "NETWORK", ["n-iot"]), index: 10001));
+        live.Collections["firewall_policy"].Add(Rule("p-pcs", "PCs Access to Sensitive VLANs", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.10-10.0.1.14"]), Side("z-int", "NETWORK", ["n-iot", "n-cam"]), index: 10002));
+        live.Collections["firewall_policy"].Add(Rule("p-ws", "Block Trackers from Workstations", "BLOCK", ClientSide("z-int", "CLIENT", "aa:00:00:00:09:01", "aa:00:00:00:09:02"), Side("z-ext"), index: 10003));
+        live.Collections["firewall_policy"].Add(Rule("p-dot", "Block External DNS over TLS / QUIC", "BLOCK", Side("z-int"), Side("z-ext", port: "853"), index: 10004, protocol: "tcp_udp"));
+        live.Collections["user"] = [Client("aa:00:00:00:09:01", "n-home"), Client("aa:00:00:00:09:02", "n-iot")];
+        foreach (var n in live.Get("networkconf")) n["firewall_zone_id"] = live.Get("firewall_zone").First(z => (z["network_ids"] as JsonArray)!.Any(i => i!.ToString() == n["_id"]!.ToString()))["_id"]!.ToString();
+        return live;
+    }
+
+    /// <summary>The console after the forward plan: its creates under the IDs UniFi gave them, networks carrying their new zone.</summary>
+    private static ConfigState Applied(ConfigState desired)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(desired.Collections).Replace("new-zone-policy-", "uuid-policy-").Replace("new-zone-", "uuid-zone-");
+        var after = new ConfigState();
+        foreach (var (key, list) in System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, List<JsonObject>>>(json)!) after.Collections[key] = list;
+        foreach (var n in after.Get("networkconf"))
+            n["firewall_zone_id"] = after.Get("firewall_zone").First(z => (z["network_ids"] as JsonArray)!.Any(i => i!.ToString() == n["_id"]!.ToString()))["_id"]!.ToString();
+        return after;
+    }
+
+    /// <summary>What Roll Back reverts: every zone and policy the apply created or changed (its operations' IDs, saved after the apply).</summary>
+    private static HashSet<(string, string)> Touched(ConfigState before, ConfigState after) =>
+        new[] { "firewall_zone", "firewall_policy" }.SelectMany(c => after.Get(c)
+            .Where(o => before.Get(c).FirstOrDefault(b => b["_id"]!.ToString() == o["_id"]!.ToString()) is not { } was || !CanonicalJson.DeepEquals(was, o))
+            .Select(o => (c, o["_id"]!.ToString()))).ToHashSet();
+
+    private static PlanDocument Revert(ConfigState before, ConfigState after) =>
+        PlanBuilder.Build(before, after, new PlanOptions { OnlyObjects = Touched(before, after), Collections = ZoneSetup.Options().Collections });
+
+    private static void ShouldRestore(PlanDocument revert, ConfigState before, ConfigState after)
+    {
+        revert.Errors.Should().BeEmpty();
+        var planned = PlanBuilder.PlannedState(after, revert);
+        foreach (var collection in new[] { "firewall_zone", "firewall_policy" })
+        {
+            static string Key(JsonObject o) => o["_id"]!.ToString();
+            static JsonObject Comparable(JsonObject o) { var c = (JsonObject)o.DeepClone(); c.Remove("index"); return c; }
+            planned.Get(collection).Select(Key).Should().BeEquivalentTo(before.Get(collection).Select(Key), $"Roll Back leaves exactly the {collection} there were");
+            foreach (var want in before.Get(collection))
+                CanonicalJson.DeepEquals(Comparable(planned.Get(collection).Single(o => Key(o) == Key(want))), Comparable(want))
+                    .Should().BeTrue($"{collection} {want["name"]} is put back as it was");
+        }
+    }
+
+    private static void ShouldWritePoliciesAfterZones(PlanDocument revert)
+    {
+        var lastZoneWrite = revert.Operations.FindLastIndex(o => o.Collection == "firewall_zone" && o.Action != PlanAction.Delete);
+        lastZoneWrite.Should().BeGreaterThanOrEqualTo(0);
+        revert.Operations.Select((o, i) => (o, i)).Where(x => x.o.Collection == "firewall_policy" && x.o.Action is PlanAction.Create or PlanAction.Update or PlanAction.Reorder)
+            .Should().OnlyContain(x => x.i > lastZoneWrite, "a zone write pauses and strips the policies naming the networks it moves");
+        var firstZoneDelete = revert.Operations.FindIndex(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete);
+        revert.Operations.FindLastIndex(o => o.Collection == "firewall_policy" && o.Action == PlanAction.Delete).Should().BeLessThan(firstZoneDelete,
+            "a zone's copied policies go before the zone");
+        firstZoneDelete.Should().BeGreaterThan(lastZoneWrite, "a zone is deleted once Internal has its networks back");
+    }
+
+    [Fact]
+    public void RollBack_OfAFullyAppliedZonePlan_PutsEverythingBackInOrder()
+    {
+        var before = RollbackSite();
+        var plan = PlanFor(before);
+        var forward = PlanBuilder.Build(plan.Desired, before, ZoneSetup.Options());
+        forward.Errors.Should().BeEmpty();
+        var after = Applied(plan.Desired);
+        after.Get("firewall_policy").Should().Contain(p => p["name"]!.ToString() == "Block Trackers from Workstations (IoT)");
+
+        var revert = Revert(before, after);
+
+        ShouldWritePoliciesAfterZones(revert);
+        ShouldRestore(revert, before, after);
+        revert.Operations.Where(o => o.Action == PlanAction.Delete && o.Collection == "firewall_zone").Select(o => o.ObjectName)
+            .Should().BeEquivalentTo(forward.Operations.Where(o => o.Action == PlanAction.Create && o.Collection == "firewall_zone").Select(o => o.ObjectName));
+        revert.Operations.Should().Contain(o => o.Action == PlanAction.Delete && o.ObjectName == "Block Trackers from Workstations (IoT)");
+        // Internal taking IoT back pauses the phone policy again; its restore must check it came back on.
+        revert.Operations.Single(o => o.ObjectId == "p-phone").WriteFields.Should().Contain(["enabled", "source", "destination"]);
+    }
+
+    [Fact]
+    public void RollBack_OfAHalfAppliedZonePlan_RestoresWhatUniFiPausedAndStripped()
+    {
+        // The zone writes landed, then the apply stopped: no policy written. UniFi paused and stripped every policy
+        // naming a network that moved (UDR7, Network 11, 2026-10-30).
+        var before = RollbackSite();
+        var plan = PlanFor(before);
+        var after = Applied(plan.Desired);
+        after.Collections["firewall_policy"] = before.Get("firewall_policy").Select(p => (JsonObject)p.DeepClone()).ToList();
+        var moved = new HashSet<string> { "n-iot", "n-media", "n-cam", "n-print" };
+        foreach (var p in after.Get("firewall_policy"))
+            foreach (var side in new[] { p["source"], p["destination"] }.OfType<JsonObject>())
+                if (side["network_ids"] is JsonArray ids && ids.Any(i => moved.Contains(i!.ToString())))
+                {
+                    side["network_ids"] = new JsonArray(ids.Select(i => i!.ToString()).Where(i => !moved.Contains(i)).Select(i => (JsonNode?)i).ToArray());
+                    p["enabled"] = false;
+                }
+
+        var revert = Revert(before, after);
+
+        ShouldWritePoliciesAfterZones(revert);
+        ShouldRestore(revert, before, after);
+        var phone = revert.Operations.Single(o => o.ObjectId == "p-phone");
+        phone.Body!["enabled"]!.GetValue<bool>().Should().BeTrue();
+        phone.Body!["destination"]!["network_ids"]!.AsArray().Select(i => i!.ToString()).Should().Equal(["n-iot"]);
+        phone.WriteFields.Should().Contain(["enabled", "destination"]);
+        revert.Operations.Single(o => o.ObjectId == "p-pcs").Body!["destination"]!["network_ids"]!.AsArray().Select(i => i!.ToString()).Should().Equal(["n-iot", "n-cam"]);
+    }
+
+    [Fact]
+    public void RevertWithoutZoneMoves_IsUnchanged()
+    {
+        // Every other revert: no zone gains a network, so no policy waits on a zone and nothing extra is verified.
+        var before = RollbackSite();
+        var after = before.Clone();
+        after.Get("firewall_policy").First(p => p["_id"]!.ToString() == "p-phone")["protocol"] = "tcp";
+        after.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-dmz")["name"] = "Lab";
+
+        var revert = Revert(before, after);
+
+        var policy = revert.Operations.Single(o => o.ObjectId == "p-phone");
+        policy.After.Should().BeEmpty();
+        policy.WriteFields.Should().Equal(["protocol"]);
+        ShouldRestore(revert, before, after);
+    }
+
     [Fact]
     public void ZoneDelete_StillRefusedWhileANetworkHasNoNewZone()
     {

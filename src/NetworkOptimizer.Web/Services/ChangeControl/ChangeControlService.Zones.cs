@@ -77,21 +77,15 @@ public sealed partial class ChangeControlService
     }
 
     /// <summary>
-    /// Every policy write follows every zone write. A zone write pauses each policy naming a network it moves and
-    /// strips that network from it (UDR7 on Network 11, 2026-10-30), so a re-homed policy written first would be undone.
-    /// A re-homed update also verifies its enabled flag and both sides, which the zone write is what changes.
+    /// A re-homed update verifies its enabled flag and both sides. PlanBuilder already orders every policy write after
+    /// the zone writes and verifies policies naming a moved network; this adds the ones moved for their clients or
+    /// addresses, which UniFi leaves alone but the plan re-writes whole.
     /// </summary>
     internal static void AfterZoneWrites(PlanDocument doc, IReadOnlySet<string> rehomed)
     {
-        var zoneKeys = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action != PlanAction.Delete).Select(o => o.Key).ToList();
-        foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
-        {
-            op.After.AddRange(zoneKeys.Except(op.After));
-            if (op.Action == PlanAction.Update && op.ObjectId != null && rehomed.Contains(op.ObjectId))
-                foreach (var field in new[] { "enabled", "source", "destination" })
-                    if (!op.WriteFields.Contains(field) && op.Body is JsonObject body && body.ContainsKey(field)) op.WriteFields.Add(field);
-        }
-        PlanBuilder.Reorder(doc);
+        foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action == PlanAction.Update && o.ObjectId != null && rehomed.Contains(o.ObjectId)))
+            foreach (var field in new[] { "enabled", "source", "destination" })
+                if (!op.WriteFields.Contains(field) && op.Body is JsonObject body && body.ContainsKey(field)) op.WriteFields.Add(field);
     }
 
     public async Task<int> BuildLegacyTranslationAsync(int snapshotId, CancellationToken cancellationToken = default)

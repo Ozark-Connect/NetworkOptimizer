@@ -162,6 +162,7 @@ public static class PlanBuilder
         AddPolicyOrder(doc, desired, live, idMap, creates, liveCtx, options);
         CheckReferrers(doc, live, desired, idMap);
         ZoneMovesAfterTheirTarget(doc, live);
+        PolicyWritesAfterZoneMoves(doc, live);
 
         var planned = PlannedState(live, doc);
         foreach (var finding in LockoutChecker.Check(live, planned, doc, options))
@@ -1111,6 +1112,42 @@ public static class PlanBuilder
             given.ExceptWith(Ids(op.Body));
             if (given.Count == 0) continue;
             op.After.AddRange(zones.Where(t => t != op && Ids(t.Body).Overlaps(given)).Select(t => t.Key).Except(op.After));
+        }
+    }
+
+    /// <summary>
+    /// A plan that moves networks between zones writes every policy after every zone write: the zone write pauses each
+    /// policy naming a network it moves and strips that network (UDR7, Network 11, 2026-10-30), so a policy written
+    /// first is undone. Holds for any such plan: Set Up Zones, its Roll Back (which moves the networks back), an edit.
+    /// A policy update naming a moved network also verifies enabled and both sides, which that zone write changes.
+    /// </summary>
+    private static void PolicyWritesAfterZoneMoves(PlanDocument doc, ConfigState live)
+    {
+        static HashSet<string> Ids(JsonNode? node) =>
+            (node?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var liveZones = live.Get("firewall_zone").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
+        var moved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var zoneKeys = new List<string>();
+        foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action is PlanAction.Create or PlanAction.Update && o.Body?["network_ids"] is JsonArray))
+        {
+            var added = Ids(op.Body);
+            if (op.ObjectId != null && liveZones.TryGetValue(op.ObjectId, out var was)) added.ExceptWith(Ids(was));
+            if (added.Count == 0) continue;
+            moved.UnionWith(added);
+            zoneKeys.Add(op.Key);
+        }
+        if (zoneKeys.Count == 0) return;
+
+        var livePolicies = live.Get("firewall_policy").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
+        bool NamesMoved(JsonNode? policy) => policy != null && (Ids(policy["source"]).Overlaps(moved) || Ids(policy["destination"]).Overlaps(moved));
+        foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
+        {
+            op.After.AddRange(zoneKeys.Except(op.After));
+            if (op.Action != PlanAction.Update || op.Body is not JsonObject body) continue;
+            if (!NamesMoved(body) && !(op.ObjectId != null && NamesMoved(livePolicies.GetValueOrDefault(op.ObjectId)))) continue;
+            foreach (var field in new[] { "enabled", "source", "destination" })
+                if (!op.WriteFields.Contains(field) && body.ContainsKey(field)) op.WriteFields.Add(field);
         }
     }
 
