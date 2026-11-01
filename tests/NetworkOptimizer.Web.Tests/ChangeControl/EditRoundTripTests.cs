@@ -1,0 +1,85 @@
+using System.Text.Json.Nodes;
+using FluentAssertions;
+using NetworkOptimizer.Web.Services.ChangeControl;
+using Xunit;
+
+namespace NetworkOptimizer.Web.Tests.ChangeControl;
+
+/// <summary>An Edit tab file exported and parsed back unchanged must parse clean.</summary>
+public class EditRoundTripTests
+{
+    private static JsonObject Obj(string json) => (JsonObject)JsonNode.Parse(json)!;
+
+    // Parsed as the Edit tab parses: one file per collection group, through ParseEdits. Downloaded YAML carries no
+    // IDs; the tab's own files carry every ID. Both must parse back clean.
+    private static List<YamlProblem> RoundTrip(ConfigState state, params string[] collections) =>
+        new[] { false, true }.SelectMany(ids =>
+        {
+            var files = collections.Select(ConfigCollections.Get).GroupBy(d => d!.Group)
+                .ToDictionary(g => g.First()!.Key, g => YamlConverter.Export(state, g.Select(d => d!.Key), SecretMode.Mask, ids));
+            return ChangeControlService.ParseEdits(state, files).Problems
+                .Select(p => new YamlProblem(p.Level, ids ? "with ids" : "without ids", p.Line, p.Message));
+        }).ToList();
+
+    [Fact]
+    public void ClientGroupReferences_ResolveToClientGroups()
+    {
+        var state = new ConfigState();
+        state.Collections["networkconf"] = [Obj("""{"_id":"n1","name":"LAN","purpose":"corporate","vlan_enabled":false}""")];
+        state.Collections["network_members_group"] = [Obj("""{"_id":"g1","name":"Gaming","type":"CLIENTS","members":["aa:bb:cc:dd:ee:01"]}""")];
+        state.Collections["user"] = [Obj("""{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"Rig","network_members_group_ids":["g1"]}""")];
+
+        RoundTrip(state, "network_members_group", "user").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RadiusProfileReference_ResolvesWhenTheV2MirrorSharesTheId()
+    {
+        var state = new ConfigState();
+        state.Collections["radiusprofile"] = [Obj("""{"_id":"r1","name":"Default","attr_hidden_id":"Default","attr_no_delete":true}""")];
+        state.Collections["radius_profile_v2"] = [Obj("""{"_id":"r1","name":"Default","attr_hidden_id":"Default","attr_no_delete":true}""")];
+        state.Collections["setting"] = [Obj("""{"_id":"s1","key":"global_switch","radiusprofile_id":"r1"}""")];
+
+        RoundTrip(state, "setting", "radiusprofile", "radius_profile_v2").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RadiusGroupFile_UnchangedBuiltInProfile_IsNotAnEdit()
+    {
+        var state = new ConfigState();
+        const string servers = """ "auth_servers":[{"ip":"192.0.2.1","port":1812,"x_secret":"s3cret"}] """;
+        // The v1 object carries fields its v2 mirror lacks (Network 11.0.99).
+        state.Collections["radiusprofile"] = [Obj($$"""{"_id":"r1","name":"Default","attr_hidden_id":"Default","attr_no_delete":true,"vlan_enabled":false,"tls_enabled":false,"use_usg_auth_server":true,{{servers}}}""")];
+        state.Collections["radius_profile_v2"] =
+        [
+            Obj($$"""{"_id":"r1","name":"Default","attr_hidden_id":"Default","attr_no_delete":true,"vlan_enabled":false,{{servers}}}"""),
+            Obj("""{"_id":"r2","name":"UID","attr_hidden_id":"Uid","attr_no_delete":true}"""),
+        ];
+
+        RoundTrip(state, "radiusprofile", "radius_profile_v2").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PredefinedPolicies_RoundTripWithoutBecomingNewPolicies()
+    {
+        var state = new ConfigState();
+        state.Collections["firewall_zone"] =
+        [
+            Obj("""{"_id":"z1","name":"Internal","zone_key":"internal","default_zone":true,"network_ids":[]}"""),
+            Obj("""{"_id":"z3","name":"IoT","default_zone":false,"network_ids":[]}"""),
+        ];
+        JsonObject Side(string zone) => new()
+        {
+            ["zone_id"] = zone, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false,
+        };
+        JsonObject Policy(string src, string dst, int index) => new()
+        {
+            ["_id"] = $"{src}{dst}{index}", ["name"] = "Block All Traffic", ["action"] = "BLOCK", ["predefined"] = true,
+            ["index"] = index, ["create_allow_respond"] = true, ["enabled"] = true, ["protocol"] = "all",
+            ["ip_version"] = "BOTH", ["source"] = Side(src), ["destination"] = Side(dst),
+        };
+        state.Collections["firewall_policy"] = [Policy("z1", "z3", 2147483647), Policy("z3", "z1", 2147483647), Policy("z3", "z3", 2147483647)];
+
+        RoundTrip(state, "firewall_zone", "firewall_policy").Should().BeEmpty();
+    }
+}

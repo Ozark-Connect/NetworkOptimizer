@@ -574,6 +574,8 @@ public static partial class YamlConverter
     /// <summary>The collection a reference field points into, when the name says; null searches every collection.</summary>
     internal static string? TargetCollection(string field) => field switch
     {
+        // Before "network": client group references (network_members_group_ids) are not networks.
+        _ when field.Contains("network_members_group", StringComparison.Ordinal) => "network_members_group",
         _ when field.Contains("network", StringComparison.Ordinal) => "networkconf",
         _ when field.Contains("zone", StringComparison.Ordinal) => "firewall_zone",
         _ when field.Contains("portconf", StringComparison.Ordinal) => "portconf",
@@ -804,12 +806,23 @@ public static partial class YamlConverter
 
         public ReferenceIndex(ConfigState state)
         {
-            _byId = state.ObjectsById();
-            foreach (var (id, entry) in _byId)
+            // Every object is named under its own collection, not through ObjectsById: a mirror collection shares
+            // its IDs (v2 RADIUS profiles mirror rest/radiusprofile), and keyed by ID alone whichever collection came
+            // last hid the other, so a reference targeting it named nothing. An ID belongs to the catalog's first.
+            _byId = new(StringComparer.OrdinalIgnoreCase);
+            var order = ConfigCollections.All.Select((d, i) => (d.Key, i)).ToDictionary(x => x.Key, x => x.i);
+            foreach (var (key, list) in state.Collections.OrderBy(c => order.GetValueOrDefault(c.Key, int.MaxValue)))
             {
-                var name = ConfigState.DisplayName(ConfigCollections.Get(entry.Collection), entry.Object);
-                if (!_byName.TryGetValue(name, out var list)) _byName[name] = list = [];
-                list.Add(entry);
+                var def = ConfigCollections.Get(key);
+                foreach (var o in list)
+                {
+                    var id = ConfigState.IdOf(o);
+                    if (id == ConfigState.SingleId) continue;
+                    _byId.TryAdd(id, (key, o));
+                    var name = ConfigState.DisplayName(def, o);
+                    if (!_byName.TryGetValue(name, out var named)) _byName[name] = named = [];
+                    named.Add((key, o));
+                }
             }
         }
 

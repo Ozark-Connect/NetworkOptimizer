@@ -273,6 +273,13 @@ public static class ConfigCollections
     private static string? Str(JsonObject o, string field) =>
         o[field] is JsonValue v && v.TryGetValue<string>(out var s) ? s : o[field]?.ToString();
 
+    /// <summary>A policy side's zone by name: from zone_id, or from an editor file's unresolved zone name.</summary>
+    private static string PolicyZone(JsonObject policy, string side, ConfigIdentityContext ctx)
+    {
+        var s = policy[side] as JsonObject ?? [];
+        return Str(s, "zone_id") is { } id ? ctx.NameOf(id) : s["zone"] is JsonValue v && v.TryGetValue<string>(out var name) ? name : "";
+    }
+
     private static bool Bool(JsonObject o, string field) =>
         o[field] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
 
@@ -599,8 +606,10 @@ public static class ConfigCollections
                 FieldGroups = ConfigFieldOrder.FirewallPolicyFields, NestedFieldOrder = ConfigFieldOrder.FirewallPolicyNested,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "firewall-policies", Order = 6,
                 ReadOnlyFields = Set("hits", "last_hit", "index", "origin_id", "origin_type", "cloud_template", "external_id"),
-                EnforcedKey = (o, ctx) =>
-                    $"{Str(o, "name")}@{ctx.NameOf(Str(o["source"] as JsonObject ?? [], "zone_id"))}>{ctx.NameOf(Str(o["destination"] as JsonObject ?? [], "zone_id"))}",
+                // A parsed file's object is matched before its references resolve, so its side names the zone
+                // ("zone: IoT") rather than zone_id. Without that fallback every predefined policy, whose name repeats
+                // in each zone pair, matched nothing and read as a new policy.
+                EnforcedKey = (o, ctx) => $"{Str(o, "name")}@{PolicyZone(o, "source", ctx)}>{PolicyZone(o, "destination", ctx)}",
                 IsGenerated = IsPredefinedOrDerived,
                 Write = new CollectionWrite
                 {
