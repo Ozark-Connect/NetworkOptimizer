@@ -130,7 +130,8 @@ The page drives it; `SqmDeploymentService` does the gateway work.
 1. `CleanAllSqmScriptsAsync()` removes every `20-sqm-*.sh` and `21-sqm-*.sh`, everything in
    `/data/sqm`, and every cron line containing `sqm`. This clears scripts left by a renamed WAN.
    It also deletes Adaptive SQM's CAKE root from every IFB that no enabled CAKE WAN is about to
-   use, and returns a warning for each one (see [CAKE download shaper](#cake-download-shaper)).
+   use, then has UniFi rebuild every WAN's queues from its own config (see
+   [Restoring UniFi's queues](#restoring-unifis-queues)), so each deploy starts from UniFi's trees.
 2. The page saves the WAN configurations.
 3. `DeployAsync()` for each enabled WAN:
    - `SqmManager.ValidateConfiguration()` checks ranges and runs `InputSanitizer` on every shell value.
@@ -145,7 +146,27 @@ The page drives it; `SqmDeploymentService` does the gateway work.
 4. `DeploySqmMonitorAsync()` deploys `20-sqm-monitor.sh`.
 
 `RemoveAsync()` deletes the boot scripts, `/data/sqm`, the cron lines, Adaptive SQM's CAKE roots,
-and optionally the SQM Monitor. It does not touch the managed Ookla CLI.
+and optionally the SQM Monitor, and restores UniFi's queues. It does not touch the managed Ookla CLI.
+
+### Restoring UniFi's queues
+
+The scripts edit UniFi's HTB trees in place (rates, bursts, fq_codel sizing) or replace the
+download tree with CAKE, and UniFi only rebuilds a tree when its QoS config changes. Without a
+restore, a removed Adaptive SQM leaves its last rates shaping until UniFi's next rebuild.
+
+`ubios-udapi-server` rebuilds every WAN's trees, both directions, whenever its QoS queue list
+changes. The restore (`BuildRestoreUniFiQueuesCommand`) waits for a running ping or speed test,
+adds a temporary queue `netopt_rebuild` with `ubios-udapi-client POST /qos/fw/queues`, deletes it,
+and checks that every IFB that carried a tree has `class htb 1:1 root` again. The gateway ends on
+the console's exact config: no console write, nothing in Change Control, no service restarts.
+The IFBs are recreated, about 1 s per rebuild, and existing queues keep their class numbers
+(`1:4` onward, mapped from fwmarks `0x8004` onward), because the temporary queue is appended.
+
+What does not work: an unchanged `PUT` of a queue or of `/qos/global` (a no-op or refused), and
+the console's `force-provision` (the gateway fast-applies only what changed, so QoS is skipped).
+Changing the WAN's Smart Queues rate in UniFi Network does rebuild the tree, but leaves the rate
+moved, and two back-to-back writes merge into one apply with no QoS change.
+`UniFiApiClient.SetWanSmartQueuesAsync` sets those fields if a caller ever needs to.
 
 ## Files on the gateway
 
@@ -312,11 +333,12 @@ measurements behind it come from one UCG-Fiber on PPPoE with GRO.
   CAKE; replacing a tree that has any logs a WARNING.
 - **Shaper lift.** The lift sets `DOWNLOAD_QDISC=existing`: it retunes a CAKE root that is there
   and never installs one, so it lifts and restores whatever the last deploy left.
-- **Turning it off.** Adaptive SQM cannot rebuild UniFi's HTB tree. A deploy with the option off,
-  a disabled WAN, and Remove delete only the CAKE root with handle `ca4e:` and warn that download
-  is unshaped until Smart Queues is applied again in UniFi Network. The delete names handle and
-  kind, so it fails rather than removing an HTB tree UniFi rebuilt in the meantime, and it waits up
-  to 20 s for a running ping script. A calibration that is mid-run can still put CAKE back once.
+- **Turning it off.** A deploy with the option off, a disabled WAN, and Remove delete only the
+  CAKE root with handle `ca4e:`, then restore UniFi's queues (see
+  [Restoring UniFi's queues](#restoring-unifis-queues)). If the restore fails, the warning says
+  download is unshaped until Smart Queues is applied again in UniFi Network. The delete names
+  handle and kind, so it fails rather than removing an HTB tree UniFi rebuilt in the meantime, and
+  it waits up to 20 s for a running ping script.
 - **Readers.** The SQM Monitor, `GatewayShaperProbe` (Config Optimizer) and the ping script read a
   CAKE root's bandwidth as the shaped rate.
 

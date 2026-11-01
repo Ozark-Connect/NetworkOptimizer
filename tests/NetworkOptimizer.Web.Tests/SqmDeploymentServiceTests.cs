@@ -8,68 +8,6 @@ namespace NetworkOptimizer.Web.Tests;
 
 public class SqmDeploymentServiceTests
 {
-    private const string NetworkConf = """
-        {"meta":{"rc":"ok"},"data":[
-          {"_id":"lan1","purpose":"corporate","name":"LAN","wan_networkgroup":"WAN"},
-          {"_id":"wan1","purpose":"wan","name":"Fiber","wan_networkgroup":"WAN","wan_smartq_enabled":true,
-           "wan_smartq_down_rate":1077000,"wan_smartq_up_rate":999000,"wan_vlan":201,"x_unknown":{"keep":[1,2]}},
-          {"_id":"wan2","purpose":"wan","name":"Cable","wan_networkgroup":"WAN2","wan_smartq_enabled":true,
-           "wan_smartq_down_rate":"274000","wan_smartq_up_rate":29000},
-          {"_id":"wan3","purpose":"wan","name":"Cellular","wan_networkgroup":"WAN3","wan_smartq_enabled":false}
-        ]}
-        """;
-
-    [Fact]
-    public void SmartQueuesNudge_PicksTheWanForItsNetworkGroup_AndKeepsEveryOtherField()
-    {
-        var nudge = SqmDeploymentService.BuildSmartQueuesNudge(NetworkConf, "WAN");
-
-        nudge.Error.Should().BeNull();
-        nudge.Id.Should().Be("wan1", "a LAN network carrying the same group is not a WAN");
-        nudge.FromKbps.Should().Be(1077000);
-        nudge.ToKbps.Should().Be(1078000);
-        var body = System.Text.Json.Nodes.JsonNode.Parse(nudge.Body!)!;
-        ((int)body["wan_smartq_down_rate"]!).Should().Be(1078000);
-        ((int)body["wan_smartq_up_rate"]!).Should().Be(999000);
-        ((int)body["wan_vlan"]!).Should().Be(201);
-        body["x_unknown"]!["keep"]!.AsArray().Count.Should().Be(2, "fields the typed model lacks go back unchanged");
-    }
-
-    [Fact]
-    public void SmartQueuesNudge_ReadsARateSentAsAString()
-    {
-        var nudge = SqmDeploymentService.BuildSmartQueuesNudge(NetworkConf, "WAN2");
-
-        nudge.Id.Should().Be("wan2");
-        nudge.ToKbps.Should().Be(273000);
-    }
-
-    [Theory]
-    [InlineData("WAN3", "Smart Queues is off")]
-    [InlineData("WAN4", "no WAN network")]
-    public void SmartQueuesNudge_RefusesAWanItCannotNudge(string group, string error)
-    {
-        SqmDeploymentService.BuildSmartQueuesNudge(NetworkConf, group).Error.Should().Contain(error);
-    }
-
-    [Fact]
-    public void SmartQueuesNudge_RefusesAnAmbiguousNetworkGroup()
-    {
-        var twice = NetworkConf.Replace("\"wan_networkgroup\":\"WAN2\"", "\"wan_networkgroup\":\"WAN\"");
-
-        SqmDeploymentService.BuildSmartQueuesNudge(twice, "WAN").Error.Should().Contain("more than one");
-    }
-
-    [Theory]
-    [InlineData(1077000, 1078000)]
-    [InlineData(1078000, 1077000)]
-    [InlineData(274500, 273500)]
-    public void NudgedDownRate_AlternatesBetweenTwoValues(int from, int to)
-    {
-        SqmDeploymentService.NudgedDownRateKbps(from).Should().Be(to);
-        SqmDeploymentService.NudgedDownRateKbps(to).Should().Be(from);
-    }
-
     [Fact]
     public void RemoveCakeRoots_DeletesOnlyAdaptiveSqmsOwnCake_AndKeepsTheCakeWans()
     {
@@ -113,6 +51,137 @@ tc() {
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// Runs the restore command against stubs: <paramref name="udapi"/> is the body of a
+    /// ubios-udapi-client function, <paramref name="htbAfter"/> whether class 1:1 shows after the
+    /// rebuild. ifbeth4 carries UniFi's htb, ifbeth6 Adaptive SQM's cake, ifb0 no tree at all.
+    /// </summary>
+    private static (string Output, string Calls)? RunRestore(string udapi, bool htbAfter = true)
+    {
+        var bash = new[] { "/bin/bash", "/usr/bin/bash" }.FirstOrDefault(File.Exists);
+        if (OperatingSystem.IsWindows() || bash == null) return null;
+
+        var dir = Path.Combine(Path.GetTempPath(), $"sqm-restore-{Guid.NewGuid():N}");
+        foreach (var ifb in new[] { "ifb0", "ifbeth4", "ifbeth6" })
+            Directory.CreateDirectory(Path.Combine(dir, "net", ifb));
+        try
+        {
+            var command = SqmDeploymentService.BuildRestoreUniFiQueuesCommand()
+                .Replace("/sys/class/net", Path.Combine(dir, "net"))
+                .Replace("/tmp/netopt-restore.json", Path.Combine(dir, "q.json"));
+            var calls = Path.Combine(dir, "calls");
+            var script = $@"
+CALLS='{calls}'
+sleep() {{ :; }}
+pgrep() {{ return 1; }}
+ubios-udapi-client() {{ echo ""UDAPI $*"" >> ""$CALLS""; {udapi}; }}
+tc() {{
+    case ""$1 $2 $4"" in
+        ""qdisc show ifbeth4"") echo ""qdisc htb 1: root refcnt 2 r2q 10 default 0x2"" ;;
+        ""qdisc show ifbeth6"") echo ""qdisc cake ca4e: root refcnt 2 bandwidth 900Mbit"" ;;
+        ""class show ifbeth4""|""class show ifbeth6"") {(htbAfter ? "echo \"class htb 1:1 root rate 1078Mbit ceil 1078Mbit\"" : ":")} ;;
+    esac
+}}
+" + command + "\n";
+
+            var psi = new ProcessStartInfo(bash) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
+            using var proc = Process.Start(psi)!;
+            // The stubs come from this file's literals, which carry CRLF on a Windows checkout.
+            proc.StandardInput.Write(script.Replace("\r\n", "\n"));
+            proc.StandardInput.Close();
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(30_000);
+            return (output, File.Exists(calls) ? File.ReadAllText(calls) : "");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // The udapi stub's answers, as ubios-udapi-client -r prints them.
+    private const string UdapiAnswers = """
+        case "$2 $3" in
+            "GET /qos/global") printf '{\n "enabled": true\n}\n' ;;
+            "POST /qos/fw/queues") printf '[\n {\n  "name": "netopt_rebuild"\n }\n]\n' ;;
+            "DELETE /qos/fw/queues/netopt_rebuild") printf '{\n "statusCode": 200\n}\n' ;;
+        esac
+        """;
+
+    [Fact]
+    public void RestoreUniFiQueues_AddsAndDeletesATemporaryQueue_AndChecksEveryShapedIfb()
+    {
+        if (RunRestore(UdapiAnswers) is not { } run) return;
+        var (output, calls) = run;
+
+        output.Should().Contain("RESTORE_OK");
+        SqmDeploymentService.ParseRestoreUniFiQueues(output).Should().BeNull();
+        var lines = calls.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        lines.Should().HaveCount(4);
+        lines[0].Should().Be("UDAPI -r GET /qos/global");
+        lines[1].Should().Be("UDAPI -r DELETE /qos/fw/queues/netopt_rebuild", "a queue left by an interrupted run goes first");
+        lines[2].Should().StartWith("UDAPI -r POST /qos/fw/queues @");
+        lines[3].Should().Be("UDAPI -r DELETE /qos/fw/queues/netopt_rebuild");
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_NamesTheIfbsWhoseTreeDidNotComeBack()
+    {
+        if (RunRestore(UdapiAnswers, htbAfter: false) is not { } run) return;
+        var output = run.Output;
+
+        output.Should().Contain("RESTORE_MISSING ifbeth4 ifbeth6", "ifb0 carried no tree before, so it is not expected to");
+        SqmDeploymentService.ParseRestoreUniFiQueues(output).Should().Contain("ifbeth4, ifbeth6");
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_LeavesAGatewayWithQosOffAlone()
+    {
+        if (RunRestore("""case "$2 $3" in "GET /qos/global") printf '{\n "enabled": false\n}\n' ;; esac""") is not { } run) return;
+        var (output, calls) = run;
+
+        output.Should().Contain("RESTORE_SKIPPED");
+        SqmDeploymentService.ParseRestoreUniFiQueues(output).Should().BeNull();
+        calls.Should().NotContain("POST");
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_StopsWhenThePostIsRefused()
+    {
+        var refused = UdapiAnswers.Replace("""printf '[\n {\n  "name": "netopt_rebuild"\n }\n]\n'""",
+            """printf '{\n "message": "json object must be an array",\n "statusCode": 400\n}\n'""");
+        if (RunRestore(refused) is not { } run) return;
+        var (output, calls) = run;
+
+        output.Should().Contain("RESTORE_FAILED post");
+        calls.Split('\n', StringSplitOptions.RemoveEmptyEntries).Count(c => c.Contains("DELETE")).Should().Be(1,
+            "only the clean-up of a leftover queue runs; nothing was added to delete");
+    }
+
+    [Theory]
+    [InlineData("RESTORE_OK", null)]
+    [InlineData("RESTORE_SKIPPED qos-off", null)]
+    [InlineData("noise\nRESTORE_FAILED delete\n", "netopt_rebuild could not be deleted")]
+    [InlineData("RESTORE_FAILED no-udapi", "no UniFi QoS service")]
+    [InlineData("RESTORE_MISSING ifbeth4", "ifbeth4")]
+    [InlineData("", "no result")]
+    public void ParseRestoreUniFiQueues_ReadsTheLastResultLine(string output, string? error)
+    {
+        var parsed = SqmDeploymentService.ParseRestoreUniFiQueues(output);
+        if (error == null) parsed.Should().BeNull();
+        else parsed.Should().Contain(error);
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_WaitsForARunningPingOrSpeedTest_AndHasNoWindowsLineEndings()
+    {
+        var command = SqmDeploymentService.BuildRestoreUniFiQueuesCommand();
+
+        command.Should().Contain("pgrep -f -- '[-](ping|speedtest)\\.sh'");
+        command.IndexOf("pgrep", StringComparison.Ordinal).Should().BeLessThan(command.IndexOf("POST", StringComparison.Ordinal));
+        command.Should().NotContain("\r");
     }
 
     [Fact]
