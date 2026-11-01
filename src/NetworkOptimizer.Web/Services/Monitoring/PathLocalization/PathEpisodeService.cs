@@ -164,19 +164,29 @@ public sealed class PathEpisodeService : IPathEpisodeService
         };
     }
 
+    private static DateTime Utc(DateTime t) => PathEpisodeTraceMapping.Utc(t);
+
+    private static TracerouteResult? ToResult(PathEpisodeTrace t, IReadOnlyDictionary<int, MonitoringTarget> targets) =>
+        PathEpisodeTraceMapping.ToResult(t, targets.TryGetValue(t.MonitoringTargetId, out var mt) ? mt.Address : "");
+}
+
+/// <summary>Turns stored rounds back into the traces the analyzer reads, for the service and for resuming an episode.</summary>
+internal static class PathEpisodeTraceMapping
+{
     /// <summary>
     /// Episode times are written in UTC, but SQLite hands them back with no kind. Marked here, so a
     /// serialized time carries its Z: a browser reads one without it as local time.
     /// </summary>
-    private static DateTime Utc(DateTime t) => t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);
+    public static DateTime Utc(DateTime t) => t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);
 
-    private static TracerouteResult? ToResult(PathEpisodeTrace t, IReadOnlyDictionary<int, MonitoringTarget> targets)
+    /// <summary>One stored round as a trace, or null when it recorded no hops or cannot be read.</summary>
+    /// <param name="address">The address the target's probes go to.</param>
+    public static TracerouteResult? ToResult(PathEpisodeTrace t, string address)
     {
         try
         {
             var hops = JsonSerializer.Deserialize<List<TraceHop>>(t.HopsJson);
             if (hops == null || hops.Count == 0) return null;
-            var address = targets.TryGetValue(t.MonitoringTargetId, out var mt) ? mt.Address : "";
             return new TracerouteResult
             {
                 Target = new ProbeTarget(address, Core.Enums.ProbeMode.Icmp, null, t.SourceInterface),

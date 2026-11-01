@@ -40,7 +40,6 @@ public sealed class PathEpisodeWatcher
     private static readonly TimeSpan LoadLookback = TimeSpan.FromMinutes(15);
 
     private const string WaitingOnRecoveryNote = " Waiting on the recovery round for the per-hop baseline.";
-    private const string RecoveryLostNote = " Network Optimizer restarted before the recovery round, so this rests on the onset alone.";
 
     private static readonly TimeSpan PerHopTimeout = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan TraceDeadline = TimeSpan.FromSeconds(25);
@@ -239,35 +238,142 @@ public sealed class PathEpisodeWatcher
         && now - r.StartedAt < TimeSpan.FromHours(_options.PathMaxEpisodeHours)
         && r.Degraded.Any(d => string.Equals(d.Target.TargetId, targetId, StringComparison.OrdinalIgnoreCase)));
 
-    // ---- Start-up: close what a restart interrupted, seed baselines from history ----
+    // ---- Start-up: resume what a restart interrupted, seed baselines from history ----
 
     private async Task StartAsync()
     {
         try
         {
-            await using var db = _siteDb.CreateForSite(_slug, _isDefault);
-            var repo = new PathEpisodeRepository(db);
-            // Rounds live in memory, so an episode open when the process stopped cannot continue.
-            // It keeps the verdict its stored rounds earned and is closed where it stopped.
-            foreach (var open in await repo.GetOpenAsync())
-            {
-                open.ClosedAt = open.UpdatedAt;
-                open.Summary = $"{open.Summary} Tracing stopped when Network Optimizer restarted.".Trim();
-                await repo.UpdateAsync(open);
-            }
-            // The recovery round was also in memory, so one that was still due never runs.
-            foreach (var waiting in (await repo.GetClosedWithoutRecoveryAsync())
-                         .Where(e => e.Summary?.EndsWith(WaitingOnRecoveryNote, StringComparison.Ordinal) == true))
-            {
-                waiting.Summary = waiting.Summary![..^WaitingOnRecoveryNote.Length] + RecoveryLostNote;
-                await repo.UpdateAsync(waiting);
-            }
+            await ResumeEpisodesAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Path Localization could not close interrupted episodes for site {Slug}", _slug);
+            _logger.LogWarning(ex, "Path Localization could not resume interrupted episodes for site {Slug}", _slug);
         }
         await SeedBaselinesAsync();
+    }
+
+    /// <summary>
+    /// Picks up every episode a restart interrupted: still tracing, or closed and waiting on its
+    /// recovery round. Its rounds, pinned address, vantage, hop pings and metered flag are all stored, so
+    /// it carries on where it stopped; only the degraded targets' state has to be put back, since seeded
+    /// history never sets it. An episode that cannot be rebuilt (its targets are gone) is closed instead.
+    /// </summary>
+    private async Task ResumeEpisodesAsync()
+    {
+        await using var db = _siteDb.CreateForSite(_slug, _isDefault);
+        var repo = new PathEpisodeRepository(db);
+        var interrupted = (await repo.GetOpenAsync())
+            .Concat((await repo.GetClosedWithoutRecoveryAsync())
+                .Where(e => e.Summary?.EndsWith(WaitingOnRecoveryNote, StringComparison.Ordinal) == true))
+            .ToList();
+        if (interrupted.Count == 0) return;
+
+        var targetIds = interrupted.SelectMany(e => e.Targets.Select(t => t.MonitoringTargetId)).Distinct().ToList();
+        var targets = await db.MonitoringTargets.AsNoTracking().Where(t => targetIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id);
+        var contexts = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id);
+        var now = DateTime.UtcNow;
+
+        foreach (var episode in interrupted.OrderByDescending(e => e.OpenedAt))
+        {
+            var full = await repo.GetWithTracesAsync(episode.Id);
+            var run = full == null ? null : RebuildRun(full, targets, contexts, now);
+            if (run == null)
+            {
+                if (full is { ClosedAt: null })
+                {
+                    full.ClosedAt = full.UpdatedAt;
+                    full.Summary = $"{full.Summary} Tracing stopped when Network Optimizer restarted.".Trim();
+                    await repo.UpdateAsync(full);
+                }
+                continue;
+            }
+
+            lock (_lock)
+            {
+                // One episode per WAN context: the newest wins if a restart somehow left two.
+                if (_runs.ContainsKey(run.ContextKey)) continue;
+                _runs[run.ContextKey] = run;
+                foreach (var t in run.Degraded.Concat(run.Control is { } c ? new[] { c } : Array.Empty<RunTarget>()))
+                    _watched.TryAdd(t.Target.TargetId, t.Target);
+                if (run.Row.ClosedAt == null)
+                {
+                    foreach (var d in run.Degraded)
+                    {
+                        if (!_trackers.TryGetValue(d.Target.TargetId, out var tracker))
+                            _trackers[d.Target.TargetId] = tracker = new TargetDegradation(d.Target.TargetId, _options);
+                        var stored = run.Row.Targets.FirstOrDefault(x => x.MonitoringTargetId == d.Target.Id && x.Role == PathEpisodeTargetRole.Degraded);
+                        tracker.ResumeDegraded(PathEpisodeTraceMapping.Utc(run.Row.OpenedAt), stored?.PeakLossPct, stored?.PeakRttMs, now);
+                    }
+                }
+            }
+            _logger.LogInformation("Path Localization resumed episode {Id} on site {Slug} after a restart", run.Row.Id, _slug);
+        }
+    }
+
+    /// <summary>An interrupted episode's run, rebuilt from what it stored; null when its targets are gone.</summary>
+    private EpisodeRun? RebuildRun(PathEpisode episode, IReadOnlyDictionary<int, MonitoringTarget> targets,
+        IReadOnlyDictionary<int, WanContext> contexts, DateTime now)
+    {
+        var key = episode.WanContextId ?? 0;
+        var context = episode.WanContextId is int id ? contexts.GetValueOrDefault(id) : null;
+        var traces = episode.Traces.OrderBy(t => t.Timestamp).ToList();
+
+        RunTarget? Rebuild(PathEpisodeTarget stored)
+        {
+            if (!targets.TryGetValue(stored.MonitoringTargetId, out var mt)) return null;
+            var mine = traces.Where(t => t.MonitoringTargetId == mt.Id).ToList();
+            var last = mine.LastOrDefault();
+            // The vantage its rounds ran from, so the rest run from there too; the context's when none ran.
+            var vantage = last != null
+                ? new PathVantage(last.Vantage.StartsWith("agent-", StringComparison.Ordinal) && int.TryParse(last.Vantage[6..], out var agentId) ? agentId : null,
+                    last.SourceInterface)
+                : new PathVantage(context?.AgentId, context?.ProbeSourceIp);
+            var watched = new Watched(mt.Id, mt.TargetId, string.IsNullOrEmpty(mt.Name) ? mt.Address : mt.Name, mt.Address,
+                RoleOf(mt) ?? GateRole.Path, key, mt.WanContextId, context?.WanInterface, vantage);
+
+            var run = new RunTarget
+            {
+                Target = watched,
+                Role = stored.Role,
+                ResolvedAddress = mine.Select(t => t.ResolvedAddress).LastOrDefault(a => !string.IsNullOrEmpty(a)),
+                RoundsRun = mine.Count(t => t.Kind == PathEpisodeTraceKind.Path),
+                NextRoundAt = now
+            };
+            run.ResolveTried = run.ResolvedAddress != null;
+            foreach (var t in mine)
+            {
+                if (PathEpisodeTraceMapping.ToResult(t, mt.Address) is not { } result) continue;
+                if (t.Kind == PathEpisodeTraceKind.Recovery) run.Recovery = result;
+                else run.Rounds.Add(result);
+            }
+            return run;
+        }
+
+        var degraded = episode.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).Select(Rebuild).OfType<RunTarget>().ToList();
+        if (degraded.Count == 0) return null;
+        var control = episode.Targets.Where(t => t.Role == PathEpisodeTargetRole.Control).Select(Rebuild).FirstOrDefault(c => c != null);
+        var snapshot = PathGateSnapshot.Read(episode.GateSnapshot);
+        episode.Traces.Clear();
+
+        var run = new EpisodeRun
+        {
+            Row = episode,
+            ContextKey = key,
+            StartedAt = traces.Count > 0 ? PathEpisodeTraceMapping.Utc(traces[0].Timestamp) : PathEpisodeTraceMapping.Utc(episode.OpenedAt),
+            Metered = snapshot.Metered,
+            Control = control,
+            ControlTraced = control == null || control.Rounds.Count > 0
+        };
+        run.Degraded.AddRange(degraded);
+        foreach (var (address, ping) in snapshot.HopPings)
+            run.HopPings[address] = new HopPing { Vantage = degraded[0].Target.Vantage, Sent = ping.Sent, Received = ping.Received, MinRttMs = ping.MinRttMs };
+        if (episode.ClosedAt is DateTime closed)
+        {
+            var due = PathEpisodeTraceMapping.Utc(closed) + TimeSpan.FromMinutes(_options.PathRecoveryDelayMinutes);
+            run.RecoveryDue = due > now ? due : now;
+        }
+        return run;
     }
 
     /// <summary>

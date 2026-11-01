@@ -121,7 +121,27 @@ public sealed class TargetDegradation
     /// Pooled loss over the windows overlapping [<paramref name="from"/>, <paramref name="until"/>), with
     /// the probes behind it; null when none closed. Open-ended when <paramref name="until"/> is null.
     /// </summary>
-    public (double LossPct, int Probes)? LossSince(DateTime from, DateTime? until = null)
+    public (double LossPct, int Probes)? LossSince(DateTime from, DateTime? until = null) => LossOver(from, until);
+
+    /// <summary>
+    /// Picks a degradation back up after a restart, for a target whose episode was still open. Seeded
+    /// history never moves the degraded state, so without this the restarted target reads clean and
+    /// the episode closes as if it had cleared. It clears the usual way from here: enough clean windows.
+    /// </summary>
+    /// <param name="since">When the degradation began (the episode's open time).</param>
+    /// <param name="now">Counts as the last sample, so the target is not taken for silent before its first one.</param>
+    public void ResumeDegraded(DateTime since, double? peakLossPct, double? peakRttMs, DateTime now)
+    {
+        Degraded = true;
+        DegradedSince = since;
+        PeakLossPct = peakLossPct ?? 0;
+        PeakRttMs = peakRttMs;
+        _degradedRun = 0;
+        _cleanRun = 0;
+        LastSampleAt ??= now;
+    }
+
+    private (double LossPct, int Probes)? LossOver(DateTime from, DateTime? until = null)
     {
         var windows = _windows.Where(w => w.Start + _windowLength > from && (until == null || w.Start < until) && w.Probes > 0).ToList();
         if (windows.Count == 0) return null;
