@@ -28,7 +28,7 @@ public class PathEpisodeBannerTests
     [Fact]
     public void EventRow_NamesTheTargetsOnce()
     {
-        var e = Episode(1, Now.AddMinutes(-30), null, tracing: true) with
+        var e = Episode(1, DateTime.UtcNow.AddMinutes(-25), null, tracing: true) with
         {
             Label = "Target A and Target B lost packets and slowed down together, but their routes share nothing after their last clean routers. "
                 + "The common factor is most likely the return path into Example, which a traceroute can't see.",
@@ -40,7 +40,7 @@ public class PathEpisodeBannerTests
         };
 
         PathEpisodePresentation.Entries(new[] { e }).Single().Text.Should().Be(
-            "Target A and Target B are losing packets (peak 12%) and running 13 ms slower. "
+            "Target A and Target B are losing packets (peak 12%) and running 13 ms slower, for 25 min so far. "
             + "Their routes share nothing after their last clean routers, so the common factor is most likely the return path into Example, which a traceroute can't see.");
 
         PathEpisodePresentation.WithoutNames("A and B all cross Lumen (`AS3356`) after their last clean router, and every one shows the problem inside it.")

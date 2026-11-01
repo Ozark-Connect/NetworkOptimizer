@@ -49,7 +49,7 @@ public static class PathEpisodePresentation
             var label = string.IsNullOrEmpty(e.Label) ? "No trace has completed yet." : e.Label;
             var one = e.Degraded.Count == 1;
             var lead = e.Tracing
-                ? $"{names} {(one ? "is" : "are")} {Symptom(e)}."
+                ? $"{names} {(one ? "is" : "are")} {Symptom(e)}, for {IspHealthPresentation.FormatDuration(end - e.OpenedAt)} so far."
                 : $"{names} {PastSymptom(e, IspHealthPresentation.FormatDuration(end - e.OpenedAt))} while the rest of your connection stayed clean.";
             if (!one) label = WithoutNames(label);
             var confirmed = e.Disposition == CongestionDisposition.Confirmed;
