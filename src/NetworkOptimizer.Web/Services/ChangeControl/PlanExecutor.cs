@@ -25,11 +25,18 @@ public sealed class PlanExecutor
     private readonly IUniFiConfigApi _api;
     private readonly ILogger _logger;
     private readonly Dictionary<string, string> _created = new(StringComparer.Ordinal);
+    private readonly IReadOnlyList<TimeSpan> _readBackRetries;
 
-    public PlanExecutor(IUniFiConfigApi api, ILogger logger)
+    private static readonly TimeSpan[] DefaultReadBackRetries = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3)];
+
+    /// <param name="api">The console.</param>
+    /// <param name="logger">Logger.</param>
+    /// <param name="readBackRetries">Waits before each re-read of a write that does not read back yet; 1, 2, and 3 s by default.</param>
+    public PlanExecutor(IUniFiConfigApi api, ILogger logger, IReadOnlyList<TimeSpan>? readBackRetries = null)
     {
         _api = api;
         _logger = logger;
+        _readBackRetries = readBackRetries ?? DefaultReadBackRetries;
     }
 
     /// <summary>IDs of objects the run created, by operation key.</summary>
@@ -85,18 +92,34 @@ public sealed class PlanExecutor
                 }
             }
 
-            // Verify the run against a fresh read of the collection.
-            var (objects, readError) = await new ConfigSnapshotReader(_logger).ReadCollectionAsync(_api, def, ct);
-            if (objects == null)
+            // Verify the run against a fresh read of the collection. A read straight after an accepted write can
+            // still serve the old object (a device's port_overrides, Network 11.0.99), so a write the console
+            // accepted is read again before it is reported as not applied.
+            var verified = sent.Select(op => (Op: op, R: result.Operations.Last(x => x.Key == op.Key)))
+                .Where(x => x.R.Outcome != "Waiting")
+                .Select(x => (x.Op, x.R, Sent: (x.R.Outcome, x.R.Message))).ToList();
+            for (var attempt = 0; ; attempt++)
             {
-                result.Operations.Add(new OperationResult { Key = $"{def.Key}:verify", Outcome = "Error", Message = $"Could not re-read {def.DisplayName}: {readError}" });
-                return (false, result);
+                var (objects, readError) = await new ConfigSnapshotReader(_logger).ReadCollectionAsync(_api, def, ct);
+                if (objects == null)
+                {
+                    result.Operations.Add(new OperationResult { Key = $"{def.Key}:verify", Outcome = "Error", Message = $"Could not re-read {def.DisplayName}: {readError}" });
+                    return (false, result);
+                }
+                foreach (var (op, r, before) in verified)
+                {
+                    (r.Outcome, r.Message) = before;
+                    r.NotApplied.Clear();
+                    r.Normalized.Clear();
+                    Verify(def, op, objects, r);
+                }
+                var unconfirmed = verified.Count(x => x.Sent.Outcome == "Applied" && x.R.Outcome is "Partial" or "Error");
+                if (unconfirmed == 0 || attempt >= _readBackRetries.Count) break;
+                _logger.LogDebug("Change Control: {Count} {Collection} write(s) not read back yet; reading again", unconfirmed, def.Key);
+                await Task.Delay(_readBackRetries[attempt], ct);
             }
-            foreach (var op in sent)
+            foreach (var (op, r, _) in verified)
             {
-                var r = result.Operations.Last(x => x.Key == op.Key);
-                if (r.Outcome == "Waiting") continue;
-                Verify(def, op, objects, r);
                 if (r.Outcome == "Error")
                 {
                     _logger.LogWarning("Change Control write {Key} failed: {Message}", op.Key, r.Message);

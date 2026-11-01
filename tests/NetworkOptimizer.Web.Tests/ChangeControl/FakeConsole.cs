@@ -26,6 +26,12 @@ internal sealed class FakeConsole : IUniFiConfigApi
     /// <summary>An empty list written reads back missing, as UniFi stores none (grounding.md 2026-10-29).</summary>
     public bool EmptyListsReadBackMissing { get; set; }
 
+    /// <summary>After a write, this many reads still serve the state from before it (a device read right after its PUT).</summary>
+    public int StaleReadsAfterWrite { get; set; }
+
+    private ConfigState? _stale;
+    private int _staleLeft;
+
     public FakeConsole(ConfigState state) => State = state;
 
     /// <summary>False simulates a console the server cannot reach.</summary>
@@ -49,7 +55,14 @@ internal sealed class FakeConsole : IUniFiConfigApi
             if (path == "stat/sysinfo") return Ok(scope, [new JsonObject { ["version"] = "10.6.106" }], list: true);
             var def = ConfigCollections.All.FirstOrDefault(d => d.ReadPath == path && d.Scope == scope);
             if (def == null || !State.Collections.ContainsKey(def.Key)) return Task.FromResult(new UniFiRawResponse(404, "{}"));
-            return Ok(scope, State.Get(def.Key).Select(o => (JsonObject)o.DeepClone()).ToList(), list: true);
+            var served = _staleLeft > 0 && _stale != null ? _stale : State;
+            if (_staleLeft > 0) _staleLeft--;
+            return Ok(scope, served.Get(def.Key).Select(o => (JsonObject)o.DeepClone()).ToList(), list: true);
+        }
+        if (StaleReadsAfterWrite > 0)
+        {
+            _stale = State.Clone();
+            _staleLeft = StaleReadsAfterWrite;
         }
 
         // Ahead of the update paths: "firewall-policies/{id}" would take batch-reorder for an ID.

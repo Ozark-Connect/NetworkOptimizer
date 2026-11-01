@@ -258,10 +258,65 @@ public class PlanEngineTests
         console.DropFields.Add("multicast_router_networkconf_ids");
         var desired = State(("portconf", """{"_id":"p1","name":"Trunk","multicast_router_networkconf_ids":["x"]}"""));
         var doc = Plan(desired, console.State.Clone());
-        var (_, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, true, null, CancellationToken.None);
+        var (_, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
         var r = result.Operations.Single();
         r.Outcome.Should().Be("Partial");
-        r.NotApplied.Should().Contain("multicast_router_networkconf_ids");
+        r.NotApplied.Should().ContainSingle().Which.Should().Be("multicast_router_networkconf_ids", "a re-read does not list a field twice");
+    }
+
+    private static readonly TimeSpan[] NoWait = [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero];
+
+    private static (ConfigState Live, ConfigState Desired) PortRename()
+    {
+        const string sw = """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"Desk Switch","port_overrides":[{"port_idx":7,"name":"Old Name","portconf_id":"p1"}]}""";
+        return (State(("portconf", """{"_id":"p1","name":"Access"}"""), ("device", sw)),
+            State(("portconf", """{"_id":"p1","name":"Access"}"""), ("device", sw.Replace("Old Name", "New Name"))));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Executor_DeviceReadBackStale_IsReadAgain_AndApplied(int staleReads)
+    {
+        var (live, desired) = PortRename();
+        var console = new FakeConsole(live) { StaleReadsAfterWrite = staleReads };
+        var doc = Plan(desired, console.State.Clone());
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
+
+        ok.Should().BeTrue();
+        var r = result.Operations.Single();
+        r.Outcome.Should().Be("Applied", string.Join(", ", r.NotApplied));
+        r.Message.Should().BeNull();
+        r.NotApplied.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Executor_DeviceReadBackStalePastEveryRetry_IsPartial()
+    {
+        var (live, desired) = PortRename();
+        var console = new FakeConsole(live) { StaleReadsAfterWrite = 4 };
+        var doc = Plan(desired, console.State.Clone());
+
+        var (_, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
+
+        result.Operations.Single().Outcome.Should().Be("Partial");
+        console.Requests.Count(q => q.Method == HttpMethod.Get).Should().Be(4, "the first read and three retries");
+    }
+
+    [Fact]
+    public async Task Executor_RefusedWrite_IsNotReadAgain()
+    {
+        var (live, desired) = PortRename();
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+        console.Refuse["rest/device/d1"] = 400;
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
+
+        ok.Should().BeFalse();
+        result.Operations.Single().Outcome.Should().Be("Error");
+        console.Requests.Count(q => q.Method == HttpMethod.Get).Should().Be(1);
     }
 
     [Fact]

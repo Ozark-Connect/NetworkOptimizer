@@ -83,6 +83,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         var accessor = new SqliteAccessor(_connection);
         _engine = new ChangeControlSiteEngine("default", _console, accessor, new MemoryBlobs(), NullLogger.Instance);
         _plans = new PlanCoordinator(_engine, new PlainCrypto(), NullLogger.Instance, bus: _bus);
+        PlanCoordinator.ReadBackRetries = [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero];
     }
 
     public void Dispose() => _connection.Dispose();

@@ -81,6 +81,9 @@ public sealed class PlanCoordinator
     internal static TimeSpan ProvisionWaitLimit = TimeSpan.FromMinutes(3);
     internal const string StillProvisioning = "The gateway is still provisioning after 3 minutes. Try again once it has finished.";
 
+    // Waits before re-reading a write that does not read back yet; null is PlanExecutor's default.
+    internal static IReadOnlyList<TimeSpan>? ReadBackRetries;
+
     /// <summary>
     /// Waits while the gateway provisions, for a plan that writes to it (<paramref name="collections"/> null is every collection).
     /// Mid-provision, UniFi is still applying the last write (a zone write pausing and stripping policies), so a plan read then
@@ -372,7 +375,7 @@ public sealed class PlanCoordinator
             bool ok;
             PlanResult result;
             using (UniFiWriteSource.Use($"{ChangeAttributor.PlanSourcePrefix}{plan.Id}"))
-                (ok, result) = await new PlanExecutor(_engine.Api, _logger).ApplyAsync(doc, HasGateway(live), null, ct);
+                (ok, result) = await new PlanExecutor(_engine.Api, _logger, ReadBackRetries).ApplyAsync(doc, HasGateway(live), null, ct);
             if (zoneWrites) QuietDevices?.Invoke();
 
             // Verify: a fresh snapshot, compared with what the plan meant to write.
