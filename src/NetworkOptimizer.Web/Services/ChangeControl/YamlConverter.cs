@@ -476,7 +476,10 @@ public static partial class YamlConverter
         {
             var resolved = ResolveObject(def, obj, map, index, fieldMap, result, fileName);
             ResolveSecretTokens(def, resolved, baseState, Line(map), result, fileName);
-            if (ConfigState.IdOf(resolved).StartsWith(TempIdPrefix, StringComparison.Ordinal))
+            // A new object UniFi generates is never created by Review Plan (an older file's own predefined set), so
+            // the create checks do not apply to it; Lint counts it in the generated-objects Info line.
+            var created = ConfigState.IdOf(resolved).StartsWith(TempIdPrefix, StringComparison.Ordinal) && def.IsGenerated?.Invoke(resolved) != true;
+            if (created)
                 foreach (var (missing, refused) in NewObjects.Missing(def, resolved))
                 {
                     // Named as the file writes it: networkconf_id is "network", source.zone_id is "source.zone".
@@ -495,7 +498,7 @@ public static partial class YamlConverter
                         ? new YamlProblem("Error", fileName, Line(at), $"A new {def.Noun} needs {field}.")
                         : new YamlProblem("Warning", fileName, Line(at), $"A new {def.Noun} without {field} is created, but does nothing until it has one."));
                 }
-            if (ConfigState.IdOf(resolved).StartsWith(TempIdPrefix, StringComparison.Ordinal))
+            if (created)
                 foreach (var (path, message) in NewObjects.Refused(def, resolved))
                 {
                     var keyNode = map.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == path).Key;

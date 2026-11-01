@@ -84,6 +84,39 @@ public class EditGeneratedObjectsTests
         }
     }
 
+    private static JsonObject InternetBlock(string id, bool predefined)
+    {
+        // UniFi's "Internet Access" off policy for an older subnet, as an older file carries it.
+        var p = Policy(id, "Block 192.0.2.0/24 Internet Access", "z1", "z3", "BLOCK", 30000, predefined);
+        p["source"]!["matching_target"] = "IP";
+        p["source"]!["ips"] = new JsonArray("192.0.2.0/24");
+        return p;
+    }
+
+    [Fact]
+    public void PredefinedPolicyTheConsoleLacks_SkipsTheCreateChecks_AndIsNotPlanned()
+    {
+        var older = Site();
+        older.Collections["firewall_policy"].Add(InternetBlock("old1", predefined: true));
+        foreach (var mode in Modes.Where(m => !m.Ids))
+        {
+            var (problems, ops) = Validate(Site(), older, mode, "firewall_zone", "firewall_policy");
+            Errors(problems).Should().BeEmpty($"mode {mode}");
+            problems.Should().ContainSingle(p => p.Level == "Info" && p.Message.Contains("Firewall policies: 1"), $"mode {mode}");
+            ops.Should().BeEmpty($"mode {mode}");
+        }
+    }
+
+    [Fact]
+    public void CustomBlockPolicyWithReturnTraffic_IsStillRefused()
+    {
+        var edited = Site();
+        edited.Collections["firewall_policy"].Add(InternetBlock("new1", predefined: false));
+        foreach (var mode in Modes.Where(m => !m.Ids))
+            Errors(Validate(Site(), edited, mode, "firewall_zone", "firewall_policy").Problems)
+                .Should().Contain(e => e.Contains("creates return traffic (create_allow_respond) only with action ALLOW"), $"mode {mode}");
+    }
+
     [Fact]
     public void UnchangedFile_HasNoInfoLine()
     {
