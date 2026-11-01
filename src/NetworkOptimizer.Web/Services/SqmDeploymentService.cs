@@ -230,7 +230,8 @@ public class SqmDeploymentService : ISqmDeploymentService
             // lock lives in the directory about to go) finish before anything is read or deleted.
             await RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
-            await RunCommandAsync(BuildWaitForSqmRunsCommand(), TimeSpan.FromSeconds(90));
+            if (!await WaitForSqmRunsAsync())
+                warnings.Add(SqmRunsStillGoingWarning);
             var existing = ParseExistingSqm((await RunCommandAsync(BuildReadExistingSqmCommand())).output);
 
             // Remove all SQM boot scripts
@@ -246,7 +247,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             if (reason != null)
             {
                 _logger.LogInformation("Restoring UniFi's QoS trees before deploy: {Reason}", reason);
-                var restoreError = await RestoreUniFiQueuesAsync();
+                var restoreError = await RestoreUniFiQueuesAsync(removed);
                 if (restoreError != null)
                     warnings.Add(RestoreWarning(restoreError, removed));
             }
@@ -276,12 +277,14 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// Has UniFi rebuild every WAN's QoS trees from its own config, undoing everything the scripts
     /// changed (rates, bursts, fq_codel sizing, a CAKE root). See <see cref="BuildRestoreUniFiQueuesCommand"/>.
     /// </summary>
+    /// <param name="cakeRemovedFrom">IFBs Adaptive SQM's CAKE root was just deleted from. They no longer
+    /// show a tree, so the check is told to expect UniFi's back on them.</param>
     /// <returns>Null when the trees are back or QoS is off; otherwise what went wrong, as a sentence fragment.</returns>
-    private async Task<string?> RestoreUniFiQueuesAsync()
+    private async Task<string?> RestoreUniFiQueuesAsync(IReadOnlyCollection<string> cakeRemovedFrom)
     {
         try
         {
-            var result = await RunCommandAsync(BuildRestoreUniFiQueuesCommand(), TimeSpan.FromSeconds(120));
+            var result = await RunCommandAsync(BuildRestoreUniFiQueuesCommand(cakeRemovedFrom), TimeSpan.FromSeconds(120));
             var error = ParseRestoreUniFiQueues(result.output);
             if (error != null)
                 _logger.LogWarning("UniFi's QoS trees were not restored: {Error}. Output: {Output}", error, result.output);
@@ -316,14 +319,44 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// Waits up to 60 s while a ping or calibration run is going or a congestion learning probe holds
     /// its lock. Each retunes the trees when it finishes, so a restore under one would be undone.
     /// Cron must already be cleared. A lock older than the probe's stale limit is ignored.
+    /// Prints <see cref="SqmRunsDoneMarker"/> once nothing is running; without it the wait ran out.
     /// </summary>
     internal static string BuildWaitForSqmRunsCommand() => $$"""
         for _ in $(seq 1 60); do busy=''
           pgrep -f -- '[-](ping|speedtest)\.sh' >/dev/null 2>&1 && busy=1
           for l in {{SqmDir}}/probe-*.lock; do [ -e "$l" ] || continue
             [ $(( $(date +%s) - $(stat -c %Y "$l" 2>/dev/null || echo 0) )) -lt {{Sqm.ScriptGenerator.ProbeLockMaxAgeSeconds}} ] && busy=1; done
-          [ -z "$busy" ] && break; sleep 1; done; true
+          [ -z "$busy" ] && { echo '{{SqmRunsDoneMarker}}'; break; }; sleep 1; done; true
         """.Replace("\r\n", "\n");
+
+    /// <summary>What <see cref="BuildWaitForSqmRunsCommand"/> prints when no run is left.</summary>
+    internal const string SqmRunsDoneMarker = "SQM_RUNS_DONE";
+
+    /// <summary>
+    /// The warning for a wait that ran out. A calibration can itself wait up to 90 s for a probe lock
+    /// before it starts, so this can happen, and the run that outlived the wait retunes the trees
+    /// (or installs CAKE again) after the deploy or Remove is done.
+    /// </summary>
+    internal const string SqmRunsStillGoingWarning =
+        "An Adaptive SQM run (ping, calibration or learning probe) was still going after 60 s. When it ends it can " +
+        "set its rates again or put the CAKE download shaper back. Run this again in a few minutes.";
+
+    /// <summary>Runs <see cref="BuildWaitForSqmRunsCommand"/>; false when a run outlived it or the gateway did not answer.</summary>
+    private async Task<bool> WaitForSqmRunsAsync()
+    {
+        try
+        {
+            var result = await RunCommandAsync(BuildWaitForSqmRunsCommand(), TimeSpan.FromSeconds(90));
+            if (result.output?.Contains(SqmRunsDoneMarker, StringComparison.Ordinal) == true)
+                return true;
+            _logger.LogWarning("An Adaptive SQM run was still going after the wait. Output: {Output}", result.output);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not wait for running Adaptive SQM scripts");
+        }
+        return false;
+    }
 
     /// <summary>Lists the WAN ping scripts and the tuned IFBs, for <see cref="ParseExistingSqm"/>.</summary>
     internal static string BuildReadExistingSqmCommand() => $$"""
@@ -387,12 +420,19 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// a tree must have its HTB root back, and every WAN that redirected to an IFB its redirect: the
     /// rebuild recreates the WAN ingress qdiscs too, and WAN Flood Protection re-adding its own ingress
     /// qdisc inside that window could leave the redirect out, so a miss gets one more rebuild.
+    /// QoS counts as off only when /qos/global says so; a read that fails is a failed restore.
     /// </summary>
+    /// <param name="cakeRemovedFrom">IFBs whose CAKE root was just deleted. They carry only the kernel's
+    /// default qdisc now, which the scan below does not count as a tree, so they are expected by name.</param>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "ubios-udapi-client /qos/fw/queues")]
-    internal static string BuildRestoreUniFiQueuesCommand() => """
+    internal static string BuildRestoreUniFiQueuesCommand(IEnumerable<string>? cakeRemovedFrom = null) => """
         command -v ubios-udapi-client >/dev/null 2>&1 || { echo 'RESTORE_FAILED no-udapi'; exit 0; }
-        ubios-udapi-client -r GET /qos/global 2>/dev/null | grep -qE '"enabled": *true' || { echo 'RESTORE_SKIPPED qos-off'; exit 0; }
-        shaped=''
+        qos=$(ubios-udapi-client -r GET /qos/global 2>/dev/null)
+        if ! echo "$qos" | grep -qE '"enabled": *true'; then
+          if echo "$qos" | grep -qE '"enabled": *false'; then echo 'RESTORE_SKIPPED qos-off'; else echo 'RESTORE_FAILED qos-read'; fi
+          exit 0
+        fi
+        shaped='CLEARED_IFBS'
         for d in /sys/class/net/ifb*; do [ -e "$d" ] || continue; n=${d##*/}
           tc qdisc show dev "$n" 2>/dev/null | grep -qE '^qdisc (htb|cake) [0-9a-f]+: root' && shaped="$shaped $n"; done
         redirected=''
@@ -417,7 +457,12 @@ public class SqmDeploymentService : ISqmDeploymentService
         rebuild || exit 0
         if ! check; then rebuild || exit 0; check; fi
         if [ -n "$missing" ]; then echo "RESTORE_MISSING$missing"; else echo 'RESTORE_OK'; fi
-        """.Replace("QUEUE", RestoreQueueName).Replace("\r\n", "\n");
+        """.Replace("QUEUE", RestoreQueueName)
+        .Replace("CLEARED_IFBS", string.Concat((cakeRemovedFrom ?? Array.Empty<string>())
+            .Where(name => Sqm.InputSanitizer.ValidateInterface(name).isValid)
+            .Distinct(StringComparer.Ordinal)
+            .Select(name => $" {name}")))
+        .Replace("\r\n", "\n");
 
     /// <summary>What the restore command reported: null when the trees are back or QoS is off.</summary>
     internal static string? ParseRestoreUniFiQueues(string? output)
@@ -432,6 +477,7 @@ public class SqmDeploymentService : ISqmDeploymentService
         return line switch
         {
             "RESTORE_FAILED no-udapi" => "this gateway has no UniFi QoS service to ask",
+            "RESTORE_FAILED qos-read" => "the gateway's QoS settings could not be read",
             "RESTORE_FAILED post" => "the gateway refused the temporary QoS queue",
             "RESTORE_FAILED delete" => $"the temporary QoS queue {RestoreQueueName} could not be deleted",
             _ => "the gateway gave an unexpected result",
@@ -885,7 +931,8 @@ public class SqmDeploymentService : ISqmDeploymentService
 
             // A running ping, calibration or learning probe retunes the trees when it ends, and the
             // probe's lock is in the directory deleted below: let them finish first.
-            await RunCommandAsync(BuildWaitForSqmRunsCommand(), TimeSpan.FromSeconds(90));
+            if (!await WaitForSqmRunsAsync())
+                steps.Add($"⚠️ {SqmRunsStillGoingWarning}");
 
             // Remove boot scripts (new format: 20-sqm-{name}.sh)
             steps.Add("Removing SQM boot scripts...");
@@ -908,7 +955,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             // UniFi's own trees come back on every WAN, CAKE or HTB, so nothing the scripts set stays
             steps.Add("Restoring UniFi's Smart Queues...");
             var removed = await RemoveCakeRootsAsync(Array.Empty<string>());
-            var restoreError = await RestoreUniFiQueuesAsync();
+            var restoreError = await RestoreUniFiQueuesAsync(removed);
             steps.Add(restoreError == null ? "UniFi's Smart Queues restored" : $"⚠️ {RestoreWarning(restoreError, removed)}");
 
             // Remove SQM Monitor if requested

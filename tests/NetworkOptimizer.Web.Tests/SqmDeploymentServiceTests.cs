@@ -198,6 +198,7 @@ tc() {{
     [InlineData("RESTORE_SKIPPED qos-off", null)]
     [InlineData("noise\nRESTORE_FAILED delete\n", "netopt_rebuild could not be deleted")]
     [InlineData("RESTORE_FAILED no-udapi", "no UniFi QoS service")]
+    [InlineData("RESTORE_FAILED qos-read", "could not be read")]
     [InlineData("RESTORE_MISSING ifbeth4", "ifbeth4")]
     [InlineData("", "no result")]
     public void ParseRestoreUniFiQueues_ReadsTheLastResultLine(string output, string? error)
@@ -360,4 +361,92 @@ tc() {{
         }
     }
 
+
+    /// <summary>
+    /// Runs the restore against an IFB the CAKE root was just deleted from: it shows the kernel's
+    /// default fq_codel root, and <paramref name="treeBack"/> says whether UniFi's class 1:1 is there
+    /// after the rebuild. eth6 redirects to it throughout.
+    /// </summary>
+    private static string? RunRestoreAfterCakeRemoval(bool treeBack, IEnumerable<string>? cakeRemovedFrom)
+    {
+        var bash = new[] { "/bin/bash", "/usr/bin/bash" }.FirstOrDefault(File.Exists);
+        if (OperatingSystem.IsWindows() || bash == null) return null;
+        var dir = Path.Combine(Path.GetTempPath(), $"sqm-restore-cleared-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dir, "net", "ifbeth6"));
+        try
+        {
+            var command = SqmDeploymentService.BuildRestoreUniFiQueuesCommand(cakeRemovedFrom)
+                .Replace("/sys/class/net", Path.Combine(dir, "net"))
+                .Replace("/tmp/netopt-restore.json", Path.Combine(dir, "q.json"));
+            var script = "sleep() { :; }\nubios-udapi-client() {\n" + UdapiAnswers + "\n}\n" + $$"""
+                tc() {
+                    case "$1 $2 $4" in
+                        "qdisc show ") echo "qdisc ingress ffff: dev eth6 parent ffff:fff1 ----------------" ;;
+                        "qdisc show ifbeth6") echo "qdisc fq_codel 0: root refcnt 2 limit 10240p" ;;
+                        "class show ifbeth6") {{(treeBack ? "echo \"class htb 1:1 root rate 900Mbit ceil 900Mbit\"" : ":")}} ;;
+                        "filter show eth6") echo "filter parent ffff: protocol all pref 49152 u32 chain 0 action order 1: mirred (Egress Redirect to device ifbeth6) stolen" ;;
+                    esac
+                }
+                """ + "\n" + command + "\n";
+            var psi = new ProcessStartInfo(bash) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
+            using var proc = Process.Start(psi)!;
+            proc.StandardInput.Write(script.Replace("\r\n", "\n"));
+            proc.StandardInput.Close();
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(30_000);
+            return output;
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_ChecksTheIfbsCakeWasJustRemovedFrom()
+    {
+        if (RunRestoreAfterCakeRemoval(treeBack: false, ["ifbeth6", "bad name;"]) is not { } output) return;
+
+        output.Should().Contain("RESTORE_MISSING ifbeth6", "its tree did not come back, though it only shows the default qdisc");
+        SqmDeploymentService.ParseRestoreUniFiQueues(output).Should().Contain("ifbeth6");
+        SqmDeploymentService.BuildRestoreUniFiQueuesCommand(["bad name;"]).Should().NotContain("bad name");
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_IsOk_WhenTheTreeIsBackOnAnIfbCakeWasRemovedFrom()
+    {
+        if (RunRestoreAfterCakeRemoval(treeBack: true, ["ifbeth6"]) is not { } output) return;
+
+        output.Should().Contain("RESTORE_OK");
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_FailsWhenTheQosStateCannotBeRead()
+    {
+        if (RunRestore("""case "$2 $3" in "GET /qos/global") echo 'error: connection refused' >&2; return 1 ;; esac""") is not { } run) return;
+
+        run.Output.Should().Contain("RESTORE_FAILED qos-read").And.NotContain("RESTORE_SKIPPED");
+        SqmDeploymentService.ParseRestoreUniFiQueues(run.Output).Should().Contain("could not be read");
+        run.Calls.Should().NotContain("POST");
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void WaitForSqmRuns_SaysWhenNothingIsLeft_AndStaysQuietWhenItRunsOut(bool busy, bool done)
+    {
+        var bash = new[] { "/bin/bash", "/usr/bin/bash" }.FirstOrDefault(File.Exists);
+        if (OperatingSystem.IsWindows() || bash == null) return;
+
+        var script = $"sleep() {{ :; }}\npgrep() {{ return {(busy ? 0 : 1)}; }}\n" + SqmDeploymentService.BuildWaitForSqmRunsCommand() + "\necho \"EXIT=$?\"\n";
+        var psi = new ProcessStartInfo(bash) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
+        using var proc = Process.Start(psi)!;
+        proc.StandardInput.Write(script.Replace("\r\n", "\n"));
+        proc.StandardInput.Close();
+        var output = proc.StandardOutput.ReadToEnd();
+        proc.WaitForExit(30_000);
+
+        output.Contains(SqmDeploymentService.SqmRunsDoneMarker).Should().Be(done);
+        output.Should().Contain("EXIT=0");
+    }
 }

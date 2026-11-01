@@ -128,7 +128,8 @@ Severity, the ping loop, the floor, and the link clamp work as they do without a
 The page drives it; `SqmDeploymentService` does the gateway work.
 
 1. `CleanAllSqmScriptsAsync()` clears every cron line containing `sqm`, waits for a running ping,
-   calibration or learning probe (`BuildWaitForSqmRunsCommand`), reads each old `*-ping.sh`
+   calibration or learning probe (`BuildWaitForSqmRunsCommand`, up to 60 s; a run still going
+   after that is a warning, since it retunes the trees when it ends), reads each old `*-ping.sh`
    (`INTERFACE`, `DOWNLOAD_QDISC`, `TREE_MODEL`), then removes every `20-sqm-*.sh` and
    `21-sqm-*.sh` and everything in `/data/sqm`. This clears scripts left by a renamed WAN. It
    deletes Adaptive SQM's CAKE root from every IFB that no enabled CAKE WAN is about to use, and
@@ -161,8 +162,11 @@ restore, a removed Adaptive SQM leaves its last rates shaping until UniFi's next
 `ubios-udapi-server` rebuilds every WAN's trees, both directions, whenever its QoS queue list
 changes. The restore (`BuildRestoreUniFiQueuesCommand`) adds a temporary queue `netopt_rebuild`
 with `ubios-udapi-client POST /qos/fw/queues`, deletes it, and checks that every IFB that carried
-a tree has `class htb 1:1 root` again and every WAN that redirected to an IFB still does. A miss
-gets one more rebuild, then is reported. The gateway ends on the console's exact config: no
+a tree has `class htb 1:1 root` again and every WAN that redirected to an IFB still does. That
+includes the IFBs the deploy or Remove just took the CAKE root off: they show only the kernel's
+default qdisc by then, so they are passed in by name. A miss gets one more rebuild, then is
+reported. QoS counts as off (nothing to restore) only when `/qos/global` says `enabled: false`; a
+read that fails is a failed restore and a warning. The gateway ends on the console's exact config: no
 console write, nothing in Change Control, no service restarts. Existing queues keep their class
 numbers (`1:4` onward, mapped from fwmarks `0x8004` onward), because the temporary queue is appended.
 
@@ -360,8 +364,7 @@ measurements behind it come from one UCG-Fiber on PPPoE with GRO.
   CAKE root with handle `ca4e:`, then restore UniFi's queues (see
   [Restoring UniFi's queues](#restoring-unifis-queues)). If the restore fails, the warning says
   download is unshaped until Smart Queues is applied again in UniFi Network. The delete names
-  handle and kind, so it fails rather than removing an HTB tree UniFi rebuilt in the meantime, and
-  it waits up to 20 s for a running ping script.
+  handle and kind, so it fails rather than removing an HTB tree UniFi rebuilt in the meantime.
 - **Readers.** The SQM Monitor, `GatewayShaperProbe` (Config Optimizer) and the ping script read a
   CAKE root's bandwidth as the shaped rate.
 
