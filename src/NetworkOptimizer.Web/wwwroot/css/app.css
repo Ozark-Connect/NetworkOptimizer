@@ -24100,11 +24100,19 @@ body:has(.top-bar-hidden) .btn-fit {
     background: var(--text-muted);
 }
 
-/* 44px touch target around the 12px marker */
+/* A small pad for a mouse: a wider one covers the next marker in a tight bunch, and the
+   older (left) marker paints on top, so hover and click land on the wrong event. */
 .change-control .cc-marker::before {
     content: "";
     position: absolute;
-    inset: -16px;
+    inset: -3px;
+}
+
+/* 44px touch target around the 12px marker */
+@media (pointer: coarse) {
+    .change-control .cc-marker::before {
+        inset: -16px;
+    }
 }
 
 .change-control .cc-marker.person { background: var(--cc-person); }
