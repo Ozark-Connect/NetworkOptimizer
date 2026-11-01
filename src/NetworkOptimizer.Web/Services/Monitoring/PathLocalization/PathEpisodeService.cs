@@ -148,10 +148,10 @@ public sealed class PathEpisodeService : IPathEpisodeService
         return new PathEpisodeView
         {
             Id = e.Id,
-            OpenedAt = e.OpenedAt,
-            ClosedAt = e.ClosedAt,
+            OpenedAt = Utc(e.OpenedAt),
+            ClosedAt = e.ClosedAt is DateTime closed ? Utc(closed) : null,
             Tracing = e.ClosedAt == null && _registry.GetFor(_site.Slug).IsTracing(e.Id),
-            UpdatedAt = e.UpdatedAt,
+            UpdatedAt = Utc(e.UpdatedAt),
             WanContextId = e.WanContextId,
             WanInterface = e.WanInterface,
             Scope = Enum.TryParse<CongestionScope>(e.Scope, out var scope) ? scope : CongestionScope.Unlocalized,
@@ -163,6 +163,12 @@ public sealed class PathEpisodeService : IPathEpisodeService
             Controls = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Control).Select(Target).ToList()
         };
     }
+
+    /// <summary>
+    /// Episode times are written in UTC, but SQLite hands them back with no kind. Marked here, so a
+    /// serialized time carries its Z: a browser reads one without it as local time.
+    /// </summary>
+    private static DateTime Utc(DateTime t) => t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);
 
     private static TracerouteResult? ToResult(PathEpisodeTrace t, IReadOnlyDictionary<int, MonitoringTarget> targets)
     {
@@ -176,7 +182,7 @@ public sealed class PathEpisodeService : IPathEpisodeService
                 Target = new ProbeTarget(address, Core.Enums.ProbeMode.Icmp, null, t.SourceInterface),
                 Vantage = new ProbeVantage(t.Vantage, VantageKind.Server),
                 ModeUsed = Core.Enums.ProbeMode.Icmp,
-                Timestamp = t.Timestamp,
+                Timestamp = Utc(t.Timestamp),
                 Hops = hops,
                 ResolvedAddress = t.ResolvedAddress,
                 Reached = t.Reached
