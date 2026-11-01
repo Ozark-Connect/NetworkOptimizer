@@ -213,7 +213,7 @@ public class IspHealthPdfGenerator
                             Cell(t, hop.Responses == 0
                                 ? (hop.Has(PathLocalization.HopTag.Destination) ? $"{hop.Address ?? table.Address} (never answered)" : "* * *")
                                 : !string.IsNullOrEmpty(hop.Hostname) && hop.Hostname != hop.Address ? $"{hop.Hostname} ({hop.Address})" : hop.Address ?? "");
-                            Cell(t, Plain(PathLocalization.PathTraceAnalyzer.NetworkName(hop, "-")));
+                            Cell(t, Plain(PathLocalization.PathTraceAnalyzer.NetworkCell(hop)));
                             Cell(t, PathLocalization.PathEpisodePresentation.HopLossText(PathLocalization.PathEpisodePresentation.HopLoss(hop, detail)));
                             Cell(t, hop.MinRttMs is double min
                                 ? PathLocalization.PathEpisodePresentation.DisplayBaseline(hop) is double b ? $"{b:0.0} to {min:0.0} ms" : $"{min:0.0} ms"

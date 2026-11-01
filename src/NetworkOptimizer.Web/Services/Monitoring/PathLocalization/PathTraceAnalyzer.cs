@@ -727,6 +727,12 @@ public static class PathTraceAnalyzer
             ? (string.IsNullOrEmpty(h.AsnName) ? AsnCode(asn) : $"{h.AsnName} ({AsnCode(asn)})")
             : unknown ?? h.Address ?? $"hop {h.Ttl}";
 
+    /// <summary>A hop table's Network cell, as Network Tools shows it: "Cox `AS22773`", with no parentheses.</summary>
+    internal static string NetworkCell(HopReading h, string unknown = "-") =>
+        h.Asn is int asn
+            ? (string.IsNullOrEmpty(h.AsnName) ? AsnCode(asn) : $"{h.AsnName} {AsnCode(asn)}")
+            : unknown;
+
     private static string NetworkName(AsnLookup a) =>
         AsnLabel(a) is { Length: > 0 } name ? $"{name} ({AsnCode(a.Asn)})" : AsnCode(a.Asn);
 

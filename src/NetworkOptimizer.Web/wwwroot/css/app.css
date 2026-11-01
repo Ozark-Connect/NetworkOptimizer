@@ -19793,14 +19793,53 @@ a.isp-health-hero-speed:hover {
     margin-left: auto;
 }
 
+.path-episode-table + .path-episode-table {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Fixed columns so every target's table lines up with the next. */
+.path-episode-table .path-episode-hops {
+    table-layout: fixed;
+    min-width: 760px;
+}
+
+.path-episode-hops .path-col-hop { width: 3rem; }
+.path-episode-hops .path-col-network { width: 13rem; }
+.path-episode-hops .path-col-loss { width: 9rem; }
+.path-episode-hops .path-col-rtt { width: 12rem; }
+.path-episode-hops .path-col-return { width: 7.5rem; }
+
 .path-episode-hops td,
 .path-episode-hops th {
     padding: 0.3rem 0.5rem;
     font-size: 0.8rem;
+    overflow-wrap: anywhere;
 }
 
-.path-episode-hops tr.path-hop-elevated td {
-    background: rgba(245, 158, 11, 0.06);
+.path-episode-hops th,
+.path-episode-hops td.path-hop-nowrap {
+    white-space: nowrap;
+}
+
+.path-episode-hops tbody tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.path-episode-hops tbody tr.path-hop-elevated td {
+    background: rgba(245, 158, 11, 0.07);
+}
+
+.path-episode-hops tbody tr.path-hop-elevated:nth-child(even) td {
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.path-episode-hops code.text-code {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 0 0.3rem;
+    margin-left: 0.15rem;
 }
 
 .path-episode-hops tr.path-hop-icmp td {

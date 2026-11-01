@@ -29,6 +29,7 @@
         }
         @foreach (var table in _detail.Tables)
         {
+            <div class="path-episode-table">
             <div class="path-episode-table-head">
                 <span class="path-episode-table-title">@table.Target.Name</span>
                 <span class="text-muted">
@@ -44,10 +45,22 @@
             @if (table.Hops.Count == 0)
             {
                 <div class="text-muted">No round has answered yet.</div>
-                continue;
             }
+            else
+            {
             <div class="table-responsive">
                 <table class="data-table path-episode-hops">
+                    <colgroup>
+                        <col class="path-col-hop" />
+                        <col />
+                        <col class="path-col-network" />
+                        <col class="path-col-loss" />
+                        <col class="path-col-rtt" />
+                        @if (table.Hops.Any(ReturnHopsWorthShowing))
+                        {
+                            <col class="path-col-return" />
+                        }
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Hop</th>
@@ -105,14 +118,14 @@
                                         <span class="path-hop-tag path-hop-tag-muted" data-tooltip="Its RTT spread dwarfs the next hop's: the router is slow to answer ICMP itself, not slow to forward.">Slow ICMP</span>
                                     }
                                 </td>
-                                <td><TextWithCode Text="@PathTraceAnalyzer.NetworkName(hop, "-")" /></td>
-                                <td>
+                                <td><TextWithCode Text="@PathTraceAnalyzer.NetworkCell(hop)" /></td>
+                                <td class="path-hop-nowrap">
                                     @if (LossCell(hop) is { } loss)
                                     {
                                         <span data-tooltip="@loss.Tooltip">@($"{loss.Shown:0.#}%")</span>
                                         @if (loss.Higher is double higher)
                                         {
-                                            <span class="text-muted">(@loss.HigherSource @($"{higher:0.#}%"))</span>
+                                            @(" ")<span class="text-muted">(@loss.HigherSource @($"{higher:0.#}%"))</span>
                                         }
                                     }
                                     else
@@ -120,7 +133,7 @@
                                         <span>-</span>
                                     }
                                 </td>
-                                <td>
+                                <td class="path-hop-nowrap">
                                     @if (RttTooltip(hop) is { } rttTip)
                                     {
                                         <span data-tooltip="@rttTip">@RttLabel(hop)</span>
@@ -151,6 +164,8 @@
                         }
                     </tbody>
                 </table>
+            </div>
+            }
             </div>
         }
     }
