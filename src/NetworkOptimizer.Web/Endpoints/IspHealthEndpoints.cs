@@ -187,7 +187,7 @@ public static class IspHealthEndpoints
                         type = "congestion",
                         start = e.OpenedAt.ToString("o"),
                         end = (e.ClosedAt ?? DateTime.UtcNow).ToString("o"),
-                        label = e.Tracing ? "Tracing now" : "Path trace",
+                        label = e.Tracing ? "Tracing now" : "Congestion",
                         shared = false,
                         targets = e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList()
                     }));

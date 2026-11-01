@@ -42,7 +42,7 @@ public static class PathEpisodePresentation
                 : $"{names} {PastSymptom(e, IspHealthPresentation.FormatDuration(end - e.OpenedAt))} while the rest of your connection stayed clean.";
             var confirmed = e.Disposition == CongestionDisposition.Confirmed;
             return new TimelineEntry(e.OpenedAt,
-                e.Tracing ? "Tracing now" : "Path trace",
+                e.Tracing ? "Tracing now" : "Congestion",
                 confirmed ? "isp-event-badge-congestion" : "isp-event-badge-congestion-soft",
                 $"{lead} {Sentence(label)}",
                 e.ClosedAt,
