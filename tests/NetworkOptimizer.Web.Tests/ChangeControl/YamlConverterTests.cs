@@ -291,28 +291,31 @@ public class YamlConverterTests
     }
 
     [Fact]
-    public void RemovingAPredefinedPolicy_IsAnError()
+    public void RemovingAPredefinedPolicy_IsAnInfoLine_NotAnError()
     {
+        // Review Plan never deletes it (PlanBuilder), so an older file without it is not refused.
         var site = PolicySite();
         var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
         var kept = string.Join("\n", yaml.Split('\n').TakeWhile(l => !l.StartsWith("- id: p2", StringComparison.Ordinal)));
         var parsed = YamlConverter.Parse(kept + "\n", site, "firewall_policies.yaml");
 
-        parsed.Problems.Should().ContainSingle(p => p.Level == "Error")
-            .Which.Message.Should().Be("Firewall Policy Allow All Traffic is built into UniFi and cannot be deleted.");
+        parsed.Problems.Should().NotContain(p => p.Level == "Error");
+        parsed.Problems.Should().ContainSingle(p => p.Level == "Info")
+            .Which.Message.Should().Be("Objects UniFi generates differ from the console (Firewall policies: 1). Review Plan leaves them to UniFi.");
     }
 
     [Fact]
-    public void EditingAPredefinedPolicy_IsAnError_AndAnUnchangedOneIsNot()
+    public void EditingAPredefinedPolicy_IsAnInfoLine_AndAnUnchangedOneIsNothing()
     {
         var site = PolicySite();
         var yaml = YamlConverter.Export(site, ["firewall_policy"], SecretMode.Mask, ids: true);
 
-        YamlConverter.Parse(yaml, site, "firewall_policies.yaml").Problems.Should().NotContain(p => p.Level == "Error");
+        YamlConverter.Parse(yaml, site, "firewall_policies.yaml").Problems.Should().BeEmpty();
 
         var edited = yaml.Replace("name: Allow All Traffic", "name: Allow Everything");
-        YamlConverter.Parse(edited, site, "firewall_policies.yaml").Problems.Should().ContainSingle(p => p.Level == "Error")
-            .Which.Message.Should().Be("Firewall Policy Allow All Traffic is managed by UniFi and cannot be edited here.");
+        var problems = YamlConverter.Parse(edited, site, "firewall_policies.yaml").Problems;
+        problems.Should().NotContain(p => p.Level == "Error");
+        problems.Should().ContainSingle(p => p.Level == "Info").Which.Message.Should().Contain("Firewall policies: 1");
 
         var custom = yaml.Replace("name: Block IoT", "name: Block Cameras");
         YamlConverter.Parse(custom, site, "firewall_policies.yaml").Problems.Should().NotContain(p => p.Level == "Error");

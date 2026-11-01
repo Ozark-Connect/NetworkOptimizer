@@ -770,15 +770,29 @@ public static partial class YamlConverter
         // By collection and ID: a mirror collection (v2 RADIUS profiles) shares its IDs with v1.
         var baseObjects = baseState.Collections.SelectMany(c => c.Value.Select(o => (Key: c.Key, Id: ConfigState.IdOf(o), Obj: o)))
             .GroupBy(x => (x.Key, x.Id)).ToDictionary(g => g.Key, g => g.First().Obj);
+        // Objects UniFi generates (def.IsGenerated) that the file changes, adds, or leaves out. Review Plan never writes
+        // them (PlanBuilder.BuildOperation), so an older file whose zones differ is not refused for carrying its own set;
+        // they get one Info line. Only IsGenerated: a predefined object in another collection is still refused below.
+        var generated = new Dictionary<ConfigCollectionDef, int>();
+        void Generated(ConfigCollectionDef def) => generated[def] = generated.GetValueOrDefault(def) + 1;
         foreach (var (def, node, obj) in raw)
         {
             var id = ConfigState.IdOf(obj);
-            if (!baseObjects.TryGetValue((def.Key, id), out var before)
-                || ConfigCollections.ManagedBy(def, before) is not { } who
+            if (!baseObjects.TryGetValue((def.Key, id), out var before))
+            {
+                if (def.IsGenerated?.Invoke(obj) == true) Generated(def);
+                continue;
+            }
+            if (ConfigCollections.ManagedBy(def, before) is not { } who
                 || !resolved.TryGetValue((def.Key, id), out var edited)
                 // Shared fields only: the export leaves out fields UniFi derives, so an untouched object differs in those.
                 // A downloaded file's <keep current> stands for the stored secret, as Review Plan reads it.
                 || ConfigDiffEngine.SharedFieldsEqual(def, before, KeepingSecrets(def, before, edited), new Dictionary<string, string>())) continue;
+            if (def.IsGenerated?.Invoke(before) == true && ConfigCollections.OwnedBy(def, before) == null)
+            {
+                Generated(def);
+                continue;
+            }
             var name = $"{def.Noun} {ConfigState.DisplayName(def, before)}";
             result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who == "UniFi"
                 ? $"{name} is managed by UniFi and cannot be edited here."
@@ -812,6 +826,11 @@ public static partial class YamlConverter
                     result.Problems.Add(new YamlProblem("Warning", fileName, 1, $"{name} belongs to {owner} and is not deleted here."));
                     continue;
                 }
+                if (def.IsGenerated?.Invoke(removed) == true)
+                {
+                    Generated(def);
+                    continue;
+                }
                 if (DeleteCascade.CannotDelete(def, removed))
                 {
                     result.Problems.Add(new YamlProblem("Error", fileName, 1, $"{name} is built into UniFi and cannot be deleted."));
@@ -841,6 +860,9 @@ public static partial class YamlConverter
                         $"{name} is still used by {List(blocking)}. Point {(blocking.Count == 1 ? "it" : "them")} at another {def.Noun.ToLowerInvariant()} first; Review Plan refuses the delete until then."));
             }
         }
+        if (generated.Count > 0)
+            result.Problems.Add(new YamlProblem("Info", fileName, 1,
+                $"Objects UniFi generates differ from the console ({string.Join(", ", generated.Select(g => $"{g.Key.DisplayName}: {g.Value}"))}). Review Plan leaves them to UniFi."));
     }
 
     private static string Names(ConfigCollectionDef? def, IReadOnlyList<JsonObject> objects) =>

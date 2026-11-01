@@ -655,6 +655,8 @@ public static class ConfigCollections
                         "target_devices", "network_id", "next_hop", "kill_switch_enabled"),
                 },
                 AuditSections = ["TRAFFIC_ROUTE"], AuditCollectionNames = ["trafficroute"],
+                // An object-oriented config's route (origin_type object_pbr): UniFi rewrites it from that config.
+                IsGenerated = IsPredefinedOrDerived,
                 IsWanPath = _ => true,
             },
             new()
