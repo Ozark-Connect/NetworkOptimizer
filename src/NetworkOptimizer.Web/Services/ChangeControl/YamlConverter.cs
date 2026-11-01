@@ -250,7 +250,7 @@ public static partial class YamlConverter
             var childPath = $"{path}/{key}";
             if (ConfigCollections.IsSecretField(def, key) && secrets != SecretMode.Clear)
                 outValue = secrets == SecretMode.Mask && value != null ? JsonValue.Create(SecretToken(childPath)) : PlanBuilder.KeepSecret;
-            else if (StrippedName(key) is { } stripped && !o.ContainsKey(stripped) && index.RenderReference(value) is { } rendered)
+            else if (StrippedName(key) is { } stripped && !o.ContainsKey(stripped) && index.RenderReference(value, TargetCollection(key)) is { } rendered)
             {
                 outKey = stripped;
                 outValue = rendered;
@@ -884,20 +884,26 @@ public static partial class YamlConverter
         }
 
         /// <summary>A reference value as a name, enforced key, or {id}; null when it is not a reference.</summary>
-        public JsonNode? RenderReference(JsonNode? value)
+        public JsonNode? RenderReference(JsonNode? value, string? target)
         {
             if (value is JsonArray arr)
             {
                 if (arr.Count == 0 || !arr.All(e => e is JsonValue v && v.TryGetValue<string>(out var s) && _byId.ContainsKey(s))) return null;
-                return new JsonArray(arr.Select(e => RenderOne(e!.ToString())).ToArray());
+                return new JsonArray(arr.Select(e => RenderOne(e!.ToString(), target)).ToArray());
             }
-            return value is JsonValue jv && jv.TryGetValue<string>(out var id) && _byId.ContainsKey(id) ? RenderOne(id) : null;
+            return value is JsonValue jv && jv.TryGetValue<string>(out var id) && _byId.ContainsKey(id) ? RenderOne(id, target) : null;
         }
+
+        // The objects a name resolves to for a field, as ResolveReference reads it: one per ID, so a mirror
+        // collection (v2 RADIUS profiles) sharing an ID and name is not counted twice.
+        private List<(string Collection, JsonObject Object)> Named(string name, string? target) =>
+            (_byName.GetValueOrDefault(name) ?? []).Where(m => target == null || m.Collection == target)
+                .DistinctBy(m => ConfigState.IdOf(m.Object), StringComparer.OrdinalIgnoreCase).ToList();
 
         /// <summary>Every object in a collection as (display name, the YAML a reference to it is written as).</summary>
         public IEnumerable<(string Label, string Value, string? Detail)> Candidates(string collection, Func<JsonObject, bool>? keep = null) =>
             _byId.Where(e => e.Value.Collection == collection && (keep == null || keep(e.Value.Object)))
-                .Select(e => (ConfigState.DisplayName(ConfigCollections.Get(collection), e.Value.Object), RenderOne(e.Key) switch
+                .Select(e => (ConfigState.DisplayName(ConfigCollections.Get(collection), e.Value.Object), RenderOne(e.Key, collection) switch
                 {
                     JsonValue v => Scalar(v),
                     var node => Flow(node),
@@ -918,13 +924,15 @@ public static partial class YamlConverter
             return parts.Count > 0 ? string.Join(", ", parts) : null;
         }
 
-        private JsonNode RenderOne(string id)
+        private JsonNode RenderOne(string id, string? target)
         {
             var (collection, obj) = _byId[id];
             var name = ConfigState.DisplayName(ConfigCollections.Get(collection), obj);
-            // Same name in the same collection: the enforced key, else the ID.
-            var sameCollection = _byName.GetValueOrDefault(name)?.Count(e => e.Collection == collection) ?? 0;
-            if (sameCollection <= 1) return JsonValue.Create(name)!;
+            // The name only when it resolves back to this object; a field with no target collection resolves
+            // across all of them (a derived traffic route's origin_id shares its name with the route). Else
+            // the enforced key, else the ID.
+            if (Named(name, target) is [var only] && string.Equals(ConfigState.IdOf(only.Object), id, StringComparison.OrdinalIgnoreCase))
+                return JsonValue.Create(name)!;
             if (collection == "networkconf" && obj["vlan"] is JsonNode vlan) return new JsonObject { ["vlan"] = vlan.DeepClone() };
             if (collection is "device" or "user" && obj["mac"] is JsonNode mac) return new JsonObject { ["mac"] = mac.DeepClone() };
             return new JsonObject { ["id"] = id };
@@ -952,7 +960,7 @@ public static partial class YamlConverter
                     return null;
                 case JsonValue v when v.TryGetValue<string>(out var name):
                     if (_byId.ContainsKey(name)) return name;
-                    var matches = (_byName.GetValueOrDefault(name) ?? []).Where(m => target == null || m.Collection == target).ToList();
+                    var matches = Named(name, target);
                     if (matches.Count == 1) return ConfigState.IdOf(matches[0].Object);
                     if (matches.Count == 0)
                     {

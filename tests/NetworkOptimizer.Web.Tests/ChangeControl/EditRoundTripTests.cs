@@ -153,4 +153,23 @@ public class EditRoundTripTests
 
         RoundTrip(state, "firewall_zone", "firewall_policy").Should().BeEmpty();
     }
+
+    [Fact]
+    public void DerivedTrafficRoute_SharingItsObjectConfigsName_RoundTrips()
+    {
+        // UniFi derives a traffic route from an object-oriented config, names it the same, and points origin_id at it.
+        var state = new ConfigState();
+        state.Collections["networkconf"] = [Obj("""{"_id":"n1","name":"VPN Client","purpose":"vpn-client"}""")];
+        state.Collections["oon_config"] = [Obj("""{"id":"o1","name":"Phones -> VPN","target_type":"CLIENTS"}""")];
+        state.Collections["trafficroute"] =
+        [
+            Obj("""
+                {"_id":"obj_o1_1","description":"Phones -> VPN","enabled":true,"matching_target":"INTERNET","network_id":"n1",
+                 "origin_id":"o1","origin_type":"object_pbr","predefined":true,"kill_switch_enabled":false,
+                 "domains":[],"ip_addresses":[],"ip_ranges":[],"regions":[],"target_devices":[{"client_mac":"aa:bb:cc:dd:ee:01","type":"CLIENT"}]}
+                """),
+        ];
+
+        RoundTrip(state, "oon_config", "trafficroute", "networkconf").Should().BeEmpty();
+    }
 }
