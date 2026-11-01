@@ -655,7 +655,7 @@ else
                                 <div class="isp-factor-row isp-factor-deduction">
                                     <div class="isp-factor-label">
                                         <div class="isp-factor-name-row">
-                                            <a class="isp-factor-name isp-factor-link" href="#isp-events"
+                                            <a class="isp-factor-name isp-factor-link" href="javascript:void(0)" @onclick="ScrollToEventsAsync"
                                                data-tooltip="See the episodes in Path &amp; Congestion Events" data-tooltip-hover-only>Path Congestion</a>
                                         </div>
                                         <span class="isp-factor-value">@r.PathCongestion.Count @(r.PathCongestion.Count == 1 ? "episode" : "episodes")</span>
