@@ -27,7 +27,8 @@ public class IspHealthPdfGenerator
 
     /// <summary>The report's findings followed by the episodes', as the tab lists them.</summary>
     private List<IspHealthIssue> AllFindings(IspHealthReport report) => report.Issues
-        .Concat(PathLocalization.PathEpisodePresentation.Findings(_episodes.Select(e => e.Episode).ToList(), _options))
+        .Concat(PathLocalization.PathEpisodePresentation.Findings(_episodes.Select(e => e.Episode).ToList(), _options,
+            PathLocalization.PathEpisodePresentation.PointsById(report)))
         .ToList();
 
     /// <param name="options">The scorer's own options, so the limiting-aspect column weighs
@@ -437,6 +438,13 @@ public class IspHealthPdfGenerator
                         // the dimension as much or as little as it does; without it a 25%-weighted
                         // 40 reads as a 40 that the average somehow ignored.
                         Cell(table, Notes(factor.Description, factor.InvolvementTooltip, factor.LowReachScoreCaveat));
+                    }
+                    if (dimension == report.TransitDimension && report.PathCongestionTransitPoints > 0)
+                    {
+                        Cell(table, "Path Congestion");
+                        Cell(table, $"-{report.PathCongestionTransitPoints}", ScoreColor(0));
+                        Cell(table, $"{report.PathCongestion.Count} {(report.PathCongestion.Count == 1 ? "episode" : "episodes")}");
+                        Cell(table, "Congestion into 2 or more networks while your connection was otherwise clean.");
                     }
                 });
             }

@@ -1378,6 +1378,14 @@ public class IspHealthService
                     usageFingerprint, UsageWeighting.LocalHoursSpanned(o.Start, o.End, usageZone), _options.UsageWeightFloor);
         }
 
+        var pathCongestion = await LoadPathCongestionAsync(windowStart, windowEnd, scoredWanKey, primaryScope, targets, ct);
+        if (usageFingerprint != null)
+        {
+            foreach (var e in pathCongestion)
+                e.UsageWeight = UsageWeighting.Weight(
+                    usageFingerprint, UsageWeighting.LocalHoursSpanned(e.Start, e.End, TimeZoneInfo.Local), _options.UsageWeightFloor);
+        }
+
         // Stamp the user's "that was me" acknowledgements onto the detected events so the
         // scorer leaves them out of the penalty and the findings.
         if (ackedOutageStarts.Count > 0)
@@ -1426,6 +1434,7 @@ public class IspHealthService
             CongestionEvents = congestionEvents,
             PathShifts = pathShifts,
             Outages = outages,
+            PathCongestion = pathCongestion,
             SmartQueuesEnabled = smartQueuesEnabled,
             AdaptiveSqmEnabled = adaptiveSqmEnabled,
             SqmNominalDownloadMbps = sqmNominalDown,
@@ -1587,6 +1596,85 @@ public class IspHealthService
         return keys.Count == 1 && !string.Equals(keys[0], resolved, StringComparison.OrdinalIgnoreCase)
             ? keys[0]
             : null;
+    }
+
+    /// <summary>Most episodes one compute reads: a month of nightly episodes with room to spare.</summary>
+    private const int MaxScoredEpisodes = 200;
+
+    /// <summary>
+    /// The window's Path Localization episodes on the scored WAN that count against the ISP. One
+    /// SQLite read; never fails the compute, since the score stands without it.
+    /// </summary>
+    private async Task<List<PathCongestionEpisode>> LoadPathCongestionAsync(DateTime windowStart, DateTime windowEnd,
+        string scoredWanKey, bool primaryScope, List<MonitoringTarget> scopedTargets, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            var episodes = await new NetworkOptimizer.Storage.Repositories.PathEpisodeRepository(db).GetOverlappingAsync(windowStart, windowEnd, MaxScoredEpisodes, ct);
+            var key = GatewayWanHelper.WanInterfaceKeyFromKey(scoredWanKey);
+            episodes = episodes.Where(e => (primaryScope && e.WanContextId == null)
+                || (e.WanInterface != null && string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(e.WanInterface), key, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (episodes.Count == 0) return new List<PathCongestionEpisode>();
+
+            var ids = episodes.SelectMany(e => e.Targets.Select(t => t.MonitoringTargetId)).Distinct().ToList();
+            var asnById = await db.MonitoringTargets.AsNoTracking().Where(t => ids.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.AsnNumber, ct);
+            var destinationAsns = scopedTargets
+                .Where(t => t.TargetType == MonitoringTargetType.InternetService && t.AsnNumber is > 0)
+                .Select(t => t.AsnNumber!.Value)
+                .ToHashSet();
+            return ScorablePathCongestion(episodes, asnById, destinationAsns, windowStart, windowEnd, _options.PathCongestionMinAsns);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "ISP Health: could not read Path Localization episodes; scoring without them");
+            return new List<PathCongestionEpisode>();
+        }
+    }
+
+    /// <summary>
+    /// The episodes that point at the ISP's upstream: analyzed, degraded destinations across at
+    /// least <paramref name="minAsns"/> networks, and not the access-layer verdict (Packet Loss
+    /// and Uptime already grade the access layer).
+    /// </summary>
+    internal static List<PathCongestionEpisode> ScorablePathCongestion(IEnumerable<PathEpisode> episodes,
+        IReadOnlyDictionary<int, int?> asnByTargetId, IReadOnlySet<int> destinationAsns,
+        DateTime windowStart, DateTime windowEnd, int minAsns)
+    {
+        var result = new List<PathCongestionEpisode>();
+        foreach (var e in episodes)
+        {
+            if (string.IsNullOrEmpty(e.BottleneckLabel)) continue;
+            var snapshot = PathLocalization.PathGateSnapshot.Read(e.GateSnapshot);
+            if (e.BottleneckHopIp != null && snapshot.AccessHops.Contains(e.BottleneckHopIp, StringComparer.OrdinalIgnoreCase)) continue;
+
+            var degraded = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).ToList();
+            var asns = degraded
+                .Select(t => asnByTargetId.TryGetValue(t.MonitoringTargetId, out var a) ? a : null)
+                .Where(a => a is > 0).Select(a => a!.Value)
+                .ToHashSet();
+            if (asns.Count < minAsns) continue;
+
+            var start = PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt);
+            var end = e.ClosedAt is DateTime c ? PathLocalization.PathEpisodeTraceMapping.Utc(c) : windowEnd;
+            if (start < windowStart) start = windowStart;
+            if (end > windowEnd) end = windowEnd;
+            if (end <= start) continue;
+
+            result.Add(new PathCongestionEpisode
+            {
+                EpisodeId = e.Id,
+                Start = start,
+                End = end,
+                DegradedAsns = asns.Count,
+                DestinationAsns = destinationAsns.Union(asns).Count(),
+                PeakLossPct = degraded.Max(t => t.PeakLossPct ?? 0),
+                RttRiseMs = degraded.Max(t => t.PeakRttMs is double p && t.BaselineRttMs is double b ? Math.Max(0, p - b) : 0)
+            });
+        }
+        return result;
     }
 
     /// <summary>

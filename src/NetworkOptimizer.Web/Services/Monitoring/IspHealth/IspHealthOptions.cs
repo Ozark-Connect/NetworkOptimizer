@@ -885,6 +885,32 @@ public class IspHealthOptions
     };
 
     /// <summary>
+    /// Path congestion (Path Localization episodes across two or more destination networks) as a
+    /// deduction from Transit Health, by its impact: the percent of the window your Internet was
+    /// congested, each episode's minutes weighted by breadth, depth, and usage. Points off the
+    /// dimension, not the overall score (Transit Health is a third of it).
+    /// </summary>
+    public (double DegradedPercent, double Penalty)[] PathCongestionShareCurve { get; set; } =
+    {
+        (0, 0), (0.5, 2.5), (1, 5), (3, 12.5), (10, 25), (25, 35)
+    };
+
+    /// <summary>Path congestion recurrence: breadth x depth x usage per day, as points off Transit Health.</summary>
+    public (double ImpactPerDay, double Penalty)[] PathCongestionRateCurve { get; set; } =
+    {
+        (0, 0), (0.25, 1.5), (0.5, 3), (1, 5), (3, 10)
+    };
+
+    /// <summary>Peak loss at which a path congestion episode counts at full depth.</summary>
+    public double PathCongestionFullLossPct { get; set; } = 10.0;
+
+    /// <summary>RTT rise at which a path congestion episode counts at full depth.</summary>
+    public double PathCongestionFullRttRiseMs { get; set; } = 50.0;
+
+    /// <summary>Distinct destination ASNs an episode must span to count against the ISP: one network is that network's problem.</summary>
+    public int PathCongestionMinAsns { get; set; } = 2;
+
+    /// <summary>
     /// How long a gateway loss reading stays valid as the loss floor after the sample it came from
     /// (see <see cref="GatewayLossFloor"/>). The floor reflects a physical condition - a struggling
     /// forwarding path, an overloaded switch, a bad cable - that persists across a poll or two, so

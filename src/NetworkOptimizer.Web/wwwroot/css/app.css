@@ -19421,6 +19421,17 @@ a.isp-health-hero-speed:hover {
     overflow: hidden;
 }
 
+/* A deduction (Transit Health's Path Congestion) below the graded rows: no bar, a divider above. */
+.isp-factor-row.isp-factor-deduction {
+    margin-top: 0.9rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.isp-factor-bar-track.isp-factor-bar-track-empty {
+    background: transparent;
+}
+
 .isp-factor-bar {
     height: 100%;
     border-radius: 0 4px 4px 0;

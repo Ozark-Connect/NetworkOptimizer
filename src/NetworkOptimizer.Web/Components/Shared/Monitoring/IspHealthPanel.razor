@@ -650,6 +650,21 @@ else
                             {
                                 <div class="isp-factor-description">@factor.Description</div>
                             }
+                            @if (dimension == r.TransitDimension && factor == dimension.Factors[^1] && r.PathCongestionTransitPoints > 0)
+                            {
+                                <div class="isp-factor-row isp-factor-deduction">
+                                    <div class="isp-factor-label">
+                                        <div class="isp-factor-name-row">
+                                            <a class="isp-factor-name isp-factor-link" href="#isp-events"
+                                               data-tooltip="See the episodes in Path &amp; Congestion Events" data-tooltip-hover-only>Path Congestion</a>
+                                        </div>
+                                        <span class="isp-factor-value">@r.PathCongestion.Count @(r.PathCongestion.Count == 1 ? "episode" : "episodes")</span>
+                                    </div>
+                                    <div class="isp-factor-bar-track isp-factor-bar-track-empty"></div>
+                                    <span class="isp-factor-score isp-score-poor">-@r.PathCongestionTransitPoints</span>
+                                </div>
+                                <div class="isp-factor-description">Congestion into 2 or more networks while your connection was otherwise clean.</div>
+                            }
                             @if (factor.Name == "Speed vs Plan" && !_planHintDismissed)
                             {
                                 <IspPlanSpeedHint Compact="true" OnDismiss="DismissPlanHintAsync" />
@@ -1139,7 +1154,8 @@ else
     }
 
     private IEnumerable<IspHealthIssue> EpisodeFindings =>
-        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Findings(_episodes, EpisodeOptions);
+        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Findings(_episodes, EpisodeOptions,
+            NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report));
 
     private async Task LoadEpisodesAsync()
     {
@@ -1156,7 +1172,8 @@ else
             // The live view runs to now, so an episode tracing since the last compute still shows.
             var to = IsLiveWindow ? DateTime.UtcNow : r.WindowEnd;
             _episodes = await PathEpisodes.GetEpisodesAsync(r.WindowStart, to, _selectedWanKey, _wanSvc == null);
-            _episodeEntries = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Entries(_episodes).ToList();
+            _episodeEntries = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Entries(_episodes,
+                NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(r)).ToList();
         }
         catch (Exception ex)
         {

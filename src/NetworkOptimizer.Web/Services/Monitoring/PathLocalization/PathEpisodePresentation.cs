@@ -29,8 +29,18 @@ public sealed record PathEpisodeBanner(int EpisodeId, string Phase, string CssCl
 /// </summary>
 public static class PathEpisodePresentation
 {
+    /// <summary>Each scored episode's points off the overall score, by episode id, from the report.</summary>
+    public static IReadOnlyDictionary<int, int> PointsById(IspHealthReport? report) =>
+        report?.PathCongestion.ToDictionary(p => p.EpisodeId, p => p.ScorePenaltyPoints) ?? new Dictionary<int, int>();
+
+    /// <summary>" It lowered your ISP Health score by N points." or empty, as outage rows say it.</summary>
+    internal static string ScoreSentence(int points, bool several = false) => points > 0
+        ? $" {(several ? "Together they" : "It")} lowered your ISP Health score by {points} {(points == 1 ? "point" : "points")}."
+        : "";
+
     /// <summary>One event row per episode.</summary>
-    public static IEnumerable<TimelineEntry> Entries(IEnumerable<PathEpisodeView> episodes) =>
+    /// <param name="pointsById">What each scored episode took off the score; see <see cref="PointsById"/>.</param>
+    public static IEnumerable<TimelineEntry> Entries(IEnumerable<PathEpisodeView> episodes, IReadOnlyDictionary<int, int>? pointsById = null) =>
         episodes.Select(e =>
         {
             var names = Names(e.Degraded);
@@ -47,9 +57,10 @@ public static class PathEpisodePresentation
                 $"{lead} {Sentence(label)}",
                 e.ClosedAt,
                 EventCategory.Congestion,
-                confirmed
+                (confirmed
                     ? "Traceroutes during the degradation place where it first appears."
-                    : "Traceroutes during the degradation found no forward hop that explains it.",
+                    : "Traceroutes during the degradation found no forward hop that explains it.")
+                + ScoreSentence(pointsById?.GetValueOrDefault(e.Id) ?? 0),
                 TargetIds: e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList(),
                 EpisodeId: e.Id);
         });
@@ -60,7 +71,8 @@ public static class PathEpisodePresentation
     /// <see cref="IspHealthOptions.PathRepeatFindingDays"/> or more days, which is a pattern (a peak-hour
     /// return-path squeeze reads exactly like this).
     /// </summary>
-    public static IEnumerable<IspHealthIssue> Findings(IReadOnlyList<PathEpisodeView> episodes, IspHealthOptions options)
+    public static IEnumerable<IspHealthIssue> Findings(IReadOnlyList<PathEpisodeView> episodes, IspHealthOptions options,
+        IReadOnlyDictionary<int, int>? pointsById = null)
     {
         var groups = episodes
             .Where(e => !e.Tracing && !string.IsNullOrEmpty(e.Label))
@@ -71,6 +83,7 @@ public static class PathEpisodePresentation
             var days = list.Select(e => e.OpenedAt.ToLocalTime().Date).Distinct().Count();
             var latest = list[^1];
             var names = Names(latest.Degraded);
+            var cost = ScoreSentence(list.Sum(e => pointsById?.GetValueOrDefault(e.Id) ?? 0), list.Count > 1);
             var when = list.Count == 1
                 ? IspHealthPresentation.EventTimeLabel(latest.OpenedAt)
                 : $"{list.Count} times on {days} days, last {IspHealthPresentation.EventTimeLabel(latest.OpenedAt)}";
@@ -80,7 +93,7 @@ public static class PathEpisodePresentation
                 {
                     Severity = IspIssueSeverity.Warning,
                     Title = $"Path degradation localized on {names}",
-                    Description = $"{names} degraded while the rest of your connection stayed clean ({when}). {latest.Summary}",
+                    Description = $"{names} degraded while the rest of your connection stayed clean ({when}). {latest.Summary}{cost}",
                     Recommendation = "This is where the degradation first appears on the forward path, which is the hop table to hand your ISP.",
                     LinkUrl = "#isp-events",
                     LinkText = "See the trace",
@@ -93,7 +106,7 @@ public static class PathEpisodePresentation
                 {
                     Severity = IspIssueSeverity.Info,
                     Title = $"Recurring path degradation on {names}",
-                    Description = $"{names} degraded{(latest.Degraded.Count > 1 ? " together" : "")} while the rest of your connection stayed clean, {when}. {Sentence(latest.Label!)}",
+                    Description = $"{names} degraded{(latest.Degraded.Count > 1 ? " together" : "")} while the rest of your connection stayed clean, {when}. {Sentence(latest.Label!)}{cost}",
                     Recommendation = "A traceroute cannot see the return path, so this cannot be pinned on a forward hop. A pattern that repeats at the same hours is worth raising with your ISP with these times.",
                     LinkUrl = "#isp-events",
                     LinkText = "See the traces",
