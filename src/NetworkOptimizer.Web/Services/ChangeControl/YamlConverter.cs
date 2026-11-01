@@ -822,15 +822,23 @@ public static partial class YamlConverter
                 continue;
             }
             // The owning feature re-provisions these, and Review Plan writes nothing for them (PlanBuilder): one line per
-            // owner, since a feature keeps one same-named object per zone pair.
-            foreach (var owned in removedObjects.Where(o => ConfigCollections.OwnedBy(def, o) != null).GroupBy(o => ConfigCollections.OwnedBy(def, o)!))
+            // owner, since a feature keeps one same-named object per zone pair. One in a zone the edit deletes goes with
+            // the zone (PlanBuilder.OwnedPoliciesGoWithTheirZone).
+            // Against the whole edit: baseState already has the files parsed before this one, the zones file among them.
+            var keptZones = (editedState ?? desired).Get("firewall_zone").Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool Gone(JsonNode? zone) => zone?.ToString() is { Length: > 0 } z && !keptZones.Contains(z);
+            bool InDeletedZone(JsonObject o) => def.Key == "firewall_policy" && (Gone(o["source"]?["zone_id"]) || Gone(o["destination"]?["zone_id"]));
+            foreach (var owned in removedObjects.Where(o => ConfigCollections.OwnedBy(def, o) != null)
+                         .GroupBy(o => (Owner: ConfigCollections.OwnedBy(def, o)!, WithZone: InDeletedZone(o))))
             {
                 var names = owned.GroupBy(o => ConfigState.DisplayName(def, o))
                     .Select(g => g.Count() == 1 ? g.Key : $"{g.Key} ({g.Count()})").ToList();
-                var count = owned.Count();
-                result.Problems.Add(new YamlProblem("Warning", fileName, 1, count == 1
-                    ? $"{def.Noun} {names[0]} belongs to {owned.Key} and is not deleted here."
-                    : $"{def.DisplayName} {List(names)} belong to {owned.Key} and are not deleted here."));
+                var one = owned.Count() == 1;
+                var (owner, withZone) = owned.Key;
+                var subject = one ? $"{def.Noun} {names[0]} belongs" : $"{def.DisplayName} {List(names)} belong";
+                result.Problems.Add(new YamlProblem("Warning", fileName, 1, withZone
+                    ? $"{subject} to {owner} and {(one ? "is" : "are")} deleted with {(one ? "its" : "their")} zone; {owner} rewrites its policies for the zones left."
+                    : $"{subject} to {owner} and {(one ? "is" : "are")} not deleted here."));
             }
             foreach (var removed in removedObjects)
             {

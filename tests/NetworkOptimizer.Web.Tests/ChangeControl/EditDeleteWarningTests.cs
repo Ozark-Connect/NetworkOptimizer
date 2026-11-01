@@ -97,6 +97,28 @@ public class EditDeleteWarningTests
     }
 
     [Fact]
+    public void ThreatIntelligencePolicies_InAZoneTheEditDeletes_GoWithTheirZone_AndTheRestStay()
+    {
+        var prefix = ConfigCollections.NoOwnedPrefix;
+        var live = Site();
+        live.Collections["firewall_policy"].AddRange(
+        [
+            Policy("t1", prefix + "Exception", "z3", "z1"), Policy("t2", prefix + "Exception", "z1", "z3"),
+            Policy("t3", prefix + "Exception", "z1", "z1"),
+        ]);
+        var file = WithoutIot(Site());
+        file.Collections["firewall_policy"] = [];
+        var (_, problems, touched) = ChangeControlService.ParseEdits(live, Files(file, "firewall_zone", "firewall_policy"));
+        var lines = problems.Where(p => p.Message.Contains("Threat Intelligence")).Select(p => p.Message).ToList();
+
+        lines.Should().BeEquivalentTo(
+        [
+            $"Firewall policies {prefix}Exception (2) belong to Threat Intelligence and are deleted with their zone; Threat Intelligence rewrites its policies for the zones left.",
+            $"Firewall Policy {prefix}Exception belongs to Threat Intelligence and is not deleted here.",
+        ]);
+    }
+
+    [Fact]
     public void OneThreatIntelligencePolicy_LeftOut_KeepsTheSingleSentence()
     {
         var live = Site();
