@@ -2149,7 +2149,7 @@
     private const string CakeOptInHint =
         "Replaces UniFi's download queue with CAKE: fair shares per device and per-packet overhead accounting. " +
         "Upload is unchanged. UniFi QoS rules and the larger burst do not apply to download while it is on. " +
-        "Turning it off needs Smart Queues applied again in UniFi Network.";
+        "Turning it off moves the WAN's Smart Queues download rate in UniFi Network by 1 Mbps, so UniFi rebuilds its download queue.";
 
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
