@@ -643,7 +643,7 @@ Requires Gateway SSH.
 - Single sign-on: OpenID Connect, SAML, and UniFi Identity, with claim mapping and just-in-time users
 - Require MFA or a passkey per role; SSO-only sign-in
 - Authenticator app (TOTP), recovery codes, and passkeys per user; sign out everywhere
-- Signing out ends that login on the server, so a copy of its cookie stops working too; a login lasts at most 30 days however often it is used
+- Signing out ends that login on the server, so a copy of its cookie stops working too; a login stays signed in while used, and ends after 30 days unused
 - Account lockout after 5 failed sign-ins; sign-in attempts rate-limited per address
 - Disabling a user ends their open sessions
 - **Audit Log** - every configuration and device change, filterable, exportable to CSV or JSON
