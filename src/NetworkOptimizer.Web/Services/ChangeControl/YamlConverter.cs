@@ -82,9 +82,14 @@ public static partial class YamlConverter
         return segments.Select(s => (s.Def, s.Text.ToString())).ToList();
     }
 
+    // Where the suffix rule reads wrong: portconf_id would be "port", which next to port_idx reads as the port
+    // number, and is the UI's Port Profile. Older files wrote "port"; a port override still accepts it.
+    private static readonly Dictionary<string, string> NamedReferences = new(StringComparer.Ordinal) { ["portconf_id"] = "port_profile" };
+
     /// <summary>The stripped key of a reference field, or null when the field is not a reference by name.</summary>
     public static string? StrippedName(string field)
     {
+        if (NamedReferences.TryGetValue(field, out var named)) return named;
         foreach (var suffix in new[] { "conf_ids", "conf_id", "_ids", "_id" })
             if (field.EndsWith(suffix, StringComparison.Ordinal) && field.Length > suffix.Length && field != "_id")
             {
@@ -623,6 +628,7 @@ public static partial class YamlConverter
         ["multicast_router_networks"] = "multicast_router_networkconf_ids", ["mgmt_network"] = "mgmt_network_id",
         ["ap_groups"] = "ap_group_ids", ["zone"] = "zone_id", ["usergroup"] = "usergroup_id", ["network_ids"] = "network_ids",
         ["radiusprofile"] = "radiusprofile_id", ["port_group"] = "port_group_id", ["ip_group"] = "ip_group_id",
+        ["port_profile"] = "portconf_id",
     };
 
     /// <summary>Reference field names seen in the base state, by stripped name, per collection.</summary>
@@ -670,7 +676,10 @@ public static partial class YamlConverter
             {
                 var valueNode = m?.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == key).Value;
                 var line = valueNode == null ? Line(map) : Line(valueNode);
-                if (key is "_id" or "id" || StrippedName(key) != null || !known.TryGetValue(key, out var original))
+                // Files written before port_profile named a port override's profile "port". Only there: a firewall
+                // policy's port is a real field.
+                var lookup = key == "port" && o.ContainsKey("port_idx") && !o.ContainsKey("port_profile") ? "port_profile" : key;
+                if (key is "_id" or "id" || StrippedName(key) != null || !known.TryGetValue(lookup, out var original))
                 {
                     output[key] = value switch
                     {

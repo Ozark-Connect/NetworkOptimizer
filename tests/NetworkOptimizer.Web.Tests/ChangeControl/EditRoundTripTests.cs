@@ -45,6 +45,53 @@ public class EditRoundTripTests
         }
     }
 
+    private static ConfigState PortOverrideSite()
+    {
+        var state = new ConfigState();
+        state.Collections["portconf"] = [Obj("""{"_id":"pc1","name":"[Access] Home"}""")];
+        state.Collections["device"] = [Obj("""{"_id":"d2","mac":"aa:bb:cc:00:00:02","name":"[Switch] Office","port_overrides":[{"port_idx":2,"portconf_id":"pc1"}]}""")];
+        return state;
+    }
+
+    [Fact]
+    public void PortProfileReference_IsWrittenAsPortProfile()
+    {
+        var yaml = YamlConverter.Export(PortOverrideSite(), ["device"], SecretMode.Redact);
+        yaml.Should().Contain("port_profile: \"[Access] Home\"").And.NotMatchRegex(@"\n\s+port: ");
+    }
+
+    [Fact]
+    public void OlderFile_PortInAPortOverride_StillReadsAsThePortProfile()
+    {
+        var state = PortOverrideSite();
+        var older = YamlConverter.Export(state, ["device"], SecretMode.Redact).Replace("port_profile:", "port:");
+        var (desired, problems, _) = ChangeControlService.ParseEdits(state, new Dictionary<string, string> { ["device"] = older });
+        problems.Should().BeEmpty();
+        desired.Get("device")[0]["port_overrides"]![0]!["portconf_id"]?.ToString().Should().Be("pc1");
+    }
+
+    [Fact]
+    public void FirewallPolicyPort_IsNotTakenForAPortProfile()
+    {
+        var state = new ConfigState();
+        state.Collections["portconf"] = [Obj("""{"_id":"pc1","name":"53"}""")];
+        state.Collections["firewall_zone"] = [Obj("""{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":[]}""")];
+        state.Collections["firewall_policy"] =
+        [
+            Obj("""
+                {"_id":"p1","name":"DNS","action":"ALLOW","enabled":true,"protocol":"udp","ip_version":"BOTH","index":10000,
+                 "source":{"zone_id":"z1","matching_target":"ANY","port_matching_type":"ANY","match_opposite_ports":false},
+                 "destination":{"zone_id":"z1","matching_target":"ANY","port_matching_type":"SPECIFIC","port":"53","match_opposite_ports":false}}
+                """),
+        ];
+        var yaml = YamlConverter.Export(state, ["firewall_zone", "firewall_policy"], SecretMode.Redact);
+        var (desired, problems, _) = ChangeControlService.ParseEdits(state, new Dictionary<string, string> { ["firewall_zone"] = yaml });
+        problems.Should().BeEmpty();
+        var dst = desired.Get("firewall_policy")[0]["destination"]!.AsObject();
+        dst["port"]?.ToString().Should().Be("53");
+        dst.ContainsKey("portconf_id").Should().BeFalse();
+    }
+
     [Fact]
     public void ClientGroupReferences_ResolveToClientGroups()
     {
