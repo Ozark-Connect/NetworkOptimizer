@@ -12,6 +12,7 @@
 @inject NetworkOptimizer.Web.Services.SqmLearning.ISqmLearningService LearningService
 @inject IJSRuntime JS
 @inject ILogger<Sqm> Logger
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @inject PullToRefreshState PtrState
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthState
@@ -2261,7 +2262,16 @@
     private bool _wan2Collapsed = false;
 
     private void ToggleWan1Section() => _wan1Collapsed = !_wan1Collapsed;
-    private void ToggleWan2Section() => _wan2Collapsed = !_wan2Collapsed;
+    // WAN2 opens expanded for first-time setup, so people see they can shape a second WAN; once
+    // the user collapses or expands it, that choice is kept per user and per site.
+    private string Wan2CollapsedPreferenceKey => $"sqm.wan2_collapsed:{SiteContext.Slug}";
+
+    private async Task ToggleWan2Section()
+    {
+        _wan2Collapsed = !_wan2Collapsed;
+        try { await UserPreferences.SetAsync(Wan2CollapsedPreferenceKey, _wan2Collapsed ? "true" : "false"); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not save the WAN2 collapse preference"); }
+    }
 
     // Auto-refresh timer (1 minute interval)
     private System.Threading.Timer? _refreshTimer;
@@ -2571,9 +2581,16 @@
 
             await LoadLearningStatusAsync();
 
-            // Set initial collapsed state: collapsed if config exists, expanded if needs setup
+            // Set initial collapsed state: collapsed if config exists, expanded if needs setup.
+            // WAN2 follows the user's own choice once they have made one.
             _wan1Collapsed = wan1HasSavedConfig;
             _wan2Collapsed = wan2HasSavedConfig;
+            try
+            {
+                if (await UserPreferences.GetAsync(Wan2CollapsedPreferenceKey) is { } wan2Pref)
+                    _wan2Collapsed = wan2Pref == "true";
+            }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not read the WAN2 collapse preference"); }
 
             // Capture loaded state as deployed snapshot (saved configs = deployed state)
             if (wan1HasSavedConfig || wan2HasSavedConfig)
