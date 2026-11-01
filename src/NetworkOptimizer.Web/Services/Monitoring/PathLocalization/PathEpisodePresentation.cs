@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
@@ -48,8 +49,9 @@ public static class PathEpisodePresentation
             var label = string.IsNullOrEmpty(e.Label) ? "No trace has completed yet." : e.Label;
             var one = e.Degraded.Count == 1;
             var lead = e.Tracing
-                ? $"{names} {(one ? "is" : "are")} {Symptom(e)}. Tracing the route to {(one ? "it" : "them")} every minute."
+                ? $"{names} {(one ? "is" : "are")} {Symptom(e)}."
                 : $"{names} {PastSymptom(e, IspHealthPresentation.FormatDuration(end - e.OpenedAt))} while the rest of your connection stayed clean.";
+            if (!one) label = WithoutNames(label);
             var confirmed = e.Disposition == CongestionDisposition.Confirmed;
             return new TimelineEntry(e.OpenedAt,
                 e.Tracing ? "Tracing now" : "Congestion",
@@ -249,6 +251,26 @@ public static class PathEpisodePresentation
         1 => targets[0].Name,
         _ => $"{string.Join(", ", targets.Take(targets.Count - 1).Select(t => t.Name))} and {targets[^1].Name}"
     };
+
+    private static readonly Regex CorridorVerdict = new(
+        @"^.+ (?:lost packets and slowed down|lost packets|slowed down|degraded) together, but their routes share nothing (?<where>.+?)\. The common factor is (?<rest>.+)$",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
+    private static readonly Regex SharedVerdict = new(@"^.+? all (?<verb>go through|cross|sit inside) ", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A several-target verdict without the names and symptom the event row has already given:
+    /// "Their routes share nothing …, so the common factor is …", "They all cross …". Works on the
+    /// stored label, so episodes recorded before the row changed read the same. Others unchanged.
+    /// </summary>
+    internal static string WithoutNames(string label)
+    {
+        var corridor = CorridorVerdict.Match(label);
+        if (corridor.Success)
+            return $"Their routes share nothing {corridor.Groups["where"].Value}, so the common factor is {corridor.Groups["rest"].Value}";
+        var shared = SharedVerdict.Match(label);
+        return shared.Success ? $"They all {shared.Groups["verb"].Value} {label[shared.Length..]}" : label;
+    }
 
     private static string Sentence(string s) => s.EndsWith('.') ? s : $"{char.ToUpperInvariant(s[0])}{s[1..]}.";
 

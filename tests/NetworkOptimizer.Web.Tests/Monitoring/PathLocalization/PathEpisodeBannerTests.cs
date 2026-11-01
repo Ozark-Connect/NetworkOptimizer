@@ -26,6 +26,29 @@ public class PathEpisodeBannerTests
     };
 
     [Fact]
+    public void EventRow_NamesTheTargetsOnce()
+    {
+        var e = Episode(1, Now.AddMinutes(-30), null, tracing: true) with
+        {
+            Label = "Target A and Target B lost packets and slowed down together, but their routes share nothing after their last clean routers. "
+                + "The common factor is most likely the return path into Example, which a traceroute can't see.",
+            Degraded = new[]
+            {
+                new PathEpisodeTargetView(1, "t1", "Target A", PathEpisodeTargetRole.Degraded, 12, 25, 0, 12, null),
+                new PathEpisodeTargetView(2, "t2", "Target B", PathEpisodeTargetRole.Degraded, 12, 25, 0, 5, null)
+            }
+        };
+
+        PathEpisodePresentation.Entries(new[] { e }).Single().Text.Should().Be(
+            "Target A and Target B are losing packets (peak 12%) and running 13 ms slower. "
+            + "Their routes share nothing after their last clean routers, so the common factor is most likely the return path into Example, which a traceroute can't see.");
+
+        PathEpisodePresentation.WithoutNames("A and B all cross Lumen (`AS3356`) after their last clean router, and every one shows the problem inside it.")
+            .Should().Be("They all cross Lumen (`AS3356`) after their last clean router, and every one shows the problem inside it.");
+        PathEpisodePresentation.WithoutNames("The problem starts inside Lumen.").Should().Be("The problem starts inside Lumen.");
+    }
+
+    [Fact]
     public void TargetUrl_FramesTheEpisodeOnTheTargetsCategory()
     {
         var e = Episode(1, Now.AddHours(-3), Now.AddHours(-2));

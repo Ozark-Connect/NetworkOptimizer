@@ -14,9 +14,10 @@
     }
     else
     {
-        @if (!string.IsNullOrEmpty(_detail.Episode.Summary))
+        @* The event row above carries the verdict; only a pause, which it does not say, shows here. *@
+        @if (_detail.Episode.Summary?.StartsWith("Paused:", StringComparison.Ordinal) == true)
         {
-            <p class="path-episode-summary"><TextWithCode Text="@_detail.Episode.Summary" /></p>
+            <p class="path-episode-summary">@_detail.Episode.Summary.Split(". ", 2)[0].</p>
         }
         @if (_detail.Episode.Degraded.Count > 1 || _detail.Episode.Controls.Count > 0)
         {
@@ -42,7 +43,7 @@
                 <span class="path-episode-table-title path-episode-target-name">@table.Target.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
                     Tooltip="@JumpTooltip(table.Target)" OnClick="() => Jump(table.Target)" /></span>
                 <span class="text-muted">
-                    @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @table.VantageName@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
+                    @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
                 </span>
                 @if (table.TracedAddress != null && table.TracedAddress != table.Address)
                 {
