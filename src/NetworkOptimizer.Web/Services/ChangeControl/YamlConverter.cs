@@ -629,12 +629,21 @@ public static partial class YamlConverter
     private static Dictionary<string, Dictionary<string, string>> ReferenceFields(ConfigState state)
     {
         var map = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        // Learned only from values that are object IDs: a field that merely ends in _id (an LLDP neighbor's port_id,
+        // "local Port 1") claimed the name first, and a port profile (portconf_id, written "port") was read back into it.
+        var ids = state.ObjectsById().Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool IsReference(JsonNode? v) => v switch
+        {
+            JsonValue s when s.TryGetValue<string>(out var text) => ids.Contains(text),
+            JsonArray a => a.Any(e => e is JsonValue s && s.TryGetValue<string>(out var text) && ids.Contains(text)),
+            _ => false,
+        };
         void Walk(string collection, JsonNode? node)
         {
             if (node is JsonObject o)
                 foreach (var (k, v) in o)
                 {
-                    if (StrippedName(k) is { } s)
+                    if (StrippedName(k) is { } s && IsReference(v))
                     {
                         if (!map.TryGetValue(collection, out var m)) map[collection] = m = new(StringComparer.Ordinal);
                         m.TryAdd(s, k);
@@ -735,6 +744,13 @@ public static partial class YamlConverter
             var keyNode = node.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == "ip_subnet").Key;
             result.Problems.Add(new YamlProblem("Error", fileName, keyNode == null ? Line(node) : Line(keyNode),
                 $"{def.Noun} {ConfigState.DisplayName(def, obj)}: {problem}"));
+        }
+        foreach (var (def, node, obj) in raw.Where(r => r.Def.Key == "setting" && r.Obj["key"]?.ToString() == "doh"))
+        {
+            var keyNode = node.Children.FirstOrDefault(c => ((YamlScalarNode)c.Key).Value == "custom_servers").Key;
+            foreach (var problem in PlanBuilder.DohServerNameProblems(obj))
+                result.Problems.Add(new YamlProblem("Error", fileName, keyNode == null ? Line(node) : Line(keyNode),
+                    $"{def.Noun} {ConfigState.DisplayName(def, obj)}: {problem}"));
         }
 
         // UniFi's own and Network Optimizer's objects are read-only here; the editor locks them, and an

@@ -22,6 +22,30 @@ public class EditRoundTripTests
                     .Select(p => new YamlProblem(p.Level, $"ids={mode.Ids} {mode.Secrets}", p.Line, p.Message));
             }).ToList();
     [Fact]
+    public void PortProfileReference_IsNotTakenByAnLldpPortId()
+    {
+        // The first device carries an LLDP neighbor's port_id ("local Port 1"): it also strips to "port".
+        var state = new ConfigState();
+        state.Collections["portconf"] = [Obj("""{"_id":"pc1","name":"[Access] Home"}""")];
+        state.Collections["device"] =
+        [
+            Obj("""{"_id":"d1","mac":"aa:bb:cc:00:00:01","name":"[AP] Upstairs","lldp_table":[{"local_port_idx":1,"port_id":"local Port 1"}]}"""),
+            Obj("""{"_id":"d2","mac":"aa:bb:cc:00:00:02","name":"[Switch] Office","port_overrides":[{"port_idx":2,"portconf_id":"pc1"}]}"""),
+        ];
+
+        foreach (var ids in new[] { false, true })
+        {
+            var file = YamlConverter.Export(state, ["portconf", "device"], SecretMode.Redact, ids);
+            var files = new Dictionary<string, string> { ["device"] = file };
+            var (desired, problems, _) = ChangeControlService.ParseEdits(state, files);
+            problems.Should().BeEmpty();
+            var over = desired.Get("device").Single(d => ConfigState.IdOf(d) == "d2")["port_overrides"]![0]!.AsObject();
+            over["portconf_id"]?.ToString().Should().Be("pc1");
+            over.ContainsKey("port_id").Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public void ClientGroupReferences_ResolveToClientGroups()
     {
         var state = new ConfigState();

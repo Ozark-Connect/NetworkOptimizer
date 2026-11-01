@@ -307,6 +307,7 @@
     };
 
     private static IEnumerable<ConfigCollectionDef> Defs(string group) => ConfigCollections.All.Where(d => d.Group == group);
+    private static string Normalized(string yaml) => yaml.Replace("\r\n", "\n").TrimEnd();
     private static string FileName(string group) => Defs(group).FirstOrDefault() is { } d ? YamlConverter.FileName(d) : "";
     private int GroupCount(string group) => Defs(group).Sum(d => _counts.GetValueOrDefault(d.Key));
     private int EditedCount(string group) =>
@@ -667,6 +668,10 @@
             _generation++;
             foreach (var (group, sb) in segments)
             {
+                // A group the file leaves as the download wrote it is no edit: its text differs from the tab's own
+                // (no IDs, <keep current>), so compared as text every group of an untouched download read as edited.
+                if (TemplateId == null && Normalized(sb.ToString())
+                    == Normalized(await Site.DownloadYamlAsync(SnapshotId, Defs(group).Select(d => d.Key).ToList()))) continue;
                 _edited[group] = sb.ToString();
                 _uploaded.Add(group);
             }
