@@ -973,7 +973,8 @@ if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; f
     }
 
     /// <summary>
-    /// The CAKE options for the download IFB, everything but bandwidth and memlimit.
+    /// The CAKE options for the download IFB, everything but bandwidth. No memlimit: CAKE's default
+    /// (4 x rate x interval, capped at limit x MTU) holds GRO traffic that a byte-sized limit does not.
     /// besteffort: one tin, internet DSCP is not trusted. ingress: count drops against the rate,
     /// the shaper sits after the bottleneck. dual-dsthost nat: fairness between LAN devices,
     /// looked up through conntrack. no-split-gso: splitting undoes GRO on the download path (two
@@ -1105,14 +1106,13 @@ read_root_rate_mbps() {
 
 # Set the CAKE root's bandwidth, installing it over UniFi's HTB tree when UniFi has (re)built that
 # tree: boot, PPPoE redial, a Smart Queues toggle or a QoS edit. Every call restates the full
-# option set, so no-split-gso can never fall back to the kernel default. memlimit follows the
-# fq_codel memory sizing.
+# option set, so no-split-gso can never fall back to the kernel default. memlimit is left to
+# CAKE's own sizing: CAKE counts skb truesize, and with GRO the fq_codel sizing filled at ~2 MB of backlog.
 apply_cake_root() {
     local device=$1
     local new_rate=$2
-    local memlimit=$(calc_fq_mem $new_rate)
     if device_has_cake_root $device; then
-        tc qdisc change dev $device root cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS memlimit $memlimit
+        tc qdisc change dev $device root cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS
         return
     fi
     local qos_classes=$(tc class show dev $device 2>/dev/null | grep -E ""parent 1:1( |$)"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | grep -cvE ""rate (64bit|100Kbit)$"")
@@ -1120,7 +1120,7 @@ apply_cake_root() {
         echo ""[$(date)] WARNING: $qos_classes UniFi QoS class(es) on $device do not apply under CAKE"" >> ""${LOG_FILE:-/dev/null}""
     fi
     modprobe sch_cake >/dev/null 2>&1
-    if tc qdisc replace dev $device root handle $CAKE_HANDLE cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS memlimit $memlimit; then
+    if tc qdisc replace dev $device root handle $CAKE_HANDLE cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS; then
         echo ""[$(date)] CAKE installed on $device at ${new_rate} Mbps"" >> ""${LOG_FILE:-/dev/null}""
     else
         echo ""[$(date)] ERROR: could not install CAKE on $device"" >> ""${LOG_FILE:-/dev/null}""

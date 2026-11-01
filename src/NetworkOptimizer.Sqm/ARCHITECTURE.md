@@ -292,7 +292,10 @@ measurements behind it come from one UCG-Fiber on PPPoE with GRO.
 - **Install and retune.** `apply_cake_root` changes the bandwidth of a CAKE root that is there.
   When the IFB has UniFi's HTB tree instead, it runs `tc qdisc replace dev ifb<wan> root handle
   ca4e: cake ...`. Every call restates the full option set: `besteffort ingress dual-dsthost nat
-  no-split-gso overhead <N> mpu 84 memlimit <calc_fq_mem>`.
+  no-split-gso overhead <N> mpu 84`.
+  - No `memlimit`: CAKE sizes its own buffer (4 x rate x interval, capped at 10240 packets x MTU,
+    about 15.5 MB at 1 Gbit). CAKE counts skb truesize, so the `calc_fq_mem` value (8 MB at 1 Gbit)
+    filled at about 2 MB of GRO backlog under a Steam download.
   - `dual-dsthost nat` gives each LAN device a fair share (conntrack lookup behind NAT). One device
     with one flow next to one with eight, at 400 Mbit: 49 Mbit with HTB, about 195 with CAKE.
   - `no-split-gso` is required on a GRO path: splitting cut two flows from 888 to 620 Mbit with one

@@ -148,7 +148,8 @@ CAKE_DOWNLOAD_OPTS=""{opts}""
             "update_all_tc_classes ifbeth4 900 1\n");
 
         output.Should().Contain("TC qdisc replace dev ifbeth4 root handle ca4e: cake bandwidth 900Mbit " +
-            "besteffort ingress dual-dsthost nat no-split-gso overhead 38 mpu 84 memlimit 8388608");
+            "besteffort ingress dual-dsthost nat no-split-gso overhead 38 mpu 84\n");
+        output.Should().NotContain("memlimit", "CAKE sizes its own buffer");
         output.Should().Contain("CAKE installed on ifbeth4 at 900 Mbps");
         output.Should().NotContain("TC class change", "CAKE replaces the HTB tree instead of retuning it");
     }
@@ -164,7 +165,8 @@ CAKE_DOWNLOAD_OPTS=""{opts}""
 
         // Restating no-split-gso on every change keeps the kernel from re-enabling GSO splitting.
         output.Should().Contain("TC qdisc change dev ifbeth4 root cake bandwidth 400Mbit " +
-            "besteffort ingress dual-dsthost nat no-split-gso overhead 38 mpu 84 memlimit 5126304");
+            "besteffort ingress dual-dsthost nat no-split-gso overhead 38 mpu 84\n");
+        output.Should().NotContain("memlimit", "CAKE sizes its own buffer");
         output.Should().NotContain("replace");
     }
 
