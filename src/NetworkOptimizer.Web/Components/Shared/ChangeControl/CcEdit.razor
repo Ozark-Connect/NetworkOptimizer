@@ -307,7 +307,6 @@
     };
 
     private static IEnumerable<ConfigCollectionDef> Defs(string group) => ConfigCollections.All.Where(d => d.Group == group);
-    private static string Normalized(string yaml) => yaml.Replace("\r\n", "\n").TrimEnd();
     private static string FileName(string group) => Defs(group).FirstOrDefault() is { } d ? YamlConverter.FileName(d) : "";
     private int GroupCount(string group) => Defs(group).Sum(d => _counts.GetValueOrDefault(d.Key));
     private int EditedCount(string group) =>
@@ -542,6 +541,7 @@
 
     // Each check's number: only the newest one's result is shown.
     private int _check;
+    private int _validatedCheck = -1;
 
     private async Task ValidateAsync()
     {
@@ -556,6 +556,7 @@
             // newer one; shown, it puts back the Problems of text already changed.
             if (check != _check) return;
             _validation = result;
+            _validatedCheck = check;
             AddUploadDeleteWarnings();
         }
         catch (Exception ex)
@@ -563,6 +564,25 @@
             Logger.LogDebug(ex, "YAML validation failed");
         }
         await PushProblemsAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// An uploaded group with nothing to write and nothing to fix is no edit. Compared as text, every group of an
+    /// untouched download read as edited: it differs from the live config in form and order (UniFi returns clients
+    /// in a different order on each read), never in what Review Plan would write.
+    /// </summary>
+    private void PruneUnchangedUploads()
+    {
+        // Only on this upload's own result: a check that failed or was overtaken would prune the upload away.
+        if (_validatedCheck != _check) return;
+        var withProblems = _validation.Problems.Select(p => p.File).ToHashSet();
+        foreach (var group in _uploaded.ToList())
+        {
+            if (Defs(group).Any(d => _validation.EditedByCollection.ContainsKey(d.Key)) || withProblems.Contains(FileName(group))) continue;
+            _edited.Remove(group);
+            _uploaded.Remove(group);
+        }
         StateHasChanged();
     }
 
@@ -668,10 +688,6 @@
             _generation++;
             foreach (var (group, sb) in segments)
             {
-                // A group the file leaves as the download wrote it is no edit: its text differs from the tab's own
-                // (no IDs, <keep current>), so compared as text every group of an untouched download read as edited.
-                if (TemplateId == null && Normalized(sb.ToString())
-                    == Normalized(await Site.DownloadYamlAsync(SnapshotId, Defs(group).Select(d => d.Key).ToList()))) continue;
                 _edited[group] = sb.ToString();
                 _uploaded.Add(group);
             }
@@ -680,6 +696,7 @@
             _loading = false;
             _pushText = true;
             await ValidateAsync();
+            PruneUnchangedUploads();
             Logger.LogDebug("Change Control Edit: upload of {Bytes} bytes in {Groups} group(s): file {ReadMs} ms, open {OpenMs} ms, check {CheckMs} ms",
                 text.Length, segments.Count, readMs, openMs - readMs, watch.ElapsedMilliseconds - openMs);
         }
