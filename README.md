@@ -10,8 +10,9 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/commits)
 [![GitHub Stars](https://img.shields.io/github/stars/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/stargazers)
 [![License](https://img.shields.io/badge/license-BSL_1.1-green)](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/LICENSE)
+[![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pHrmzbBCY3)
 
-**[Website](https://ozarkconnect.net/network-optimizer)** • **[Everything It Can Do](FEATURES.md)** • **[Quick Start](#quick-start-linux-docker)** • **[Deployment Guide](docker/DEPLOYMENT.md)** • **[Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases)**
+**[Website](https://ozarkconnect.net/network-optimizer)** • **[Everything It Can Do](FEATURES.md)** • **[Quick Start](#quick-start-linux-docker)** • **[Deployment Guide](docker/DEPLOYMENT.md)** • **[Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases)** • **[Discord](https://discord.gg/pHrmzbBCY3)**
 
 ## THANK YOU to all of my Sponsors
 
@@ -288,6 +289,8 @@ Docker Desktop on macOS and Windows limits network throughput for speed testing.
 >
 > Do it up front if you can. Browsers only hand out location over HTTPS, so it's also what turns on GPS tagging for your Speed Test and Signal walk test data.
 
+Stuck on an install, or a reverse proxy that won't cooperate? Ask in `#install-help` on the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3).
+
 ### Quick Start (Linux Docker)
 
 **Option A: Pull Docker Image (Recommended)**
@@ -408,7 +411,8 @@ For commercial licensing inquiries, contact tj@ozarkconnect.net.
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues)
+- Help and discussion: [Discord](https://discord.gg/pHrmzbBCY3) - install help, troubleshooting, feature ideas, and UniFi R&D
+- Confirmed bugs and feature requests: [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues)
 - Documentation: See component READMEs in `src/` and `docker/`
 
 ## Other Projects

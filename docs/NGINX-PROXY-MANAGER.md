@@ -4,6 +4,7 @@ How to run Network Optimizer, its speed test, and On-Site Agents behind
 [Nginx Proxy Manager](https://github.com/NginxProxyManager/nginx-proxy-manager) (NPM).
 If you have no proxy yet, [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy)
 (Traefik) is the ready-made option. This guide is for people who already run NPM.
+Stuck on a step? Ask in `#install-help` on the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3).
 
 ## What to know about NPM first
 

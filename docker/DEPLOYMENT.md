@@ -383,6 +383,8 @@ network-optimizer             Up (healthy)
 
 Network Optimizer works behind any reverse proxy (nginx, Caddy, Traefik, SWAG, etc.) for SSL termination. Setting up the proxy itself is only half the story though - you also need to tell the app it's being proxied so it builds the correct URLs for things like speed test result reporting and canonical redirects.
 
+If your proxy setup still won't cooperate, ask in `#install-help` on the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3) with your proxy, its config, and what you see.
+
 #### Configuring Your .env for Reverse Proxy
 
 Open your `.env` and set these variables to match your proxy setup:
@@ -958,6 +960,8 @@ docker compose pull && docker compose up -d
 
 ## Troubleshooting
 
+If nothing below fits, ask on the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3): `#install-help` for setup, `#troubleshooting` for everything after it. Confirmed bugs go to [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues).
+
 ### Reset Admin Password
 
 If you've forgotten your password or need to reset it, use the reset script:
@@ -1124,7 +1128,8 @@ Use this username and password in Network Optimizer Settings.
 
 ## Support
 
-- GitHub Issues: https://github.com/Ozark-Connect/NetworkOptimizer/issues
+- Help and discussion: [Discord](https://discord.gg/pHrmzbBCY3)
+- Confirmed bugs and feature requests: https://github.com/Ozark-Connect/NetworkOptimizer/issues
 - Email: tj@ozarkconnect.net
 
 ## UniFi SSH Configuration

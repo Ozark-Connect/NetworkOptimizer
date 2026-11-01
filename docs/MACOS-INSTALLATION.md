@@ -137,6 +137,8 @@ rm ~/network-optimizer/logs/stdout.log
 
 ## Troubleshooting
 
+If nothing below fits, ask in `#install-help` on the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3).
+
 ### Previous sudo Installation
 
 If you previously ran the install script with `sudo`, files and processes end up owned by root, which breaks future installs and upgrades. The install script detects this automatically and offers to fix it. Just run the script normally (without sudo):
