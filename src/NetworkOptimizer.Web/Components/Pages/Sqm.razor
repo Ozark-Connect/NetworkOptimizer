@@ -3372,31 +3372,24 @@
                 await ScrollDeploymentLog();
             }
 
-            // Smart Queue download rate validation - commented out because UniFi Network
-            // never clobbers our TC config once Adaptive SQM takes over. The rate shown in
-            // the UniFi UI becomes irrelevant after our scripts replace the qdiscs.
-            // foreach (var wanConfig in new[] { (config: wan1Config, ready: wan1Config.Enabled), (config: wan2Config, ready: wan2Config.Enabled) })
-            // {
-            //     if (!wanConfig.ready) continue;
-            //
-            //     var wanInfo = wanInterfaces.FirstOrDefault(w =>
-            //         w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
-            //     if (wanInfo?.SmartqDownRateMbps == null) continue;
-            //
-            //     var effectiveMax = wanConfig.config.EffectiveLinkSpeedMbps is > 0
-            //         ? Math.Min(wanConfig.config.AbsoluteMax, wanConfig.config.EffectiveLinkSpeedMbps.Value)
-            //         : wanConfig.config.AbsoluteMax;
-            //     if (wanInfo.SmartqDownRateMbps < effectiveMax - 1)
-            //     {
-            //         statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
-            //             $"but Adaptive SQM needs up to {effectiveMax} Mbps. " +
-            //             $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
-            //         statusSuccess = false;
-            //         isDeploying = false;
-            //         StateHasChanged();
-            //         return;
-            //     }
-            // }
+            // Smart Queues rates below Adaptive SQM's: a warning, not a block. The scripts set the
+            // shaping rate themselves, but UniFi's QoS-rule classes keep their ceiling at UniFi's
+            // rate, and UniFi's own tree shapes until the first calibration.
+            foreach (var model in new[] { wan1Config, wan2Config }.Where(w => w.Enabled))
+            {
+                var wanInfo = wanInterfaces.FirstOrDefault(w =>
+                    w.Interface.Equals(model.Interface, StringComparison.OrdinalIgnoreCase));
+                if (wanInfo == null) continue;
+                var planned = CreateSqmConfiguration(model);
+                foreach (var warning in SmartQueuesRateCheck.Warnings(model.Name, wanInfo.SmartqDownRateMbps, wanInfo.SmartqUpRateMbps,
+                    SmartQueuesRateCheck.MaxShapedDownloadMbps(planned.MaxDownloadSpeed, planned.WanLinkSpeedMbps),
+                    planned.NominalUploadSpeed))
+                {
+                    deploymentWarnings.Add(warning);
+                    deploymentSteps.Add($"⚠️ {warning}");
+                }
+            }
+            await ScrollDeploymentLog();
 
             // Validate IFB device settle time - Smart Queues needs ~45s after enabling for the IFB device to initialize
             foreach (var wanConfig in new[] { wan1Config, wan2Config })
