@@ -67,6 +67,15 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
         if (!user.IsEnabled)
             return false;
 
+        // A signed-out login loses its circuits too. The cookie check refuses its HTTP requests, but a
+        // circuit opened before the sign-out holds its own principal and makes none.
+        await using (var scope = _scopeFactory.CreateAsyncScope())
+        {
+            var ended = scope.ServiceProvider.GetRequiredService<EndedSessionStore>();
+            if (await ended.IsEndedAsync(IdentityRegistration.LoginIdOf(principal)))
+                return false;
+        }
+
         // Security stamp covers credential/global-role/2FA/sign-out-everywhere revocation - but the
         // stamp on THIS PRINCIPAL is not the same question as the stamp on the browser's cookie, and
         // only the cookie decides whether the session is still good. Signing out everywhere rotates

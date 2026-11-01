@@ -49,6 +49,9 @@ public class AuthDbContext : IdentityDbContext<ApplicationUser, ApplicationRole,
     /// <summary>Per-user counts of teaching hints shown, so a hint can retire once it is learned.</summary>
     public DbSet<UserUiHint> UserUiHints { get; set; }
 
+    /// <summary>Signed-out logins whose cookies the server refuses.</summary>
+    public DbSet<EndedSession> EndedSessions { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -69,6 +72,12 @@ public class AuthDbContext : IdentityDbContext<ApplicationUser, ApplicationRole,
         modelBuilder.Entity<UserUiHint>(entity =>
         {
             entity.HasIndex(h => new { h.UserId, h.HintKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<EndedSession>(entity =>
+        {
+            entity.ToTable("EndedSessions");
+            entity.HasIndex(s => s.ExpiresAt);
         });
 
         modelBuilder.Entity<ApplicationUser>(entity =>
