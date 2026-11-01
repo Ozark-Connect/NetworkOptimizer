@@ -279,12 +279,14 @@ Runs every minute except during a calibration minute. It never calls apt.
    The `(n + 1)^0.7 - 1` exponent is gentle on a single transient spike and steep under real
    congestion.
 9. Clamp to the schedule cap and to Max, round, and skip a rate of 0 or below.
-10. Hysteresis. Step 8 starts from the schedule every run, so at a line's limit it cut and
-    recovered every minute. A latency cut writes `HOLD_RUNS` (3) to `<wan>-hold.txt`; while the
-    count runs down the rate may not rise above what the tree carries; then (`c`) each run climbs at
-    most one `increase` step from the tree's rate until it reaches the computed rate. Lower rates
-    always apply, and a rise outside that recovery (a tree UniFi rebuilt at its own rate) is not
-    limited.
+10. Hysteresis, against oscillation only. Step 8 starts from the schedule every run, so at a
+    line's limit it cut and recovered every minute. A one-off cut (a speed test, a burst) still
+    recovers on the next normal run (`p` in `<wan>-hold.txt`), and that recovery is recorded in
+    `<wan>-recovered.txt`. A cut within `OSCILLATION_WINDOW` (300 s) of the last recovery holds:
+    `HOLD_RUNS` (3) runs at no more than what the tree carries, then (`c`) one `increase` step per
+    run from the tree's rate until it reaches the computed rate, which records a recovery again.
+    Lower rates always apply, and a rise with no cut behind it (a tree UniFi rebuilt at its own
+    rate) is not limited.
 11. Dynamic upload: a latency cut scales upload by the same fraction, floored at min upload. The
     ping cannot tell which direction is congested.
 12. Skip the tc write when neither root rate would change. Otherwise apply both and log

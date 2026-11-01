@@ -6,8 +6,9 @@ using Xunit;
 namespace NetworkOptimizer.Sqm.Tests;
 
 /// <summary>
-/// The ping script's hysteresis: a latency cut holds for <see cref="ScriptGenerator.HoldRuns"/> runs,
-/// then the rate climbs one LATENCY_INCREASE step per run instead of jumping back to the ceiling.
+/// The ping script's hysteresis: a one-off latency cut recovers on the next normal run; a cut soon
+/// after the last recovery (oscillation) holds for <see cref="ScriptGenerator.HoldRuns"/> runs, then
+/// the rate climbs one LATENCY_INCREASE step per run instead of jumping back to the ceiling.
 /// </summary>
 public class PingHysteresisTests
 {
@@ -19,20 +20,33 @@ public class PingHysteresisTests
     /// <paramref name="computed"/> the rate the latency logic produced, <paramref name="hold"/> the
     /// hold file's contents (null for none). Returns the rate it settles on and the new hold count.
     /// </summary>
-    private static (int Rate, string Hold) RunOnce(string bash, string prevRate, int computed, bool cut, string? hold)
+    private static (int Rate, string Hold) RunOnce(string bash, string prevRate, int computed, bool cut, string? hold,
+        int? recoveredSecondsAgo = null) => RunWithRecovery(bash, prevRate, computed, cut, hold, recoveredSecondsAgo).Result;
+
+    /// <summary>
+    /// <see cref="RunOnce"/>, also reporting whether the run recorded a recovery.
+    /// <paramref name="recoveredSecondsAgo"/> is when the rate last recovered from a cut (null: never).
+    /// </summary>
+    private static ((int Rate, string Hold) Result, bool Recovered) RunWithRecovery(string bash, string prevRate, int computed,
+        bool cut, string? hold, int? recoveredSecondsAgo)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"sqm-hyst-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
         {
             var holdFile = Path.Combine(dir, "hold.txt");
+            var recoverFile = Path.Combine(dir, "recovered.txt");
             if (hold != null) File.WriteAllText(holdFile, hold);
+            var before = recoveredSecondsAgo is { } ago ? (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - ago).ToString() : null;
+            if (before != null) File.WriteAllText(recoverFile, before);
             var script = $@"
 {ScriptGenerator.ArithmeticFunctionsText}
 rate_is_valid() {{ [ -n ""$1"" ] && echo ""$1"" | grep -q '[1-9]'; }}
 read_root_rate_mbps() {{ echo ""{prevRate}""; }}
 HOLD_FILE='{holdFile}'
+RECOVER_FILE='{recoverFile}'
 HOLD_RUNS={ScriptGenerator.HoldRuns}
+OSCILLATION_WINDOW={ScriptGenerator.OscillationWindowSeconds}
 LATENCY_INCREASE=1.04
 latency_cut={(cut ? 1 : 0)}
 new_rate_int={computed}
@@ -46,7 +60,8 @@ echo ""RATE=$new_rate_int""
             var output = proc.StandardOutput.ReadToEnd();
             proc.WaitForExit(30_000);
             var rate = int.Parse(output.Split("RATE=")[1].Trim());
-            return (rate, File.ReadAllText(holdFile).Trim());
+            var after = File.Exists(recoverFile) ? File.ReadAllText(recoverFile).Trim() : null;
+            return ((rate, File.ReadAllText(holdFile).Trim()), after != null && after != before);
         }
         finally
         {
@@ -55,11 +70,36 @@ echo ""RATE=$new_rate_int""
     }
 
     [Fact]
-    public void ACut_IsApplied_AndStartsTheHold()
+    public void AOneOffCut_IsApplied_AndRecoversOnTheNextNormalRun()
     {
         if (BashPath() is not { } bash) return;
 
-        RunOnce(bash, "1078", 1034, cut: true, hold: null).Should().Be((1034, ScriptGenerator.HoldRuns.ToString()));
+        // A speed test or a burst: nothing recovered recently, so no hold.
+        RunOnce(bash, "1060", 1026, cut: true, hold: null).Should().Be((1026, "p"));
+        var next = RunWithRecovery(bash, "1026", 1060, cut: false, hold: "p", recoveredSecondsAgo: null);
+        next.Result.Should().Be((1060, "0"));
+        next.Recovered.Should().BeTrue("the recovery is recorded, so a cut right after it reads as oscillation");
+    }
+
+    [Fact]
+    public void ACutSoonAfterARecovery_IsOscillation_AndStartsTheHold()
+    {
+        if (BashPath() is not { } bash) return;
+
+        RunOnce(bash, "1078", 1034, cut: true, hold: "0", recoveredSecondsAgo: 120)
+            .Should().Be((1034, ScriptGenerator.HoldRuns.ToString()));
+        RunOnce(bash, "1078", 1034, cut: true, hold: "0", recoveredSecondsAgo: ScriptGenerator.OscillationWindowSeconds + 60)
+            .Should().Be((1034, "p"), "a cut long after the last recovery is one-off again");
+    }
+
+    [Fact]
+    public void TheEndOfAClimb_IsARecovery()
+    {
+        if (BashPath() is not { } bash) return;
+
+        var end = RunWithRecovery(bash, "1075", 1078, cut: false, hold: "c", recoveredSecondsAgo: null);
+        end.Result.Should().Be((1078, "0"));
+        end.Recovered.Should().BeTrue();
     }
 
     [Fact]
@@ -120,8 +160,10 @@ echo ""RATE=$new_rate_int""
         var ping = boot[boot.IndexOf("# SQM Ping Adjustment Script", StringComparison.Ordinal)..];
         ping.Should().Contain($"TREE_MODEL={ScriptGenerator.TreeModel}");
         ping.Should().Contain("HOLD_FILE=\"/data/sqm/");
+        ping.Should().Contain("RECOVER_FILE=\"/data/sqm/");
+        ping.Should().Contain($"OSCILLATION_WINDOW={ScriptGenerator.OscillationWindowSeconds}");
         ping.Should().Contain("latency_cut=1");
-        var hysteresis = ping.IndexOf("# Hysteresis: hold a latency cut", StringComparison.Ordinal);
+        var hysteresis = ping.IndexOf("# Hysteresis:", StringComparison.Ordinal);
         hysteresis.Should().BeGreaterThan(ping.IndexOf("read_root_rate_mbps() {", StringComparison.Ordinal), "the tc functions are defined first");
         hysteresis.Should().BeLessThan(ping.IndexOf("update_all_tc_classes $IFB_DEVICE $new_rate_int", StringComparison.Ordinal));
     }

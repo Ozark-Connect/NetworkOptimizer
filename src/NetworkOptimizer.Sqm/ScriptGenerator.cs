@@ -626,6 +626,8 @@ public class ScriptGenerator
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine($"HOLD_FILE=\"/data/sqm/{_name}-hold.txt\"");
         sb.AppendLine($"HOLD_RUNS={HoldRuns}");
+        sb.AppendLine($"RECOVER_FILE=\"/data/sqm/{_name}-recovered.txt\"");
+        sb.AppendLine($"OSCILLATION_WINDOW={OscillationWindowSeconds}");
         // Read by the next deploy: scripts without it predate the restore, and the trees they tuned
         // carry values (fq_codel limit 2000) that only a restore puts back.
         sb.AppendLine($"TREE_MODEL={TreeModel}");
@@ -1321,23 +1323,33 @@ fi";
     /// </summary>
     public const int TreeModel = 2;
 
+    /// <summary>Seconds after a recovery in which a new latency cut counts as oscillation.</summary>
+    public const int OscillationWindowSeconds = 300;
+
     /// <summary>
     /// Hysteresis for the ping script. Each run computes the rate from the schedule ceiling alone, so
-    /// at a line's limit it cut and recovered every minute. After a latency cut the cut rate holds for
-    /// <see cref="HoldRuns"/> runs, then climbs one LATENCY_INCREASE step per run from the rate the
-    /// last run set until it reaches the computed rate. A run that cuts again restarts the hold.
-    /// Only that recovery is limited: a tree UniFi rebuilt at its own, lower rate is not, or it would
-    /// take many minutes to climb back.
-    /// HOLD_FILE holds the runs left, "c" while climbing, or 0.
+    /// at a line's limit it cut and recovered every minute. A one-off cut (a speed test, a burst)
+    /// still recovers on the next normal run. A cut within <see cref="OscillationWindowSeconds"/> of
+    /// recovering from the previous one is oscillation: that cut holds for <see cref="HoldRuns"/>
+    /// runs, then climbs one LATENCY_INCREASE step per run until it reaches the computed rate.
+    /// Only a recovery from a cut is ever limited, never a tree UniFi rebuilt at its own lower rate.
+    /// HOLD_FILE: runs left, "c" while climbing, "p" after a one-off cut, or 0. RECOVER_FILE: when the
+    /// rate last recovered from a cut (epoch seconds).
     /// </summary>
-    internal static string HysteresisLogicText => @"# Hysteresis: hold a latency cut, then climb back in steps
+    internal static string HysteresisLogicText => @"# Hysteresis: a cut soon after the last recovery holds, then climbs back in steps
 prev_rate=$(read_root_rate_mbps $IFB_DEVICE)
 hold=$(cat ""$HOLD_FILE"" 2>/dev/null)
-case ""$hold"" in c|[0-9]|[0-9][0-9]) ;; *) hold=0 ;; esac
+case ""$hold"" in c|p|[0-9]|[0-9][0-9]) ;; *) hold=0 ;; esac
+now=$(date +%s)
+last_recover=$(cat ""$RECOVER_FILE"" 2>/dev/null)
+case ""$last_recover"" in ''|*[!0-9]*) last_recover=0 ;; esac
 climbs=0
 rate_is_valid ""$prev_rate"" && [ ""$new_rate_int"" -gt ""$prev_rate"" ] && climbs=1
 if [ ""$latency_cut"" = ""1"" ]; then
-    hold=$HOLD_RUNS
+    if [ $((now - last_recover)) -lt $OSCILLATION_WINDOW ]; then hold=$HOLD_RUNS; else hold=p; fi
+elif [ ""$hold"" = ""p"" ]; then
+    hold=0
+    [ ""$climbs"" = ""1"" ] && echo ""$now"" > ""$RECOVER_FILE""
 elif [ ""$hold"" = ""c"" ]; then
     hold=0
     if [ ""$climbs"" = ""1"" ]; then
@@ -1345,6 +1357,7 @@ elif [ ""$hold"" = ""c"" ]; then
         [ ""$step"" -le ""$prev_rate"" ] && step=$((prev_rate + 1))
         if [ ""$new_rate_int"" -gt ""$step"" ]; then new_rate_int=$step; hold=c; fi
     fi
+    [ ""$hold"" = ""0"" ] && echo ""$now"" > ""$RECOVER_FILE""
 elif [ ""$hold"" -gt 0 ]; then
     hold=$((hold - 1))
     [ ""$hold"" -eq 0 ] && hold=c
