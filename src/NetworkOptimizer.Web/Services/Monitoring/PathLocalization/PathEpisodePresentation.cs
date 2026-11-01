@@ -246,6 +246,26 @@ public static class PathEpisodePresentation
         : h.Has(HopTag.IcmpLimited) ? "ICMP-limited"
         : null;
 
+    /// <summary>How much of the series either side of an episode the target link frames, so its onset and recovery show.</summary>
+    internal static readonly TimeSpan TargetLinkPad = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Network Performance on one episode target: its chart category with only that target drawn,
+    /// framed on the episode plus <see cref="TargetLinkPad"/> either side. Custom and Fabric targets
+    /// are not reached over one WAN, so their link asks for every WAN as the Live View links do.
+    /// </summary>
+    public static string TargetUrl(PathEpisodeView e, PathEpisodeTargetView t, string? wanKey, DateTime nowUtc)
+    {
+        var start = PathEpisodeTraceMapping.Utc(e.OpenedAt) - TargetLinkPad;
+        var end = (e.ClosedAt is DateTime c ? PathEpisodeTraceMapping.Utc(c) : nowUtc) + TargetLinkPad;
+        if (end > nowUtc) end = nowUtc;
+        var startMs = new DateTimeOffset(start).ToUnixTimeMilliseconds();
+        var spanMs = Math.Max(1, new DateTimeOffset(end).ToUnixTimeMilliseconds() - startMs);
+        var wan = t.Category is MonitoringLinks.CustomCategory or MonitoringLinks.FabricCategory ? LiveWanScope.AllWansToken : wanKey;
+        var url = MonitoringLinks.Analysis(t.Category, startMs + spanMs / 2, spanMs, wan);
+        return string.IsNullOrEmpty(t.TargetId) ? url : $"{url}&target={Uri.EscapeDataString(t.TargetId)}";
+    }
+
     /// <summary>The Network Tools link that fills Run a Probe with an episode trace's target, vantage, and bind.</summary>
     public static string RerunUrl(string address, string vantage, int? wanContextId)
     {

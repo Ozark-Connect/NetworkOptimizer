@@ -26,6 +26,23 @@ public class PathEpisodeBannerTests
     };
 
     [Fact]
+    public void TargetUrl_FramesTheEpisodeOnTheTargetsCategory()
+    {
+        var e = Episode(1, Now.AddHours(-3), Now.AddHours(-2));
+        var transit = e.Degraded[0] with { Category = "Transit", TargetId = "aws-1" };
+        var start = new DateTimeOffset(Now.AddHours(-3).AddMinutes(-30)).ToUnixTimeMilliseconds();
+        var span = (long)TimeSpan.FromHours(2).TotalMilliseconds;
+
+        PathEpisodePresentation.TargetUrl(e, transit, "wan2", Now).Should().Be(
+            $"/monitoring?tab=performance&category=Transit&at={start + span / 2}&span={span}&wan=wan2&target=aws-1");
+
+        // A Custom target is not reached over one WAN; an open episode's window ends now.
+        var open = Episode(2, Now.AddMinutes(-10), null, tracing: true);
+        var url = PathEpisodePresentation.TargetUrl(open, transit with { Category = "Custom" }, "wan2", Now);
+        url.Should().Contain("category=Custom").And.Contain("&wan=all").And.Contain($"&span={(long)TimeSpan.FromMinutes(40).TotalMilliseconds}");
+    }
+
+    [Fact]
     public void Tracing_WinsOverANewerFinishedEpisode()
     {
         var b = PathEpisodePresentation.Banner(new[]

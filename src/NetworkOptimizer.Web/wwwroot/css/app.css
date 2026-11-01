@@ -19789,6 +19789,20 @@ a.isp-health-hero-speed:hover {
     font-weight: 600;
 }
 
+.path-episode-target-name {
+    display: inline-flex;
+    align-items: center;
+}
+
+.path-episode-target-name .monitoring-jump-btn {
+    padding: 0 0.25rem;
+}
+
+.path-episode-target-name .monitoring-jump-btn svg {
+    width: 15px;
+    height: 15px;
+}
+
 .path-episode-rerun {
     margin-left: auto;
 }

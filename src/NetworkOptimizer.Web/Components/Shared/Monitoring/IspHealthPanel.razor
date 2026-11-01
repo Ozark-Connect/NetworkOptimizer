@@ -933,7 +933,7 @@ else
                                             @onclick="() => ToggleEventMembers(episodeKey)">@(episodeOpen ? "Hide hop table" : "Show hop table")</button>
                                     @if (episodeOpen)
                                     {
-                                        <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" />
+                                        <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
                                     }
                                 }
                                 else if (entry.Members is { Count: > 0 })

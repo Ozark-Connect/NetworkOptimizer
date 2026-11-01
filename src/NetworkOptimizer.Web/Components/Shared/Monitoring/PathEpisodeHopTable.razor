@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Storage.Models
 @inject IPathEpisodeService PathEpisodes
 @inject ILogger<PathEpisodeHopTable> Logger
+@inject NavigationManager NavigationManager
 
 @* The hop table behind one Path Localization episode: every TTL of each degraded target's rounds,
    pooled, with the hop where the degradation first appears and the last clean one marked. Loaded
@@ -23,7 +24,14 @@
                 <div><span class="path-episode-dest-label">Degraded</span> @string.Join(", ", _detail.Episode.Degraded.Select(t => t.Name))</div>
                 @if (_detail.Episode.Controls.Count > 0)
                 {
-                    <div><span class="path-episode-dest-label">Clean</span> @string.Join(", ", _detail.Episode.Controls.Select(t => t.Name))</div>
+                    <div>
+                        <span class="path-episode-dest-label">Clean</span>
+                        @foreach (var (control, i) in _detail.Episode.Controls.Select((c, i) => (c, i)))
+                        {
+                            <span class="path-episode-target-name">@control.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                                Tooltip="@JumpTooltip(control)" OnClick="() => Jump(control)" /></span>@(i < _detail.Episode.Controls.Count - 1 ? ", " : "")
+                        }
+                    </div>
                 }
             </div>
         }
@@ -31,7 +39,8 @@
         {
             <div class="path-episode-table">
             <div class="path-episode-table-head">
-                <span class="path-episode-table-title">@table.Target.Name</span>
+                <span class="path-episode-table-title path-episode-target-name">@table.Target.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                    Tooltip="@JumpTooltip(table.Target)" OnClick="() => Jump(table.Target)" /></span>
                 <span class="text-muted">
                     @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @table.VantageName@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
                 </span>
@@ -176,6 +185,14 @@
 
     /// <summary>The episode's last write: a change re-reads the table, so an open one follows the rounds.</summary>
     [Parameter] public DateTime UpdatedAt { get; set; }
+
+    /// <summary>The WAN ISP Health is showing, so a target link lands on the same one.</summary>
+    [Parameter] public string? WanKey { get; set; }
+
+    private static string JumpTooltip(PathEpisodeTargetView t) => $"Open {t.Name} on Network Performance over this episode";
+
+    private void Jump(PathEpisodeTargetView t) =>
+        NavigationManager.NavigateTo(PathEpisodePresentation.TargetUrl(_detail!.Episode, t, WanKey, DateTime.UtcNow));
 
     private PathEpisodeDetail? _detail;
     private bool _failed;

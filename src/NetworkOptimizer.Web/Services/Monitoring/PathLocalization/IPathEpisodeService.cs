@@ -6,8 +6,10 @@ using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 
 /// <summary>A target on an episode, as the event row names it.</summary>
+/// <param name="Category">The Network Performance chart category it is drawn under.</param>
 public sealed record PathEpisodeTargetView(int MonitoringTargetId, string TargetId, string Name, PathEpisodeTargetRole Role,
-    double? BaselineRttMs, double? PeakRttMs, double? BaselineLossPct, double? PeakLossPct, string? Label);
+    double? BaselineRttMs, double? PeakRttMs, double? BaselineLossPct, double? PeakLossPct, string? Label,
+    string Category = MonitoringLinks.CustomCategory);
 
 /// <summary>One episode, for the Path &amp; Congestion Events row.</summary>
 public sealed record PathEpisodeView
