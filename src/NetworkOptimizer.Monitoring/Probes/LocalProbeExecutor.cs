@@ -134,7 +134,13 @@ public class LocalProbeExecutor : IProbeExecutor
     /// offered. A probe that cannot bind must fail rather than leave by the default route:
     /// that would record another WAN's latency under this one's name.
     /// </summary>
-    internal readonly record struct TracerouteBinaryTraits(bool IsBusyBox, bool CanBindAddress, bool CanBindInterface)
+    /// <param name="ReportsBackHops">
+    /// Linux traceroute (Butskoy's, the one that calls itself "Modern traceroute for Linux") takes
+    /// <c>--back</c> and then prints a hop's return hop count wherever it differs from the forward
+    /// one. Nothing else has the option, so it is only ever passed to a binary that announced itself.
+    /// </param>
+    internal readonly record struct TracerouteBinaryTraits(bool IsBusyBox, bool CanBindAddress, bool CanBindInterface,
+        bool ReportsBackHops = false)
     {
         /// <summary>A GNU/BSD traceroute: both bind options present. Also the assumption before detection runs.</summary>
         public static TracerouteBinaryTraits FullyBindable => new(false, true, true);
@@ -146,7 +152,10 @@ public class LocalProbeExecutor : IProbeExecutor
     {
         if (string.IsNullOrWhiteSpace(banner)) return TracerouteBinaryTraits.FullyBindable;
         if (banner.IndexOf("busybox", StringComparison.OrdinalIgnoreCase) < 0)
-            return TracerouteBinaryTraits.FullyBindable;
+            return TracerouteBinaryTraits.FullyBindable with
+            {
+                ReportsBackHops = banner.Contains("Modern traceroute", StringComparison.OrdinalIgnoreCase)
+            };
 
         return new TracerouteBinaryTraits(
             IsBusyBox: true,
@@ -510,6 +519,7 @@ public class LocalProbeExecutor : IProbeExecutor
         int maxHops = 30,
         TimeSpan? perHopTimeout = null,
         TimeSpan? totalDeadline = null,
+        int? probesPerHop = null,
         CancellationToken ct = default)
     {
         await GetCapabilityAsync(ct);
@@ -532,10 +542,16 @@ public class LocalProbeExecutor : IProbeExecutor
 
             using var managedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             managedCts.CancelAfter(deadlineDuration);
-            return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout, 3, managedCts.Token);
+            // Capped at three: the managed trace sends its probes one after another, so every silent
+            // hop costs probes x timeout, and five a hop runs a typical path into the deadline.
+            return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout,
+                Math.Min(probesPerHop ?? 3, 3), managedCts.Token);
         }
 
-        var (exe, args, buildError) = BuildTracerouteCommand(target, maxHops, perHopTimeout, _tracerouteTraits);
+        var (exe, args, buildError) = BuildTracerouteCommand(target, maxHops, perHopTimeout, _tracerouteTraits, probesPerHop);
+        // Mirrors the --back decision BuildTracerouteCommand made, so the parser knows a hop
+        // printed without a return count came home by as many hops as it went out.
+        var backHops = probesPerHop.HasValue && _tracerouteTraits.ReportsBackHops;
         if (buildError != null)
             return FailTrace(target, buildError);
         // Acquire the throttle FIRST, THEN start the per-trace deadline. The
@@ -591,7 +607,7 @@ public class LocalProbeExecutor : IProbeExecutor
             var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : (await SafeReadAsync(stderrTask) ?? string.Empty);
 
             var output = string.IsNullOrWhiteSpace(stdout) ? stderr : stdout;
-            return TracerouteOutputParser.Parse(output, target, Vantage, target.Mode);
+            return TracerouteOutputParser.Parse(output, target, Vantage, target.Mode, backHopsReported: backHops);
         }
         catch (Exception ex)
         {
@@ -776,10 +792,13 @@ public class LocalProbeExecutor : IProbeExecutor
     /// <param name="maxHops">TTL ceiling.</param>
     /// <param name="perHopTimeout">Per-hop wait; floored at one second, which is the flag's unit.</param>
     /// <param name="traits">What the installed binary can bind, from <see cref="InterpretTracerouteBanner"/>.</param>
+    /// <param name="probesPerHop">Probes per TTL; null keeps the two this has always sent. A caller that
+    /// asks for a count is reading per-hop behavior, so it also gets <c>--back</c> where the binary has it.</param>
     /// <param name="isWindows">Which platform's traceroute to build for; defaults to this host's.</param>
     /// <returns>The executable and arguments, or an error explaining why the probe cannot run.</returns>
     internal static (string Exe, string Args, string? Error) BuildTracerouteCommand(
-        ProbeTarget target, int maxHops, TimeSpan? perHopTimeout, TracerouteBinaryTraits traits, bool? isWindows = null)
+        ProbeTarget target, int maxHops, TimeSpan? perHopTimeout, TracerouteBinaryTraits traits,
+        int? probesPerHop = null, bool? isWindows = null)
     {
         var wait = (int)Math.Max(1, (perHopTimeout ?? TimeSpan.FromSeconds(2)).TotalSeconds);
         if (isWindows ?? OperatingSystem.IsWindows())
@@ -819,7 +838,9 @@ public class LocalProbeExecutor : IProbeExecutor
         // PTR resolution stays ON — hostnames like "cr1.stl1.example.net" are gold for the
         // wizard's hop-labelling logic (spec 5.5). Linux's resolver times out fast, so the
         // cost is bounded by the per-probe deadline anyway.
-        var args = $"-m {maxHops} -q 2 -w {wait} {protoFlag} {sourceArg}{target.Address}".Trim();
+        var queries = probesPerHop is int q ? Math.Clamp(q, 1, 10) : 2;
+        var back = probesPerHop.HasValue && traits.ReportsBackHops ? "--back " : string.Empty;
+        var args = $"-m {maxHops} -q {queries} -w {wait} {back}{protoFlag} {sourceArg}{target.Address}".Trim();
         return ("traceroute", args, null);
     }
 }

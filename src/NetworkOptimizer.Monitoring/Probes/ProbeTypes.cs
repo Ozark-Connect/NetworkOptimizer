@@ -133,7 +133,29 @@ public record TraceHop
     public int Probes { get; init; }
     public int Responses { get; init; }
 
+    /// <summary>
+    /// How many hops the reply took to come back, inferred from its TTL (the nearest initial TTL
+    /// of 64, 128 or 255, less what arrived). Null when the vantage could not read the reply's
+    /// TTL, which is most of them: only Linux traceroute's <c>--back</c> reports it for every hop,
+    /// and .NET only for the echo reply that ends a trace. A count far from
+    /// <see cref="HopNumber"/> means the reply came home by a different path than the probe went.
+    /// </summary>
+    public int? ReturnHops { get; init; }
+
     public bool Responded => Responses > 0 && Address != null;
+
+    /// <summary>
+    /// Return hop count for a reply TTL, counted the way Linux traceroute's <c>--back</c> counts
+    /// them so the two sources agree: the reply left with the nearest initial TTL at or above what
+    /// arrived, and every router on the way home took one.
+    /// </summary>
+    public static int? ReturnHopsFromReplyTtl(int? replyTtl) => replyTtl switch
+    {
+        null or <= 0 or > 255 => null,
+        <= 64 => 65 - replyTtl.Value,
+        <= 128 => 129 - replyTtl.Value,
+        _ => 256 - replyTtl.Value
+    };
 }
 
 public record TracerouteResult
@@ -143,6 +165,14 @@ public record TracerouteResult
     public required ProbeMode ModeUsed { get; init; }
     public required DateTime Timestamp { get; init; } = DateTime.UtcNow;
     public required IReadOnlyList<TraceHop> Hops { get; init; }
+
+    /// <summary>
+    /// The address a hostname target resolved to for this trace, from traceroute's own header line or
+    /// the managed trace's lookup. Null when the target was already an address, or the vantage did not
+    /// say (an agent predating the field).
+    /// </summary>
+    public string? ResolvedAddress { get; init; }
+
     public bool Reached { get; init; }
     public string? ErrorMessage { get; init; }
     public string? RawOutput { get; init; }

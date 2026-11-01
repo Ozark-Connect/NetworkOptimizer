@@ -73,9 +73,12 @@ public sealed class AgentProbeExecutor : IProbeExecutor
         }
     }
 
-    public async Task<TracerouteResult> TracerouteAsync(ProbeTarget target, int maxHops = 30, TimeSpan? perHopTimeout = null, TimeSpan? totalDeadline = null, CancellationToken ct = default)
+    public async Task<TracerouteResult> TracerouteAsync(ProbeTarget target, int maxHops = 30, TimeSpan? perHopTimeout = null, TimeSpan? totalDeadline = null, int? probesPerHop = null, CancellationToken ct = default)
     {
         var request = BuildRequest(target, traceroute: true, count: 0, maxHops: maxHops);
+        // An agent predating the field ignores it and runs its default, which the result's
+        // per-hop probe counts then show.
+        request.ProbesPerHop = probesPerHop ?? 0;
         var resp = await _agentProbe.RunAsync(_siteSlug, request, TimeSpan.FromSeconds(30), ct, _agentId);
         if (resp == null) return FailedTrace(target, "No on-site agent is online to run the traceroute");
         if (!resp.Success || string.IsNullOrEmpty(resp.ResultJson))

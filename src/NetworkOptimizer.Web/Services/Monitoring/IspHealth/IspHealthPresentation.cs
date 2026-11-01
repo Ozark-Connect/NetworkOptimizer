@@ -23,11 +23,14 @@ public enum EventCategory
 ///
 /// <see cref="TargetIds"/> is every monitored target behind the entry, so a renderer that also
 /// draws the series (the tab, not the PDF) can hide an entry whose lines are all filtered out.
+///
+/// <see cref="EpisodeId"/> marks a Path Localization episode, whose detail is its hop table rather
+/// than a list of members.
 /// </summary>
 public record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
     EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null,
     IReadOnlyList<string>? Members = null, string MemberNoun = "hop",
-    IReadOnlyList<string>? TargetIds = null);
+    IReadOnlyList<string>? TargetIds = null, int? EpisodeId = null);
 
 /// <summary>
 /// How an <see cref="IspHealthReport"/> reads: the wording, formatting, and event

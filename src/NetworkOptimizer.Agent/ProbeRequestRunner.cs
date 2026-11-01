@@ -46,11 +46,15 @@ public sealed class ProbeRequestRunner
             }
             else if (request.Traceroute)
             {
+                // More probes per hop takes longer to finish, so the deadline grows with the ask.
+                // Kept inside the server's 30 s wait for the response.
+                var probesPerHop = request.ProbesPerHop > 0 ? request.ProbesPerHop : (int?)null;
                 var result = await _executor.TracerouteAsync(
                     target,
                     maxHops: request.MaxHops > 0 ? request.MaxHops : 30,
                     perHopTimeout: TimeSpan.FromSeconds(1),
-                    totalDeadline: TimeSpan.FromSeconds(10),
+                    totalDeadline: TimeSpan.FromSeconds(probesPerHop.HasValue ? 20 : 10),
+                    probesPerHop: probesPerHop,
                     ct: ct);
                 json = JsonSerializer.Serialize(result);
             }

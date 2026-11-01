@@ -1,0 +1,15 @@
+@* Renders text whose `backticked` spans are code, as Path Localization writes AS numbers. Text
+   without backticks renders unchanged, so any label can go through here. *@
+@for (var i = 0; i < _parts.Length; i++)
+{
+    if (i % 2 == 1) { <code class="text-code">@_parts[i]</code> }
+    else { @_parts[i] }
+}
+
+@code {
+    [Parameter] public string? Text { get; set; }
+
+    private string[] _parts = Array.Empty<string>();
+
+    protected override void OnParametersSet() => _parts = (Text ?? "").Split('`');
+}

@@ -104,6 +104,25 @@ public class WanOutageEvaluator
         _siteSuffix = _siteSlug == SiteManagementService.DefaultSiteSlug ? "" : $" (site {_siteSlug})";
     }
 
+    /// <summary>
+    /// Whether a WAN is in an outage right now: its own outage open or confirming, the site-level
+    /// rollup, or the gateway cycling through a UniFi OS update. Null names the primary. Refreshed
+    /// after every evaluation pass; false until the first. Path Localization stands down while it is
+    /// true - an outage is the outage detectors' to explain - but only on that WAN, so an unplugged
+    /// backup never stops the primary from being traced.
+    /// </summary>
+    public bool IsOutageOpen(string? wanKey)
+    {
+        var snapshot = _outageSnapshot;
+        if (snapshot.SiteWide) return true;
+        var key = string.IsNullOrEmpty(wanKey) ? snapshot.PrimaryWanKey : GatewayWanHelper.WanInterfaceKeyFromKey(wanKey);
+        return key != null && snapshot.Wans.Contains(key);
+    }
+
+    private sealed record OutageSnapshot(bool SiteWide, string? PrimaryWanKey, IReadOnlySet<string> Wans);
+
+    private volatile OutageSnapshot _outageSnapshot = new(false, null, new HashSet<string>());
+
     /// <summary>Whether a target type is alerted per WAN here rather than per target.</summary>
     public static bool CoversTargetType(MonitoringTargetType type) => type is
         MonitoringTargetType.Wan or
@@ -146,7 +165,15 @@ public class WanOutageEvaluator
         {
             if (now - _lastPassUtc < TimeSpan.FromSeconds(EvaluationIntervalSeconds)) return;
             _lastPassUtc = now;
-            await RunPassAsync(now, ct);
+            try
+            {
+                await RunPassAsync(now, ct);
+            }
+            finally
+            {
+                // Whatever the pass got through is the state now, even when it threw part-way.
+                RefreshOutageSnapshot(now);
+            }
         }
         catch (Exception ex)
         {
@@ -157,6 +184,16 @@ public class WanOutageEvaluator
             _passGate.Release();
         }
     }
+
+    /// <summary>Publishes what <see cref="IsOutageOpen"/> reads. Caller holds the pass gate.</summary>
+    private void RefreshOutageSnapshot(DateTime now) =>
+        _outageSnapshot = new OutageSnapshot(
+            _rollupOpen || _rolloutWindows?.IsOsCycling(_siteSlug, now) == true,
+            _context.PrimaryWanKey,
+            _wanStates
+                .Where(w => w.Value.OpenKind != WanVerdictKind.None || w.Value.LastVerdict?.Kind is WanVerdictKind.Total or WanVerdictKind.Partial)
+                .Select(w => w.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase));
 
     private async Task RunPassAsync(DateTime now, CancellationToken ct)
     {

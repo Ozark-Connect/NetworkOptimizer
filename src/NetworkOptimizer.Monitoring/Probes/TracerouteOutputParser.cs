@@ -32,6 +32,17 @@ public static class TracerouteOutputParser
         @"(?<host>[A-Za-z0-9_][A-Za-z0-9\-\._]{0,253})\s*\((?<ip>(?:\d{1,3}\.){3}\d{1,3})\)",
         RegexOptions.Compiled);
 
+    // "traceroute to host.example (203.0.113.10), 30 hops max": what a hostname resolved to.
+    private static readonly Regex HeaderRegex = new(
+        @"^traceroute to \S+ \((?<ip>(?:\d{1,3}\.){3}\d{1,3})\)",
+        RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
+    // Linux traceroute --back: a probe whose reply came home by a different number of hops than
+    // it went out prints that count after its RTT, e.g. "12.3 ms '-9'".
+    private static readonly Regex BackHopsRegex = new(
+        @"'-(\d+)'",
+        RegexOptions.Compiled);
+
     private static readonly Regex RttRegex = new(
         @"(\d+(?:\.\d+)?)\s*ms",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -41,7 +52,8 @@ public static class TracerouteOutputParser
         ProbeTarget target,
         ProbeVantage vantage,
         ProbeMode modeUsed,
-        DateTime? timestamp = null)
+        DateTime? timestamp = null,
+        bool backHopsReported = false)
     {
         var hops = new List<TraceHop>();
         if (string.IsNullOrWhiteSpace(output))
@@ -61,6 +73,10 @@ public static class TracerouteOutputParser
 
         bool reached = false;
         var targetAddress = target.Address;
+        var header = HeaderRegex.Match(output);
+        var resolved = header.Success && !string.Equals(header.Groups["ip"].Value, targetAddress, StringComparison.OrdinalIgnoreCase)
+            ? header.Groups["ip"].Value
+            : null;
 
         foreach (Match m in HopLineRegex.Matches(output))
         {
@@ -119,10 +135,13 @@ public static class TracerouteOutputParser
                 RttAvgMs = rttValues.Count > 0 ? rttValues.Average() : null,
                 RttMaxMs = rttValues.Count > 0 ? rttValues.Max() : null,
                 Probes = probes,
-                Responses = responses
+                Responses = responses,
+                ReturnHops = ParseReturnHops(rest, hopNum, responses, backHopsReported)
             });
 
-            if (!string.IsNullOrEmpty(address) && string.Equals(address, targetAddress, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(address)
+                && (string.Equals(address, targetAddress, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(address, resolved, StringComparison.OrdinalIgnoreCase)))
                 reached = true;
         }
 
@@ -132,10 +151,29 @@ public static class TracerouteOutputParser
             Vantage = vantage,
             ModeUsed = modeUsed,
             Hops = hops,
+            ResolvedAddress = resolved,
             Reached = reached,
             RawOutput = output,
             Timestamp = timestamp ?? DateTime.UtcNow
         };
+    }
+
+    /// <summary>
+    /// The return hop count <c>--back</c> reported for a hop: the most common one across its replies.
+    /// The binary only prints a count that differs from the forward one, so every reply that printed
+    /// none came home by <paramref name="hopNum"/> hops and votes for that - one odd reply among five
+    /// symmetric ones must not make the hop read as asymmetric. Null when the trace ran without
+    /// <c>--back</c>, where silence means nothing.
+    /// </summary>
+    private static int? ParseReturnHops(string rest, int hopNum, int responses, bool backHopsReported)
+    {
+        if (!backHopsReported || responses == 0) return null;
+        var printed = BackHopsRegex.Matches(rest)
+            .Select(m => int.TryParse(m.Groups[1].Value, out var n) ? n : -1)
+            .Where(n => n > 0)
+            .ToList();
+        var votes = printed.Concat(Enumerable.Repeat(hopNum, Math.Max(0, responses - printed.Count)));
+        return votes.GroupBy(n => n).OrderByDescending(g => g.Count()).ThenBy(g => Math.Abs(g.Key - hopNum)).First().Key;
     }
 
     private static int CountStars(string rest)

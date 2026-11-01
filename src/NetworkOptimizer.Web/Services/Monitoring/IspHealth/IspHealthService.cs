@@ -1115,17 +1115,7 @@ public class IspHealthService
             .OrderBy(g => g.Key)
             .FirstOrDefault()?.Select(t => t.Address)
             ?? Enumerable.Empty<string>();
-        var loadByTime = wanRates.Select(r =>
-        {
-            double? util = null;
-            if (expectedDown is > 0 || expectedUp is > 0)
-            {
-                var d = expectedDown is > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / (expectedDown.Value * 1_000_000) : 0;
-                var u = expectedUp is > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / (expectedUp.Value * 1_000_000) : 0;
-                util = Math.Max(d, u);
-            }
-            return (r.Time, Utilization: util);
-        }).ToList();
+        var loadByTime = wanRates.Select(r => (r.Time, Utilization: Utilization(r, expectedDown, expectedUp))).ToList();
         var congestionTopology = new CongestionTopology
         {
             AccessEgressHopIps = new HashSet<string>(accessEgressIps, StringComparer.OrdinalIgnoreCase),
@@ -1388,6 +1378,14 @@ public class IspHealthService
                     usageFingerprint, UsageWeighting.LocalHoursSpanned(o.Start, o.End, usageZone), _options.UsageWeightFloor);
         }
 
+        var pathCongestion = await LoadPathCongestionAsync(windowStart, windowEnd, scoredWanKey, primaryScope, targets, ct);
+        if (usageFingerprint != null)
+        {
+            foreach (var e in pathCongestion)
+                e.UsageWeight = UsageWeighting.Weight(
+                    usageFingerprint, UsageWeighting.LocalHoursSpanned(e.Start, e.End, TimeZoneInfo.Local), _options.UsageWeightFloor);
+        }
+
         // Stamp the user's "that was me" acknowledgements onto the detected events so the
         // scorer leaves them out of the penalty and the findings.
         if (ackedOutageStarts.Count > 0)
@@ -1436,6 +1434,7 @@ public class IspHealthService
             CongestionEvents = congestionEvents,
             PathShifts = pathShifts,
             Outages = outages,
+            PathCongestion = pathCongestion,
             SmartQueuesEnabled = smartQueuesEnabled,
             AdaptiveSqmEnabled = adaptiveSqmEnabled,
             SqmNominalDownloadMbps = sqmNominalDown,
@@ -1599,6 +1598,85 @@ public class IspHealthService
             : null;
     }
 
+    /// <summary>Most episodes one compute reads: a month of nightly episodes with room to spare.</summary>
+    private const int MaxScoredEpisodes = 200;
+
+    /// <summary>
+    /// The window's Path Localization episodes on the scored WAN that count against the ISP. One
+    /// SQLite read; never fails the compute, since the score stands without it.
+    /// </summary>
+    private async Task<List<PathCongestionEpisode>> LoadPathCongestionAsync(DateTime windowStart, DateTime windowEnd,
+        string scoredWanKey, bool primaryScope, List<MonitoringTarget> scopedTargets, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await CreateSiteDbAsync(ct);
+            var episodes = await new NetworkOptimizer.Storage.Repositories.PathEpisodeRepository(db).GetOverlappingAsync(windowStart, windowEnd, MaxScoredEpisodes, ct);
+            var key = GatewayWanHelper.WanInterfaceKeyFromKey(scoredWanKey);
+            episodes = episodes.Where(e => (primaryScope && e.WanContextId == null)
+                || (e.WanInterface != null && string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(e.WanInterface), key, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (episodes.Count == 0) return new List<PathCongestionEpisode>();
+
+            var ids = episodes.SelectMany(e => e.Targets.Select(t => t.MonitoringTargetId)).Distinct().ToList();
+            var asnById = await db.MonitoringTargets.AsNoTracking().Where(t => ids.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.AsnNumber, ct);
+            var destinationAsns = scopedTargets
+                .Where(t => t.TargetType == MonitoringTargetType.InternetService && t.AsnNumber is > 0)
+                .Select(t => t.AsnNumber!.Value)
+                .ToHashSet();
+            return ScorablePathCongestion(episodes, asnById, destinationAsns, windowStart, windowEnd, _options.PathCongestionMinAsns);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "ISP Health: could not read Path Localization episodes; scoring without them");
+            return new List<PathCongestionEpisode>();
+        }
+    }
+
+    /// <summary>
+    /// The episodes that point at the ISP's upstream: analyzed, degraded destinations across at
+    /// least <paramref name="minAsns"/> networks, and not the access-layer verdict (Packet Loss
+    /// and Uptime already grade the access layer).
+    /// </summary>
+    internal static List<PathCongestionEpisode> ScorablePathCongestion(IEnumerable<PathEpisode> episodes,
+        IReadOnlyDictionary<int, int?> asnByTargetId, IReadOnlySet<int> destinationAsns,
+        DateTime windowStart, DateTime windowEnd, int minAsns)
+    {
+        var result = new List<PathCongestionEpisode>();
+        foreach (var e in episodes)
+        {
+            if (string.IsNullOrEmpty(e.BottleneckLabel)) continue;
+            var snapshot = PathLocalization.PathGateSnapshot.Read(e.GateSnapshot);
+            if (e.BottleneckHopIp != null && snapshot.AccessHops.Contains(e.BottleneckHopIp, StringComparer.OrdinalIgnoreCase)) continue;
+
+            var degraded = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).ToList();
+            var asns = degraded
+                .Select(t => asnByTargetId.TryGetValue(t.MonitoringTargetId, out var a) ? a : null)
+                .Where(a => a is > 0).Select(a => a!.Value)
+                .ToHashSet();
+            if (asns.Count < minAsns) continue;
+
+            var start = PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt);
+            var end = e.ClosedAt is DateTime c ? PathLocalization.PathEpisodeTraceMapping.Utc(c) : windowEnd;
+            if (start < windowStart) start = windowStart;
+            if (end > windowEnd) end = windowEnd;
+            if (end <= start) continue;
+
+            result.Add(new PathCongestionEpisode
+            {
+                EpisodeId = e.Id,
+                Start = start,
+                End = end,
+                DegradedAsns = asns.Count,
+                DestinationAsns = destinationAsns.Union(asns).Count(),
+                PeakLossPct = degraded.Max(t => t.PeakLossPct ?? 0),
+                RttRiseMs = degraded.Max(t => t.PeakRttMs is double p && t.BaselineRttMs is double b ? Math.Max(0, p - b) : 0)
+            });
+        }
+        return result;
+    }
+
     /// <summary>
     /// The primary's scored key: the console's answer, or the lone discovery context's key when
     /// the console's matches none (see <see cref="ReconcilePrimaryWanKey"/>). Logs the swap.
@@ -1714,6 +1792,28 @@ public class IspHealthService
     {
         var (report, _) = await ComputeForWindowAsync(windowStart, windowEnd, forceRefresh, ct);
         return report;
+    }
+
+    /// <summary>A rate sample's load as a fraction of the plan, worst direction; null when neither plan speed is known.</summary>
+    private static double? Utilization(ThroughputSample r, double? expectedDown, double? expectedUp)
+    {
+        if (expectedDown is not > 0 && expectedUp is not > 0) return null;
+        var d = expectedDown is > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / (expectedDown.Value * 1_000_000) : 0;
+        var u = expectedUp is > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / (expectedUp.Value * 1_000_000) : 0;
+        return Math.Max(d, u);
+    }
+
+    /// <summary>
+    /// Median WAN utilization over a span, as a fraction of this WAN's plan (worst direction), from the
+    /// same counters and plan speeds the report's load series uses. Null when the plan or the counters
+    /// are unknown - which a caller must read as "could not tell", never as idle.
+    /// </summary>
+    public async Task<double?> GetMedianUtilizationAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var ratesTask = QueryWanRatesAsync(from, to, TimeSpan.FromSeconds(_options.LoadWindowSeconds), ct);
+        var (down, up, _, _, _) = await ResolveExpectedSpeedsAsync(ct);
+        var rates = WanRateSanitizer.Filter(await ratesTask, down, up, _options).Samples;
+        return SeriesStats.Median(rates.Select(r => Utilization(r, down, up)).Where(u => u.HasValue).Select(u => u!.Value).ToList());
     }
 
     private async Task<List<ThroughputSample>> QueryWanRatesAsync(DateTime from, DateTime to, TimeSpan aggregate, CancellationToken ct)
