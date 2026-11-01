@@ -5,8 +5,8 @@ import {
     autocompletion, startCompletion, closeCompletion, completionStatus, currentCompletions, setSelectedCompletion,
     setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
     Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect, StateField, Prec,
-    codeFolding, foldEffect, unfoldEffect, foldedRanges,
-} from '../lib/codemirror/codemirror.bundle.js?v=7';
+    codeFolding, foldEffect, unfoldEffect, foldedRanges, openSearchPanel,
+} from '../lib/codemirror/codemirror.bundle.js?v=8';
 
 const highlight = HighlightStyle.define([
     { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--info-color)' },
@@ -965,6 +965,35 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
     host._cc = { view, state };
     state.silent = true;
     try { foldIds(view, loadFolds(state, key)); } finally { state.silent = false; }
+    armSearchOnScroll(view, state);
+}
+
+/**
+ * Ctrl+F (Cmd+F) opens the editor's search once the reader has scrolled it, without a click into it first.
+ * Scrolling arms it (wheel, touch, or a drag on the scrollbar); working anywhere else on the page disarms it.
+ * The editor is not focused on scroll: that would move the reader to the cursor and take focus from other fields.
+ */
+function armSearchOnScroll(view, state) {
+    const arm = () => { state.searchArmed = true; };
+    const onScrollbar = e => { if (e.target === view.scrollDOM) arm(); };
+    const disarm = e => { if (!view.dom.contains(e.target)) state.searchArmed = false; };
+    const onKey = e => {
+        if (!state.searchArmed || view.hasFocus || e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey)
+            || e.key.toLowerCase() !== 'f' || !view.dom.isConnected) return;
+        e.preventDefault();
+        openSearchPanel(view);
+    };
+    view.scrollDOM.addEventListener('wheel', arm, { passive: true });
+    view.scrollDOM.addEventListener('touchmove', arm, { passive: true });
+    view.scrollDOM.addEventListener('pointerdown', onScrollbar);
+    document.addEventListener('pointerdown', disarm, true);
+    document.addEventListener('focusin', disarm, true);
+    document.addEventListener('keydown', onKey, true);
+    state.removeSearchListeners = () => {
+        document.removeEventListener('pointerdown', disarm, true);
+        document.removeEventListener('focusin', disarm, true);
+        document.removeEventListener('keydown', onKey, true);
+    };
 }
 
 /**
@@ -1131,6 +1160,7 @@ export function dispose(host) {
     const cc = host?._cc;
     if (!cc) return;
     clearTimeout(cc.state.timer);
+    cc.state.removeSearchListeners?.();
     cc.view.destroy();
     host._cc = null;
 }
