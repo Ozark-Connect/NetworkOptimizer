@@ -572,6 +572,34 @@ public static partial class YamlConverter
     }
 
     /// <summary>The collection a reference field points into, when the name says; null searches every collection.</summary>
+    /// <summary>The edited object with each <c>&lt;keep current&gt;</c> secret replaced by the stored value at the same place.</summary>
+    private static JsonObject KeepingSecrets(ConfigCollectionDef def, JsonObject before, JsonObject edited)
+    {
+        var copy = (JsonObject)edited.DeepClone();
+        Fill(copy, before);
+        return copy;
+
+        void Fill(JsonNode? e, JsonNode? b)
+        {
+            switch (e, b)
+            {
+                case (JsonObject eo, JsonObject bo):
+                    foreach (var key in eo.Select(p => p.Key).ToList())
+                    {
+                        if (ConfigCollections.IsSecretField(def, key) && eo[key] is JsonValue v && v.TryGetValue<string>(out var s)
+                            && s == PlanBuilder.KeepSecret && bo.ContainsKey(key))
+                            eo[key] = bo[key]?.DeepClone();
+                        else
+                            Fill(eo[key], bo[key]);
+                    }
+                    break;
+                case (JsonArray ea, JsonArray ba):
+                    for (var i = 0; i < Math.Min(ea.Count, ba.Count); i++) Fill(ea[i], ba[i]);
+                    break;
+            }
+        }
+    }
+
     internal static string? TargetCollection(string field) => field switch
     {
         // Before "network": client group references (network_members_group_ids) are not networks.
@@ -714,15 +742,19 @@ public static partial class YamlConverter
         // Compared as resolved (zone names to IDs); raw only gives each object's line.
         var resolved = result.Collections.SelectMany(c => c.Value.Select(o => (Key: c.Key, Id: ConfigState.IdOf(o), Obj: o)))
             .GroupBy(x => (x.Key, x.Id)).ToDictionary(g => g.Key, g => g.First().Obj);
+        // By collection and ID: a mirror collection (v2 RADIUS profiles) shares its IDs with v1.
+        var baseObjects = baseState.Collections.SelectMany(c => c.Value.Select(o => (Key: c.Key, Id: ConfigState.IdOf(o), Obj: o)))
+            .GroupBy(x => (x.Key, x.Id)).ToDictionary(g => g.Key, g => g.First().Obj);
         foreach (var (def, node, obj) in raw)
         {
             var id = ConfigState.IdOf(obj);
-            if (!baseById.TryGetValue(id, out var before) || before.Collection != def.Key
-                || ConfigCollections.ManagedBy(def, before.Object) is not { } who
+            if (!baseObjects.TryGetValue((def.Key, id), out var before)
+                || ConfigCollections.ManagedBy(def, before) is not { } who
                 || !resolved.TryGetValue((def.Key, id), out var edited)
                 // Shared fields only: the export leaves out fields UniFi derives, so an untouched object differs in those.
-                || ConfigDiffEngine.SharedFieldsEqual(def, before.Object, edited, new Dictionary<string, string>())) continue;
-            var name = $"{def.Noun} {ConfigState.DisplayName(def, before.Object)}";
+                // A downloaded file's <keep current> stands for the stored secret, as Review Plan reads it.
+                || ConfigDiffEngine.SharedFieldsEqual(def, before, KeepingSecrets(def, before, edited), new Dictionary<string, string>())) continue;
+            var name = $"{def.Noun} {ConfigState.DisplayName(def, before)}";
             result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who == "UniFi"
                 ? $"{name} is managed by UniFi and cannot be edited here."
                 : $"{name} belongs to {who} and cannot be edited here."));

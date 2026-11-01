@@ -10,17 +10,17 @@ public class EditRoundTripTests
 {
     private static JsonObject Obj(string json) => (JsonObject)JsonNode.Parse(json)!;
 
-    // Parsed as the Edit tab parses: one file per collection group, through ParseEdits. Downloaded YAML carries no
-    // IDs; the tab's own files carry every ID. Both must parse back clean.
+    // Parsed as the Edit tab parses: one file per collection group, through ParseEdits. The download carries no IDs and
+    // redacts secrets (<keep current>); the tab's own files carry every ID and masked secret tokens. All must parse clean.
     private static List<YamlProblem> RoundTrip(ConfigState state, params string[] collections) =>
-        new[] { false, true }.SelectMany(ids =>
-        {
-            var files = collections.Select(ConfigCollections.Get).GroupBy(d => d!.Group)
-                .ToDictionary(g => g.First()!.Key, g => YamlConverter.Export(state, g.Select(d => d!.Key), SecretMode.Mask, ids));
-            return ChangeControlService.ParseEdits(state, files).Problems
-                .Select(p => new YamlProblem(p.Level, ids ? "with ids" : "without ids", p.Line, p.Message));
-        }).ToList();
-
+        new[] { (Ids: false, Secrets: SecretMode.Redact), (Ids: false, Secrets: SecretMode.Mask), (Ids: true, Secrets: SecretMode.Mask) }
+            .SelectMany(mode =>
+            {
+                var files = collections.Select(ConfigCollections.Get).GroupBy(d => d!.Group)
+                    .ToDictionary(g => g.First()!.Key, g => YamlConverter.Export(state, g.Select(d => d!.Key), mode.Secrets, mode.Ids));
+                return ChangeControlService.ParseEdits(state, files).Problems
+                    .Select(p => new YamlProblem(p.Level, $"ids={mode.Ids} {mode.Secrets}", p.Line, p.Message));
+            }).ToList();
     [Fact]
     public void ClientGroupReferences_ResolveToClientGroups()
     {
