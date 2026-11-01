@@ -674,14 +674,16 @@ public sealed partial class ChangeControlService : IChangeControlService
         ConfigState baseState, IReadOnlyDictionary<string, string> files)
     {
         var declared = new ConfigState();
-        foreach (var (key, list) in ParseFiles(null).Desired.Collections)
+        var firstPass = ParseFiles(null, null).Desired;
+        foreach (var (key, list) in firstPass.Collections)
         {
             var created = list.Where(o => ConfigState.IdOf(o).StartsWith(YamlConverter.TempIdPrefix, StringComparison.Ordinal)).ToList();
             if (created.Count > 0) declared.Collections[key] = created;
         }
-        var (desired, problems, touched) = ParseFiles(declared);
+        // The first pass's whole edit: a delete in one file is checked against what the other files leave referring to it.
+        var (desired, problems, touched) = ParseFiles(declared, firstPass);
 
-        (ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Touched) ParseFiles(ConfigState? others)
+        (ConfigState Desired, List<YamlProblem> Problems, HashSet<string> Touched) ParseFiles(ConfigState? others, ConfigState? edited)
         {
             var state = baseState.Clone();
             var found = new List<YamlProblem>();
@@ -690,7 +692,7 @@ public sealed partial class ChangeControlService : IChangeControlService
             {
                 var def = ConfigCollections.Get(collection);
                 if (def == null) continue;
-                var parsed = YamlConverter.Parse(text, state, YamlConverter.FileName(def), others);
+                var parsed = YamlConverter.Parse(text, state, YamlConverter.FileName(def), others, edited);
                 found.AddRange(parsed.Problems);
                 foreach (var (c, list) in parsed.Collections)
                 {

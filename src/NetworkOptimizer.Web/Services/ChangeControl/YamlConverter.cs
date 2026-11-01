@@ -378,7 +378,8 @@ public static partial class YamlConverter
     /// A new object keeps a temporary ID (<see cref="TempIdPrefix"/>, stable for the same text), which
     /// Review Plan turns into a reference to its create.
     /// </summary>
-    public static YamlParseResult Parse(string text, ConfigState baseState, string fileName, ConfigState? declared = null)
+    /// <param name="edited">The whole edit's state (every file applied): a delete is checked against what the other files leave referring to it, not the base.</param>
+    public static YamlParseResult Parse(string text, ConfigState baseState, string fileName, ConfigState? declared = null, ConfigState? edited = null)
     {
         var result = new YamlParseResult();
         var stream = new YamlStream();
@@ -503,7 +504,7 @@ public static partial class YamlConverter
             result.Collections[def.Key].Add(resolved);
         }
 
-        Lint(result, baseState, raw, fileName);
+        Lint(result, baseState, raw, fileName, editedState: edited);
         return result;
     }
 
@@ -729,7 +730,7 @@ public static partial class YamlConverter
     }
 
     /// <summary>Warnings and notes that do not stop Review Plan, from the mockup's Problems card.</summary>
-    private static void Lint(YamlParseResult result, ConfigState baseState, List<(ConfigCollectionDef Def, YamlMappingNode Node, JsonObject Obj)> raw, string fileName)
+    private static void Lint(YamlParseResult result, ConfigState baseState, List<(ConfigCollectionDef Def, YamlMappingNode Node, JsonObject Obj)> raw, string fileName, ConfigState? editedState)
     {
         var baseById = baseState.ObjectsById();
         foreach (var (def, node, obj) in raw.Where(r => r.Def.Key == "wlanconf"))
@@ -817,15 +818,21 @@ public static partial class YamlConverter
                     $"{def.DisplayName} are read-only in Network Optimizer: {Names(def, removedObjects)} will not be deleted."));
                 continue;
             }
+            // The owning feature re-provisions these, and Review Plan writes nothing for them (PlanBuilder): one line per
+            // owner, since a feature keeps one same-named object per zone pair.
+            foreach (var owned in removedObjects.Where(o => ConfigCollections.OwnedBy(def, o) != null).GroupBy(o => ConfigCollections.OwnedBy(def, o)!))
+            {
+                var names = owned.GroupBy(o => ConfigState.DisplayName(def, o))
+                    .Select(g => g.Count() == 1 ? g.Key : $"{g.Key} ({g.Count()})").ToList();
+                var count = owned.Count();
+                result.Problems.Add(new YamlProblem("Warning", fileName, 1, count == 1
+                    ? $"{def.Noun} {names[0]} belongs to {owned.Key} and is not deleted here."
+                    : $"{def.DisplayName} {List(names)} belong to {owned.Key} and are not deleted here."));
+            }
             foreach (var removed in removedObjects)
             {
                 var name = $"{def.Noun} {ConfigState.DisplayName(def, removed)}";
-                // The owning feature re-provisions it, and Review Plan writes nothing for it (PlanBuilder).
-                if (ConfigCollections.OwnedBy(def, removed) is { } owner)
-                {
-                    result.Problems.Add(new YamlProblem("Warning", fileName, 1, $"{name} belongs to {owner} and is not deleted here."));
-                    continue;
-                }
+                if (ConfigCollections.OwnedBy(def, removed) != null) continue;
                 if (def.IsGenerated?.Invoke(removed) == true)
                 {
                     Generated(def);
@@ -839,7 +846,7 @@ public static partial class YamlConverter
                 var id = ConfigState.IdOf(removed);
                 var cascaded = new List<string>();
                 var blocking = new List<string>();
-                foreach (var (refCollection, objects) in result.Collections.Concat(baseState.Collections.Where(c => !result.Collections.ContainsKey(c.Key))))
+                foreach (var (refCollection, objects) in result.Collections.Concat((editedState ?? baseState).Collections.Where(c => !result.Collections.ContainsKey(c.Key))))
                 {
                     var refDef = ConfigCollections.Get(refCollection);
                     foreach (var o in objects)
