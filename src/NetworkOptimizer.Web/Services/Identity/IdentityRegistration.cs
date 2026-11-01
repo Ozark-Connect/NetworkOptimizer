@@ -1,15 +1,12 @@
-﻿using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
 using NetworkOptimizer.Web.Services.Gates;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace NetworkOptimizer.Web.Services.Identity;
 
@@ -168,7 +165,7 @@ public static class IdentityRegistration
             // Secure only over HTTPS - LAN installs on plain http://host:8042 must still work.
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
             options.SlidingExpiration = true;
-            options.ExpireTimeSpan = TimeSpan.FromDays(14);
+            options.ExpireTimeSpan = IdleTimeout;
             options.LoginPath = "/login";
             options.LogoutPath = "/api/auth/logout";
             // NOT the login page: a policy refusing an authenticated user is not a failure to
@@ -213,8 +210,8 @@ public static class IdentityRegistration
                 return Task.CompletedTask;
             };
 
-            // Every sign-in, refreshes included: a login keeps the id and start time it was given at
-            // sign-in (a refresh carries the cookie's properties over), and a new login gets new ones.
+            // Every sign-in, refreshes included: a login keeps the id it was given at sign-in (a
+            // refresh carries the cookie's properties over), and a new login gets a new one.
             options.Events.OnSigningIn = context =>
             {
                 StampLogin(context.Properties, context.Principal);
@@ -228,7 +225,7 @@ public static class IdentityRegistration
             {
                 var store = context.HttpContext.RequestServices.GetRequiredService<EndedSessionStore>();
                 var loginId = context.Principal?.FindFirst(NetOptClaims.LoginId)?.Value;
-                if (await store.IsEndedAsync(loginId, context.HttpContext.RequestAborted) || LoginTooOld(context.Properties))
+                if (await store.IsEndedAsync(loginId, context.HttpContext.RequestAborted))
                 {
                     context.RejectPrincipal();
                     await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
@@ -262,24 +259,27 @@ public static class IdentityRegistration
     }
 
     /// <summary>
-    /// The longest one login lasts, however often it is used. Sliding expiry alone renews a busy
-    /// cookie forever, which would keep a cookie left on another machine alive as long as it is used.
+    /// How long a login lasts unused. The cookie slides, so any use renews it; there is
+    /// deliberately no cap on a login's total age, which would sign out people who are using it.
     /// </summary>
-    public static readonly TimeSpan MaxLoginAge = TimeSpan.FromDays(30);
-
-    private const string LoginIdItem = "netopt.login";
-    private const string LoginStartedItem = "netopt.login.started";
+    public static readonly TimeSpan IdleTimeout = TimeSpan.FromDays(30);
 
     /// <summary>
-    /// Gives a login its id and start time if it has none, and puts the id on the principal so a
-    /// Blazor circuit, which sees only the principal, can be checked against it too.
+    /// How long an ended login is remembered. With no age cap, a copied cookie used at least every
+    /// <see cref="IdleTimeout"/> never expires on its own, so its record has to outlive it.
+    /// </summary>
+    public static readonly TimeSpan EndedLoginRetention = TimeSpan.FromDays(365);
+
+    private const string LoginIdItem = "netopt.login";
+
+    /// <summary>
+    /// Gives a login its id if it has none, and puts the id on the principal so a Blazor circuit,
+    /// which sees only the principal, can be checked against it too.
     /// </summary>
     private static void StampLogin(AuthenticationProperties properties, ClaimsPrincipal? principal)
     {
         if (!properties.Items.TryGetValue(LoginIdItem, out var loginId) || string.IsNullOrEmpty(loginId))
             properties.Items[LoginIdItem] = loginId = Guid.NewGuid().ToString("N");
-        if (!properties.Items.ContainsKey(LoginStartedItem))
-            properties.Items[LoginStartedItem] = DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture);
 
         if (principal?.Identity is not ClaimsIdentity identity) return;
         foreach (var stale in identity.FindAll(NetOptClaims.LoginId).ToList())
@@ -287,15 +287,9 @@ public static class IdentityRegistration
         identity.AddClaim(new Claim(NetOptClaims.LoginId, loginId!));
     }
 
-    /// <summary>Past <see cref="MaxLoginAge"/>. A cookie with no recorded start is stamped now, not refused.</summary>
-    private static bool LoginTooOld(AuthenticationProperties properties) =>
-        properties.Items.TryGetValue(LoginStartedItem, out var started)
-        && long.TryParse(started, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks)
-        && DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) > MaxLoginAge;
-
     /// <summary>The login a request's cookie belongs to, for ending it at sign-out.</summary>
     public static string? LoginIdOf(ClaimsPrincipal principal) => principal.FindFirst(NetOptClaims.LoginId)?.Value;
 
-    /// <summary>When the last cookie of a login started now could still be valid: the age cap.</summary>
-    public static DateTime LoginExpiry() => DateTime.UtcNow + MaxLoginAge;
+    /// <summary>How long an ending login is kept on record: see <see cref="EndedLoginRetention"/>.</summary>
+    public static DateTime LoginExpiry() => DateTime.UtcNow + EndedLoginRetention;
 }
