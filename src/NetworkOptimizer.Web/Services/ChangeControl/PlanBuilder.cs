@@ -330,6 +330,10 @@ public static class PlanBuilder
         if (def.Key == "networkconf" && remapped["ip_subnet"]?.ToString() != live?["ip_subnet"]?.ToString()
             && SubnetProblem(remapped) is { } subnetProblem && $"{def.Noun} {name}: {subnetProblem}" is var subnetError && !doc.Errors.Contains(subnetError))
             doc.Errors.Add(subnetError);
+        if (def.Key == "setting" && remapped["key"]?.ToString() == "doh")
+            foreach (var problem in DohServerNameProblems(remapped))
+                if ($"{def.Noun} {name}: {problem}" is var dohError && !doc.Errors.Contains(dohError))
+                    doc.Errors.Add(dohError);
         RestoreKeptSecrets(def, live, remapped, doc, name);
         if (live != null)
             foreach (var field in remapped.Select(p => p.Key).ToList())
@@ -503,6 +507,16 @@ public static class PlanBuilder
             return "WPA2/WPA3 transition needs pmf_mode: optional or required; UniFi refuses disabled.";
         return null;
     }
+
+    /// <summary>
+    /// Custom DoH server names UniFi refuses: a name may not contain whitespace. UniFi reports only the generic
+    /// app.err.DohCustomServersInvalidConfiguration, so the reason is said here, before the write.
+    /// </summary>
+    internal static IEnumerable<string> DohServerNameProblems(JsonObject doh) =>
+        (doh["custom_servers"] as JsonArray ?? []).OfType<JsonObject>()
+            .Select(s => s["server_name"] is JsonValue v && v.TryGetValue<string>(out var n) ? n : null)
+            .Where(n => n != null && n.Any(char.IsWhiteSpace))
+            .Select(n => $"DoH server name \"{n}\" contains a space, which UniFi Network does not allow.");
 
     /// <summary>
     /// A network subnet UniFi refuses (api.err.IncorrectIPSubnetSpec, Network 11, 2026-10-29):
