@@ -40,7 +40,13 @@ public interface ISqmDeploymentService
     /// <summary>
     /// Remove every SQM script the app has ever deployed, including orphans from earlier versions.
     /// </summary>
-    /// <returns>A tuple indicating success and a descriptive message.</returns>
+    /// <param name="deployInterfaces">WAN interfaces about to be deployed. A WAN whose scripts are
+    /// replaced here but is not in the list gets UniFi's trees back. Null restores them.</param>
+    /// <param name="cakeInterfaces">WAN interfaces about to be deployed with the CAKE download
+    /// shaper. Adaptive SQM's CAKE root is removed from every other IFB. It stays on theirs unless
+    /// the deploy restores UniFi's trees (a WAN leaving CAKE or Adaptive SQM, or scripts from an
+    /// earlier version), and then comes back on the next ping run.</param>
+    /// <returns>Success, a descriptive message, and warnings for any IFB left without a shaper.</returns>
     /// <remarks>
     /// Operator, despite the name: deploying is its only caller, which clears stale and orphaned
     /// scripts immediately before writing the new ones. It is not a standalone teardown - that is
@@ -49,7 +55,8 @@ public interface ISqmDeploymentService
     /// </remarks>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.SqmReverted, TargetType = "wan")]
-    Task<(bool success, string message)> CleanAllSqmScriptsAsync();
+    Task<(bool success, string message, List<string> warnings)> CleanAllSqmScriptsAsync(
+        IReadOnlyCollection<string>? deployInterfaces = null, IReadOnlyCollection<string>? cakeInterfaces = null);
 
     /// <summary>
     /// Check if SQM scripts are already deployed on the gateway.

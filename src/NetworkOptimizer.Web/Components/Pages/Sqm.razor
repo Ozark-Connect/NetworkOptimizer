@@ -671,10 +671,17 @@
                 @* Tour anchor sits on WAN 1 only; a duplicate selector would just resolve to this one. *@
                 <div class="form-group" data-tour="sqm-download-burst">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" />
+                        <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" disabled="@wan1Config.CakeDownload" />
                         <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="wan1Config.CakeDownload" />
+                        <span>CAKE download shaper (experimental)</span>
+                    </label>
+                    <small class="form-hint">@CakeOptInHint</small>
                 </div>
             </div>
                 </div>
@@ -852,10 +859,17 @@
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" />
+                        <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" disabled="@wan2Config.CakeDownload" />
                         <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="wan2Config.CakeDownload" />
+                        <span>CAKE download shaper (experimental)</span>
+                    </label>
+                    <small class="form-hint">@CakeOptInHint</small>
                 </div>
             </div>
                 </div>
@@ -2132,6 +2146,10 @@
         "Helps downloads that fall short of full speed, especially to Wi-Fi clients. " +
         "Upload is unchanged. Turn it off if loaded latency gets worse.";
 
+    private const string CakeOptInHint =
+        "Replaces UniFi's download queue with CAKE: fair shares per device and per-packet overhead accounting. " +
+        "UniFi QoS rules don't apply to this WAN's download; its upload and other WANs keep them.";
+
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static DateTime _lastStatusCheck = DateTime.MinValue;
@@ -2560,6 +2578,7 @@
                     config.LinkSpeedOverrideMbps = saved.LinkSpeedOverrideMbps;
                     config.BootDelaySeconds = saved.BootDelaySeconds;
                     config.RateProportionalDownloadBurst = saved.RateProportionalDownloadBurst;
+                    config.CakeDownload = saved.CakeDownload;
 
                     UpdateCalculatedSpeeds(config);
 
@@ -2631,6 +2650,7 @@
                     LinkSpeedOverrideMbps = wan1Config.LinkSpeedOverrideMbps,
                     BootDelaySeconds = wan1Config.BootDelaySeconds,
                     RateProportionalDownloadBurst = wan1Config.RateProportionalDownloadBurst,
+                    CakeDownload = wan1Config.CakeDownload,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
                     SpeedtestEveningHour = wan1Config.EveningHour,
@@ -2663,6 +2683,7 @@
                     LinkSpeedOverrideMbps = wan2Config.LinkSpeedOverrideMbps,
                     BootDelaySeconds = wan2Config.BootDelaySeconds,
                     RateProportionalDownloadBurst = wan2Config.RateProportionalDownloadBurst,
+                    CakeDownload = wan2Config.CakeDownload,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
                     SpeedtestEveningHour = wan2Config.EveningHour,
@@ -2926,6 +2947,7 @@
         wan1Config.EveningMinute = 0;
         wan1Config.BootDelaySeconds = null;
         wan1Config.RateProportionalDownloadBurst = true;
+        wan1Config.CakeDownload = false;
         wan1Config.UseLearnedProfile = false;
         UpdateCalculatedSpeeds(wan1Config);
 
@@ -2944,6 +2966,7 @@
         wan2Config.EveningMinute = 0;
         wan2Config.BootDelaySeconds = null;
         wan2Config.RateProportionalDownloadBurst = true;
+        wan2Config.CakeDownload = false;
         wan2Config.UseLearnedProfile = false;
         UpdateCalculatedSpeeds(wan2Config);
     }
@@ -3432,11 +3455,17 @@
             // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
             deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
             await ScrollDeploymentLog();
-            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync();
+            // Which WANs deploy, and with CAKE, decides whether UniFi's trees are restored first
+            var deploying = new[] { wan1Config, wan2Config }.Where(w => w.Enabled).ToList();
+            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync(
+                deploying.Select(w => w.Interface).ToList(),
+                deploying.Where(w => w.CakeDownload).Select(w => w.Interface).ToList());
             if (!cleanResult.success)
             {
                 throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
             }
+            deploymentWarnings.AddRange(cleanResult.warnings);
+            deploymentSteps.AddRange(cleanResult.warnings.Select(w => $"⚠️ {w}"));
             deploymentSteps.Add("Existing scripts cleaned");
             await ScrollDeploymentLog();
 
@@ -3844,6 +3873,7 @@
             NominalUploadSpeed = model.NominalUpload,
             ShapeUpload = true,
             RateProportionalDownloadBurst = model.RateProportionalDownloadBurst,
+            CakeDownload = model.CakeDownload,
             PingHost = model.PingHost,
             PreferredSpeedtestServerId = model.SpeedtestServerId,
             // Use user-configured schedule times
@@ -3999,6 +4029,19 @@
         // Opt-in rate-proportional download burst (~1 ms of line time) instead of the 5 KB clamp
         public bool RateProportionalDownloadBurst { get; set; }
 
+        // CAKE has no burst setting, so turning it on clears the larger burst rather than leaving it
+        // saved but inert.
+        public bool CakeDownload
+        {
+            get => _cakeDownload;
+            set
+            {
+                _cakeDownload = value;
+                if (value) RateProportionalDownloadBurst = false;
+            }
+        }
+        private bool _cakeDownload;
+
         // Physical WAN port link speed (null if unknown, e.g., GRE tunnels)
         public int? WanLinkSpeedMbps { get; set; }
 
@@ -4149,7 +4192,7 @@
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
             BaselineLatency, LatencyThreshold, CongestionSeverity, LinkSpeedOverrideMbps,
-            BootDelaySeconds, RateProportionalDownloadBurst, UploadCongestionSeverity, UseLearnedProfile);
+            BootDelaySeconds, RateProportionalDownloadBurst, CakeDownload, UploadCongestionSeverity, UseLearnedProfile);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -4173,6 +4216,7 @@
                    LinkSpeedOverrideMbps != snapshot.LinkSpeedOverrideMbps ||
                    BootDelaySeconds != snapshot.BootDelaySeconds ||
                    RateProportionalDownloadBurst != snapshot.RateProportionalDownloadBurst ||
+                   CakeDownload != snapshot.CakeDownload ||
                    Math.Abs(UploadCongestionSeverity - snapshot.UploadCongestionSeverity) > 0.001 ||
                    UseLearnedProfile != snapshot.UseLearnedProfile;
         }
@@ -4185,7 +4229,7 @@
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
         double BaselineLatency, double LatencyThreshold, double CongestionSeverity,
         int? LinkSpeedOverrideMbps, int? BootDelaySeconds, bool RateProportionalDownloadBurst,
-        double UploadCongestionSeverity, bool UseLearnedProfile);
+        bool CakeDownload, double UploadCongestionSeverity, bool UseLearnedProfile);
 
     public void Dispose()
     {

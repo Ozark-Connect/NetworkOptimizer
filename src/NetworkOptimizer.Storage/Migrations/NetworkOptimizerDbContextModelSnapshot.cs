@@ -4346,6 +4346,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int?>("BootDelaySeconds")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("CakeDownload")
+                        .HasColumnType("INTEGER");
+
                     b.Property<double>("CongestionSeverity")
                         .HasColumnType("REAL");
 
