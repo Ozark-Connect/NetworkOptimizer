@@ -351,7 +351,8 @@ public static class AuthEndpoints
         app.MapPost("/api/auth/logout", async (
             HttpContext context,
             IIdentitySignInService signInService,
-            IAntiforgery antiforgery) =>
+            IAntiforgery antiforgery,
+            EndedSessionStore endedSessions) =>
         {
             try
             {
@@ -360,6 +361,14 @@ public static class AuthEndpoints
             catch (AntiforgeryValidationException)
             {
                 return Results.Redirect("/login");
+            }
+
+            // Deleting the cookie only signs out this browser's copy of it. Ending the login on the
+            // server is what stops any other copy from authenticating.
+            if (IdentityRegistration.LoginIdOf(context.User) is { } loginId
+                && context.User.FindFirstValue(ClaimTypes.NameIdentifier) is { } userId)
+            {
+                await endedSessions.EndAsync(loginId, userId, IdentityRegistration.LoginExpiry(), context.RequestAborted);
             }
 
             await signInService.SignOutAsync();

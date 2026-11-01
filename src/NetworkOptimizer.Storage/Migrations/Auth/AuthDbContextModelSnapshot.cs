@@ -335,6 +335,30 @@ namespace NetworkOptimizer.Storage.Migrations.Auth
                     b.ToTable("AuditEvents", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.Identity.EndedSession", b =>
+                {
+                    b.Property<string>("LoginId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("EndedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("LoginId");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("EndedSessions", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.Identity.FederationProvider", b =>
                 {
                     b.Property<int>("Id")
@@ -557,36 +581,6 @@ namespace NetworkOptimizer.Storage.Migrations.Auth
                     b.ToTable("SiteGroupMembers", (string)null);
                 });
 
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.Identity.UserUiHint", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("HintKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("TimesShown")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId", "HintKey")
-                        .IsUnique();
-
-                    b.ToTable("UserUiHints");
-                });
-
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.Identity.SiteMembership", b =>
                 {
                     b.Property<int>("Id")
@@ -618,6 +612,36 @@ namespace NetworkOptimizer.Storage.Migrations.Auth
                         .IsUnique();
 
                     b.ToTable("SiteMemberships", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.Identity.UserUiHint", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("HintKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TimesShown")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "HintKey")
+                        .IsUnique();
+
+                    b.ToTable("UserUiHints");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
