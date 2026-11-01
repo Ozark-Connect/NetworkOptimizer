@@ -671,7 +671,7 @@
                 @* Tour anchor sits on WAN 1 only; a duplicate selector would just resolve to this one. *@
                 <div class="form-group" data-tour="sqm-download-burst">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" />
+                        <input type="checkbox" @bind="wan1Config.RateProportionalDownloadBurst" disabled="@wan1Config.CakeDownload" />
                         <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
@@ -859,7 +859,7 @@
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" />
+                        <input type="checkbox" @bind="wan2Config.RateProportionalDownloadBurst" disabled="@wan2Config.CakeDownload" />
                         <span>Larger download burst</span>
                     </label>
                     <small class="form-hint">@BurstOptInHint</small>
@@ -4030,7 +4030,19 @@
 
         // Opt-in rate-proportional download burst (~1 ms of line time) instead of the 5 KB clamp
         public bool RateProportionalDownloadBurst { get; set; }
-        public bool CakeDownload { get; set; }
+
+        // CAKE has no burst setting, so turning it on clears the larger burst rather than leaving it
+        // saved but inert.
+        public bool CakeDownload
+        {
+            get => _cakeDownload;
+            set
+            {
+                _cakeDownload = value;
+                if (value) RateProportionalDownloadBurst = false;
+            }
+        }
+        private bool _cakeDownload;
 
         // Physical WAN port link speed (null if unknown, e.g., GRE tunnels)
         public int? WanLinkSpeedMbps { get; set; }
