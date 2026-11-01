@@ -55,10 +55,12 @@ tc() {
 
     /// <summary>
     /// Runs the restore command against stubs: <paramref name="udapi"/> is the body of a
-    /// ubios-udapi-client function, <paramref name="htbAfter"/> whether class 1:1 shows after the
-    /// rebuild. ifbeth4 carries UniFi's htb, ifbeth6 Adaptive SQM's cake, ifb0 no tree at all.
+    /// ubios-udapi-client function (its POST counts rebuilds), <paramref name="htbAfter"/> whether
+    /// class 1:1 shows after a rebuild, and <paramref name="redirectBackOnRebuild"/> the rebuild after
+    /// which eth4's ingress redirect is back (1 = the first). ifbeth4 carries UniFi's htb, ifbeth6
+    /// Adaptive SQM's cake, ifb0 no tree at all; eth4 redirects to ifbeth4.
     /// </summary>
-    private static (string Output, string Calls)? RunRestore(string udapi, bool htbAfter = true)
+    private static (string Output, string Calls)? RunRestore(string udapi, bool htbAfter = true, int redirectBackOnRebuild = 1)
     {
         var bash = new[] { "/bin/bash", "/usr/bin/bash" }.FirstOrDefault(File.Exists);
         if (OperatingSystem.IsWindows() || bash == null) return null;
@@ -74,14 +76,23 @@ tc() {
             var calls = Path.Combine(dir, "calls");
             var script = $@"
 CALLS='{calls}'
+REBUILDS='{Path.Combine(dir, "rebuilds")}'
+echo 0 > ""$REBUILDS""
 sleep() {{ :; }}
-pgrep() {{ return 1; }}
-ubios-udapi-client() {{ echo ""UDAPI $*"" >> ""$CALLS""; {udapi}; }}
+ubios-udapi-client() {{
+    echo ""UDAPI $*"" >> ""$CALLS""
+    [ ""$2 $3"" = ""POST /qos/fw/queues"" ] && echo $(( $(cat ""$REBUILDS"") + 1 )) > ""$REBUILDS""
+    {udapi}
+}}
 tc() {{
+    local n=$(cat ""$REBUILDS"")
     case ""$1 $2 $4"" in
+        ""qdisc show "") echo ""qdisc ingress ffff: dev eth4 parent ffff:fff1 ----------------"" ;;
         ""qdisc show ifbeth4"") echo ""qdisc htb 1: root refcnt 2 r2q 10 default 0x2"" ;;
         ""qdisc show ifbeth6"") echo ""qdisc cake ca4e: root refcnt 2 bandwidth 900Mbit"" ;;
         ""class show ifbeth4""|""class show ifbeth6"") {(htbAfter ? "echo \"class htb 1:1 root rate 1078Mbit ceil 1078Mbit\"" : ":")} ;;
+        ""filter show eth4"") if [ ""$n"" -eq 0 ] || [ ""$n"" -ge {redirectBackOnRebuild} ]; then
+            echo ""filter parent ffff: protocol all pref 49152 u32 chain 0 action order 1: mirred (Egress Redirect to device ifbeth4) stolen""; fi ;;
     esac
 }}
 " + command + "\n";
@@ -110,6 +121,8 @@ tc() {{
         esac
         """;
 
+    private static int Posts(string calls) => calls.Split('\n').Count(c => c.Contains("POST"));
+
     [Fact]
     public void RestoreUniFiQueues_AddsAndDeletesATemporaryQueue_AndChecksEveryShapedIfb()
     {
@@ -127,6 +140,25 @@ tc() {{
     }
 
     [Fact]
+    public void RestoreUniFiQueues_RebuildsOnceMore_WhenAWansRedirectDidNotComeBack()
+    {
+        if (RunRestore(UdapiAnswers, redirectBackOnRebuild: 2) is not { } run) return;
+
+        run.Output.Should().Contain("RESTORE_OK");
+        Posts(run.Calls).Should().Be(2);
+    }
+
+    [Fact]
+    public void RestoreUniFiQueues_ReportsARedirectStillMissing_AfterTheSecondRebuild()
+    {
+        if (RunRestore(UdapiAnswers, redirectBackOnRebuild: 99) is not { } run) return;
+
+        run.Output.Should().Contain("RESTORE_MISSING eth4(redirect)");
+        Posts(run.Calls).Should().Be(2, "one retry, no more");
+        SqmDeploymentService.ParseRestoreUniFiQueues(run.Output).Should().Contain("eth4(redirect)");
+    }
+
+    [Fact]
     public void RestoreUniFiQueues_NamesTheIfbsWhoseTreeDidNotComeBack()
     {
         if (RunRestore(UdapiAnswers, htbAfter: false) is not { } run) return;
@@ -134,6 +166,7 @@ tc() {{
 
         output.Should().Contain("RESTORE_MISSING ifbeth4 ifbeth6", "ifb0 carried no tree before, so it is not expected to");
         SqmDeploymentService.ParseRestoreUniFiQueues(output).Should().Contain("ifbeth4, ifbeth6");
+        Posts(run.Calls).Should().Be(2);
     }
 
     [Fact]
@@ -175,13 +208,102 @@ tc() {{
     }
 
     [Fact]
-    public void RestoreUniFiQueues_WaitsForARunningPingOrSpeedTest_AndHasNoWindowsLineEndings()
+    public void WaitForSqmRuns_CoversPingCalibrationAndALearningProbe_AndTheRestoreNoLongerWaits()
     {
-        var command = SqmDeploymentService.BuildRestoreUniFiQueuesCommand();
+        var wait = SqmDeploymentService.BuildWaitForSqmRunsCommand();
 
-        command.Should().Contain("pgrep -f -- '[-](ping|speedtest)\\.sh'");
-        command.IndexOf("pgrep", StringComparison.Ordinal).Should().BeLessThan(command.IndexOf("POST", StringComparison.Ordinal));
-        command.Should().NotContain("\r");
+        wait.Should().Contain("pgrep -f -- '[-](ping|speedtest)\\.sh'");
+        wait.Should().Contain("/data/sqm/probe-*.lock");
+        wait.Should().Contain($"-lt {ScriptGenerator.ProbeLockMaxAgeSeconds} ]", "a lock left by a killed probe does not hold it up");
+        wait.Should().NotContain("\r");
+        SqmDeploymentService.BuildRestoreUniFiQueuesCommand().Should().NotContain("pgrep");
+        SqmDeploymentService.BuildRemoveCakeRootsCommand(Array.Empty<string>()).Should().NotContain("pgrep");
+    }
+
+    [Fact]
+    public void ReadExistingSqm_ReadsEachPingScriptsInterfaceQdiscAndTreeModel()
+    {
+        var bash = new[] { "/bin/bash", "/usr/bin/bash" }.FirstOrDefault(File.Exists);
+        if (OperatingSystem.IsWindows() || bash == null) return;
+
+        var dir = Path.Combine(Path.GetTempPath(), $"sqm-existing-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dir, "sqm"));
+        Directory.CreateDirectory(Path.Combine(dir, "net", "ifbeth9"));
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "sqm", "fiber-ping.sh"),
+                $"INTERFACE=\"eth4\"\nDOWNLOAD_QDISC=\"cake\"\nTREE_MODEL={ScriptGenerator.TreeModel}\n");
+            File.WriteAllText(Path.Combine(dir, "sqm", "cable-ping.sh"), "INTERFACE=\"eth5\"\n");
+            var command = SqmDeploymentService.BuildReadExistingSqmCommand()
+                .Replace("/data/sqm", Path.Combine(dir, "sqm"))
+                .Replace("/sys/class/net", Path.Combine(dir, "net"));
+            var script = "tc() { [ \"$4\" = ifbeth9 ] && echo 'class htb 1:2 parent 1:1 leaf 2: prio 7 rate 100Kbit ceil 1Gbit'; }\n" + command + "\n";
+
+            var psi = new ProcessStartInfo(bash) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
+            using var proc = Process.Start(psi)!;
+            proc.StandardInput.Write(script.Replace("\r\n", "\n"));
+            proc.StandardInput.Close();
+            var existing = SqmDeploymentService.ParseExistingSqm(proc.StandardOutput.ReadToEnd());
+            proc.WaitForExit(30_000);
+
+            existing.Scripts.Should().BeEquivalentTo(new[]
+            {
+                new SqmDeploymentService.ExistingSqmScript("eth4", "cake", ScriptGenerator.TreeModel),
+                new SqmDeploymentService.ExistingSqmScript("eth5", "", 0),
+            });
+            existing.TunedIfbs.Should().Equal("ifbeth9");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static SqmDeploymentService.ExistingSqm Existing(params (string Iface, string Qdisc, int Model)[] scripts) =>
+        new(scripts.Select(s => new SqmDeploymentService.ExistingSqmScript(s.Iface, s.Qdisc, s.Model)).ToList(), []);
+
+    private static readonly int Current = ScriptGenerator.TreeModel;
+
+    [Fact]
+    public void RestoreReason_SkipsARoutineDeploy()
+    {
+        SqmDeploymentService.RestoreReason(Existing(("eth4", "htb", Current), ("eth5", "cake", Current)),
+            ["eth4", "eth5"], ["eth5"], []).Should().BeNull();
+        SqmDeploymentService.RestoreReason(Existing(("eth4", "htb", Current)), ["eth4"], ["eth4"], [])
+            .Should().BeNull("HTB to CAKE: CAKE replaces the tree anyway");
+        SqmDeploymentService.RestoreReason(new SqmDeploymentService.ExistingSqm([], []), ["eth4"], [], [])
+            .Should().BeNull("a first deploy over UniFi's own trees");
+    }
+
+    [Fact]
+    public void RestoreReason_RestoresWhenCakeIsTurnedOff()
+    {
+        SqmDeploymentService.RestoreReason(Existing(("eth4", "cake", Current)), ["eth4"], [], [])
+            .Should().Contain("CAKE turned off on eth4");
+        SqmDeploymentService.RestoreReason(Existing(("eth4", "htb", Current)), ["eth4"], [], ["ifbeth4"])
+            .Should().Contain("CAKE turned off on ifbeth4", "a CAKE root the removal just took off counts too");
+    }
+
+    [Fact]
+    public void RestoreReason_RestoresWhenAWanIsNoLongerDeployed()
+    {
+        SqmDeploymentService.RestoreReason(Existing(("eth4", "htb", Current), ("eth5", "htb", Current)), ["eth4"], [], [])
+            .Should().Contain("no longer deployed on eth5");
+    }
+
+    [Fact]
+    public void RestoreReason_RestoresOnceOverScriptsFromAnEarlierVersion()
+    {
+        SqmDeploymentService.RestoreReason(Existing(("eth4", "", 0)), ["eth4"], [], [])
+            .Should().Contain("earlier version");
+        SqmDeploymentService.RestoreReason(new SqmDeploymentService.ExistingSqm([], ["ifbeth4"]), ["eth4"], [], [])
+            .Should().Contain("earlier version", "trees an older Remove left tuned, with no scripts to say so");
+    }
+
+    [Fact]
+    public void RestoreReason_RestoresWithoutADeployList()
+    {
+        SqmDeploymentService.RestoreReason(Existing(("eth4", "htb", Current)), null, [], []).Should().NotBeNull();
     }
 
     [Fact]

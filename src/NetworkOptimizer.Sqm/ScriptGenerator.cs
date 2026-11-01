@@ -624,6 +624,11 @@ public class ScriptGenerator
         sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
+        sb.AppendLine($"HOLD_FILE=\"/data/sqm/{_name}-hold.txt\"");
+        sb.AppendLine($"HOLD_RUNS={HoldRuns}");
+        // Read by the next deploy: scripts without it predate the restore, and the trees they tuned
+        // carry values (fq_codel limit 2000) that only a restore puts back.
+        sb.AppendLine($"TREE_MODEL={TreeModel}");
         sb.AppendLine();
 
         // Baseline data
@@ -797,6 +802,12 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
 
+        // TC functions first: the hysteresis reads the rate the last run set
+        sb.AppendLine(GetTcUpdateFunction());
+        sb.AppendLine();
+        sb.AppendLine(HysteresisLogicText);
+        sb.AppendLine();
+
         if (dynamicUpload)
         {
             // The ping cannot tell which direction is saturated, so a latency cut scales upload
@@ -808,10 +819,6 @@ public class ScriptGenerator
             sb.AppendLine("fi");
             sb.AppendLine();
         }
-
-        // TC update function and apply
-        sb.AppendLine(GetTcUpdateFunction());
-        sb.AppendLine();
 
         // Skip tc update if rate hasn't changed (avoids no-op tc rewrites every minute)
         sb.AppendLine("# Skip tc update if rate unchanged");
@@ -1062,14 +1069,6 @@ calc_fq_mem() {
     echo ""$mem""
 }
 
-# Calculate fq_codel packet limit scaled to rate
-# Stock 2000p is fine for all tested rates — not the binding constraint
-calc_fq_limit() {
-    local rate_mbps=$1
-    local limit=2000
-    echo ""$limit""
-}
-
 # Function to update all TC classes on a device
 # Usable means a number carrying a non-zero digit. Pure shell: the arithmetic that produced the
 # value may be exactly what failed, and an integer test would truncate a fractional rate to 0.
@@ -1158,7 +1157,6 @@ update_all_tc_classes() {
     local burst_mode=${3:-0}
     local burst=$(calc_burst $new_rate $burst_mode)
     local fq_mem=$(calc_fq_mem $new_rate)
-    local fq_limit=$(calc_fq_limit $new_rate)
 
     # Update the root class 1:1 with rate and ceil
     tc class change dev $device parent 1: classid 1:1 htb rate ${new_rate}Mbit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b
@@ -1183,8 +1181,9 @@ update_all_tc_classes() {
             local qdisc_line=$(tc qdisc show dev $device | grep -E ""parent ${classid}( |$)"")
             local qdisc_type=$(echo ""$qdisc_line"" | awk '{print $2}')
             local leaf_qdisc=$(echo ""$qdisc_line"" | awk '{print $3}')
+            # No limit: UniFi sizes it (2000p, 10240p above 1 Gbit on UniFi OS 6), and a change keeps it
             if [ ""$qdisc_type"" = ""fq_codel"" ] && [ -n ""$leaf_qdisc"" ]; then
-                tc qdisc change dev $device parent $classid handle $leaf_qdisc fq_codel limit $fq_limit memory_limit $fq_mem target 5ms interval 100ms ecn
+                tc qdisc change dev $device parent $classid handle $leaf_qdisc fq_codel memory_limit $fq_mem target 5ms interval 100ms ecn
             fi
 
             if [ -n ""$prio"" ]; then
@@ -1313,13 +1312,56 @@ else
 fi";
     }
 
+    /// <summary>Ping runs a latency cut is held for before the rate climbs again.</summary>
+    public const int HoldRuns = 3;
+
+    /// <summary>
+    /// Version of the shape the scripts leave UniFi's trees in. A deploy restores UniFi's trees when
+    /// the scripts it replaces carry an older one (or none).
+    /// </summary>
+    public const int TreeModel = 2;
+
+    /// <summary>
+    /// Hysteresis for the ping script. Each run computes the rate from the schedule ceiling alone, so
+    /// at a line's limit it cut and recovered every minute. After a latency cut the cut rate holds for
+    /// <see cref="HoldRuns"/> runs, then climbs one LATENCY_INCREASE step per run from the rate the
+    /// last run set until it reaches the computed rate. A run that cuts again restarts the hold.
+    /// Only that recovery is limited: a tree UniFi rebuilt at its own, lower rate is not, or it would
+    /// take many minutes to climb back.
+    /// HOLD_FILE holds the runs left, "c" while climbing, or 0.
+    /// </summary>
+    internal static string HysteresisLogicText => @"# Hysteresis: hold a latency cut, then climb back in steps
+prev_rate=$(read_root_rate_mbps $IFB_DEVICE)
+hold=$(cat ""$HOLD_FILE"" 2>/dev/null)
+case ""$hold"" in c|[0-9]|[0-9][0-9]) ;; *) hold=0 ;; esac
+climbs=0
+rate_is_valid ""$prev_rate"" && [ ""$new_rate_int"" -gt ""$prev_rate"" ] && climbs=1
+if [ ""$latency_cut"" = ""1"" ]; then
+    hold=$HOLD_RUNS
+elif [ ""$hold"" = ""c"" ]; then
+    hold=0
+    if [ ""$climbs"" = ""1"" ]; then
+        step=$(num_i ""$prev_rate * $LATENCY_INCREASE"")
+        [ ""$step"" -le ""$prev_rate"" ] && step=$((prev_rate + 1))
+        if [ ""$new_rate_int"" -gt ""$step"" ]; then new_rate_int=$step; hold=c; fi
+    fi
+elif [ ""$hold"" -gt 0 ]; then
+    hold=$((hold - 1))
+    [ ""$hold"" -eq 0 ] && hold=c
+    [ ""$climbs"" = ""1"" ] && new_rate_int=$prev_rate
+fi
+echo ""$hold"" > ""$HOLD_FILE""
+new_rate=$new_rate_int";
+
     /// <summary>
     /// Get latency adjustment logic for ping script
     /// </summary>
     private string GetLatencyAdjustmentLogic()
     {
         return @"# Latency-based adjustment
+latency_cut=0
 if (( $(num_bool ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"") )); then
+    latency_cut=1
     # High latency: decrease rate with non-linear response ((n+1)^0.7 - 1)
     # Gentle at low deviations (transient spikes), aggressive at high (real congestion)
     effective_count=$(num_s 4 ""exp(0.7 * log($deviation_count + 1)) - 1"")

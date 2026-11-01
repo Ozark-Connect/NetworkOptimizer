@@ -552,8 +552,9 @@ Requires Gateway SSH and UniFi Smart Queues.
 - **Congestion Profile Learning** - learns your line's weekly congestion pattern over 7 days
   - Samples wait for an idle WAN and stay clear of scheduled SQM speed tests
 - Morning and evening speed tests, boot delay, ping target, Ookla server override, larger download burst
+- **CAKE download shaper (experimental)** - per WAN, CAKE in place of HTB for download: fair shares per device
 - **Live SQM Status** per WAN; **Run SQM Adjustment** on demand
-- Deploy, deploy settings only, deploy monitor only, remove; persists through reboots
+- Deploy, deploy settings only, deploy monitor only, remove (restores UniFi's own Smart Queues); persists through reboots
 - Logs per WAN for debugging
 
 ## WAN Steering

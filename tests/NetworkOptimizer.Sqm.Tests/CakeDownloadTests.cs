@@ -297,7 +297,8 @@ modprobe() {{ :; }}
 export -f ping ip pgrep tc modprobe
 ";
             // First run: learn the rate the loop settles on with HTB answering at a different rate.
-            File.WriteAllText(Path.Combine(dir, "rate"), "1");
+            // Above it, so the hysteresis climb limit does not come into play.
+            File.WriteAllText(Path.Combine(dir, "rate"), "100000");
             var first = Run(bash, script + ping);
             var installed = System.Text.RegularExpressions.Regex.Match(first, @"replace dev ifbeth4 root handle ca4e: cake bandwidth (\d+)Mbit");
             installed.Success.Should().BeTrue($"the first run installs CAKE: {first}");

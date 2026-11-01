@@ -3455,12 +3455,11 @@
             // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
             deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
             await ScrollDeploymentLog();
-            // Adaptive SQM's CAKE root stays only on the WANs that are about to deploy with it
-            var cakeInterfaces = new[] { wan1Config, wan2Config }
-                .Where(w => w.Enabled && w.CakeDownload)
-                .Select(w => w.Interface)
-                .ToList();
-            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync(cakeInterfaces);
+            // Which WANs deploy, and with CAKE, decides whether UniFi's trees are restored first
+            var deploying = new[] { wan1Config, wan2Config }.Where(w => w.Enabled).ToList();
+            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync(
+                deploying.Select(w => w.Interface).ToList(),
+                deploying.Where(w => w.CakeDownload).Select(w => w.Interface).ToList());
             if (!cleanResult.success)
             {
                 throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");

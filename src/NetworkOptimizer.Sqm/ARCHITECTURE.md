@@ -127,11 +127,15 @@ Severity, the ping loop, the floor, and the link clamp work as they do without a
 
 The page drives it; `SqmDeploymentService` does the gateway work.
 
-1. `CleanAllSqmScriptsAsync()` removes every `20-sqm-*.sh` and `21-sqm-*.sh`, everything in
-   `/data/sqm`, and every cron line containing `sqm`. This clears scripts left by a renamed WAN.
-   It also deletes Adaptive SQM's CAKE root from every IFB that no enabled CAKE WAN is about to
-   use, then has UniFi rebuild every WAN's queues from its own config (see
-   [Restoring UniFi's queues](#restoring-unifis-queues)), so each deploy starts from UniFi's trees.
+1. `CleanAllSqmScriptsAsync()` clears every cron line containing `sqm`, waits for a running ping,
+   calibration or learning probe (`BuildWaitForSqmRunsCommand`), reads each old `*-ping.sh`
+   (`INTERFACE`, `DOWNLOAD_QDISC`, `TREE_MODEL`), then removes every `20-sqm-*.sh` and
+   `21-sqm-*.sh` and everything in `/data/sqm`. This clears scripts left by a renamed WAN. It
+   deletes Adaptive SQM's CAKE root from every IFB that no enabled CAKE WAN is about to use, and
+   restores UniFi's queues (see [Restoring UniFi's queues](#restoring-unifis-queues)) only when
+   `RestoreReason` gives one: CAKE turned off on a WAN, a WAN that had Adaptive SQM no longer
+   deployed, or scripts from before `TREE_MODEL` 2 (once, at upgrade). A routine deploy skips it,
+   because a restore drops packets on every WAN for about a second.
 2. The page saves the WAN configurations.
 3. `DeployAsync()` for each enabled WAN:
    - `SqmManager.ValidateConfiguration()` checks ranges and runs `InputSanitizer` on every shell value.
@@ -155,12 +159,17 @@ download tree with CAKE, and UniFi only rebuilds a tree when its QoS config chan
 restore, a removed Adaptive SQM leaves its last rates shaping until UniFi's next rebuild.
 
 `ubios-udapi-server` rebuilds every WAN's trees, both directions, whenever its QoS queue list
-changes. The restore (`BuildRestoreUniFiQueuesCommand`) waits for a running ping or speed test,
-adds a temporary queue `netopt_rebuild` with `ubios-udapi-client POST /qos/fw/queues`, deletes it,
-and checks that every IFB that carried a tree has `class htb 1:1 root` again. The gateway ends on
-the console's exact config: no console write, nothing in Change Control, no service restarts.
-The IFBs are recreated, about 1 s per rebuild, and existing queues keep their class numbers
-(`1:4` onward, mapped from fwmarks `0x8004` onward), because the temporary queue is appended.
+changes. The restore (`BuildRestoreUniFiQueuesCommand`) adds a temporary queue `netopt_rebuild`
+with `ubios-udapi-client POST /qos/fw/queues`, deletes it, and checks that every IFB that carried
+a tree has `class htb 1:1 root` again and every WAN that redirected to an IFB still does. A miss
+gets one more rebuild, then is reported. The gateway ends on the console's exact config: no
+console write, nothing in Change Control, no service restarts. Existing queues keep their class
+numbers (`1:4` onward, mapped from fwmarks `0x8004` onward), because the temporary queue is appended.
+
+The cost: each rebuild deletes and recreates every IFB and every WAN ingress qdisc, so packets
+arriving in that window are dropped, about 1 s per rebuild, twice per restore. WAN Flood Protection
+loses any held drop with the ingress qdisc and puts it back on its 10 s re-check; the redirect
+check above covers the case where its re-check lands inside the rebuild.
 
 What does not work: an unchanged `PUT` of a queue or of `/qos/global` (a no-op or refused), and
 the console's `force-provision` (the gateway fast-applies only what changed, so QoS is skipped).
@@ -270,9 +279,15 @@ Runs every minute except during a calibration minute. It never calls apt.
    The `(n + 1)^0.7 - 1` exponent is gentle on a single transient spike and steep under real
    congestion.
 9. Clamp to the schedule cap and to Max, round, and skip a rate of 0 or below.
-10. Dynamic upload: a latency cut scales upload by the same fraction, floored at min upload. The
+10. Hysteresis. Step 8 starts from the schedule every run, so at a line's limit it cut and
+    recovered every minute. A latency cut writes `HOLD_RUNS` (3) to `<wan>-hold.txt`; while the
+    count runs down the rate may not rise above what the tree carries; then (`c`) each run climbs at
+    most one `increase` step from the tree's rate until it reaches the computed rate. Lower rates
+    always apply, and a rise outside that recovery (a tree UniFi rebuilt at its own rate) is not
+    limited.
+11. Dynamic upload: a latency cut scales upload by the same fraction, floored at min upload. The
     ping cannot tell which direction is congested.
-11. Skip the tc write when neither root rate would change. Otherwise apply both and log
+12. Skip the tc write when neither root rate would change. Otherwise apply both and log
     `Ping adjusted to <down> Mbps (down), <up> Mbps (up) (latency: <ms>ms)`.
 
 ## tc functions
@@ -285,8 +300,9 @@ shaper lift all embed it.
   child of `1:1` whose rate is `64bit` (stock best-effort) or `100Kbit` (already ours), sets
   `rate 100kbit ceil <rate>`, keeps its `prio`, and retunes its fq_codel leaf. A child with a real
   guaranteed rate is a UniFi QoS class and stays untouched.
-- **fq_codel leaf.** `limit 2000`, `target 5ms`, `interval 100ms`, `ecn`. `memory_limit` is 4 MB up
-  to 300 Mbps, rises linearly to 8 MB at 750 Mbps, and stays at 8 MB above that.
+- **fq_codel leaf.** `target 5ms`, `interval 100ms`, `ecn`. `memory_limit` is 4 MB up to 300 Mbps,
+  rises linearly to 8 MB at 750 Mbps, and stays at 8 MB above that. `limit` is left as UniFi set it
+  (2000p, 10240p above 1 Gbit on UniFi OS 6); scripts before `TREE_MODEL` 2 forced 2000p.
 - **Burst.** Mode 0: 5 bytes per Mbps, clamped to 1500..5000. Mode 1 (rate-proportional, about
   1 ms of line time): 125 bytes per Mbps, clamped to 1500..131072. Mode 1 applies to the download
   (IFB) side only. The page turns it on for a new WAN; a saved WAN keeps its stored value.
