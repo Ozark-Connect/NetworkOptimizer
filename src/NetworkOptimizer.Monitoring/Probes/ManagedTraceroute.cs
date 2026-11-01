@@ -90,12 +90,15 @@ public class ManagedTraceroute
 
             var rtts = new List<double>();
             string? replyAddress = null;
+            int? replyTtl = null;
             int responses = 0;
+            int sent = 0;
             IPStatus lastStatus = IPStatus.Unknown;
 
             for (int probe = 0; probe < probesPerHop; probe++)
             {
                 if (ct.IsCancellationRequested) break;
+                sent++;
                 try
                 {
                     using var ping = new Ping();
@@ -112,6 +115,9 @@ public class ManagedTraceroute
                         responses++;
                         rtts.Add(sw.Elapsed.TotalMilliseconds);
                         replyAddress ??= reply.Address?.ToString();
+                        // Filled for an echo reply on most platforms, rarely for TTL-exceeded,
+                        // so in practice this is the destination's return count only.
+                        replyTtl ??= reply.Options?.Ttl;
                     }
                 }
                 catch (Exception ex)
@@ -119,6 +125,7 @@ public class ManagedTraceroute
                     _logger.LogDebug(ex, "Managed traceroute probe failed at TTL {Ttl}", ttl);
                 }
             }
+            if (sent == 0) break;
 
             hops.Add(new TraceHop
             {
@@ -128,8 +135,11 @@ public class ManagedTraceroute
                 RttMinMs = rtts.Count > 0 ? rtts.Min() : null,
                 RttAvgMs = rtts.Count > 0 ? rtts.Average() : null,
                 RttMaxMs = rtts.Count > 0 ? rtts.Max() : null,
-                Probes = probesPerHop,
-                Responses = responses
+                // What was actually sent: the deadline can stop a hop part-way, and the probes it
+                // never sent are not losses.
+                Probes = sent,
+                Responses = responses,
+                ReturnHops = TraceHop.ReturnHopsFromReplyTtl(replyTtl)
             });
 
             if (lastStatus == IPStatus.Success || (replyAddress != null && IPAddress.TryParse(replyAddress, out var addr) && addr.Equals(targetIp)))
@@ -145,6 +155,7 @@ public class ManagedTraceroute
             Vantage = vantage,
             ModeUsed = ProbeMode.Icmp,
             Hops = hops,
+            ResolvedAddress = targetIp.ToString() == target.Address ? null : targetIp.ToString(),
             Reached = reached,
             Timestamp = DateTime.UtcNow
         };

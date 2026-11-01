@@ -32,6 +32,8 @@
 @inject NetworkOptimizer.Web.Services.Ssh.IGatewaySshService GatewaySsh
 @inject IThreatBlockingSiteAdmin SiteBlocking
 @inject ISiteManagementService SiteManagement
+@inject AsnResolutionService AsnResolver
+@inject ILogger<MonitoringTools> Logger
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -326,14 +328,20 @@
                 <label class="form-label">From</label>
                 <div class="form-value">@VantageLabel(_traceResult.Vantage.Id)</div>
             </div>
+            @{ var showReturn = _traceResult.Hops.Any(h => h.ReturnHops.HasValue); }
             <div class="table-responsive">
-            <table class="data-table">
+            <table class="data-table path-episode-hops">
                 <thead>
                     <tr>
                         <th>Hop</th>
-                        <th>Address</th>
-                        <th>RTT avg (ms)</th>
-                        <th>Responses</th>
+                        <th>Address / PTR</th>
+                        <th>Network</th>
+                        <th>Loss</th>
+                        <th data-tooltip="Minimum and average RTT across the hop's probes. The minimum tracks the forwarding path; ICMP slow-path handling inflates the average.">RTT (min / avg)</th>
+                        @if (showReturn)
+                        {
+                            <th data-tooltip="How many hops the reply took to come back, from its TTL. Far from the hop number means a different way home.">Return hops</th>
+                        }
                     </tr>
                 </thead>
                 <tbody>
@@ -344,7 +352,7 @@
                             <td>
                                 @if (hop.Responded)
                                 {
-                                    @if (!string.IsNullOrEmpty(hop.Hostname))
+                                    @if (!string.IsNullOrEmpty(hop.Hostname) && hop.Hostname != hop.Address)
                                     { <span>@hop.Hostname (@hop.Address)</span> }
                                     else
                                     { <span>@hop.Address</span> }
@@ -354,8 +362,13 @@
                                     <span class="text-muted">* * *</span>
                                 }
                             </td>
-                            <td>@(hop.RttAvgMs.HasValue ? $"{hop.RttAvgMs:0.0}" : "-")</td>
-                            <td>@hop.Responses / @hop.Probes</td>
+                            <td><NetworkOptimizer.Web.Components.Shared.Monitoring.TextWithCode Text="@TraceNetworkLabel(hop.Address)" /></td>
+                            <td>@(hop.Responses > 0 && hop.Probes > 0 ? $"{100.0 * (hop.Probes - hop.Responses) / hop.Probes:0.#}%" : "-")</td>
+                            <td>@(hop.RttMinMs is double min ? $"{min:0.0} / {hop.RttAvgMs ?? min:0.0} ms" : "-")</td>
+                            @if (showReturn)
+                            {
+                                <td>@(hop.ReturnHops?.ToString() ?? "-")</td>
+                            }
                         </tr>
                     }
                 </tbody>
@@ -939,6 +952,12 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (!_consoleDataLoaded)
             _ = WaitForConnectionThenReloadAsync();
 
+        if (!string.IsNullOrWhiteSpace(TargetParam) && TargetParam.Trim().Length <= 253)
+        {
+            _targetAddress = TargetParam.Trim();
+            _probeMode = ProbeMode.Icmp;
+        }
+
         await LoadProbeVantagesAsync();
         await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
@@ -991,6 +1010,13 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     /// </summary>
     [SupplyParameterFromQuery(Name = "from")]
     public string? FromParam { get; set; }
+
+    /// <summary>
+    /// Target to start on, sent by a link that wants a specific trace repeated - a Path Localization
+    /// episode's Re-run. Fills the box only; nothing runs until the user asks.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "target")]
+    public string? TargetParam { get; set; }
 
     /// <summary>
     /// Decides the starting vantage once, in OnInitializedAsync after the vantage and device
@@ -1562,6 +1588,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 maxHops: 30,
                 perHopTimeout: TimeSpan.FromSeconds(2),
                 totalDeadline: TimeSpan.FromSeconds(10));
+            // Shown before the networks resolve; the Network column fills in when they do.
+            StateHasChanged();
+            await ResolveTraceAsnsAsync(_traceResult);
         }
         catch (Exception ex)
         {
@@ -1574,6 +1603,26 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             StateHasChanged();
         }
     }
+
+    // Each traced hop's network, by address. Private and unresolved addresses map to null.
+    private Dictionary<string, AsnLookup?> _traceAsns = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task ResolveTraceAsnsAsync(TracerouteResult trace)
+    {
+        var asns = new Dictionary<string, AsnLookup?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in trace.Hops.Where(h => h.Responded).Select(h => h.Address!).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try { asns[address] = await AsnResolver.ResolveAsync(address); }
+            catch (Exception ex) { Logger.LogDebug(ex, "ASN lookup for {Address} failed", address); }
+        }
+        _traceAsns = asns;
+    }
+
+    /// <summary>"Cox Communications `AS22773`" (the ASN renders as code), or "-" when the hop's network is unknown or private.</summary>
+    private string TraceNetworkLabel(string? address) =>
+        address != null && _traceAsns.TryGetValue(address, out var a) && a is { Asn: > 0 }
+            ? (NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathTraceAnalyzer.AsnLabel(a) is { Length: > 0 } name ? $"{name} `AS{a.Asn}`" : $"`AS{a.Asn}`")
+            : "-";
 
     /// <summary>
     /// Friendly label for a probe result's vantage id ("server" or "device:{mac}"):

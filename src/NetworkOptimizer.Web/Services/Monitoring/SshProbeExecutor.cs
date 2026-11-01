@@ -291,6 +291,7 @@ public class SshProbeExecutor : IProbeExecutor
         int maxHops = 30,
         TimeSpan? perHopTimeout = null,
         TimeSpan? totalDeadline = null,
+        int? probesPerHop = null,
         CancellationToken ct = default)
     {
         var cap = await GetCapabilityAsync(ct);
@@ -317,6 +318,11 @@ public class SshProbeExecutor : IProbeExecutor
         };
 
         var parts = new List<string> { "traceroute", $"-m {maxHops}", $"-w {waitSec}" };
+        // Omitted unless asked for, so every existing caller runs the command it always has. A
+        // UniFi device's busybox traceroute sends no more than 3 a hop; a caller that wants more
+        // samples takes more rounds instead.
+        if (probesPerHop is int q)
+            parts.Add($"-q {Math.Clamp(q, 1, cap.IsBusyBoxTraceroute ? 3 : 10)}");
         if (!string.IsNullOrEmpty(modeFlag)) parts.Add(modeFlag);
         if (!string.IsNullOrEmpty(target.SourceInterface)) parts.Add($"-i {ShellEscape(target.SourceInterface)}");
         parts.Add(ShellEscape(target.Address));
