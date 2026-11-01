@@ -2148,7 +2148,7 @@
 
     private const string CakeOptInHint =
         "Replaces UniFi's download queue with CAKE: fair shares per device and per-packet overhead accounting. " +
-        "QoS rules still apply to upload and other WANs; this WAN's download skips them and the larger burst.";
+        "UniFi QoS rules don't apply to this WAN's download; its upload and other WANs keep them.";
 
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
