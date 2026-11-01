@@ -287,6 +287,11 @@ Runs every minute except during a calibration minute. It never calls apt.
     run from the tree's rate until it reaches the computed rate, which records a recovery again.
     Lower rates always apply, and a rise with no cut behind it (a tree UniFi rebuilt at its own
     rate) is not limited.
+    The swing has two causes the ping cannot tell apart: congestion upstream (evening load at the
+    ISP) and our own heavy download traffic filling a short upstream queue (multi-stream downloads
+    once the rate is above what the path passes under that load). Both persist, so recovering at
+    once only cuts again a minute later, and holding is right for both; timing, not the cause,
+    separates them from a one-off spike.
 11. Dynamic upload: a latency cut scales upload by the same fraction, floored at min upload. The
     ping cannot tell which direction is congested.
 12. Skip the tc write when neither root rate would change. Otherwise apply both and log

@@ -1332,6 +1332,8 @@ fi";
     /// still recovers on the next normal run. A cut within <see cref="OscillationWindowSeconds"/> of
     /// recovering from the previous one is oscillation: that cut holds for <see cref="HoldRuns"/>
     /// runs, then climbs one LATENCY_INCREASE step per run until it reaches the computed rate.
+    /// The swing comes from upstream congestion or from our own heavy downloads filling a short
+    /// upstream queue; the ping cannot tell them apart, and both persist, so both get the hold.
     /// Only a recovery from a cut is ever limited, never a tree UniFi rebuilt at its own lower rate.
     /// HOLD_FILE: runs left, "c" while climbing, "p" after a one-off cut, or 0. RECOVER_FILE: when the
     /// rate last recovered from a cut (epoch seconds).
