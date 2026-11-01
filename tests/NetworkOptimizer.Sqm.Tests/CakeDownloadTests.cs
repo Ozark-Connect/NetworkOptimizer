@@ -15,18 +15,12 @@ public class CakeDownloadTests
     private const string CakeIfb = "qdisc cake ca4e: root refcnt 2 bandwidth 700Mbit besteffort dual-dsthost nat nowash ingress no-ack-filter no-split-gso rtt 100ms noatm overhead 38 mpu 84";
     private const string HtbRootClass = "class htb 1:1 root rate 800Mbit ceil 800Mbit burst 4000b cburst 4000b";
 
-    private static string? BashPath()
-    {
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
-        {
-            foreach (var name in new[] { "bash", "bash.exe" })
-            {
-                var candidate = Path.Combine(dir, name);
-                if (File.Exists(candidate)) return candidate;
-            }
-        }
-        return null;
-    }
+    /// <summary>
+    /// /bin/bash, or null on Windows, where bash on PATH is WSL or Git Bash and neither runs these
+    /// scripts against the Windows temp directory. Same skip as ScriptGeneratorTests.
+    /// </summary>
+    private static string? BashPath() =>
+        OperatingSystem.IsWindows() || !File.Exists("/bin/bash") ? null : "/bin/bash";
 
     private static string Run(string bash, string script)
     {
