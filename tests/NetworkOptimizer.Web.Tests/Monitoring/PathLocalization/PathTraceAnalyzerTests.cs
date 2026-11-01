@@ -80,6 +80,15 @@ public class PathTraceAnalyzerTests
         PathTraceAnalyzer.Analyze(new[] { t }, controls, AsnOf, Anchors, Options);
 
     [Fact]
+    public void AsnNames_ReadAsTheRestOfIspHealthShowsThem()
+    {
+        PathTraceAnalyzer.AsnLabel(new AsnLookup(64501, "Example Communications, Inc."))
+            .Should().Be(NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName("Example Communications, Inc."));
+        PathTraceAnalyzer.AsnLabel(new AsnLookup(64501, "Example Communications, Inc.")).Should().Be("Example");
+        PathTraceAnalyzer.AsnLabel(null).Should().BeNull();
+    }
+
+    [Fact]
     public void AccessHopElevatedOnItsOwnSeries_IsTheAccessNetwork()
     {
         // The BNG's own series is elevated; a later hop reads clean against a control taken in the

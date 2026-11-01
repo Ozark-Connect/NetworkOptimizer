@@ -366,7 +366,7 @@ public static class PathTraceAnalyzer
                 Ttl = lastTtl + 1,
                 Address = destination,
                 Asn = destAsn?.Asn,
-                AsnName = destAsn?.Name,
+                AsnName = AsnLabel(destAsn),
                 Tags = HopTag.Destination
             });
         }
@@ -593,7 +593,7 @@ public static class PathTraceAnalyzer
             Address = address,
             Hostname = answered.Select(h => h.Hostname).FirstOrDefault(n => !string.IsNullOrEmpty(n) && n != address),
             Asn = asn?.Asn,
-            AsnName = asn?.Name,
+            AsnName = AsnLabel(asn),
             Sent = same.Sum(h => Math.Max(h.Probes, h.Responses)),
             Responses = same.Sum(h => h.Responses),
             // Min, not average: slow-path ICMP generation inflates a transit hop's average and max far
@@ -717,7 +717,14 @@ public static class PathTraceAnalyzer
             : unknown ?? h.Address ?? $"hop {h.Ttl}";
 
     private static string NetworkName(AsnLookup a) =>
-        string.IsNullOrEmpty(a.Name) ? AsnCode(a.Asn) : $"{a.Name} ({AsnCode(a.Asn)})";
+        AsnLabel(a) is { Length: > 0 } name ? $"{name} ({AsnCode(a.Asn)})" : AsnCode(a.Asn);
+
+    /// <summary>
+    /// The network's name as the rest of ISP Health shows it ("Example", not "EXAMPLE TELEPHONE CO"):
+    /// the same cleaner the stored target names went through.
+    /// </summary>
+    internal static string? AsnLabel(AsnLookup? a) =>
+        a == null || string.IsNullOrWhiteSpace(a.Name) ? null : NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(a.Name);
 
     /// <summary>"`AS22773`": an AS number marked for code formatting.</summary>
     internal static string AsnCode(int asn) => $"`AS{asn}`";
