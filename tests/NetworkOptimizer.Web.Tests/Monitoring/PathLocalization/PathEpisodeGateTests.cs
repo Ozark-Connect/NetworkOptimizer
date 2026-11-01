@@ -68,6 +68,9 @@ public class PathEpisodeGateTests
             new GateTarget("f", GateRole.Path, false, false, 0, 0), new GateTarget("g", GateRole.Path, false, false, 0, 0),
         };
         PathEpisodeGate.Evaluate(targets, null, 0.5, false).BlockedBy.Should().Contain("no clean control");
+
+        // An episode already open keeps tracing: after a restart nothing has a judged window yet.
+        PathEpisodeGate.Evaluate(targets, null, 0.5, false, requireCleanControl: false).Passed.Should().BeTrue();
     }
 
     [Fact]

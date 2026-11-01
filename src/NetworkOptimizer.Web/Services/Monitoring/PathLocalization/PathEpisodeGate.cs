@@ -40,7 +40,10 @@ public static class PathEpisodeGate
     /// degradation, or null when unknown. Unknown load never blocks: it could not be shown to be the cause.</param>
     /// <param name="loadHighFraction">The localizer's self-inflicted threshold.</param>
     /// <param name="outageOpen">Whether an outage or dark window is open for the site.</param>
-    public static GateResult Evaluate(IReadOnlyList<GateTarget> targets, double? utilization, double loadHighFraction, bool outageOpen)
+    /// <param name="requireCleanControl">False for an episode already open: a missing clean control says
+    /// nothing about whether its problem changed, and after a restart no target has a judged window yet.</param>
+    public static GateResult Evaluate(IReadOnlyList<GateTarget> targets, double? utilization, double loadHighFraction, bool outageOpen,
+        bool requireCleanControl = true)
     {
         var paths = targets.Where(t => t.Role == GateRole.Path).ToList();
         var degraded = paths.Where(t => t.Degraded)
@@ -52,7 +55,7 @@ public static class PathEpisodeGate
             degraded.Count == 0 ? "no path target is degraded"
             : outageOpen ? "an outage or dark window is open"
             : targets.Any(t => t.Role == GateRole.Access && t.Degraded) ? "the access layer is degraded"
-            : clean.Count == 0 ? "no clean control on the same WAN"
+            : requireCleanControl && clean.Count == 0 ? "no clean control on the same WAN"
             : degraded.Count * 2 >= paths.Count ? "half or more of the path targets are degraded (site-wide)"
             : utilization is double u && u >= loadHighFraction ? $"the WAN is loaded ({u * 100:0}% of plan)"
             : null;

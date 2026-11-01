@@ -515,7 +515,8 @@ public sealed class PathEpisodeWatcher
             wanInterface = members.Select(m => m.WanInterface).FirstOrDefault(w => w != null);
         }
         var gate = PathEpisodeGate.Evaluate(targets, await UtilizationAsync(wanInterface, now),
-            _options.CongestionLoadHighFraction, _alerts.GetFor(_slug).Targets.IsWanOutageOpen(wanInterface));
+            _options.CongestionLoadHighFraction, _alerts.GetFor(_slug).Targets.IsWanOutageOpen(wanInterface),
+            requireCleanControl: false);
         // Nothing degraded is the episode clearing, which the round logic closes on; not a pause.
         return gate.Passed || gate.Degraded.Count == 0 ? null : gate.BlockedBy;
     }
