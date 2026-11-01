@@ -8,6 +8,68 @@ namespace NetworkOptimizer.Web.Tests;
 
 public class SqmDeploymentServiceTests
 {
+    private const string NetworkConf = """
+        {"meta":{"rc":"ok"},"data":[
+          {"_id":"lan1","purpose":"corporate","name":"LAN","wan_networkgroup":"WAN"},
+          {"_id":"wan1","purpose":"wan","name":"Fiber","wan_networkgroup":"WAN","wan_smartq_enabled":true,
+           "wan_smartq_down_rate":1077000,"wan_smartq_up_rate":999000,"wan_vlan":201,"x_unknown":{"keep":[1,2]}},
+          {"_id":"wan2","purpose":"wan","name":"Cable","wan_networkgroup":"WAN2","wan_smartq_enabled":true,
+           "wan_smartq_down_rate":"274000","wan_smartq_up_rate":29000},
+          {"_id":"wan3","purpose":"wan","name":"Cellular","wan_networkgroup":"WAN3","wan_smartq_enabled":false}
+        ]}
+        """;
+
+    [Fact]
+    public void SmartQueuesNudge_PicksTheWanForItsNetworkGroup_AndKeepsEveryOtherField()
+    {
+        var nudge = SqmDeploymentService.BuildSmartQueuesNudge(NetworkConf, "WAN");
+
+        nudge.Error.Should().BeNull();
+        nudge.Id.Should().Be("wan1", "a LAN network carrying the same group is not a WAN");
+        nudge.FromKbps.Should().Be(1077000);
+        nudge.ToKbps.Should().Be(1078000);
+        var body = System.Text.Json.Nodes.JsonNode.Parse(nudge.Body!)!;
+        ((int)body["wan_smartq_down_rate"]!).Should().Be(1078000);
+        ((int)body["wan_smartq_up_rate"]!).Should().Be(999000);
+        ((int)body["wan_vlan"]!).Should().Be(201);
+        body["x_unknown"]!["keep"]!.AsArray().Count.Should().Be(2, "fields the typed model lacks go back unchanged");
+    }
+
+    [Fact]
+    public void SmartQueuesNudge_ReadsARateSentAsAString()
+    {
+        var nudge = SqmDeploymentService.BuildSmartQueuesNudge(NetworkConf, "WAN2");
+
+        nudge.Id.Should().Be("wan2");
+        nudge.ToKbps.Should().Be(273000);
+    }
+
+    [Theory]
+    [InlineData("WAN3", "Smart Queues is off")]
+    [InlineData("WAN4", "no WAN network")]
+    public void SmartQueuesNudge_RefusesAWanItCannotNudge(string group, string error)
+    {
+        SqmDeploymentService.BuildSmartQueuesNudge(NetworkConf, group).Error.Should().Contain(error);
+    }
+
+    [Fact]
+    public void SmartQueuesNudge_RefusesAnAmbiguousNetworkGroup()
+    {
+        var twice = NetworkConf.Replace("\"wan_networkgroup\":\"WAN2\"", "\"wan_networkgroup\":\"WAN\"");
+
+        SqmDeploymentService.BuildSmartQueuesNudge(twice, "WAN").Error.Should().Contain("more than one");
+    }
+
+    [Theory]
+    [InlineData(1077000, 1078000)]
+    [InlineData(1078000, 1077000)]
+    [InlineData(274500, 273500)]
+    public void NudgedDownRate_AlternatesBetweenTwoValues(int from, int to)
+    {
+        SqmDeploymentService.NudgedDownRateKbps(from).Should().Be(to);
+        SqmDeploymentService.NudgedDownRateKbps(to).Should().Be(from);
+    }
+
     [Fact]
     public void RemoveCakeRoots_DeletesOnlyAdaptiveSqmsOwnCake_AndKeepsTheCakeWans()
     {

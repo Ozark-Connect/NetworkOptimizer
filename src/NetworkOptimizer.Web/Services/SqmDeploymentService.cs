@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Service for deploying SQM scripts to UniFi gateways via SSH.
 /// Uses IGatewaySshService for gateway SSH operations.
 /// </summary>
-public class SqmDeploymentService : ISqmDeploymentService
+public partial class SqmDeploymentService : ISqmDeploymentService
 {
     private readonly ILogger<SqmDeploymentService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
@@ -237,7 +237,8 @@ public class SqmDeploymentService : ISqmDeploymentService
             await RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
 
-            warnings.AddRange(await RemoveCakeRootsAsync(cakeInterfaces ?? Array.Empty<string>()));
+            warnings.AddRange((await RemoveCakeRootsAsync(cakeInterfaces ?? Array.Empty<string>()))
+                .Where(line => line.Warning).Select(line => line.Message));
 
             _logger.LogInformation("Successfully cleaned all SQM scripts and cron entries");
             return (true, "Cleaned all SQM scripts and cron entries", warnings);
@@ -251,16 +252,147 @@ public class SqmDeploymentService : ISqmDeploymentService
 
     /// <summary>
     /// Deletes Adaptive SQM's own CAKE download root from every IFB except the ones a CAKE WAN is
-    /// about to use. Nothing rebuilds UniFi's HTB tree from here, so each removal comes back as a
-    /// warning telling the user to re-apply Smart Queues.
+    /// about to use, then has UniFi rebuild its HTB tree on each one it cleared.
     /// </summary>
-    private async Task<List<string>> RemoveCakeRootsAsync(IReadOnlyCollection<string> cakeInterfaces)
+    /// <returns>One line per cleared IFB; <c>Warning</c> is set when UniFi's tree did not come back.</returns>
+    private async Task<List<(string Message, bool Warning)>> RemoveCakeRootsAsync(IReadOnlyCollection<string> cakeInterfaces)
     {
         var result = await RunCommandAsync(BuildRemoveCakeRootsCommand(cakeInterfaces));
-        return ParseRemovedCakeRoots(result.output)
-            .Select(ifb => $"Removed Adaptive SQM's CAKE download shaper from {ifb}. Download on that WAN is unshaped " +
-                "until UniFi Network applies Smart Queues again: turn Smart Queues off and on for the WAN, or edit any QoS rule.")
+        var lines = new List<(string, bool)>();
+        foreach (var ifb in ParseRemovedCakeRoots(result.output))
+        {
+            var error = await RebuildUniFiDownloadQueueAsync(ifb);
+            lines.Add(error == null
+                ? ($"Removed Adaptive SQM's CAKE download shaper from {ifb}; UniFi rebuilt its Smart Queues download queue", false)
+                : ($"Removed Adaptive SQM's CAKE download shaper from {ifb}, but {error}. Download on that WAN is unshaped " +
+                    "until UniFi Network applies Smart Queues again: turn Smart Queues off and on for the WAN, or edit any QoS rule.", true));
+        }
+        return lines;
+    }
+
+    /// <summary>How long UniFi gets to rebuild the tree after the rate change (about 14 s on a UCG-Fiber).</summary>
+    private static readonly TimeSpan HtbRebuildTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Makes UniFi rebuild its HTB + fq_codel tree on <paramref name="ifb"/> after CAKE replaced it.
+    /// A force-provision does not: the gateway's fast apply only applies what changed. Moving the
+    /// WAN's Smart Queues download rate by 1 Mbps changes its QoS config, and UniFi rebuilds that
+    /// WAN's tree only. The ping scripts set the real rate afterwards, so the 1 Mbps never shapes.
+    /// </summary>
+    /// <returns>Null once the tree is back; otherwise what went wrong, as a sentence fragment.</returns>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/networkconf wan_smartq_down_rate write")]
+    private async Task<string?> RebuildUniFiDownloadQueueAsync(string ifb)
+    {
+        if (!IfbNamePattern().IsMatch(ifb))
+            return "the IFB name is not one Adaptive SQM recognizes";
+        try
+        {
+            var wans = await _serviceProvider.GetRequiredService<ISqmService>().GetWanInterfacesFromControllerAsync();
+            var wan = wans.FirstOrDefault(w => string.Equals(w.TcInterface, ifb, StringComparison.Ordinal));
+            if (wan?.NetworkGroup is not { Length: > 0 } group)
+                return "the UniFi Console reports no WAN on that interface";
+
+            var client = _serviceProvider.GetRequiredService<SiteConnectionRegistry>().GetFor(_siteContext.Slug).Client;
+            if (client == null)
+                return "the UniFi Console is not connected";
+
+            var read = await client.SendRawAsync(NetworkOptimizer.UniFi.UniFiApiScope.SiteV1, HttpMethod.Get, "rest/networkconf");
+            if (!read.IsSuccess)
+                return "the WAN settings could not be read from the UniFi Console";
+            var nudge = BuildSmartQueuesNudge(read.Body, group);
+            if (nudge.Error != null)
+                return nudge.Error;
+
+            NetworkOptimizer.UniFi.UniFiRawResponse write;
+            using (NetworkOptimizer.UniFi.UniFiWriteSource.Use("adaptive-sqm"))
+                write = await client.SendRawAsync(NetworkOptimizer.UniFi.UniFiApiScope.SiteV1, HttpMethod.Put,
+                    $"rest/networkconf/{nudge.Id}", nudge.Body);
+            var written = write.IsSuccess && write.ErrorCode is null or "api.err.Ok";
+
+            _serviceProvider.GetService<Auditing.IAuditLogger>()?.Log(Auditing.AuditEventBuilder.FromSystem(
+                NetworkOptimizer.Storage.Models.Identity.AuditCategories.Action,
+                NetworkOptimizer.Storage.Models.Identity.AuditActions.SqmReverted,
+                outcome: written
+                    ? NetworkOptimizer.Storage.Models.Identity.AuditOutcomes.Success
+                    : NetworkOptimizer.Storage.Models.Identity.AuditOutcomes.Failure,
+                targetType: "wan", targetId: group, targetName: wan.Name, siteSlug: _siteContext.Slug,
+                details: new
+                {
+                    reason = "Smart Queues download rate moved 1 Mbps so UniFi rebuilds its download queue after Adaptive SQM removed CAKE",
+                    fromKbps = nudge.FromKbps,
+                    toKbps = nudge.ToKbps,
+                    status = write.Status,
+                }));
+            if (!written)
+                return "the UniFi Console refused the Smart Queues rate change";
+
+            var deadline = DateTime.UtcNow + HtbRebuildTimeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2));
+                var probe = await RunCommandAsync($"tc class show dev {ifb} 2>/dev/null | grep -q 'class htb 1:1 root' && echo HTB_BACK");
+                if (probe.output?.Contains("HTB_BACK", StringComparison.Ordinal) == true)
+                    return null;
+            }
+            return $"UniFi had not rebuilt its queue {HtbRebuildTimeout.TotalSeconds:0} seconds after the Smart Queues rate change";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not rebuild UniFi's download queue on {Ifb}", ifb);
+            return "rebuilding UniFi's queue failed";
+        }
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^ifb[A-Za-z0-9._-]+$")]
+    private static partial System.Text.RegularExpressions.Regex IfbNamePattern();
+
+    /// <summary>
+    /// Picks the one WAN network whose <c>wan_networkgroup</c> is <paramref name="networkGroup"/> from a
+    /// <c>rest/networkconf</c> response and returns it whole, with <c>wan_smartq_down_rate</c> moved
+    /// 1 Mbps. The full object goes back so no field the typed model lacks is lost.
+    /// </summary>
+    internal static (string? Id, string? Body, int FromKbps, int ToKbps, string? Error) BuildSmartQueuesNudge(
+        string networkconfJson, string networkGroup)
+    {
+        System.Text.Json.Nodes.JsonNode? root;
+        try { root = System.Text.Json.Nodes.JsonNode.Parse(networkconfJson); }
+        catch (System.Text.Json.JsonException) { return (null, null, 0, 0, "the UniFi Console's WAN settings could not be read"); }
+
+        var matches = (root?["data"] as System.Text.Json.Nodes.JsonArray ?? [])
+            .OfType<System.Text.Json.Nodes.JsonObject>()
+            .Where(n => (string?)n["purpose"] == "wan" && (string?)n["wan_networkgroup"] == networkGroup)
             .ToList();
+        if (matches.Count != 1)
+            return (null, null, 0, 0, matches.Count == 0
+                ? $"no WAN network in UniFi Network uses {networkGroup}"
+                : $"more than one WAN network in UniFi Network uses {networkGroup}");
+
+        var wan = matches[0];
+        if ((string?)wan["_id"] is not { Length: > 0 } id)
+            return (null, null, 0, 0, "the WAN network has no ID");
+        if (wan["wan_smartq_enabled"]?.GetValue<bool>() != true)
+            return (null, null, 0, 0, "Smart Queues is off for that WAN in UniFi Network");
+        if (!TryReadKbps(wan["wan_smartq_down_rate"], out var from) || from <= 1000)
+            return (null, null, 0, 0, "that WAN has no Smart Queues download rate in UniFi Network");
+
+        var to = NudgedDownRateKbps(from);
+        wan["wan_smartq_down_rate"] = to;
+        return (id, wan.ToJsonString(), from, to, null);
+    }
+
+    /// <summary>
+    /// 1 Mbps up from an odd whole-Mbps rate, 1 Mbps down from an even one, so repeated nudges
+    /// alternate between two values and never drift.
+    /// </summary>
+    internal static int NudgedDownRateKbps(int kbps) => (kbps / 1000) % 2 == 0 ? kbps - 1000 : kbps + 1000;
+
+    private static bool TryReadKbps(System.Text.Json.Nodes.JsonNode? node, out int kbps)
+    {
+        kbps = 0;
+        if (node is not System.Text.Json.Nodes.JsonValue value) return false;
+        if (value.TryGetValue(out int i)) { kbps = i; return true; }
+        if (value.TryGetValue(out long l) && l is > 0 and < int.MaxValue) { kbps = (int)l; return true; }
+        return value.TryGetValue(out string? s) && int.TryParse(s, out kbps);
     }
 
     /// <summary>Prefix of the line the CAKE removal prints for each IFB it cleared.</summary>
@@ -728,8 +860,9 @@ public class SqmDeploymentService : ISqmDeploymentService
             await RunCommandAsync(
                 "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
 
-            // Adaptive SQM's own CAKE download root goes with it; UniFi's HTB tree is not rebuilt
-            steps.AddRange(await RemoveCakeRootsAsync(Array.Empty<string>()));
+            // Adaptive SQM's own CAKE download root goes with it, and UniFi rebuilds its HTB tree
+            steps.AddRange((await RemoveCakeRootsAsync(Array.Empty<string>()))
+                .Select(line => line.Warning ? $"⚠️ {line.Message}" : line.Message));
 
             // Remove SQM Monitor if requested
             if (includeTcMonitor)
