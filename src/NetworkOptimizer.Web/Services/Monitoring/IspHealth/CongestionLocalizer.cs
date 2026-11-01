@@ -326,7 +326,8 @@ public static class CongestionLocalizer
     /// <summary>
     /// The shallowest hop in the unbroken elevated run ending at <paramref name="series"/>. A
     /// clean hop between two elevated ones terminates the run, so the bottleneck never jumps
-    /// across a clean middle hop to a shallower (noisy) one.
+    /// across a clean middle hop to a shallower (noisy) one. Every monitored hop has a series, so
+    /// none is unknown here; see <see cref="ElevatedRun"/>.
     /// </summary>
     private static string? Bottleneck(AsnSeries series, HashSet<string> elevatedIps,
         IReadOnlyDictionary<string, int> hopNumberByIp)
@@ -336,15 +337,9 @@ public static class CongestionLocalizer
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(ip => hopNumberByIp[ip])
             .ToList();
-        if (path.Count == 0) return null;
-
-        string? bottleneck = null;
-        for (var i = path.Count - 1; i >= 0; i--)
-        {
-            if (elevatedIps.Contains(path[i])) bottleneck = path[i];
-            else break;
-        }
-        return bottleneck;
+        return ElevatedRun.Onset(path.Count, i => elevatedIps.Contains(path[i])) is int onset
+            ? path[onset]
+            : null;
     }
 
     private static CongestionEvent BuildLocalized(

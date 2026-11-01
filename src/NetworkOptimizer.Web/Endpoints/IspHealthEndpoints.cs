@@ -11,6 +11,9 @@ namespace NetworkOptimizer.Web.Endpoints;
 /// </summary>
 public static class IspHealthEndpoints
 {
+    /// <summary>Most Path Localization episodes a PDF prints, newest first; each carries its hop tables.</summary>
+    private const int MaxPdfEpisodes = 20;
+
     public static void Map(WebApplication app)
     {
         // Gate 2 (design doc 06): the whole group carries authorization metadata, which is what
@@ -30,6 +33,8 @@ public static class IspHealthEndpoints
             IspHealthRegistry ispHealthRegistry,
             SiteContextService siteContext,
             SiteManagementService siteManagement,
+            NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService pathEpisodes,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             // wan (a UniFi wan key) exports a non-primary WAN's report; absent = primary,
@@ -51,8 +56,23 @@ public static class IspHealthEndpoints
                 siteName = sites.FirstOrDefault(s => s.Slug == siteContext.Slug)?.Name ?? siteContext.Slug;
             }
 
+            // Path Localization episodes in the same window and on the same WAN as the tab shows them.
+            // A failure leaves them out rather than failing the export.
+            var episodes = new List<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeDetail>();
+            try
+            {
+                var isPrimary = string.IsNullOrEmpty(wan) || ReferenceEquals(ispHealth, ispHealthRegistry.GetFor(siteContext.Slug, null));
+                var views = await pathEpisodes.GetEpisodesAsync(report.WindowStart, report.WindowEnd, wan, isPrimary, ct);
+                foreach (var view in views.Take(MaxPdfEpisodes))
+                    if (await pathEpisodes.GetEpisodeAsync(view.Id, ct) is { } detail) episodes.Add(detail);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                loggerFactory.CreateLogger("IspHealthPdf").LogDebug(ex, "ISP Health PDF: could not load path episodes");
+            }
+
             var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options)
-                .GenerateReportBytes(report, siteName);
+                .GenerateReportBytes(report, siteName, episodes);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
             var fileName = $"ISPHealth{sitePart}_{report.WindowEnd.ToLocalTime():yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);
@@ -64,6 +84,8 @@ public static class IspHealthEndpoints
             string? wan,
             IspHealthRegistry ispHealthRegistry,
             SiteContextService siteContext,
+            NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService pathEpisodes,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             // from/to (the tab's date/time filter) make the chart follow a custom window off
@@ -153,6 +175,27 @@ public static class IspHealthEndpoints
                         shared = false,
                         targets = e.TargetIds
                     })));
+
+                // Path Localization episodes, as congestion marks on the lines they traced: the
+                // events list files them under Congestion too, so the one filter governs both.
+                try
+                {
+                    var isPrimary = string.IsNullOrEmpty(wan) || ReferenceEquals(ispHealth, ispHealthRegistry.GetFor(siteContext.Slug, null));
+                    var episodes = await pathEpisodes.GetEpisodesAsync(report.WindowStart, to ?? DateTime.UtcNow, wan, isPrimary, ct);
+                    events.AddRange(episodes.Select(e => (object)new
+                    {
+                        type = "congestion",
+                        start = e.OpenedAt.ToString("o"),
+                        end = (e.ClosedAt ?? DateTime.UtcNow).ToString("o"),
+                        label = e.Tracing ? "Tracing now" : "Congestion",
+                        shared = false,
+                        targets = e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList()
+                    }));
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    loggerFactory.CreateLogger("IspHealthChart").LogDebug(ex, "ISP Health chart: could not load path episodes");
+                }
             }
 
             return Results.Ok(new { asns, events });

@@ -155,4 +155,42 @@ public class TracerouteCommandTests
         traits.CanBindAddress.Should().BeTrue();
         traits.CanBindInterface.Should().BeTrue();
     }
+
+    [Fact]
+    public void ProbesPerHop_SetsTheQueryCountAndAsksLinuxTracerouteForReturnHops()
+    {
+        // Path Localization reads per-hop loss, which two probes a hop cannot show. Butskoy's
+        // traceroute also gets --back so each hop's return count comes with it.
+        var butskoy = LocalProbeExecutor.InterpretTracerouteBanner("Modern traceroute for Linux, version 2.1.0");
+
+        var (_, args, error) = LocalProbeExecutor.BuildTracerouteCommand(
+            new ProbeTarget("192.0.2.1", ProbeMode.Icmp), 30, TimeSpan.FromSeconds(1), butskoy, probesPerHop: 5, isWindows: false);
+
+        error.Should().BeNull();
+        args.Should().Be("-m 30 -q 5 -w 1 --back -I 192.0.2.1");
+    }
+
+    [Fact]
+    public void ProbesPerHop_WithoutButskoy_SendsNoBackFlag()
+    {
+        var (_, args, _) = LocalProbeExecutor.BuildTracerouteCommand(
+            new ProbeTarget("192.0.2.1", ProbeMode.Icmp), 30, TimeSpan.FromSeconds(1), Gnu, probesPerHop: 5, isWindows: false);
+
+        args.Should().Be("-m 30 -q 5 -w 1 -I 192.0.2.1");
+    }
+
+    [Fact]
+    public void Butskoy_WithoutProbesPerHop_BuildsTheUnchangedCommand()
+    {
+        // --back rides only on a caller that asked for per-hop detail, so discovery's traces
+        // (and their parsing) are exactly what they were.
+        var butskoy = LocalProbeExecutor.InterpretTracerouteBanner("Modern traceroute for Linux, version 2.1.0");
+
+        var (_, args, _) = LocalProbeExecutor.BuildTracerouteCommand(
+            new ProbeTarget("192.0.2.1", ProbeMode.Icmp), 30, TimeSpan.FromSeconds(2), butskoy, isWindows: false);
+
+        args.Should().Be("-m 30 -q 2 -w 2 -I 192.0.2.1");
+        butskoy.ReportsBackHops.Should().BeTrue();
+        LocalProbeExecutor.InterpretTracerouteBanner("Version 1.4a12").ReportsBackHops.Should().BeFalse();
+    }
 }

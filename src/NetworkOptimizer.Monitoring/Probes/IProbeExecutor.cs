@@ -60,10 +60,17 @@ public interface IProbeExecutor
     /// <paramref name="totalDeadline"/> (default 10 s) so a probe whose every hop discards
     /// our packets can't hang the caller.
     /// </summary>
+    /// <param name="probesPerHop">
+    /// Probes sent to each TTL. Null keeps the executor's own default, which is what every caller
+    /// predating this parameter gets. More probes per hop is what makes a hop's loss readable
+    /// (Path Localization asks for 5); a vantage whose traceroute cannot send that many sends what
+    /// it can, so read <see cref="TraceHop.Probes"/> rather than assuming the request was honored.
+    /// </param>
     Task<TracerouteResult> TracerouteAsync(
         ProbeTarget target,
         int maxHops = 30,
         TimeSpan? perHopTimeout = null,
         TimeSpan? totalDeadline = null,
+        int? probesPerHop = null,
         CancellationToken ct = default);
 }

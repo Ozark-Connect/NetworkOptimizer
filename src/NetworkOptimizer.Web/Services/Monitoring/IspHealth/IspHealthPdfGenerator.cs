@@ -20,6 +20,16 @@ public class IspHealthPdfGenerator
     private readonly BrandingOptions _branding;
     private readonly IspHealthOptions _options;
     private readonly byte[]? _logoBytes;
+    private IReadOnlyList<PathLocalization.PathEpisodeDetail> _episodes = Array.Empty<PathLocalization.PathEpisodeDetail>();
+
+    /// <summary>Episode text marks code with backticks for the page; print drops the marks.</summary>
+    private static string Plain(string? s) => (s ?? "").Replace("`", "");
+
+    /// <summary>The report's findings followed by the episodes', as the tab lists them.</summary>
+    private List<IspHealthIssue> AllFindings(IspHealthReport report) => report.Issues
+        .Concat(PathLocalization.PathEpisodePresentation.Findings(_episodes.Select(e => e.Episode).ToList(), _options,
+            PathLocalization.PathEpisodePresentation.PointsById(report)))
+        .ToList();
 
     /// <param name="options">The scorer's own options, so the limiting-aspect column weighs
     /// stability against congestion exactly as the tab does.</param>
@@ -34,8 +44,12 @@ public class IspHealthPdfGenerator
     /// <summary>Renders the report to PDF bytes.</summary>
     /// <param name="report">The scored report, exactly as the tab received it.</param>
     /// <param name="siteName">Site the report covers, used in the title.</param>
-    public byte[] GenerateReportBytes(IspHealthReport report, string? siteName = null)
+    /// <param name="episodes">Path Localization episodes in the window, with their hop tables: they
+    /// join the findings and events as on the tab, and get a section of their own.</param>
+    public byte[] GenerateReportBytes(IspHealthReport report, string? siteName = null,
+        IReadOnlyList<PathLocalization.PathEpisodeDetail>? episodes = null)
     {
+        _episodes = episodes ?? Array.Empty<PathLocalization.PathEpisodeDetail>();
         var generatedAt = DateTime.Now;
         return Document.Create(container =>
         {
@@ -124,7 +138,7 @@ public class IspHealthPdfGenerator
             column.Item().Element(c => ComposeSummary(c, report));
             column.Item().PaddingTop(20).Element(c => ComposeSpeedVsPlan(c, report));
 
-            if (report.Issues.Count > 0)
+            if (AllFindings(report).Count > 0)
                 column.Item().PaddingTop(20).Element(c => ComposeFindings(c, report));
 
             column.Item().PageBreak();
@@ -140,7 +154,90 @@ public class IspHealthPdfGenerator
                 column.Item().PaddingTop(20).Element(c => ComposeOutages(c, report));
 
             column.Item().PaddingTop(20).Element(c => ComposeEvents(c, report));
+
+            if (_episodes.Count > 0)
+            {
+                column.Item().PageBreak();
+                column.Item().Element(ComposePathTraces);
+            }
         });
+    }
+
+    /// <summary>
+    /// Each Path Localization episode: its verdict, then every degraded target's hop table. This is
+    /// the evidence an ISP is handed the report for, so nothing is folded away.
+    /// </summary>
+    private void ComposePathTraces(IContainer container)
+    {
+        container.Column(column =>
+        {
+            SectionHeading(column, "Path Traces");
+
+            foreach (var detail in _episodes.OrderByDescending(e => e.Episode.OpenedAt))
+            {
+                var e = detail.Episode;
+                var end = e.ClosedAt is DateTime closed ? $" to {closed.ToLocalTime():HH:mm}" : " (tracing)";
+                column.Item().PaddingTop(8).Text(text =>
+                {
+                    text.Span($"{IspHealthPresentation.EventTimeLabel(e.OpenedAt)}{end}  ").FontSize(10).Bold();
+                    text.Span(string.Join(", ", e.Degraded.Select(t => t.Name))).FontSize(10).Bold()
+                        .FontColor(_branding.Colors.Primary);
+                });
+                if (!string.IsNullOrEmpty(e.Summary))
+                    column.Item().PaddingTop(2).Text(Plain(e.Summary)).FontSize(9);
+
+                foreach (var table in detail.Tables.Where(t => t.Hops.Count > 0))
+                {
+                    var traced = table.TracedAddress != null && table.TracedAddress != table.Address ? $", traced at {table.TracedAddress}" : "";
+                    column.Item().PaddingTop(6).PaddingBottom(4).Text(
+                            $"{table.Target.Name}: {table.Rounds} {(table.Rounds == 1 ? "round" : "rounds")} from {table.VantageName}{traced}"
+                            + (table.HasRecovery ? ", baseline from the recovery round" : ""))
+                        .FontSize(8).FontColor(Colors.Grey.Darken1);
+
+                    column.Item().PaddingBottom(12).Table(t =>
+                    {
+                        t.ColumnsDefinition(columns =>
+                        {
+                            columns.ConstantColumn(40);
+                            columns.RelativeColumn(3f);
+                            columns.RelativeColumn(2f);
+                            columns.RelativeColumn(1.2f);
+                            columns.RelativeColumn(1.3f);
+                            columns.RelativeColumn(1.2f);
+                        });
+
+                        HeaderRow(t, "Hop", "Address / PTR", "Network", "Loss", "RTT", "Reading");
+
+                        foreach (var hop in table.Hops)
+                        {
+                            Cell(t, hop.Ttl.ToString());
+                            Cell(t, hop.Responses == 0
+                                ? (hop.Has(PathLocalization.HopTag.Destination) ? $"{hop.Address ?? table.Address} (never answered)" : "* * *")
+                                : !string.IsNullOrEmpty(hop.Hostname) && hop.Hostname != hop.Address ? $"{hop.Hostname} ({hop.Address})" : hop.Address ?? "");
+                            Cell(t, Plain(PathLocalization.PathTraceAnalyzer.NetworkCell(hop)));
+                            Cell(t, PathLocalization.PathEpisodePresentation.HopLossText(PathLocalization.PathEpisodePresentation.HopLoss(hop, detail)));
+                            Cell(t, hop.MinRttMs is double min
+                                ? PathLocalization.PathEpisodePresentation.DisplayBaseline(hop) is double b ? $"{b:0.0} to {min:0.0} ms" : $"{min:0.0} ms"
+                                : "-");
+                            Cell(t, HopReadingText(hop, detail));
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    /// <summary>What the analysis made of a hop, in words: its role and what decided it.</summary>
+    private static string HopReadingText(PathLocalization.HopReading hop, PathLocalization.PathEpisodeDetail detail)
+    {
+        var parts = new List<string>();
+        if (PathLocalization.PathEpisodePresentation.HopTagLabel(hop) is string tag) parts.Add(tag);
+        if (hop.Has(PathLocalization.HopTag.Anchored))
+            parts.Add(hop.Address != null && detail.PingedHops?.Contains(hop.Address) == true ? "Pinged" : "Monitored");
+        if (hop.Has(PathLocalization.HopTag.RateLimited)) parts.Add("Rate-limited");
+        if (hop.Has(PathLocalization.HopTag.SlowPath)) parts.Add("Slow ICMP");
+        if (hop.Has(PathLocalization.HopTag.Destination)) parts.Add("Destination");
+        return parts.Count == 0 ? "" : string.Join(", ", parts);
     }
 
     private void ComposeSummary(IContainer container, IspHealthReport report)
@@ -255,7 +352,7 @@ public class IspHealthPdfGenerator
         {
             SectionHeading(column, "Findings");
 
-            foreach (var issue in report.Issues)
+            foreach (var issue in AllFindings(report))
             {
                 var severityColor = issue.Severity switch
                 {
@@ -271,9 +368,9 @@ public class IspHealthPdfGenerator
                         {
                             text.Span($"{issue.Severity.ToString().ToUpperInvariant()}  ")
                                 .FontSize(8).Bold().FontColor(severityColor);
-                            text.Span(issue.Title).FontSize(10).Bold();
+                            text.Span(Plain(issue.Title)).FontSize(10).Bold();
                         });
-                        issueColumn.Item().PaddingTop(2).Text(issue.Description).FontSize(9);
+                        issueColumn.Item().PaddingTop(2).Text(Plain(issue.Description)).FontSize(9);
                         if (!string.IsNullOrEmpty(issue.Recommendation))
                         {
                             issueColumn.Item().PaddingTop(2).Text(issue.Recommendation)
@@ -341,6 +438,13 @@ public class IspHealthPdfGenerator
                         // the dimension as much or as little as it does; without it a 25%-weighted
                         // 40 reads as a 40 that the average somehow ignored.
                         Cell(table, Notes(factor.Description, factor.InvolvementTooltip, factor.LowReachScoreCaveat));
+                    }
+                    if (dimension == report.TransitDimension && report.PathCongestionTransitPoints > 0)
+                    {
+                        Cell(table, "Path Congestion");
+                        Cell(table, $"-{report.PathCongestionTransitPoints}", ScoreColor(0));
+                        Cell(table, $"{report.PathCongestion.Count} {(report.PathCongestion.Count == 1 ? "episode" : "episodes")}");
+                        Cell(table, "Congestion into 2 or more networks while your connection was otherwise clean.");
                     }
                 });
             }
@@ -495,7 +599,10 @@ public class IspHealthPdfGenerator
         {
             SectionHeading(column, "Path & Congestion Events");
 
-            var timeline = IspHealthPresentation.EventTimeline(report).ToList();
+            var timeline = IspHealthPresentation.EventTimeline(report)
+                .Concat(PathLocalization.PathEpisodePresentation.Entries(_episodes.Select(e => e.Episode)))
+                .OrderBy(e => e.Time)
+                .ToList();
             if (timeline.Count == 0)
             {
                 column.Item().Text("No congestion events or path shifts detected in the window.")
@@ -520,7 +627,7 @@ public class IspHealthPdfGenerator
                     Cell(table, IspHealthPresentation.EventTimeLabel(entry.Time));
                     // A grouped line's per-hop readings always print: the document has no
                     // disclosure to open, and they are what an ISP is being handed this for.
-                    CellLines(table, entry.Text, entry.Members is { Count: > 0 }
+                    CellLines(table, Plain(entry.Text), entry.Members is { Count: > 0 }
                         ? string.Join("\n", entry.Members)
                         : null);
                 }

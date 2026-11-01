@@ -2693,6 +2693,15 @@ a.stat-card-link:active {
     font-size: 0.8125rem;
 }
 
+/* Inline code inside running text (TextWithCode): the table look, wherever the text lands. */
+code.text-code {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 0.0625rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.8125em;
+}
+
 /* Text truncation utilities for table cells */
 .text-truncate-200 { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .text-truncate-300 { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -19412,6 +19421,17 @@ a.isp-health-hero-speed:hover {
     overflow: hidden;
 }
 
+/* A deduction (Transit Health's Path Congestion) below the graded rows: no bar, a divider above. */
+.isp-factor-row.isp-factor-deduction {
+    margin-top: 0.9rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.isp-factor-bar-track.isp-factor-bar-track-empty {
+    background: transparent;
+}
+
 .isp-factor-bar {
     height: 100%;
     border-radius: 0 4px 4px 0;
@@ -19615,7 +19635,7 @@ a.isp-health-hero-speed:hover {
 .isp-event-item {
     position: relative;
     display: grid;
-    grid-template-columns: 7.5rem 5.5rem 1fr;
+    grid-template-columns: 7.5rem 5.5rem minmax(0, 1fr);
     justify-items: start;
     align-items: baseline;
     column-gap: 0.6rem;
@@ -19716,6 +19736,10 @@ a.isp-health-hero-speed:hover {
     font-size: 0.85rem;
     color: var(--text-secondary);
     flex: 1 1 240px;
+    /* With the minmax(0, ...) text track, this keeps an open hop table from widening the row past
+       the card: it scrolls inside its .table-responsive instead. */
+    min-width: 0;
+    justify-self: stretch;
 }
 
 .isp-event-members-toggle {
@@ -19738,6 +19762,137 @@ a.isp-health-hero-speed:hover {
     margin-top: 0.35rem;
     font-size: 0.8rem;
     color: var(--text-muted);
+}
+
+/* Path Localization: the hop table behind an episode row */
+.path-episode-detail {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.path-episode-summary {
+    margin: 0 0 0.5rem;
+    color: var(--text-muted);
+}
+
+.path-episode-destinations {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-bottom: 0.5rem;
+}
+
+.path-episode-dest-label {
+    display: inline-block;
+    min-width: 4.5rem;
+    color: var(--text-muted);
+}
+
+.path-episode-table-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.path-episode-table-title {
+    font-weight: 600;
+}
+
+.path-episode-target-name {
+    display: inline-flex;
+    align-items: center;
+}
+
+.path-episode-target-name .monitoring-jump-btn {
+    padding: 0 0.25rem;
+}
+
+.path-episode-target-name .monitoring-jump-btn svg {
+    width: 15px;
+    height: 15px;
+}
+
+.path-episode-rerun {
+    margin-left: auto;
+}
+
+.path-episode-table + .path-episode-table {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Fixed columns so every target's table lines up with the next. */
+.path-episode-table .path-episode-hops {
+    table-layout: fixed;
+    min-width: 760px;
+}
+
+.path-episode-hops .path-col-hop { width: 3rem; }
+.path-episode-hops .path-col-network { width: 13rem; }
+.path-episode-hops .path-col-loss { width: 9rem; }
+.path-episode-hops .path-col-rtt { width: 12rem; }
+.path-episode-hops .path-col-return { width: 7.5rem; }
+
+.path-episode-hops td,
+.path-episode-hops th {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}
+
+.path-episode-hops th,
+.path-episode-hops td.path-hop-nowrap {
+    white-space: nowrap;
+}
+
+.path-episode-hops tbody tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.path-episode-hops tbody tr.path-hop-elevated td {
+    background: rgba(245, 158, 11, 0.07);
+}
+
+.path-episode-hops tbody tr.path-hop-elevated:nth-child(even) td {
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.path-episode-hops code.text-code {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 0 0.3rem;
+    margin-left: 0.15rem;
+}
+
+.path-episode-hops tr.path-hop-icmp td {
+    color: var(--text-muted);
+}
+
+.path-hop-tag {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+
+.path-hop-tag-onset {
+    color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.path-hop-tag-clean {
+    color: var(--success-color);
+    background: rgba(16, 185, 129, 0.12);
+}
+
+.path-hop-tag-muted {
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
 }
 
 .isp-outage-list {
@@ -20056,7 +20211,7 @@ a.isp-outage-ack:hover {
         padding-left: 0.75rem;
     }
     .isp-event-item {
-        grid-template-columns: auto auto;
+        grid-template-columns: auto minmax(0, 1fr);
         row-gap: 0.15rem;
     }
     .isp-event-text {

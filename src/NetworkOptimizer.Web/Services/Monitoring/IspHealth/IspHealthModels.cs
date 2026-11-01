@@ -250,6 +250,9 @@ public class IspHealthIssue
     /// the per-event "that was me" exclusion on the finding itself. Empty for non-outage findings.
     /// </summary>
     public List<DateTime> OutageStarts { get; init; } = new();
+
+    /// <summary>The Path Localization episode behind this finding, so its link opens that episode's hop table.</summary>
+    public int? EpisodeId { get; init; }
 }
 
 /// <summary>
@@ -550,6 +553,28 @@ public class OutageEvent
     public bool Acknowledged { get; set; }
 }
 
+/// <summary>
+/// A Path Localization episode the score counts: congestion on routes into two or more destination
+/// networks while the access layer and a control stayed clean, which points at the ISP's upstream.
+/// </summary>
+public class PathCongestionEpisode
+{
+    public int EpisodeId { get; init; }
+    public DateTime Start { get; init; }
+    /// <summary>The episode's close, or the window end while it is still open.</summary>
+    public DateTime End { get; init; }
+    /// <summary>Distinct ASNs among the degraded destinations.</summary>
+    public int DegradedAsns { get; init; }
+    /// <summary>Distinct ASNs among every monitored destination on the WAN, the degraded ones included.</summary>
+    public int DestinationAsns { get; init; }
+    public double PeakLossPct { get; init; }
+    public double RttRiseMs { get; init; }
+    /// <summary>Time-of-day usage weight, as outages carry it. Set by the service.</summary>
+    public double UsageWeight { get; set; } = 1.0;
+    /// <summary>Points this episode took off the overall score. Set by the scorer.</summary>
+    public int ScorePenaltyPoints { get; set; }
+}
+
 /// <summary>One network tier's behavior during an outage, for the recovery-shape display.</summary>
 public class OutageTierState
 {
@@ -622,6 +647,10 @@ public class IspHealthReport
     public List<CongestionEvent> CongestionEvents { get; init; } = new();
     public List<PathShiftEvent> PathShifts { get; init; } = new();
     public List<OutageEvent> Outages { get; init; } = new();
+    /// <summary>Path congestion episodes the score counted, each with its points.</summary>
+    public List<PathCongestionEpisode> PathCongestion { get; init; } = new();
+    /// <summary>Points path congestion took off Transit Health (the dimension, not the overall score).</summary>
+    public int PathCongestionTransitPoints { get; init; }
 
     /// <summary>Monitored address per target id, so an event on a hop with no network can still name it.</summary>
     public IReadOnlyDictionary<string, string> TargetAddresses { get; init; } = new Dictionary<string, string>();
@@ -893,6 +922,9 @@ public class IspHealthInputs
 
     /// <summary>Pre-detected internet-unreachable outages in the window.</summary>
     public List<OutageEvent> Outages { get; init; } = new();
+
+    /// <summary>Path Localization episodes in the window that span two or more destination networks.</summary>
+    public List<PathCongestionEpisode> PathCongestion { get; init; } = new();
 
     /// <summary>
     /// True when Upstream Discovery has persisted hop-ancestor data for this WAN. When false

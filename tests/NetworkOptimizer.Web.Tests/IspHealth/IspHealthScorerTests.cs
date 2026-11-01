@@ -44,7 +44,8 @@ public class IspHealthScorerTests
         HashSet<string>? notTracedTargetIds = null,
         double? expectedDownMbps = null,
         double? expectedUpMbps = null,
-        PhysicalLinkInput? physicalLink = null)
+        PhysicalLinkInput? physicalLink = null,
+        List<PathCongestionEpisode>? pathCongestion = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -88,8 +89,49 @@ public class IspHealthScorerTests
             SmartQueuesEnabled = smartQueuesEnabled,
             HopOrderKnown = hopOrderKnown,
             NotTracedTargetIds = notTracedTargetIds ?? new HashSet<string>(),
-            Outages = outages ?? new List<OutageEvent>()
+            Outages = outages ?? new List<OutageEvent>(),
+            PathCongestion = pathCongestion ?? new List<PathCongestionEpisode>()
         };
+    }
+
+    [Fact]
+    public void PathCongestion_ComesOffTransitHealth_ByImpact()
+    {
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 12.0, 0.3)) };
+        PathCongestionEpisode Episode(int id, double startHour, double hours, int degradedAsns = 2, double loss = 12) => new()
+        {
+            EpisodeId = id,
+            Start = TestSeries.Start.AddHours(startHour),
+            End = TestSeries.Start.AddHours(startHour + hours),
+            DegradedAsns = degradedAsns,
+            DestinationAsns = 4,
+            PeakLossPct = loss
+        };
+        IspHealthReport With(params PathCongestionEpisode[] episodes) => new IspHealthScorer(Options)
+            .Score(BuildInputs(transit: transit, pathCongestion: episodes.ToList()), Gpon);
+
+        var clean = With();
+        clean.PathCongestionTransitPoints.Should().Be(0);
+
+        // Two hours across half the destination networks at full depth: 60 effective minutes, 4.2% of
+        // the day, which the share curve reads as ~15. One episode carries no recurrence.
+        var one = With(Episode(1, 19, 2));
+        one.PathCongestionTransitPoints.Should().Be(15);
+        one.TransitDimension.Score.Should().Be(clean.TransitDimension.Score - 15);
+        one.OverallScore.Should().BeLessThan(clean.OverallScore);
+        one.PathCongestion[0].ScorePenaltyPoints.Should().Be(clean.OverallScore - one.OverallScore);
+
+        // Shallower (a +13 ms slowdown, no loss) and narrower episodes cost less.
+        var shallow = With(new PathCongestionEpisode
+        {
+            EpisodeId = 2, Start = TestSeries.Start.AddHours(19), End = TestSeries.Start.AddHours(21),
+            DegradedAsns = 2, DestinationAsns = 4, RttRiseMs = 13
+        });
+        shallow.PathCongestionTransitPoints.Should().BeInRange(1, 14);
+
+        // A second episode adds recurrence on top of its share.
+        var two = With(Episode(1, 7, 2), Episode(2, 19, 2));
+        two.PathCongestionTransitPoints.Should().BeGreaterThan(one.PathCongestionTransitPoints);
     }
 
     [Fact]

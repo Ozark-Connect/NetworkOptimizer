@@ -226,6 +226,40 @@ public class IspHealthPdfGeneratorTests
     }
 
     [Fact]
+    public void GenerateReportBytes_RendersPathTraces()
+    {
+        var episode = new NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeView
+        {
+            Id = 1,
+            OpenedAt = DateTime.UtcNow.AddHours(-2),
+            ClosedAt = DateTime.UtcNow.AddHours(-1),
+            Disposition = CongestionDisposition.Confirmed,
+            Label = "The problem starts where Lumen (`AS3356`) hands off to Akamai (`AS20940`).",
+            Summary = "The problem starts where Lumen (`AS3356`) hands off to Akamai (`AS20940`).",
+            Degraded = new[]
+            {
+                new NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeTargetView(
+                    1, "t1", "Speedtest ORD", PathEpisodeTargetRole.Degraded, 32, 45, 0, 12, null)
+            }
+        };
+        var hops = new[]
+        {
+            new NetworkOptimizer.Web.Services.Monitoring.PathLocalization.HopReading { Ttl = 1, Address = "192.0.2.1", Sent = 5, Responses = 5, MinRttMs = 0.4 },
+            new NetworkOptimizer.Web.Services.Monitoring.PathLocalization.HopReading { Ttl = 2, Address = "203.0.113.6", Asn = 20940, AsnName = "Akamai", Sent = 5, Responses = 4, MinRttMs = 30, DownstreamFloorPct = 10 }
+        };
+        var detail = new NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeDetail(episode, new[]
+        {
+            new NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable(
+                episode.Degraded[0], "203.0.113.80", "server", null, 4, true, hops, "this server")
+        });
+
+        var pdf = new IspHealthPdfGenerator().GenerateReportBytes(FullReport(), "Test Site", new[] { detail });
+
+        pdf.Should().NotBeNullOrEmpty();
+        System.Text.Encoding.ASCII.GetString(pdf, 0, 5).Should().Be("%PDF-");
+    }
+
+    [Fact]
     public void GenerateReportBytes_WorksWithoutASiteName()
     {
         var pdf = new IspHealthPdfGenerator().GenerateReportBytes(FullReport());

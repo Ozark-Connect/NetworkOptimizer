@@ -209,7 +209,12 @@ public class IspHealthScorer
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
         var ispAsnDimension = BuildIspDimension(_options.IspAsnWeight, ispHopGrades);
 
+        var transitBeforePathCongestion = transitDimension;
+        transitDimension = ApplyPathCongestion(inputs, transitDimension);
+        var pathCongestionTransitPoints = (transitBeforePathCongestion.Score ?? 0) - (transitDimension.Score ?? 0);
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
+        AttributePathCongestion(inputs.PathCongestion,
+            CombineDimensions(accessDimension, transitBeforePathCongestion, ispAsnDimension) - overall);
         // Outages are scored once, here at the top level (not inside a factor, where the dimension
         // weights would dilute a multi-hour outage to a couple of points), as TWO components:
         //   - DURATION: the GREATER of (a) the summed effective downtime as a PERCENT OF THE WINDOW,
@@ -369,6 +374,8 @@ public class IspHealthScorer
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             Outages = inputs.Outages,
+            PathCongestion = inputs.PathCongestion,
+            PathCongestionTransitPoints = pathCongestionTransitPoints,
             TargetAddresses = inputs.TargetAddresses,
             HasExpectedSpeeds = hasExpectedSpeeds,
             HasUpstreamTraceMap = inputs.HopOrderKnown,
@@ -2390,6 +2397,63 @@ public class IspHealthScorer
                 : (int)Math.Round(scored.Average(a => a.OverallScore!.Value));
         }
         return new IspScoreDimension { Name = name, Score = score, Weight = weight, Factors = factors };
+    }
+
+    /// <summary>
+    /// Path congestion's impact on one episode, 0..1 per minute: the share of your destination
+    /// networks it reached, how deep it went, and how heavily the line is used at that hour.
+    /// </summary>
+    internal double PathCongestionSeverity(PathCongestionEpisode e)
+    {
+        var breadth = e.DestinationAsns > 0 ? Math.Clamp((double)e.DegradedAsns / e.DestinationAsns, 0, 1) : 1.0;
+        var depth = Math.Clamp(Math.Max(
+            e.PeakLossPct / _options.PathCongestionFullLossPct,
+            e.RttRiseMs / _options.PathCongestionFullRttRiseMs), 0, 1);
+        return breadth * depth * e.UsageWeight;
+    }
+
+    /// <summary>
+    /// Takes path congestion off Transit Health, the way outages come off the overall score: the
+    /// percent of the window the Internet was congested (minutes x severity) plus a daily recurrence
+    /// rate. Both are rates, so a nightly pattern costs the same on a day's report as on a week's.
+    /// A deduction rather than an entry in the dimension's average, which would dilute it away.
+    /// </summary>
+    private IspScoreDimension ApplyPathCongestion(IspHealthInputs inputs, IspScoreDimension transit)
+    {
+        if (inputs.PathCongestion.Count == 0 || transit.Score is not int score) return transit;
+        var windowMinutes = (inputs.WindowEnd - inputs.WindowStart).TotalMinutes;
+        if (windowMinutes <= 0) return transit;
+
+        double InWindowMinutes(PathCongestionEpisode e)
+        {
+            var start = e.Start > inputs.WindowStart ? e.Start : inputs.WindowStart;
+            var end = e.End < inputs.WindowEnd ? e.End : inputs.WindowEnd;
+            return end > start ? (end - start).TotalMinutes : 0.0;
+        }
+        var effectiveMinutes = inputs.PathCongestion.Sum(e => InWindowMinutes(e) * PathCongestionSeverity(e));
+        var share = 100.0 * effectiveMinutes / windowMinutes;
+        // Recurrence starts at the second episode, as for outages: one episode is an incident, and
+        // its cost belongs to the share term alone.
+        var severities = inputs.PathCongestion.Select(PathCongestionSeverity).ToList();
+        var perDay = (severities.Sum() - severities.Max()) / (windowMinutes / 1440.0);
+        var penalty = ScoreCurve.Interpolate(share, _options.PathCongestionShareCurve)
+            + ScoreCurve.Interpolate(perDay, _options.PathCongestionRateCurve);
+        var adjusted = (int)Math.Max(0, Math.Round(score - penalty));
+        _logger?.LogDebug(
+            "ISP Health: path congestion {Penalty} pts off Transit Health ({Share}% of window over {N} episode(s), {Rate}/day) ({Before} -> {After})",
+            penalty.ToString("0.#", CultureInfo.InvariantCulture), share.ToString("0.##", CultureInfo.InvariantCulture),
+            inputs.PathCongestion.Count, perDay.ToString("0.##", CultureInfo.InvariantCulture), score, adjusted);
+        return new IspScoreDimension { Name = transit.Name, Score = adjusted, Weight = transit.Weight, Factors = transit.Factors };
+    }
+
+    /// <summary>Splits the overall points path congestion cost across its episodes by impact, so each row shows its own.</summary>
+    private void AttributePathCongestion(List<PathCongestionEpisode> episodes, int overallPoints)
+    {
+        var total = episodes.Sum(e => (e.End - e.Start).TotalMinutes * PathCongestionSeverity(e));
+        foreach (var e in episodes)
+            e.ScorePenaltyPoints = total > 0 && overallPoints > 0
+                ? (int)Math.Round(overallPoints * (e.End - e.Start).TotalMinutes * PathCongestionSeverity(e) / total)
+                : 0;
     }
 
     private int CombineDimensions(params IspScoreDimension[] dimensions)

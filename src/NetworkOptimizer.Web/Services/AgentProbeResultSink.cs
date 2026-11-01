@@ -32,6 +32,7 @@ public class AgentProbeResultSink
     private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly Monitoring.IspHealth.IspHealthRegistry _ispHealthRegistry;
+    private readonly Monitoring.PathLocalization.PathEpisodeRegistry _pathEpisodeRegistry;
     private readonly ClientUsageRollupRegistry _usageRollupRegistry;
     private readonly ILogger<AgentProbeResultSink> _logger;
 
@@ -128,8 +129,10 @@ public class AgentProbeResultSink
         CableModemProviders.Uci.UciInformService uciInforms,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         Auditing.IAuditLogger audit,
+        Monitoring.PathLocalization.PathEpisodeRegistry pathEpisodeRegistry,
         ILogger<AgentProbeResultSink> logger)
     {
+        _pathEpisodeRegistry = pathEpisodeRegistry;
         _mainDbFactory = mainDbFactory;
         _audit = audit;
         _uciInforms = uciInforms;
@@ -2281,6 +2284,7 @@ public class AgentProbeResultSink
                 "{Count} result(s) from agent {Id} (site {Slug}) will not be stored: the site's InfluxDB client is not configured",
                 batch.Results.Count, connection.AgentId, connection.SiteSlug);
         var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
+        var pathEpisodes = _pathEpisodeRegistry.GetFor(connection.SiteSlug);
         var discarded = 0;
 
         foreach (var result in batch.Results)
@@ -2317,6 +2321,12 @@ public class AgentProbeResultSink
                 received: result.Received,
                 timestamp: timestamp,
                 wanContext: wanContext);
+
+            // Path Localization traces from this agent, bound the way the target's probes are.
+            var bind = ResolveSpecSourceIp(context, connection.AgentId);
+            pathEpisodes.Observe(target, context,
+                new Monitoring.PathLocalization.PathVantage(connection.AgentId, string.IsNullOrEmpty(bind) ? null : bind),
+                timestamp, result.HasRttAvgMs ? result.RttAvgMs : null, result.Sent, result.Received);
 
             // The site's live caches mirror what the local latency tier
             // records: fabric probes surface on that device's card, and every

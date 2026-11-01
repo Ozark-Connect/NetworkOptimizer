@@ -1,0 +1,245 @@
+@using NetworkOptimizer.Web.Services.Monitoring.PathLocalization
+@using NetworkOptimizer.Storage.Models
+@inject IPathEpisodeService PathEpisodes
+@inject ILogger<PathEpisodeHopTable> Logger
+@inject NavigationManager NavigationManager
+
+@* The hop table behind one Path Localization episode: every TTL of each degraded target's rounds,
+   pooled, with the hop where the degradation first appears and the last clean one marked. Loaded
+   when opened, and re-read when the episode records a new round. *@
+<div class="path-episode-detail">
+    @if (_detail == null)
+    {
+        <div class="text-muted">@(_failed ? "Couldn't load the traces." : "Loading the traces...")</div>
+    }
+    else
+    {
+        @* The event row above carries the verdict; only a pause, which it does not say, shows here. *@
+        @if (_detail.Episode.Summary?.StartsWith("Paused:", StringComparison.Ordinal) == true)
+        {
+            <p class="path-episode-summary">@_detail.Episode.Summary.Split(". ", 2)[0].</p>
+        }
+        @if (_detail.Episode.Degraded.Count > 1 || _detail.Episode.Controls.Count > 0)
+        {
+            <div class="path-episode-destinations">
+                <div><span class="path-episode-dest-label">Degraded</span> @string.Join(", ", _detail.Episode.Degraded.Select(t => t.Name))</div>
+                @if (_detail.Episode.Controls.Count > 0)
+                {
+                    <div>
+                        <span class="path-episode-dest-label">Clean</span>
+                        @foreach (var (control, i) in _detail.Episode.Controls.Select((c, i) => (c, i)))
+                        {
+                            <span class="path-episode-target-name">@control.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                                Tooltip="@JumpTooltip(control)" OnClick="() => Jump(control)" /></span>@(i < _detail.Episode.Controls.Count - 1 ? ", " : "")
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @foreach (var table in _detail.Tables)
+        {
+            <div class="path-episode-table">
+            <div class="path-episode-table-head">
+                <span class="path-episode-table-title path-episode-target-name">@table.Target.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                    Tooltip="@JumpTooltip(table.Target)" OnClick="() => Jump(table.Target)" /></span>
+                <span class="text-muted">
+                    @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
+                </span>
+                @if (table.TracedAddress != null && table.TracedAddress != table.Address)
+                {
+                    <span class="text-muted">Traced @table.TracedAddress</span>
+                }
+                <a class="path-episode-rerun" href="@PathEpisodePresentation.RerunUrl(table.TracedAddress ?? table.Address, table.Vantage, _detail.Episode.WanContextId)"
+                   data-tooltip="Fill Network Tools with this target and vantage" data-tooltip-hover-only>Re-run</a>
+            </div>
+            @if (table.Hops.Count == 0)
+            {
+                <div class="text-muted">No round has answered yet.</div>
+            }
+            else
+            {
+            <div class="table-responsive">
+                <table class="data-table path-episode-hops">
+                    <colgroup>
+                        <col class="path-col-hop" />
+                        <col />
+                        <col class="path-col-network" />
+                        <col class="path-col-loss" />
+                        <col class="path-col-rtt" />
+                        @if (table.Hops.Any(ReturnHopsWorthShowing))
+                        {
+                            <col class="path-col-return" />
+                        }
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Hop</th>
+                            <th>Address / PTR</th>
+                            <th>Network</th>
+                            <th>Loss</th>
+                            <th data-tooltip="Baseline: a monitored hop's own series, else the minimum RTT after the episode (or on the clean control). Then the minimum during it, rather than the average, which ICMP slow-path handling inflates.">RTT (baseline &rarr; episode min)</th>
+                            @if (table.Hops.Any(ReturnHopsWorthShowing))
+                            {
+                                <th data-tooltip="How many hops the reply took to come back, from its TTL. Far from the hop number means a different way home.">Return hops</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var hop in table.Hops)
+                        {
+                            var tag = PathEpisodePresentation.HopTagLabel(hop);
+                            <tr class="@RowClass(hop)">
+                                <td>@hop.Ttl</td>
+                                <td>
+                                    @if (hop.Has(HopTag.Destination) && hop.Responses == 0)
+                                    {
+                                        <span>@(hop.Address ?? table.Address)</span> <span class="text-muted">(never answered)</span>
+                                    }
+                                    else if (hop.Responses == 0)
+                                    {
+                                        <span class="text-muted">* * *</span>
+                                    }
+                                    else if (!string.IsNullOrEmpty(hop.Hostname))
+                                    {
+                                        <span>@hop.Hostname (@hop.Address)</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@hop.Address</span>
+                                    }
+                                    @if (tag != null)
+                                    {
+                                        <span class="path-hop-tag @TagClass(hop)" data-tooltip="@TagTooltip(hop)">@tag</span>
+                                    }
+                                    @if (hop.Has(HopTag.Anchored) && hop.Address != null && _detail.PingedHops?.Contains(hop.Address) == true)
+                                    {
+                                        <span class="path-hop-tag path-hop-tag-muted" data-tooltip="Pinged directly during the episode, which decided it. A router limits the replies a traceroute reads far more than ping replies, and a ping to it crosses the same path.">Pinged</span>
+                                    }
+                                    else if (hop.Has(HopTag.Anchored))
+                                    {
+                                        <span class="path-hop-tag path-hop-tag-muted" data-tooltip="A monitored hop: its own ping series over the episode decided it, not these few trace probes.">Monitored</span>
+                                    }
+                                    @if (hop.Has(HopTag.RateLimited))
+                                    {
+                                        <span class="path-hop-tag path-hop-tag-muted" data-tooltip="Lost the same number of probes every round: an ICMP rate limit, not forwarding loss.">Rate-limited</span>
+                                    }
+                                    @if (hop.Has(HopTag.SlowPath))
+                                    {
+                                        <span class="path-hop-tag path-hop-tag-muted" data-tooltip="Its RTT spread dwarfs the next hop's: the router is slow to answer ICMP itself, not slow to forward.">Slow ICMP</span>
+                                    }
+                                </td>
+                                <td><TextWithCode Text="@PathTraceAnalyzer.NetworkCell(hop)" /></td>
+                                <td class="path-hop-nowrap">
+                                    @if (LossCell(hop) is { } loss)
+                                    {
+                                        <span data-tooltip="@loss.Tooltip">@($"{loss.Shown:0.#}%")</span>
+                                        @if (loss.Higher is double higher)
+                                        {
+                                            @(" ")<span class="text-muted">(@loss.HigherSource @($"{higher:0.#}%"))</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span>-</span>
+                                    }
+                                </td>
+                                <td class="path-hop-nowrap">
+                                    @if (RttTooltip(hop) is { } rttTip)
+                                    {
+                                        <span data-tooltip="@rttTip">@RttLabel(hop)</span>
+                                    }
+                                    else
+                                    {
+                                        @RttLabel(hop)
+                                    }
+                                </td>
+                                @if (table.Hops.Any(ReturnHopsWorthShowing))
+                                {
+                                    <td>
+                                        @if (ReturnHopsWorthShowing(hop) && hop.ReturnHops is int rh)
+                                        {
+                                            <span>@(hop.BaselineReturnHops is int b && b != rh ? $"{b} → {rh}" : rh.ToString())</span>
+                                            @if (hop.Has(HopTag.ReturnDiffers))
+                                            {
+                                                <span class="path-hop-tag path-hop-tag-muted" data-tooltip="The reply came home by a hop count far from this hop's position on the way out.">Return differs</span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int EpisodeId { get; set; }
+
+    /// <summary>The episode's last write: a change re-reads the table, so an open one follows the rounds.</summary>
+    [Parameter] public DateTime UpdatedAt { get; set; }
+
+    /// <summary>The WAN ISP Health is showing, so a target link lands on the same one.</summary>
+    [Parameter] public string? WanKey { get; set; }
+
+    private static string JumpTooltip(PathEpisodeTargetView t) => $"Open {t.Name} on Network Performance over this episode";
+
+    private void Jump(PathEpisodeTargetView t) =>
+        NavigationManager.NavigateTo(PathEpisodePresentation.TargetUrl(_detail!.Episode, t, WanKey, DateTime.UtcNow));
+
+    private PathEpisodeDetail? _detail;
+    private bool _failed;
+    private (int Id, DateTime At)? _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedFor == (EpisodeId, UpdatedAt)) return;
+        _loadedFor = (EpisodeId, UpdatedAt);
+        try
+        {
+            _detail = await PathEpisodes.GetEpisodeAsync(EpisodeId);
+            _failed = _detail == null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load path episode {Id}", EpisodeId);
+            _failed = true;
+        }
+    }
+
+    private PathHopLoss? LossCell(HopReading hop) => PathEpisodePresentation.HopLoss(hop, _detail!);
+
+    // A reply that came home by as many hops as it went out says nothing, and is most of them.
+    private static bool ReturnHopsWorthShowing(HopReading h) =>
+        (h.ReturnHops is int rh && rh != h.Ttl) || (h.BaselineReturnHops is int b && b != h.ReturnHops);
+
+    private static string RowClass(HopReading h) =>
+        h.Has(HopTag.InRun) ? "path-hop-elevated" : h.Has(HopTag.IcmpLimited) ? "path-hop-icmp" : "";
+
+    private static string TagClass(HopReading h) =>
+        h.Has(HopTag.Onset) ? "path-hop-tag-onset" : h.Has(HopTag.LastClean) ? "path-hop-tag-clean" : "path-hop-tag-muted";
+
+    private static string TagTooltip(HopReading h) =>
+        h.Has(HopTag.Onset) ? "The degradation first appears here and every responding hop beyond it carries it. Each hop's RTT includes its own way home, so this is where it appears, not necessarily the broken link."
+        : h.Has(HopTag.LastClean) ? "The last hop that stayed clean."
+        : "Elevated, but the hops beyond it were not: this router deprioritizes its own ICMP replies. Shown, never blamed.";
+
+
+    private static string RttLabel(HopReading h)
+    {
+        if (h.MinRttMs is not double min) return "-";
+        return PathEpisodePresentation.DisplayBaseline(h) is double b ? $"{b:0.0} → {min:0.0} ms" : $"{min:0.0} ms";
+    }
+
+    private static string? RttTooltip(HopReading h) => h.MinRttMs.HasValue && h.SeriesBaselineRttMs.HasValue
+        ? "Baseline from its own monitored series: the typical RTT over the last 24 hours."
+        : null;
+}

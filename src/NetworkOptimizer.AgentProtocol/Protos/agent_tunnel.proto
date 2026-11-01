@@ -467,6 +467,9 @@ message ProbeRequest {
   // missing Kind marker on the returned result rather than showing ping data as DNS.
   string kind = 9;        // "" | dns
   bool reverse = 10;      // dns: PTR lookup rather than forward
+  // Traceroute probes per hop. 0 keeps the agent's default; an agent predating the field
+  // ignores it the same way, so the server reads the count it got from the result's hops.
+  int32 probes_per_hop = 11;
 }
 
 message ProbeResponse {
