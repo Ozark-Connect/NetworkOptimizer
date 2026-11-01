@@ -43,4 +43,11 @@ public static class NetOptClaims
     /// action. Ordering alone does not fix it: a SignalR message beats an HTTP round trip every time.
     /// </summary>
     public const string SessionId = "netopt:sid";
+
+    /// <summary>
+    /// The login this cookie belongs to. Unlike <see cref="SessionId"/>, which is new on every refresh,
+    /// it is fixed at sign-in and carried through every refresh in the cookie's properties, so signing
+    /// out can end every copy of the login (<see cref="EndedSessionStore"/>).
+    /// </summary>
+    public const string LoginId = "netopt:login";
 }
