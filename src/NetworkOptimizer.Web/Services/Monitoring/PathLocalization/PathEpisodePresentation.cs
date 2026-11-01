@@ -184,6 +184,12 @@ public static class PathEpisodePresentation
     }
 
     /// <summary>
+    /// The RTT column's baseline: a monitored hop's own series where it has one, else the trace's
+    /// recovery or control minimum. Shared by the page and the PDF.
+    /// </summary>
+    public static double? DisplayBaseline(HopReading hop) => hop.SeriesBaselineRttMs ?? hop.BaselineMinRttMs;
+
+    /// <summary>
     /// A hop's Loss cell, lowest first: the trace's loss capped at what the hops beyond it lost, the
     /// hop's own pings, or a monitored hop's own series. The highest raw figure follows, named by its
     /// source, when it differs. Null for a hop that never answered. Shared by the page and the PDF.

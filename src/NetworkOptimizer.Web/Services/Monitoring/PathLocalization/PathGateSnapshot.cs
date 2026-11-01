@@ -41,6 +41,9 @@ public sealed class PathGateSnapshot
     /// <summary>Each monitored hop's own series loss over the episode, by address: what decided it.</summary>
     public Dictionary<string, double> MonitoredLoss { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Monitored hops' and destinations' own series baseline RTT, by address, as first read in the episode.</summary>
+    public Dictionary<string, double> SeriesBaselines { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Reads a stored snapshot; an unreadable or empty one reads as empty rather than failing the episode.</summary>
     public static PathGateSnapshot Read(string? json)
     {
@@ -51,6 +54,7 @@ public sealed class PathGateSnapshot
             snapshot.Anchors = new Dictionary<string, bool>(snapshot.Anchors, StringComparer.OrdinalIgnoreCase);
             snapshot.HopPings = new Dictionary<string, HopPingStats>(snapshot.HopPings, StringComparer.OrdinalIgnoreCase);
             snapshot.MonitoredLoss = new Dictionary<string, double>(snapshot.MonitoredLoss, StringComparer.OrdinalIgnoreCase);
+            snapshot.SeriesBaselines = new Dictionary<string, double>(snapshot.SeriesBaselines, StringComparer.OrdinalIgnoreCase);
             return snapshot;
         }
         catch (JsonException)

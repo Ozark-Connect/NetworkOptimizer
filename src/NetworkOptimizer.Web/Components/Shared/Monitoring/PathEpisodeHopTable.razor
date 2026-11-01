@@ -54,7 +54,7 @@
                             <th>Address / PTR</th>
                             <th>Network</th>
                             <th>Loss</th>
-                            <th data-tooltip="Minimum RTT: after the episode (or on the clean control), then during it. Minimum rather than average, which ICMP slow-path handling inflates.">RTT (baseline &rarr; episode min)</th>
+                            <th data-tooltip="Baseline: a monitored hop's own series, else the minimum RTT after the episode (or on the clean control). Then the minimum during it, rather than the average, which ICMP slow-path handling inflates.">RTT (baseline &rarr; episode min)</th>
                             @if (table.Hops.Any(ReturnHopsWorthShowing))
                             {
                                 <th data-tooltip="How many hops the reply took to come back, from its TTL. Far from the hop number means a different way home.">Return hops</th>
@@ -120,7 +120,16 @@
                                         <span>-</span>
                                     }
                                 </td>
-                                <td>@RttLabel(hop)</td>
+                                <td>
+                                    @if (RttTooltip(hop) is { } rttTip)
+                                    {
+                                        <span data-tooltip="@rttTip">@RttLabel(hop)</span>
+                                    }
+                                    else
+                                    {
+                                        @RttLabel(hop)
+                                    }
+                                </td>
                                 @if (table.Hops.Any(ReturnHopsWorthShowing))
                                 {
                                     <td>
@@ -194,6 +203,10 @@
     private static string RttLabel(HopReading h)
     {
         if (h.MinRttMs is not double min) return "-";
-        return h.BaselineMinRttMs is double b ? $"{b:0.0} → {min:0.0} ms" : $"{min:0.0} ms";
+        return PathEpisodePresentation.DisplayBaseline(h) is double b ? $"{b:0.0} → {min:0.0} ms" : $"{min:0.0} ms";
     }
+
+    private static string? RttTooltip(HopReading h) => h.MinRttMs.HasValue && h.SeriesBaselineRttMs.HasValue
+        ? "Baseline from its own monitored series: the typical RTT over the last 24 hours."
+        : null;
 }

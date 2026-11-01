@@ -216,7 +216,7 @@ public class IspHealthPdfGenerator
                             Cell(t, Plain(PathLocalization.PathTraceAnalyzer.NetworkName(hop, "-")));
                             Cell(t, PathLocalization.PathEpisodePresentation.HopLossText(PathLocalization.PathEpisodePresentation.HopLoss(hop, detail)));
                             Cell(t, hop.MinRttMs is double min
-                                ? hop.BaselineMinRttMs is double b ? $"{b:0.0} to {min:0.0} ms" : $"{min:0.0} ms"
+                                ? PathLocalization.PathEpisodePresentation.DisplayBaseline(hop) is double b ? $"{b:0.0} to {min:0.0} ms" : $"{min:0.0} ms"
                                 : "-");
                             Cell(t, HopReadingText(hop, detail));
                         }

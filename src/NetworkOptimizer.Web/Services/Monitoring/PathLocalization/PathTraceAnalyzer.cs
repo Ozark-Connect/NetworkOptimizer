@@ -54,6 +54,11 @@ public sealed record HopReading
     /// <summary>The same hop's min RTT outside the episode: the recovery round, else the control round.</summary>
     public double? BaselineMinRttMs { get; init; }
     public double? DeltaRttMs => MinRttMs.HasValue && BaselineMinRttMs.HasValue ? MinRttMs - BaselineMinRttMs : null;
+    /// <summary>
+    /// The hop's own monitored series baseline (median RTT), for a monitored hop or destination. Display
+    /// only: a median of burst averages is not comparable to a trace min, so no decision reads it.
+    /// </summary>
+    public double? SeriesBaselineRttMs { get; init; }
     /// <summary>Null when the hop said nothing (every probe unanswered).</summary>
     public bool? Elevated { get; init; }
     public HopTag Tags { get; init; }
@@ -127,6 +132,7 @@ public static class PathTraceAnalyzer
     /// <param name="together">What the degraded targets did, for the sentence about several of them:
     /// "lost packets", "slowed down", or both. The caller knows from the targets' own series.</param>
     /// <param name="accessHops">Addresses of monitored access-layer hops (Access ISP, WAN L2 neighbor).</param>
+    /// <param name="seriesBaselines">Monitored addresses' own series baseline RTT, for display.</param>
     public static EpisodeVerdict Analyze(
         IReadOnlyList<TargetTraces> degraded,
         IReadOnlyList<TargetTraces> controls,
@@ -134,9 +140,11 @@ public static class PathTraceAnalyzer
         Func<string, bool?> anchorOf,
         IspHealthOptions options,
         string together = "degraded",
-        IReadOnlySet<string>? accessHops = null)
+        IReadOnlySet<string>? accessHops = null,
+        IReadOnlyDictionary<string, double>? seriesBaselines = null)
     {
         accessHops ??= new HashSet<string>();
+        seriesBaselines ??= new Dictionary<string, double>();
         var controlHops = controls
             .SelectMany(c => c.PathRounds.SelectMany(r => r.Hops))
             .Where(h => h.Responded && h.RttMinMs.HasValue)
@@ -151,7 +159,7 @@ public static class PathTraceAnalyzer
 
         var verdicts = degraded
             .Where(t => t.PathRounds.Count > 0)
-            .Select(t => AnalyzeTarget(t, controlHops, controlNameByHop, asnOf, anchorOf, options, accessHops))
+            .Select(t => AnalyzeTarget(t, controlHops, controlNameByHop, asnOf, anchorOf, options, accessHops, seriesBaselines))
             .ToList();
         if (verdicts.Count == 0)
             return new EpisodeVerdict { Summary = "No trace has completed yet." };
@@ -341,8 +349,10 @@ public static class PathTraceAnalyzer
         Func<string, AsnLookup?> asnOf,
         Func<string, bool?> anchorOf,
         IspHealthOptions options,
-        IReadOnlySet<string>? accessHops = null)
+        IReadOnlySet<string>? accessHops = null,
+        IReadOnlyDictionary<string, double>? seriesBaselines = null)
     {
+        seriesBaselines ??= new Dictionary<string, double>();
         var rounds = t.PathRounds;
         var destination = DestinationAddress(t);
         var destTtl = DestinationTtl(rounds, destination);
@@ -354,7 +364,7 @@ public static class PathTraceAnalyzer
         for (var ttl = 1; ttl <= lastTtl; ttl++)
         {
             var atTtl = rounds.Select(r => r.Hops.FirstOrDefault(h => h.HopNumber == ttl)).Where(h => h != null).Select(h => h!).ToList();
-            hops.Add(Pool(ttl, atTtl, destTtl == ttl, recoveryByTtl, controlMinRtt, asnOf, options));
+            hops.Add(Pool(ttl, atTtl, destTtl == ttl, recoveryByTtl, controlMinRtt, seriesBaselines, asnOf, options));
         }
         if (destTtl == null)
         {
@@ -558,7 +568,7 @@ public static class PathTraceAnalyzer
     /// <summary>One TTL pooled across rounds: probes, responses, and RTTs summed or taken across them.</summary>
     private static HopReading Pool(int ttl, List<TraceHop> atTtl, bool isDestination,
         IReadOnlyDictionary<int, TraceHop> recoveryByTtl, IReadOnlyDictionary<string, double> controlMinRtt,
-        Func<string, AsnLookup?> asnOf, IspHealthOptions options)
+        IReadOnlyDictionary<string, double> seriesBaselines, Func<string, AsnLookup?> asnOf, IspHealthOptions options)
     {
         var address = atTtl.Where(h => h.Address != null)
             .GroupBy(h => h.Address!, StringComparer.OrdinalIgnoreCase)
@@ -602,6 +612,7 @@ public static class PathTraceAnalyzer
             MedianRttMs = SeriesStats.Median(answered.Where(h => h.RttAvgMs.HasValue).Select(h => h.RttAvgMs!.Value).ToList()),
             MaxRttMs = answered.Max(h => h.RttMaxMs),
             BaselineMinRttMs = baseline,
+            SeriesBaselineRttMs = address != null && seriesBaselines.TryGetValue(address, out var series) ? series : null,
             ReturnHops = answered.Select(h => h.ReturnHops).LastOrDefault(r => r.HasValue),
             BaselineReturnHops = baseReturn,
             Tags = tags

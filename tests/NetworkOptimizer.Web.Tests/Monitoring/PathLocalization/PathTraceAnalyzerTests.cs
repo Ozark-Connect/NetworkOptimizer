@@ -89,6 +89,28 @@ public class PathTraceAnalyzerTests
     }
 
     [Fact]
+    public void MonitoredHops_ShowTheirOwnSeriesBaseline_WithoutChangingTheVerdict()
+    {
+        // No recovery round and no control: only the series gives LumenFirst and the destination a baseline.
+        var during = Enumerable.Range(0, 3).Select(_ => Round(
+            new(Gw, 0.5), new(Bng, 2), new(LumenFirst, 9.5), new(LumenAtl, 14), new(LumenEdge, 15),
+            new(AkamaiAtl, 16), new(AkamaiOrd, 45), new(LinodeOrd, 46, Lost: 1))).ToList();
+        var series = new Dictionary<string, double> { [LumenFirst] = 10.2, [LinodeOrd] = 33.0 };
+
+        var plain = Analyze(Ord(during));
+        var v = PathTraceAnalyzer.Analyze(new[] { Ord(during) }, Array.Empty<TargetTraces>(), AsnOf, Anchors, Options,
+            seriesBaselines: series);
+
+        var hops = v.Targets[0].Hops;
+        hops.Single(h => h.Address == LumenFirst).SeriesBaselineRttMs.Should().Be(10.2);
+        hops.Single(h => h.Address == LinodeOrd).SeriesBaselineRttMs.Should().Be(33.0);
+        hops.Single(h => h.Address == LumenAtl).SeriesBaselineRttMs.Should().BeNull();
+        PathEpisodePresentation.DisplayBaseline(hops.Single(h => h.Address == LinodeOrd)).Should().Be(33.0);
+        v.Label.Should().Be(plain.Label);
+        hops.Select(h => h.Elevated).Should().Equal(plain.Targets[0].Hops.Select(h => h.Elevated));
+    }
+
+    [Fact]
     public void AccessHopElevatedOnItsOwnSeries_IsTheAccessNetwork()
     {
         // The BNG's own series is elevated; a later hop reads clean against a control taken in the

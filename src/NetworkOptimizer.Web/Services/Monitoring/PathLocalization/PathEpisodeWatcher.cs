@@ -148,6 +148,11 @@ public sealed class PathEpisodeWatcher
         public bool Dirty { get; set; }
         /// <summary>Echo pings to unmonitored hops a trace marked elevated, by address. Touched only by AdvanceAsync.</summary>
         public Dictionary<string, HopPing> HopPings { get; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// Monitored addresses' series baseline RTT, kept as first read: the tracker's baseline moves on
+        /// after the episode, and the table should show what the path was compared against.
+        /// </summary>
+        public Dictionary<string, double> SeriesBaselines { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -368,6 +373,8 @@ public sealed class PathEpisodeWatcher
         run.Degraded.AddRange(degraded);
         foreach (var (address, ping) in snapshot.HopPings)
             run.HopPings[address] = new HopPing { Vantage = degraded[0].Target.Vantage, Sent = ping.Sent, Received = ping.Received, MinRttMs = ping.MinRttMs };
+        foreach (var (address, ms) in snapshot.SeriesBaselines)
+            run.SeriesBaselines[address] = ms;
         if (episode.ClosedAt is DateTime closed)
         {
             var due = PathEpisodeTraceMapping.Utc(closed) + TimeSpan.FromMinutes(_options.PathRecoveryDelayMinutes);
@@ -1001,7 +1008,22 @@ public sealed class PathEpisodeWatcher
                 .Where(w => w.Role == GateRole.Access && w.ContextKey == run.ContextKey)
                 .Select(w => w.Address)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            void KeepBaseline(string? address, string targetId)
+            {
+                if (address != null && !run.SeriesBaselines.ContainsKey(address)
+                    && _trackers.GetValueOrDefault(targetId)?.BaselineRttMs is double b)
+                    run.SeriesBaselines[address] = b;
+            }
+            foreach (var (address, id) in monitoredByAddress) KeepBaseline(address, id);
+            foreach (var d in run.Degraded)
+            {
+                KeepBaseline(d.Target.Address, d.Target.TargetId);
+                KeepBaseline(d.ResolvedAddress, d.Target.TargetId);
+                foreach (var r in d.Rounds) KeepBaseline(r.ResolvedAddress, d.Target.TargetId);
+            }
         }
+        var seriesBaselines = new Dictionary<string, double>(run.SeriesBaselines, StringComparer.OrdinalIgnoreCase);
 
         // AsnResolutionService caches every answer for the life of the process, so asking again for the
         // hops a previous round already resolved costs nothing.
@@ -1037,7 +1059,8 @@ public sealed class PathEpisodeWatcher
                 .Where(t => t != null)
                 .Select(t => ((double?)t!.PeakLossPct, t.BaselineRttMs, t.PeakRttMs)));
         }
-        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together, accessHops);
+        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together, accessHops,
+            seriesBaselines);
         return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase), monitoredLoss,
             accessHops);
     }
@@ -1120,6 +1143,7 @@ public sealed class PathEpisodeWatcher
         snapshot.PingedHops = pinged.ToList();
         snapshot.MonitoredLoss = monitoredLoss;
         snapshot.AccessHops = accessHops.ToList();
+        lock (_lock) snapshot.SeriesBaselines = new Dictionary<string, double>(run.SeriesBaselines, StringComparer.OrdinalIgnoreCase);
         snapshot.HopPings = run.HopPings.ToDictionary(kv => kv.Key,
             kv => new PathGateSnapshot.HopPingStats(kv.Value.Sent, kv.Value.Received, kv.Value.MinRttMs), StringComparer.OrdinalIgnoreCase);
         row.GateSnapshot = JsonSerializer.Serialize(snapshot);

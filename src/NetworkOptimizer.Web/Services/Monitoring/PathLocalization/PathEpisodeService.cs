@@ -91,10 +91,19 @@ public sealed class PathEpisodeService : IPathEpisodeService
 
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         var anchors = snapshot.Anchors;
+        // A degraded target's row holds its series baseline from when the episode opened, so even an
+        // episode stored before SeriesBaselines existed shows one on its destination row.
+        var seriesBaselines = snapshot.SeriesBaselines;
+        foreach (var (t, traces) in view.Degraded.Zip(degraded))
+        {
+            if (t.BaselineRttMs is not double b) continue;
+            foreach (var address in traces.PathRounds.Select(r => r.ResolvedAddress).Append(traces.Address))
+                if (!string.IsNullOrEmpty(address)) seriesBaselines.TryAdd(address, b);
+        }
         var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip),
             ip => anchors.TryGetValue(ip, out var a) ? a : null, _options,
             PathEpisodePresentation.Together(view.Degraded.Select(d => (d.PeakLossPct, d.BaselineRttMs, d.PeakRttMs))),
-            new HashSet<string>(snapshot.AccessHops, StringComparer.OrdinalIgnoreCase));
+            new HashSet<string>(snapshot.AccessHops, StringComparer.OrdinalIgnoreCase), seriesBaselines);
 
         var agentNames = await AgentNamesAsync(ct);
         var tables = view.Degraded.Select(t =>
