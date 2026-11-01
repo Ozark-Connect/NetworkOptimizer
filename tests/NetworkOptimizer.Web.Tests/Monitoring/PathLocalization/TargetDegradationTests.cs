@@ -91,6 +91,13 @@ public class TargetDegradationTests
         t.Record(now, 42, 5, 5, () => false);
 
         t.LossSince(from)!.Value.LossPct.Should().BeApproximately(20, 0.01);
+
+        // Clean windows after the span leave a bounded figure alone.
+        var until = now;
+        now = Feed(t, now, TimeSpan.FromMinutes(10), 42);
+        t.Record(now, 42, 5, 5, () => false);
+        t.LossSince(from, until)!.Value.LossPct.Should().BeApproximately(20, 0.01);
+        t.LossSince(from)!.Value.LossPct.Should().BeLessThan(20);
     }
 
     [Fact]

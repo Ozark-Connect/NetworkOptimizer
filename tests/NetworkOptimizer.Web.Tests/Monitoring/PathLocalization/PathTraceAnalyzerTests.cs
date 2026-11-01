@@ -80,6 +80,38 @@ public class PathTraceAnalyzerTests
         PathTraceAnalyzer.Analyze(new[] { t }, controls, AsnOf, Anchors, Options);
 
     [Fact]
+    public void AccessHopElevatedOnItsOwnSeries_IsTheAccessNetwork()
+    {
+        // The BNG's own series is elevated; a later hop reads clean against a control taken in the
+        // same slowdown, which used to break the run and send the verdict past it.
+        var during = Enumerable.Range(0, 3).Select(_ => Round(
+            new(Gw, 0.5), new(Bng, 30), new(LumenFirst, 9.5), new(LumenAtl, 14), new(LumenEdge, 15),
+            new(AkamaiAtl, 16), new(AkamaiOrd, 31), new(LinodeOrd, 60, Lost: 1)));
+        var access = new HashSet<string> { Bng };
+
+        var v = PathTraceAnalyzer.Analyze(new[] { Ord(during) }, Array.Empty<TargetTraces>(), AsnOf,
+            ip => ip == Bng ? true : ip == LumenFirst ? false : null, Options, accessHops: access);
+
+        v.Disposition.Should().Be(CongestionDisposition.Confirmed);
+        v.BottleneckHopIp.Should().Be(Bng);
+        v.Label.Should().Be($"The problem shows from Access ISP's first hop, `{Bng}`: it is the access network, not a path.");
+    }
+
+    [Fact]
+    public void AccessHopElevated_ExplainsSeveralDestinationsTogether()
+    {
+        TracerouteResult R(string dest) => Round(new(Gw, 0.5), new(Bng, 30), new(dest, 60, Lost: 1));
+        var a = new TargetTraces("a", "Target A", AkamaiOrd, new[] { R(AkamaiOrd), R(AkamaiOrd) }, null);
+        var b = new TargetTraces("b", "Target B", LinodeOrd, new[] { R(LinodeOrd), R(LinodeOrd) }, null);
+
+        var v = PathTraceAnalyzer.Analyze(new[] { a, b }, Array.Empty<TargetTraces>(), AsnOf,
+            ip => ip == Bng ? true : null, Options, "slowed down", new HashSet<string> { Bng });
+
+        v.Label.Should().Contain("it is the access network, not a path");
+        v.Summary.Should().StartWith("Target A and Target B slowed down together.");
+    }
+
+    [Fact]
     public void HopLossierThanEverythingAfterIt_IsCappedAtTheDownstreamFloor()
     {
         // Akamai DEN loses 3-4 of 5 a round; Akamai ORD and the destination lose 1 or none.

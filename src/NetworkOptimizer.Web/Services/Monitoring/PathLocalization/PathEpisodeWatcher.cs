@@ -168,7 +168,7 @@ public sealed class PathEpisodeWatcher
 
     /// <summary>The analysis over the rounds so far, and which hops' own series decided them.</summary>
     private sealed record Analysis(EpisodeVerdict Verdict, Dictionary<string, bool> Anchors, HashSet<string> Pinged, HashSet<string> Monitored,
-        Dictionary<string, double> MonitoredLoss);
+        Dictionary<string, double> MonitoredLoss, HashSet<string> AccessHops);
 
     /// <summary>Most hops pinged in one round, across the episode's targets.</summary>
     private const int MaxPingedHopsPerRound = 8;
@@ -881,6 +881,7 @@ public sealed class PathEpisodeWatcher
     {
         List<TargetTraces> degraded, controls;
         Dictionary<string, string> monitoredByAddress;
+        HashSet<string> accessHops;
         lock (_lock)
         {
             degraded = run.Degraded.Select(ToTraces).ToList();
@@ -889,6 +890,10 @@ public sealed class PathEpisodeWatcher
                 .Where(w => w.Role != GateRole.Path && w.ContextKey == run.ContextKey)
                 .GroupBy(w => w.Address, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First().TargetId, StringComparer.OrdinalIgnoreCase);
+            accessHops = _watched.Values
+                .Where(w => w.Role == GateRole.Access && w.ContextKey == run.ContextKey)
+                .Select(w => w.Address)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
         // AsnResolutionService caches every answer for the life of the process, so asking again for the
@@ -909,7 +914,8 @@ public sealed class PathEpisodeWatcher
                 if (monitoredByAddress.TryGetValue(ip, out var id) && _trackers.TryGetValue(id, out var t))
                 {
                     monitored = t.ElevatedSince(openedAt);
-                    if (monitored != null && t.LossSince(openedAt) is { } series) monitoredLoss[ip] = series.LossPct;
+                    // Only while the episode was open: the recovery wait after it would dilute the figure.
+                    if (monitored != null && t.LossSince(openedAt, run.Row.ClosedAt) is { } series) monitoredLoss[ip] = series.LossPct;
                 }
             }
             if (monitored is bool m) { anchors[ip] = m; return m; }
@@ -924,8 +930,9 @@ public sealed class PathEpisodeWatcher
                 .Where(t => t != null)
                 .Select(t => ((double?)t!.PeakLossPct, t.BaselineRttMs, t.PeakRttMs)));
         }
-        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together);
-        return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase), monitoredLoss);
+        var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together, accessHops);
+        return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase), monitoredLoss,
+            accessHops);
     }
 
     /// <summary>
@@ -998,13 +1005,14 @@ public sealed class PathEpisodeWatcher
     /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
     private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
     {
-        var (verdict, anchors, pinged, _, monitoredLoss) = await AnalyzeAsync(run, ct);
+        var (verdict, anchors, pinged, _, monitoredLoss, accessHops) = await AnalyzeAsync(run, ct);
 
         var row = run.Row;
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         snapshot.Anchors = anchors;
         snapshot.PingedHops = pinged.ToList();
         snapshot.MonitoredLoss = monitoredLoss;
+        snapshot.AccessHops = accessHops.ToList();
         snapshot.HopPings = run.HopPings.ToDictionary(kv => kv.Key,
             kv => new PathGateSnapshot.HopPingStats(kv.Value.Sent, kv.Value.Received, kv.Value.MinRttMs), StringComparer.OrdinalIgnoreCase);
         row.GateSnapshot = JsonSerializer.Serialize(snapshot);

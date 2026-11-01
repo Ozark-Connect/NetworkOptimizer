@@ -35,6 +35,9 @@ public sealed class PathGateSnapshot
     /// <summary>Every hop pinged during the episode, by address, with what its echoes returned.</summary>
     public Dictionary<string, HopPingStats> HopPings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Monitored access-layer hops (Access ISP, WAN L2 neighbor) on the episode's WAN, by address.</summary>
+    public List<string> AccessHops { get; set; } = new();
+
     /// <summary>Each monitored hop's own series loss over the episode, by address: what decided it.</summary>
     public Dictionary<string, double> MonitoredLoss { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 

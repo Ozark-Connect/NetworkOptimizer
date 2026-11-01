@@ -117,10 +117,13 @@ public sealed class TargetDegradation
         return judged.Any(w => w.Signal != DegradationSignal.None);
     }
 
-    /// <summary>Pooled loss over the windows starting at or after <paramref name="from"/>, with the probes behind it; null when none closed.</summary>
-    public (double LossPct, int Probes)? LossSince(DateTime from)
+    /// <summary>
+    /// Pooled loss over the windows overlapping [<paramref name="from"/>, <paramref name="until"/>), with
+    /// the probes behind it; null when none closed. Open-ended when <paramref name="until"/> is null.
+    /// </summary>
+    public (double LossPct, int Probes)? LossSince(DateTime from, DateTime? until = null)
     {
-        var windows = _windows.Where(w => w.Start + _windowLength > from && w.Probes > 0).ToList();
+        var windows = _windows.Where(w => w.Start + _windowLength > from && (until == null || w.Start < until) && w.Probes > 0).ToList();
         if (windows.Count == 0) return null;
         var probes = windows.Sum(w => w.Probes);
         return (windows.Sum(w => w.LossPct * w.Probes) / probes, probes);

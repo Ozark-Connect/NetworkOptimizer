@@ -84,6 +84,8 @@ public sealed record TargetVerdict
     public int? OnsetTtl { get; init; }
     public string? LastCleanIp { get; init; }
     public bool PathChanged { get; init; }
+    /// <summary>The elevation shows from an access-layer hop: the access network, not a path.</summary>
+    public bool AccessLayer { get; init; }
     public ReturnPathFinding ReturnFinding { get; init; }
     public IReadOnlyList<HopReading> Hops { get; init; } = Array.Empty<HopReading>();
 }
@@ -124,14 +126,17 @@ public static class PathTraceAnalyzer
     /// elevated over the episode. Null when it is not monitored or its series says nothing.</param>
     /// <param name="together">What the degraded targets did, for the sentence about several of them:
     /// "lost packets", "slowed down", or both. The caller knows from the targets' own series.</param>
+    /// <param name="accessHops">Addresses of monitored access-layer hops (Access ISP, WAN L2 neighbor).</param>
     public static EpisodeVerdict Analyze(
         IReadOnlyList<TargetTraces> degraded,
         IReadOnlyList<TargetTraces> controls,
         Func<string, AsnLookup?> asnOf,
         Func<string, bool?> anchorOf,
         IspHealthOptions options,
-        string together = "degraded")
+        string together = "degraded",
+        IReadOnlySet<string>? accessHops = null)
     {
+        accessHops ??= new HashSet<string>();
         var controlHops = controls
             .SelectMany(c => c.PathRounds.SelectMany(r => r.Hops))
             .Where(h => h.Responded && h.RttMinMs.HasValue)
@@ -146,7 +151,7 @@ public static class PathTraceAnalyzer
 
         var verdicts = degraded
             .Where(t => t.PathRounds.Count > 0)
-            .Select(t => AnalyzeTarget(t, controlHops, controlNameByHop, asnOf, anchorOf, options))
+            .Select(t => AnalyzeTarget(t, controlHops, controlNameByHop, asnOf, anchorOf, options, accessHops))
             .ToList();
         if (verdicts.Count == 0)
             return new EpisodeVerdict { Summary = "No trace has completed yet." };
@@ -193,8 +198,9 @@ public static class PathTraceAnalyzer
         {
             Scope = v.Scope,
             Disposition = v.Disposition,
-            BottleneckHopIp = onset?.Address,
-            BottleneckHopNumber = onset?.Ttl,
+            // The access verdict names its hop directly; it is not where the elevated run begins.
+            BottleneckHopIp = v.AccessLayer ? v.OnsetIp : onset?.Address,
+            BottleneckHopNumber = v.AccessLayer ? v.OnsetTtl : onset?.Ttl,
             Label = v.Label,
             ReturnFinding = v.ReturnFinding,
             Summary = summary,
@@ -213,6 +219,22 @@ public static class PathTraceAnalyzer
         var sideBySide = controlNames.Count == 0 ? ""
             : $" {JoinNames(controlNames)} stayed clean meanwhile.";
         var returnFinding = verdicts.Select(v => v.ReturnFinding).FirstOrDefault(f => f != ReturnPathFinding.None);
+
+        // The access network showing it on any path explains them all: every path crosses it.
+        if (verdicts.FirstOrDefault(v => v.AccessLayer) is { } access)
+        {
+            return new EpisodeVerdict
+            {
+                Scope = CongestionScope.Hop,
+                Disposition = CongestionDisposition.Confirmed,
+                BottleneckHopIp = access.OnsetIp,
+                BottleneckHopNumber = access.OnsetTtl,
+                Label = access.Label,
+                ReturnFinding = returnFinding,
+                Summary = $"{names} {together} together. {access.Label}" + sideBySide,
+                Targets = verdicts
+            };
+        }
 
         var segments = verdicts.Select(Unexplained).ToList();
 
@@ -277,9 +299,9 @@ public static class PathTraceAnalyzer
         var sharedLastClean = lastCleans.All(h => h?.Address != null && string.Equals(h.Address, lastCleans[0]!.Address, StringComparison.OrdinalIgnoreCase))
             ? $"after {HopName(lastCleans[0]!)}, the last router that stayed clean"
             : "after their last clean routers";
-        var access = verdicts[0].Hops.FirstOrDefault(h => h.Asn is > 0 && !string.IsNullOrEmpty(h.AsnName))?.AsnName;
+        var accessIsp = verdicts[0].Hops.FirstOrDefault(h => h.Asn is > 0 && !string.IsNullOrEmpty(h.AsnName))?.AsnName;
         var corridorLabel = $"{names} {together} together, but their routes share nothing {sharedLastClean}. "
-            + $"The common factor is most likely the return path into {access ?? "your ISP"}, which a traceroute can't see.";
+            + $"The common factor is most likely the return path into {accessIsp ?? "your ISP"}, which a traceroute can't see.";
         return new EpisodeVerdict
         {
             Scope = CongestionScope.Corridor,
@@ -318,7 +340,8 @@ public static class PathTraceAnalyzer
         IReadOnlyDictionary<string, string> controlNameByHop,
         Func<string, AsnLookup?> asnOf,
         Func<string, bool?> anchorOf,
-        IspHealthOptions options)
+        IspHealthOptions options,
+        IReadOnlySet<string>? accessHops = null)
     {
         var rounds = t.PathRounds;
         var destination = DestinationAddress(t);
@@ -418,6 +441,28 @@ public static class PathTraceAnalyzer
         var onsetHop = hops[onset];
         var lastCleanHop = lastClean is int c ? hops[c] : null;
         var returnFinding = ReturnFinding(hops, onset);
+
+        // An access-layer hop whose own series is elevated: the problem is the access network, and a
+        // hop past it reading clean against a control taken in the same slowdown says nothing.
+        var accessHop = hops.FirstOrDefault(h => h.Address != null && accessHops?.Contains(h.Address) == true
+            && h.Has(HopTag.Anchored) && h.Elevated == true);
+        if (accessHop != null)
+        {
+            var isp = string.IsNullOrEmpty(accessHop.AsnName) ? "your ISP" : accessHop.AsnName;
+            return new TargetVerdict
+            {
+                TargetId = t.TargetId,
+                Name = t.Name,
+                Scope = CongestionScope.Hop,
+                Disposition = CongestionDisposition.Confirmed,
+                Label = $"The problem shows from {isp}'s first hop, `{accessHop.Hostname ?? accessHop.Address}`: it is the access network, not a path.",
+                OnsetIp = accessHop.Address,
+                OnsetTtl = accessHop.Ttl,
+                AccessLayer = true,
+                ReturnFinding = returnFinding,
+                Hops = hops
+            };
+        }
 
         var change = PathChange(rounds, t.Recovery, destination, asnOf);
         if (change is { } pc)
