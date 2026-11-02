@@ -11,8 +11,9 @@ public sealed record DnsFix(ConfigState Desired, List<string> Notes, string Titl
 /// <summary>
 /// Fix it for me for DNS findings: extends the operator's own rule (a firewall
 /// block or a DNAT redirect) to the networks it does not cover, copying it once per zone, and builds UniFi's
-/// usual shape only when the site has no rule to copy. Coverage is read from the config as the firewall evaluates
-/// it, and the planned audit then confirms the finding clears.
+/// usual shape only when the site has no rule to copy. Coverage and which rules count are the Security Audit's own
+/// (<see cref="ZonePaths.DnsCoverage"/>, <see cref="Audit.Dns.DnsSecurityAnalyzer.BlocksOf"/>), so the fix and the
+/// finding never disagree, and the planned audit then confirms the finding clears.
 /// </summary>
 [VendorSpecific("UniFi", "v2 firewall policy and DNAT shapes; FIREWALL_GROUPS, NETWORK_CONF, ADDRESS_AND_PORT filters")]
 public static class DnsFixes
@@ -23,9 +24,6 @@ public static class DnsFixes
         IssueTypes.DnsDnatPartialCoverage, IssueTypes.DnsNo53Block, IssueTypes.Dns53PartialCoverage,
         IssueTypes.DnsNoDotBlock, IssueTypes.DnsNoDoqBlock, IssueTypes.DnsNoDohBlock,
     };
-
-    // TEST-NET-3: any address outside the site's subnets is the External zone.
-    private const string Internet = "203.0.113.53";
 
     private enum Kind { Dnat, Port53, Dot, Doq, Doh }
 
@@ -67,32 +65,15 @@ public static class DnsFixes
         desired.Collections["firewall_policy"] = desired.Get("firewall_policy").Select(p => (JsonObject)p.DeepClone()).ToList();
         desired.Collections["nat"] = desired.Get("nat").Select(p => (JsonObject)p.DeepClone()).ToList();
         var notes = new List<string>();
-        // Coverage is read without UniFi's Hotspot authorization blocks; the fix still writes onto the config as it is.
-        var view = WithoutHotspotAuthorizationBlocks(live);
-        var scope = Scope(view, kind, notes, allowGuestPublicDns);
-        var uncovered = scope.Where(n => !Covered(view, kind, n)).ToList();
+        var scope = Scope(live, kind, notes, allowGuestPublicDns);
+        var coverage = ZonePaths.DnsCoverage(live, allowGuestPublicDns);
+        var uncovered = scope.Where(n => !Covered(coverage, kind, ConfigState.IdOf(n))).ToList();
         if (uncovered.Count == 0) return null;
 
         var changed = kind == Kind.Dnat
-            ? ExtendDnat(view, desired, uncovered, notes)
-            : ExtendBlock(view, desired, kind, scope, uncovered, notes, dohDomains ?? DefaultDohDomains());
+            ? ExtendDnat(live, desired, uncovered, notes)
+            : ExtendBlock(live, desired, kind, scope, uncovered, notes, dohDomains ?? DefaultDohDomains());
         return changed ? new DnsFix(desired, notes, TitleOf(kind)) : null;
-    }
-
-    /// <summary>
-    /// The config without UniFi's own Hotspot blocks (Post-Authorization Restrictions, Block Unauthorized Traffic): they hold
-    /// only until a guest is authorized, which the config does not show, and an authorized guest goes on to Allow All Traffic.
-    /// Read as blocks, they made a guest network look covered for port 53, DoT, and DoQ but not for DoH (Allow Hotspot Portal
-    /// opens 443 first). The DNS audit leaves them out the same way (DnsSecurityAnalyzer.WithoutHotspotAuthorizationBlocks).
-    /// </summary>
-    private static ConfigState WithoutHotspotAuthorizationBlocks(ConfigState live)
-    {
-        var hotspot = live.Get("firewall_zone").FirstOrDefault(z => Str(z["zone_key"]) == "hotspot") is { } h ? ConfigState.IdOf(h) : null;
-        if (hotspot == null) return live;
-        var view = live.Clone();
-        view.Collections["firewall_policy"] = live.Get("firewall_policy").Where(p => !(Str(p["predefined"]) is "true" or "True"
-            && Str(p["action"]) is "BLOCK" or "REJECT" && Str(p["source"]?["zone_id"]) == hotspot)).ToList();
-        return view;
     }
 
     private static IReadOnlyList<string> DefaultDohDomains() =>
@@ -148,35 +129,22 @@ public static class DnsFixes
         ? new[] { "dhcpd_dns_1", "dhcpd_dns_2", "dhcpd_dns_3", "dhcpd_dns_4" }.Select(f => Str(n[f])).OfType<string>().Where(s => Readdressing.ParseIp(s) != null).ToList()
         : [];
 
-    private static bool Covered(ConfigState state, Kind kind, JsonObject network)
+    /// <summary>
+    /// Whether the audit counts a network covered. A DNAT redirect also keeps a network off public port 53, as the port 53
+    /// finding counts it.
+    /// </summary>
+    private static bool Covered(Audit.Dns.DnsSecurityResult coverage, Kind kind, string network) => kind switch
     {
-        var id = ConfigState.IdOf(network);
-        // Internet Access off keeps a network off public DNS on every port, DoH included, as the DNS audit counts it (DnsSecurityAnalyzer).
-        // UniFi enforces it with its own policy on the network's subnet, which the zone check does not read as the whole network.
-        var offline = Off(network["internet_access_enabled"]);
-        return kind switch
-        {
-            Kind.Dnat => Dnats(state).Any(d => Str(d["in_interface"]) == id),
-            Kind.Port53 => offline || Dnats(state).Any(d => Str(d["in_interface"]) == id) || ZonePaths.Allows(state, id, Internet, "udp", 53) == false,
-            Kind.Dot => offline || ZonePaths.Allows(state, id, Internet, "tcp", 853) == false,
-            Kind.Doq => offline || ZonePaths.Allows(state, id, Internet, "udp", 853) == false,
-            _ => offline || DohBlocks(state).Any(p => ZonePaths.ZoneOfNetwork(state).GetValueOrDefault(id) == Str(p["source"]?["zone_id"]) && ZonePaths.SourceCovers(state, p, id)),
-        };
-    }
+        Kind.Dnat => coverage.DnatCoveredNetworkIds.Contains(network),
+        Kind.Port53 => coverage.Dns53CoveredNetworkIds.Contains(network) || coverage.DnatCoveredNetworkIds.Contains(network),
+        Kind.Dot => coverage.DotCoveredNetworkIds.Contains(network),
+        Kind.Doq => coverage.DoqCoveredNetworkIds.Contains(network),
+        _ => coverage.DohCoveredNetworkIds.Contains(network),
+    };
 
     /// <summary>Enabled DNAT rules that redirect port 53 (the shape <see cref="LockoutChecker.Resolvers"/> reads).</summary>
     private static List<JsonObject> Dnats(ConfigState state) =>
         state.Get("nat").Where(r => Str(r["in_interface"]) is { Length: > 0 } && LockoutChecker.RedirectsDns(state, r)).ToList();
-
-    private static IEnumerable<JsonObject> DohBlocks(ConfigState state)
-    {
-        var external = state.Get("firewall_zone").FirstOrDefault(z => Str(z["zone_key"]) == "external") is { } e ? ConfigState.IdOf(e) : null;
-        return state.Get("firewall_policy").Where(p => Str(p["action"]) is "BLOCK" or "REJECT" && !Off(p["enabled"])
-            && Str(p["destination"]?["zone_id"]) == external
-            && (Str(p["destination"]?["matching_target"]) == "APP"
-                || (Str(p["destination"]?["matching_target"]) == "WEB"
-                    && Audit.Dns.DohProviderRegistry.MatchKnownDohDomains((p["destination"]?["web_domains"] as JsonArray ?? []).Select(Str).OfType<string>()).MatchedCount > 0)));
-    }
 
     /// <summary>
     /// Extends the operator's block to the uncovered networks: adds a network to a template that lists networks in
@@ -191,16 +159,21 @@ public static class DnsFixes
         var names = live.NamesById();
         var native = live.Get("networkconf").FirstOrDefault(n => ConfigCollections.NetworkKey(n) == "vlan:1") is { } nat ? ConfigState.IdOf(nat) : null;
 
-        // The template: a custom block that covers a network in scope today, preferring one not on the native network.
-        var templates = scope.Except(uncovered).Select(n => (Net: n, Policy: kind switch
+        // The template: an operator block the audit credits for this kind that covers a network in scope today, first by
+        // order, preferring one not on the native network.
+        var external = live.Get("firewall_zone").FirstOrDefault(z => Str(z["zone_key"]) == "external") is { } e ? ConfigState.IdOf(e) : null;
+        var credited = ZonePaths.Parse(live, live.Get("firewall_policy").Where(p => def.IsGenerated?.Invoke(p) != true && ConfigCollections.OwnedBy(def, p) == null))
+            .Where(r => Audit.Dns.DnsSecurityAnalyzer.BlocksOf(r.Key, external) is var b && kind switch
             {
-                Kind.Doh => DohBlocks(live).FirstOrDefault(p => zoneOf.GetValueOrDefault(ConfigState.IdOf(n)) == Str(p["source"]?["zone_id"])
-                    && ZonePaths.SourceCovers(live, p, ConfigState.IdOf(n))),
-                Kind.Port53 => ZonePaths.Decides(live, ConfigState.IdOf(n), Internet, "udp", 53),
-                Kind.Dot => ZonePaths.Decides(live, ConfigState.IdOf(n), Internet, "tcp", 853),
-                _ => ZonePaths.Decides(live, ConfigState.IdOf(n), Internet, "udp", 853),
-            }))
-            .Where(t => t.Policy != null && Str(t.Policy["action"]) is "BLOCK" or "REJECT" && def.IsGenerated?.Invoke(t.Policy) != true && ConfigCollections.OwnedBy(def, t.Policy) == null)
+                Kind.Port53 => b.Dns53,
+                Kind.Dot => b.Dot,
+                Kind.Doq => b.Doq,
+                _ => b.Doh,
+            })
+            .OrderBy(r => r.Key.Index).Select(r => r.Value).ToList();
+        var templates = scope.Except(uncovered).Select(n => (Net: n, Policy: credited.FirstOrDefault(p =>
+                zoneOf.GetValueOrDefault(ConfigState.IdOf(n)) == Str(p["source"]?["zone_id"]) && ZonePaths.SourceCovers(live, p, ConfigState.IdOf(n)))))
+            .Where(t => t.Policy != null)
             .OrderBy(t => ConfigState.IdOf(t.Net) == native)
             .Select(t => t.Policy!).ToList();
         var template = templates.FirstOrDefault();

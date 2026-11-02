@@ -254,4 +254,64 @@ public class ZonePathsTests
         home["dhcpd_dns_enabled"] = false;
         LockoutChecker.Resolvers(s, home).Should().Equal("10.0.1.1");
     }
+
+    /// <summary>Home's DNS is redirected only by what the DNS audit counts as a DNS redirect.</summary>
+    [Theory]
+    [InlineData("tcp_udp", "53", true)]
+    [InlineData("udp", "50-60", true)]
+    [InlineData("tcp", "53", false)]
+    [InlineData("tcp_udp", "443", false)]
+    [InlineData("tcp_udp", null, false)]
+    public void Resolvers_FollowOnlyTheAuditsDnsRedirects(string protocol, string? port, bool redirected)
+    {
+        var s = Site();
+        var home = s.Get("networkconf")[0];
+        home["dhcpd_dns_enabled"] = true;
+        home["dhcpd_dns_1"] = "1.1.1.1";
+        var filter = new JsonObject { ["filter_type"] = "ADDRESS_AND_PORT" };
+        if (port != null) filter["port"] = port;
+        s.Collections["nat"] =
+        [
+            new JsonObject
+            {
+                ["_id"] = "dnat", ["type"] = "DNAT", ["enabled"] = true, ["protocol"] = protocol, ["in_interface"] = "n-home", ["ip_address"] = "10.0.53.10",
+                ["destination_filter"] = filter,
+            },
+        ];
+
+        LockoutChecker.Resolvers(s, home).Should().Equal(redirected ? "10.0.53.10" : "1.1.1.1");
+    }
+
+    [Fact]
+    public void Holds_ComparesStoredFields_NotNamesOrIds()
+    {
+        var a = Policy("a", "BLOCK", Side("z-int"), Side("z-ext", "53"), 10000, protocol: "udp");
+        var b = (JsonObject)a.DeepClone();
+        b["_id"] = "b"; b["name"] = "Other name"; b["index"] = 10001; b["description"] = "notes";
+        b["report_flow"] = true;
+
+        ZonePaths.Holds(b, a).Should().BeTrue("name, ID, order, and description aside, and an extra stored field is fine");
+        b["destination"]!["port"] = "853";
+        ZonePaths.Holds(b, a).Should().BeFalse();
+        b["destination"]!["port"] = "53";
+        b["enabled"] = false;
+        ZonePaths.Holds(b, a).Should().BeFalse("a disabled twin does nothing");
+        b["enabled"] = true;
+        b["predefined"] = true;
+        ZonePaths.Holds(b, a).Should().BeFalse("UniFi's own policies are never a match");
+    }
+
+    [Fact]
+    public void DnsCoverage_IsTheAuditsCoverage()
+    {
+        var s = Site();
+        foreach (var n in s.Get("networkconf")) n["internet_access_enabled"] = true;
+        s.Collections["firewall_policy"].Add(Policy("dot", "BLOCK", Side("z-int"), Side("z-ext", "853"), 10001, protocol: "tcp_udp"));
+        s.Collections["nat"] = [];
+
+        var coverage = ZonePaths.DnsCoverage(s, allowGuestPublicDns: false);
+
+        coverage.DotCoveredNetworkIds.Should().BeEquivalentTo(["n-home", "n-iot"], "the DoT block covers Internal's networks");
+        coverage.Dns53CoveredNetworkIds.Should().BeEmpty();
+    }
 }

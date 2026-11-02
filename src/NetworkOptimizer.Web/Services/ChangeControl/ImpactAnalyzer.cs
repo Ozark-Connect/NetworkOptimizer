@@ -156,7 +156,8 @@ public static class ImpactAnalyzer
 
     private static JsonElement Element(JsonNode node) => JsonDocument.Parse(node.ToJsonString()).RootElement.Clone();
 
-    private static List<T>? Typed<T>(ConfigState state, string collection)
+    /// <summary>A collection read into the typed UniFi model the Audit takes; an object the model cannot hold is left out.</summary>
+    internal static List<T>? Typed<T>(ConfigState state, string collection)
     {
         if (!state.Collections.ContainsKey(collection)) return null;
         var list = new List<T>();

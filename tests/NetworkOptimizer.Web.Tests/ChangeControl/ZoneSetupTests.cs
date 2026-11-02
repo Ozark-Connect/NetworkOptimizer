@@ -1340,6 +1340,30 @@ public class ZoneSetupTests
         }
     }
 
+    [Theory]
+    [InlineData("53", false, true)]
+    [InlineData("50-60", false, true)]
+    [InlineData("group", false, true)]
+    [InlineData(null, false, false)]
+    [InlineData("53", true, false)]
+    [InlineData("443", false, false)]
+    public void AResolverAllowIntoInternal_IsJudgedByTheAuditsPortMatching(string? port, bool opposite, bool carried)
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-zt", ["name"] = "Zero Trust", ["vlan"] = 200, ["ip_subnet"] = "10.0.200.1/24" });
+        live.Collections["firewall_zone"].Add(Zone("z-zt", "Zero Trust", null, "n-zt"));
+        live.Collections["firewallgroup"] = [new JsonObject { ["_id"] = "g-dns", ["name"] = "DNS", ["group_type"] = "port-group", ["group_members"] = new JsonArray("53") }];
+        var dst = Side("z-int", port: port is null or "group" ? null : port);
+        if (port == "group") { dst["port_matching_type"] = "OBJECT"; dst["port_group_id"] = "g-dns"; }
+        dst["match_opposite_ports"] = opposite;
+        live.Collections["firewall_policy"].Add(Rule("p-dns", "ZT to Pi-hole", "ALLOW", Side("z-zt"), dst, protocol: "tcp_udp"));
+        var networks = Networks.Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.Corporate)).ToList();
+
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode));
+
+        (Named(plan.Desired, "ZT to Pi-hole (IoT)") != null).Should().Be(carried, "only an allow limited to ports that take DNS is a resolver allow");
+    }
+
     [Fact]
     public void ZoneWideAllowsIntoInternal_AreNotCarried_UnlessTheyReachAResolver()
     {

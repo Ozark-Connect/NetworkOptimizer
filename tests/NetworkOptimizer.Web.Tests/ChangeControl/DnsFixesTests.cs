@@ -11,7 +11,8 @@ public class DnsFixesTests
 {
     private static JsonObject Net(string id, string name, int? vlan, string subnet, string purpose = "corporate")
     {
-        var n = new JsonObject { ["_id"] = id, ["name"] = name, ["ip_subnet"] = subnet, ["purpose"] = purpose, ["enabled"] = true };
+        // UniFi always stores internet_access_enabled; the typed model reads a missing one as off.
+        var n = new JsonObject { ["_id"] = id, ["name"] = name, ["ip_subnet"] = subnet, ["purpose"] = purpose, ["enabled"] = true, ["internet_access_enabled"] = true };
         if (vlan != null) { n["vlan"] = vlan.Value; n["vlan_enabled"] = true; }
         return n;
     }
@@ -184,6 +185,41 @@ public class DnsFixesTests
         built.Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-int", "z-mgmt", "z-untr", "z-hot"]);
         built.Should().OnlyContain(p => p["destination"]!["matching_target"]!.ToString() == "WEB" && p["destination"]!["port"]!.ToString() == "443");
         built.Select(p => p["name"]!.ToString()).Should().Contain("Block External DoH and QUIC (Management)");
+    }
+
+    private static JsonObject AppBlock(string id, string name, string srcZone, string extZone, int app) => new()
+    {
+        ["_id"] = id, ["name"] = name, ["action"] = "BLOCK", ["enabled"] = true, ["predefined"] = false, ["index"] = 10000, ["protocol"] = "all",
+        ["ip_version"] = "BOTH", ["connection_state_type"] = "ALL",
+        ["source"] = new JsonObject { ["zone_id"] = srcZone, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY" },
+        ["destination"] = new JsonObject { ["zone_id"] = extZone, ["matching_target"] = "APP", ["app_ids"] = new JsonArray(app), ["port_matching_type"] = "ANY" },
+    };
+
+    [Fact]
+    public void Doh_ADnsOverHttpsAppBlock_IsTheTemplate()
+    {
+        var site = PerZoneSite();
+        site.Collections["firewall_policy"].Add(AppBlock("p-doh", "[DNS] Block DoH from Home", "z-int", "z-ext", Audit.Dns.DnsAppIds.DnsOverHttps));
+
+        var fix = DnsFixes.Build(site, IssueTypes.DnsNoDohBlock, ["dns.google", "cloudflare-dns.com"])!;
+
+        var copies = fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-p-doh-")).ToList();
+        copies.Select(p => p["source"]!["zone_id"]!.ToString()).Should().BeEquivalentTo(["z-mgmt", "z-untr", "z-hot"]);
+        copies.Should().OnlyContain(p => p["destination"]!["matching_target"]!.ToString() == "APP");
+    }
+
+    [Fact]
+    public void Doh_AnUnrelatedAppBlock_IsNeitherCoverageNorATemplate()
+    {
+        // A block on some other app (a game, a social network) does not block DoH, so it must not be copied as the fix.
+        var site = PerZoneSite();
+        site.Collections["firewall_policy"].Add(AppBlock("p-game", "[Kids] Block Games from Home", "z-int", "z-ext", 999001));
+
+        var fix = DnsFixes.Build(site, IssueTypes.DnsNoDohBlock, ["dns.google", "cloudflare-dns.com"])!;
+
+        fix.Desired.Get("firewall_policy").Should().NotContain(p => p["_id"]!.ToString().StartsWith("fix-p-game-"));
+        fix.Desired.Get("firewall_policy").Where(p => p["_id"]!.ToString().StartsWith("fix-new-"))
+            .Select(p => p["source"]!["zone_id"]!.ToString()).Should().Contain("z-int", "Home has no DoH block, the game block aside");
     }
 
     [Fact]

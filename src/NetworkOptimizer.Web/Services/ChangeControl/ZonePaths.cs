@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core;
 using NetworkOptimizer.UniFi.Models;
@@ -139,28 +140,50 @@ public static class ZonePaths
     public static Dictionary<string, UniFiFirewallGroup> FirewallGroups(ConfigState state)
     {
         var groups = new Dictionary<string, UniFiFirewallGroup>();
-        foreach (var g in state.Get("firewallgroup"))
-        {
-            try
-            {
-                if (JsonSerializer.Deserialize<UniFiFirewallGroup>(g.ToJsonString()) is { Id.Length: > 0 } group) groups.TryAdd(group.Id, group);
-            }
-            catch (JsonException) { }
-        }
+        foreach (var group in ImpactAnalyzer.Typed<UniFiFirewallGroup>(state, "firewallgroup") ?? [])
+            if (group.Id.Length > 0) groups.TryAdd(group.Id, group);
         return groups;
     }
 
-    /// <summary>A network as the Audit's source matching reads it: its ID, zone, VLAN, and IPv4 subnet.</summary>
+    /// <summary>
+    /// The config's networks as the Audit reads them (<see cref="VlanAnalyzer.NetworkInfoFromConfig"/>), each in the
+    /// zone the config's zones give it: a planned zone move is in the zones, not yet in the network's own field.
+    /// </summary>
+    public static List<NetworkInfo> Networks(ConfigState state)
+    {
+        state = ImpactAnalyzer.WithZoneMembership(state);
+        var vlans = new VlanAnalyzer(NullLogger<VlanAnalyzer>.Instance);
+        var lookup = ZoneLookup(state);
+        return (ImpactAnalyzer.Typed<UniFiNetworkConfig>(state, "networkconf") ?? []).Select(nc => vlans.NetworkInfoFromConfig(nc, lookup)).ToList();
+    }
+
+    /// <summary>The config's zones as the Audit looks them up.</summary>
+    public static NetworkOptimizer.Audit.Services.FirewallZoneLookup ZoneLookup(ConfigState state) =>
+        new(ImpactAnalyzer.Typed<UniFiFirewallZone>(state, "firewall_zone"));
+
+    /// <summary>
+    /// DNS coverage per network (port 53, DoT, DoQ, DoH, DNAT) for a config, by the Audit's DNS analysis
+    /// (<see cref="DnsSecurityAnalyzer.AnalyzeCoverage"/>): what its DNS findings count, without its probes.
+    /// </summary>
+    public static DnsSecurityResult DnsCoverage(ConfigState state, bool allowGuestPublicDns)
+    {
+        var external = state.Get("firewall_zone").FirstOrDefault(z => Str(z["zone_key"]) == "external") is { } e ? ConfigState.IdOf(e) : null;
+        using var nat = JsonDocument.Parse(new JsonArray(state.Get("nat").Select(n => (JsonNode?)n.DeepClone()).ToArray()).ToJsonString());
+        return DnsSecurityAnalyzer.AnalyzeCoverage(Parse(state, state.Get("firewall_policy")).Keys.ToList(), Networks(state), nat.RootElement,
+            external, ZoneLookup(state), FirewallGroups(state), allowGuestPublicDns: allowGuestPublicDns);
+    }
+
+    /// <summary>One network as the Audit reads it (<see cref="VlanAnalyzer.NetworkInfoFromConfig"/>), in the zone given.</summary>
     private static NetworkInfo? SourceNetwork(ConfigState state, string networkId, string? zone)
     {
-        var net = state.Get("networkconf").FirstOrDefault(n => string.Equals(ConfigState.IdOf(n), networkId, StringComparison.OrdinalIgnoreCase));
-        if (net == null && zone == null) return null;
-        return new NetworkInfo
-        {
-            Id = networkId, Name = net != null ? Str(net["name"]) ?? networkId : networkId,
-            VlanId = net?["vlan"] is JsonValue v && v.TryGetValue<int>(out var vlan) ? vlan : 1,
-            Subnet = net != null ? Str(net["ip_subnet"]) : null, FirewallZoneId = zone,
-        };
+        if (state.Get("networkconf").FirstOrDefault(n => string.Equals(ConfigState.IdOf(n), networkId, StringComparison.OrdinalIgnoreCase)) is not { } net)
+            return null;
+        var copy = (JsonObject)net.DeepClone();
+        copy["firewall_zone_id"] = zone;
+        var one = new ConfigState();
+        one.Collections["networkconf"] = [copy];
+        return ImpactAnalyzer.Typed<UniFiNetworkConfig>(one, "networkconf") is [var nc]
+            ? new VlanAnalyzer(NullLogger<VlanAnalyzer>.Instance).NetworkInfoFromConfig(nc) : null;
     }
 
     /// <summary>Network ID to the ID of the zone that lists it.</summary>
