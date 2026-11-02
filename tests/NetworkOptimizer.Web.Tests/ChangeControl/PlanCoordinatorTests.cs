@@ -427,4 +427,32 @@ public sealed class PlanCoordinatorTests : IDisposable
         applied.Status.Should().Be(ConfigPlanStatus.Applied, "only the profile rename applied, which needs no commit-confirmed watch");
         (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value.Doc.WatchDevices.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task ConfigMoveRightAfterOurWrite_IsHeldUntilTheWritesGoQuiet_ThenSnapshotted()
+    {
+        _console.State.Get("device")[0]["cfgversion"] = "100";
+        await _engine.PollNowAsync(CancellationToken.None);
+        var first = await _engine.Repositories.UseAsync((r, c) => r.GetLatestSnapshotAsync(c));
+        first.Should().NotBeNull("the first pass takes the initial snapshot");
+
+        // Our write a minute ago, then someone else's rename that leaves no AUDIT entry.
+        await _engine.Repositories.UseAsync((r, c) => r.AddJournalEntryAsync(new ConfigWriteJournalEntry
+        {
+            At = DateTime.UtcNow.AddMinutes(-1), Method = "PUT", Path = "rest/portconf/p1", Collection = "portconf", ObjectId = "p1", Status = 200,
+        }, c));
+        _console.State.Get("networkconf")[0]["name"] = "Main LAN";
+        _console.State.Get("device")[0]["cfgversion"] = "101";
+        await _engine.PollNowAsync(CancellationToken.None);
+
+        var held = await _engine.Repositories.UseAsync((r, c) => r.GetDetectionStateAsync(c));
+        held.CfgVersionsJson.Should().Contain("100|", "a move our recent write might explain is held, not stored");
+
+        await _engine.Repositories.UseAsync((r, c) => r.PruneJournalAsync(DateTime.UtcNow, c));
+        await _engine.PollNowAsync(CancellationToken.None);
+
+        var changes = await _engine.Repositories.UseAsync((r, c) => r.GetChangesAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddMinutes(1), cancellationToken: c));
+        changes.Should().ContainSingle("the rename is caught once our write goes quiet");
+        (await _engine.Repositories.UseAsync((r, c) => r.GetDetectionStateAsync(c))).CfgVersionsJson.Should().Contain("101|");
+    }
 }

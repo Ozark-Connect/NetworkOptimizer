@@ -286,6 +286,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         // Only our config writes explain a device's config moving; a read sent as POST (roaming topology) is journaled too.
         var recentJournal = journal.Any(x => x.Collection != null && now - x.At < UnexplainedCfgQuiet);
         var unexplainedCfg = cfgChanged && changeEvents.Count == 0 && !recentJournal;
+        // A move our recent writes might explain is held like a moved hash: once they go quiet, the next poll compares
+        // the config, so a change someone made right after ours is still caught. A Change read with no diff stores nothing.
+        var cfgDeferred = cfgChanged && recentJournal;
         // A moved config hash means a device's own settings changed. Only our device writes explain that: a firewall
         // group write moves the gateway's cfgversion but never its hash. One we cannot rule out is held, not dropped,
         // so the stored versions stay put and the next quiet poll still sees it.
@@ -371,7 +374,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
 
         if (devices != null && snapshotOk)
         {
-            if (!hashDeferred || trigger != null)
+            if (!(hashDeferred || cfgDeferred) || trigger != null)
                 state.CfgVersionsJson = JsonSerializer.Serialize(devices.ToDictionary(d => d.Mac, d => d.CfgVersion));
             state.DeviceVersionsJson = JsonSerializer.Serialize(devices.ToDictionary(d => d.Mac, d => d.Version));
         }
