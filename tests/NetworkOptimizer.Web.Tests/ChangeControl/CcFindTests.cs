@@ -159,6 +159,24 @@ public class CcFindTests
         CcFind.Count(yaml, query).Should().Be(expected);
     }
 
+    private const string DnsYaml = "local_dns:\n- key: host\nnetworks:\n- dhcpd_dns_enabled: true\n  dhcpd_dns_1: 192.0.2.1\n  dhcpdv6_dns_1: ''\nclients:\n- local_dns_record: host.lan\n";
+
+    [Fact]
+    public void Count_DnsRecordsFindsCollectionAndClientRecords()
+    {
+        CcFind.Count(DnsYaml, "DNS records").Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("local DNS", 5)]
+    [InlineData("LAN DNS servers", 3)]
+    [InlineData("local DNS server", 3)]
+    public void Count_LanDnsFindsTheLanDnsServers(string query, int expected)
+    {
+        // "local DNS" also finds the Local DNS collection and the client record; the server forms only the LAN's servers.
+        CcFind.Count(DnsYaml, query).Should().Be(expected);
+    }
+
     [Fact]
     public void Count_BwAloneIsBandwidth()
     {

@@ -30,6 +30,11 @@ public static class CcFind
         ["port group"] = ["firewall_groups"],
         ["port forwarding"] = ["port_forwards"],
         ["dns record"] = ["local_dns"],
+        // The DNS servers a LAN hands its clients. "local dns" itself also finds Local DNS and local_dns_record.
+        ["local dns"] = ["dhcpd_dns", "dhcpdv6_dns"],
+        ["local dns server"] = ["dhcpd_dns", "dhcpdv6_dns"],
+        ["lan dns"] = ["dhcpd_dns", "dhcpdv6_dns"],
+        ["lan dns server"] = ["dhcpd_dns", "dhcpdv6_dns"],
         ["ddns"] = ["dynamic_dns"],
         ["policy-based route"] = ["traffic_routes"],
         ["policy-based routing"] = ["traffic_routes"],
