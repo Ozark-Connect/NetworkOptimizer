@@ -384,7 +384,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
 - **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
-- **Console Access** - API keys and local admin accounts unused for 7+ days (admin with user-management access)
+- **Console Access** - API Keys and Local Admin accounts unused for 7+ days (when the UniFi Console Connection can read them)
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP

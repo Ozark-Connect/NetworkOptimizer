@@ -1557,8 +1557,8 @@ public class AuditService : IAuditScanService
                 _logger.LogWarning(ex, "Failed to fetch UPnP status or port forwarding rules");
             }
 
-            // Console accounts and API keys for the unused-credential checks. Reading them needs an admin
-            // with user-management permission; anything else answers 401/403 and the check is skipped.
+            // Console accounts and API keys for the unused-credential checks. A connection that cannot read
+            // them gets 401/403, and the check is skipped.
             List<NetworkOptimizer.UniFi.Models.UniFiOsUser>? consoleUsers = null;
             List<NetworkOptimizer.UniFi.Models.UniFiOsApiKey>? consoleApiKeys = null;
             try

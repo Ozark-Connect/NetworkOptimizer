@@ -43,14 +43,14 @@ public class ConsoleAccessAnalyzer
         if (apiKeys != null)
         {
             var unused = apiKeys
-                .Select(k => Describe(k.Name ?? "Unnamed key", k.LastUsedAt, k.CreatedAt, now, "never used"))
+                .Select(k => Describe(k.Name ?? "Unnamed API Key", k.LastUsedAt, k.CreatedAt, now, "never used"))
                 .Where(c => c != null)
                 .Select(c => c!)
                 .ToList();
 
             var issue = BuildIssue(unused, IssueTypes.UnusedApiKeys, "CONSOLE-KEY-001",
-                one: "API key", many: "API keys",
-                "Revoke API keys nobody uses on the UniFi Console. A forgotten key keeps full access with no sign-in.");
+                one: "API Key", many: "API Keys",
+                "Remove API Keys that are no longer in use. An API Key has full access to UniFi Network, without a sign-in, until it is removed.");
             if (issue != null) issues.Add(issue);
         }
 
@@ -65,8 +65,8 @@ public class ConsoleAccessAnalyzer
                 .ToList();
 
             var issue = BuildIssue(unused, IssueTypes.UnusedLocalAdmins, "CONSOLE-ADMIN-001",
-                one: "local admin account", many: "local admin accounts",
-                "Remove local admin accounts nobody uses in UniFi OS - Admins & Users. A local account has no UI.com sign-in protection.");
+                one: "Local Admin account", many: "Local Admin accounts",
+                "Remove or deactivate Local Admin accounts that are no longer in use, in UniFi Network - People or UniFi Site Manager - People. An unused admin account can still sign in.");
             if (issue != null) issues.Add(issue);
         }
 
