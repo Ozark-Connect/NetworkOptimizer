@@ -63,68 +63,7 @@
             </table>
         </div>
     }
-    <div class="cc-card-footer">
-        @if (_previewed && _view is { } lv && LeaseWarning(lv) is { } warning)
-        {
-            <span class="cc-remaining warning-text">@warning</span>
-            @if (!LeasesShort(lv))
-            {
-                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
-            }
-        }
-        else
-        {
-            <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")</span>
-        }
-        <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
-            @if (_building)
-            {
-                <span class="spinner-sm"></span>
-            }
-            Review Plan
-        </button>
-    </div>
 </div>
-
-@if (_view is { } steps && steps.Moves.Count > 0)
-{
-    <div class="card">
-        <div class="card-header"><h3 class="card-title">Moving Clients</h3></div>
-        <p class="cc-card-intro">Clients take a new address when their DHCP lease renews, up to half a lease after the move. Clients set on the device, and Network Optimizer's own host, are never touched here.</p>
-        <div class="cc-setting-row cc-step-row">
-            <div>
-                <div>Before the move: lower lease times</div>
-                <div class="cc-item-detail">@PrepareStatus(steps)</div>
-            </div>
-            @if (steps.LongestLeaseSeconds != null && LeasesShort(steps))
-            {
-                <span class="success-text">✓ Already lowered</span>
-            }
-            else
-            {
-                <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
-            }
-        </div>
-        <div class="cc-setting-row cc-step-row">
-            <div>
-                <div>After the move: reconnect clients</div>
-                <div class="cc-item-detail">Wireless clients still on an old address rejoin. Wired clients move at their next renewal, or now if their port powers them over PoE and you allow a power-cycle.</div>
-                <div class="cc-item-detail">@LastMoveStatus(steps)</div>
-                <label class="checkbox-label cc-reconnect-poe"><input type="checkbox" @bind="_powerCycle" /><span>Power-cycle PoE ports of wired clients</span></label>
-            </div>
-            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastMoves.Count == 0)" @onclick="ReconnectAsync"
-                data-tooltip="Acts right away: Wi-Fi clients still on an old address rejoin, and PoE ports power-cycle if allowed.">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
-        </div>
-        @if (_reconnect is { } rc)
-        {
-            <div class="cc-card-note">@CcFormat.Plural(rc.Moved, "client is", "clients are") on a new subnet.</div>
-            @if (rc.Reconnected.Count > 0) { <div class="cc-setting-row"><span>Reconnected</span><span>@string.Join(", ", rc.Reconnected)</span></div> }
-            @if (rc.PowerCycled.Count > 0) { <div class="cc-setting-row"><span>Power-cycled</span><span>@string.Join(", ", rc.PowerCycled)</span></div> }
-            @if (rc.Waiting.Count > 0) { <div class="cc-setting-row"><span>At next renewal</span><span class="muted-text">@string.Join(", ", rc.Waiting)</span></div> }
-            @if (rc.Failed.Count > 0) { <div class="cc-setting-row"><span>Could not reconnect</span><span class="danger-text">@string.Join(", ", rc.Failed)</span></div> }
-        }
-    </div>
-}
 
 @if (_previewed && _view is { } v)
 {
@@ -142,42 +81,6 @@
             @foreach (var w in v.Warnings)
             {
                 <div class="cc-setting-row"><div><div>@w.Title</div><div class="cc-item-detail">@w.Detail</div></div></div>
-            }
-        </div>
-    }
-
-    @if (v.Rewrites.Count > 0)
-    {
-        <div class="card">
-            <div class="card-header"><h3 class="card-title">Addresses That Move<span class="card-title-suffix">@v.Rewrites.Count in @v.Rewrites.Select(r => (r.Collection, r.ObjectName)).Distinct().Count() objects</span></h3></div>
-            <div class="cc-phone-only">
-                @foreach (var r in v.Rewrites.Take(_showAll ? int.MaxValue : 40))
-                {
-                    <div class="cc-map-card">
-                        <div class="cc-change-card-head"><b>@(ConfigCollections.Get(r.Collection)?.Noun ?? r.Collection) @r.ObjectName</b><span class="muted-text">@ChangeDescriber.LabelFor(r.Path.Replace("[", ".").Replace("]", ""))</span></div>
-                        <div class="cc-item-detail"><code>@r.Old</code> to <code>@r.New</code></div>
-                    </div>
-                }
-            </div>
-            <div class="table-responsive hide-mobile">
-                <table class="data-table">
-                    <thead><tr><th>Object</th><th>Field</th><th>Currently</th><th>New</th></tr></thead>
-                    <tbody>
-                        @foreach (var r in v.Rewrites.Take(_showAll ? int.MaxValue : 40))
-                        {
-                            <tr>
-                                <td>@(ConfigCollections.Get(r.Collection)?.Noun ?? r.Collection) @r.ObjectName</td>
-                                <td>@ChangeDescriber.LabelFor(r.Path.Replace("[", ".").Replace("]", ""))</td>
-                                <td><code>@r.Old</code></td>
-                                <td><code>@r.New</code></td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-            @if (!_showAll && v.Rewrites.Count > 40)
-            {
-                <button class="cc-link-btn cc-more" @onclick="() => _showAll = true">+ @(v.Rewrites.Count - 40) more</button>
             }
         </div>
     }
@@ -238,41 +141,144 @@
             </div>
         }
     </div>
+}
 
-    @if (v.Settings.Count > 0)
+@if (_view is { } steps && steps.Moves.Count > 0)
+{
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">Moving Clients</h3></div>
+        <p class="cc-card-intro">Clients take a new address when their DHCP lease renews, up to half a lease after the move. Clients set on the device, and Network Optimizer's own host, are never touched here.</p>
+        <div class="cc-setting-row cc-step-row">
+            <div>
+                <div>Before the move: lower lease times</div>
+                <div class="cc-item-detail">@PrepareStatus(steps)</div>
+            </div>
+            @if (steps.LongestLeaseSeconds != null && LeasesShort(steps))
+            {
+                <span class="success-text">✓ Already lowered</span>
+            }
+            else
+            {
+                <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
+            }
+        </div>
+        <div class="cc-setting-row cc-step-row">
+            <div>
+                <div>After the move: reconnect clients</div>
+                <div class="cc-item-detail">Wireless clients still on an old address rejoin. Wired clients move at their next renewal, or now if their port powers them over PoE and you allow a power-cycle.</div>
+                <div class="cc-item-detail">@LastMoveStatus(steps)</div>
+                <label class="checkbox-label cc-reconnect-poe"><input type="checkbox" @bind="_powerCycle" /><span>Power-cycle PoE ports of wired clients</span></label>
+            </div>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastMoves.Count == 0)" @onclick="ReconnectAsync"
+                data-tooltip="Acts right away: Wi-Fi clients still on an old address rejoin, and PoE ports power-cycle if allowed.">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
+        </div>
+        @if (_reconnect is { } rc)
+        {
+            <div class="cc-card-note">@CcFormat.Plural(rc.Moved, "client is", "clients are") on a new subnet.</div>
+            @if (rc.Reconnected.Count > 0) { <div class="cc-setting-row"><span>Reconnected</span><span>@string.Join(", ", rc.Reconnected)</span></div> }
+            @if (rc.PowerCycled.Count > 0) { <div class="cc-setting-row"><span>Power-cycled</span><span>@string.Join(", ", rc.PowerCycled)</span></div> }
+            @if (rc.Waiting.Count > 0) { <div class="cc-setting-row"><span>At next renewal</span><span class="muted-text">@string.Join(", ", rc.Waiting)</span></div> }
+            @if (rc.Failed.Count > 0) { <div class="cc-setting-row"><span>Could not reconnect</span><span class="danger-text">@string.Join(", ", rc.Failed)</span></div> }
+        }
+    </div>
+}
+
+@if (_previewed && _view is { } found)
+{
+    @if (found.Rewrites.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Addresses That Move<span class="card-title-suffix">@found.Rewrites.Count in @found.Rewrites.Select(r => (r.Collection, r.ObjectName)).Distinct().Count() objects</span></h3></div>
+            <div class="cc-phone-only">
+                @foreach (var r in found.Rewrites.Take(_showAll ? int.MaxValue : 40))
+                {
+                    <div class="cc-map-card">
+                        <div class="cc-change-card-head"><b>@(ConfigCollections.Get(r.Collection)?.Noun ?? r.Collection) @r.ObjectName</b><span class="muted-text">@ChangeDescriber.LabelFor(r.Path.Replace("[", ".").Replace("]", ""))</span></div>
+                        <div class="cc-item-detail"><code>@r.Old</code> to <code>@r.New</code></div>
+                    </div>
+                }
+            </div>
+            <div class="table-responsive hide-mobile">
+                <table class="data-table">
+                    <thead><tr><th>Object</th><th>Field</th><th>Currently</th><th>New</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in found.Rewrites.Take(_showAll ? int.MaxValue : 40))
+                        {
+                            <tr>
+                                <td>@(ConfigCollections.Get(r.Collection)?.Noun ?? r.Collection) @r.ObjectName</td>
+                                <td>@ChangeDescriber.LabelFor(r.Path.Replace("[", ".").Replace("]", ""))</td>
+                                <td><code>@r.Old</code></td>
+                                <td><code>@r.New</code></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (!_showAll && found.Rewrites.Count > 40)
+            {
+                <button class="cc-link-btn cc-more" @onclick="() => _showAll = true">+ @(found.Rewrites.Count - 40) more</button>
+            }
+        </div>
+    }
+
+    @if (found.Settings.Count > 0)
     {
         <div class="card">
             <div class="card-header"><h3 class="card-title">Network Optimizer Settings<span class="card-title-suffix">move once the plan applies</span></h3></div>
-            @foreach (var s in v.Settings)
+            @foreach (var s in found.Settings)
             {
                 <div class="cc-setting-row"><span>@s.Setting: @s.Name</span><span><code>@s.Old</code> to <code>@s.New</code></span></div>
             }
         </div>
     }
 
-    @if (v.Remote.Count > 0)
+    @if (found.Remote.Count > 0)
     {
         <div class="card">
             <div class="card-header"><h3 class="card-title">Left Alone<span class="card-title-suffix">a WAN's or a VPN's far side</span></h3></div>
             <p class="cc-card-intro">Inside a moved subnet, but the ISP or the VPN server sets these addresses, and routes and policies toward them leave this site.</p>
-            @foreach (var m in v.Remote)
+            @foreach (var m in found.Remote)
             {
                 <div class="cc-setting-row"><span>@(ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection) @m.ObjectName, @m.Path</span><code>@m.Value</code></div>
             }
         </div>
     }
 
-    @if (v.Mentions.Count > 0)
+    @if (found.Mentions.Count > 0)
     {
         <div class="card">
             <div class="card-header"><h3 class="card-title">Not Rewritten<span class="card-title-suffix">an old address inside other text</span></h3></div>
-            @foreach (var m in v.Mentions)
+            @foreach (var m in found.Mentions)
             {
                 <div class="cc-setting-row"><span>@(ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection) @m.ObjectName, @m.Path</span><code>@m.Value</code></div>
             }
         </div>
     }
 }
+
+<div class="card">
+    <div class="cc-card-footer">
+        @if (_previewed && _view is { } lv && LeaseWarning(lv) is { } warning)
+        {
+            <span class="cc-remaining warning-text">@warning</span>
+            @if (!LeasesShort(lv))
+            {
+                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
+            }
+        }
+        else
+        {
+            <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")</span>
+        }
+        <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
+            @if (_building)
+            {
+                <span class="spinner-sm"></span>
+            }
+            Review Plan
+        </button>
+    </div>
+</div>
 
 @if (_error != null)
 {
