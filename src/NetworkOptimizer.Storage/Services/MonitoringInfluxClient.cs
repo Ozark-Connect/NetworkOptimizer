@@ -5047,7 +5047,8 @@ span |> last() |> yield(name: ""last"")";
     }
 
     /// <summary>One window of a client's throughput, toward (tx) and from (rx) the client: the mean of
-    /// its samples and the highest one.</summary>
+    /// its samples and the highest one. Raw, not smoothed: a smoothed peak flattens the short
+    /// downloads and speed tests the peak exists to show.</summary>
     public sealed record ThroughputWindowPoint(DateTime Time, double TxMeanBps, double RxMeanBps, double TxPeakBps, double RxPeakBps);
 
     /// <summary>
