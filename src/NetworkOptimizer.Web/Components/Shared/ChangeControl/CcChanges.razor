@@ -506,6 +506,7 @@
         // Open on the site in context; All sites is a choice in the picker.
         if (_sites.FirstOrDefault(s => string.Equals(s.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase)) is { } current)
             SiteFilter = current.Slug;
+        await SiteChosen.InvokeAsync(SiteFilter);
         await LoadFiltersAsync();
         await ReloadAsync();
         _live = new CcLiveRefresh(Registry,
@@ -665,8 +666,12 @@
     }
 
     /// <summary>A single-site filter opens that site into its lanes, as the busiest site is on first load.</summary>
+    /// <summary>The site filter, for the tab row's gateway indicator: a slug, or empty for all sites.</summary>
+    [Parameter] public EventCallback<string> SiteChosen { get; set; }
+
     private async Task SiteFilterChangedAsync()
     {
+        await SiteChosen.InvokeAsync(SiteFilter);
         if (!string.IsNullOrEmpty(SiteFilter)) _expandedSites.Add(SiteFilter);
         await ReloadAsync();
     }

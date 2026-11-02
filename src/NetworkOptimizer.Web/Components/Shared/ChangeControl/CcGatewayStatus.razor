@@ -1,6 +1,7 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services.ChangeControl
 @inject IChangeControlService Site
+@inject IChangeControlFleetService Fleet
 @inject ILogger<CcGatewayStatus> Logger
 
 @if (_provisioning is { } provisioning)
@@ -15,6 +16,9 @@
 @code {
     /// <summary>Shown on phones too; the tab row hides it there because the row scrolls sideways.</summary>
     [Parameter] public bool Mobile { get; set; }
+
+    /// <summary>A site other than the one in context (Changes with one site chosen). Give the component a matching @key.</summary>
+    [Parameter] public string? SiteSlug { get; set; }
 
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ProvisionedShown = TimeSpan.FromSeconds(15);
@@ -33,7 +37,7 @@
     private async Task RefreshAsync()
     {
         bool? now;
-        try { now = await Site.GetGatewayProvisioningAsync(); }
+        try { now = SiteSlug is { } slug ? await Fleet.GetGatewayProvisioningAsync(slug) : await Site.GetGatewayProvisioningAsync(); }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Gateway state failed to load");

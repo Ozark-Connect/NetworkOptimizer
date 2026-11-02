@@ -289,7 +289,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Each change shows the fields that moved, Site Health and the Security Audit before and after, and incidents that followed
   - Alert when Site Health falls after a change
   - **Roll Back** one change
-- Review Plan, and Snapshots, Edit, and Migrate / Restore on desktop, show whether the site's gateway is provisioning or ready
+- Review Plan, and on desktop Snapshots, Edit, Migrate / Restore, and Changes with one site chosen, show whether the site's gateway is provisioning or ready
 - **Snapshots** - the full UniFi Network config, stored encrypted outside the console
   - Taken on every change, daily, before every apply, Firmware Rollout, and Network app upgrade
   - **Compare** any two snapshots or one against live; **Download YAML**; **Pin**; **Roll Back** to a snapshot

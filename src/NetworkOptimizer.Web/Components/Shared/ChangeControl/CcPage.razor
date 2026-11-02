@@ -22,6 +22,10 @@
             {
                 <CcGatewayStatus />
             }
+            else if (ActiveTab == "changes" && !string.IsNullOrEmpty(_changesSite))
+            {
+                <CcGatewayStatus @key="_changesSite" SiteSlug="@_changesSite" />
+            }
         </div>
         <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
     </div>
@@ -35,7 +39,7 @@
     @switch (ActiveTab)
     {
         case "changes":
-            <CcChanges />
+            <CcChanges SiteChosen="slug => _changesSite = slug" />
             break;
         case "snapshots":
             <CcSnapshots />
@@ -69,7 +73,10 @@
     // site's reachability themselves; Settings is stored config only.
     private static readonly HashSet<string> SiteTabs = ["snapshots", "edit", "migrate"];
 
-    private string ActiveTab => Tabs.Any(t => t.Key == Tab) ? Tab! : "overview";
+    // Changes' site filter: the indicator shows only when one site is chosen.
+    private string? _changesSite;
+
+    private string ActiveTab =>Tabs.Any(t => t.Key == Tab) ? Tab! : "overview";
 
     protected override void OnInitialized() => ConnectionService.OnConnectionChanged += OnConnectionChanged;
 

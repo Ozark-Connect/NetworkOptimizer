@@ -529,6 +529,13 @@ public sealed class PlanCoordinator
     /// The gateway check for the page indicator: whether any gateway is adopted, and whether all are connected.
     /// Cached a few seconds so every open tab shares one device read; the plan gates pass <paramref name="fresh"/>.
     /// </summary>
+    /// <summary>For the indicator: true while any adopted gateway is not connected, null with no gateway or no device list.</summary>
+    internal async Task<bool?> GatewayProvisioningAsync(CancellationToken ct)
+    {
+        var (settled, any) = await GatewayStateAsync(ct);
+        return any && settled is { } s ? !s : null;
+    }
+
     internal async Task<(bool? Settled, bool Any)> GatewayStateAsync(CancellationToken ct, bool fresh = false)
     {
         var cached = _gatewayState;

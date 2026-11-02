@@ -102,6 +102,10 @@ public interface IChangeControlFleetService
     [RequireRole(Roles.Viewer)]
     Task<List<TimelineLane>> GetLanesAsync(string siteSlug, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether one site's gateway is provisioning (Changes with a single site chosen); null with no gateway, no device list, or no access.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<bool?> GetGatewayProvisioningAsync(string siteSlug, CancellationToken cancellationToken = default);
+
     /// <summary>The sites the caller can see, for the site pickers.</summary>
     [RequireRole(Roles.Viewer)]
     Task<List<FleetSiteView>> GetSitesAsync(CancellationToken cancellationToken = default);
@@ -498,6 +502,9 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
 
     private SiteMetricsReader Reader(string slug) =>
         new(_influx.GetFor(slug), _isp.GetFor(slug, null), _logger);
+
+    public async Task<bool?> GetGatewayProvisioningAsync(string siteSlug, CancellationToken cancellationToken = default) =>
+        await _access.IsAuthorizedAsync(siteSlug) ? await _registry.PlansFor(siteSlug).GatewayProvisioningAsync(cancellationToken) : null;
 
     public async Task<List<TimelineLane>> GetLanesAsync(string siteSlug, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default)
     {
