@@ -24560,6 +24560,11 @@ body:has(.top-bar-hidden) .btn-fit {
     min-height: 70px;
 }
 
+/* Beside the buttons: .cc-remaining already takes the free space. */
+.change-control .cc-plan-footer .cc-gateway-status {
+    margin-left: 0;
+}
+
 .change-control .cc-card-footer .cc-remaining {
     margin-right: auto;
     font-size: 0.875rem;
@@ -25336,6 +25341,13 @@ body:has(.top-bar-hidden) .btn-fit {
     .change-control .cc-sticky-footer .cc-remaining {
         order: -2;
         flex-basis: 100%;
+    }
+
+    /* Its own line under the state track, above the primary button. */
+    .change-control .cc-sticky-footer .cc-gateway-status {
+        order: -2;
+        flex-basis: 100%;
+        padding: 0;
     }
 }
 

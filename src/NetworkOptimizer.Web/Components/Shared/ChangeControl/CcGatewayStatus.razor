@@ -6,13 +6,16 @@
 @if (_provisioning is { } provisioning)
 {
     var justDone = !provisioning && DateTime.UtcNow < _provisionedUntil;
-    <span class="cc-gateway-status hide-mobile @(provisioning ? "is-provisioning" : justDone ? "is-done" : "")">
+    <span class="cc-gateway-status @(Mobile ? "" : "hide-mobile") @(provisioning ? "is-provisioning" : justDone ? "is-done" : "")">
         <span class="status-dot @(provisioning ? "provisioning" : "online")"></span>
         @(provisioning ? "Gateway provisioning" : justDone ? "Gateway provisioned" : "Gateway ready")
     </span>
 }
 
 @code {
+    /// <summary>Shown on phones too; the tab row hides it there because the row scrolls sideways.</summary>
+    [Parameter] public bool Mobile { get; set; }
+
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ProvisionedShown = TimeSpan.FromSeconds(15);
 
