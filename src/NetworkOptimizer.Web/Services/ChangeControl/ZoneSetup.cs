@@ -229,6 +229,21 @@ public static class ZoneSetup
                 if (zoneOf.TryGetValue(n.Id, out var current) && ZonePaths.IsCustom(current) && Bucket(n.Purpose, mode) is { Role: { } role } bucket
                     && string.Equals(Str(current, "name"), bucket.Name, StringComparison.OrdinalIgnoreCase))
                     Zone(bucket.Key, bucket.Name, role);
+        // An operator zone holding only one role's networks is that role's column under its own name ("Protect" for
+        // cameras), when no zone has the role's name. Of two that fit, the one with more networks takes it.
+        var purposeOf = networks.ToDictionary(n => n.Id, n => n.Purpose, StringComparer.OrdinalIgnoreCase);
+        var fits = liveZones.Where(z => ZonePaths.IsCustom(z) && !zones.Values.Any(d => d.ExistingId == ConfigState.IdOf(z)))
+            .Select(z => (Zone: z, Members: Ids(z).Where(purposeOf.ContainsKey).ToList()))
+            .Where(x => x.Members.Count > 0)
+            .Select(x => (x.Zone, x.Members.Count, Buckets: x.Members.Select(id => Bucket(purposeOf[id], mode)).DistinctBy(b => b.Key).ToList()))
+            .Where(x => x.Buckets is [{ Role: { } }] && BuiltInKey(x.Buckets[0].Key) == null)
+            .OrderByDescending(x => x.Count);
+        foreach (var (zone, _, buckets) in fits)
+        {
+            var (role, _, key) = buckets[0];
+            if (zones.TryGetValue(key, out var column) && column.ExistingId != null) continue;
+            zones[key] = new ZoneDraft { Key = key, Name = Str(zone, "name") ?? key, Role = role!.Value, ExistingId = ConfigState.IdOf(zone) };
+        }
         // A network already in a zone the operator built stays there; its column is kept so it can be dragged back.
         foreach (var current in networks.Where(n => !external.Contains(n.Id)).Select(n => zoneOf.GetValueOrDefault(n.Id)).OfType<JsonObject>()
                      .Where(ZonePaths.IsCustom).DistinctBy(ConfigState.IdOf))
@@ -355,7 +370,8 @@ public static class ZoneSetup
             ZoneRole.IoT => On("casting") ? "Internet only. Internal reaches in" : "Internet only",
             ZoneRole.Cameras => On("nvr") ? "No internet. Internal reaches the NVR" : "No internet",
             ZoneRole.Management => On("manage") ? "Reaches the console and devices. Internal reaches in" : "Reaches the console and devices",
-            ZoneRole.Servers => On(ServersKey) ? "Internal reaches its services. Internet out" : "Internet out. Internal reaches what your policies allow",
+            ZoneRole.Servers => exceptions.Any(e => e.Key == ServersKey && e.Applicable && !e.Enabled)
+                ? "Internet out. Internal reaches what your policies allow" : "Internal reaches its services. Internet out",
             ZoneRole.Printers => On("printing") ? "Internal prints" : "Isolated",
             ZoneRole.Hotspot => "Internet only",
             ZoneRole.Dmz => "UniFi's DMZ rules",

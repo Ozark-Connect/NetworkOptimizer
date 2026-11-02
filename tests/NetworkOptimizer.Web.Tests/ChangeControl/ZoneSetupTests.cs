@@ -1239,7 +1239,7 @@ public class ZoneSetupTests
         live.Collections["firewall_policy"].Add(Predefined("z-zt", "z-dns", "BLOCK"));
         live.Collections["firewall_policy"].Add(Rule("p-zt", "[DNS] ZT Access", "ALLOW", Side("z-zt"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
         live.Collections["firewall_policy"].Add(Rule("p-int", "[DNS] VLANs to Pi-hole", "ALLOW", Side("z-int"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
-        var networks = Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Server)).Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.IoT)).ToList();
+        var networks = Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Corporate)).Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.Corporate)).ToList();
         var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" }, keepZones: ["z-dns"]);
 
         var plan = ZoneSetup.Plan(live, board);
@@ -1272,7 +1272,7 @@ public class ZoneSetupTests
         live.Collections["firewall_policy"].Add(off);
         foreach (var n in live.Get("networkconf"))
             n["firewall_zone_id"] = live.Get("firewall_zone").FirstOrDefault(z => (z["network_ids"] as JsonArray)!.Any(i => i!.ToString() == n["_id"]!.ToString()))?["_id"]!.ToString();
-        return (live, Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Server)).Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.IoT)).ToList());
+        return (live, Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Corporate)).Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.Corporate)).ToList());
     }
 
     [Fact]
@@ -1347,7 +1347,7 @@ public class ZoneSetupTests
         live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-zt", ["name"] = "Zero Trust", ["vlan"] = 200, ["ip_subnet"] = "10.0.200.1/24" });
         live.Collections["firewall_zone"].Add(Zone("z-zt", "Zero Trust", null, "n-zt"));
         live.Collections["firewall_policy"].Add(Rule("p-web", "ZT to Home Assistant", "ALLOW", Side("z-zt"), Side("z-int", port: "8123"), protocol: "tcp"));
-        var networks = Networks.Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.IoT)).ToList();
+        var networks = Networks.Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.Corporate)).ToList();
 
         var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode));
 
@@ -1412,21 +1412,63 @@ public class ZoneSetupTests
     public void PurposeMode_AnOperatorZoneNamedForThePurpose_KeepsItsRole()
     {
         var live = WithSubnetsAndGateway();
-        live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Remove(
-            live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().First(i => i!.ToString() == "n-iot"));
-        live.Collections["firewall_zone"].Add(Zone("z-iot", "IoT", null, "n-iot"));
-        live.Collections["firewall_zone"].Add(Zone("z-zt", "Zero Trust", null));
-        live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-zt")["network_ids"]!.AsArray().Add("n-media");
-        live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Remove(
-            live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().First(i => i!.ToString() == "n-media"));
+        Into(live, "z-iot", "IoT", "n-iot");
+        Into(live, "z-mix", "Zero Trust", "n-media", "n-print");
 
         var board = ZoneSetup.Build(live, Networks, ZoneSetup.PurposeMode);
 
         var iot = board.Zones.Single(z => z.ExistingId == "z-iot");
         iot.Role.Should().Be(ZoneRole.IoT);
         iot.Kept.Should().BeFalse();
-        board.Zones.Single(z => z.ExistingId == "z-zt").Kept.Should().BeTrue("a zone not named for the purpose stays the operator's");
+        board.Zones.Single(z => z.ExistingId == "z-mix").Kept.Should().BeTrue("a zone of mixed purposes stays the operator's");
         board.Exceptions.Single(e => e.Key == "casting").Applicable.Should().BeTrue();
+    }
+
+    /// <summary>Moves networks out of Internal into a new operator zone.</summary>
+    private static void Into(ConfigState live, string zoneId, string name, params string[] networks)
+    {
+        var members = live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray();
+        foreach (var id in networks) members.Remove(members.First(i => i!.ToString() == id));
+        live.Collections["firewall_zone"].Add(Zone(zoneId, name, null, networks));
+    }
+
+    [Theory]
+    [InlineData(ZoneSetup.TrustMode)]
+    [InlineData(ZoneSetup.PurposeMode)]
+    public void AnOperatorZoneOfOneRole_IsThatRolesColumn_UnderItsOwnName(string mode)
+    {
+        var live = WithSubnetsAndGateway();
+        Into(live, "z-protect", "Protect", "n-cam");
+
+        var board = ZoneSetup.Build(live, Networks, mode);
+
+        var cams = board.Zones.Single(z => z.ExistingId == "z-protect");
+        cams.Role.Should().Be(ZoneRole.Cameras);
+        cams.Name.Should().Be("Protect");
+        cams.Kept.Should().BeFalse();
+        board.Zones.Should().NotContain(z => z.Role == ZoneRole.Cameras && z.ExistingId == null, "no empty Cameras column beside it");
+        board.Exceptions.Single(e => e.Key == "nvr").Applicable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AZoneNamedForTheRole_WinsOverOneThatOnlyHoldsItsNetworks()
+    {
+        var live = WithSubnetsAndGateway();
+        Into(live, "z-iot", "IoT", "n-iot");
+        Into(live, "z-zt", "Zero Trust", "n-media");
+
+        var board = ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode);
+
+        board.Zones.Single(z => z.ExistingId == "z-iot").Role.Should().Be(ZoneRole.IoT);
+        board.Zones.Single(z => z.ExistingId == "z-zt").Kept.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AnEmptyServersColumn_DescribesTheDefault()
+    {
+        var board = ZoneSetup.Build(WithSubnetsAndGateway(), Networks, ZoneSetup.TrustMode);
+
+        board.Zones.Single(z => z.Role == ZoneRole.Servers).Description.Should().Be("Internal reaches its services. Internet out");
     }
 
     [Theory]
@@ -1566,14 +1608,13 @@ public class ZoneSetupTests
     public void ExistingCustomZones_KeepTheirNetworks()
     {
         var live = WithSubnetsAndGateway();
-        live.Collections["firewall_zone"].First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().RemoveAt(2);
-        live.Collections["firewall_zone"].Add(Zone("z-untr", "Untrusted", null, "n-iot"));
+        Into(live, "z-untr", "Untrusted", "n-iot", "n-cam");
 
         var board = ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode);
 
-        board.Zones.Single(z => z.ExistingId == "z-untr").Should().Match<ZoneDraft>(z => z.Kept && z.NetworkIds.Contains("n-iot"));
+        board.Zones.Single(z => z.ExistingId == "z-untr").Should().Match<ZoneDraft>(z => z.Kept && z.NetworkIds.Contains("n-iot") && z.NetworkIds.Contains("n-cam"));
         var desired = ZoneSetup.Desired(live, board);
-        Members(desired, "Untrusted").Should().Equal("n-iot");
+        Members(desired, "Untrusted").Should().Equal("n-iot", "n-cam");
         desired.Get("firewall_policy").Should().NotContain(p => p["source"]!["zone_id"]!.ToString() == "z-untr", "its policies are the operator's");
     }
 
