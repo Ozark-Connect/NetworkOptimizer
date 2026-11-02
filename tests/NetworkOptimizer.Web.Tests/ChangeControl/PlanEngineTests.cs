@@ -144,6 +144,42 @@ public class PlanEngineTests
     private static string Ap(string id, string mac, string name, string configNetwork) =>
         $$$"""{"_id":"{{{id}}}","mac":"{{{mac}}}","name":"{{{name}}}","config_network":{{{configNetwork}}},"_no_meta":{"type":"uap"}}""";
 
+    private const string Test = """{"_id":"n3","name":"Test","purpose":"corporate","vlan":39,"vlan_enabled":true,"ip_subnet":"192.168.39.1/24"}""";
+
+    private static ConfigState WithTestNetwork(bool present)
+    {
+        var objects = new List<(string, string)>
+        {
+            ("networkconf", Lan), ("networkconf", Iot),
+            ("firewall_zone", present ? """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1","n2","n3"]}"""
+                                      : """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1","n2"]}"""),
+            ("portconf", present ? """{"_id":"p1","name":"Trunk","forward":"customize","tagged_networkconf_ids":["n2","n3"]}"""
+                                 : """{"_id":"p1","name":"Trunk","forward":"customize","tagged_networkconf_ids":["n2"]}"""),
+        };
+        if (present) objects.Add(("networkconf", Test));
+        return State(objects.ToArray());
+    }
+
+    [Fact]
+    public void Restore_WithoutDeletes_KeptNetworkKeepsItsZoneAndTaggedPorts()
+    {
+        var doc = Plan(WithTestNetwork(present: false), WithTestNetwork(present: true), new PlanOptions { DeleteMissing = false });
+
+        doc.Operations.Should().BeEmpty("the Test network stays, so Internal and the trunk keep it");
+    }
+
+    [Fact]
+    public void Restore_WithDeletes_ZoneUpdateWritesAfterTheNetworkDelete()
+    {
+        var doc = Plan(WithTestNetwork(present: false), WithTestNetwork(present: true));
+
+        var keys = doc.Operations.Select(o => o.Key).ToList();
+        var delete = doc.Operations.Single(o => o.Collection == "networkconf" && o.Action == PlanAction.Delete);
+        var zone = doc.Operations.Single(o => o.Collection == "firewall_zone");
+        keys.IndexOf(zone.Key).Should().BeGreaterThan(keys.IndexOf(delete.Key), "UniFi refuses to leave a network in no zone");
+        zone.ContinueOnError.Should().BeTrue("it only clears out the deleted network, which the delete already did");
+    }
+
     [Fact]
     public void Lockout_PossibleIpSettingsChanges_AreOneFindingNamingEveryDevice()
     {

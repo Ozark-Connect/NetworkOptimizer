@@ -94,7 +94,7 @@ public static class PlanBuilder
         // lacks, so work on a copy.
         var otherVersion = desired.NetworkAppVersion != null && live.NetworkAppVersion != null
             && !string.Equals(desired.NetworkAppVersion, live.NetworkAppVersion, StringComparison.OrdinalIgnoreCase);
-        if (!options.SameSite || otherVersion) desired = desired.Clone();
+        if (!options.SameSite || otherVersion || !options.DeleteMissing) desired = desired.Clone();
         var desiredCtx = new ConfigIdentityContext(desired.NamesById());
         var liveCtx = new ConfigIdentityContext(live.NamesById());
         var desiredById = desired.ObjectsById();
@@ -120,6 +120,8 @@ public static class PlanBuilder
                     if (options.MergeLists) MergeListsInto(def, p.Left!, p.Right!);
                 }
         }
+
+        if (options.SameSite && !options.DeleteMissing) KeepReferencesToKeptObjects(matches);
 
         var mgmtNetworks = ConfigDiffEngine.ManagementNetworkIds(live);
 
@@ -1238,6 +1240,49 @@ public static class PlanBuilder
     }
 
     /// <summary>
+    /// With deletes off, a live object the source lacks stays, so the references to it stay too: a kept network keeps
+    /// its zone and its tagged ports. Without this the plan strips it from Internal, which UniFi refuses
+    /// (api.err.NetworkCantBeRemovedFromDefaultZone), and untags it everywhere though it still exists.
+    /// </summary>
+    internal static void KeepReferencesToKeptObjects(Dictionary<string, MatchResult> matches)
+    {
+        var kept = matches.Values
+            .SelectMany(m => m.Pairs.Where(p => p.Left == null && p.Right != null).Select(p => ConfigState.IdOf(p.Right!)))
+            .Where(id => id.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (kept.Count == 0) return;
+        foreach (var p in matches.Values.SelectMany(m => m.Pairs).Where(p => p.Left != null && p.Right != null))
+            AddBack(p.Left!, p.Right!, kept);
+    }
+
+    /// <summary>Puts kept IDs back into the desired lists that held them live (port lists matched by port_idx).</summary>
+    private static void AddBack(JsonNode desired, JsonNode live, HashSet<string> kept)
+    {
+        switch (desired, live)
+        {
+            case (JsonObject d, JsonObject l):
+                foreach (var (k, lv) in l)
+                    if (lv != null && d[k] is { } dv) AddBack(dv, lv, kept);
+                break;
+            case (JsonArray d, JsonArray l) when l.All(n => n is JsonValue):
+                var have = d.Select(n => n?.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var id in l.Select(n => n?.ToString()).OfType<string>().Where(kept.Contains).Where(id => !have.Contains(id)).ToList())
+                    d.Add(id);
+                break;
+            case (JsonArray d, JsonArray l):
+                for (var i = 0; i < l.Count; i++)
+                {
+                    if (l[i] is not JsonObject lo) continue;
+                    var idx = lo["port_idx"]?.ToString();
+                    var match = idx != null
+                        ? d.OfType<JsonObject>().FirstOrDefault(o => o["port_idx"]?.ToString() == idx)
+                        : i < d.Count ? d[i] as JsonObject : null;
+                    if (match != null) AddBack(match, lo, kept);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
     /// A zone that gives up a network writes after the zone that takes it. UniFi refuses to leave a
     /// network in no zone (api.err.NetworkCantBeRemovedFromDefaultZone), so the name order is not safe.
     /// </summary>
@@ -1247,6 +1292,9 @@ public static class PlanBuilder
             (node?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var zones = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action != PlanAction.Delete && o.Body?["network_ids"] is JsonArray).ToList();
+        // A network the plan deletes leaves its zone with it; the zone's own update writes after the delete.
+        var networkDeletes = doc.Operations.Where(o => o.Collection == "networkconf" && o.Action == PlanAction.Delete && o.ObjectId != null)
+            .ToDictionary(o => o.ObjectId!, o => o.Key, StringComparer.OrdinalIgnoreCase);
         foreach (var op in zones.Where(o => o.Action == PlanAction.Update))
         {
             var liveZone = live.Get("firewall_zone").FirstOrDefault(z => ConfigState.IdOf(z).Equals(op.ObjectId, StringComparison.OrdinalIgnoreCase));
@@ -1254,6 +1302,11 @@ public static class PlanBuilder
             given.ExceptWith(Ids(op.Body));
             if (given.Count == 0) continue;
             op.After.AddRange(zones.Where(t => t != op && Ids(t.Body).Overlaps(given)).Select(t => t.Key).Except(op.After));
+            op.After.AddRange(given.Where(networkDeletes.ContainsKey).Select(id => networkDeletes[id]).Except(op.After));
+            // Only clearing out deleted networks, which the delete already does: a refusal is reported, never fatal.
+            var taken = Ids(op.Body);
+            taken.ExceptWith(Ids(liveZone));
+            if (taken.Count == 0 && given.All(networkDeletes.ContainsKey)) op.ContinueOnError = true;
         }
     }
 
