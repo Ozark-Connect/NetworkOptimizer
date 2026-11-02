@@ -82,13 +82,37 @@
 
         <div class="cc-edit-grid">
             <div class="card hide-mobile" data-tour="cc-editor">
-                <div class="card-header"><h3 class="card-title">Collections</h3></div>
+                <div class="card-header cc-collections-header">
+                    @if (_findOpen)
+                    {
+                        <div class="cc-find">
+                            <input class="form-control" @ref="_findInput" @bind="_query" @bind:event="oninput" @onkeydown="FindKeyAsync"
+                                   placeholder="Fields and values" aria-label="Search collections" />
+                            <span class="cc-find-count muted-text" aria-live="polite">@FindCountText</span>
+                            <button type="button" class="cc-find-btn" disabled="@(TotalHits == 0)" @onclick="() => StepHitAsync(-1)"
+                                    data-tooltip="Previous (Shift+Enter)" aria-label="Previous match"><CcIcon Name="up" /></button>
+                            <button type="button" class="cc-find-btn" disabled="@(TotalHits == 0)" @onclick="() => StepHitAsync(1)"
+                                    data-tooltip="Next (Enter)" aria-label="Next match"><CcIcon Name="down" /></button>
+                            <button type="button" class="cc-find-btn" @onclick="CloseFindAsync" data-tooltip="Close (Esc)" aria-label="Close search"><CcIcon Name="close" /></button>
+                        </div>
+                    }
+                    else
+                    {
+                        <h3 class="card-title">Collections</h3>
+                        <button type="button" class="cc-find-btn" @onclick="OpenFind"
+                                data-tooltip="Search fields and values" aria-label="Search collections"><CcIcon Name="search" /></button>
+                    }
+                </div>
                 <div class="cc-collections">
                     @foreach (var group in VisibleGroups)
                     {
-                        <button class="@(group == _group ? "active" : "")" @onclick="() => OpenGroupAsync(group)">
+                        <button class="@(group == _group ? "active" : "") @(_searched != null && _hits.GetValueOrDefault(group) == 0 ? "cc-no-hits" : "")" @onclick="() => OpenGroupFromListAsync(group)">
                             <span>@group</span>
-                            @if (_edited.ContainsKey(group))
+                            @if (_searched != null)
+                            {
+                                <span class="cc-count">@(_hits.GetValueOrDefault(group) is var n and > 0 ? CcFormat.Plural(n, "match", "matches") : "")</span>
+                            }
+                            else if (_edited.ContainsKey(group))
                             {
                                 <span class="status-badge status-info">edited</span>
                             }
@@ -474,9 +498,176 @@
                     _goToLine = null;
                     await _editor.InvokeVoidAsync("goToLine", _host, line);
                 }
+                if (_findAfterPush is { } local)
+                {
+                    _findAfterPush = null;
+                    await FindInEditorAsync(local);
+                }
             }
             catch (JSDisconnectedException) { }
         }
+        if (_focusFind)
+        {
+            _focusFind = false;
+            try { await _findInput.FocusAsync(); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException) { }
+        }
+    }
+
+    // ---------- Collections search ----------
+
+    private bool _findOpen;
+    private bool _focusFind;
+    private ElementReference _findInput;
+    private string _query = "";
+    // The query the results are for; null until Enter runs one, and after the texts change under it.
+    private string? _searched;
+    private bool _finding;
+    private readonly Dictionary<string, int> _hits = [];
+    // The current match, numbered across the collections in list order; -1 before the first step.
+    private int _hit = -1;
+    // A match number in the collection being opened, to make current once its text is in the editor.
+    private int? _findAfterPush;
+
+    private int TotalHits => VisibleGroups.Sum(g => _hits.GetValueOrDefault(g));
+
+    private string FindCountText =>
+        _finding ? "Searching..." : _searched == null ? "" : TotalHits == 0 ? "No matches" : _hit < 0 ? CcFormat.Plural(TotalHits, "match", "matches") : $"{_hit + 1} of {TotalHits}";
+
+    private void OpenFind()
+    {
+        _findOpen = true;
+        _focusFind = true;
+    }
+
+    private async Task CloseFindAsync()
+    {
+        _findOpen = false;
+        await ClearFindAsync();
+    }
+
+    /// <summary>Drops the results and the highlight; the query stays in the box for the next Enter.</summary>
+    private async Task ClearFindAsync()
+    {
+        _searched = null;
+        _hits.Clear();
+        _hit = -1;
+        _findAfterPush = null;
+        if (_editor == null) return;
+        try { await _editor.InvokeAsync<int>("find", _host, null, 0); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private async Task FindKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await CloseFindAsync();
+        else if (e.Key == "Enter")
+        {
+            if (_searched is { Length: > 0 } searched && searched == _query.Trim()) await StepHitAsync(e.ShiftKey ? -1 : 1);
+            else await RunFindAsync();
+        }
+    }
+
+    /// <summary>Counts the query in every collection, loading the ones not opened yet, then goes to the first match from the open one on.</summary>
+    private async Task RunFindAsync()
+    {
+        var query = _query.Trim();
+        await ClearFindAsync();
+        if (query.Length == 0 || _finding) return;
+        _finding = true;
+        StateHasChanged();
+        var generation = _generation;
+        var editing = Editing;
+        try
+        {
+            var hits = new Dictionary<string, int>();
+            foreach (var group in VisibleGroups.ToList())
+            {
+                if (group != _group && !_edited.ContainsKey(group) && !_original.ContainsKey(group))
+                    _original[group] = await LoadGroupAsync(group);
+                // Discard, Start from, Upload, or a switch of what is edited replaced the texts meanwhile.
+                if (generation != _generation || editing != Editing) return;
+                hits[group] = CcFind.Count(SearchText(group), query);
+            }
+            foreach (var (g, n) in hits) _hits[g] = n;
+            _searched = query;
+            var groups = VisibleGroups.ToList();
+            var start = groups.IndexOf(_group);
+            var first = Enumerable.Range(0, groups.Count).Select(i => groups[(start + i) % groups.Count]).FirstOrDefault(g => _hits.GetValueOrDefault(g) > 0);
+            if (first != null) await GoToHitAsync(HitOffset(first));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _finding = false;
+        }
+    }
+
+    private string SearchText(string group) =>
+        group == _group ? _text : _edited.GetValueOrDefault(group) ?? _original.GetValueOrDefault(group) ?? "";
+
+    /// <summary>The number of the first match in <paramref name="group"/>, counting across the collections before it.</summary>
+    private int HitOffset(string group) => VisibleGroups.TakeWhile(g => g != group).Sum(g => _hits.GetValueOrDefault(g));
+
+    private Task StepHitAsync(int step)
+    {
+        var total = TotalHits;
+        if (total == 0) return Task.CompletedTask;
+        var next = _hit < 0 ? (step > 0 ? 0 : total - 1) : ((_hit + step) % total + total) % total;
+        return GoToHitAsync(next);
+    }
+
+    private async Task GoToHitAsync(int index)
+    {
+        var offset = 0;
+        foreach (var group in VisibleGroups)
+        {
+            var n = _hits.GetValueOrDefault(group);
+            if (index < offset + n)
+            {
+                _hit = index;
+                if (group != _group)
+                {
+                    _findAfterPush = index - offset;
+                    await OpenGroupAsync(group);
+                }
+                else await FindInEditorAsync(index - offset);
+                return;
+            }
+            offset += n;
+        }
+    }
+
+    /// <summary>Makes match <paramref name="local"/> of the open collection current; the editor's own count wins over the server's.</summary>
+    private async Task FindInEditorAsync(int local)
+    {
+        if (_editor == null || _searched == null) return;
+        try
+        {
+            var count = await _editor.InvokeAsync<int>("find", _host, _searched, local);
+            if (count != _hits.GetValueOrDefault(_group))
+            {
+                var offset = HitOffset(_group);
+                _hits[_group] = count;
+                _hit = count == 0 ? -1 : offset + Math.Min(local, count - 1);
+                StateHasChanged();
+            }
+        }
+        catch (JSDisconnectedException) { }
+    }
+
+    /// <summary>A collection picked from the list during a search: the next step goes to its first match.</summary>
+    private async Task OpenGroupFromListAsync(string group)
+    {
+        if (_searched != null && group != _group)
+        {
+            var n = _hits.GetValueOrDefault(group);
+            _hit = n > 0 ? HitOffset(group) - 1 : _hit;
+        }
+        await OpenGroupAsync(group);
     }
 
     // Group plus a generation that Discard, Start from, and Upload advance, so a change still in
@@ -502,6 +693,11 @@
         if (group == _group) _text = text;
         if (_original.TryGetValue(group, out var original) && original == text) _edited.Remove(group);
         else _edited[group] = text;
+        if (_searched != null && _hits.ContainsKey(group))
+        {
+            _hits[group] = CcFind.Count(text, _searched);
+            if (_hit >= TotalHits) _hit = -1;
+        }
         _debounce?.Dispose();
         _debounce = new Timer(_ => InvokeAsync(ValidateAsync), null, 400, Timeout.Infinite);
         StateHasChanged();
@@ -635,6 +831,7 @@
         _discardNote = null;
         _consoleChanged = null;
         _generation++;
+        await ClearFindAsync();
         _uploaded.Clear();
         _edited.Clear();
         _original.Clear();
@@ -653,6 +850,7 @@
             return;
         }
         _generation++;
+        await ClearFindAsync();
         _uploaded.Clear();
         _edited.Clear();
         _validation = new YamlValidation();
@@ -699,6 +897,7 @@
         _loading = true;
         _discardNote = null;
         _consoleChanged = null;
+        await ClearFindAsync();
         StateHasChanged();
         try
         {

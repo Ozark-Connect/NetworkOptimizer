@@ -24742,6 +24742,65 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.8125rem;
 }
 
+.change-control .cc-collections button.cc-no-hits > span:first-child {
+    color: var(--text-muted);
+}
+
+/* Collections search: the header's own height, so opening it does not move the list. */
+.change-control .cc-collections-header {
+    min-height: 52px;
+    gap: 0.5rem;
+}
+
+.change-control .cc-find {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.change-control .cc-find .form-control {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 28px;
+    padding: 0 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-find-count {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    margin: 0 0.25rem;
+}
+
+.change-control .cc-find-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: var(--border-radius);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.change-control .cc-find-btn:hover:not(:disabled),
+.change-control .cc-find-btn:focus-visible {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.change-control .cc-find-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
 /* CodeMirror (js/cc-editor.js) draws inside; its theme there sets fonts, colors, and height. */
 .change-control .cc-editor {
     min-height: 480px;

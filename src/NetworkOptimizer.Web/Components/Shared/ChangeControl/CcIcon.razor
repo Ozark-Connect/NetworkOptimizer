@@ -1,19 +1,35 @@
-@* The download / upload icon that stands in for the verb on Change Control file buttons. *@
+@* The icons that stand in for a verb on Change Control buttons: download / upload on file buttons, and the Edit tab's search. *@
 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    @if (Name == "upload")
+    @switch (Name)
     {
-        <polyline points="17 8 12 3 7 8" />
-        <line x1="12" y1="3" x2="12" y2="15" />
-    }
-    else
-    {
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
+        case "search":
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            break;
+        case "up":
+            <polyline points="18 15 12 9 6 15" />
+            break;
+        case "down":
+            <polyline points="6 9 12 15 18 9" />
+            break;
+        case "close":
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+            break;
+        case "upload":
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+            break;
+        default:
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+            break;
     }
 </svg>
 
 @code {
-    /// <summary>"download" (the default) or "upload".</summary>
+    /// <summary>"download" (the default), "upload", "search", "up", "down", or "close".</summary>
     [Parameter] public string Name { get; set; } = "download";
 }

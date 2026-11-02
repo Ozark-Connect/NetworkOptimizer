@@ -125,6 +125,12 @@ const theme = EditorView.theme({
         border: 'none', borderRadius: '4px', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
     },
     '.cm-panel.cm-search [name=close]:hover': { color: 'var(--text-primary)', background: 'var(--bg-tertiary)' },
+    // Search matches, from the panel or the Collections search. Set here: the search extension's own theme
+    // loads only once its panel first opens.
+    '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--warning-color) 30%, transparent)', borderRadius: '2px' },
+    '.cm-searchMatch.cm-searchMatch-selected': {
+        backgroundColor: 'color-mix(in srgb, var(--accent-color) 60%, transparent)', outline: '1px solid var(--accent-color)',
+    },
 }, { dark: true });
 
 // The search panel's labels in the app's Title Case, as its buttons read elsewhere.
@@ -692,6 +698,77 @@ export function nextEdit(host) {
     return true;
 }
 
+// ---------- Collections search ----------
+
+// The Collections card's search: every match of its query highlighted, one of them current. The query
+// outlives a collection switch, so the next collection opens with its matches already marked.
+
+/**
+ * Case-insensitive, non-overlapping matches of query in text, as { from, to }. Masked secret tokens are
+ * skipped: their text is a path, never shown. Must agree with CcFind.Count, which counts the other collections.
+ */
+export function findMatches(text, query) {
+    const matches = [];
+    if (!query) return matches;
+    const tokens = [...text.matchAll(/<secret:[^>\s]+>/g)].map(m => ({ from: m.index, to: m.index + m[0].length }));
+    const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    for (const m of text.matchAll(re)) {
+        const from = m.index, to = from + m[0].length;
+        if (!tokens.some(t => from < t.to && to > t.from)) matches.push({ from, to });
+    }
+    return matches;
+}
+
+const setFind = StateEffect.define();
+const matchMark = Decoration.mark({ class: 'cm-searchMatch' });
+const currentMark = Decoration.mark({ class: 'cm-searchMatch cm-searchMatch-selected' });
+
+const findState = StateField.define({
+    create: () => ({ query: null, matches: [], current: -1 }),
+    update(value, tr) {
+        for (const e of tr.effects) {
+            if (e.is(setFind)) value = { query: e.value.query, matches: findMatches(tr.state.doc.toString(), e.value.query), current: e.value.current };
+        }
+        if (tr.docChanged && value.query) {
+            // The current match stays current while it still starts where it did.
+            const at = value.current >= 0 ? tr.changes.mapPos(value.matches[value.current]?.from ?? -1) : -1;
+            const matches = findMatches(tr.state.doc.toString(), value.query);
+            value = { query: value.query, matches, current: matches.findIndex(m => m.from === at) };
+        }
+        return value;
+    },
+    provide: f => EditorView.decorations.from(f, v =>
+        Decoration.set(v.matches.map((m, i) => (i === v.current ? currentMark : matchMark).range(m.from, m.to)))),
+});
+
+/**
+ * Highlights query's matches and makes match number index the current one (negative counts from the
+ * end), opening any fold over it and scrolling it to the middle. A null query clears the highlight.
+ * Resolves to the number of matches. After setText's scroll restore, which runs two frames after a swap.
+ */
+export function find(host, query, index) {
+    const cc = host?._cc;
+    if (!cc) return Promise.resolve(0);
+    if (!query) {
+        cc.view.dispatch({ effects: setFind.of({ query: null, current: -1 }) });
+        return Promise.resolve(0);
+    }
+    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (host._cc !== cc) { resolve(0); return; }
+        const view = cc.view;
+        const count = findMatches(view.state.doc.toString(), query).length;
+        const current = count === 0 ? -1 : ((index % count) + count) % count;
+        view.dispatch({ effects: setFind.of({ query, current }) });
+        const match = view.state.field(findState).matches[current];
+        if (match) {
+            const open = [];
+            foldedRanges(view.state).between(match.from, match.to, (from, to) => { open.push(unfoldEffect.of({ from, to })); });
+            view.dispatch({ effects: [...open, EditorView.scrollIntoView(match.from, { y: 'center' })], selection: { anchor: match.from, head: match.to } });
+        }
+        resolve(count);
+    })));
+}
+
 // ---------- Firewall policy order ----------
 
 // A policy's order is its place in the file among the policies of its zone pair: the file carries no
@@ -1124,6 +1201,7 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
                 editMarking(),
+                findState,
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
                 state.editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ 'aria-label': label ?? 'YAML', spellcheck: 'false' }),

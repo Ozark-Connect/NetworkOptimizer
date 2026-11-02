@@ -302,6 +302,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Remove an object with one click; references to it in lists are removed in the same plan
   - Remove a client to forget it in UniFi Network, each one an item to acknowledge; Roll Back and Return to Baseline also forget a client the snapshot lacks, Restore never does
   - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
+  - Search field names and values across every collection, with each collection's match count and Previous / Next through the matches
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
   - Flags a firewall change that cuts a network off its DNS server or the internet, or devices off the UniFi Console
