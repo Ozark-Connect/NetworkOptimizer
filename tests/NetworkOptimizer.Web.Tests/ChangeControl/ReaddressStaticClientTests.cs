@@ -153,7 +153,7 @@ public class ReaddressStaticClientTests
 
         var op = doc.Operations[0];
         op.Tier.Should().Be(PlanTiers.Acknowledge);
-        op.Reasons.Should().ContainSingle().Which.Should().Be("Clients set on the device stay on the old subnet until you change them: Printer (192.168.1.20 to 10.42.1.20)");
+        op.Reasons.Should().ContainSingle().Which.Should().Be("Clients with no DHCP lease stay on the old subnet until they ask DHCP again or you change them: Printer (192.168.1.20 to 10.42.1.20)");
         doc.Operations[1].Tier.Should().Be(PlanTiers.Direct, "no client on it is set on the device");
         unmarked.Select(s => s.Name).Should().Equal("Stray");
     }

@@ -148,7 +148,7 @@ public sealed partial class ChangeControlService
             if (op == null || here.Count == 0) continue;
             var listed = string.Join(", ", here.Take(10).Select(s => $"{s.Name} ({s.Ip} to {s.NewIp})"))
                 + (here.Count > 10 ? $", and {here.Count - 10} more" : "");
-            var reason = $"Clients set on the device stay on the old subnet until you change them: {listed}";
+            var reason = $"Clients with no DHCP lease stay on the old subnet until they ask DHCP again or you change them: {listed}";
             if (!op.Reasons.Contains(reason)) op.Reasons.Add(reason);
             op.Tier = Math.Max(op.Tier, PlanTiers.Acknowledge);
             unmarked.RemoveAll(here.Contains);
@@ -447,9 +447,9 @@ public sealed partial class ChangeControlService
     }
 
     /// <summary>
-    /// Clients in a moved subnet whose address is set on the device. The gateway's own DHCP lease file
-    /// (over Gateway SSH) is the record: a connected client with no lease there is static, reserved or
-    /// not, since a DHCP client renews well before its lease ends. Without Gateway SSH, UniFi's IP Table
+    /// Clients in a moved subnet that DHCP may not move. The gateway's own DHCP lease file (over Gateway SSH)
+    /// is the record: a connected client with no lease there is set on the device, served by another DHCP
+    /// server, or still using a lease that lapsed, reserved or not. Without Gateway SSH, UniFi's IP Table
     /// can only clear clients with no reservation (it lists every reservation the same way), and without
     /// that, an address outside its network's DHCP range counts.
     /// </summary>
@@ -486,8 +486,8 @@ public sealed partial class ChangeControlService
     /// <summary>
     /// The connected clients in a moved subnet with no DHCP lease from this gateway. With the gateway's lease
     /// file, no lease is the whole test, reserved or not, busy or idle. Never split these by traffic rate: a
-    /// quiet client with its address set on the device was once taken as a lease that lapsed in standby, and
-    /// the plan stopped listing it. Traffic says busy or quiet, never who assigned the address. Without the
+    /// quiet static client was once taken as a lapsed lease and dropped from the plan. Static, another DHCP
+    /// server, and a lapsed lease kept in use all look the same here, so all are listed. Without the
     /// lease file, UniFi's IP Table lists reservations like leases, so a reserved client cannot be judged;
     /// without that, an address outside the network's DHCP range is the sign.
     /// </summary>

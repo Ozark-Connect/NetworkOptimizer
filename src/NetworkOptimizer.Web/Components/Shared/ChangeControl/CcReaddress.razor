@@ -94,7 +94,7 @@
         }
         else
         {
-            <p class="cc-card-intro">Connected with no lease from this gateway: the address is set on the device, or another DHCP server hands it out. Change each one after the move, or check where it gets its address.@(v.StaticClients.Any(s => s.Reserved) ? " Reserved ones have their reservation moved too." : "")</p>
+            <p class="cc-card-intro">Connected with no lease from this gateway: the address is set on the device, another DHCP server hands it out, or the client kept its address after its lease lapsed. Change each one after the move, or check where it gets its address.@(v.StaticClients.Any(s => s.Reserved) ? " Reserved ones have their reservation moved too." : "")</p>
             <div class="cc-phone-only">
                 @foreach (var s in v.StaticClients)
                 {
