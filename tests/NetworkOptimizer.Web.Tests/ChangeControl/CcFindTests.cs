@@ -84,6 +84,31 @@ public class CcFindTests
     }
 
     [Fact]
+    public void Count_DeviceKindsFindDevicesAndTheirLists()
+    {
+        const string yaml = "devices:\n- name: Office\n  port_overrides:\n  - port_idx: 1\n- name: Kitchen\n  radio_table:\n  - radio: ng\n";
+        CcFind.Count(yaml, "Switches").Should().Be(2);
+        CcFind.Count(yaml, "APs").Should().Be(2);
+        CcFind.Count(yaml, "access points").Should().Be(2);
+        CcFind.Count(yaml, "gateways").Should().Be(1);
+        CcFind.Count(yaml, "Routers").Should().Be(1);
+    }
+
+    [Fact]
+    public void Terms_ShortSingularIsNotAdded()
+    {
+        CcFind.Terms("APs").Should().NotContain("ap");
+        CcFind.Terms("Switches").Should().Contain("switch");
+    }
+
+    [Fact]
+    public void Count_DnsServerFindsNumberedServerFields()
+    {
+        const string yaml = "networks:\n- dhcpd_dns_1: 192.0.2.1\n  dhcpdv6_dns_2: ''\n  wan_dns1: 192.0.2.2\n  wan_ipv6_dns2: ''\n  primary_dns_server: 192.0.2.3\n  dhcpd_dns_enabled: true\n";
+        CcFind.Count(yaml, "DNS servers").Should().Be(5);
+    }
+
+    [Fact]
     public void Count_HyphenatedAliasKey_FindsItsAlias()
     {
         CcFind.Count("wlans:\n", "Wi-Fi").Should().Be(1);

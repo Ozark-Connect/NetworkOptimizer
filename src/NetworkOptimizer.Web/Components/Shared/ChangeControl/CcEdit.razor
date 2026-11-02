@@ -693,13 +693,13 @@
         catch (JSDisconnectedException) { }
     }
 
-    /// <summary>A collection picked from the list during a search: the next step goes to its first match.</summary>
+    /// <summary>A collection picked from the list during a search opens on its first match, as paging there does.</summary>
     private async Task OpenGroupFromListAsync(string group)
     {
-        if (_searched != null && group != _group)
+        if (_searched != null && group != _group && _hits.GetValueOrDefault(group) > 0)
         {
-            var n = _hits.GetValueOrDefault(group);
-            _hit = n > 0 ? HitOffset(group) - 1 : _hit;
+            await GoToHitAsync(HitOffset(group));
+            return;
         }
         await OpenGroupAsync(group);
     }

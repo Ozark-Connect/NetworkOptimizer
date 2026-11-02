@@ -40,8 +40,16 @@ public static class CcFind
         ["load balancing"] = ["load_balance", "loadbalance"],
         ["wan load balancing"] = ["wan_load_balance"],
         ["pbr"] = ["traffic_routes"],
+        // Device kinds. The YAML has no device type (type and model are read-only, never exported), so these
+        // find the devices collection and the lists only that kind has.
+        ["switch"] = ["devices", "port_overrides", "switch_vlan_enabled"],
+        ["access point"] = ["devices", "radio_table", "ap_groups", "ap_group_ids", "ap_macs"],
+        ["ap"] = ["devices", "radio_table", "ap_groups", "ap_group_ids", "ap_macs"],
+        ["gateway"] = ["devices"],
+        ["router"] = ["devices", "gateway"],
+        // Fields: the numbered server fields (dns1, wan_dns2, dhcpd_dns_3, dhcpdv6_dns_4, ...).
+        ["dns server"] = ["dns1", "dns2", "dns_1", "dns_2", "dns_3", "dns_4"],
         // Lists inside objects
-        ["access point"] = ["ap_groups", "ap_group_ids", "ap_macs"],
         ["switch port"] = ["port_overrides"],
         ["lag"] = ["link_aggregation_groups"],
         ["link aggregation"] = ["link_aggregation_groups"],
@@ -67,19 +75,21 @@ public static class CcFind
         var q = Regex.Replace(query.Trim(), @"\s+", " ");
         if (q.Length == 0) return [];
         var terms = new List<string> { q };
-        // A plural query finds the singular too ("VLANs" finds "vlan: 20"), along with the aliases.
+        // A plural query finds the singular too ("VLANs" finds "vlan: 20"), along with the aliases. Not a
+        // singular under four letters: "ap" from "APs" or "lag" from "LAGs" sits inside half the field names.
         var key = AliasKey(q);
         if (Aliases.TryGetValue(key, out var aliases))
-            foreach (var term in aliases.Prepend(key))
+            foreach (var term in key.Length >= 4 ? aliases.Prepend(key) : aliases)
                 if (!terms.Contains(term, StringComparer.OrdinalIgnoreCase)) terms.Add(term);
         return terms.OrderByDescending(t => t.Length).ToList();
     }
 
-    // Lowercase, singular, and "-" or "_" as a space: "VLANs", "Client Devices", and "policy-based route"
-    // look up their keys. "wireless" is left whole.
+    // Lowercase, singular, and "-" or "_" as a space: "VLANs", "Switches", "Client Devices", and
+    // "policy-based route" look up their keys. "wireless" is left whole.
     private static string AliasKey(string q)
     {
         var key = Regex.Replace(q.ToLowerInvariant(), @"[\s_-]+", " ").Trim();
+        if (Regex.IsMatch(key, "(ch|sh|x)es$")) return key[..^2];
         return key.EndsWith('s') && !key.EndsWith("ss", StringComparison.Ordinal) ? key[..^1] : key;
     }
 
