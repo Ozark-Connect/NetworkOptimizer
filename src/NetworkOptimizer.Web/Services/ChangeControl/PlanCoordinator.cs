@@ -370,7 +370,7 @@ public sealed class PlanCoordinator
             var window = TimeSpan.FromMinutes(IsAgentSite() ? settings.AgentCommitWindowMinutes : settings.CommitWindowMinutes);
             var watch = doc.WatchDevices || (doc.WatchInternet && settings.WatchInternet);
             // The agent reaches the console at the address this plan moves, so it cannot revert a path move either.
-            if (watch && AgentRevert != null && pre != null && !MovesConsolePath(doc))
+            if (watch && AgentRevert != null && pre != null && !AlertsInsteadOfRevert(doc))
                 plan.AgentRevertArmed = await AgentRevert.ArmAsync(plan, doc, pre.Id, window, ct);
 
             // Once as the writes start and again as they end, so the window spans the gateway's provisioning after them.
@@ -677,7 +677,7 @@ public sealed class PlanCoordinator
         var offline = doc.WatchDevices ? await GoneDevicesAsync(expected, ct) : [];
         string? reason = null;
         if (offline is null) reason = "The device list did not load";
-        else if (offline.Count > 0) reason = $"{offline.Count} device{(offline.Count == 1 ? "" : "s")} went offline";
+        else if (offline.Count > 0) reason = $"{offline.Count} network device{(offline.Count == 1 ? "" : "s")} went offline";
         else if (doc.WatchInternet && doc.Context.GetValueOrDefault(InternetBeforeContext) == "true"
                  && await InternetReachableAsync(ct) == false) reason = "Internet reachability was lost";
 
@@ -689,14 +689,17 @@ public sealed class PlanCoordinator
         var misses = _misses.AddOrUpdate(plan.Id, 1, (_, n) => n + 1);
         if (misses < MissesToRevert) return;
 
-        // Never auto-revert a move of the console's network: devices inform to its old address until the
-        // console moves too, and a revert written meanwhile is what they would provision once it has.
-        if (MovesConsolePath(doc))
+        // Never auto-revert a re-address across a management network: network devices drop while they move to their
+        // new addresses (or until the console moves), and a revert written meanwhile is what they would provision.
+        if (AlertsInsteadOfRevert(doc))
         {
             if (misses == MissesToRevert)
-                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Devices offline after: {plan.Name}",
-                    $"{reason} after a re-address that moved the UniFi Console's network. Devices reach the Console at its old address until it moves too, "
-                    + "so Network Optimizer does not revert this plan. Move the Console to its new address; Roll Back in Review Plan puts the old addresses back.",
+                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Network devices offline after: {plan.Name}",
+                    MovesConsolePath(doc)
+                        ? $"{reason} after a re-address that moved the UniFi Console's network. Network devices reach the Console at its old address until it moves too, "
+                          + "so Network Optimizer does not revert this plan. Move the Console to its new address; Roll Back in Review Plan puts the old addresses back."
+                        : $"{reason} after a re-address that moved their management network ({doc.Context[ReaddressManagementContext]}). Network devices reconnect at their new addresses "
+                          + "once the gateway provisions them, so Network Optimizer does not revert this plan. If one stays offline, Roll Back in Review Plan puts the old addresses back.",
                     plan.Id, ct);
             return;
         }
@@ -928,6 +931,16 @@ public sealed class PlanCoordinator
 
     public static bool MovesConsolePath(PlanDocument doc) =>
         doc.Context.TryGetValue(ReaddressPathContext, out var keys) && keys.Length > 0;
+
+    /// <summary>Context key: the management networks a re-address moves, by name.</summary>
+    public const string ReaddressManagementContext = "readdress_management";
+
+    /// <summary>
+    /// The commit-confirmed watch alerts instead of reverting: a re-address that moves the console's network or a
+    /// network device's management network, where network devices dropping is the expected path through it.
+    /// </summary>
+    public static bool AlertsInsteadOfRevert(PlanDocument doc) =>
+        MovesConsolePath(doc) || (doc.Context.TryGetValue(ReaddressManagementContext, out var names) && names.Length > 0);
 
     /// <summary>
     /// A re-address moves Network Optimizer's own settings with the site once its writes land; a Revert of

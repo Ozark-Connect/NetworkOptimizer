@@ -158,7 +158,21 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         (await PlanAsync(id))!.Status.Should().Be(ConfigPlanStatus.Watching);
         _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p2");
-        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Devices offline after"));
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after"));
+    }
+
+    [Fact]
+    public async Task ManagementNetworkMove_OfflineDevice_AlertsOnce_NeverReverts()
+    {
+        var id = await ApplyManagementPlanAsync(doc => doc.Context[PlanCoordinator.ReaddressManagementContext] = "Management");
+        DeviceState(0);
+
+        await TicksAsync(4);
+
+        (await PlanAsync(id))!.Status.Should().Be(ConfigPlanStatus.Watching);
+        _console.State.Get("device")[0]["port_overrides"]![0]!["portconf_id"]!.ToString().Should().Be("p2");
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after")
+            && e.Message.Contains("moved their management network (Management)"));
     }
 
     [Theory]

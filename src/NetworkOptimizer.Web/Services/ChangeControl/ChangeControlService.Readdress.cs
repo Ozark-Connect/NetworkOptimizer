@@ -114,6 +114,7 @@ public sealed partial class ChangeControlService
                 CarryReservations(doc, result.Desired);
                 OrderReaddressWrites(doc, pathNetworks, GatewayIds(live), active, DeviceDepths(live));
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
+                doc.Context[PlanCoordinator.ReaddressManagementContext] = string.Join(", ", ManagementMoves(live, active));
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 foreach (var m in result.Remote)
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
@@ -228,6 +229,19 @@ public sealed partial class ChangeControlService
     }
 
     /// <summary>The moving networks a device write gives a static address in.</summary>
+    /// <summary>
+    /// The moved networks some network device is managed on (its management network, else the default LAN), by name.
+    /// Those devices drop while they move to their new addresses, so the watch alerts instead of reverting.
+    /// </summary>
+    internal static List<string> ManagementMoves(ConfigState live, IReadOnlyList<SubnetMove> active)
+    {
+        var defaultLan = live.Get("networkconf").FirstOrDefault(n => ConfigCollections.NetworkKey(n) == "vlan:1");
+        var managed = live.Get("device")
+            .Select(d => d["mgmt_network_id"]?.ToString() is { Length: > 0 } m ? m : defaultLan == null ? null : ConfigState.IdOf(defaultLan))
+            .OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return active.Where(m => managed.Contains(m.NetworkId)).Select(m => m.NetworkName).ToList();
+    }
+
     private static HashSet<string> StaticDeviceNetworks(PlanDocument doc, IReadOnlyList<SubnetMove> moves) =>
         doc.Operations
             .Where(o => o.Collection == "device" && o.Body?["config_network"] is JsonObject cn && cn["type"]?.ToString() == "static")

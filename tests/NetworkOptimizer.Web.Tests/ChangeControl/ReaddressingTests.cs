@@ -20,6 +20,21 @@ public class ReaddressingTests
     private static List<SubnetMove> Pattern(ConfigState s) => Readdressing.Proposal(s, "10.42.{vlan}.0/24");
 
     [Fact]
+    public void ManagementMoves_AreTheMovedNetworksANetworkDeviceIsManagedOn()
+    {
+        var live = Site();
+        ChangeControlService.ManagementMoves(live, Pattern(live)).Should().BeEmpty("no network device is managed on a moved network");
+
+        live.Collections["device"] = [System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"sw","mac":"aa:bb:cc:dd:ee:20","name":"Switch","mgmt_network_id":"n2"}""")!.AsObject()];
+        ChangeControlService.ManagementMoves(live, Pattern(live)).Should().Equal("IoT");
+
+        // No management network set: the device is managed on the default LAN.
+        live.Collections["device"] = [System.Text.Json.Nodes.JsonNode.Parse("""{"_id":"ap","mac":"aa:bb:cc:dd:ee:21","name":"AP"}""")!.AsObject()];
+        ChangeControlService.ManagementMoves(live, Pattern(live)).Should().Equal("Default");
+        ChangeControlService.ManagementMoves(live, Pattern(live).Where(m => m.NetworkId == "n2").ToList()).Should().BeEmpty();
+    }
+
+    [Fact]
     public void NatUpdate_CarriesTheLiveRuleIndex()
     {
         var live = Site();
