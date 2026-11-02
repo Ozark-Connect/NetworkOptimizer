@@ -97,7 +97,7 @@ else
                 <div class="cc-badge-col"><span class="status-badge status-error">Lockout</span></div>
                 <div>
                     <div class="cc-item-title">@lockout.Title</div>
-                    <div class="cc-item-detail">@lockout.Detail @(PlanCoordinator.MovesConsolePath(doc) ? "Network devices drop until the UniFi Console is at its new address. Network Optimizer alerts instead of reverting this plan."
+                    <div class="cc-item-detail">@lockout.Detail @(lockout != doc.Lockouts.Last() ? "" : PlanCoordinator.MovesConsolePath(doc) ? "Network devices drop until the UniFi Console is at its new address. Network Optimizer alerts instead of reverting this plan."
                         : PlanCoordinator.AlertsInsteadOfRevert(doc) ? "Network devices drop while they move to their new addresses. Network Optimizer alerts instead of reverting this plan."
                         : watchDevices ? $"If a network device goes offline, Network Optimizer reverts the plan within {_view.WatchMinutes} minutes." : "")</div>
                     @if (lockout == doc.Lockouts.Last() && editable)
