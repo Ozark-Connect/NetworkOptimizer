@@ -49,6 +49,93 @@ public static class CcFind
         ["router"] = ["devices", "gateway"],
         // Fields: the numbered server fields (dns1, wan_dns2, dhcpd_dns_3, dhcpdv6_dns_4, ...).
         ["dns server"] = ["dns1", "dns2", "dns_1", "dns_2", "dns_3", "dns_4"],
+        // A client's DHCP reservation. "fixed ip" needs none: the space rule finds fixed_ip and use_fixedip.
+        ["reservation"] = ["fixed_ip", "use_fixedip"],
+        ["dhcp reservation"] = ["fixed_ip", "use_fixedip"],
+        ["static ip"] = ["fixed_ip", "use_fixedip"],
+        // DHCP (UniFi's server fields are dhcpd_*, dhcpdv6_*)
+        ["dhcp server"] = ["dhcpd"],
+        ["dhcp range"] = ["dhcpd_start", "dhcpd_stop", "dhcpdv6_start", "dhcpdv6_stop"],
+        ["dhcp pool"] = ["dhcpd_start", "dhcpd_stop", "dhcpdv6_start", "dhcpdv6_stop"],
+        ["pxe"] = ["dhcpd_boot"],
+        ["network boot"] = ["dhcpd_boot"],
+        ["dhcp snooping"] = ["dhcp_snoop"],
+        ["rogue dhcp"] = ["dhcpguard"],
+        ["inform url"] = ["override_inform_host"],
+        // IPv6
+        ["prefix delegation"] = ["ipv6_pd", "dhcpv6_pd", "delegation"],
+        ["router advertisement"] = ["ipv6_ra"],
+        // Wi-Fi radios: UniFi names the bands ng (2.4 GHz), na (5 GHz), and 6e.
+        ["2.4 ghz"] = ["radio: ng", "channels_ng", "dtim_ng", "ht_modes_ng", "minrate_ng", "no2ghz"],
+        ["2.4ghz"] = ["radio: ng", "channels_ng", "dtim_ng", "ht_modes_ng", "minrate_ng", "no2ghz"],
+        ["5 ghz"] = ["radio: na", "channels_na", "dtim_na", "ht_modes_na", "minrate_na", "roaming_assistant_na"],
+        ["5ghz"] = ["radio: na", "channels_na", "dtim_na", "ht_modes_na", "minrate_na", "roaming_assistant_na"],
+        ["6 ghz"] = ["radio: 6e", "channels_6e", "dtim_6e", "ht_modes_6e", "roaming_assistant_6e"],
+        ["6ghz"] = ["radio: 6e", "channels_6e", "dtim_6e", "ht_modes_6e", "roaming_assistant_6e"],
+        ["channel width"] = ["channel_width", "ht_modes"],
+        ["transmit power"] = ["tx_power"],
+        ["minimum rssi"] = ["min_rssi"],
+        ["minimum data rate"] = ["minrate"],
+        ["min data rate"] = ["minrate"],
+        ["802.11r"] = ["fast_roaming"],
+        ["802.11v"] = ["bss_transition"],
+        ["multicast enhancement"] = ["mcastenhance"],
+        ["hidden ssid"] = ["hide_ssid"],
+        ["captive portal"] = ["portal"],
+        ["guest portal"] = ["portal"],
+        ["client isolation"] = ["l2_isolation"],
+        ["wpa2"] = ["wpa_mode"],
+        ["encryption"] = ["wpa_enc", "wpa_mode"],
+        ["protected management frame"] = ["pmf_mode"],
+        ["multi link operation"] = ["mlo"],
+        ["multi link"] = ["mlo"],
+        ["passpoint"] = ["hotspot2conf"],
+        ["hotspot 2.0"] = ["hotspot2conf"],
+        ["lock to ap"] = ["fixed_ap"],
+        ["ap lock"] = ["fixed_ap"],
+        // Switching
+        ["native vlan"] = ["native_networkconf_id", "native_network"],
+        ["untagged vlan"] = ["native_networkconf_id", "native_network"],
+        ["voice vlan"] = ["voice_networkconf_id"],
+        ["trunk"] = ["tagged_vlan_mgmt", "excluded_networkconf_ids"],
+        ["802.1x"] = ["dot1x"],
+        ["spanning tree"] = ["stp_"],
+        ["storm control"] = ["stormctrl"],
+        ["power over ethernet"] = ["poe_mode"],
+        ["energy efficient ethernet"] = ["eee_enabled"],
+        ["autonegotiation"] = ["autoneg"],
+        ["auto negotiation"] = ["autoneg"],
+        ["etherlighting"] = ["ether_lighting"],
+        ["lcd"] = ["lcm_"],
+        ["screen"] = ["lcm_"],
+        ["ptp"] = ["precision_time_protocol"],
+        // Gateway and security
+        ["smart queue"] = ["wan_smartq"],
+        ["smartqueue"] = ["wan_smartq"],
+        ["sqm"] = ["wan_smartq"],
+        ["aqm"] = ["wan_smartq"],
+        ["fq codel"] = ["wan_smartq"],
+        // "wan ip" needs none: the space rule finds wan_ip and wan_ip_aliases.
+        ["public ip"] = ["wan_ip"],
+        ["bandwidth limit"] = ["download_limit", "upload_limit", "qos_rate_max"],
+        ["speed limit"] = ["download_limit", "upload_limit", "qos_rate_max"],
+        ["mss clamping"] = ["mss_clamp"],
+        ["deep packet inspection"] = ["dpi"],
+        ["intrusion prevention"] = ["ips"],
+        ["intrusion detection"] = ["ips"],
+        ["threat management"] = ["ips"],
+        ["geoblocking"] = ["regions", "countries"],
+        ["geo blocking"] = ["regions", "countries"],
+        ["geo ip"] = ["regions", "countries"],
+        ["doh"] = ["sdns_stamp", "server_names", "custom_servers"],
+        ["dns over https"] = ["sdns_stamp", "server_names", "custom_servers"],
+        ["encrypted dns"] = ["sdns_stamp", "server_names", "custom_servers"],
+        ["bonjour"] = ["mdns"],
+        ["multicast dns"] = ["mdns"],
+        ["data cap"] = ["data_limit", "data_soft_limit", "data_warning_threshold"],
+        ["auto update"] = ["auto_upgrade"],
+        ["automatic update"] = ["auto_upgrade"],
+        ["firmware update"] = ["auto_upgrade", "firmware_channel"],
         // Lists inside objects
         ["switch port"] = ["port_overrides"],
         ["lag"] = ["link_aggregation_groups"],
@@ -61,7 +148,7 @@ public static class CcFind
         ["additional ip"] = ["ip_aliases"],
         ["allowlist"] = ["whitelist"],
         ["blocklist"] = ["blocked_sites", "blocked_tld"],
-        ["country"] = ["regions"],
+        ["country"] = ["regions", "countries"],
         ["cellular"] = ["sim"],
         ["lte"] = ["sim"],
     }.ToDictionary(a => AliasKey(a.Key), a => a.Value);
@@ -94,10 +181,12 @@ public static class CcFind
     }
 
     /// <summary>
-    /// A term as a pattern: literal text, except a space also matches "_", "-", or nothing, as the YAML
-    /// writes "port forward" as port_forwards and "user group" as usergroup. Mirrors termPattern in cc-editor.js.
+    /// A term as a pattern: literal text, except a space, "_", or "-" matches any of the three or nothing, as
+    /// the YAML writes "port forward" as port_forwards, "user group" as usergroup, and "nat-pmp" as nat_pmp.
+    /// Mirrors termPattern in cc-editor.js.
     /// </summary>
-    public static string TermPattern(string term) => Regex.Escape(term).Replace("\\ ", "[ _-]?");
+    public static string TermPattern(string term) =>
+        Regex.Escape(Regex.Replace(term, "[ _-]+", " ").Trim()).Replace("\\ ", "[ _-]?");
 
     /// <summary>
     /// Case-insensitive, non-overlapping matches of a query's <see cref="Terms"/> in a collection's YAML, which
@@ -109,7 +198,10 @@ public static class CcFind
         var terms = Terms(query);
         if (string.IsNullOrEmpty(text) || terms.Count == 0) return 0;
         var tokens = SecretToken.Matches(text).Select(m => (From: m.Index, To: m.Index + m.Length)).ToList();
-        var pattern = string.Join("|", terms.Select(TermPattern));
+        // A query of only "_" or "-" leaves an empty pattern, which would match at every position.
+        var patterns = terms.Select(TermPattern).Where(p => p.Length > 0).ToList();
+        if (patterns.Count == 0) return 0;
+        var pattern = string.Join("|", patterns);
         var count = 0;
         foreach (Match m in Regex.Matches(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
         {

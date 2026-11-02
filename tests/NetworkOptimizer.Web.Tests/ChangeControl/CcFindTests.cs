@@ -108,6 +108,46 @@ public class CcFindTests
         CcFind.Count(yaml, "DNS servers").Should().Be(5);
     }
 
+    [Theory]
+    [InlineData("reservations")]
+    [InlineData("DHCP reservation")]
+    [InlineData("static IPs")]
+    [InlineData("fixed ip")]
+    public void Count_ReservationNamesFindFixedIp(string query)
+    {
+        CcFind.Count("clients:\n- mac: aa:bb:cc:dd:ee:ff\n  use_fixedip: true\n  fixed_ip: 192.0.2.10\n", query).Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("sqm")]
+    [InlineData("AQM")]
+    [InlineData("fq_codel")]
+    [InlineData("smart queues")]
+    [InlineData("SmartQueues")]
+    public void Count_QueueingNamesFindSmartQueues(string query)
+    {
+        CcFind.Count("networks:\n- wan_smartq_enabled: true\n  wan_smartq_down_rate: 900000\n", query).Should().Be(2);
+    }
+
+    [Fact]
+    public void Count_DerivedAliases()
+    {
+        const string yaml = "networks:\n- dhcpd_enabled: true\n  dhcpd_start: 192.0.2.10\n  wan_ip: 198.51.100.2\n  wan_ip_aliases: []\ndevices:\n- radio_table:\n  - radio: na\n    channel: 36\nsettings:\n- upnp_nat_pmp_enabled: false\n";
+        CcFind.Count(yaml, "DHCP server").Should().Be(2);
+        CcFind.Count(yaml, "WAN IP").Should().Be(2);
+        CcFind.Count(yaml, "public IP").Should().Be(2);
+        CcFind.Count(yaml, "5 GHz").Should().Be(1);
+        CcFind.Count(yaml, "nat-pmp").Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("_")]
+    [InlineData(" - ")]
+    public void Count_SeparatorOnlyQuery_IsZero(string query)
+    {
+        CcFind.Count("a_b-c d\n", query).Should().Be(0);
+    }
+
     [Fact]
     public void Count_HyphenatedAliasKey_FindsItsAlias()
     {

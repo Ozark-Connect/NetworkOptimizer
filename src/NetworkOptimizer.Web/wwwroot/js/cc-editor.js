@@ -710,9 +710,11 @@ export function nextEdit(host) {
  */
 export function findMatches(text, terms) {
     const matches = [];
-    if (!terms?.length) return matches;
+    // A query of only "_" or "-" leaves an empty pattern, which would match at every position.
+    const patterns = (terms ?? []).map(termPattern).filter(p => p.length > 0);
+    if (!patterns.length) return matches;
     const tokens = [...text.matchAll(/<secret:[^>\s]+>/g)].map(m => ({ from: m.index, to: m.index + m[0].length }));
-    const re = new RegExp(terms.map(termPattern).join('|'), 'gi');
+    const re = new RegExp(patterns.join('|'), 'gi');
     for (const m of text.matchAll(re)) {
         const from = m.index, to = from + m[0].length;
         if (!tokens.some(t => from < t.to && to > t.from)) matches.push({ from, to });
@@ -720,9 +722,9 @@ export function findMatches(text, terms) {
     return matches;
 }
 
-/** A term as literal text, except a space also matches "_", "-", or nothing. Mirrors CcFind.TermPattern. */
+/** A term as literal text, except a space, "_", or "-" matches any of the three or nothing. Mirrors CcFind.TermPattern. */
 export function termPattern(term) {
-    return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '[ _-]?');
+    return term.replace(/[ _-]+/g, ' ').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '[ _-]?');
 }
 
 const setFind = StateEffect.define();
