@@ -278,6 +278,8 @@ public class AuditService : IAuditScanService
         Audit.IssueTypes.UpnpPortsExposed or Audit.IssueTypes.UpnpPrivilegedPort or
         Audit.IssueTypes.StaticPortForward or Audit.IssueTypes.StaticPrivilegedPort or
         Audit.IssueTypes.MgmtNoFixedIps or Audit.IssueTypes.DnsDeviceMisconfigured => issue.CurrentNetwork ?? "",
+        // One per console; the list of credentials and their ages change between audits
+        Audit.IssueTypes.UnusedApiKeys or Audit.IssueTypes.UnusedLocalAdmins => "",
         _ => null
     };
 
@@ -1555,6 +1557,22 @@ public class AuditService : IAuditScanService
                 _logger.LogWarning(ex, "Failed to fetch UPnP status or port forwarding rules");
             }
 
+            // Console accounts and API keys for the unused-credential checks. Reading them needs an admin
+            // with user-management permission; anything else answers 401/403 and the check is skipped.
+            List<NetworkOptimizer.UniFi.Models.UniFiOsUser>? consoleUsers = null;
+            List<NetworkOptimizer.UniFi.Models.UniFiOsApiKey>? consoleApiKeys = null;
+            try
+            {
+                consoleUsers = await _connectionService.Client.GetConsoleUsersAsync();
+                consoleApiKeys = await _connectionService.Client.GetConsoleApiKeysAsync();
+                _logger.LogInformation("Console access check: {Users} accounts, {Keys} API keys",
+                    consoleUsers?.Count.ToString() ?? "no access to", consoleApiKeys?.Count.ToString() ?? "no access to");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch console accounts or API keys");
+            }
+
             // Fetch network configs for External zone ID detection (used for firewall rule analysis)
             List<NetworkOptimizer.UniFi.Models.UniFiNetworkConfig>? networkConfigs = null;
             try
@@ -1653,6 +1671,9 @@ public class AuditService : IAuditScanService
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,
                 NetworkConfigs = networkConfigs,
+                ConsoleUsers = consoleUsers,
+                ConsoleApiKeys = consoleApiKeys,
+                ConnectedUsername = _connectionService.Client?.SignInUsername,
                 FirewallZones = firewallZones,
                 NetworkPurposeOverrides = options.NetworkPurposeOverrides,
                 ThreatContext = threatContext
@@ -2015,6 +2036,8 @@ public class AuditService : IAuditScanService
         Audit.IssueTypes.UpnpPrivilegedPort or Audit.IssueTypes.UpnpPortsExposed or
         Audit.IssueTypes.StaticPortForward => "UPnP Security",
 
+        Audit.IssueTypes.UnusedApiKeys or Audit.IssueTypes.UnusedLocalAdmins => "Console Access",
+
         _ => "General"
     };
 
@@ -2135,6 +2158,10 @@ public class AuditService : IAuditScanService
 
             // Threat Intelligence
             Audit.IssueTypes.ThreatExposedPortForward => "Threat: Actively Targeted Port Forward",
+
+            // Console access
+            Audit.IssueTypes.UnusedApiKeys => "Console Access: Unused API Keys",
+            Audit.IssueTypes.UnusedLocalAdmins => "Console Access: Unused Local Admin Accounts",
 
             _ => message.Split('.').FirstOrDefault() ?? type
         };

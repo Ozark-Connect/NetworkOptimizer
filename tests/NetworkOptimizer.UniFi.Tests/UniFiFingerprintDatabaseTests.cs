@@ -284,16 +284,16 @@ public class UniFiFingerprintDatabaseTests
 
     #endregion
 
-    #region StringOrNumberConverter Tests
+    #region FlexibleStringOrNumberConverter Tests
 
     [Theory]
     [InlineData("\"123\"", "123")]
     [InlineData("\"abc\"", "abc")]
     [InlineData("\"\"", "")]
-    public void StringOrNumberConverter_ReadString_ReturnsString(string json, string expected)
+    public void FlexibleStringOrNumberConverter_ReadString_ReturnsString(string json, string expected)
     {
         // Arrange
-        var converter = new StringOrNumberConverter();
+        var converter = new FlexibleStringOrNumberConverter();
         var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json));
         reader.Read();
 
@@ -309,10 +309,10 @@ public class UniFiFingerprintDatabaseTests
     [InlineData("0", "0")]
     [InlineData("-456", "-456")]
     [InlineData("9999999999", "9999999999")]
-    public void StringOrNumberConverter_ReadNumber_ReturnsString(string json, string expected)
+    public void FlexibleStringOrNumberConverter_ReadNumber_ReturnsString(string json, string expected)
     {
         // Arrange
-        var converter = new StringOrNumberConverter();
+        var converter = new FlexibleStringOrNumberConverter();
         var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json));
         reader.Read();
 
@@ -324,10 +324,10 @@ public class UniFiFingerprintDatabaseTests
     }
 
     [Fact]
-    public void StringOrNumberConverter_ReadNull_ReturnsNull()
+    public void FlexibleStringOrNumberConverter_ReadNull_ReturnsNull()
     {
         // Arrange
-        var converter = new StringOrNumberConverter();
+        var converter = new FlexibleStringOrNumberConverter();
         var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes("null"));
         reader.Read();
 
@@ -339,10 +339,10 @@ public class UniFiFingerprintDatabaseTests
     }
 
     [Fact]
-    public void StringOrNumberConverter_ReadInvalidToken_ThrowsJsonException()
+    public void FlexibleStringOrNumberConverter_ReadInvalidToken_ThrowsJsonException()
     {
         // Arrange & Act
-        var converter = new StringOrNumberConverter();
+        var converter = new FlexibleStringOrNumberConverter();
         var bytes = Encoding.UTF8.GetBytes("true");
         var reader = new Utf8JsonReader(bytes);
         reader.Read();
@@ -364,10 +364,10 @@ public class UniFiFingerprintDatabaseTests
     }
 
     [Fact]
-    public void StringOrNumberConverter_WriteString_WritesCorrectJson()
+    public void FlexibleStringOrNumberConverter_WriteString_WritesCorrectJson()
     {
         // Arrange
-        var converter = new StringOrNumberConverter();
+        var converter = new FlexibleStringOrNumberConverter();
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream);
 
@@ -381,10 +381,10 @@ public class UniFiFingerprintDatabaseTests
     }
 
     [Fact]
-    public void StringOrNumberConverter_WriteNull_WritesNull()
+    public void FlexibleStringOrNumberConverter_WriteNull_WritesNull()
     {
         // Arrange
-        var converter = new StringOrNumberConverter();
+        var converter = new FlexibleStringOrNumberConverter();
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream);
 
@@ -398,7 +398,7 @@ public class UniFiFingerprintDatabaseTests
     }
 
     [Fact]
-    public void StringOrNumberConverter_Deserialization_WorksWithModel()
+    public void FlexibleStringOrNumberConverter_Deserialization_WorksWithModel()
     {
         // Arrange - JSON with mixed string and number values
         var json = """
