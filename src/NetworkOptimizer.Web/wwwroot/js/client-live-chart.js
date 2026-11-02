@@ -6,10 +6,16 @@
 // measured WAN share of each rate, filled darker so it reads as the inner component of the
 // LAN + WAN total. The WAN series carry their own buffer: their samples land on their own
 // timestamps, and folding them into the totals' points would punch null gaps into those lines.
+//
+// History mode draws a past range instead, from windows the server has already aggregated: the
+// mean as the area, the peak as a thin line, the same WAN pair, and speed tests as event marks.
+// Nothing streams in that mode; live calls are ignored until the next live mount.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { valueSortedTooltip } from './chart-tooltip.js?v=18';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
+import { createMarkLayer } from './chart-event-marks.js?v=7';
+import { createAxisDateCaption } from './chart-axis-date.js?v=4';
 
 const HISTORY_MINUTES = 5;
 // Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
@@ -45,6 +51,7 @@ let wanEdge = null;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
+let mode = 'live';
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -286,8 +293,90 @@ function trim() {
     for (const p of wanBuffer) if (p.time > lastWanSampleTime) lastWanSampleTime = p.time;
 }
 
-/** Mounts into a container with the window's history:
+// ---- History mode ----
+
+const DATE_TIME = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+
+function buildHistoryOpts(history, caption) {
+    const opts = buildOpts();
+    const bpsFormatter = { formatter: v => formatBps(v) };
+    opts.chart.animations = { enabled: false };
+    // The peaks render last so their thin lines sit over the fills.
+    opts.series = [
+        ...opts.series,
+        { name: 'Peak Download', type: 'line', data: [] },
+        { name: 'Peak Upload',   type: 'line', data: [] },
+    ];
+    opts.colors = [COLOR_DOWN, COLOR_UP, COLOR_DOWN, COLOR_UP, COLOR_DOWN, COLOR_UP];
+    opts.stroke = { curve: 'smooth', width: [2, 2, 2, 2, 1, 1], dashArray: [0, 0, 5, 5, 0, 0] };
+    opts.fill.gradient.opacityFrom = [0.5, 0.5, 0.8, 0.8, 1, 1];
+    opts.fill.gradient.opacityTo = [0.08, 0.08, 0.3, 0.3, 1, 1];
+    opts.xaxis = {
+        type: 'datetime',
+        min: new Date(history.from).getTime(),
+        max: new Date(history.to).getTime(),
+        labels: { datetimeUTC: false, style: { colors: '#9ca3af', fontSize: '10px' } },
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        tooltip: { enabled: false },
+        title: caption.option(),
+    };
+    opts.grid.padding = { left: 3, right: 12, top: -8, bottom: 0 };
+    opts.responsive = [{ breakpoint: 1024, options: { grid: { padding: { left: -8, right: 4, top: -8, bottom: 0 } } } }];
+    // A window is labeled by its start; the date matters once the range spans days.
+    opts.tooltip.x = { formatter: (val) => new Date(val).toLocaleString([], DATE_TIME) };
+    opts.tooltip.y = [bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter];
+    opts.noData = { text: 'No throughput recorded in this range', style: { color: '#64748b', fontSize: '13px' } };
+    return opts;
+}
+
+// A missing window is a client that was gone, so the lines break there instead of bridging it.
+function withGaps(points, windowMs, pick) {
+    const out = [];
+    let prev = null;
+    for (const p of points) {
+        const t = new Date(p.time).getTime();
+        if (prev != null && t - prev > windowMs * 1.5) out.push({ x: prev + windowMs, y: null });
+        out.push({ x: t, y: pick(p) });
+        prev = t;
+    }
+    return out;
+}
+
+function historySeries(history) {
+    const pts = history.points || [];
+    const w = history.windowMs || 60000;
+    // The WAN share never draws above the total it is part of (the live chart's rule).
+    const wanOf = (wan, total) => wan == null ? null : Math.min(wan, total ?? wan);
+    return [
+        { name: 'Download',      data: withGaps(pts, w, p => p.downloadBps) },
+        { name: 'Upload',        data: withGaps(pts, w, p => p.uploadBps) },
+        { name: 'WAN Download',  data: withGaps(pts, w, p => wanOf(p.wanDownloadBps, p.downloadBps)) },
+        { name: 'WAN Upload',    data: withGaps(pts, w, p => wanOf(p.wanUploadBps, p.uploadBps)) },
+        { name: 'Peak Download', data: history.hasPeaks ? withGaps(pts, w, p => p.peakDownloadBps) : [] },
+        { name: 'Peak Upload',   data: history.hasPeaks ? withGaps(pts, w, p => p.peakUploadBps) : [] },
+    ];
+}
+
+async function mountHistory(el, gen, history) {
+    const caption = createAxisDateCaption({
+        charts: () => [chart],
+        window: () => ({ from: new Date(history.from), to: new Date(history.to) }),
+    });
+    chart = new ApexCharts(el, buildHistoryOpts(history, caption));
+    await chart.render();
+    if (gen !== mountGen) return true;
+    chart.updateSeries(historySeries(history), false);
+    // Speed tests in the accent color: they are not health events, so no severity color fits.
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#E56B11';
+    const marks = createMarkLayer({ charts: () => [[chart, el]] });
+    marks.apply((history.marks || []).map(m => ({ ...m, color: accent })), {});
+    return true;
+}
+
+/** Mounts into a container. Live, with the window's history:
  *  `{ points: [{time, downloadBps, uploadBps}], wanPoints: [{time, wanDownloadBps, wanUploadBps}] }`.
+ *  History, with `{ history: {from, to, windowMs, hasPeaks, points, marks} }` instead.
  *  False when the container is not in the DOM, so the caller can try again on its next render. */
 export async function mount(containerId, opts) {
     dispose();
@@ -295,6 +384,11 @@ export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return false;
+    if (opts?.history) {
+        mode = 'history';
+        return await mountHistory(el, gen, opts.history);
+    }
+    mode = 'live';
     buffer = (opts?.points || []).map(toPoint).sort((a, b) => a.time - b.time);
     wanBuffer = (opts?.wanPoints || []).map(toPoint).filter(hasWan).sort((a, b) => a.time - b.time);
     lastSampleTime = 0;
@@ -316,7 +410,7 @@ export async function mount(containerId, opts) {
 
 /** The newest reading, shown at the live edge at once; the folded point for it arrives via push. */
 export function setLive(sample) {
-    if (!chart) return;
+    if (!chart || mode !== 'live') return;
     const p = toPoint(sample);
     if (liveEdge && !(p.time > liveEdge.time)) return;
     liveEdge = p;
@@ -326,7 +420,7 @@ export function setLive(sample) {
 
 /** One live reading. Strictly newer than the last, so a repeated poll of the same sample is a no-op. */
 export function push(sample) {
-    if (!chart) return;
+    if (!chart || mode !== 'live') return;
     const p = toPoint(sample);
     dbg('push', { at: new Date(p.time).toLocaleTimeString(), down: p.down, up: p.up, wanDown: p.wanDown, accepted: p.time > lastSampleTime });
     if (p.time > lastSampleTime) {
@@ -342,7 +436,7 @@ export function push(sample) {
 /** Re-pulled history merged under the live tail, so a gap that filled after the buffer scrolled past
  *  it appears; the newest live samples stay ahead of what the store has caught up to. */
 export function setHistory(points, wanPoints) {
-    if (!chart) return;
+    if (!chart || mode !== 'live') return;
     const hist = (points || []).map(toPoint).sort((a, b) => a.time - b.time);
     const newest = hist.length ? hist[hist.length - 1].time : 0;
     dbg('history', { points: hist.length, wanPoints: (wanPoints || []).length, newest: newest ? new Date(newest).toLocaleTimeString() : null,
@@ -370,4 +464,5 @@ export function dispose() {
     lastWanSampleTime = 0;
     liveEdge = null;
     wanEdge = null;
+    mode = 'live';
 }

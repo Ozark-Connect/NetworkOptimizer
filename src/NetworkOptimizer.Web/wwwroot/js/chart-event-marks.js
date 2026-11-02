@@ -7,8 +7,9 @@
 // tooltip needs comes down with the event, so this module knows nothing about devices or ports.
 //
 // Event shape from the server:
-//   { key, time, kind: 'reboot'|'alert'|'action', severity: 'info'|'warning'|'critical',
-//     title, detail, device, port? }
+//   { key, time, kind: 'reboot'|'alert'|'action'|'speedtest', severity: 'info'|'warning'|'critical',
+//     title, detail, device, port?, color? }
+// color overrides the severity color, for a kind that is not a health event (a speed test).
 
 import { eventColor, chartSurfaceColor } from './chart-colors.js?v=2';
 
@@ -16,7 +17,7 @@ import { eventColor, chartSurfaceColor } from './chart-colors.js?v=2';
 // a planned firmware restart and a panic are both ↻, in different colours, which is the
 // distinction the operator is actually scanning for. An action is something Network Optimizer
 // did to the device on a health check's behalf.
-const EVENT_GLYPH = { reboot: '↻', alert: '⚠', action: '⚙' };
+const EVENT_GLYPH = { reboot: '↻', alert: '⚠', action: '⚙', speedtest: '⇅' };
 
 const SEVERITY_RANK = { info: 0, warning: 1, critical: 2 };
 
@@ -243,7 +244,7 @@ export function createMarkLayer({ charts }) {
             const surface = chartSurfaceColor();
             const xaxis = clusters.map(c => {
                 const lead = dominant(c.marks);
-                const color = eventColor(lead.severity);
+                const color = lead.color || eventColor(lead.severity);
                 const glyph = EVENT_GLYPH[lead.kind] || EVENT_GLYPH.alert;
                 return {
                     x: c.at,

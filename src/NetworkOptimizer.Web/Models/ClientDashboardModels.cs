@@ -44,6 +44,25 @@ public record ThroughputSample(
     DateTime Time, double? DownloadBps, double? UploadBps,
     double? WanDownloadBps = null, double? WanUploadBps = null);
 
+/// <summary>One window of a client's throughput history, from the client's point of view: the mean,
+/// the peak (null where the source keeps none), and the measured WAN share (null where unmeasured).</summary>
+public record ThroughputWindowSample(
+    DateTime Time, double DownloadBps, double UploadBps,
+    double? PeakDownloadBps, double? PeakUploadBps,
+    double? WanDownloadBps, double? WanUploadBps);
+
+/// <summary>A client's throughput over a past range, one sample per window.</summary>
+public sealed class ThroughputHistory
+{
+    public DateTime From { get; init; }
+    public DateTime To { get; init; }
+    /// <summary>Window length in milliseconds, for the chart's time formatting.</summary>
+    public double WindowMs { get; init; }
+    /// <summary>False when the range reads the hourly rollup, which keeps averages only.</summary>
+    public bool HasPeaks { get; init; }
+    public List<ThroughputWindowSample> Points { get; set; } = new();
+}
+
 /// <summary>Bytes a client moved in one bucket, as its download and upload.</summary>
 public record UsageBucket(DateTime Time, long DownloadBytes, long UploadBytes);
 

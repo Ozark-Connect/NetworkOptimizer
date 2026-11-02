@@ -5029,6 +5029,109 @@ span |> last() |> yield(name: ""last"")";
         return results;
     }
 
+    /// <summary>One window of a client's throughput, toward (tx) and from (rx) the client: the mean of
+    /// its samples and the highest one.</summary>
+    public sealed record ThroughputWindowPoint(DateTime Time, double TxMeanBps, double RxMeanBps, double TxPeakBps, double RxPeakBps);
+
+    /// <summary>
+    /// One client's throughput per window from <c>wifi_client</c> or <c>wired_client</c>, mean and peak.
+    /// client_mac is a field, so the pivot that pairs a reading with its client must run before any
+    /// aggregation. A first read of the client_mac field alone finds the series (AP and band, or
+    /// switch) the client was on, and the pivot runs over those only: several times faster than
+    /// pivoting the whole measurement on a busy site. A point with no rate is an idle client: zero.
+    /// </summary>
+    public async Task<IReadOnlyList<ThroughputWindowPoint>> QueryClientThroughputWindowsAsync(
+        string measurement, string clientMac, DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ThroughputWindowPoint>();
+        var mac = NormalizeMac(clientMac);
+        var range = $"range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})";
+        var seriesFlux = $@"from(bucket: ""{_bucket}"")
+  |> {range}
+  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""client_mac"")
+  |> filter(fn: (r) => r._value == ""{mac}"")
+  |> first()
+  |> keep(columns: [""device_mac"", ""band""])";
+        var series = new HashSet<string>();
+        await foreach (var record in QueryFluxAsync(seriesFlux, ct))
+        {
+            if (record.GetValueByKey("device_mac") is not string device || device.Length == 0) continue;
+            device = SanitizeFluxString(device);
+            series.Add(record.GetValueByKey("band") is string band && band.Length > 0
+                ? $@"(r.device_mac == ""{device}"" and r.band == ""{SanitizeFluxString(band)}"")"
+                : $@"r.device_mac == ""{device}""");
+        }
+        if (series.Count == 0) return Array.Empty<ThroughputWindowPoint>();
+
+        // Not experimental.unpivot: user InfluxDB versions vary. Flux shares the pivoted base
+        // between the four branches, so this costs about one pass.
+        var every = ToFluxDuration(window);
+        var flux = $@"base = from(bucket: ""{_bucket}"")
+  |> {range}
+  |> filter(fn: (r) => r._measurement == ""{measurement}"")
+  |> filter(fn: (r) => {string.Join(" or ", series)})
+  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => r.client_mac == ""{mac}"")
+  |> group()
+tx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.tx_throughput_bps then float(v: r.tx_throughput_bps) else 0.0}}))
+rx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.rx_throughput_bps then float(v: r.rx_throughput_bps) else 0.0}}))
+union(tables: [
+  tx |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_mean""),
+  tx |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_max""),
+  rx |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_mean""),
+  rx |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_max"")])";
+        return await ReadThroughputWindowsAsync(flux, ct);
+    }
+
+    /// <summary>
+    /// A switch port's rates per window, mean and peak, stated toward (out) and from (in) the client.
+    /// Aggregated straight off the tag filter, so storage does the windowing. The port's interface
+    /// names and its SNMP and console series are alternative sources for one link, so where two
+    /// cover the same window the larger reading stands rather than their sum.
+    /// </summary>
+    public async Task<IReadOnlyList<ThroughputWindowPoint>> QueryInterfaceRateWindowsAsync(
+        string deviceMac, IReadOnlyCollection<string> ifNames, DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
+    {
+        if (!IsConfigured || ifNames.Count == 0) return Array.Empty<ThroughputWindowPoint>();
+        var mac = NormalizeMac(deviceMac);
+        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        var every = ToFluxDuration(window);
+        var flux = $@"base = from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => {ifFilter})
+  |> filter(fn: (r) => r._field == ""rate_out_bps"" or r._field == ""rate_in_bps"")
+union(tables: [
+  base |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_mean"" else ""rx_mean""}})),
+  base |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_max"" else ""rx_max""}}))])";
+        return await ReadThroughputWindowsAsync(flux, ct);
+    }
+
+    /// <summary>Assembles rows tagged <c>s</c> = tx_mean / tx_max / rx_mean / rx_max into one point
+    /// per window. Several rows for one window and statistic (alternative series) keep the largest.</summary>
+    private async Task<IReadOnlyList<ThroughputWindowPoint>> ReadThroughputWindowsAsync(string flux, CancellationToken ct)
+    {
+        var byTime = new Dictionary<DateTime, double[]>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = record.GetTimeInDateTime();
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (time == null || value == null) continue;
+            var slot = (record.GetValueByKey("s") as string) switch
+            {
+                "tx_mean" => 0, "rx_mean" => 1, "tx_max" => 2, "rx_max" => 3, _ => -1
+            };
+            if (slot < 0) continue;
+            var t = ToUtc(time.Value);
+            if (!byTime.TryGetValue(t, out var v)) byTime[t] = v = new double[4];
+            v[slot] = Math.Max(v[slot], value.Value);
+        }
+        return byTime.OrderBy(kv => kv.Key)
+            .Select(kv => new ThroughputWindowPoint(kv.Key, kv.Value[0], kv.Value[1], kv.Value[2], kv.Value[3]))
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<WifiClientHistoryPoint>> QueryWifiClientHistoryAsync(
         string apMac,
         string? band,
