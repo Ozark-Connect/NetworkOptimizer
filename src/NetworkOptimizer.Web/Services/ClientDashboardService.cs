@@ -1819,6 +1819,106 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>How far back the Throughput card reads the live samples, with a peak per window;
+    /// past it, the hourly usage rollup. A week on a busy client's live samples is about a second.</summary>
+    private static readonly TimeSpan RawThroughputHistoryReach = TimeSpan.FromDays(7);
+
+    /// <summary>The Throughput card's window for a range: roughly 120 to 170 points across it.</summary>
+    public static TimeSpan ThroughputHistoryWindow(TimeSpan span) =>
+        span <= TimeSpan.FromHours(1) ? TimeSpan.FromSeconds(30)
+        : span <= TimeSpan.FromHours(6) ? TimeSpan.FromMinutes(2)
+        : span <= TimeSpan.FromHours(24) ? TimeSpan.FromMinutes(10)
+        : TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// The client's throughput over the last <paramref name="span"/>, one sample per window, for the
+    /// Throughput card's history view. Same sources and frame as <see cref="GetThroughputHistoryAsync"/>,
+    /// aggregated in the query. Past <see cref="RawThroughputHistoryReach"/> it reads the hourly rollup,
+    /// which keeps bytes alone, so those samples are hourly averages without a peak.
+    /// </summary>
+    public async Task<ThroughputHistory> GetThroughputWindowsAsync(ClientIdentity client, TimeSpan span)
+    {
+        var to = DateTime.UtcNow;
+        var from = to - span;
+        var window = ThroughputHistoryWindow(span);
+        var raw = span <= RawThroughputHistoryReach;
+        var history = new ThroughputHistory { From = from, To = to, WindowMs = window.TotalMilliseconds, HasPeaks = raw };
+        if (string.IsNullOrEmpty(client.Mac)) return history;
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
+            var influx = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.MonitoringInfluxClient>();
+
+            List<string>? ifNames = null;
+            if (client.IsWired && !string.IsNullOrEmpty(client.SwitchMac) && client.SwitchPort is int port)
+                ifNames = (await PortIfNamesAsync(client.SwitchMac, port)).Where(n => !n.Contains('.')).ToList();
+
+            IReadOnlyList<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ThroughputWindowPoint> rows;
+            if (raw)
+            {
+                rows = ifNames is { Count: > 0 }
+                    ? await influx.QueryInterfaceRateWindowsAsync(client.SwitchMac!, ifNames, from, to, window)
+                    : Array.Empty<NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ThroughputWindowPoint>();
+                if (rows.Count == 0)
+                    rows = await influx.QueryClientThroughputWindowsAsync(client.IsWired ? "wired_client" : "wifi_client", client.Mac, from, to, window);
+            }
+            else
+            {
+                // Bytes over the time the bucket covers: the hour in progress is not a whole hour yet.
+                var bytes = await LanUsageFromRollupAsync(influx, client, ifNames, from, to);
+                rows = bytes.Select(b =>
+                {
+                    var seconds = Math.Clamp((to - b.Time).TotalSeconds, 1, 3600);
+                    return new NetworkOptimizer.Storage.Services.MonitoringInfluxClient.ThroughputWindowPoint(
+                        b.Time, b.ToClientBytes * 8 / seconds, b.FromClientBytes * 8 / seconds, 0, 0);
+                }).ToList();
+            }
+
+            // The WAN share, bucketed on the same epoch-aligned windows. Between the first and last
+            // measured window a missing one is a covered idle client, so it reads zero, not a gap.
+            DateTime? rawFrom = null;
+            if (!raw && await influx.QueryLastClientWanRollupHourAsync() is { } lastRolled)
+                rawFrom = lastRolled.AddHours(1);
+            var wanPoints = raw
+                ? await influx.QueryClientWanUsageAsync(client.Mac, from, to, window)
+                : await MeasuredWanUsageAsync(influx, client.Mac, from, to, TimeSpan.FromHours(1), rawFrom);
+            long Key(DateTime t) => t.Ticks / window.Ticks;
+            var wan = wanPoints.GroupBy(w => Key(w.Time))
+                .ToDictionary(g => g.Key, g => (Down: g.Sum(w => w.DownBytes), Up: g.Sum(w => w.UpBytes)));
+            long? firstWan = wan.Count > 0 ? wan.Keys.Min() : null, lastWan = wan.Count > 0 ? wan.Keys.Max() : null;
+
+            foreach (var r in rows)
+            {
+                var key = Key(r.Time);
+                double? wanDown = null, wanUp = null;
+                if (wan.TryGetValue(key, out var w))
+                {
+                    // Over the part of the window the bytes cover: the raw read starts at from, and
+                    // both reads stop at now. A rolled hour is whole.
+                    var start = new DateTime(key * window.Ticks, DateTimeKind.Utc);
+                    if (raw && start < from) start = from;
+                    var end = new DateTime(key * window.Ticks, DateTimeKind.Utc) + window;
+                    if (end > to) end = to;
+                    var seconds = Math.Max(1, (end - start).TotalSeconds);
+                    wanDown = w.Down * 8 / seconds;
+                    wanUp = w.Up * 8 / seconds;
+                }
+                else if (key > firstWan && key < lastWan)
+                {
+                    wanDown = wanUp = 0;
+                }
+                history.Points.Add(new ThroughputWindowSample(r.Time, r.TxMeanBps, r.RxMeanBps,
+                    raw ? r.TxPeakBps : null, raw ? r.RxPeakBps : null, wanDown, wanUp));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Throughput windows unavailable for {Mac}", client.Mac);
+        }
+        return history;
+    }
+
     /// <summary>
     /// The client's conntrack-measured WAN rate windows over a short span, for the live chart's
     /// WAN overlay history. Empty when the gateway feed has not covered the span.

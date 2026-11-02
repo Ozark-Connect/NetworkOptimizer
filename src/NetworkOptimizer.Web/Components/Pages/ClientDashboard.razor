@@ -454,13 +454,18 @@
                                 @onclick='() => SetActiveTab("data")'>Data</button>
                     </div>
                 }
-                <div class="time-range-selector">
-                    @foreach (var tf in _timeFilters)
-                    {
-                        <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
-                                @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
-                    }
-                </div>
+                @* The Speed tab carries the filter on its Speed Tests heading instead: up here it read
+                   as driving the Throughput card, which has its own range. *@
+                @if (_activeTab != "speed")
+                {
+                    <div class="time-range-selector">
+                        @foreach (var tf in _timeFilters)
+                        {
+                            <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
+                                    @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
+                        }
+                    </div>
+                }
             </div>
         </div>
 
@@ -480,18 +485,44 @@
                     @if (ShowLiveChart)
                     {
                         <div class="card chart-card live-chart-card" data-tour="client-live-throughput">
-                            <h3>Live Throughput</h3>
-                            @if (_liveViewLinkEnabled)
-                            {
-                                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
-                                                      Tooltip="Watch the WAN and whole network in Live View"
-                                                      OnClick="OpenLiveViewAsync" />
-                            }
+                            <div class="chart-card-header">
+                                <h3>@(_throughputHours == 0 ? "Live Throughput" : "Throughput")</h3>
+                                <div class="card-header-right">
+                                    <div class="time-range-selector">
+                                        @foreach (var tr in _throughputRanges)
+                                        {
+                                            <button class="time-btn @(_throughputHours == tr.hours ? "active" : "")"
+                                                    @onclick="() => SetThroughputRange(tr.hours)">@tr.label</button>
+                                        }
+                                    </div>
+                                    @if (_liveViewLinkEnabled)
+                                    {
+                                        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch"
+                                                              Tooltip="Watch the WAN and whole network in Live View"
+                                                              OnClick="OpenLiveViewAsync" />
+                                    }
+                                </div>
+                            </div>
                             <div class="chart-container">
                                 <div id="client-live-chart"></div>
+                                @if (_throughputLoading)
+                                {
+                                    <div class="usage-card-spinner"><span class="spinner"></span></div>
+                                }
                             </div>
                         </div>
                     }
+
+                    <div class="section-header speed-tests-header">
+                        <h4>Speed Tests</h4>
+                        <div class="time-range-selector">
+                            @foreach (var tf in _timeFilters)
+                            {
+                                <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
+                                        @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
+                            }
+                        </div>
+                    </div>
 
                     @* Speed Test Buttons *@
                     @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
@@ -1120,7 +1151,7 @@
                         @if (_dataUsage != null)
                         {
                         <div class="card chart-card">
-                            <div class="usage-chart-header">
+                            <div class="chart-card-header">
                                 <h3>Usage</h3>
                                 <div class="time-range-selector">
                                     <button class="time-btn @(_usageView == "wan" ? "active" : "")" @onclick="@(() => SetUsageViewAsync("wan"))">WAN</button>
@@ -1254,6 +1285,16 @@
     private double _liveChartAccWanDown, _liveChartAccWanUp;
     private int _liveChartAccWanN;
     private bool ShowLiveChart => _activeTab == "speed" && _client is { IsVpn: false, IsOffline: false };
+    // The Throughput card's own range, apart from the page filter that scopes speed test results.
+    // 0 is Live; any other value mounts the chart in history mode over that many hours.
+    private int _throughputHours;
+    private int _liveChartHours;
+    private int _throughputGeneration;
+    private bool _throughputLoading;
+    private static readonly (int hours, string label)[] _throughputRanges =
+    {
+        (0, "Live"), (1, "1h"), (6, "6h"), (24, "24h"), (168, "7d"), (720, "30d")
+    };
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
     private int _selectedTimeFilter = 24; // hours, default 24h
@@ -2262,31 +2303,51 @@
     private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
     /// <summary>
-    /// Mounts the chart when its div is on the page and tears it down when it is not, or when the
-    /// page has moved to another client. Runs after every render, since the div appears on one.
+    /// Mounts the chart when its div is on the page and tears it down when it is not, when the
+    /// page has moved to another client, or when the card's range changed. Runs after every
+    /// render, since the div appears on one.
     /// </summary>
     private async Task EnsureLiveChartAsync()
     {
         var want = ShowLiveChart;
-        if (_liveChartMounted && (!want || _liveChartMac != _client!.Mac))
+        if (_liveChartMounted && (!want || _liveChartMac != _client!.Mac || _liveChartHours != _throughputHours))
             await DisposeLiveChartAsync();
         if (!want || _liveChartMounted) return;
 
         _liveChartMounted = true;
         _liveChartReady = false;
         _liveChartMac = _client!.Mac;
+        _liveChartHours = _throughputHours;
         _liveChartPushedAt = null;
         _liveChartAccN = 0;
         try
         {
-            var (points, wanPoints) = await LoadLiveHistoryWithWanAsync();
             await JS.InvokeVoidAsync("eval",
-                "window.__mountClientLiveChart = async function(elId, points, wanPoints) {" +
+                "window.__mountClientLiveChart = async function(elId, opts) {" +
                 $"  const m = await import('{VersionedJs("/js/client-live-chart.js")}');" +
-                "  window.__clientLiveChart = m; return await m.mount(elId, { points, wanPoints }); }");
+                "  window.__clientLiveChart = m; return await m.mount(elId, opts); }");
+            object opts;
+            if (_liveChartHours == 0)
+            {
+                var (points, wanPoints) = await LoadLiveHistoryWithWanAsync();
+                opts = new { points, wanPoints };
+            }
+            else
+            {
+                var generation = ++_throughputGeneration;
+                _throughputLoading = true;
+                StateHasChanged();
+                var history = await LoadThroughputHistoryAsync(_liveChartHours);
+                if (generation != _throughputGeneration) return;
+                _throughputLoading = false;
+                StateHasChanged();
+                // A newer range was picked while this loaded; the next render mounts that one.
+                if (_liveChartHours != _throughputHours) return;
+                opts = new { history };
+            }
             // False when the div is not in the DOM yet (a render still on the skeleton); the next
             // render tries again.
-            if (await JS.InvokeAsync<bool>("__mountClientLiveChart", "client-live-chart", points, wanPoints))
+            if (await JS.InvokeAsync<bool>("__mountClientLiveChart", "client-live-chart", opts))
                 _liveChartReady = true;
             else
                 _liveChartMounted = false;
@@ -2294,8 +2355,38 @@
         catch (Exception ex)
         {
             _liveChartMounted = false;
+            _throughputLoading = false;
             Logger.LogDebug(ex, "Live throughput chart mount failed");
         }
+    }
+
+    /// <summary>The Throughput card's history over the last <paramref name="hours"/>, with the
+    /// client's speed tests in that range as chart marks.</summary>
+    private async Task<object> LoadThroughputHistoryAsync(int hours)
+    {
+        var history = await DashboardService.GetThroughputWindowsAsync(_client!, TimeSpan.FromHours(hours));
+        var tests = await DashboardService.GetSpeedResultsAsync(_client!.Mac, history.From, history.To);
+        // The device's frame: its download is the stored UploadMbps (what the server sent it).
+        var marks = tests.OrderBy(r => r.TestTime).Select(r => new
+        {
+            key = "speedtest",
+            time = new DateTimeOffset(NetworkOptimizer.Core.Helpers.DateTimeUtilities.AsUtc(r.TestTime)).ToUnixTimeMilliseconds(),
+            kind = "speedtest",
+            severity = "info",
+            title = "Speed Test",
+            detail = $"Download {r.UploadMbps:F1} Mbps, Upload {r.DownloadMbps:F1} Mbps",
+            reading = $"{r.UploadMbps:F0} / {r.DownloadMbps:F0} Mbps",
+        }).ToList();
+        return new { history.From, history.To, history.WindowMs, history.HasPeaks, history.Points, marks };
+    }
+
+    private void SetThroughputRange(int hours)
+    {
+        if (_throughputHours == hours) return;
+        _throughputHours = hours;
+        // A load still running for the old range is superseded; its spinner goes with it.
+        _throughputGeneration++;
+        _throughputLoading = false;
     }
 
     private async Task<(IReadOnlyList<ThroughputSample> Points, IReadOnlyList<ThroughputSample> WanPoints)> LoadLiveHistoryWithWanAsync()
@@ -2320,7 +2411,7 @@
     /// </summary>
     private async Task PushLiveSampleAsync()
     {
-        if (!_liveChartReady || _client == null || _pageHidden) return;
+        if (!_liveChartReady || _liveChartHours != 0 || _client == null || _pageHidden) return;
         var (at, down, up) = _client.IsWired
             ? (_portStats?.At, _portStats?.DownloadBps, _portStats?.UploadBps)
             : (_wifiThroughput?.At, _wifiThroughput?.DownloadBps, _wifiThroughput?.UploadBps);
@@ -4665,20 +4756,34 @@
     .usage-card .speed-hero-results {
         margin-bottom: 12px;
     }
-    /* The eye sits in the card's top-right corner, as it does on Latency & Packet Loss. */
-    .live-chart-card {
-        position: relative;
-    }
-    .live-chart-card > .monitoring-jump-btn {
-        position: absolute;
-        top: 0.75rem;
-        right: 0.75rem;
-        margin: 0;
-    }
-    .usage-chart-header {
+    /* A card heading with controls beside it (Throughput's range and eye, Usage's switch). The
+       header owns the gap below, so the heading and the controls center on one line. */
+    .chart-card-header {
         display: flex;
+        flex-wrap: wrap;
         justify-content: space-between;
         align-items: center;
+        gap: 0.5rem 0.75rem;
+        margin-bottom: 12px;
+    }
+    .chart-card .chart-card-header h3 {
+        margin: 0;
+    }
+    /* Takes the button's own right padding back, as on ISP Health, so the eye sits at the edge. */
+    .chart-card-header .monitoring-jump-btn {
+        margin-right: -0.35rem;
+    }
+    .live-chart-card .chart-container {
+        position: relative;
+    }
+    /* The Speed tab's filter heading: the gap below comes from the tab pane. */
+    .tab-pane > .speed-tests-header {
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+        margin: 0.5rem 0 0;
+    }
+    .speed-tests-header h4 {
+        margin: 0;
     }
     .app-table-hint {
         margin-bottom: 0.5rem;
@@ -5024,22 +5129,26 @@
         .trace-card {
             padding-top: 13px;
         }
-        .live-chart-card > .monitoring-jump-btn {
-            top: 0.55rem;
-        }
         .chart-container {
             margin-left: -0.75rem;
         }
         /* The Usage switch is two words, not the page's time filter: it keeps its own size beside
            the heading instead of the phone's stretched time buttons. */
-        .usage-chart-header .time-range-selector {
+        .chart-card-header > .time-range-selector {
             flex: 0 0 auto;
             width: auto;
         }
-        .usage-chart-header .time-btn {
+        .chart-card-header > .time-range-selector .time-btn {
             flex: 0 0 auto;
             padding: 0.3rem 0.6rem;
             font-size: 0.75rem;
+        }
+        /* A time filter does not fit beside its heading on a phone: it takes the next row, full
+           width, with the app's stretched time buttons (Throughput's eye stays at its end). */
+        .chart-card-header > .card-header-right,
+        .speed-tests-header > .time-range-selector {
+            flex: 1 1 100%;
+            margin-left: 0;
         }
         /* Live Throughput bleeds into the card's 1rem phone padding on both sides: the newest
            sample lands on the right edge, the value labels sit close to the left. */

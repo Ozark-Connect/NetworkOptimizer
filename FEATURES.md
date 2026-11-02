@@ -238,6 +238,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Start Logging** - log a remote client's signal at poll rate without GPS
 - GPS walk test - signal heatmap from your phone while the page is open (HTTPS)
 - **Speed** - live throughput, **Run Speed Test** / **Quick Test**, speed and latency history, result map
+  - **Throughput** history from 1h to 30d: average, peak, WAN share, and speed test marks (InfluxDB)
 - **Signal** - noise, SNR, TX power, radio peers, read-only **Signal Map**, signal history, and log
 - **Connection** - **Network Path** with bottleneck, AP history, connection events, and trace changes
 - **Data** (Data Usage) - WAN vs LAN + WAN totals, usage chart, and per-application breakdown
