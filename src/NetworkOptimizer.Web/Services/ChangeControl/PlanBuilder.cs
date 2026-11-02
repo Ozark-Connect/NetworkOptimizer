@@ -1110,7 +1110,35 @@ public static class PlanBuilder
                     break;
             }
         }
+        foreach (var op in doc.Operations.Where(o => o.Action == PlanAction.Reorder && o.Body is JsonObject))
+            ApplyPolicyOrder(planned, (JsonObject)op.Body!);
         return planned;
+    }
+
+    /// <summary>
+    /// Gives a reorder's policies the order it writes, as rising indexes. Without it a new policy has no index,
+    /// which the Security Audit reads as first in its pair and <see cref="ZonePaths"/> as 10000, while the
+    /// console puts it where the reorder says. A policy keeps its live index when the order allows, so a plan
+    /// that only appends one moves no other index.
+    /// </summary>
+    private static void ApplyPolicyOrder(ConfigState planned, JsonObject reorder)
+    {
+        var byId = planned.Get("firewall_policy").GroupBy(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        foreach (var slot in new[] { "before_predefined_ids", "after_predefined_ids" })
+        {
+            var policies = (reorder[slot] as JsonArray ?? []).Select(n => byId.GetValueOrDefault(n?.ToString() ?? "")).OfType<JsonObject>().ToList();
+            static long? Index(JsonObject p) => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : null;
+            var firstKnown = policies.FindIndex(p => Index(p) != null);
+            // New policies ahead of the first one with an index sit just below it; with none at all, at UniFi's first custom index.
+            var previous = firstKnown < 0 ? 9999 : Index(policies[firstKnown])!.Value - firstKnown - 1;
+            foreach (var p in policies)
+            {
+                var index = Index(p) is { } live && live > previous ? live : previous + 1;
+                p["index"] = index;
+                previous = index;
+            }
+        }
     }
 
     /// <summary>
