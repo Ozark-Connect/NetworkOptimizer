@@ -79,6 +79,122 @@ public class ZonePathsTests
         ZonePaths.Allows(s, "n-iot", "203.0.113.5", "tcp", 443).Should().BeTrue("and the internet");
     }
 
+    /// <summary>
+    /// One policy ahead of Block All in Home to DNS Servers, shaped by <paramref name="shape"/>: whether Home reaches the
+    /// Pi-hole on UDP 53. Every matching rule of the zone-based firewall, judged by the Audit's engine.
+    /// </summary>
+    [Theory]
+    // Destination port
+    [InlineData("port 53", true)]
+    [InlineData("port 853", false)]
+    [InlineData("port range 50-60", true)]
+    [InlineData("port 53 opposite", false)]
+    [InlineData("port group with 53", true)]
+    [InlineData("port group missing", false)]
+    // Destination address
+    [InlineData("dst ip", true)]
+    [InlineData("dst ip range", true)]
+    [InlineData("dst ip cidr", true)]
+    [InlineData("dst other ip", false)]
+    [InlineData("dst other ip opposite", true)]
+    [InlineData("dst ip group", true)]
+    [InlineData("dst network", true)]
+    [InlineData("dst network opposite", false)]
+    // Source
+    [InlineData("src network", true)]
+    [InlineData("src other network", false)]
+    [InlineData("src other network opposite", true)]
+    [InlineData("src some hosts", false)]
+    [InlineData("src whole subnet", true)]
+    [InlineData("src all but some hosts", true)]
+    [InlineData("src all but the subnet", false)]
+    [InlineData("src client", false)]
+    [InlineData("src port", false)]
+    // Protocol and family
+    [InlineData("tcp", false)]
+    [InlineData("udp", true)]
+    [InlineData("all but tcp", true)]
+    [InlineData("all but udp", false)]
+    [InlineData("ipv6 only", false)]
+    // State and order
+    [InlineData("disabled", false)]
+    [InlineData("return only", false)]
+    [InlineData("established only", false)]
+    [InlineData("invalid-only block, allow after", true)]
+    [InlineData("no index", true)]
+    public void EveryMatchingRule_IsJudgedByTheAudit(string shape, bool reaches)
+    {
+        var s = Site();
+        s.Collections["firewallgroup"] =
+        [
+            new JsonObject { ["_id"] = "g-dns", ["name"] = "DNS", ["group_type"] = "port-group", ["group_members"] = new JsonArray("53", "853") },
+            new JsonObject { ["_id"] = "g-pihole", ["name"] = "Pi-hole", ["group_type"] = "address-group", ["group_members"] = new JsonArray("10.0.53.10") },
+        ];
+        var policies = s.Collections["firewall_policy"];
+        policies.RemoveAll(p => p["_id"]!.ToString() == "pihole");
+        var p = Policy("test", "ALLOW", Side("z-int"), Side("z-dns"), 10000, protocol: "tcp_udp");
+        var src = (JsonObject)p["source"]!;
+        var dst = (JsonObject)p["destination"]!;
+        void Ports(string ports, bool opposite = false) { dst["port_matching_type"] = "SPECIFIC"; dst["port"] = ports; dst["match_opposite_ports"] = opposite; }
+        void DstIps(bool opposite, params string[] ips) { dst["matching_target"] = "IP"; dst["ips"] = new JsonArray(ips.Select(i => (JsonNode?)i).ToArray()); dst["match_opposite_ips"] = opposite; }
+        void SrcIps(bool opposite, params string[] ips) { src["matching_target"] = "IP"; src["ips"] = new JsonArray(ips.Select(i => (JsonNode?)i).ToArray()); src["match_opposite_ips"] = opposite; }
+        void Networks(JsonObject side, bool opposite, string id) { side["matching_target"] = "NETWORK"; side["network_ids"] = new JsonArray(id); side["match_opposite_networks"] = opposite; }
+        switch (shape)
+        {
+            case "port 53": Ports("53"); break;
+            case "port 853": Ports("853"); break;
+            case "port range 50-60": Ports("50-60"); break;
+            case "port 53 opposite": Ports("53", opposite: true); break;
+            case "port group with 53": dst["port_matching_type"] = "OBJECT"; dst["port_group_id"] = "g-dns"; break;
+            case "port group missing": dst["port_matching_type"] = "OBJECT"; dst["port_group_id"] = "g-gone"; break;
+            case "dst ip": DstIps(false, "10.0.53.10"); break;
+            case "dst ip range": DstIps(false, "10.0.53.5-10.0.53.20"); break;
+            case "dst ip cidr": DstIps(false, "10.0.53.0/28"); break;
+            case "dst other ip": DstIps(false, "10.0.53.99"); break;
+            case "dst other ip opposite": DstIps(true, "10.0.53.99"); break;
+            case "dst ip group": dst["matching_target"] = "IP"; dst["matching_target_type"] = "OBJECT"; dst["ip_group_id"] = "g-pihole"; break;
+            case "dst network": Networks(dst, false, "n-dns"); break;
+            case "dst network opposite": Networks(dst, true, "n-dns"); break;
+            case "src network": Networks(src, false, "n-home"); break;
+            case "src other network": Networks(src, false, "n-iot"); break;
+            case "src other network opposite": Networks(src, true, "n-iot"); break;
+            case "src some hosts": SrcIps(false, "10.0.1.50"); break;
+            case "src whole subnet": SrcIps(false, "10.0.1.0/24"); break;
+            case "src all but some hosts": SrcIps(true, "10.0.1.50"); break;
+            case "src all but the subnet": SrcIps(true, "10.0.1.0/24"); break;
+            case "src client": src["matching_target"] = "CLIENT"; src["client_macs"] = new JsonArray("aa:bb:cc:dd:ee:ff"); break;
+            case "src port": src["port_matching_type"] = "SPECIFIC"; src["port"] = "5353"; break;
+            case "tcp": p["protocol"] = "tcp"; break;
+            case "udp": p["protocol"] = "udp"; break;
+            case "all but tcp": p["protocol"] = "tcp"; p["match_opposite_protocol"] = true; break;
+            case "all but udp": p["protocol"] = "udp"; p["match_opposite_protocol"] = true; break;
+            case "ipv6 only": p["ip_version"] = "IPV6"; break;
+            case "disabled": p["enabled"] = false; break;
+            case "return only": p["connection_state_type"] = "RESPOND_ONLY"; break;
+            case "established only": p["connection_state_type"] = "CUSTOM"; p["connection_states"] = new JsonArray("ESTABLISHED"); break;
+            case "invalid-only block, allow after":
+                var invalid = Policy("invalid", "BLOCK", Side("z-int"), Side("z-dns"), 9999);
+                invalid["connection_state_type"] = "CUSTOM";
+                invalid["connection_states"] = new JsonArray("INVALID");
+                policies.Add(invalid);
+                break;
+            case "no index": p.Remove("index"); break;
+            default: throw new ArgumentException(shape);
+        }
+        policies.Add(p);
+
+        ZonePaths.Allows(s, "n-home", "10.0.53.10", "udp", 53).Should().Be(reaches, shape);
+    }
+
+    [Fact]
+    public void Decides_ReturnsThePolicyObjectThatDecided()
+    {
+        var s = Site();
+        ZonePaths.Decides(s, "n-home", "10.0.53.10", "udp", 53).Should().BeSameAs(s.Get("firewall_policy").Single(p => p["_id"]!.ToString() == "pihole"));
+        ZonePaths.Decides(s, "n-home", "10.0.53.10", "tcp", 443)!["_id"]!.ToString().Should().Be("int-dns");
+        ZonePaths.Allows(s, "n-unknown", "10.0.53.10", "udp", 53).Should().BeNull("a network in no zone cannot be told");
+    }
+
     [Fact]
     public void Defaults_AreNotAddedToAZoneThatHasThem()
     {
@@ -127,7 +243,7 @@ public class ZonePathsTests
         [
             new JsonObject
             {
-                ["_id"] = "dnat", ["type"] = "DNAT", ["enabled"] = true, ["in_interface"] = "n-home", ["ip_address"] = "10.0.53.10",
+                ["_id"] = "dnat", ["type"] = "DNAT", ["enabled"] = true, ["protocol"] = "tcp_udp", ["in_interface"] = "n-home", ["ip_address"] = "10.0.53.10",
                 ["destination_filter"] = new JsonObject { ["filter_type"] = "ADDRESS_AND_PORT", ["port"] = "53" },
             },
         ];

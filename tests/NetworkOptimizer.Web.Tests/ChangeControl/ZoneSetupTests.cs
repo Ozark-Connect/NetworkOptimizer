@@ -1486,6 +1486,117 @@ public class ZoneSetupTests
         board.ConsoleZoneNames.Should().ContainKey("z-ext");
     }
 
+    // --- Re-runs after a zone rename: nothing is written twice ---------------------------------------------------------
+
+    private static IEnumerable<JsonObject> InPair(ConfigState s, string src, string dst) =>
+        s.Get("firewall_policy").Where(p => p["predefined"]?.GetValue<bool>() != true && p["source"]!["zone_id"]!.ToString() == src && p["destination"]!["zone_id"]!.ToString() == dst);
+
+    /// <summary>A first Set Up Zones run, applied: IoT holds IoT and Media, with its copies and the plan's own policies.</summary>
+    private static ConfigState AfterFirstRun()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-dns", "Block External DNS", "BLOCK", Side("z-int"), Side("z-ext", port: "53"), protocol: "tcp_udp"));
+        var after = Applied(PlanFor(live).Desired);
+        InPair(after, "uuid-zone-iot", "z-ext").Select(p => p["name"]!.ToString()).Should().Contain("Block External DNS (IoT)");
+        after.Get("firewall_policy").Should().Contain(p => p["name"]!.ToString() == "Allow IoT within IoT");
+        return after;
+    }
+
+    [Fact]
+    public void ARerun_AfterARenameOnTheBoard_RenamesInsteadOfWritingTwice()
+    {
+        var after = AfterFirstRun();
+        var countBefore = after.Get("firewall_policy").Count;
+
+        var plan = ZoneSetup.Plan(after, ZoneSetup.Build(after, Networks, ZoneSetup.TrustMode, names: new Dictionary<string, string> { ["iot"] = "Things" }));
+
+        var policies = plan.Desired.Get("firewall_policy");
+        policies.Count.Should().Be(countBefore, "a rename writes no new policy");
+        policies.Should().Contain(p => p["name"]!.ToString() == "Block External DNS (Things)", "the copy's suffix follows the zone");
+        policies.Should().NotContain(p => p["name"]!.ToString().EndsWith("(IoT)"));
+        policies.Count(p => p["name"]!.ToString().Contains("within")).Should().Be(1);
+        policies.Should().Contain(p => p["name"]!.ToString() == "Allow Things within Things");
+        plan.Desired.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "uuid-zone-iot")["name"]!.ToString().Should().Be("Things");
+    }
+
+    [Fact]
+    public void ARerun_AfterARenameOutsideTheBoard_WritesNoSecondCopy()
+    {
+        // Renamed in UniFi (or by Return to Baseline): the copies keep "(IoT)"; a network joining the zone must not double them.
+        var after = AfterFirstRun();
+        after.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "uuid-zone-iot")["name"] = "Things";
+        after.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-iot2", ["name"] = "IoT 2", ["vlan"] = 31, ["ip_subnet"] = "10.0.31.1/24" });
+        after.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Add("n-iot2");
+        var networks = Networks.Append(Net("n-iot2", "IoT 2", 31, NetworkPurpose.IoT)).ToList();
+
+        var board = ZoneSetup.Build(after, networks, ZoneSetup.TrustMode);
+        board.Zones.Single(z => z.ExistingId == "uuid-zone-iot").NetworkIds.Should().Contain("n-iot2", "Things holds only IoT networks, so it is the IoT column");
+        var plan = ZoneSetup.Plan(after, board);
+
+        var outDns = InPair(plan.Desired, "uuid-zone-iot", "z-ext").Where(p => p["destination"]!["port"]?.ToString() == "53").ToList();
+        outDns.Should().ContainSingle("the copy is already there under its old name").Which["name"]!.ToString().Should().Be("Block External DNS (IoT)");
+    }
+
+    [Fact]
+    public void AnIdenticalPolicyUnderAnotherName_StopsACopy_ButADisabledOneDoesNot()
+    {
+        var live = WithSubnetsAndGateway();
+        Into(live, "z-cam", "Cameras", "n-cam");
+        live.Collections["firewallgroup"] = [];
+        var template = Rule("p-snmp", "Block SNMP from LAN", "BLOCK", Side("z-int"), Side("z-gw2", port: "161"), protocol: "udp");
+        live.Collections["firewall_policy"].Add(template);
+        var twin = (JsonObject)template.DeepClone();
+        twin["_id"] = "p-twin";
+        twin["name"] = "My own SNMP block";
+        ((JsonObject)twin["source"]!)["zone_id"] = "z-cam";
+        live.Collections["firewall_policy"].Add(twin);
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-cam2", ["name"] = "Cameras 2", ["vlan"] = 41, ["ip_subnet"] = "10.0.41.1/24" });
+        live.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Add("n-cam2");
+        var networks = Networks.Append(Net("n-cam2", "Cameras 2", 41, NetworkPurpose.Security)).ToList();
+
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode));
+        InPair(plan.Desired, "z-cam", "z-gw2").Where(p => p["destination"]!["port"]?.ToString() == "161").Should().ContainSingle("the operator's identical block already does it");
+
+        twin["enabled"] = false;
+        var again = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode));
+        Named(again.Desired, "Block SNMP from LAN (Cameras)").Should().NotBeNull("a disabled twin does nothing, so the copy is still written");
+    }
+
+    [Fact]
+    public void ASameNamedPolicyWithOtherContent_StillStopsACopy_AsBefore()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-dns", "Block External DNS", "BLOCK", Side("z-int"), Side("z-ext", port: "53"), protocol: "tcp_udp"));
+        var after = Applied(PlanFor(live).Desired);
+        var copy = after.Get("firewall_policy").Single(p => p["name"]!.ToString() == "Block External DNS (IoT)");
+        copy["destination"]!["port"] = "53,853";
+        after.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-iot2", ["name"] = "IoT 2", ["vlan"] = 31, ["ip_subnet"] = "10.0.31.1/24" });
+        after.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Add("n-iot2");
+
+        var plan = ZoneSetup.Plan(after, ZoneSetup.Build(after, Networks.Append(Net("n-iot2", "IoT 2", 31, NetworkPurpose.IoT)).ToList(), ZoneSetup.TrustMode));
+
+        plan.Desired.Get("firewall_policy").Count(p => p["name"]!.ToString() == "Block External DNS (IoT)").Should().Be(1);
+        Named(plan.Desired, "Block External DNS (IoT)")!["destination"]!["port"]!.ToString().Should().Be("53,853", "the operator's edit stands");
+    }
+
+    [Fact]
+    public void ABoardRename_RenamesOnlyTheZonesOwnSuffixes()
+    {
+        var live = WithSubnetsAndGateway();
+        Into(live, "z-cam", "Cameras", "n-cam");
+        live.Collections["firewall_policy"].Add(Rule("p-out", "Block SNMP from LAN (Cameras)", "BLOCK", Side("z-cam"), Side("z-gw2", port: "161"), protocol: "udp"));
+        live.Collections["firewall_policy"].Add(Rule("p-in", "[TJ] PCs Access to Sensitive VLANs (Cameras)", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.10"]), Side("z-cam")));
+        live.Collections["firewall_policy"].Add(Rule("p-other", "Unrelated (Cameras)", "BLOCK", Side("z-int"), Side("z-ext")));
+        live.Collections["firewall_policy"].Add(Rule("p-mid", "Cameras policy", "BLOCK", Side("z-cam"), Side("z-ext")));
+
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode, names: new Dictionary<string, string> { ["cameras"] = "Protect" }));
+
+        Named(plan.Desired, "Block SNMP from LAN (Protect)").Should().NotBeNull();
+        Named(plan.Desired, "[TJ] PCs Access to Sensitive VLANs (Protect)").Should().NotBeNull("a policy into the zone is in its pairs too");
+        Named(plan.Desired, "Unrelated (Cameras)").Should().NotBeNull("not in the zone's pairs");
+        Named(plan.Desired, "Cameras policy").Should().NotBeNull("only the suffix the plan gives copies is renamed");
+    }
+
     [Fact]
     public void AnEmptyServersColumn_DescribesTheDefault()
     {

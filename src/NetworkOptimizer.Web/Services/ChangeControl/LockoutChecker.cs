@@ -425,17 +425,11 @@ public static class LockoutChecker
         return Str(network["ip_subnet"])?.Split('/')[0] is { Length: > 0 } gw ? [gw] : [];
     }
 
-    /// <summary>An enabled DNAT whose destination filter takes port 53: a port, a port group holding 53, or no port at all.</summary>
+    /// <summary>A NAT rule that redirects DNS, by the DNS audit's definition (<see cref="Audit.Dns.DnatDnsAnalyzer.IsDnsRedirect"/>).</summary>
     internal static bool RedirectsDns(ConfigState state, JsonObject rule)
     {
-        if (Str(rule["type"]) != "DNAT" || Str(rule["enabled"]) == "false") return false;
-        if (rule["destination_filter"] is not JsonObject filter) return true;
-        if (Str(filter["port"]) is { Length: > 0 } port) return ZonePaths.PortListContains(port, 53);
-        var groups = state.Get("firewallgroup");
-        var portGroups = (filter["firewall_group_ids"] as JsonArray ?? []).Select(Str)
-            .Select(g => groups.FirstOrDefault(x => ConfigState.IdOf(x) == g)).OfType<JsonObject>()
-            .Where(g => Str(g["group_type"]) == "port-group").ToList();
-        return portGroups.Count == 0 || portGroups.Any(g => ZonePaths.PortListContains(string.Join(",", (g["group_members"] as JsonArray ?? []).Select(Str)), 53));
+        using var doc = System.Text.Json.JsonDocument.Parse(rule.ToJsonString());
+        return Audit.Dns.DnatDnsAnalyzer.IsDnsRedirect(doc.RootElement, ZonePaths.FirewallGroups(state));
     }
 
     private static string? Str(JsonNode? n) => n switch

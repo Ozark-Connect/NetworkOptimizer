@@ -160,7 +160,7 @@ public static class DnsFixes
             Kind.Port53 => offline || Dnats(state).Any(d => Str(d["in_interface"]) == id) || ZonePaths.Allows(state, id, Internet, "udp", 53) == false,
             Kind.Dot => offline || ZonePaths.Allows(state, id, Internet, "tcp", 853) == false,
             Kind.Doq => offline || ZonePaths.Allows(state, id, Internet, "udp", 853) == false,
-            _ => offline || DohBlocks(state).Any(p => ZonePaths.ZoneOfNetwork(state).GetValueOrDefault(id) == Str(p["source"]?["zone_id"]) && ZonePaths.SourceCovers(p["source"] as JsonObject, id)),
+            _ => offline || DohBlocks(state).Any(p => ZonePaths.ZoneOfNetwork(state).GetValueOrDefault(id) == Str(p["source"]?["zone_id"]) && ZonePaths.SourceCovers(state, p, id)),
         };
     }
 
@@ -195,7 +195,7 @@ public static class DnsFixes
         var templates = scope.Except(uncovered).Select(n => (Net: n, Policy: kind switch
             {
                 Kind.Doh => DohBlocks(live).FirstOrDefault(p => zoneOf.GetValueOrDefault(ConfigState.IdOf(n)) == Str(p["source"]?["zone_id"])
-                    && ZonePaths.SourceCovers(p["source"] as JsonObject, ConfigState.IdOf(n))),
+                    && ZonePaths.SourceCovers(live, p, ConfigState.IdOf(n))),
                 Kind.Port53 => ZonePaths.Decides(live, ConfigState.IdOf(n), Internet, "udp", 53),
                 Kind.Dot => ZonePaths.Decides(live, ConfigState.IdOf(n), Internet, "tcp", 853),
                 _ => ZonePaths.Decides(live, ConfigState.IdOf(n), Internet, "udp", 853),

@@ -1087,4 +1087,37 @@ public class DnatDnsAnalyzerTests
     }
 
     #endregion
+
+    #region IsDnsRedirect Tests
+
+    private static JsonElement Nat(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    [Theory]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"udp","destination_filter":{"port":"53"}}""", true)]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"tcp_udp","destination_filter":{"port":"53,853"}}""", true)]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"all","destination_filter":{"port":"50-60"}}""", true)]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"tcp","destination_filter":{"port":"53"}}""", false)]
+    [InlineData("""{"type":"DNAT","enabled":false,"protocol":"udp","destination_filter":{"port":"53"}}""", false)]
+    [InlineData("""{"type":"SNAT","enabled":true,"protocol":"udp","destination_filter":{"port":"53"}}""", false)]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"udp","destination_filter":{"port":"443"}}""", false)]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"udp","destination_filter":{}}""", false)]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"udp"}""", false)]
+    [InlineData("""{"type":"DNAT","enabled":true,"protocol":"udp","ip_version":"IPV6","destination_filter":{"port":"53"}}""", false)]
+    public void IsDnsRedirect_IsTheDnsAuditsDefinition(string json, bool redirects) =>
+        Assert.Equal(redirects, DnatDnsAnalyzer.IsDnsRedirect(Nat(json), null));
+
+    [Fact]
+    public void IsDnsRedirect_FollowsAPortGroup()
+    {
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["g-dns"] = new() { Id = "g-dns", Name = "DNS", GroupType = "port-group", GroupMembers = ["53"] },
+        };
+        var rule = Nat("""{"type":"DNAT","enabled":true,"protocol":"udp","destination_filter":{"firewall_group_ids":["g-dns"]}}""");
+
+        Assert.True(DnatDnsAnalyzer.IsDnsRedirect(rule, groups));
+        Assert.False(DnatDnsAnalyzer.IsDnsRedirect(rule, null), "an unresolved port group takes no port");
+    }
+
+    #endregion
 }

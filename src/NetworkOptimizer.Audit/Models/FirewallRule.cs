@@ -412,4 +412,32 @@ public class FirewallRule
         // Legacy fallback
         return string.Equals(Source, network.Id, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Returns true if the rule's destination includes an address: ANY, a listed network (the address's own,
+    /// when it is in one), or an address entry covering it (one address, a range, or a CIDR, groups already
+    /// flattened by the parser), each with Match Opposite. Web, app, and region destinations are not judged
+    /// by address, so they return false.
+    /// </summary>
+    /// <param name="networkId">The network the address is in, or null for none (an internet address).</param>
+    /// <param name="address">The destination address.</param>
+    public bool AppliesToDestination(string? networkId, string address)
+    {
+        if (string.IsNullOrEmpty(DestinationMatchingTarget) || DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (DestinationMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
+        {
+            var listed = networkId != null && (DestinationNetworkIds ?? []).Contains(networkId, StringComparer.OrdinalIgnoreCase);
+            return listed != DestinationMatchOppositeNetworks;
+        }
+
+        if (DestinationMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
+        {
+            var listed = (DestinationIps ?? []).Any(entry => NetworkUtilities.IsIpInEntry(address, entry));
+            return listed != DestinationMatchOppositeIps;
+        }
+
+        return false;
+    }
 }

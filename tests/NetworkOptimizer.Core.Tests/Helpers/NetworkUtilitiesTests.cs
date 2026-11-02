@@ -857,4 +857,27 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region IsIpInEntry Tests
+
+    [Theory]
+    [InlineData("10.0.1.20", "10.0.1.20", true)]
+    [InlineData("10.0.1.20", "10.0.1.21", false)]
+    [InlineData("10.0.1.20", "10.0.1.10-10.0.1.30", true)]
+    [InlineData("10.0.1.10", "10.0.1.10-10.0.1.30", true)]
+    [InlineData("10.0.1.30", "10.0.1.10 - 10.0.1.30", true)]
+    [InlineData("10.0.1.31", "10.0.1.10-10.0.1.30", false)]
+    [InlineData("10.0.2.20", "10.0.1.10-10.0.1.30", false)]
+    [InlineData("10.0.1.20", "10.0.1.0/24", true)]
+    [InlineData("10.0.2.20", "10.0.1.0/24", false)]
+    [InlineData("2001:db8::5", "2001:db8::1-2001:db8::9", true)]
+    [InlineData("10.0.1.20", "2001:db8::1-2001:db8::9", false)]
+    [InlineData("10.0.1.20", "", false)]
+    [InlineData("10.0.1.20", null, false)]
+    [InlineData("not-an-ip", "10.0.1.0/24", false)]
+    [InlineData("10.0.1.20", "10.0.1.x-10.0.1.30", false)]
+    public void IsIpInEntry_SingleRangeAndCidr(string address, string? entry, bool inside) =>
+        NetworkUtilities.IsIpInEntry(address, entry).Should().Be(inside);
+
+    #endregion
 }

@@ -320,43 +320,11 @@ public class DnatDnsAnalyzer
 
         foreach (var rule in natRulesData.EnumerateArray())
         {
-            // Check rule type is DNAT
-            var type = rule.GetStringOrNull("type");
-            if (!string.Equals(type, "DNAT", StringComparison.OrdinalIgnoreCase))
+            if (!IsDnsRedirect(rule, firewallGroups, family) || rule.GetPropertyOrNull("destination_filter") is not { } destFilterValue)
             {
                 continue;
             }
-
-            // Check enabled
-            if (!rule.GetBoolOrDefault("enabled"))
-            {
-                continue;
-            }
-
-            // An IPv4 redirect leaves IPv6 DNS untouched, and the reverse
-            if (!IpVersionMatcher.Matches(rule.GetStringOrNull("ip_version"), family))
-            {
-                continue;
-            }
-
-            // Check protocol includes UDP (DNS is primarily UDP)
-            var protocol = rule.GetStringOrNull("protocol")?.ToLowerInvariant();
-            if (!IncludesUdp(protocol))
-            {
-                continue;
-            }
-
-            // Check destination port is 53 (directly or via firewall group)
-            var destFilter = rule.GetPropertyOrNull("destination_filter");
-            if (destFilter == null)
-            {
-                continue;
-            }
-
-            if (!DestinationIncludesPort53(destFilter.Value, firewallGroups))
-            {
-                continue;
-            }
+            JsonElement? destFilter = destFilterValue;
 
             // Parse destination filter address and invert flag
             var destInvertAddress = destFilter.Value.GetBoolOrDefault("invert_address", false);
@@ -384,6 +352,29 @@ public class DnatDnsAnalyzer
         }
 
         return rules;
+    }
+
+    /// <summary>
+    /// Whether a NAT rule redirects DNS: an enabled DNAT of the address family, taking UDP, whose destination filter
+    /// names port 53 directly or through a port group. This is the DNS audit's definition; every check of whether a
+    /// network's DNS is redirected uses it, so a plan and the audit never disagree on one.
+    /// </summary>
+    /// <param name="rule">A NAT rule as UniFi returns it.</param>
+    /// <param name="firewallGroups">Firewall groups by ID, for port groups in the filter.</param>
+    /// <param name="family">The address family of the DNS being redirected.</param>
+    public static bool IsDnsRedirect(JsonElement rule, Dictionary<string, UniFiFirewallGroup>? firewallGroups, IpFamily family = IpFamily.IPv4)
+    {
+        if (!string.Equals(rule.GetStringOrNull("type"), "DNAT", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!rule.GetBoolOrDefault("enabled"))
+            return false;
+        // An IPv4 redirect leaves IPv6 DNS untouched, and the reverse
+        if (!IpVersionMatcher.Matches(rule.GetStringOrNull("ip_version"), family))
+            return false;
+        // DNS is primarily UDP
+        if (!IncludesUdp(rule.GetStringOrNull("protocol")?.ToLowerInvariant()))
+            return false;
+        return rule.GetPropertyOrNull("destination_filter") is { } destFilter && DestinationIncludesPort53(destFilter, firewallGroups);
     }
 
     /// <summary>
@@ -684,7 +675,8 @@ public class DnatDnsAnalyzer
     }
 
     /// <summary>
-    /// Check if port specification includes port 53
+    /// Check if port specification includes port 53: a list and dash ranges as UniFi stores them ("53,853",
+    /// "50-60", via <see cref="FirewallGroupHelper.IncludesPort"/>), or a colon range ("1:100").
     /// </summary>
     private static bool IncludesPort53(string? port)
     {
@@ -693,21 +685,14 @@ public class DnatDnsAnalyzer
             return false;
         }
 
-        // Could be "53", "53,443", "1:100" (range), etc.
-        if (port == "53")
+        if (FirewallGroupHelper.IncludesPort(port, "53"))
         {
             return true;
         }
 
-        // Check comma-separated list
-        var ports = port.Split(',');
-        foreach (var p in ports)
+        foreach (var p in port.Split(','))
         {
             var trimmed = p.Trim();
-            if (trimmed == "53")
-            {
-                return true;
-            }
 
             // Check for range (e.g., "1:100")
             if (trimmed.Contains(':'))

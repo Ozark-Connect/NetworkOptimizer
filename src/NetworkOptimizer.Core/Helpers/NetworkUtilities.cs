@@ -318,6 +318,41 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Whether an address falls in a firewall address entry as UniFi stores them: one address, a range
+    /// ("10.0.1.10-10.0.1.20"), or a CIDR. The two ends of a range must be the same family as the address.
+    /// </summary>
+    /// <param name="ipAddress">The address to check.</param>
+    /// <param name="entry">The entry from a policy's or group's address list.</param>
+    public static bool IsIpInEntry(string ipAddress, string? entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry) || !IPAddress.TryParse(ipAddress.Trim(), out var ip))
+            return false;
+        entry = entry.Trim();
+        if (entry.Contains('/'))
+            return IsIpInSubnet(ip, entry);
+
+        var dash = entry.IndexOf('-');
+        if (dash > 0)
+        {
+            if (!IPAddress.TryParse(entry[..dash].Trim(), out var low) || !IPAddress.TryParse(entry[(dash + 1)..].Trim(), out var high))
+                return false;
+            var (a, lo, hi) = (ip.GetAddressBytes(), low.GetAddressBytes(), high.GetAddressBytes());
+            if (a.Length != lo.Length || a.Length != hi.Length)
+                return false;
+            return Compare(a, lo) >= 0 && Compare(a, hi) <= 0;
+        }
+
+        return IPAddress.TryParse(entry, out var single) && single.Equals(ip);
+
+        static int Compare(byte[] x, byte[] y)
+        {
+            for (var i = 0; i < x.Length; i++)
+                if (x[i] != y[i]) return x[i].CompareTo(y[i]);
+            return 0;
+        }
+    }
+
+    /// <summary>
     /// For an octet-aligned CIDR (/8, /16, /24), returns the IP prefix string suitable for
     /// SQL LIKE matching (e.g. "10." for /8, "192.168.1." for /24).
     /// Returns null for exact IPs (no slash), invalid input, /32, or non-octet-aligned masks.

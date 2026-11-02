@@ -449,6 +449,10 @@ public static class ZoneSetup
             zone["network_ids"] = new JsonArray(Ids(zone).Where(id => !assigned.Contains(id)).Select(id => (JsonNode?)id).ToArray());
 
         var policies = desired.Collections["firewall_policy"] = desired.Get("firewall_policy").Select(p => (JsonObject)p.DeepClone()).ToList();
+        var liveNames = live.Get("firewall_zone").ToDictionary(ConfigState.IdOf, z => Str(z, "name") ?? "", StringComparer.OrdinalIgnoreCase);
+        RenameZoneSuffixes(policies, board.Zones
+            .Where(z => z.ExistingId != null && !z.BuiltIn && liveNames.TryGetValue(z.ExistingId, out var was) && was.Length > 0 && was != z.Name)
+            .ToDictionary(z => z.ExistingId!, z => (liveNames[z.ExistingId!], z.Name), StringComparer.OrdinalIgnoreCase));
         var oldZoneOf = ZonePaths.ZoneOfNetwork(live);
         var newZoneOf = ZonePaths.ZoneOfNetwork(desired);
         var moved = newZoneOf.Where(p => oldZoneOf.TryGetValue(p.Key, out var was) && !string.Equals(was, p.Value, StringComparison.OrdinalIgnoreCase))
@@ -510,6 +514,12 @@ public static class ZoneSetup
                 ["source"] = new JsonObject { ["zone_id"] = srcId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },
                 ["destination"] = dest,
             };
+            // An earlier run's policy under a zone's old name: the same policy, renamed rather than written twice.
+            if (policies.FirstOrDefault(p => Str(p, "description") == "Set Up Zones" && ZonePaths.Holds(p, policy)) is { } earlier)
+            {
+                earlier["name"] = name;
+                return earlier;
+            }
             policies.Add(policy);
             return policy;
         }
@@ -547,9 +557,16 @@ public static class ZoneSetup
                 && net["network_isolation_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var included = z.NetworkIds.Where(id => !isolated.Contains(id)).ToList();
             var name = $"Allow {z.Name} within {z.Name}";
-            var existing = policies.FirstOrDefault(p => Str(p, "name") == name
-                && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
-                && Str(p["source"]?["zone_id"]) == ids[z.Key] && Str(p["destination"]?["zone_id"]) == ids[z.Key]);
+            bool Within(JsonObject p) => p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && Str(p["source"]?["zone_id"]) == ids[z.Key] && Str(p["destination"]?["zone_id"]) == ids[z.Key];
+            var existing = policies.FirstOrDefault(p => Str(p, "name") == name && Within(p));
+            // An earlier run's, written under the zone's old name: renamed, so it is refreshed rather than written again.
+            if (existing == null && policies.FirstOrDefault(p => Within(p) && Str(p, "description") == "Set Up Zones" && Str(p, "action") == "ALLOW"
+                    && Str(p, "name") is { } old && old.StartsWith("Allow ", StringComparison.Ordinal) && old.Contains(" within ", StringComparison.Ordinal)) is { } renamed)
+            {
+                renamed["name"] = name;
+                existing = renamed;
+            }
             // The description survives manual edits. Refresh only source shapes the wizard writes.
             var source = existing?["source"] as JsonObject;
             var wizardSource = source != null && Str(source["matching_target"]) is "ANY" or "NETWORK"
@@ -866,7 +883,6 @@ public static class ZoneSetup
         // The heir zone of a zone the plan deletes takes the original itself (MoveToHeirs), so it gets no copy or note here.
         bool Inherits(string zone, string to) => heir.TryGetValue(zone, out var h) && string.Equals(h, to, StringComparison.OrdinalIgnoreCase);
         var def = ConfigCollections.Get("firewall_policy")!;
-        var groups = live.Get("firewallgroup");
         var lanTargets = moved.GroupBy(id => oldZoneOf[id], StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Select(id => newZoneOf[id]).Where(z => zoneKey.TryGetValue(z, out var k) && k is "" or "internal")
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
@@ -894,7 +910,7 @@ public static class ZoneSetup
                 continue;
             }
             var outward = dstKey is "external" or "gateway";
-            var resolver = Str(t, "action") == "ALLOW" && dstKey is "" or "internal" && CoversPort(t["destination"] as JsonObject, 53, groups);
+            var resolver = Str(t, "action") == "ALLOW" && dstKey is "" or "internal" && ReachesDnsPort(live, t);
             var offline = new List<string>();
             var isolated = new List<string>();
             foreach (var to in lanTargets[from])
@@ -908,11 +924,11 @@ public static class ZoneSetup
                 if (outward || (resolver && !string.Equals(to, dstZone, StringComparison.OrdinalIgnoreCase)))
                 {
                     var copyName = NameFor(name, zoneName(from), zoneName(to));
-                    if (policies.Any(p => Str(p, "name") == copyName && Str(p["source"]?["zone_id"]) == to)) continue;
                     var copy = (JsonObject)t.DeepClone();
-                    copy["_id"] = NewPolicyPrefix + ++n;
                     copy["name"] = copyName;
                     ((JsonObject)copy["source"]!)["zone_id"] = to;
+                    if (AlreadyCopied(policies, copy, copyName, "source", to)) continue;
+                    copy["_id"] = NewPolicyPrefix + ++n;
                     policies.Add(copy);
                 }
                 else if (Str(t, "action") == "ALLOW" && dstKey is "" or "internal")
@@ -940,7 +956,7 @@ public static class ZoneSetup
             var srcZone = Str(t["source"]?["zone_id"]);
             var name = Str(t, "name") ?? "";
             var operatorZone = zoneKey.GetValueOrDefault(into) == "";
-            var resolver = Str(t, "action") == "ALLOW" && CoversPort(t["destination"] as JsonObject, 53, groups);
+            var resolver = Str(t, "action") == "ALLOW" && ReachesDnsPort(live, t);
             var skipped = new List<string>();
             foreach (var to in lanTargets[into])
             {
@@ -953,11 +969,11 @@ public static class ZoneSetup
                     continue;
                 }
                 var copyName = NameFor(name, zoneName(into), zoneName(to));
-                if (policies.Any(p => Str(p, "name") == copyName && Str(p["destination"]?["zone_id"]) == to)) continue;
                 var copy = (JsonObject)t.DeepClone();
-                copy["_id"] = NewPolicyPrefix + ++n;
                 copy["name"] = copyName;
                 ((JsonObject)copy["destination"]!)["zone_id"] = to;
+                if (AlreadyCopied(policies, copy, copyName, "destination", to)) continue;
+                copy["_id"] = NewPolicyPrefix + ++n;
                 policies.Add(copy);
             }
             if (skipped.Count > 0)
@@ -1014,6 +1030,31 @@ public static class ZoneSetup
         }
     }
 
+    /// <summary>
+    /// A copy is already there when its zone has one of the same name (as before), or a policy that does what it would
+    /// under another name (one an earlier run wrote before a zone was renamed). Either way it is not written again, so
+    /// this never writes more than matching by name did.
+    /// </summary>
+    private static bool AlreadyCopied(List<JsonObject> policies, JsonObject copy, string copyName, string side, string zone) =>
+        policies.Any(p => (Str(p, "name") == copyName && Str(p[side]?["zone_id"]) == zone) || ZonePaths.Holds(p, copy));
+
+    /// <summary>
+    /// A zone renamed on the board renames the policies in its pairs named for it the way the plan names its copies:
+    /// "(Cameras)" on the end becomes "(Protect)". Each shows on Review Plan as its own rename.
+    /// </summary>
+    private static void RenameZoneSuffixes(List<JsonObject> policies, IReadOnlyDictionary<string, (string Old, string New)> renamed)
+    {
+        if (renamed.Count == 0) return;
+        var def = ConfigCollections.Get("firewall_policy")!;
+        foreach (var p in policies.Where(p => def.IsGenerated?.Invoke(p) != true && ConfigCollections.OwnedBy(def, p) == null))
+            foreach (var zone in new[] { Str(p["source"]?["zone_id"]), Str(p["destination"]?["zone_id"]) }.OfType<string>().Distinct())
+                if (renamed.TryGetValue(zone, out var r) && Str(p, "name") is { } name && name.EndsWith($" ({r.Old})", StringComparison.Ordinal))
+                {
+                    p["name"] = name[..^(r.Old.Length + 2)] + $"({r.New})";
+                    break;
+                }
+    }
+
     /// <summary>"A", "A and B", "A, B and C" (or "or").</summary>
     private static string Join(IReadOnlyList<string> items, string conjunction) =>
         items.Count <= 1 ? string.Join("", items) : $"{string.Join(", ", items.Take(items.Count - 1))} {conjunction} {items[^1]}";
@@ -1024,17 +1065,13 @@ public static class ZoneSetup
             ? System.Text.RegularExpressions.Regex.Replace(template, System.Text.RegularExpressions.Regex.Escape(fromZone), toZone.Replace("$", "$$"), System.Text.RegularExpressions.RegexOptions.IgnoreCase)
             : $"{template} ({toZone})";
 
-    private static bool CoversPort(JsonObject? side, int port, IReadOnlyList<JsonObject> groups)
-    {
-        if (side == null) return false;
-        return Str(side["port_matching_type"]) switch
-        {
-            "SPECIFIC" => Str(side["port"]) is { } list && ZonePaths.PortListContains(list, port),
-            "OBJECT" => groups.FirstOrDefault(g => ConfigState.IdOf(g) == Str(side["port_group_id"])) is { } g
-                        && ZonePaths.PortListContains(string.Join(",", (g["group_members"] as JsonArray ?? []).Select(Str)), port),
-            _ => false,
-        };
-    }
+    /// <summary>
+    /// A policy limited to destination ports that include DNS (UDP 53), by the Audit's port and protocol matching. A
+    /// policy open to every port is not a resolver allow: it allows everything, which these copies never carry.
+    /// </summary>
+    private static bool ReachesDnsPort(ConfigState live, JsonObject policy) =>
+        ZonePaths.Parse(live, [policy]).Keys.SingleOrDefault() is { } rule && !string.IsNullOrEmpty(rule.DestinationPort)
+        && !rule.HasUnresolvedDestinationPortGroup && Audit.Analyzers.FirewallGroupHelper.RuleMatchesPortAndProtocol(rule, "53", "udp");
 
     /// <summary>
     /// Each moved network keeps reaching its DNS resolver and the inform host: where the planned zones block a path

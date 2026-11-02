@@ -349,4 +349,45 @@ public class FirewallRuleTests
     }
 
     #endregion
+
+    #region AppliesToDestination Tests
+
+    private static FirewallRule Dest(string? target, List<string>? ips = null, List<string>? networks = null, bool oppositeIps = false, bool oppositeNetworks = false) => new()
+    {
+        Id = "r", DestinationMatchingTarget = target, DestinationIps = ips, DestinationNetworkIds = networks,
+        DestinationMatchOppositeIps = oppositeIps, DestinationMatchOppositeNetworks = oppositeNetworks,
+    };
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("ANY", true)]
+    [InlineData("WEB", false)]
+    [InlineData("APP", false)]
+    [InlineData("REGION", false)]
+    public void AppliesToDestination_ByTarget(string? target, bool applies) =>
+        Dest(target).AppliesToDestination("n1", "10.0.53.10").Should().Be(applies);
+
+    [Theory]
+    [InlineData("10.0.53.10", false, true)]
+    [InlineData("10.0.53.5-10.0.53.20", false, true)]
+    [InlineData("10.0.53.0/28", false, true)]
+    [InlineData("10.0.53.99", false, false)]
+    [InlineData("10.0.53.99", true, true)]
+    [InlineData("10.0.53.10", true, false)]
+    public void AppliesToDestination_IpEntries(string entry, bool opposite, bool applies) =>
+        Dest("IP", ips: [entry], oppositeIps: opposite).AppliesToDestination(null, "10.0.53.10").Should().Be(applies);
+
+    [Theory]
+    [InlineData("n1", false, true)]
+    [InlineData("n2", false, false)]
+    [InlineData("n2", true, true)]
+    [InlineData("n1", true, false)]
+    public void AppliesToDestination_Networks(string listed, bool opposite, bool applies) =>
+        Dest("NETWORK", networks: [listed], oppositeNetworks: opposite).AppliesToDestination("n1", "10.0.53.10").Should().Be(applies);
+
+    [Fact]
+    public void AppliesToDestination_NetworkList_ExcludesAnAddressInNoNetwork() =>
+        Dest("NETWORK", networks: ["n1"]).AppliesToDestination(null, "203.0.113.5").Should().BeFalse();
+
+    #endregion
 }

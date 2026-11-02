@@ -1,5 +1,10 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
+using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
 
@@ -73,7 +78,11 @@ public static class ZonePaths
     public static bool? Allows(ConfigState state, string sourceNetworkId, string address, string protocol, int port) =>
         Decides(state, sourceNetworkId, address, protocol, port) is { } policy ? Str(policy["action"]) == "ALLOW" : null;
 
-    /// <summary>The policy that decides new traffic from a network to an address and port, or null (see <see cref="Allows"/>).</summary>
+    /// <summary>
+    /// The policy that decides new traffic from a network to an address and port, or null (see <see cref="Allows"/>).
+    /// Matching and order are the Audit's (<see cref="FirewallRuleParser"/>, <see cref="FirewallRule"/>,
+    /// <see cref="FirewallRuleEvaluator"/>): this only finds the zone pair and maps the deciding rule back to its policy.
+    /// </summary>
     public static JsonObject? Decides(ConfigState state, string sourceNetworkId, string address, string protocol, int port)
     {
         state = WithCustomZoneDefaults(state);
@@ -81,32 +90,78 @@ public static class ZonePaths
         if (!zoneOf.TryGetValue(sourceNetworkId, out var src)) return null;
         var (dst, dstNetwork) = ZoneOfAddress(state, zoneOf, address);
         if (dst == null) return null;
+        var source = SourceNetwork(state, sourceNetworkId, src);
+        if (source == null) return null;
 
-        var groups = state.Get("firewallgroup").GroupBy(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        var candidates = state.Get("firewall_policy")
-            .Where(p => Bool(p["enabled"]) != false && Str(p["ip_version"]) != "IPV6"
-                        && string.Equals(SrcZone(p), src, StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(Str(p["destination"]?["zone_id"]), dst, StringComparison.OrdinalIgnoreCase))
-            // A policy without an index is one a plan creates; UniFi puts it ahead of the predefined ones.
-            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : 10000L);
-        foreach (var p in candidates)
-        {
-            if (!SourceMatches(p["source"] as JsonObject, sourceNetworkId)) continue;
-            if (!DestinationMatches(p["destination"] as JsonObject, dstNetwork, address, port, groups)) continue;
-            if (!ProtocolMatches(Str(p["protocol"]), protocol)) continue;
-            var states = Str(p["connection_state_type"]);
-            var allow = Str(p["action"]) == "ALLOW";
-            if (allow && states == "RESPOND_ONLY") continue;
-            // A CUSTOM state set without NEW (Block Invalid Traffic) never decides a new connection.
-            if (states == "CUSTOM" && !(p["connection_states"] as JsonArray ?? []).Any(s => Str(s) == "NEW")) continue;
-            return p;
-        }
-        return null;
+        // Only the zone pair's policies are parsed: the rest can never decide this traffic.
+        var pair = state.Get("firewall_policy").Where(p => string.Equals(SrcZone(p), src, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Str(p["destination"]?["zone_id"]), dst, StringComparison.OrdinalIgnoreCase)).ToList();
+        var rules = Parse(state, pair);
+        var decided = FirewallRuleEvaluator.Evaluate(rules.Keys,
+            // A rule scoped to some hosts or source ports of the network does not decide for the network as a whole.
+            // An unresolved port group leaves no ports, which the helper reads as all ports: it matches nothing instead.
+            r => r.AppliesToSourceNetwork(source, IpFamily.IPv4) && string.IsNullOrEmpty(r.SourcePort)
+                 && r.AppliesToDestination(dstNetwork, address) && !r.HasUnresolvedDestinationPortGroup
+                 && FirewallGroupHelper.RuleMatchesPortAndProtocol(r, port.ToString(System.Globalization.CultureInfo.InvariantCulture), protocol),
+            forNewConnections: true, family: IpFamily.IPv4).EffectiveRule;
+        return decided != null ? rules[decided] : null;
     }
 
-    /// <summary>A policy side covers the network: ANY, its network listed, or everyone but a few hosts.</summary>
-    public static bool SourceCovers(JsonObject? side, string network) => SourceMatches(side, network);
+    /// <summary>Whether a policy's source covers a network as a whole, by the Audit's source matching.</summary>
+    public static bool SourceCovers(ConfigState state, JsonObject policy, string network) =>
+        SourceNetwork(state, network, ZoneOfNetwork(state).GetValueOrDefault(network)) is { } source
+        && Parse(state, [policy]).Keys.SingleOrDefault() is { } rule
+        && rule.AppliesToSourceNetwork(source, IpFamily.IPv4) && string.IsNullOrEmpty(rule.SourcePort);
+
+    /// <summary>
+    /// Policies parsed by the Audit's <see cref="FirewallRuleParser"/>, with the state's groups for flattening, each
+    /// mapped back to its policy. A policy without an index is one a plan creates; UniFi puts it ahead of the
+    /// predefined ones, so it is parsed at the first custom index.
+    /// </summary>
+    public static Dictionary<FirewallRule, JsonObject> Parse(ConfigState state, IEnumerable<JsonObject> policies)
+    {
+        var parser = new FirewallRuleParser(NullLogger<FirewallRuleParser>.Instance);
+        parser.SetFirewallGroups(FirewallGroups(state).Values);
+        var rules = new Dictionary<FirewallRule, JsonObject>(ReferenceEqualityComparer.Instance);
+        foreach (var policy in policies)
+        {
+            var copy = (JsonObject)policy.DeepClone();
+            if (copy["index"] is not JsonValue) copy["index"] = FirstCustomIndex;
+            using var doc = JsonDocument.Parse(copy.ToJsonString());
+            if (parser.ParseFirewallPolicy(doc.RootElement) is { } rule) rules[rule] = policy;
+        }
+        return rules;
+    }
+
+    private const int FirstCustomIndex = 10000;
+
+    /// <summary>The state's firewall groups by ID, typed as the Audit reads them. A console can list one twice; the first stands.</summary>
+    public static Dictionary<string, UniFiFirewallGroup> FirewallGroups(ConfigState state)
+    {
+        var groups = new Dictionary<string, UniFiFirewallGroup>();
+        foreach (var g in state.Get("firewallgroup"))
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<UniFiFirewallGroup>(g.ToJsonString()) is { Id.Length: > 0 } group) groups.TryAdd(group.Id, group);
+            }
+            catch (JsonException) { }
+        }
+        return groups;
+    }
+
+    /// <summary>A network as the Audit's source matching reads it: its ID, zone, VLAN, and IPv4 subnet.</summary>
+    private static NetworkInfo? SourceNetwork(ConfigState state, string networkId, string? zone)
+    {
+        var net = state.Get("networkconf").FirstOrDefault(n => string.Equals(ConfigState.IdOf(n), networkId, StringComparison.OrdinalIgnoreCase));
+        if (net == null && zone == null) return null;
+        return new NetworkInfo
+        {
+            Id = networkId, Name = net != null ? Str(net["name"]) ?? networkId : networkId,
+            VlanId = net?["vlan"] is JsonValue v && v.TryGetValue<int>(out var vlan) ? vlan : 1,
+            Subnet = net != null ? Str(net["ip_subnet"]) : null, FirewallZoneId = zone,
+        };
+    }
 
     /// <summary>Network ID to the ID of the zone that lists it.</summary>
     public static Dictionary<string, string> ZoneOfNetwork(ConfigState state)
@@ -137,70 +192,22 @@ public static class ZonePaths
         return (Keyed("external"), null);
     }
 
-    private static bool SourceMatches(JsonObject? match, string network)
+    /// <summary>
+    /// Whether a policy already does what a candidate would: every field the candidate writes holds the same value, its name,
+    /// ID, order, and description aside. This is config identity, not traffic, so it compares the stored JSON: the parsed
+    /// model drops fields and would call two different stored policies the same. Matched by content because a zone rename
+    /// changes the names plans give their policies and a Network upgrade can re-key every ID (10.6 to 11).
+    /// </summary>
+    public static bool Holds(JsonObject existing, JsonObject candidate)
     {
-        if (match == null) return false;
-        return Str(match["matching_target"]) switch
-        {
-            null or "ANY" => true,
-            "NETWORK" => (match["network_ids"] as JsonArray ?? []).Any(n => string.Equals(Str(n), network, StringComparison.OrdinalIgnoreCase))
-                         != (Bool(match["match_opposite_networks"]) == true),
-            // Everyone but a few hosts covers the network; a few hosts do not.
-            "IP" => Bool(match["match_opposite_ips"]) == true,
-            _ => false,
-        };
-    }
+        if (Bool(existing["predefined"]) == true) return false;
+        foreach (var (key, want) in candidate)
+            if (key is not ("_id" or "id" or "name" or "index" or "description") && !Covers(existing[key], want)) return false;
+        return true;
 
-    private static bool DestinationMatches(JsonObject? match, string? network, string address, int port, Dictionary<string, JsonObject> groups)
-    {
-        if (match == null) return false;
-        var target = Str(match["matching_target"]) switch
-        {
-            null or "ANY" => true,
-            "NETWORK" => network != null && (match["network_ids"] as JsonArray ?? []).Any(n => string.Equals(Str(n), network, StringComparison.OrdinalIgnoreCase))
-                         != (Bool(match["match_opposite_networks"]) == true),
-            "IP" => (match["ips"] as JsonArray ?? []).Select(Str).OfType<string>().Any(e => InRange(e, address)) != (Bool(match["match_opposite_ips"]) == true),
-            _ => false,
-        };
-        if (!target) return false;
-        var ports = Str(match["port_matching_type"]) switch
-        {
-            "SPECIFIC" => Str(match["port"]),
-            "OBJECT" => Str(match["port_group_id"]) is { } gid && groups.TryGetValue(gid, out var g)
-                ? string.Join(",", (g["group_members"] as JsonArray ?? []).Select(Str)) : null,
-            _ => "",
-        };
-        if (ports == null) return false;
-        if (ports.Length == 0) return true;
-        return PortListContains(ports, port) != (Bool(match["match_opposite_ports"]) == true);
-    }
-
-    private static bool ProtocolMatches(string? policy, string protocol) => policy switch
-    {
-        null or "all" => true,
-        "tcp_udp" => protocol is "tcp" or "udp",
-        _ => policy == protocol,
-    };
-
-    /// <summary>A comma list of ports and ranges ("53,853,8000-8010") includes <paramref name="port"/>.</summary>
-    public static bool PortListContains(string list, int port) =>
-        list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(part =>
-        {
-            var range = part.Split('-');
-            return range.Length == 2 && int.TryParse(range[0], out var lo) && int.TryParse(range[1], out var hi)
-                ? port >= lo && port <= hi
-                : int.TryParse(part, out var single) && single == port;
-        });
-
-    /// <summary>An address entry (single, range "a-b", or CIDR) includes <paramref name="address"/>.</summary>
-    public static bool InRange(string entry, string address)
-    {
-        if (Readdressing.ParseIp(address) is not { } ip) return false;
-        if (entry.Contains('/')) return Readdressing.ParseSubnet(entry) is { } s && s.Contains(ip);
-        var range = entry.Split('-');
-        if (range.Length == 2)
-            return Readdressing.ParseIp(range[0].Trim()) is { } lo && Readdressing.ParseIp(range[1].Trim()) is { } hi && ip >= lo && ip <= hi;
-        return Readdressing.ParseIp(entry.Trim()) == ip;
+        static bool Covers(JsonNode? have, JsonNode? want) => want is JsonObject w
+            ? have is JsonObject h && w.All(p => Covers(h[p.Key], p.Value))
+            : CanonicalJson.DeepEquals(have, want);
     }
 
     /// <summary>A zone without a zone key: one the operator or a plan created.</summary>
