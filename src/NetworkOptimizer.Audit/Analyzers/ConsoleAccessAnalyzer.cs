@@ -66,7 +66,7 @@ public class ConsoleAccessAnalyzer
 
             var issue = BuildIssue(unused, IssueTypes.UnusedLocalAdmins, "CONSOLE-ADMIN-001",
                 one: "Local Admin account", many: "Local Admin accounts",
-                "Remove or deactivate Local Admin accounts that are no longer in use, in UniFi Network - People or UniFi Site Manager - People. An unused admin account can still sign in.");
+                "Remove or deactivate Local Admin accounts that are no longer in use, in UniFi Network - People or UniFi Site Manager - People.");
             if (issue != null) issues.Add(issue);
         }
 
