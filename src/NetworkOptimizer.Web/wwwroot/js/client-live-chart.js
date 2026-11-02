@@ -220,13 +220,13 @@ function seriesAt(pts, t, key) {
 // than the totals, so drawing them directly puts flat blocks through the totals' spikes - crossing
 // a line WAN physically cannot cross (it rides the same port/radio). Render-time only: the
 // buffers keep the raw measurements, and the area under the dashes stays the measured bytes.
-function reshapeWanSeries(wanPts, pts, wanKey, totKey) {
+function reshapeWanSeries(wanPts, pts, wanKey, totKey, maxGapMs = MAX_WAN_GAP_MS) {
     const src = wanPts.filter(p => p[wanKey] != null);
     const out = [];
     const pushGap = () => { if (out.length && out[out.length - 1].y != null) out.push({ x: out[out.length - 1].x + 1, y: null }); };
     for (let i = 0; i < src.length; i++) {
         const a = src[i], b = src[i + 1];
-        if (!b || b.time - a.time <= 0 || b.time - a.time > MAX_WAN_GAP_MS) {
+        if (!b || b.time - a.time <= 0 || b.time - a.time > maxGapMs) {
             // No window ahead: a lone sample still shows, clamped pointwise, then the line breaks.
             if (!out.length || out[out.length - 1].x < a.time) {
                 const tot = seriesAt(pts, a.time, totKey);
@@ -297,20 +297,23 @@ function trim() {
 
 const DATE_TIME = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
 
+// The live chart's options as they are, so the totals, the WAN pair, and their fills draw the same
+// in both modes. Only the time axis, the tooltip's time, and the empty text differ.
 function buildHistoryOpts(history, caption) {
     const opts = buildOpts();
     const bpsFormatter = { formatter: v => formatBps(v) };
-    opts.chart.animations = { enabled: false };
-    // The peaks render last so their thin lines sit over the fills.
+    // The peaks render last so their thin lines sit over the fills. They are areas with no fill,
+    // never 'line': a mixed-type chart changes how ApexCharts fills the areas beside them.
     opts.series = [
         ...opts.series,
-        { name: 'Peak Download', type: 'line', data: [] },
-        { name: 'Peak Upload',   type: 'line', data: [] },
+        { name: 'Peak Download', type: 'area', data: [] },
+        { name: 'Peak Upload',   type: 'area', data: [] },
     ];
-    opts.colors = [COLOR_DOWN, COLOR_UP, COLOR_DOWN, COLOR_UP, COLOR_DOWN, COLOR_UP];
-    opts.stroke = { curve: 'smooth', width: [2, 2, 2, 2, 1, 1], dashArray: [0, 0, 5, 5, 0, 0] };
-    opts.fill.gradient.opacityFrom = [0.5, 0.5, 0.8, 0.8, 1, 1];
-    opts.fill.gradient.opacityTo = [0.08, 0.08, 0.3, 0.3, 1, 1];
+    opts.colors = [...opts.colors, COLOR_DOWN, COLOR_UP];
+    opts.stroke.width = [...opts.stroke.width, 1, 1];
+    opts.stroke.dashArray = [...opts.stroke.dashArray, 0, 0];
+    opts.fill.gradient.opacityFrom = [...opts.fill.gradient.opacityFrom, 0, 0];
+    opts.fill.gradient.opacityTo = [...opts.fill.gradient.opacityTo, 0, 0];
     opts.xaxis = {
         type: 'datetime',
         min: new Date(history.from).getTime(),
@@ -346,13 +349,17 @@ function withGaps(points, windowMs, pick) {
 function historySeries(history) {
     const pts = history.points || [];
     const w = history.windowMs || 60000;
-    // The WAN share never draws above the total it is part of (the live chart's rule).
-    const wanOf = (wan, total) => wan == null ? null : Math.min(wan, total ?? wan);
+    // The WAN pair goes through the live chart's own reshape, so it sits inside the totals the
+    // same way; a missing window breaks it, as the totals break.
+    const totals = pts.map(p => ({ time: new Date(p.time).getTime(), down: p.downloadBps, up: p.uploadBps }));
+    const wanPts = pts
+        .filter(p => p.wanDownloadBps != null || p.wanUploadBps != null)
+        .map(p => ({ time: new Date(p.time).getTime(), wanDown: p.wanDownloadBps, wanUp: p.wanUploadBps }));
     return [
         { name: 'Download',      data: withGaps(pts, w, p => p.downloadBps) },
         { name: 'Upload',        data: withGaps(pts, w, p => p.uploadBps) },
-        { name: 'WAN Download',  data: withGaps(pts, w, p => wanOf(p.wanDownloadBps, p.downloadBps)) },
-        { name: 'WAN Upload',    data: withGaps(pts, w, p => wanOf(p.wanUploadBps, p.uploadBps)) },
+        { name: 'WAN Download',  data: reshapeWanSeries(wanPts, totals, 'wanDown', 'down', w * 1.5) },
+        { name: 'WAN Upload',    data: reshapeWanSeries(wanPts, totals, 'wanUp', 'up', w * 1.5) },
         { name: 'Peak Download', data: history.hasPeaks ? withGaps(pts, w, p => p.peakDownloadBps) : [] },
         { name: 'Peak Upload',   data: history.hasPeaks ? withGaps(pts, w, p => p.peakUploadBps) : [] },
     ];
