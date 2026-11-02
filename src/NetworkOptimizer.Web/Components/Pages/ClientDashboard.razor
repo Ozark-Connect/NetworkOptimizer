@@ -634,8 +634,9 @@
                         </div>
                     }
 
-                    @* Speed and Latency History, side by side on a desktop *@
-                    @if (_speedDownloadData.Count > 0 || _latencyPingData.Count > 0)
+                    @* Speed and Latency History, side by side on a desktop. One result draws no line, so
+                       the charts wait for a second; the latest result above already shows it. *@
+                    @if (_speedResults.Count > 1 && (_speedDownloadData.Count > 0 || _latencyPingData.Count > 0))
                     {
                     <div class="speed-history-grid">
                     @if (_speedDownloadData.Count > 0)
