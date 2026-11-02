@@ -9,6 +9,7 @@
 @inject AuthenticationStateProvider AuthState
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
+@inject CcEditDrafts Drafts
 @inject IJSRuntime JS
 @inject ILogger<CcEdit> Logger
 
@@ -330,7 +331,24 @@
             }
         }
         if (await ReadLastGroupAsync() is { } last && VisibleGroups.Contains(last)) _group = last;
+        var restored = await RestoreDraftAsync();
         await OpenGroupAsync(_group);
+        if (restored) await ValidateAsync();
+    }
+
+    /// <summary>
+    /// Back from Review Plan: the edits it was built from, while that plan is still a draft. A plan that was
+    /// submitted, applied, or cancelled has taken them, so the editor opens on the config instead.
+    /// </summary>
+    private async Task<bool> RestoreDraftAsync()
+    {
+        if (TemplateId != null || Drafts.Take(FoldScope) is not { } draft) return false;
+        var plans = await Site.GetPlansAsync(inProgressOnly: false);
+        if (plans.FirstOrDefault(p => p.Id == draft.PlanId)?.Status != NetworkOptimizer.Storage.Models.ConfigPlanStatus.Draft) return false;
+        StartFrom = draft.StartFrom;
+        foreach (var (group, text) in draft.Edited) _edited[group] = text;
+        _uploaded.UnionWith(draft.Uploaded);
+        return true;
     }
 
     // The collection last open, per user and per site or template, in this browser. Storage can be
@@ -747,6 +765,7 @@
             StateHasChanged();
             await Task.Yield();
             var planId = await Site.BuildEditPlanAsync(SnapshotId, Files());
+            Drafts.Keep(FoldScope, new CcEditDrafts.Draft(StartFrom, new Dictionary<string, string>(_edited), new HashSet<string>(_uploaded), planId));
             _leavingForPlan = true;
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
