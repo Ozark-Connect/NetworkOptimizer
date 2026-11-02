@@ -53,6 +53,8 @@ let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
 let mode = 'live';
 let markLayer = null;
+let currentHistory = null;
+let historyCaption = null;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -366,18 +368,23 @@ function historySeries(history) {
     ];
 }
 
+// Speed tests in the accent color: they are not health events, so no severity color fits.
+function applyMarks(history) {
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#E56B11';
+    markLayer?.apply((history.marks || []).map(m => ({ ...m, color: accent })), {});
+}
+
 async function mountHistory(el, gen, history, dotNet) {
-    const caption = createAxisDateCaption({
+    currentHistory = history;
+    historyCaption = createAxisDateCaption({
         charts: () => [chart],
-        window: () => ({ from: new Date(history.from), to: new Date(history.to) }),
+        window: () => ({ from: new Date(currentHistory.from), to: new Date(currentHistory.to) }),
     });
-    chart = new ApexCharts(el, buildHistoryOpts(history, caption));
+    chart = new ApexCharts(el, buildHistoryOpts(history, historyCaption));
     await chart.render();
     if (gen !== mountGen) return true;
     chart.updateSeries(historySeries(history), false);
-    // Speed tests in the accent color: they are not health events, so no severity color fits.
-    // A click opens the result in Test Results.
-    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#E56B11';
+    // A click on a speed test opens the result in Test Results.
     markLayer = createMarkLayer({
         charts: () => [[chart, el]],
         onAction: dotNet
@@ -385,8 +392,23 @@ async function mountHistory(el, gen, history, dotNet) {
                 .catch(e => console.warn('Speed test result could not be opened', e))
             : undefined,
     });
-    markLayer.apply((history.marks || []).map(m => ({ ...m, color: accent })), {});
+    applyMarks(history);
     return true;
+}
+
+/** The same range re-pulled, drawn in place: the window moves up to now and new windows land.
+ *  Skipped while the value tooltip is open; the next refresh brings it. */
+export function updateHistory(history) {
+    if (!chart || mode !== 'history' || tooltipShowing()) return;
+    currentHistory = history;
+    chart.updateOptions({
+        xaxis: { min: new Date(history.from).getTime(), max: new Date(history.to).getTime() },
+    }, false, false, false);
+    chart.updateSeries(historySeries(history), false);
+    // The caption before the marks: its redraw recreates the label nodes the marks bind to.
+    historyCaption?.apply();
+    markLayer?.reset();
+    applyMarks(history);
 }
 
 /** Mounts into a container. Live, with the window's history:
@@ -400,6 +422,11 @@ export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return false;
+    // Both modes hold off redrawing under an open tooltip, which needs the pointer tracked.
+    mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
+    mouseLeaveHandler = () => { lastMouse = null; };
+    el.addEventListener('mousemove', mouseMoveHandler);
+    el.addEventListener('mouseleave', mouseLeaveHandler);
     if (opts?.history) {
         mode = 'history';
         return await mountHistory(el, gen, opts.history, opts.dotNet);
@@ -412,10 +439,6 @@ export async function mount(containerId, opts) {
     liveEdge = null;
     wanEdge = null;
     trim();
-    mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
-    mouseLeaveHandler = () => { lastMouse = null; };
-    el.addEventListener('mousemove', mouseMoveHandler);
-    el.addEventListener('mouseleave', mouseLeaveHandler);
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
     if (gen !== mountGen) return true;
@@ -483,4 +506,6 @@ export function dispose() {
     mode = 'live';
     markLayer?.dispose();
     markLayer = null;
+    currentHistory = null;
+    historyCaption = null;
 }

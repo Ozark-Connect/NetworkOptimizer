@@ -1323,6 +1323,8 @@
     private int _liveChartHours;
     private int _throughputGeneration;
     private bool _throughputLoading;
+    private DateTime _throughputHistoryAt;
+    private static readonly TimeSpan ThroughputHistoryRefresh = TimeSpan.FromSeconds(30);
     private static readonly (int hours, string label)[] _throughputRanges =
     {
         (0, "Live"), (1, "1h"), (6, "6h"), (24, "24h"), (168, "7d"), (720, "30d")
@@ -2328,6 +2330,33 @@
         else
             _wifiThroughput = await DashboardService.GetWifiThroughputAsync(_client);
         await PushLiveSampleAsync();
+        await RefreshThroughputHistoryAsync();
+    }
+
+    /// <summary>
+    /// Re-pulls the history the Throughput card shows every <see cref="ThroughputHistoryRefresh"/>
+    /// while the page is in view, so the range's right edge keeps up with now without a live feed.
+    /// Updated in place: a remount would blink the chart and close an open tooltip.
+    /// </summary>
+    private async Task RefreshThroughputHistoryAsync()
+    {
+        if (!_liveChartReady || _liveChartHours == 0 || _throughputLoading || _pageHidden || _client == null) return;
+        if (DateTime.UtcNow - _throughputHistoryAt < ThroughputHistoryRefresh) return;
+        _throughputHistoryAt = DateTime.UtcNow;
+        var hours = _liveChartHours;
+        var generation = _throughputGeneration;
+        try
+        {
+            var (history, summary) = await LoadThroughputHistoryAsync(hours);
+            if (generation != _throughputGeneration || hours != _liveChartHours || !_liveChartReady) return;
+            _throughputSummary = summary;
+            using var chartCts = new CancellationTokenSource(LiveChartCallTimeout);
+            await JS.InvokeVoidAsync("__clientLiveChart.updateHistory", chartCts.Token, history);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Throughput history refresh failed");
+        }
     }
 
     // ---- Live Throughput chart ----
@@ -2373,6 +2402,7 @@
                 if (generation != _throughputGeneration) return;
                 _throughputLoading = false;
                 _throughputSummary = summary;
+                _throughputHistoryAt = DateTime.UtcNow;
                 StateHasChanged();
                 // A newer range was picked while this loaded; the next render mounts that one.
                 if (_liveChartHours != _throughputHours) return;
