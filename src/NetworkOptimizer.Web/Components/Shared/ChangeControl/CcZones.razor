@@ -47,7 +47,16 @@ else
                      @ondragover:preventDefault @ondragenter="() => _dragOver = key" @ondragleave="() => { if (_dragOver == key) _dragOver = null; }" @ondrop="() => DropAsync(key)">
                     <div class="cc-zone-head">
                         <div>
-                            <b>@z.Name</b>
+                            @if (z.BuiltIn || z.Key == ZoneSetup.UnassignedKey)
+                            {
+                                <b>@z.Name</b>
+                            }
+                            else
+                            {
+                                <InlineEditField Tooltip="Rename zone" Placeholder="Zone name" Load="() => Task.FromResult(z.Name)" Save="name => RenameAsync(z, name)">
+                                    <b>@z.Name</b>
+                                </InlineEditField>
+                            }
                             <div class="cc-zone-desc">@z.Description</div>
                         </div>
                         @if (_moving != null && !isCurrent)
@@ -216,7 +225,24 @@ else
 
     private readonly HashSet<string> _keep = [];
 
-    private ZoneChoices Choices() => new() { Mode = _mode, Moves = new(_moves), AddedZones = [.. _added], Exceptions = new(_exceptions), KeepZones = [.. _keep] };
+    private readonly Dictionary<string, string> _names = [];
+
+    private ZoneChoices Choices() => new() { Mode = _mode, Moves = new(_moves), AddedZones = [.. _added], Exceptions = new(_exceptions), KeepZones = [.. _keep], Names = new(_names) };
+
+    // A rename is a board choice like a move: the plan writes it.
+    private async Task<string?> RenameAsync(ZoneDraft z, string name)
+    {
+        if (name.Length == 0) return "Give the zone a name.";
+        if (name == z.Name) return null;
+        // Taken: another column's name, or any console zone's but this one's own (External, an empty zone off the board).
+        if (_board!.Zones.Any(o => o != z && o.Key != ZoneSetup.UnassignedKey && string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase))
+            || _board.ConsoleZoneNames.Any(c => c.Key != z.ExistingId && string.Equals(c.Value, name, StringComparison.OrdinalIgnoreCase)
+                && !_board.Zones.Any(o => o.ExistingId == c.Key && o != z)))
+            return $"A zone named {name} already exists.";
+        _names[z.Key] = name;
+        await RefreshAsync();
+        return null;
+    }
 
     private async Task ToggleDeleteAsync(ZoneDraft z)
     {
@@ -301,6 +327,7 @@ else
         _mode = mode;
         _moves.Clear();
         _added.Clear();
+        _names.Clear();
         _moving = null;
         await RefreshAsync();
     }
@@ -340,6 +367,7 @@ else
         _added.Clear();
         _exceptions.Clear();
         _keep.Clear();
+        _names.Clear();
         await RefreshAsync();
     }
 

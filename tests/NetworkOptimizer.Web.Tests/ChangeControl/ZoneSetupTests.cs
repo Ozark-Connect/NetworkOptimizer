@@ -1464,6 +1464,29 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void RenamedZones_AreWrittenByThePlan_AndBuiltInZonesKeepTheirNames()
+    {
+        var live = WithSubnetsAndGateway();
+        Into(live, "z-protect", "Protect", "n-cam");
+        var networks = Networks.Append(Net("n-srv", "Lab", 60, NetworkPurpose.Server)).ToList();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-srv", ["name"] = "Lab", ["vlan"] = 60, ["ip_subnet"] = "10.0.60.1/24" });
+        live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Add("n-srv");
+        var names = new Dictionary<string, string> { ["cameras"] = "Cameras", ["servers"] = "Lab", ["internal"] = "Trusted", ["iot"] = "Things" };
+
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, names: names);
+        var plan = ZoneSetup.Plan(live, board);
+
+        board.Zones.Single(z => z.ExistingId == "z-protect").Name.Should().Be("Cameras");
+        board.Zones.Single(z => z.Key == "internal").Name.Should().Be("Internal", "UniFi's built-in zones keep their names");
+        board.Exceptions.Single(e => e.Key == "servers").Name.Should().Be("Allow Internal to Lab", "the row names the policy the plan writes");
+        plan.Desired.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "z-protect")["name"]!.ToString().Should().Be("Cameras");
+        plan.Desired.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "new-zone-servers")["name"]!.ToString().Should().Be("Lab");
+        plan.Desired.Get("firewall_zone").Single(z => z["_id"]!.ToString() == "new-zone-iot")["name"]!.ToString().Should().Be("Things");
+        Named(plan.Desired, "Allow Internal to Lab").Should().NotBeNull();
+        board.ConsoleZoneNames.Should().ContainKey("z-ext");
+    }
+
+    [Fact]
     public void AnEmptyServersColumn_DescribesTheDefault()
     {
         var board = ZoneSetup.Build(WithSubnetsAndGateway(), Networks, ZoneSetup.TrustMode);

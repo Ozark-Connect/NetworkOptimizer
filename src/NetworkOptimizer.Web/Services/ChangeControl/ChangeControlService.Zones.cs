@@ -13,6 +13,9 @@ public sealed class ZoneChoices
 
     /// <summary>Emptied zones to keep (by ID); the rest are deleted.</summary>
     public List<string> KeepZones { get; init; } = [];
+
+    /// <summary>Zone key to the name given on the board.</summary>
+    public Dictionary<string, string> Names { get; init; } = [];
 }
 
 public sealed partial class ChangeControlService
@@ -22,7 +25,7 @@ public sealed partial class ChangeControlService
         var live = await Engine.ReadLiveAsync(ct);
         var networks = Engine.Evaluator == null ? null : await Engine.Evaluator.GetNetworksAsync(_site.Slug, live, ct);
         if (networks == null) throw new InvalidOperationException("The Security Audit could not read this site's networks. Check the UniFi Console connection.");
-        return (ZoneSetup.Build(live, networks, choices.Mode, choices.Moves, choices.AddedZones, choices.Exceptions, choices.KeepZones), live, networks);
+        return (ZoneSetup.Build(live, networks, choices.Mode, choices.Moves, choices.AddedZones, choices.Exceptions, choices.KeepZones, choices.Names), live, networks);
     }
 
     public async Task<ZoneSetupView> GetZoneSetupAsync(ZoneChoices choices, bool runChecks, CancellationToken cancellationToken = default)

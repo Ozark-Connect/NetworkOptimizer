@@ -20,7 +20,9 @@ public sealed class ZoneNetworkView
 public sealed class ZoneDraft
 {
     public string Key { get; init; } = "";
-    public string Name { get; init; } = "";
+
+    /// <summary>The zone's name; the operator can rename it on the board, which the plan writes.</summary>
+    public string Name { get; set; } = "";
     public ZoneRole Role { get; init; }
     public string? ExistingId { get; init; }
     public bool BuiltIn { get; init; }
@@ -67,6 +69,9 @@ public sealed class ZoneSetupView
     public List<ZoneNetworkView> Networks { get; init; } = [];
     public List<ZoneDraft> Zones { get; init; } = [];
     public List<ZoneException> Exceptions { get; init; } = [];
+
+    /// <summary>Every zone on the console by ID, board or not (External, an empty zone): a rename must not reuse one's name.</summary>
+    public Dictionary<string, string> ConsoleZoneNames { get; init; } = [];
     public List<ZoneCheck> Checks { get; set; } = [];
     public bool? ChecksPass { get; set; }
     public int Unassigned => Zones.FirstOrDefault(z => z.Key == ZoneSetup.UnassignedKey)?.NetworkIds.Count ?? 0;
@@ -177,9 +182,11 @@ public static class ZoneSetup
     /// <param name="addedZones">Names of zones the user added.</param>
     /// <param name="exceptions">Exception key to on or off; unset ones take their default.</param>
     /// <param name="keepZones">IDs of emptied operator zones to keep; every other emptied one is deleted.</param>
+    /// <param name="names">Zone key to the name the operator gave it on the board.</param>
     public static ZoneSetupView Build(ConfigState live, IReadOnlyList<NetworkInfo> networks, string mode,
         IReadOnlyDictionary<string, string>? moves = null, IReadOnlyList<string>? addedZones = null,
-        IReadOnlyDictionary<string, bool>? exceptions = null, IReadOnlyCollection<string>? keepZones = null)
+        IReadOnlyDictionary<string, bool>? exceptions = null, IReadOnlyCollection<string>? keepZones = null,
+        IReadOnlyDictionary<string, string>? names = null)
     {
         moves ??= new Dictionary<string, string>();
         var liveZones = live.Get("firewall_zone");
@@ -249,6 +256,10 @@ public static class ZoneSetup
                      .Where(ZonePaths.IsCustom).DistinctBy(ConfigState.IdOf))
             if (!zones.Values.Any(z => z.ExistingId == ConfigState.IdOf(current))) Keep(current);
         var unassigned = zones[UnassignedKey] = new ZoneDraft { Key = UnassignedKey, Name = "Unassigned", Role = ZoneRole.Custom, Description = "Stay in their current zone" };
+        // UniFi's built-in zones keep their names.
+        foreach (var (key, name) in names ?? new Dictionary<string, string>())
+            if (key != UnassignedKey && zones.TryGetValue(key, out var renamed) && !renamed.BuiltIn && !string.IsNullOrWhiteSpace(name))
+                renamed.Name = name.Trim();
 
         foreach (var n in networks.Where(n => !external.Contains(n.Id)))
         {
@@ -278,7 +289,11 @@ public static class ZoneSetup
             var applicable = populated.Any(z => z.Role == e.Role) && populated.Any(z => z.Role == ZoneRole.Internal);
             return new ZoneException
             {
-                Key = e.Key, Name = e.FromName, Why = applicable ? e.Why : $"Only if you assign {RoleNoun(e.Role)} to a zone",
+                // The Servers allow is named by its zones (Allow), so a renamed column names it too.
+                Key = e.Key,
+                Name = e.Key == ServersKey && populated.FirstOrDefault(z => z.Role == ZoneRole.Internal) is { } inside && populated.FirstOrDefault(z => z.Role == e.Role) is { } servers
+                    ? $"Allow {inside.Name} to {servers.Name}" : e.FromName,
+                Why = applicable ? e.Why : $"Only if you assign {RoleNoun(e.Role)} to a zone",
                 FromTo = $"Internal to {populated.FirstOrDefault(z => z.Role == e.Role)?.Name ?? RoleNoun(e.Role)}",
                 Applicable = applicable, Enabled = applicable && (exceptions?.TryGetValue(e.Key, out var on) == true ? on : e.Default),
             };
@@ -292,6 +307,7 @@ public static class ZoneSetup
             Networks = views,
             Zones = zones.Values.Where(z => z.Key != UnassignedKey).OrderBy(z => Array.IndexOf(order, z.Role)).ThenBy(z => z.Kept).ThenBy(z => z.Name).Append(unassigned).ToList(),
             Exceptions = exceptionViews,
+            ConsoleZoneNames = liveZones.ToDictionary(ConfigState.IdOf, z => Str(z, "name") ?? "", StringComparer.OrdinalIgnoreCase),
         };
 
         // An exception the operator's own allow already gives (re-homed into the same pair) starts unticked, unless chosen.
@@ -424,6 +440,7 @@ public static class ZoneSetup
                 zones.Add(zone);
             }
             ids[draft.Key] = ConfigState.IdOf(zone);
+            if (!draft.BuiltIn && !string.IsNullOrWhiteSpace(draft.Name) && Str(zone, "name") != draft.Name) zone["name"] = draft.Name;
             var keep = Ids(zone).Where(id => !assigned.Contains(id));
             zone["network_ids"] = new JsonArray(keep.Concat(draft.NetworkIds).Distinct().Select(id => (JsonNode?)id).ToArray());
         }

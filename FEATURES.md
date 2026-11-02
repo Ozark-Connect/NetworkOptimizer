@@ -318,6 +318,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - Splits a policy whose networks or clients land in different zones, and deletes blocks the new zones' defaults already cover
     - Warns when a network you move becomes reachable through rules already on its new zone
     - Deletes a zone the move leaves empty and moves its rules with its networks, or keeps it for later
+    - Rename a zone on the board, and the plan writes the new name
     - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
   - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
     - Addresses on a WAN's carrier side or a VPN's far side stay as they are
