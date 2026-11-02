@@ -522,7 +522,7 @@
         try
         {
             await JS.InvokeVoidAsync("eval",
-                "['.main-content', '.page-content'].forEach(s => document.querySelector(s)?.scrollTo({ top: 0, behavior: 'smooth' })); window.scrollTo({ top: 0, behavior: 'smooth' });");
+                "window.dispatchEvent(new Event('netopt:scroll-top')); ['.main-content', '.page-content'].forEach(s => document.querySelector(s)?.scrollTo({ top: 0, behavior: 'smooth' })); window.scrollTo({ top: 0, behavior: 'smooth' });");
         }
         catch (JSDisconnectedException) { }
     }
