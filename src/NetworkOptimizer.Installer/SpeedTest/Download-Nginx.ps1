@@ -3,7 +3,7 @@
 
 param(
     [string]$OutputDir = "$PSScriptRoot\nginx",
-    [string]$Version = "1.30.4"  # Match the Docker 1.30 stable line
+    [string]$Version = "1.30.6"  # The build passes NginxVersion from the wixproj
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +34,9 @@ Expand-Archive -Path $TempFile -DestinationPath $env:TEMP -Force
 # Move extracted folder to output
 $ExtractedDir = Join-Path $env:TEMP "nginx-$Version"
 Move-Item -Path $ExtractedDir -Destination $OutputDir -Force
+
+# Marker the wixproj checks, so a version bump re-runs this script. Not installed by the MSI.
+New-Item -ItemType File -Path (Join-Path $OutputDir "nginx-$Version.version") -Force | Out-Null
 
 Write-Host "nginx $Version ready at $OutputDir"
 

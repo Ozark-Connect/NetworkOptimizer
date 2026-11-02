@@ -96,6 +96,10 @@ jobs:
           context: .
           file: ./docker/agent/Dockerfile
           platforms: ${{ matrix.platform }}
+          # Fresh base and apt layer every release: the runtime stage's nginx/openssl come from
+          # Debian security updates, which a cached apt layer would never pick up.
+          pull: true
+          no-cache-filters: runtime
           labels: ${{ steps.agent-meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
@@ -236,6 +240,8 @@ jobs:
           context: .
           file: ./docker/openspeedtest/Dockerfile
           platforms: linux/amd64,linux/arm64
+          # nginx:1.30-alpine floats; pull so each release takes the newest 1.30.x patch.
+          pull: true
           push: true
           tags: ${{ steps.speedtest-meta.outputs.tags }}
           labels: ${{ steps.speedtest-meta.outputs.labels }}
