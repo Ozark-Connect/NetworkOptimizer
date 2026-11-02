@@ -134,6 +134,12 @@ public sealed class PlanDocument
     public bool ImpactRan { get; set; }
     public List<LockoutFinding> Lockouts { get; set; } = [];
 
+    /// <summary>
+    /// What a lockout's typed confirmation asks for: the site's name when the plan was built. Null on plans built
+    /// before it existed, which ask for the device names instead.
+    /// </summary>
+    public string? ConfirmationPhrase { get; set; }
+
     /// <summary>Problems that stop the plan before any write (ambiguous names, references, refused deletes).</summary>
     public List<string> Errors { get; set; } = [];
 

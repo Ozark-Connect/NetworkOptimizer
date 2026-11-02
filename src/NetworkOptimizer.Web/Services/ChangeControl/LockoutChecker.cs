@@ -65,7 +65,9 @@ public static class LockoutChecker
             });
         }
 
-        // 2. Static device IPs stay inside their management network.
+        // 2. Static device IPs stay inside their management network. Possible findings share one wording, so
+        // they are listed as one finding naming every device; a certain one keeps its own address and subnet.
+        var possibleIp = new List<(string Name, string? Key)>();
         foreach (var (mac, device) in devicesByMac)
         {
             if (!liveDevicesByMac.TryGetValue(mac, out var liveDevice)) continue;
@@ -76,17 +78,31 @@ public static class LockoutChecker
             var mgmt = MgmtNetwork(device);
             var subnet = Str(planned.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == mgmt)?["ip_subnet"]);
             var certain = Str(cn?["type"]) == "static" && Str(cn?["ip"]) is { } ip && subnet != null && !InSubnet(ip, subnet);
+            if (!certain)
+            {
+                possibleIp.Add((Name(device), key));
+                continue;
+            }
             findings.Add(new LockoutFinding
             {
-                Kind = certain ? "certain" : "possible",
+                Kind = "certain",
                 Title = $"{Name(device)} IP settings change",
-                Detail = certain
-                    ? $"The static address {Str(cn?["ip"])} is outside its management network {subnet}. The device would not reach the UniFi Console."
-                    : "A device network override can leave the device without an address on its management network.",
+                Detail = $"The static address {Str(cn?["ip"])} is outside its management network {subnet}. The device would not reach the UniFi Console.",
                 Devices = [Name(device)],
                 OperationKeys = key == null ? [] : [key],
             });
         }
+        if (possibleIp.Count > 0)
+            findings.Add(new LockoutFinding
+            {
+                Kind = "possible",
+                Title = possibleIp.Count == 1 ? $"{possibleIp[0].Name} IP settings change" : $"{possibleIp.Count} devices change their IP settings",
+                Detail = possibleIp.Count == 1
+                    ? "A device network override can leave the device without an address on its management network."
+                    : $"A device network override can leave a device without an address on its management network: {string.Join(", ", possibleIp.Select(p => p.Name))}.",
+                Devices = possibleIp.Select(p => p.Name).ToList(),
+                OperationKeys = possibleIp.Select(p => p.Key).OfType<string>().ToList(),
+            });
 
         // 3. Inform host override and the console's local DNS name. The host is super_mgmt's
         // override_inform_host_location; super_identity.hostname is the console's OS hostname.

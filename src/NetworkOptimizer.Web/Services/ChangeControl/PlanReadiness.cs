@@ -11,12 +11,19 @@ namespace NetworkOptimizer.Web.Services.ChangeControl;
 /// </summary>
 public static class PlanReadiness
 {
-    /// <summary>The text the typed confirmation must match: the device names the lockouts name.</summary>
+    /// <summary>
+    /// The text the typed confirmation must match: the site's name, short enough to type and tied to the site
+    /// about to change. A plan built without one asks for the device names, as it did when it was built.
+    /// </summary>
     public static string ConfirmationText(PlanDocument doc)
     {
-        var devices = doc.Lockouts.SelectMany(l => l.Devices).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        return devices.Count == 0 ? "" : string.Join(", ", devices);
+        if (doc.Lockouts.Count == 0) return "";
+        return doc.ConfirmationPhrase is { Length: > 0 } phrase ? phrase : string.Join(", ", LockoutDevices(doc));
     }
+
+    /// <summary>The devices the lockouts name, once each.</summary>
+    public static List<string> LockoutDevices(PlanDocument doc) =>
+        doc.Lockouts.SelectMany(l => l.Devices).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
     /// <summary>The plan has a certain lockout, which only a Site Admin can override.</summary>
     public static bool HasCertainLockout(PlanDocument doc) => doc.Lockouts.Any(l => l.Kind == "certain");

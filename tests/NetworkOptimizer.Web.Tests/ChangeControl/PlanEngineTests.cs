@@ -141,6 +141,69 @@ public class PlanEngineTests
         doc.Operations.Single().ManagementPath.Should().BeTrue();
     }
 
+    private static string Ap(string id, string mac, string name, string configNetwork) =>
+        $$$"""{"_id":"{{{id}}}","mac":"{{{mac}}}","name":"{{{name}}}","config_network":{{{configNetwork}}},"_no_meta":{"type":"uap"}}""";
+
+    [Fact]
+    public void Lockout_PossibleIpSettingsChanges_AreOneFindingNamingEveryDevice()
+    {
+        const string dhcp = """{"type":"dhcp"}""";
+        const string staticIn = """{"type":"static","ip":"192.168.1.20"}""";
+        var live = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", dhcp)),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", dhcp)));
+        var desired = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", staticIn)),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", staticIn.Replace(".20", ".21"))));
+
+        var doc = Plan(desired, live);
+
+        var finding = doc.Lockouts.Should().ContainSingle().Subject;
+        finding.Kind.Should().Be("possible");
+        finding.Title.Should().Be("2 devices change their IP settings");
+        finding.Devices.Should().Equal("AP One", "AP Two");
+        finding.OperationKeys.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Lockout_CertainIpSettingsChange_KeepsItsOwnFinding()
+    {
+        const string dhcp = """{"type":"dhcp"}""";
+        var live = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", dhcp)),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", dhcp)));
+        var desired = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", """{"type":"static","ip":"192.168.1.20"}""")),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", """{"type":"static","ip":"10.9.9.9"}""")));
+
+        var doc = Plan(desired, live);
+
+        doc.Lockouts.Should().HaveCount(2);
+        doc.Lockouts.Should().ContainSingle(l => l.Kind == "certain").Which.Devices.Should().Equal("AP Two");
+        doc.Lockouts.Should().ContainSingle(l => l.Kind == "possible").Which.Title.Should().Be("AP One IP settings change");
+    }
+
+    [Fact]
+    public void Confirmation_IsTheSiteName_WhenThePlanCarriesOne()
+    {
+        var doc = new PlanDocument
+        {
+            Operations = [new PlanOperation { Key = "op1", Collection = "device", Tier = PlanTiers.Lockout }],
+            Lockouts = [new LockoutFinding { Devices = ["AP One", "AP Two"], OperationKeys = ["op1"] }],
+            ConfirmationPhrase = "Test Site",
+        };
+
+        PlanReadiness.ConfirmationText(doc).Should().Be("Test Site");
+        PlanReadiness.Remaining(doc, new PlanAcknowledgements { TypedConfirmation = "test site " }, isSiteAdmin: true).Should().BeEmpty();
+        PlanReadiness.Remaining(doc, new PlanAcknowledgements { TypedConfirmation = "AP One, AP Two" }, isSiteAdmin: true)
+            .Should().Equal("1 confirmation to type");
+    }
+
+    [Fact]
+    public void Confirmation_FallsBackToTheDeviceNames_OnAPlanBuiltWithoutAPhrase()
+    {
+        var doc = new PlanDocument { Lockouts = [new LockoutFinding { Devices = ["AP One", "AP Two"] }, new LockoutFinding { Devices = ["AP One"] }] };
+
+        PlanReadiness.ConfirmationText(doc).Should().Be("AP One, AP Two");
+        PlanReadiness.ConfirmationText(new PlanDocument { ConfirmationPhrase = "Test Site" }).Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Executor_RoundTrip_LeavesNoDifference()
     {

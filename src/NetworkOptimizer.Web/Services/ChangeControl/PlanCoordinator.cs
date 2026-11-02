@@ -44,6 +44,9 @@ public sealed class PlanCoordinator
     /// <summary>Console host for the inform-path checks.</summary>
     public Func<string?> ConsoleHost { get; set; } = () => null;
 
+    /// <summary>The site's display name, stored on each plan as its lockout confirmation phrase.</summary>
+    public Func<CancellationToken, Task<string>>? SiteName { get; set; }
+
     /// <summary>Hands the revert to the On-Site Agent before an apply (step 15); null on direct sites.</summary>
     public IAgentRevertArmer? AgentRevert { get; set; }
 
@@ -162,6 +165,7 @@ public sealed class PlanCoordinator
                 (opts.GatewayConsoleAddress, opts.GatewayConsolePort) = console;
         }
         var doc = PlanBuilder.Build(desired, live, opts);
+        if (SiteName != null) doc.ConfirmationPhrase = await SiteName(ct);
         decorate?.Invoke(doc);
         if (IsAgentSite() && (doc.WatchDevices || doc.WatchInternet) && AgentRevert?.CanArm() != true)
             doc.Notes.Add("This site's On-Site Agent cannot hold the revert (it needs an agent update). "
@@ -344,7 +348,7 @@ public sealed class PlanCoordinator
             if (PlanReadiness.HasCertainLockout(doc))
                 _audit?.Log(AuditEventBuilder.FromSystem(AuditCategories.Action, AuditActions.ChangeControlLockoutOverridden,
                     targetType: "config_plan", targetId: plan.Id.ToString(), targetName: plan.Name, siteSlug: Slug,
-                    details: new { by = actor.Name, devices = PlanReadiness.ConfirmationText(doc) }));
+                    details: new { by = actor.Name, devices = string.Join(", ", PlanReadiness.LockoutDevices(doc)) }));
 
             var pre = await _engine.TakeSnapshotAsync(ConfigSnapshotTrigger.BeforeApply, plan.Name, $"Before apply: {plan.Name}", ct);
             // No pinned snapshot means no way back, so nothing is written.

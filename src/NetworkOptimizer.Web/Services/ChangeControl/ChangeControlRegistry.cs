@@ -226,6 +226,11 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         {
             IsAgentSite = () => connection.IsViaAgent,
             ConsoleHost = () => Uri.TryCreate(connection.CurrentConfig?.ControllerUrl, UriKind.Absolute, out var u) ? u.Host : null,
+            SiteName = async ct =>
+            {
+                await using var db = await _mainDbFactory.CreateDbContextAsync(ct);
+                return await db.Sites.AsNoTracking().Where(s => s.Slug == slug).Select(s => s.Name).FirstOrDefaultAsync(ct) ?? slug;
+            },
         };
         var agents = _sp.GetService<AgentTunnelRegistry>();
         if (agents != null)
