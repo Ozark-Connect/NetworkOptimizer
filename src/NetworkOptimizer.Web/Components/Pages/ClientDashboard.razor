@@ -1183,8 +1183,18 @@
                         @if (_dataUsage != null)
                         {
                         <div class="card chart-card">
-                            <div class="chart-card-header">
+                            <div class="chart-card-header usage-chart-header">
                                 <h3>Usage</h3>
+                                <div class="usage-legend">
+                                    <button type="button" class="usage-legend-item @(_usageHiddenSeries.Contains("Download") ? "is-hidden" : "")"
+                                            @onclick='() => ToggleUsageSeriesAsync("Download")'>
+                                        <span class="usage-legend-marker usage-legend-download"></span>Download
+                                    </button>
+                                    <button type="button" class="usage-legend-item @(_usageHiddenSeries.Contains("Upload") ? "is-hidden" : "")"
+                                            @onclick='() => ToggleUsageSeriesAsync("Upload")'>
+                                        <span class="usage-legend-marker usage-legend-upload"></span>Upload
+                                    </button>
+                                </div>
                                 <div class="time-range-selector">
                                     <button class="time-btn @(_usageView == "wan" ? "active" : "")" @onclick="@(() => SetUsageViewAsync("wan"))">WAN</button>
                                     <button class="time-btn @(_usageView == "lan" ? "active" : "")" @onclick="@(() => SetUsageViewAsync("lan"))">LAN + WAN</button>
@@ -1422,6 +1432,7 @@
     private ApexChart<SpeedChartPoint>? _usageChart;
     private ApexChartOptions<SpeedChartPoint> _usageChartOptions = new();
     private string _usageView = "wan"; // "wan" or "lan": which totals the Usage chart plots
+    private readonly HashSet<string> _usageHiddenSeries = new();
     private int? _expandedResultId;
     private string? _openSpeedTestUrl;
     // The site's agent runs on the UniFi gateway (no speed-test listener at the site).
@@ -3297,9 +3308,19 @@
                     // Options first, so the tooltip format matches the bucket the series carries.
                     await WithChartRetry(() => _usageChart.UpdateOptionsAsync(true, true, false));
                     await WithChartRetry(() => _usageChart.UpdateSeriesAsync(true));
+                    // The redraw shows every series again, so the header legend follows.
+                    _usageHiddenSeries.Clear();
                 }
                 break;
         }
+    }
+
+    /// <summary>The Usage header's legend: shows or hides one series, as the chart's own legend does.</summary>
+    private async Task ToggleUsageSeriesAsync(string name)
+    {
+        if (_usageChart == null) return;
+        await _usageChart.ToggleSeriesAsync(name);
+        if (!_usageHiddenSeries.Remove(name)) _usageHiddenSeries.Add(name);
     }
 
     private async Task SetUsageViewAsync(string view)
@@ -3957,7 +3978,8 @@
                     Formatter = @"function(v) { const k = 1024; if (v >= k*k*k) return (v/(k*k*k)).toFixed(2) + ' GB'; if (v >= k*k) return (v/(k*k)).toFixed(1) + ' MB'; if (v >= k) return (v/k).toFixed(0) + ' KB'; return v + ' B'; }"
                 }
             },
-            Legend = new Legend { Show = true, Position = LegendPosition.Top }
+            // Drawn in the card header instead, on the heading's line (ToggleUsageSeriesAsync).
+            Legend = new Legend { Show = false }
         };
     }
 
@@ -4919,6 +4941,53 @@
     .speed-tests-header h4 {
         margin: 0;
     }
+    /* Usage: title, the series legend centered, the WAN / LAN + WAN switch right, on one line. */
+    .usage-chart-header {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+    }
+    .usage-chart-header > h3 {
+        grid-column: 1;
+    }
+    .usage-chart-header > .usage-legend {
+        grid-column: 2;
+    }
+    .usage-chart-header > .time-range-selector {
+        grid-column: 3;
+        justify-self: end;
+    }
+    .usage-legend {
+        display: flex;
+        gap: 1rem;
+    }
+    /* ApexCharts' legend, as HTML: same marker, text, and dimmed hidden state. */
+    .usage-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0;
+        border: none;
+        background: none;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 0.8125rem;
+        cursor: pointer;
+    }
+    .usage-legend-item.is-hidden {
+        opacity: 0.45;
+    }
+    .usage-legend-marker {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+    }
+    /* The chart's own series colors (CreateUsageChartOptions), so a marker matches its bars. */
+    .usage-legend-download {
+        background: #3385d6;
+    }
+    .usage-legend-upload {
+        background: #24bc70;
+    }
     .speed-tests-title {
         display: flex;
         align-items: baseline;
@@ -5315,6 +5384,19 @@
         .chart-card-header > .card-header-right {
             flex: 1 1 100%;
             margin-left: 0;
+        }
+        /* Usage: title and switch on one line, the legend centered under them. */
+        .usage-chart-header {
+            grid-template-columns: 1fr auto;
+        }
+        .usage-chart-header > .time-range-selector {
+            grid-column: 2;
+            grid-row: 1;
+        }
+        .usage-chart-header > .usage-legend {
+            grid-column: 1 / -1;
+            grid-row: 2;
+            justify-self: center;
         }
         /* The heading stacks: title, then the full-width buttons (the filter is in the bottom bar). */
         .tab-pane > .speed-tests-header {
