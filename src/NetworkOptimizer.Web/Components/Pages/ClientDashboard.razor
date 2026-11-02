@@ -483,8 +483,12 @@
                     @if (ShowLiveChart)
                     {
                         <div class="card chart-card live-chart-card" data-tour="client-live-throughput">
-                            <div class="chart-card-header">
+                            <div class="chart-card-header throughput-header">
                                 <h3>@(_throughputHours == 0 ? "Live Throughput" : "Throughput")</h3>
+                                <div class="time-range-selector throughput-view">
+                                    <button class="time-btn @(_throughputView == "wan" ? "active" : "")" @onclick='() => SetThroughputViewAsync("wan")'>WAN</button>
+                                    <button class="time-btn @(_throughputView == "lan" ? "active" : "")" @onclick='() => SetThroughputViewAsync("lan")'>LAN + WAN</button>
+                                </div>
                                 <div class="card-header-right">
                                     <div class="time-range-selector">
                                         @foreach (var tr in _throughputRanges)
@@ -507,12 +511,6 @@
                                 {
                                     <div class="usage-card-spinner"><span class="spinner"></span></div>
                                 }
-                            </div>
-                            <div class="throughput-view">
-                                <div class="time-range-selector">
-                                    <button class="time-btn @(_throughputView == "wan" ? "active" : "")" @onclick='() => SetThroughputViewAsync("wan")'>WAN</button>
-                                    <button class="time-btn @(_throughputView == "lan" ? "active" : "")" @onclick='() => SetThroughputViewAsync("lan")'>LAN + WAN</button>
-                                </div>
                             </div>
                             @if (_throughputHours != 0 && _throughputSummary is { } ts)
                             {
@@ -4935,19 +4933,27 @@
     .chart-card-header .monitoring-jump-btn {
         margin-right: -0.35rem;
     }
-    /* Held at its drawn height while a range reloads (header 34 + 12, chart 175, view switch
-       8 + 34, padding 40), and the chart area takes what is left, so the loading spinner centers
-       where the chart goes. */
+    /* Held at its drawn height while a range reloads (header 34 + 12, chart 175, padding 40), and
+       the chart area takes what is left, so the loading spinner centers where the chart goes. */
     .live-chart-card {
         display: flex;
         flex-direction: column;
-        min-height: 304px;
+        min-height: 262px;
     }
-    /* WAN | LAN + WAN sits under the chart, centered, so it reads as the chart's series choice. */
-    .throughput-view {
-        display: flex;
-        justify-content: center;
-        margin-top: 8px;
+    /* Throughput: title, WAN | LAN + WAN centered, the range and eye right, on one line. */
+    .throughput-header {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+    }
+    .throughput-header > h3 {
+        grid-column: 1;
+    }
+    .throughput-header > .throughput-view {
+        grid-column: 2;
+    }
+    .throughput-header > .card-header-right {
+        grid-column: 3;
+        justify-self: end;
     }
     .live-chart-card .chart-container {
         flex: 1 1 auto;
@@ -5407,13 +5413,11 @@
         }
         /* The Usage switch is two words, not the page's time filter: it keeps its own size beside
            the heading instead of the phone's stretched time buttons. */
-        .chart-card-header > .time-range-selector,
-        .throughput-view > .time-range-selector {
+        .chart-card-header > .time-range-selector {
             flex: 0 0 auto;
             width: auto;
         }
-        .chart-card-header > .time-range-selector .time-btn,
-        .throughput-view > .time-range-selector .time-btn {
+        .chart-card-header > .time-range-selector .time-btn {
             flex: 0 0 auto;
             padding: 0.3rem 0.6rem;
             font-size: 0.75rem;
@@ -5445,10 +5449,22 @@
         .speed-tests-header > .speed-actions {
             grid-column: 1;
         }
-        /* The range takes its own row here: top 13, heading 25.6, gap 8, range 38.7, then 12 +
-           175, the compact view switch 8 + 31.4, and 20. */
+        /* Title and the compact WAN switch share the first row (31.4, the switch's height), the
+           range takes the second: top 13, 31.4, gap 8, range 38.7, then 12 + 175 + 20. */
         .live-chart-card {
-            min-height: 332px;
+            min-height: 299px;
+        }
+        .throughput-header {
+            grid-template-columns: 1fr auto;
+        }
+        .throughput-header > .throughput-view {
+            grid-column: 2;
+            grid-row: 1;
+        }
+        .throughput-header > .card-header-right {
+            grid-column: 1 / -1;
+            grid-row: 2;
+            justify-self: stretch;
         }
         /* Live Throughput bleeds into the card's 1rem phone padding on both sides: the newest
            sample lands on the right edge, the value labels sit close to the left. */
