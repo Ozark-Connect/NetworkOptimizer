@@ -34,6 +34,12 @@ internal sealed class FakeConsole : IUniFiConfigApi
 
     public FakeConsole(ConfigState state) => State = state;
 
+    /// <summary>A forgotten client comes straight back, bare, as a device still connected does.</summary>
+    public bool ForgottenClientsRejoin { get; set; }
+
+    /// <summary>The console answers a forget but keeps the client as it was.</summary>
+    public bool ForgetIgnored { get; set; }
+
     /// <summary>False simulates a console the server cannot reach.</summary>
     public bool Connected { get; set; } = true;
 
@@ -73,7 +79,11 @@ internal sealed class FakeConsole : IUniFiConfigApi
             var macs = (cmd["macs"] as JsonArray ?? []).Select(m => m?.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var users = State.Collections.GetValueOrDefault("user") ?? [];
             var gone = users.Where(u => macs.Contains(u["mac"]?.ToString())).ToList();
+            if (ForgetIgnored) return Ok(scope, gone);
             users.RemoveAll(gone.Contains);
+            // A device still connected registers again at once, bare, under the same ID.
+            if (ForgottenClientsRejoin)
+                users.AddRange(gone.Select(u => new JsonObject { ["_id"] = u["_id"]?.DeepClone(), ["mac"] = u["mac"]?.DeepClone() }));
             return Ok(scope, gone);
         }
         foreach (var def in ConfigCollections.All.Where(d => d.Write != null && d.Scope == scope))

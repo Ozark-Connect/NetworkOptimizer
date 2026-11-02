@@ -442,8 +442,8 @@ public sealed class PlanCoordinatorTests : IDisposable
         (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value.Doc.WatchDevices.Should().BeFalse();
     }
 
-    [Fact]
-    public async Task EditPlan_ForgetsARemovedClient_InOneForgetCall_AndKeepsTheRest()
+    /// <summary>An Edit plan that forgets the Printer client, built, acknowledged, and applied.</summary>
+    private async Task<(int PlanId, string? Why)> ForgetPrinterAsync()
     {
         _console.State.Collections["user"] =
         [
@@ -457,8 +457,36 @@ public sealed class PlanCoordinatorTests : IDisposable
         var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
         await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements { Items = doc.Operations.Select(o => o.Key).ToHashSet() }, CancellationToken.None);
         _console.Requests.Clear();
+        return (plan.Id, await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), requireApproval: false, automatic: false, CancellationToken.None));
+    }
 
-        var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), requireApproval: false, automatic: false, CancellationToken.None);
+    [Fact]
+    public async Task EditPlan_AConnectedClient_ThatComesBackBare_StillReadsForgotten()
+    {
+        _console.ForgottenClientsRejoin = true;
+
+        var (planId, why) = await ForgetPrinterAsync();
+
+        why.Should().BeNull();
+        _console.State.Get("user").Should().Contain(u => u["_id"]!.ToString() == "u1" && u["name"] == null, "the device registered again");
+        (await PlanAsync(planId))!.Status.Should().Be(ConfigPlanStatus.Applied);
+    }
+
+    [Fact]
+    public async Task EditPlan_AForgetTheConsoleIgnored_IsNotApplied()
+    {
+        _console.ForgetIgnored = true;
+
+        var (planId, _) = await ForgetPrinterAsync();
+
+        (await PlanAsync(planId))!.Status.Should().NotBe(ConfigPlanStatus.Applied, "the client kept its config");
+    }
+
+    [Fact]
+    public async Task EditPlan_ForgetsARemovedClient_InOneForgetCall_AndKeepsTheRest()
+    {
+        var (planId, why) = await ForgetPrinterAsync();
+        var plan = (await PlanAsync(planId))!;
 
         why.Should().BeNull();
         _console.State.Get("user").Select(u => u["name"]!.ToString()).Should().Equal("Rig");

@@ -246,7 +246,10 @@ public sealed class PlanExecutor
         switch (op.Action)
         {
             case PlanAction.Delete:
-                var stillThere = objects.Any(o => ConfigState.IdOf(o) == ResolveId(op.ObjectId));
+                // A forgotten client still connected comes back as a bare record, possibly under the same ID: only one
+                // that kept its config (name, fixed IP, ...) means the forget did not apply.
+                var forgot = def.Write is { DeletePath: null, BatchDeletePath: null, ForgetPath: not null };
+                var stillThere = objects.Any(o => ConfigState.IdOf(o) == ResolveId(op.ObjectId) && (!forgot || ConfigDiffEngine.HasClientConfig(o)));
                 r.Outcome = stillThere ? "Error" : "Applied";
                 r.Message = stillThere ? refusal ?? "Still on the console after the delete" : refusal == null ? r.Message : $"Applied, although UniFi answered {refusal}";
                 return;
