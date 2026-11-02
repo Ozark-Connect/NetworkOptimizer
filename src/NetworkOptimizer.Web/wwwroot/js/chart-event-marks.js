@@ -116,12 +116,17 @@ export function createMarkLayer({ charts, onAction }) {
     // and mapped back to the mark by a token only this layer hands out.
     const layerId = ++layerCount;
     const actions = new Map();
+    // An action navigates away from the mark, so its tooltip goes: the marker's own (Tippy keeps
+    // the instance on the reference) and any popper still open (Tippy keeps it on the root too).
+    const runAction = (mark, reference) => {
+        reference?._tippy?.hide();
+        document.querySelectorAll('[data-tippy-root]').forEach(p => p._tippy?.hide());
+        onAction(mark);
+    };
     const onDocumentClick = (e) => {
         const el = e.target.closest?.('[data-mark-action]');
         const mark = el && actions.get(el.getAttribute('data-mark-action'));
-        if (!mark) return;
-        el.closest('[data-tippy-root]')?._tippy?.hide();
-        onAction(mark);
+        if (mark) runAction(mark, null);
     };
     if (onAction) document.addEventListener('click', onDocumentClick);
 
@@ -182,7 +187,7 @@ export function createMarkLayer({ charts, onAction }) {
             const actionable = c.marks.length === 1 && c.marks[0]._action;
             target.style.cursor = actionable ? 'pointer' : 'help';
             target.onclick = actionable
-                ? () => { if (!window.matchMedia?.('(pointer: coarse)').matches) onAction(c.marks[0]); }
+                ? () => { if (!window.matchMedia?.('(pointer: coarse)').matches) runAction(c.marks[0], target); }
                 : null;
             label.setAttribute(TAGGED, '');
         });
