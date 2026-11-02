@@ -319,6 +319,24 @@ public static class ZoneSetup
             && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True && Str(p, "description") != "Set Up Zones"
             && Str(p["source"]?["zone_id"]) == src && Str(p["destination"]?["zone_id"]) == dst);
 
+    /// <summary>An allow with no limit between two zones: all protocols, ports, and connection states, always, every network on each side.</summary>
+    private static bool OpensWholePair(JsonObject p, IReadOnlyCollection<string> srcNetworks, IReadOnlyCollection<string> dstNetworks)
+    {
+        static bool Covers(JsonObject? side, IReadOnlyCollection<string> networks) => side != null
+            && Str(side["port_matching_type"]) is null or "ANY"
+            && side["match_opposite_networks"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+            && Str(side["matching_target"]) switch
+            {
+                null or "ANY" => true,
+                "NETWORK" => networks.All(n => (side["network_ids"] as JsonArray ?? []).Any(id => string.Equals(Str(id), n, StringComparison.OrdinalIgnoreCase))),
+                _ => false,
+            };
+        return Str(p, "protocol") is null or "all" && p["match_opposite_protocol"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+            && Str(p, "connection_state_type") is null or "ALL" && Str(p["schedule"]?["mode"]) is null or "ALWAYS"
+            && Str(p, "ip_version") is null or "BOTH"
+            && Covers(p["source"] as JsonObject, srcNetworks) && Covers(p["destination"] as JsonObject, dstNetworks);
+    }
+
     private static string RoleNoun(ZoneRole role) => role switch
     {
         ZoneRole.IoT => "IoT",
@@ -473,6 +491,13 @@ public static class ZoneSetup
                 if ((allow.ServerGroup || ExceptionDefs.Any(e => e.FromName == allow.Name)) && Covering(ids[a.Key], ids[b.Key]) is { } covered)
                 {
                     notes.Add($"Exception: {allow.Name} ({a.Name} to {b.Name}) is covered by {Str(covered, "name")}; not added.");
+                    continue;
+                }
+                // Between two zones of one trust level the allow opens everything, so only a rule that does too covers it.
+                if (a.Role == b.Role && policies.FirstOrDefault(p => OperatorAllow([p], ids[a.Key], ids[b.Key]) != null
+                        && OpensWholePair(p, a.NetworkIds, b.NetworkIds)) is { } whole)
+                {
+                    notes.Add($"{allow.Name}: covered by your rule {Str(whole, "name")}; not added.");
                     continue;
                 }
                 var groupId = allow.ServerGroup ? ServerServicesGroupId(desired, ref n) : null;
@@ -1054,7 +1079,7 @@ public static class ZoneSetup
                     && Str(o["source"]?["zone_id"]) == src && Str(o["destination"]?["zone_id"]) == dst);
             if (later != null)
             {
-                notes.Add($"Firewall Policy {Str(p, "name")}: kept. {Str(later, "name")} comes after it in {zoneName(src)} to {zoneName(dst)}; move that above it and a re-run deletes it.");
+                notes.Add($"{Str(p, "name")}: kept, because it holds back part of what {Str(later, "name")} allows.");
                 continue;
             }
             policies.Remove(p);

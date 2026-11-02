@@ -652,7 +652,7 @@ public class ZoneSetupTests
         // Deleting it would let the phone reach IoT, which it does not today.
         Named(plan.Desired, "[VLAN] Block Access to Isolated VLANs")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-iot");
         Named(plan.Desired, "[VLAN] Block Access to Isolated VLANs (Cameras)").Should().BeNull("a return-only allow after it meets no new traffic");
-        plan.Notes.Should().Contain(n => n.StartsWith("Firewall Policy [VLAN] Block Access to Isolated VLANs: kept.") && n.Contains("[IoT] Allow Phone Inbound Access"));
+        plan.Notes.Should().Contain("[VLAN] Block Access to Isolated VLANs: kept, because it holds back part of what [IoT] Allow Phone Inbound Access allows.");
     }
 
     [Fact]
@@ -1427,6 +1427,27 @@ public class ZoneSetupTests
         iot.Kept.Should().BeFalse();
         board.Zones.Single(z => z.ExistingId == "z-zt").Kept.Should().BeTrue("a zone not named for the purpose stays the operator's");
         board.Exceptions.Single(e => e.Key == "casting").Applicable.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("443", true)]
+    public void SameTrustAllow_IsSkipped_OnlyWhenTheOperatorsRuleOpensTheWholePair(string? port, bool added)
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_policy"].Add(Rule("p-wh", "[Work] Allow Access to Home", "ALLOW",
+            Side("z-int", "NETWORK", ["n-work"]), Side("z-int", "NETWORK", ["n-home"], port: port), protocol: port == null ? "all" : "tcp"));
+
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, Networks, ZoneSetup.PurposeMode));
+
+        Named(plan.Desired, "[Work] Allow Access to Home")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-home");
+        if (added)
+            Named(plan.Desired, "Allow Internal to Home").Should().NotBeNull("a rule limited to one port leaves the rest of today's access to the plan's allow");
+        else
+        {
+            Named(plan.Desired, "Allow Internal to Home").Should().BeNull();
+            plan.Notes.Should().Contain("Allow Internal to Home: covered by your rule [Work] Allow Access to Home; not added.");
+        }
     }
 
     [Fact]
