@@ -114,6 +114,8 @@ internal sealed class FakeConsole : IUniFiConfigApi
             {
                 var obj = Clean((JsonObject)JsonNode.Parse(json!)!);
                 obj["_id"] = $"id{_nextId++}";
+                // A network created through the API is stored "manual" whatever it sent; an update keeps "auto" (Network 11).
+                if (def.Key == "networkconf" && obj.ContainsKey("setting_preference")) obj["setting_preference"] = "manual";
                 list.Add(obj);
                 return RefuseButWrite.Contains(path) ? Task.FromResult(new UniFiRawResponse(404, """{"code":"Could not find hotspot firewall zone"}""")) : Ok(scope, [obj]);
             }

@@ -233,6 +233,8 @@ public sealed class PlanExecutor
             {
                 _created[op.Key] = newId;
                 op.ObjectId = newId;
+                if (await KeepAutoSettingAsync(def, body, newId, ct) is { } refusedAuto)
+                    return new OperationResult { Key = op.Key, Outcome = "Error", Message = $"Setting Preference: {refusedAuto}" };
             }
             if (await WriteDeviceTypeAsync(op, body, ct) is { } refused)
                 return new OperationResult { Key = op.Key, Outcome = "Error", Message = $"Device type: {refused}" };
@@ -242,6 +244,22 @@ public sealed class PlanExecutor
         if (op.Action == PlanAction.Delete && (response.Status == 404 || (response.ErrorCode ?? "").Contains("IdInvalid", StringComparison.OrdinalIgnoreCase)))
             return new OperationResult { Key = op.Key, Outcome = "Applied", Message = "Already gone" };
         return new OperationResult { Key = op.Key, Outcome = "Error", Message = Error(response), NoReply = response.Status == 0 };
+    }
+
+    /// <summary>
+    /// UniFi stores a network created through the API as setting_preference "manual" whatever the create sent, and keeps
+    /// "auto" on an update (main, Network 11, 2026-11-02). A network created as "auto" gets it back in a second write.
+    /// Null when nothing was needed or it applied, else the console's refusal.
+    /// </summary>
+    [VendorSpecific("UniFi", "rest/networkconf create forces setting_preference manual; PUT keeps auto")]
+    private async Task<string?> KeepAutoSettingAsync(ConfigCollectionDef def, JsonNode? body, string id, CancellationToken ct)
+    {
+        if (def.Key != "networkconf" || body?["setting_preference"]?.ToString() != "auto" || def.Write?.UpdatePath is not { } update)
+            return null;
+        var again = body.DeepClone().AsObject();
+        again["_id"] = id;
+        var response = await _api.SendAsync(def.Scope, def.Write.UpdateMethod, update.Replace("{id}", id), again.ToJsonString(), ct);
+        return response.IsSuccess ? null : Error(response);
     }
 
     internal const string NeedsGatewayMessage = "Needs the gateway adopted first";

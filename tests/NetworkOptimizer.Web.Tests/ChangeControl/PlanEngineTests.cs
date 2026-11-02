@@ -260,6 +260,23 @@ public class PlanEngineTests
         PlanBuilder.Build(desired, after, new PlanOptions()).Operations.Should().BeEmpty("a second plan finds nothing left to do");
     }
 
+    [Theory]
+    [InlineData("auto", 2)]    // UniFi stores the create as "manual": a second write puts "auto" back
+    [InlineData("manual", 1)]  // already what UniFi keeps: one write
+    public async Task Executor_NetworkCreatedAsAuto_KeepsAuto(string preference, int writes)
+    {
+        var live = State(("networkconf", Lan));
+        var desired = State(("networkconf", Lan), ("networkconf", Iot.Replace("\"mdns_enabled\":false", $"\"mdns_enabled\":false,\"setting_preference\":\"{preference}\"")));
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        console.State.Get("networkconf").Single(n => n["name"]!.GetValue<string>() == "IoT")["setting_preference"]!.GetValue<string>().Should().Be(preference);
+        console.Requests.Count(r => r.Method != HttpMethod.Get).Should().Be(writes);
+    }
+
     // A trunk profile with every network tagged has no excluded list; UniFi adds each new network to it (unticked).
     private const string TrunkAllTagged = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1"}""";
     private const string TrunkExcludingTestNet = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1","excluded_networkconf_ids":["n2"]}""";
