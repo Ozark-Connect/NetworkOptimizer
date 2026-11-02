@@ -43,7 +43,7 @@ else
             {
                 var isCurrent = _moving != null && z.NetworkIds.Contains(_moving);
                 var key = z.Key;
-                <div class="cc-zone @(_dragOver == z.Key ? "drop-target" : "") @(isCurrent ? "current" : "") @(z.NetworkIds.Count == 0 && z.Key != ZoneSetup.UnassignedKey && !_showAll ? "cc-zone-empty" : "")"
+                <div class="cc-zone @(_dragOver == z.Key ? "drop-target" : "") @(isCurrent ? "current" : "") @(z.NetworkIds.Count == 0 && !z.Emptied && z.Key != ZoneSetup.UnassignedKey && !_showAll ? "cc-zone-empty" : "")"
                      @ondragover:preventDefault @ondragenter="() => _dragOver = key" @ondragleave="() => { if (_dragOver == key) _dragOver = null; }" @ondrop="() => DropAsync(key)">
                     <div class="cc-zone-head">
                         <div>
@@ -67,6 +67,10 @@ else
                             <span class="status-badge @(z.IsNew ? "status-info" : "badge-muted")">@(z.IsNew ? "New" : z.BuiltIn ? "Built-in" : "Existing")</span>
                         }
                     </div>
+                    @if (z.Emptied)
+                    {
+                        <label class="checkbox-label"><input type="checkbox" checked="@z.Delete" disabled="@_busy" @onchange="() => ToggleDeleteAsync(z)" /><span>Delete this zone</span></label>
+                    }
                     @foreach (var id in z.NetworkIds)
                     {
                         var n = b.Networks.FirstOrDefault(x => x.Id == id);
@@ -210,7 +214,16 @@ else
     private bool _building;
     private string? _error;
 
-    private ZoneChoices Choices() => new() { Mode = _mode, Moves = new(_moves), AddedZones = [.. _added], Exceptions = new(_exceptions) };
+    private readonly HashSet<string> _keep = [];
+
+    private ZoneChoices Choices() => new() { Mode = _mode, Moves = new(_moves), AddedZones = [.. _added], Exceptions = new(_exceptions), KeepZones = [.. _keep] };
+
+    private async Task ToggleDeleteAsync(ZoneDraft z)
+    {
+        if (z.ExistingId is not { } id) return;
+        if (!_keep.Remove(id)) _keep.Add(id);
+        await RefreshAsync();
+    }
 
     protected override Task OnInitializedAsync() => RefreshAsync();
 
@@ -274,7 +287,7 @@ else
 
     private string HiddenOnPhone(ZoneSetupView b)
     {
-        var empty = b.Zones.Where(z => z.Key != ZoneSetup.UnassignedKey && z.NetworkIds.Count == 0).Select(z => z.Name).ToList();
+        var empty = b.Zones.Where(z => z.Key != ZoneSetup.UnassignedKey && z.NetworkIds.Count == 0 && !z.Emptied).Select(z => z.Name).ToList();
         var exceptions = b.Exceptions.Count(e => e.Applicable);
         var parts = new List<string>();
         if (empty.Count > 0) parts.Add(string.Join(", ", empty));
@@ -326,6 +339,7 @@ else
         _moves.Clear();
         _added.Clear();
         _exceptions.Clear();
+        _keep.Clear();
         await RefreshAsync();
     }
 

@@ -10,6 +10,9 @@ public sealed class ZoneChoices
     public Dictionary<string, string> Moves { get; init; } = [];
     public List<string> AddedZones { get; init; } = [];
     public Dictionary<string, bool> Exceptions { get; init; } = [];
+
+    /// <summary>Emptied zones to keep (by ID); the rest are deleted.</summary>
+    public List<string> KeepZones { get; init; } = [];
 }
 
 public sealed partial class ChangeControlService
@@ -19,7 +22,7 @@ public sealed partial class ChangeControlService
         var live = await Engine.ReadLiveAsync(ct);
         var networks = Engine.Evaluator == null ? null : await Engine.Evaluator.GetNetworksAsync(_site.Slug, live, ct);
         if (networks == null) throw new InvalidOperationException("The Security Audit could not read this site's networks. Check the UniFi Console connection.");
-        return (ZoneSetup.Build(live, networks, choices.Mode, choices.Moves, choices.AddedZones, choices.Exceptions), live, networks);
+        return (ZoneSetup.Build(live, networks, choices.Mode, choices.Moves, choices.AddedZones, choices.Exceptions, choices.KeepZones), live, networks);
     }
 
     public async Task<ZoneSetupView> GetZoneSetupAsync(ZoneChoices choices, bool runChecks, CancellationToken cancellationToken = default)
@@ -54,6 +57,9 @@ public sealed partial class ChangeControlService
             doc =>
             {
                 AfterZoneWrites(doc, zonePlan.Rehomed);
+                var deleted = board.Zones.Where(z => z.Delete).Select(z => z.ExistingId).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete && o.ObjectId != null && deleted.Contains(o.ObjectId)))
+                    op.Reasons = ["No networks left after the move"];
                 foreach (var e in board.Exceptions.Where(e => e.Enabled)) doc.Notes.Add($"Exception: {e.Name} ({e.FromTo}). {e.Why}.");
                 doc.Notes.AddRange(zonePlan.Notes);
                 foreach (var c in checks.Where(c => c.Level != "ok")) doc.Notes.Add($"Security Audit check: {c.Label}: {c.Status}.");

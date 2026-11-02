@@ -30,6 +30,12 @@ public sealed class ZoneDraft
     public string Description { get; set; } = "";
     public List<string> NetworkIds { get; init; } = [];
     public bool IsNew => ExistingId == null;
+
+    /// <summary>An operator zone that has networks today and none after the move.</summary>
+    public bool Emptied { get; set; }
+
+    /// <summary>The plan deletes the emptied zone, moving its policies with its networks; else it stays, its policies with it.</summary>
+    public bool Delete { get; set; }
 }
 
 /// <summary>A named exception: an allow the matrix would otherwise block.</summary>
@@ -170,9 +176,10 @@ public static class ZoneSetup
     /// <param name="moves">Network ID to zone key, from drag and drop.</param>
     /// <param name="addedZones">Names of zones the user added.</param>
     /// <param name="exceptions">Exception key to on or off; unset ones take their default.</param>
+    /// <param name="keepZones">IDs of emptied operator zones to keep; every other emptied one is deleted.</param>
     public static ZoneSetupView Build(ConfigState live, IReadOnlyList<NetworkInfo> networks, string mode,
         IReadOnlyDictionary<string, string>? moves = null, IReadOnlyList<string>? addedZones = null,
-        IReadOnlyDictionary<string, bool>? exceptions = null)
+        IReadOnlyDictionary<string, bool>? exceptions = null, IReadOnlyCollection<string>? keepZones = null)
     {
         moves ??= new Dictionary<string, string>();
         var liveZones = live.Get("firewall_zone");
@@ -235,6 +242,14 @@ public static class ZoneSetup
             target.NetworkIds.Add(n.Id);
         }
 
+        var lanIds = views.Select(v => v.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var z in zones.Values.Where(z => z.ExistingId != null && !z.BuiltIn && z.NetworkIds.Count == 0))
+            if (liveZones.FirstOrDefault(l => ConfigState.IdOf(l) == z.ExistingId) is { } was && Ids(was).Any(lanIds.Contains))
+            {
+                z.Emptied = true;
+                z.Delete = keepZones?.Contains(z.ExistingId!) != true;
+            }
+
         var populated = zones.Values.Where(z => z.Key != UnassignedKey && !z.Kept && z.NetworkIds.Count > 0).ToList();
         var exceptionViews = ExceptionDefs.Select(e =>
         {
@@ -285,7 +300,9 @@ public static class ZoneSetup
         }
 
         foreach (var z in zones.Values.Where(z => z.Key != UnassignedKey))
-            z.Description = z.Kept ? "Your zone; its policies stay as they are" : Describe(z.Role, exceptionViews);
+            z.Description = z.Emptied
+                ? z.Delete ? "Empty after the move. Its policies move with its networks" : "Empty after the move. Your policies stay on it"
+                : z.Kept ? "Your zone; its policies stay as they are" : Describe(z.Role, exceptionViews);
         return view;
     }
 
@@ -385,8 +402,15 @@ public static class ZoneSetup
         bool IsInternal(string? zone) => zone != null && zoneKey.TryGetValue(zone, out var k) && k == "internal";
         var n = 0;
 
+        // An emptied zone the plan deletes hands its policies to the zone its first network moves to.
+        var heir = board.Zones.Where(z => z.Delete && z.ExistingId != null)
+            .Select(z => (Zone: z.ExistingId!, To: moved.Where(id => string.Equals(oldZoneOf[id], z.ExistingId, StringComparison.OrdinalIgnoreCase))
+                .Select(id => newZoneOf[id]).FirstOrDefault()))
+            .Where(x => x.To != null).ToDictionary(x => x.Zone, x => x.To!, StringComparer.OrdinalIgnoreCase);
+
         var rehomed = Rehome(live, desired, policies, moved, newZoneOf, clientNetworks, ZoneName, notes, ref n);
-        CopyZoneWide(live, desired, policies, moved, oldZoneOf, newZoneOf, zoneKey, ZoneName, notes, ref n);
+        CopyZoneWide(live, desired, policies, moved, oldZoneOf, newZoneOf, zoneKey, ZoneName, notes, heir, ref n);
+        MoveToHeirs(policies, zones, heir);
         NoteJoinedAllows(live, moved, newZoneOf, ZoneName, notes);
 
         var active = board.Zones.Where(z => z.Key != UnassignedKey && !z.Kept && z.NetworkIds.Count > 0 && ids.ContainsKey(z.Key)).ToList();
@@ -771,8 +795,11 @@ public static class ZoneSetup
     /// when it was an operator zone, and resolver allows from any zone.
     /// </summary>
     private static void CopyZoneWide(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved, Dictionary<string, string> oldZoneOf,
-        Dictionary<string, string> newZoneOf, Dictionary<string, string> zoneKey, Func<string?, string> zoneName, List<string> notes, ref int n)
+        Dictionary<string, string> newZoneOf, Dictionary<string, string> zoneKey, Func<string?, string> zoneName, List<string> notes,
+        IReadOnlyDictionary<string, string> heir, ref int n)
     {
+        // The heir zone of a zone the plan deletes takes the original itself (MoveToHeirs), so it gets no copy or note here.
+        bool Inherits(string zone, string to) => heir.TryGetValue(zone, out var h) && string.Equals(h, to, StringComparison.OrdinalIgnoreCase);
         var def = ConfigCollections.Get("firewall_policy")!;
         var groups = live.Get("firewallgroup");
         var lanTargets = moved.GroupBy(id => oldZoneOf[id], StringComparer.OrdinalIgnoreCase)
@@ -807,6 +834,7 @@ public static class ZoneSetup
             var isolated = new List<string>();
             foreach (var to in lanTargets[from])
             {
+                if (Inherits(from, to)) continue;
                 if (dstKey == "external" && (Str(t, "action") is "BLOCK" or "REJECT") && InternetDisabled(to))
                 {
                     offline.Add(zoneName(to));
@@ -851,6 +879,7 @@ public static class ZoneSetup
             var skipped = new List<string>();
             foreach (var to in lanTargets[into])
             {
+                if (Inherits(into, to)) continue;
                 // Within a zone is the within-zone allow's job.
                 if (string.Equals(to, srcZone, StringComparison.OrdinalIgnoreCase) || string.Equals(into, srcZone, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!operatorZone && !resolver)
@@ -870,6 +899,24 @@ public static class ZoneSetup
                 notes.Add($"Firewall Policy {name} ({zoneName(srcZone)} to {zoneName(into)}): not carried to {Join(skipped, "or")}. "
                     + $"Copy it in the Edit tab if {zoneName(srcZone)} needs to reach {Join(skipped, "or")}.");
         }
+    }
+
+    /// <summary>
+    /// A zone the plan deletes goes from the desired config, and every operator policy still on it moves to its heir:
+    /// enabled or not, zone-wide or not, since a policy naming the zone stops the delete. UniFi's own policies for the
+    /// zone go with it; Network Optimizer's are deleted with it by PlanBuilder.
+    /// </summary>
+    private static void MoveToHeirs(List<JsonObject> policies, List<JsonObject> zones, IReadOnlyDictionary<string, string> heir)
+    {
+        if (heir.Count == 0) return;
+        var def = ConfigCollections.Get("firewall_policy")!;
+        policies.RemoveAll(p => def.IsGenerated?.Invoke(p) == true
+            && (heir.ContainsKey(Str(p["source"]?["zone_id"]) ?? "") || heir.ContainsKey(Str(p["destination"]?["zone_id"]) ?? "")));
+        foreach (var p in policies.Where(p => ConfigCollections.OwnedBy(def, p) == null))
+            foreach (var side in new[] { p["source"] as JsonObject, p["destination"] as JsonObject })
+                if (side != null && heir.TryGetValue(Str(side["zone_id"]) ?? "", out var to))
+                    side["zone_id"] = to;
+        zones.RemoveAll(z => heir.ContainsKey(ConfigState.IdOf(z)));
     }
 
     /// <summary>Zone-wide: ANY, or everyone but a few hosts ([UniFi] Allow Select Console Management's shape).</summary>

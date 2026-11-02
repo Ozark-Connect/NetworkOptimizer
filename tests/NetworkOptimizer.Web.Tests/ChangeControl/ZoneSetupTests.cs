@@ -1239,17 +1239,104 @@ public class ZoneSetupTests
         live.Collections["firewall_policy"].Add(Rule("p-zt", "[DNS] ZT Access", "ALLOW", Side("z-zt"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
         live.Collections["firewall_policy"].Add(Rule("p-int", "[DNS] VLANs to Pi-hole", "ALLOW", Side("z-int"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
         var networks = Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Server)).Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.IoT)).ToList();
-        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" });
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" }, keepZones: ["z-dns"]);
 
         var plan = ZoneSetup.Plan(live, board);
 
         Members(plan.Desired, "Servers").Should().Equal(["n-dns"]);
+        Named(plan.Desired, "[DNS] ZT Access")!["destination"]!["zone_id"]!.ToString().Should().Be("z-dns", "a kept zone keeps its policies");
         var zt = Named(plan.Desired, "[DNS] ZT Access (Servers)")!;
         zt["source"]!["zone_id"]!.ToString().Should().Be("z-zt");
         zt["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-servers");
         zt["destination"]!["port"]!.ToString().Should().Be("53");
         Named(plan.Desired, "[DNS] VLANs to Pi-hole (Servers)")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-servers");
         ZonePaths.Allows(plan.Desired, "n-zt", "10.0.53.10", "udp", 53).Should().BeTrue("Zero Trust reached the resolver before the move");
+    }
+
+    /// <summary>The DNS Servers zone with its one network, its operator policies, and UniFi's own for it.</summary>
+    private static (ConfigState Live, List<NetworkInfo> Networks) EmptiedZoneSite()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-dns", ["name"] = "DNS Servers", ["vlan"] = 53, ["ip_subnet"] = "10.0.53.1/24" });
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-zt", ["name"] = "Zero Trust", ["vlan"] = 200, ["ip_subnet"] = "10.0.200.1/24" });
+        live.Collections["firewall_zone"].Add(Zone("z-dns", "DNS Servers", null, "n-dns"));
+        live.Collections["firewall_zone"].Add(Zone("z-zt", "Zero Trust", null, "n-zt"));
+        live.Collections["firewall_policy"].Add(Predefined("z-zt", "z-dns", "BLOCK"));
+        live.Collections["firewall_policy"].Add(Predefined("z-dns", "z-ext", "ALLOW"));
+        live.Collections["firewallgroup"] = [];
+        live.Collections["firewall_policy"].Add(Rule("p-zt", "[DNS] ZT Access", "ALLOW", Side("z-zt"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
+        live.Collections["firewall_policy"].Add(Rule("p-up", "[DNS] Pi-hole Upstream", "ALLOW", Side("z-dns"), Side("z-ext", port: "443"), protocol: "tcp"));
+        var off = Rule("p-off", "[DNS] Old Admin", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.20"]), Side("z-dns", "IP", ips: ["10.0.53.99"], port: "22"), protocol: "tcp");
+        off["enabled"] = false;
+        live.Collections["firewall_policy"].Add(off);
+        foreach (var n in live.Get("networkconf"))
+            n["firewall_zone_id"] = live.Get("firewall_zone").FirstOrDefault(z => (z["network_ids"] as JsonArray)!.Any(i => i!.ToString() == n["_id"]!.ToString()))?["_id"]!.ToString();
+        return (live, Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Server)).Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.IoT)).ToList());
+    }
+
+    [Fact]
+    public void AnEmptiedOperatorZone_IsDeleted_AndItsPoliciesMoveWithItsNetwork()
+    {
+        var (live, networks) = EmptiedZoneSite();
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" });
+
+        var dns = board.Zones.Single(z => z.ExistingId == "z-dns");
+        dns.Emptied.Should().BeTrue();
+        dns.Delete.Should().BeTrue("Delete this zone starts ticked");
+        dns.Description.Should().Be("Empty after the move. Its policies move with its networks");
+        var plan = ZoneSetup.Plan(live, board);
+
+        plan.Desired.Get("firewall_zone").Should().NotContain(z => z["_id"]!.ToString() == "z-dns");
+        Named(plan.Desired, "[DNS] ZT Access")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-servers");
+        Named(plan.Desired, "[DNS] Pi-hole Upstream")!["source"]!["zone_id"]!.ToString().Should().Be("new-zone-servers");
+        Named(plan.Desired, "[DNS] Old Admin")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-servers", "a disabled policy naming the zone would stop the delete");
+        plan.Desired.Get("firewall_policy").Should().NotContain(p => p["name"]!.ToString().EndsWith("(Servers)"), "the originals move; nothing is copied");
+        ZonePaths.Allows(plan.Desired, "n-zt", "10.0.53.10", "udp", 53).Should().BeTrue();
+
+        var forward = PlanBuilder.Build(plan.Desired, live, ZoneSetup.Options());
+        forward.Errors.Should().BeEmpty();
+        var delete = forward.Operations.Single(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete);
+        delete.ObjectId.Should().Be("z-dns");
+        delete.Tier.Should().Be(PlanTiers.Acknowledge);
+        forward.Operations.Where(o => o.Collection == "firewall_policy" && o.Action == PlanAction.Delete).Should().BeEmpty("UniFi's own policies go with the zone");
+    }
+
+    [Fact]
+    public void AnEmptiedOperatorZone_TheOperatorKeeps_KeepsItsPolicies()
+    {
+        var (live, networks) = EmptiedZoneSite();
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" }, keepZones: ["z-dns"]);
+
+        var dns = board.Zones.Single(z => z.ExistingId == "z-dns");
+        dns.Delete.Should().BeFalse();
+        dns.Description.Should().Be("Empty after the move. Your policies stay on it");
+        var plan = ZoneSetup.Plan(live, board);
+
+        Members(plan.Desired, "DNS Servers").Should().BeEmpty();
+        Named(plan.Desired, "[DNS] ZT Access")!["destination"]!["zone_id"]!.ToString().Should().Be("z-dns");
+        Named(plan.Desired, "[DNS] ZT Access (Servers)")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-servers");
+        PlanBuilder.Build(plan.Desired, live, ZoneSetup.Options()).Operations.Should().NotContain(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete);
+    }
+
+    [Fact]
+    public void RollBack_OfAnEmptiedZoneDelete_PutsTheZoneAndItsPoliciesBack()
+    {
+        var (before, networks) = EmptiedZoneSite();
+        var plan = ZoneSetup.Plan(before, ZoneSetup.Build(before, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" }));
+        var after = Applied(plan.Desired);
+
+        var revert = PlanBuilder.Build(before, after, new PlanOptions { Collections = ZoneSetup.Options().Collections, DeleteMissing = true });
+
+        revert.Errors.Should().BeEmpty();
+        revert.Operations.Should().Contain(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Create && o.ObjectName == "DNS Servers");
+        var planned = PlanBuilder.PlannedState(after, revert);
+        var dnsZone = planned.Get("firewall_zone").Single(z => z["name"]!.ToString() == "DNS Servers");
+        (dnsZone["network_ids"] as JsonArray)!.Select(i => i!.ToString()).Should().Equal("n-dns");
+        foreach (var name in new[] { "[DNS] ZT Access", "[DNS] Pi-hole Upstream", "[DNS] Old Admin" })
+        {
+            var p = planned.Get("firewall_policy").Single(x => x["name"]!.ToString() == name);
+            new[] { p["source"]!["zone_id"]!.ToString(), p["destination"]!["zone_id"]!.ToString() }.Should().NotContain("uuid-zone-servers", $"{name} goes back to DNS Servers");
+        }
     }
 
     [Fact]
@@ -1332,7 +1419,7 @@ public class ZoneSetupTests
 
         var servers = board.Exceptions.Single(e => e.Key == "servers");
         servers.Enabled.Should().BeFalse();
-        servers.Why.Should().Be("Covered by your rule [DNS] VLANs to Pi-hole (Servers)", "the plan copies the operator's rule into the new zone");
+        servers.Why.Should().Be("Covered by your rule [DNS] VLANs to Pi-hole", "the emptied zone is deleted, so the rule itself moves to Servers");
         board.Zones.Single(z => z.Key == "servers").Description.Should().Be("Internet out. Internal reaches what your policies allow");
         Named(ZoneSetup.Plan(live, board).Desired, "Allow Internal to Servers").Should().BeNull("Internal keeps the one port its rule opens");
     }
