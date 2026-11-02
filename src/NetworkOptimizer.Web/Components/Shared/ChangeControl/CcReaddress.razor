@@ -3,6 +3,7 @@
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
 @inject ILogger<CcReaddress> Logger
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="card">
@@ -85,7 +86,7 @@
         </div>
     }
 
-    <div class="card">
+    <div class="card" id="cc-no-lease">
         <div class="card-header"><h3 class="card-title">No DHCP Lease<span class="card-title-suffix">@v.StaticSource</span></h3></div>
         @if (v.StaticClients.Count == 0)
         {
@@ -330,7 +331,7 @@
         <div class="cc-card-footer">
             @if (_previewed && _view is { } lv && LeaseWarning(lv) is { } warning)
             {
-                <span class="cc-remaining warning-text">@warning</span>
+                <span class="cc-remaining warning-text">@warning@ByHand(" ")</span>
                 @if (!LeasesShort(lv))
                 {
                     <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
@@ -338,7 +339,7 @@
             }
             else
             {
-                <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")</span>
+                <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")@ByHand(", ")</span>
             }
             <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
                 @if (_building)
@@ -349,6 +350,14 @@
             </button>
         </div>
     </div>;
+
+    // Clients set on the device, named beside Review Plan so they are not missed further down the page.
+    private RenderFragment? ByHand(string separator) => _previewed && _view is { Errors.Count: 0, StaticClients.Count: > 0 } v
+        ? @<text>@separator<button class="cc-link-btn warning-text" @onclick="ScrollToNoLeaseAsync">@CcFormat.Plural(v.StaticClients.Count, "client", "clients") to change by hand</button></text>
+        : null;
+
+    private async Task ScrollToNoLeaseAsync() =>
+        await JS.InvokeVoidAsync("eval", "document.getElementById('cc-no-lease')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
 
     private RenderFragment? Spinner(string action) =>
         _running == action ? @<span class="spinner-sm"></span> : null;

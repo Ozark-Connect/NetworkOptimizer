@@ -119,8 +119,9 @@ public sealed partial class ChangeControlService
                 foreach (var m in result.Remote)
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 foreach (var w in warnings) doc.Notes.Add($"{w.Title}: {w.Detail}");
-                if (statics.Where(s => s.LastSeen == null).ToList() is { Count: > 0 } set)
-                    doc.Notes.Add($"No DHCP lease from this gateway, so this plan cannot move them: {string.Join(", ", set.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp}{(s.Reserved ? ", reserved" : "")})"))}.");
+                var unmarked = MarkStaticClients(doc, active, statics.Where(s => s.LastSeen == null).ToList());
+                if (unmarked.Count > 0)
+                    doc.Notes.Add($"No DHCP lease from this gateway, so this plan cannot move them: {string.Join(", ", unmarked.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp}{(s.Reserved ? ", reserved" : "")})"))}.");
                 if (statics.Count(s => s.LastSeen != null) is > 0 and var offline)
                     doc.Notes.Add($"{offline} offline clients were likely set on the device (no reservation, last address outside the DHCP range): change them when they are back. The dry run lists them.");
                 foreach (var m in result.Mentions)
@@ -130,6 +131,29 @@ public sealed partial class ChangeControlService
                         + string.Join(", ", settings.Select(s => SettingText(s)).Distinct()) + ".");
             });
         return plan.Id;
+    }
+
+    /// <summary>
+    /// A connected client set on the device stays on the old subnet, cut off, until someone changes it by hand. Its
+    /// network's write needs acknowledging, naming each one. Returns the clients no network write matched.
+    /// </summary>
+    internal static List<StaticClient> MarkStaticClients(PlanDocument doc, IReadOnlyList<SubnetMove> active, IReadOnlyList<StaticClient> statics)
+    {
+        var unmarked = new List<StaticClient>(statics);
+        foreach (var move in active)
+        {
+            if (Readdressing.ParseSubnet(move.OldCidr) is not { } old) continue;
+            var op = doc.Operations.FirstOrDefault(o => o.Collection == "networkconf" && string.Equals(o.ObjectId, move.NetworkId, StringComparison.OrdinalIgnoreCase));
+            var here = statics.Where(s => Readdressing.ParseIp(s.Ip) is { } ip && old.Contains(ip)).ToList();
+            if (op == null || here.Count == 0) continue;
+            var listed = string.Join(", ", here.Take(10).Select(s => $"{s.Name} ({s.Ip} to {s.NewIp})"))
+                + (here.Count > 10 ? $", and {here.Count - 10} more" : "");
+            var reason = $"Clients set on the device stay on the old subnet until you change them: {listed}";
+            if (!op.Reasons.Contains(reason)) op.Reasons.Add(reason);
+            op.Tier = Math.Max(op.Tier, PlanTiers.Acknowledge);
+            unmarked.RemoveAll(here.Contains);
+        }
+        return unmarked;
     }
 
     /// <summary>

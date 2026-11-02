@@ -134,4 +134,27 @@ public class ReaddressStaticClientTests
         typeof(ReaddressView).GetProperty("IdleClients").Should().BeNull();
         typeof(StaticClient).GetProperty("Idle").Should().BeNull();
     }
+
+    [Fact]
+    public void ANetworkWithClientsSetOnTheDevice_NeedsAcknowledging()
+    {
+        var doc = new PlanDocument
+        {
+            Operations =
+            [
+                new PlanOperation { Key = "networkconf:update:Default", Collection = "networkconf", Action = PlanAction.Update, ObjectId = Lan, ObjectName = "Default" },
+                new PlanOperation { Key = "networkconf:update:Other", Collection = "networkconf", Action = PlanAction.Update, ObjectId = "n2", ObjectName = "Other" },
+            ],
+        };
+        var moves = new List<SubnetMove> { new(Lan, "Default", null, "192.168.1.0/24", "10.42.1.0/24"), new("n2", "Other", 20, "192.168.20.0/24", "10.42.20.0/24") };
+        var statics = new List<StaticClient> { new("Printer", Plain, "192.168.1.20", "10.42.1.20", "Default", false), new("Stray", "aa:bb:cc:dd:ee:09", "172.16.0.5", "172.16.0.5", "", false) };
+
+        var unmarked = ChangeControlService.MarkStaticClients(doc, moves, statics);
+
+        var op = doc.Operations[0];
+        op.Tier.Should().Be(PlanTiers.Acknowledge);
+        op.Reasons.Should().ContainSingle().Which.Should().Be("Clients set on the device stay on the old subnet until you change them: Printer (192.168.1.20 to 10.42.1.20)");
+        doc.Operations[1].Tier.Should().Be(PlanTiers.Direct, "no client on it is set on the device");
+        unmarked.Select(s => s.Name).Should().Equal("Stray");
+    }
 }
