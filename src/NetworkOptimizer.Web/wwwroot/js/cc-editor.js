@@ -6,7 +6,8 @@ import {
     setDiagnostics, lintGutter, syntaxHighlighting, HighlightStyle, tags,
     Decoration, WidgetType, ViewPlugin, MatchDecorator, StateEffect, StateField, Prec,
     codeFolding, foldEffect, unfoldEffect, foldedRanges, openSearchPanel,
-} from '../lib/codemirror/codemirror.bundle.js?v=8';
+    gutter, GutterMarker, RangeSetBuilder, Text, Chunk,
+} from '../lib/codemirror/codemirror.bundle.js?v=9';
 
 const highlight = HighlightStyle.define([
     { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--info-color)' },
@@ -41,6 +42,22 @@ const theme = EditorView.theme({
     // line's end is drawn at the widget's edge, and a margin put it where a trailing space would be.
     '.cc-line-tail': { paddingLeft: '0.75rem' },
     '.cc-managed': { color: 'var(--text-muted)' },
+    // Edit marks: a bar per changed line, a wedge where lines went, and the same along the scrollbar.
+    '.cc-edit-gutter': { width: '4px' },
+    '.cc-edit-gutter .cm-gutterElement': { position: 'relative' },
+    '.cc-edit-mark': { height: '100%' },
+    '.cc-edit-gutter .cc-edit-added': { backgroundColor: 'var(--success-color)' },
+    '.cc-edit-gutter .cc-edit-modified': { backgroundColor: 'var(--info-color)' },
+    '.cc-edit-gutter .cc-edit-deleted, .cc-edit-gutter .cc-edit-deleted-end': {
+        width: '0', height: '0', borderLeft: '5px solid var(--danger-color)', borderTop: '4px solid transparent', borderBottom: '4px solid transparent',
+    },
+    '.cc-edit-gutter .cc-edit-deleted': { position: 'absolute', top: '-4px' },
+    '.cc-edit-gutter .cc-edit-deleted-end': { position: 'absolute', bottom: '-4px' },
+    '.cc-edit-overview': { position: 'absolute', right: '0', pointerEvents: 'none', zIndex: '3' },
+    '.cc-edit-overview-mark': { position: 'absolute', left: '0', right: '0', opacity: '0.75' },
+    '.cc-edit-overview .cc-edit-added': { backgroundColor: 'var(--success-color)' },
+    '.cc-edit-overview .cc-edit-modified': { backgroundColor: 'var(--info-color)' },
+    '.cc-edit-overview .cc-edit-deleted': { backgroundColor: 'var(--danger-color)' },
     // Inline and in the line's own height. Not cc-order-*: app.css styles those (Changes' policy
     // move rows), and its ".cc-order-move + .cc-order-move" margin doubled each policy's first line.
     '.cc-policy-rank': { whiteSpace: 'nowrap' },
@@ -467,6 +484,182 @@ function pullsIntoLocked(tr, blocksBefore, state) {
         }
     }
     return false;
+}
+
+// ---------- Edit markers ----------
+
+// Where the text differs from the collection as it loaded: a bar in the gutter beside each changed line
+// (added, modified) and a wedge where lines were deleted, as in an IDE, and the same marks shaded along
+// the scrollbar. setText hands over the unedited text; the diff runs after typing pauses, and until then
+// the marks move with the text.
+
+const setOriginal = StateEffect.define();
+const setChunks = StateEffect.define();
+
+const editState = StateField.define({
+    create: () => ({ original: null, chunks: [] }),
+    update(value, tr) {
+        for (const e of tr.effects) {
+            if (e.is(setOriginal)) value = { original: e.value, chunks: [] };
+            else if (e.is(setChunks)) value = { ...value, chunks: e.value };
+        }
+        if (tr.docChanged && value.chunks.length)
+            value = { ...value, chunks: value.chunks.map(c => ({ ...c, fromB: tr.changes.mapPos(c.fromB, -1), toB: tr.changes.mapPos(c.toB, 1) })) };
+        return value;
+    },
+});
+
+const marksChanged = u => u.transactions.some(t => t.effects.some(e => e.is(setChunks) || e.is(setOriginal)));
+
+/** Changed regions between two texts, as line ranges of each; pure, exported for testing. */
+export function editChunks(original, text) {
+    return Chunk.build(Text.of(original.split('\n')), Text.of(text.split('\n')), { timeout: 500 })
+        .map(c => ({ fromA: c.fromA, toA: c.toA, fromB: c.fromB, toB: c.toB }));
+}
+
+/**
+ * Each changed line's mark, in line order: 'added' or 'modified' on the lines a chunk covers, and
+ * 'deleted' on the line after a removal ('deleted-end' on the last line, for one at the end); pure, exported for testing.
+ */
+export function editMarks(doc, chunks) {
+    const byLine = new Map();
+    for (const c of chunks) {
+        if (c.toB > c.fromB) {
+            const kind = c.toA > c.fromA ? 'modified' : 'added';
+            const first = doc.lineAt(Math.min(c.fromB, doc.length)).number;
+            const last = doc.lineAt(Math.min(c.toB - 1, doc.length)).number;
+            for (let n = first; n <= last; n++) byLine.set(n, kind);
+        } else if (c.fromB > doc.length) {
+            if (!byLine.has(doc.lines)) byLine.set(doc.lines, 'deleted-end');
+        } else {
+            const n = doc.lineAt(c.fromB).number;
+            if (!byLine.has(n)) byLine.set(n, 'deleted');
+        }
+    }
+    return [...byLine].sort((a, b) => a[0] - b[0]).map(([line, kind]) => ({ line, kind }));
+}
+
+class EditMark extends GutterMarker {
+    constructor(kind) { super(); this.kind = kind; }
+    eq(other) { return other.kind === this.kind; }
+    toDOM() {
+        const el = document.createElement('div');
+        el.className = `cc-edit-mark cc-edit-${this.kind}`;
+        return el;
+    }
+}
+const markOfKind = Object.fromEntries(['added', 'modified', 'deleted', 'deleted-end'].map(k => [k, new EditMark(k)]));
+
+function gutterMarks(view) {
+    const { chunks } = view.state.field(editState);
+    const builder = new RangeSetBuilder();
+    for (const m of editMarks(view.state.doc, chunks)) builder.add(view.state.doc.line(m.line).from, view.state.doc.line(m.line).from, markOfKind[m.kind]);
+    return builder.finish();
+}
+
+// Diffs after typing pauses, and at once when the unedited text arrives.
+const editDiffer = ViewPlugin.fromClass(class {
+    constructor(view) { this.view = view; this.timer = 0; }
+    update(u) {
+        const fresh = u.transactions.some(t => t.effects.some(e => e.is(setOriginal)));
+        if (fresh || u.docChanged) this.schedule(fresh ? 0 : 300);
+    }
+    schedule(delay) {
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => {
+            this.timer = 0;
+            const { original } = this.view.state.field(editState);
+            const chunks = original == null ? [] : editChunks(original, this.view.state.doc.toString());
+            this.view.dispatch({ effects: setChunks.of(chunks) });
+        }, delay);
+    }
+    destroy() { clearTimeout(this.timer); }
+});
+
+// The same marks along the scrollbar. Drawn over its track and never in the way: pointer-events none.
+const editOverview = ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.dom = document.createElement('div');
+        this.dom.className = 'cc-edit-overview';
+        this.dom.setAttribute('aria-hidden', 'true');
+        view.dom.appendChild(this.dom);
+        this.draw(view);
+    }
+    update(u) {
+        if (u.docChanged || u.geometryChanged || u.heightChanged || marksChanged(u)) this.draw(u.view);
+    }
+    draw(view) {
+        view.requestMeasure({
+            key: this,
+            read: v => {
+                const { chunks } = v.state.field(editState);
+                const doc = v.state.doc;
+                const marks = chunks.map(c => {
+                    const from = Math.min(c.fromB, doc.length);
+                    const top = v.lineBlockAt(from).top;
+                    const bottom = c.toB > c.fromB ? v.lineBlockAt(Math.min(c.toB - 1, doc.length)).bottom : top;
+                    return { top, bottom, kind: c.toB <= c.fromB ? 'deleted' : c.toA > c.fromA ? 'modified' : 'added' };
+                });
+                const s = v.scrollDOM;
+                return { marks, total: Math.max(v.contentHeight, 1), bar: s.offsetWidth - s.clientWidth, top: s.offsetTop, height: s.clientHeight };
+            },
+            write: m => {
+                this.dom.hidden = m.marks.length === 0;
+                this.dom.style.top = `${m.top}px`;
+                this.dom.style.height = `${m.height}px`;
+                // A scrollbar that takes no width (overlay scrollbars) still gets a strip to show the marks on.
+                this.dom.style.width = `${m.bar > 0 ? m.bar : 6}px`;
+                this.dom.replaceChildren(...m.marks.map(k => {
+                    const el = document.createElement('div');
+                    el.className = `cc-edit-overview-mark cc-edit-${k.kind}`;
+                    el.style.top = `${(k.top / m.total) * 100}%`;
+                    el.style.height = k.kind === 'deleted' ? '2px' : `max(2px, ${((k.bottom - k.top) / m.total) * 100}%)`;
+                    return el;
+                }));
+            },
+        });
+    }
+    destroy() { this.dom.remove(); }
+});
+
+function editMarking() {
+    return [
+        editState,
+        editDiffer,
+        gutter({ class: 'cc-edit-gutter', markers: gutterMarks, lineMarkerChange: marksChanged }),
+        editOverview,
+    ];
+}
+
+/**
+ * The **N edited** badge: the first edit, then each press the next edited object's first changed line,
+ * back to the first after the last. One stop per object, so the stops match the badge's count.
+ */
+export function nextEdit(host) {
+    const cc = host?._cc;
+    if (!cc) return false;
+    const view = cc.view;
+    const doc = view.state.doc;
+    const { chunks } = view.state.field(editState);
+    if (!chunks.length) return false;
+    const blocks = itemBlocks(doc);
+    const stops = [];
+    for (const c of chunks) {
+        const pos = doc.lineAt(Math.min(c.fromB, doc.length)).from;
+        const block = blocks.find(b => pos >= b.from && pos <= b.to);
+        const key = block ? block.from : -1 - pos;
+        if (!stops.some(s => s.key === key)) stops.push({ key, pos, block });
+    }
+    const head = view.state.selection.main.head;
+    // Still on the stop this button last went to: the next one. Moved since, or first press: the first.
+    const at = cc.state.editStop === head ? stops.findIndex(s => s.pos === head) : -1;
+    const target = stops[(at + 1) % stops.length];
+    const effects = [];
+    foldedRanges(view.state).between(target.pos, target.pos, (from, to) => { effects.push(unfoldEffect.of({ from, to })); });
+    view.dispatch({ selection: { anchor: target.pos }, effects: [...effects, EditorView.scrollIntoView(target.pos, { y: 'center' })] });
+    cc.state.editStop = target.pos;
+    view.focus();
+    return true;
 }
 
 // ---------- Firewall policy order ----------
@@ -900,6 +1093,7 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
                 namedFolds,
                 // Diagnostics come from the server's validation via setProblems, never a local linter.
                 lintGutter(),
+                editMarking(),
                 autocompletion({ override: [ctx => complete(state, ctx)], activateOnTyping: true, icons: false }),
                 state.editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ 'aria-label': label ?? 'YAML', spellcheck: 'false' }),
@@ -1028,8 +1222,9 @@ function armSearchOnScroll(view, state) {
 /**
  * Replaces the document without reporting it as an edit. A pending change for the old text is sent
  * first. scope, when given, replaces the editor's (a switch between site config and a template).
+ * original is the collection as it loaded, which the edit marks compare against; null shows none.
  */
-export function setText(host, text, key, scope) {
+export function setText(host, text, key, scope, original) {
     const cc = host?._cc;
     if (!cc) return;
     if (cc.state.timer) {
@@ -1060,6 +1255,8 @@ export function setText(host, text, key, scope) {
             selection: { anchor: Math.min(place?.anchor ?? 0, length) },
         });
         view.dispatch(setDiagnostics(view.state, []));
+        view.dispatch({ effects: setOriginal.of(original ?? null) });
+        cc.state.editStop = null;
         // Positions hold only for the same text. Other text (an upload, then Discard) gets its folds
         // back by object ID: a position fold there spans the wrong lines, from line 1 into a policy.
         const doc = view.state.doc;

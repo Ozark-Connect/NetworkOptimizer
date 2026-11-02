@@ -108,7 +108,7 @@
                         <span class="cc-header-actions">
                             @if (EditedCount(_group) > 0)
                             {
-                                <span class="status-badge status-info">@EditedCount(_group) edited</span>
+                                <button type="button" class="status-badge status-info cc-edited-badge" data-tooltip="Go to the next edit" @onclick="NextEditAsync">@EditedCount(_group) edited</button>
                             }
                             else
                             {
@@ -462,7 +462,7 @@
             _pushText = false;
             try
             {
-                await _editor.InvokeVoidAsync("setText", _host, _text, EditKey, FoldScope);
+                await _editor.InvokeVoidAsync("setText", _host, _text, EditKey, FoldScope, _original.GetValueOrDefault(_group));
                 await _editor.InvokeVoidAsync("setSchema", _host, _schemas.GetValueOrDefault(_group, "{}"));
                 await PushProblemsAsync();
                 if (_goToLine is { } line)
@@ -542,6 +542,14 @@
         }
         if (_editor == null) return;
         try { await _editor.InvokeVoidAsync("goToLine", _host, line); }
+        catch (JSDisconnectedException) { }
+    }
+
+    /// <summary>The edited badge: the editor's first edit, then the next on each press.</summary>
+    private async Task NextEditAsync()
+    {
+        if (_editor == null) return;
+        try { await _editor.InvokeAsync<bool>("nextEdit", _host); }
         catch (JSDisconnectedException) { }
     }
 

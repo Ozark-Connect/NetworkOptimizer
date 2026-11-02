@@ -117,7 +117,8 @@ public class CcEditorTests
             <body><div class="change-control"><div class="card"><div class="cc-editor" id="host"></div></div></div>
             <script type="module">
             import * as cc from './js/cc-editor.js';
-            import * as cm from './lib/codemirror/codemirror.bundle.js?v=7';
+            // The same ?v= as cc-editor.js imports: another one is a second copy of CodeMirror, whose effects the editor ignores.
+            import * as cm from './lib/codemirror/codemirror.bundle.js?v=9';
             window.cc = cc;
             window.cm = cm;
             window.calls = [];
@@ -378,6 +379,90 @@ public class CcEditorTests
         await CursorAsync(page, await PosOfAsync(page, "- name: Block Internet", atStart: true));
         await page.Keyboard.PressAsync("Enter");
         Assert.Contains(Policy(1) + "\n- name: Block Internet\n", await DocAsync(page));
+    }
+
+    // ---------- Edit marks ----------
+
+    /// <summary>Shows edited text against the original, as Edit does on each collection it opens.</summary>
+    private static async Task SetWithOriginalAsync(IPage page, string text, string original)
+    {
+        await page.EvaluateAsync("([t, o]) => cc.setText(document.getElementById('host'), t, '2|Firewall Policies', null, o)", new object[] { text, original });
+        await page.WaitForTimeoutAsync(100);
+    }
+
+    [BrowserFact]
+    public async Task EditMarks_AddedModifiedAndDeleted_InTheGutterAndAlongTheScrollbar()
+    {
+        // Lines unlike each other, so the diff has only one reading: a renamed, b removed, z added.
+        var original = "firewall_policies:\n- name: a\n  action: BLOCK\n- name: b\n  protocol: tcp\n- name: c\n  action: ALLOW\n";
+        var edited = "firewall_policies:\n- name: a2\n  action: BLOCK\n- name: c\n  action: ALLOW\n- name: z\n  logging: true\n";
+        var page = await OpenAsync(original, Schema(), tall: false);
+        await SetWithOriginalAsync(page, edited, original);
+
+        Assert.Equal(["2:modified", "4:deleted", "6:added", "7:added"], await page.EvaluateAsync<string[]>(
+            $"o => cc.editMarks({View}.state.doc, cc.editChunks(o, {View}.state.doc.toString())).map(m => m.line + ':' + m.kind)", original));
+        var kinds = await page.EvaluateAsync<string[]>("[...document.querySelectorAll('.cc-edit-gutter .cc-edit-mark')].map(e => e.className.replace('cc-edit-mark cc-edit-', ''))");
+        Assert.Equal(["modified", "deleted", "added", "added"], kinds);
+        Assert.False(await page.EvaluateAsync<bool>("document.querySelector('.cc-edit-overview').hidden"));
+        Assert.True(await page.EvaluateAsync<int>("document.querySelectorAll('.cc-edit-overview-mark').length") >= 3);
+        Assert.Equal("none", await page.EvaluateAsync<string>("getComputedStyle(document.querySelector('.cc-edit-overview')).pointerEvents"));
+    }
+
+    [BrowserFact]
+    public async Task EditMarks_None_ForTheTextAsItLoaded_AndAppearAfterTyping()
+    {
+        var text = Firewall(Policy(0), Policy(1));
+        var page = await OpenAsync(text, Schema());
+        await SetWithOriginalAsync(page, text, text);
+        Assert.Equal(0, await page.EvaluateAsync<int>("document.querySelectorAll('.cc-edit-gutter .cc-edit-mark').length"));
+        Assert.True(await page.EvaluateAsync<bool>("document.querySelector('.cc-edit-overview').hidden"));
+
+        await CursorAsync(page, await PosOfAsync(page, "Policy 1"));
+        await page.Keyboard.TypeAsync("x");
+        await page.WaitForFunctionAsync("document.querySelectorAll('.cc-edit-gutter .cc-edit-modified').length === 1");
+    }
+
+    [BrowserFact]
+    public async Task NextEdit_GoesToTheFirstEdit_ThenTheNext_ThenWrapsAround()
+    {
+        var original = Firewall(Policy(0), Policy(1), Policy(2), Policy(3));
+        var edited = Firewall(Policy(0), Policy(1, name: "Edited one"), Policy(2), Policy(3, name: "Edited three"));
+        var page = await OpenAsync(original, Schema());
+        await SetWithOriginalAsync(page, edited, original);
+        const string line = $"{View}.state.doc.lineAt({View}.state.selection.main.head).text";
+
+        Assert.True(await page.EvaluateAsync<bool>("cc.nextEdit(document.getElementById('host'))"));
+        Assert.Contains("Edited one", await page.EvaluateAsync<string>(line));
+        await page.EvaluateAsync("cc.nextEdit(document.getElementById('host'))");
+        Assert.Contains("Edited three", await page.EvaluateAsync<string>(line));
+        await page.EvaluateAsync("cc.nextEdit(document.getElementById('host'))");
+        Assert.Contains("Edited one", await page.EvaluateAsync<string>(line));
+
+        // Moved since: the next press starts at the first edit again.
+        await CursorAsync(page, await PosOfAsync(page, "Edited three"));
+        await page.EvaluateAsync("cc.nextEdit(document.getElementById('host'))");
+        Assert.Contains("Edited one", await page.EvaluateAsync<string>(line));
+    }
+
+    [BrowserFact]
+    public async Task NextEdit_OpensAFoldedObject_AndDoesNothingWithoutEdits()
+    {
+        var original = Firewall(Policy(0), Policy(1));
+        var edited = Firewall(Policy(0), Policy(1, name: "Edited one"));
+        var page = await OpenAsync(original, Schema());
+        Assert.False(await page.EvaluateAsync<bool>("cc.nextEdit(document.getElementById('host'))"));
+
+        await SetWithOriginalAsync(page, edited, original);
+        await page.EvaluateAsync($$"""
+            (() => {
+                const v = {{View}};
+                const b = cc.itemBlocks(v.state.doc)[1];
+                v.dispatch({ effects: cm.foldEffect.of({ from: b.lineEnd, to: b.to }) });
+            })()
+            """);
+        Assert.Equal(1, await page.EvaluateAsync<int>(FoldCount));
+        await page.EvaluateAsync("cc.nextEdit(document.getElementById('host'))");
+        Assert.Equal(0, await page.EvaluateAsync<int>(FoldCount));
     }
 
     [BrowserFact]

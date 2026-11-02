@@ -25370,6 +25370,20 @@ body:has(.top-bar-hidden) .btn-fit {
     gap: 0.5rem;
 }
 
+/* The edited badge goes to the next edit: a status badge that is a button. */
+.change-control .cc-edited-badge {
+    border: none;
+    font-family: inherit;
+    line-height: inherit;
+    cursor: pointer;
+}
+
+.change-control .cc-edited-badge:hover,
+.change-control .cc-edited-badge:focus-visible {
+    box-shadow: inset 0 0 0 1px currentColor;
+    outline: none;
+}
+
 @media (max-width: 768px) {
     .change-control .cc-edit-actions {
         display: none;
