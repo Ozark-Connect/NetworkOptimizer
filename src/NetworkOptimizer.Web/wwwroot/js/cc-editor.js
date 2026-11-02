@@ -704,19 +704,25 @@ export function nextEdit(host) {
 // outlives a collection switch, so the next collection opens with its matches already marked.
 
 /**
- * Case-insensitive, non-overlapping matches of query in text, as { from, to }. Masked secret tokens are
- * skipped: their text is a path, never shown. Must agree with CcFind.Count, which counts the other collections.
+ * Case-insensitive, non-overlapping matches of any of terms in text, as { from, to }. terms is CcFind.Terms:
+ * the query and its aliases, longest first. Masked secret tokens are skipped: their text is a path, never
+ * shown. Must agree with CcFind.Count, which counts the other collections.
  */
-export function findMatches(text, query) {
+export function findMatches(text, terms) {
     const matches = [];
-    if (!query) return matches;
+    if (!terms?.length) return matches;
     const tokens = [...text.matchAll(/<secret:[^>\s]+>/g)].map(m => ({ from: m.index, to: m.index + m[0].length }));
-    const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    const re = new RegExp(terms.map(termPattern).join('|'), 'gi');
     for (const m of text.matchAll(re)) {
         const from = m.index, to = from + m[0].length;
         if (!tokens.some(t => from < t.to && to > t.from)) matches.push({ from, to });
     }
     return matches;
+}
+
+/** A term as literal text, except a space also matches "_", "-", or nothing. Mirrors CcFind.TermPattern. */
+export function termPattern(term) {
+    return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '[ _-]?');
 }
 
 const setFind = StateEffect.define();
@@ -742,14 +748,15 @@ const findState = StateField.define({
 });
 
 /**
- * Highlights query's matches and makes match number index the current one (negative counts from the
- * end), opening any fold over it and scrolling it to the middle. A null query clears the highlight.
- * Resolves to the number of matches. After setText's scroll restore, which runs two frames after a swap.
+ * Highlights the matches of query (CcFind.Terms: the query and its aliases) and makes match number index
+ * the current one (negative counts from the end), opening any fold over it and scrolling it to the middle.
+ * A null or empty query clears the highlight. Resolves to the number of matches. After setText's scroll
+ * restore, which runs two frames after a swap.
  */
 export function find(host, query, index) {
     const cc = host?._cc;
     if (!cc) return Promise.resolve(0);
-    if (!query) {
+    if (!query?.length) {
         cc.view.dispatch({ effects: setFind.of({ query: null, current: -1 }) });
         return Promise.resolve(0);
     }

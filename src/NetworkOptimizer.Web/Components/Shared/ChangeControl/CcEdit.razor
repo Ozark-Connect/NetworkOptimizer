@@ -647,7 +647,7 @@
         if (_editor == null || _searched == null) return;
         try
         {
-            var count = await _editor.InvokeAsync<int>("find", _host, _searched, local);
+            var count = await _editor.InvokeAsync<int>("find", _host, CcFind.Terms(_searched), local);
             if (count != _hits.GetValueOrDefault(_group))
             {
                 var offset = HitOffset(_group);

@@ -38,6 +38,38 @@ public class CcFindTests
     }
 
     [Fact]
+    public void Count_AliasFindsTheYamlName()
+    {
+        const string yaml = "networks:\n- name: IoT\n  vlan: 20\nclients:\n- mac: aa:bb:cc:dd:ee:ff\ndevices:\n- name: Switch\n";
+        CcFind.Count(yaml, "vlan").Should().Be(2);
+        CcFind.Count(yaml, "VLANs").Should().Be(2);
+        CcFind.Count(yaml, "client devices").Should().Be(1);
+        CcFind.Count(yaml, "UniFi Devices").Should().Be(1);
+    }
+
+    [Fact]
+    public void Count_AliasIsOneWay()
+    {
+        CcFind.Count("networks:\n  vlan: 20\n", "network").Should().Be(1);
+    }
+
+    [Fact]
+    public void Count_SpaceMatchesUnderscoreHyphenOrNothing()
+    {
+        const string yaml = "port_forwards:\nuser_groups:\n- usergroup_id: x\n  wi-fi: on\n";
+        CcFind.Count(yaml, "port forward").Should().Be(1);
+        CcFind.Count(yaml, "user group").Should().Be(2);
+        CcFind.Count(yaml, "wi fi").Should().Be(1);
+    }
+
+    [Fact]
+    public void Terms_AreLongestFirst()
+    {
+        CcFind.Terms("vlan").Should().Equal("network", "vlan");
+        CcFind.Terms("  wireless  ").Should().Equal("wireless", "wlan");
+    }
+
+    [Fact]
     public void Count_EmptyQuery_IsZero()
     {
         CcFind.Count(Yaml, "").Should().Be(0);
