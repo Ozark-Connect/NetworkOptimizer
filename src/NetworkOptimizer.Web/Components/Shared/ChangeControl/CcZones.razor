@@ -101,7 +101,7 @@ else
                 @if (_adding)
                 {
                     <div class="input-with-button">
-                        <input class="form-control" placeholder="Zone name" @ref="_newZoneInput" @bind="_newZone" @bind:event="oninput" />
+                        <input class="form-control" placeholder="Zone name" @ref="_newZoneInput" @bind="_newZone" @bind:event="oninput" @onkeydown="NewZoneKeyAsync" />
                         <button class="btn btn-primary" disabled="@string.IsNullOrWhiteSpace(_newZone)" @onclick="AddZoneAsync">Add</button>
                     </div>
                 }
@@ -388,6 +388,16 @@ else
         StateHasChanged();
         await Task.Delay(1); // let the input render before it is focused
         await _newZoneInput.FocusAsync();
+    }
+
+    private async Task NewZoneKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddZoneAsync();
+        else if (e.Key == "Escape")
+        {
+            _newZone = "";
+            _adding = false;
+        }
     }
 
     private async Task AddZoneAsync()
