@@ -454,18 +454,16 @@
                                 @onclick='() => SetActiveTab("data")'>Data</button>
                     </div>
                 }
-                @* The Speed tab carries the filter on its Speed Tests heading instead: up here it read
-                   as driving the Throughput card, which has its own range. *@
-                @if (_activeTab != "speed")
-                {
-                    <div class="time-range-selector">
-                        @foreach (var tf in _timeFilters)
-                        {
-                            <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
-                                    @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
-                        }
-                    </div>
-                }
+                @* On a desktop the Speed tab carries this filter on its Speed Tests heading instead: up
+                   here it read as driving the Throughput card, which has its own range. On a phone it
+                   stays in the bottom bar on every tab. *@
+                <div class="time-range-selector @(_activeTab == "speed" ? "speed-tab-filter" : "")">
+                    @foreach (var tf in _timeFilters)
+                    {
+                        <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
+                                @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
+                    }
+                </div>
             </div>
         </div>
 
@@ -549,7 +547,8 @@
                             <h4>Speed Tests</h4>
                             <span class="section-subtitle">@TimeFormatHelper.Pluralize(_speedResults.Count, "test")</span>
                         </div>
-                        <div class="time-range-selector">
+                        @* A phone keeps this filter in its bottom bar, so the heading carries none there. *@
+                        <div class="time-range-selector hide-mobile">
                             @foreach (var tf in _timeFilters)
                             {
                                 <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
@@ -2382,7 +2381,8 @@
                 StateHasChanged();
                 // A newer range was picked while this loaded; the next render mounts that one.
                 if (_liveChartHours != _throughputHours) return;
-                opts = new { history };
+                _dotNetRef ??= DotNetObjectReference.Create(this);
+                opts = new { history, dotNet = _dotNetRef };
             }
             // False when the div is not in the DOM yet (a render still on the skeleton); the next
             // render tries again.
@@ -2420,6 +2420,8 @@
             title = "Speed Test",
             detail = $"Download {r.UploadMbps:F1} Mbps, Upload {r.DownloadMbps:F1} Mbps",
             reading = $"{r.UploadMbps:F0} / {r.DownloadMbps:F0} Mbps",
+            actionId = r.Id,
+            actionLabel = "Show in Test Results",
         }).ToList();
         var pts = history.Points;
         var summary = new ThroughputSummary(
@@ -3306,6 +3308,30 @@
         try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{resultId}"); }
         catch (Exception ex) { Logger.LogDebug(ex, "Could not scroll to speed test result {Id}", resultId); }
     }
+
+    /// <summary>
+    /// A speed test on the Throughput chart was clicked: opens its row in Test Results. A result
+    /// older than the Speed Tests range widens it first, to the smallest range that holds it.
+    /// </summary>
+    [JSInvokable]
+    public Task OpenSpeedResultFromChart(int resultId, long testTimeMs) => InvokeAsync(async () =>
+    {
+        if (_client == null) return;
+        if (!_speedResults.Any(r => r.Id == resultId))
+        {
+            var age = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds(testTimeMs);
+            _selectedTimeFilter = _timeFilters
+                .Where(tf => tf.hours > 0 && TimeSpan.FromHours(tf.hours) >= age)
+                .Select(tf => tf.hours)
+                .DefaultIfEmpty(0)
+                .First();
+            _signalPage = _speedPage = _connectionPage = 1;
+            var (from, to) = GetTimeRange();
+            await LoadSpeedDataAsync(from, to);
+            _pendingChartUpdate = true;
+        }
+        await ScrollToResult(resultId);
+    });
 
     private async Task HandleDeleteResult(int resultId)
     {
@@ -4825,7 +4851,15 @@
     .chart-card-header .monitoring-jump-btn {
         margin-right: -0.35rem;
     }
+    /* Held at its drawn height while a range reloads (header 34 + 12, chart 175, padding 40), and
+       the chart area takes what is left, so the loading spinner centers where the chart goes. */
+    .live-chart-card {
+        display: flex;
+        flex-direction: column;
+        min-height: 262px;
+    }
     .live-chart-card .chart-container {
+        flex: 1 1 auto;
         position: relative;
     }
     /* The Speed tab's filter heading: the gap below comes from the tab pane. */
@@ -4861,6 +4895,13 @@
     @@media (max-width: 900px) {
         .speed-history-grid {
             grid-auto-flow: row;
+        }
+    }
+    /* The Speed tab's filter lives on its Speed Tests heading above a phone's width; below it,
+       in the bottom bar with the tabs (the phone layout in the block further down). */
+    @@media (min-width: 769px) {
+        .dashboard-controls > .speed-tab-filter {
+            display: none;
         }
     }
     .app-table-hint {
@@ -5223,10 +5264,14 @@
         }
         /* A time filter does not fit beside its heading on a phone: it takes the next row, full
            width, with the app's stretched time buttons (Throughput's eye stays at its end). */
-        .chart-card-header > .card-header-right,
-        .speed-tests-header > .time-range-selector {
+        .chart-card-header > .card-header-right {
             flex: 1 1 100%;
             margin-left: 0;
+        }
+        /* The range takes its own row here: top 13, heading 25.6, gap 8, range 38.7, then 12 +
+           175 + 20 as on a desktop. */
+        .live-chart-card {
+            min-height: 293px;
         }
         /* Live Throughput bleeds into the card's 1rem phone padding on both sides: the newest
            sample lands on the right edge, the value labels sit close to the left. */

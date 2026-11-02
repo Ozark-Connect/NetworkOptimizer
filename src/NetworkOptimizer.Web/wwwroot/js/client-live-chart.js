@@ -14,7 +14,7 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { valueSortedTooltip } from './chart-tooltip.js?v=18';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createMarkLayer } from './chart-event-marks.js?v=7';
+import { createMarkLayer } from './chart-event-marks.js?v=8';
 import { createAxisDateCaption } from './chart-axis-date.js?v=4';
 
 const HISTORY_MINUTES = 5;
@@ -52,6 +52,7 @@ let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
 let mode = 'live';
+let markLayer = null;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -365,7 +366,7 @@ function historySeries(history) {
     ];
 }
 
-async function mountHistory(el, gen, history) {
+async function mountHistory(el, gen, history, dotNet) {
     const caption = createAxisDateCaption({
         charts: () => [chart],
         window: () => ({ from: new Date(history.from), to: new Date(history.to) }),
@@ -375,15 +376,23 @@ async function mountHistory(el, gen, history) {
     if (gen !== mountGen) return true;
     chart.updateSeries(historySeries(history), false);
     // Speed tests in the accent color: they are not health events, so no severity color fits.
+    // A click opens the result in Test Results.
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#E56B11';
-    const marks = createMarkLayer({ charts: () => [[chart, el]] });
-    marks.apply((history.marks || []).map(m => ({ ...m, color: accent })), {});
+    markLayer = createMarkLayer({
+        charts: () => [[chart, el]],
+        onAction: dotNet
+            ? (m) => dotNet.invokeMethodAsync('OpenSpeedResultFromChart', m.actionId, new Date(m.time).getTime())
+                .catch(e => console.warn('Speed test result could not be opened', e))
+            : undefined,
+    });
+    markLayer.apply((history.marks || []).map(m => ({ ...m, color: accent })), {});
     return true;
 }
 
 /** Mounts into a container. Live, with the window's history:
  *  `{ points: [{time, downloadBps, uploadBps}], wanPoints: [{time, wanDownloadBps, wanUploadBps}] }`.
- *  History, with `{ history: {from, to, windowMs, hasPeaks, points, marks} }` instead.
+ *  History, with `{ history: {from, to, windowMs, hasPeaks, points, marks}, dotNet }` instead;
+ *  dotNet receives OpenSpeedResultFromChart when a speed test mark is clicked.
  *  False when the container is not in the DOM, so the caller can try again on its next render. */
 export async function mount(containerId, opts) {
     dispose();
@@ -393,7 +402,7 @@ export async function mount(containerId, opts) {
     if (!el) return false;
     if (opts?.history) {
         mode = 'history';
-        return await mountHistory(el, gen, opts.history);
+        return await mountHistory(el, gen, opts.history, opts.dotNet);
     }
     mode = 'live';
     buffer = (opts?.points || []).map(toPoint).sort((a, b) => a.time - b.time);
@@ -472,4 +481,6 @@ export function dispose() {
     liveEdge = null;
     wanEdge = null;
     mode = 'live';
+    markLayer?.dispose();
+    markLayer = null;
 }

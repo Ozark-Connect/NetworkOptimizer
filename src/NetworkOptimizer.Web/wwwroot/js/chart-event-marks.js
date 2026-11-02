@@ -33,6 +33,8 @@ const MARK_COLLISION_PX = 24;
 // hitTarget bound the tooltip to.
 const TAGGED = 'data-mark-bound';
 
+let layerCount = 0;
+
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s ?? ''; return _esc.innerHTML; }
 
@@ -66,6 +68,10 @@ function singleTooltip(mark) {
         rows.push(`<div class="device-tooltip-row chart-mark-row chart-mark-detail">`
             + `<span class="device-tooltip-label">Detail:</span> ${escapeHtml(mark.detail)}</div>`);
     }
+    if (mark._action) {
+        rows.push(`<div class="chart-mark-action" data-mark-action="${mark._action}">`
+            + `${escapeHtml(mark.actionLabel || 'Open')}</div>`);
+    }
     return rows.join('');
 }
 
@@ -78,7 +84,8 @@ function foldedTooltip(marks) {
         const extra = mark.firmware || mark.reading;
         const parts = [mark.device, mark.port ? `port ${mark.port}` : null, extra].filter(Boolean);
         const where = parts.join(' · ');
-        return `<div class="chart-mark-item">`
+        const action = mark._action ? ` chart-mark-item-action" data-mark-action="${mark._action}` : '';
+        return `<div class="chart-mark-item${action}">`
             + `<span class="chart-mark-item-time">${escapeHtml(formatTime(mark.time, opts))}</span>`
             + `<span class="chart-mark-item-body">`
             + `<span class="chart-mark-item-title">${escapeHtml(mark.title)}</span>`
@@ -97,12 +104,26 @@ function foldedTooltip(marks) {
  * @param {() => Array<[object, Element]>} options.charts Every chart to mark, paired with the
  *   element it rendered into - ApexCharts draws annotation labels as SVG text, so the tooltip is
  *   attached by walking that SVG afterwards.
+ * @param {(mark: object) => void} [options.onAction] Called when a mark carrying `actionId` is
+ *   clicked: its tooltip row (any pointer), or its box (a mouse; a tap there opens the tooltip).
  */
-export function createMarkLayer({ charts }) {
+export function createMarkLayer({ charts, onAction }) {
     let lastSignature = null;
     let lastClusters = [];
     let healPending = false;
     const watched = new WeakSet();
+    // Tooltips are HTML strings Tippy renders on document.body, so their clicks are caught there
+    // and mapped back to the mark by a token only this layer hands out.
+    const layerId = ++layerCount;
+    const actions = new Map();
+    const onDocumentClick = (e) => {
+        const el = e.target.closest?.('[data-mark-action]');
+        const mark = el && actions.get(el.getAttribute('data-mark-action'));
+        if (!mark) return;
+        el.closest('[data-tippy-root]')?._tippy?.hide();
+        onAction(mark);
+    };
+    if (onAction) document.addEventListener('click', onDocumentClick);
 
     // Milliseconds per pixel of plot, from the charts' own geometry rather than the requested
     // range: gridWidth excludes the y-axis gutter, and minX/maxX are the extents ApexCharts
@@ -158,7 +179,11 @@ export function createMarkLayer({ charts }) {
                 c.marks.length === 1 ? singleTooltip(c.marks[0]) : foldedTooltip(c.marks));
             target.setAttribute('data-tooltip-interactive', '');
             target.setAttribute('data-tooltip-html', '');
-            target.style.cursor = 'help';
+            const actionable = c.marks.length === 1 && c.marks[0]._action;
+            target.style.cursor = actionable ? 'pointer' : 'help';
+            target.onclick = actionable
+                ? () => { if (!window.matchMedia?.('(pointer: coarse)').matches) onAction(c.marks[0]); }
+                : null;
             label.setAttribute(TAGGED, '');
         });
     }
@@ -229,7 +254,16 @@ export function createMarkLayer({ charts }) {
         apply(events, visibility) {
             // Filtering here rather than server-side keeps the badge toggles instant: hiding a
             // series drops its marks without a refetch, the same way it drops its line.
-            const clusters = cluster((events || []).filter(e => visibility[e.key] !== false));
+            actions.clear();
+            let n = 0;
+            const visible = (events || []).filter(e => visibility[e.key] !== false).map(e => {
+                if (!onAction || e.actionId == null) return e;
+                const token = `${layerId}-${n++}`;
+                const mark = { ...e, _action: token };
+                actions.set(token, mark);
+                return mark;
+            });
+            const clusters = cluster(visible);
             lastClusters = clusters;
             for (const [, el] of charts()) watch(el);
 
@@ -283,5 +317,11 @@ export function createMarkLayer({ charts }) {
 
         /** Forgets the last drawn state, so the next apply always redraws. */
         reset() { lastSignature = null; },
+
+        /** Drops the document click listener, for a chart being torn down. */
+        dispose() {
+            document.removeEventListener('click', onDocumentClick);
+            actions.clear();
+        },
     };
 }
