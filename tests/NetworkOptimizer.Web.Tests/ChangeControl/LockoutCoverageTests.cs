@@ -55,6 +55,32 @@ public class LockoutCoverageTests
         Plan(desired, agent: true).Lockouts.Should().BeEmpty("an IPv6 management address must not match every network");
     }
 
+    [Theory]
+    [InlineData("z-int", true)]
+    [InlineData("z-iot", false)]
+    public void BlockFromEveryAddressButAGroup_OnlyFlagsTheZoneWeManageFrom(string sourceZone, bool expectedLockout)
+    {
+        // IoT in its own zone; the block's source is every address except one that is not ours (Match Opposite).
+        ConfigState Zoned()
+        {
+            var s = Site();
+            s.Collections["firewall_zone"][0]["network_ids"] = new JsonArray("n-lan");
+            s.Collections["firewall_zone"].Add(new JsonObject { ["_id"] = "z-iot", ["name"] = "IoT", ["network_ids"] = new JsonArray("n-iot") });
+            return s;
+        }
+        var desired = Zoned();
+        var policy = Block("new-1", new JsonObject
+        {
+            ["zone_id"] = sourceZone, ["matching_target"] = "IP", ["ips"] = new JsonArray("192.0.2.99"), ["match_opposite_ips"] = true,
+        });
+        desired.Collections["firewall_policy"] = [policy];
+
+        var doc = PlanBuilder.Build(desired, Zoned(), new PlanOptions { ManagementAddresses = ["192.0.2.50"] });
+
+        doc.Lockouts.Any(l => l.Title.Contains("blocks traffic to the gateway")).Should().Be(expectedLockout,
+            "a policy sees traffic only from its source zone, and Network Optimizer's address is in Internal");
+    }
+
     [Fact]
     public void GatewaySnmpBlock_IsNotFlaggedAsALockout()
     {

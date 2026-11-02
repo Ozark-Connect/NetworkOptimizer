@@ -200,6 +200,15 @@ public static class LockoutChecker
         // Each address Network Optimizer manages from, with the network it is in, for the Audit's source matching.
         var noNetworkOf = noAddresses.ToDictionary(a => a, a => planned.Get("networkconf")
             .FirstOrDefault(n => Str(n["ip_subnet"]) is { } s && s.Contains('/') && InSubnet(a, s)) is { } net ? ConfigState.IdOf(net) : null);
+        // A policy sees traffic only from its source zone. The Audit's source match has no zone, so an address counts only
+        // where its network sits in that zone; one in no zoned network can come only from a zone that is not a LAN zone.
+        var zoneOfNetwork = ZonePaths.ZoneOfNetwork(planned);
+        var lanZones = planned.Get("firewall_zone").Where(z => ZonePaths.IsCustom(z) || Str(z["zone_key"]) is "internal" or "hotspot" or "dmz")
+            .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool InSourceZone(Audit.Models.FirewallRule rule, string? networkId) => rule.SourceZoneId is not { } sourceZone
+            || (networkId != null && zoneOfNetwork.TryGetValue(networkId, out var zone)
+                ? string.Equals(zone, sourceZone, StringComparison.OrdinalIgnoreCase)
+                : !lanZones.Contains(sourceZone));
         if (gatewayZone != null)
             foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
             {
@@ -210,7 +219,7 @@ public static class LockoutChecker
                 // the console or Network Optimizer. Treat unknown protocol/port shapes conservatively.
                 if (!CouldBlockManagementTraffic(rule)) continue;
                 var fromAny = rule.IsAnySource();
-                var fromNo = !fromAny && noAddresses.Any(a => rule.AppliesToSourceAddress(noNetworkOf[a], a));
+                var fromNo = !fromAny && noAddresses.Any(a => InSourceZone(rule, noNetworkOf[a]) && rule.AppliesToSourceAddress(noNetworkOf[a], a));
                 var fromNoZone = fromAny && managementZones.Contains(rule.SourceZoneId ?? "");
                 if (!fromAny && !fromNo) continue;
                 if (fromAny && !fromNoZone && UnmanagedNewZone(rule.SourceZoneId)) continue;
