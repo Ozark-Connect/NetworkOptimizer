@@ -1369,7 +1369,7 @@ Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let
 
 **Setup:**
 
-1. In Network Optimizer, go to **Settings → External Speed Test Server**
+1. In Network Optimizer, go to **Settings - Speed Tests - External Speed Test Servers**
 2. Enter the server name, hostname/IP, port, and scheme (HTTPS)
 3. Save - a **deploy command** will appear with everything pre-filled
 4. SSH to your remote server and run the deploy command
