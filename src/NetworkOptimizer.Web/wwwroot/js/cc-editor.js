@@ -539,6 +539,25 @@ export function editMarks(doc, chunks) {
     return [...byLine].sort((a, b) => a[0] - b[0]).map(([line, kind]) => ({ line, kind }));
 }
 
+/**
+ * The marks as the folds show them: a folded item whose hidden lines hold edits is marked on its visible first line
+ * ('added' when every hidden mark is, else 'modified'), and the hidden marks give way to it. folds are { from, to }
+ * ranges as foldedRanges gives them; pure, exported for testing.
+ */
+export function foldedEditMarks(doc, marks, folds) {
+    if (!folds.length) return marks;
+    const byLine = new Map(marks.map(m => [m.line, m.kind]));
+    for (const { from, to } of folds) {
+        const head = doc.lineAt(from).number;
+        const last = doc.lineAt(to).number;
+        const hidden = [];
+        for (let n = head + 1; n <= last; n++) if (byLine.has(n)) { hidden.push(byLine.get(n)); byLine.delete(n); }
+        if (!hidden.length) continue;
+        byLine.set(head, hidden.every(k => k === 'added') && (!byLine.has(head) || byLine.get(head) === 'added') ? 'added' : 'modified');
+    }
+    return [...byLine].sort((a, b) => a[0] - b[0]).map(([line, kind]) => ({ line, kind }));
+}
+
 class EditMark extends GutterMarker {
     constructor(kind) { super(); this.kind = kind; }
     eq(other) { return other.kind === this.kind; }
@@ -552,10 +571,16 @@ const markOfKind = Object.fromEntries(['added', 'modified', 'deleted', 'deleted-
 
 function gutterMarks(view) {
     const { chunks } = view.state.field(editState);
+    const folds = [];
+    foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => { folds.push({ from, to }); });
     const builder = new RangeSetBuilder();
-    for (const m of editMarks(view.state.doc, chunks)) builder.add(view.state.doc.line(m.line).from, view.state.doc.line(m.line).from, markOfKind[m.kind]);
+    for (const m of foldedEditMarks(view.state.doc, editMarks(view.state.doc, chunks), folds))
+        builder.add(view.state.doc.line(m.line).from, view.state.doc.line(m.line).from, markOfKind[m.kind]);
     return builder.finish();
 }
+
+// The gutter redraws when the marks change and when a fold opens or closes, which moves where they show.
+const gutterMarksChanged = u => marksChanged(u) || u.transactions.some(t => t.effects.some(e => e.is(foldEffect) || e.is(unfoldEffect)));
 
 // Diffs after typing pauses, and at once when the unedited text arrives.
 const editDiffer = ViewPlugin.fromClass(class {
@@ -601,18 +626,23 @@ const editOverview = ViewPlugin.fromClass(class {
                     return { top, bottom, kind: c.toB <= c.fromB ? 'deleted' : c.toA > c.fromA ? 'modified' : 'added' };
                 });
                 const s = v.scrollDOM;
-                return { marks, total: Math.max(v.contentHeight, 1), bar: s.offsetWidth - s.clientWidth, top: s.offsetTop, height: s.clientHeight };
+                // The scrollbar maps the scroller's whole height (padding included), so marks are placed on that scale:
+                // the document's offset inside the scroller, over scrollHeight.
+                const offset = v.documentTop - s.getBoundingClientRect().top + s.scrollTop;
+                return { marks, offset, total: Math.max(s.scrollHeight, 1), bar: s.offsetWidth - s.clientWidth, top: s.offsetTop, height: s.clientHeight };
             },
             write: m => {
                 this.dom.hidden = m.marks.length === 0;
-                this.dom.style.top = `${m.top}px`;
-                this.dom.style.height = `${m.height}px`;
-                // A scrollbar that takes no width (overlay scrollbars) still gets a strip to show the marks on.
+                // A classic scrollbar's track runs between its arrow buttons, each as tall as the bar is wide; an overlay
+                // scrollbar has neither width nor arrows and gets a strip over the full height to show the marks on.
+                const arrow = m.bar > 0 ? m.bar : 0;
+                this.dom.style.top = `${m.top + arrow}px`;
+                this.dom.style.height = `${Math.max(m.height - 2 * arrow, 0)}px`;
                 this.dom.style.width = `${m.bar > 0 ? m.bar : 6}px`;
                 this.dom.replaceChildren(...m.marks.map(k => {
                     const el = document.createElement('div');
                     el.className = `cc-edit-overview-mark cc-edit-${k.kind}`;
-                    el.style.top = `${(k.top / m.total) * 100}%`;
+                    el.style.top = `${((k.top + m.offset) / m.total) * 100}%`;
                     el.style.height = k.kind === 'deleted' ? '2px' : `max(2px, ${((k.bottom - k.top) / m.total) * 100}%)`;
                     return el;
                 }));
@@ -626,7 +656,7 @@ function editMarking() {
     return [
         editState,
         editDiffer,
-        gutter({ class: 'cc-edit-gutter', markers: gutterMarks, lineMarkerChange: marksChanged }),
+        gutter({ class: 'cc-edit-gutter', markers: gutterMarks, lineMarkerChange: gutterMarksChanged }),
         editOverview,
     ];
 }

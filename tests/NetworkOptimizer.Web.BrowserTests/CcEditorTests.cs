@@ -445,6 +445,56 @@ public class CcEditorTests
     }
 
     [BrowserFact]
+    public async Task EditMarks_AFoldedObjectWithAnEditInside_IsMarkedOnItsFirstLine()
+    {
+        // The edit is on line 4 (protocol), which folding the first object hides.
+        var original = "firewall_policies:\n- name: a\n  action: BLOCK\n  protocol: tcp\n- name: c\n  action: ALLOW\n";
+        var edited = "firewall_policies:\n- name: a\n  action: BLOCK\n  protocol: udp\n- name: c\n  action: ALLOW\n";
+        var page = await OpenAsync(original, Schema(), tall: false);
+        await SetWithOriginalAsync(page, edited, original);
+        const string marks = "[...document.querySelectorAll('.cc-edit-gutter .cc-edit-mark')].map(e => e.className.replace('cc-edit-mark cc-edit-', ''))";
+        Assert.Equal(["modified"], await page.EvaluateAsync<string[]>(marks));
+
+        await page.EvaluateAsync($$"""
+            (() => {
+                const v = {{View}};
+                const b = cc.itemBlocks(v.state.doc)[0];
+                v.dispatch({ effects: cm.foldEffect.of({ from: b.lineEnd, to: b.to }) });
+            })()
+            """);
+        Assert.Equal(1, await page.EvaluateAsync<int>(FoldCount));
+        Assert.Equal(["2:modified"], await page.EvaluateAsync<string[]>(
+            $$"""
+            (() => {
+                const v = {{View}};
+                const folds = [];
+                cm.foldedRanges(v.state).between(0, v.state.doc.length, (from, to) => { folds.push({ from, to }); });
+                const doc = v.state.doc;
+                return cc.foldedEditMarks(doc, cc.editMarks(doc, cc.editChunks({{System.Text.Json.JsonSerializer.Serialize(original)}}, doc.toString())), folds)
+                    .map(m => m.line + ':' + m.kind);
+            })()
+            """));
+        Assert.Equal(["modified"], await page.EvaluateAsync<string[]>(marks));
+
+        await page.EvaluateAsync($$"""
+            (() => {
+                const v = {{View}};
+                const b = cc.itemBlocks(v.state.doc)[0];
+                v.dispatch({ effects: cm.unfoldEffect.of({ from: b.lineEnd, to: b.to }) });
+            })()
+            """);
+        Assert.Equal(["modified"], await page.EvaluateAsync<string[]>(marks));
+    }
+
+    [BrowserFact]
+    public async Task EditMarks_AFoldOfOnlyAddedLines_StaysAdded()
+    {
+        var page = await OpenAsync("firewall_policies:\n- name: a\n", Schema(), tall: false);
+        Assert.Equal(["2:added"], await page.EvaluateAsync<string[]>(
+            "(() => { const d = " + View + ".state.doc; return cc.foldedEditMarks(d, [{ line: 2, kind: 'added' }, { line: 3, kind: 'added' }], [{ from: d.line(2).to, to: d.length }]).map(m => m.line + ':' + m.kind); })()"));
+    }
+
+    [BrowserFact]
     public async Task NextEdit_OpensAFoldedObject_AndDoesNothingWithoutEdits()
     {
         var original = Firewall(Policy(0), Policy(1));
