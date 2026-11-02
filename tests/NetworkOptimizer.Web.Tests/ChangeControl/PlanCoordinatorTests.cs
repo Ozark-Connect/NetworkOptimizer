@@ -443,6 +443,32 @@ public sealed class PlanCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task EditPlan_ForgetsARemovedClient_InOneForgetCall_AndKeepsTheRest()
+    {
+        _console.State.Collections["user"] =
+        [
+            new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:01", ["name"] = "Printer" },
+            new JsonObject { ["_id"] = "u2", ["mac"] = "aa:bb:cc:dd:ee:02", ["name"] = "Rig" },
+        ];
+        var desired = _console.State.Clone();
+        desired.Collections["user"].RemoveAll(u => u["_id"]!.ToString() == "u1");
+        var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Forget Printer", "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "user" }, ForgetClients = true }, "Alex", CancellationToken.None);
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements { Items = doc.Operations.Select(o => o.Key).ToHashSet() }, CancellationToken.None);
+        _console.Requests.Clear();
+
+        var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), requireApproval: false, automatic: false, CancellationToken.None);
+
+        why.Should().BeNull();
+        _console.State.Get("user").Select(u => u["name"]!.ToString()).Should().Equal("Rig");
+        var call = _console.Requests.Should().ContainSingle(r => r.Path == "cmd/stamgr").Subject;
+        JsonNode.Parse(call.Body!)!["cmd"]!.ToString().Should().Be("forget-sta");
+        JsonNode.Parse(call.Body!)!["macs"]!.AsArray().Select(m => m!.ToString()).Should().Equal("aa:bb:cc:dd:ee:01");
+        (await PlanAsync(plan.Id))!.Status.Should().Be(ConfigPlanStatus.Applied);
+    }
+
+    [Fact]
     public async Task ConfigMoveRightAfterOurWrite_IsHeldUntilTheWritesGoQuiet_ThenSnapshotted()
     {
         _console.State.Get("device")[0]["cfgversion"] = "100";

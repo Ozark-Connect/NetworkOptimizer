@@ -48,8 +48,14 @@ public sealed class CollectionWrite
     /// <summary>POST path taking an array of ids to delete, preferred over per-object deletes when set.</summary>
     public string? BatchDeletePath { get; init; }
 
-    /// <summary>Objects can be deleted, one at a time or in a batch (firewall policies have only the batch).</summary>
-    public bool CanDelete => DeletePath != null || BatchDeletePath != null;
+    /// <summary>
+    /// POST path that forgets objects by MAC, for a collection UniFi has no delete for (clients: <c>cmd/stamgr</c>
+    /// <c>forget-sta</c>; <c>DELETE rest/user/{id}</c> is a 404). Planned only from Edit (<see cref="PlanOptions.ForgetClients"/>).
+    /// </summary>
+    public string? ForgetPath { get; init; }
+
+    /// <summary>Objects can be deleted, one at a time, in a batch (firewall policies have only the batch), or forgotten.</summary>
+    public bool CanDelete => DeletePath != null || BatchDeletePath != null || ForgetPath != null;
 
     /// <summary>
     /// Fields the endpoint accepts (from the installed app's request DTOs). Null: send the stored
@@ -827,7 +833,7 @@ public static class ConfigCollections
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/user", Order = 9, KeepFields = ClientConfigFields,
                 SetArrays = Set("network_members_group_ids"),
                 EnforcedKey = (o, _) => Str(o, "mac")?.ToLowerInvariant(), KeyIsUnique = true,
-                Write = new CollectionWrite { CreatePath = "rest/user", UpdatePath = "rest/user/{id}", PartialUpdate = true, Proven = true },
+                Write = new CollectionWrite { CreatePath = "rest/user", UpdatePath = "rest/user/{id}", ForgetPath = "cmd/stamgr", PartialUpdate = true, Proven = true },
                 AuditSections = ["CLIENT"], AuditCollectionNames = ["user"],
                 TagsForField = (_, f) => Tags(f, ("local_dns", ServiceTags.DnsPolicy)),
             },

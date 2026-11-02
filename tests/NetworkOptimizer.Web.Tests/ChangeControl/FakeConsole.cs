@@ -67,6 +67,15 @@ internal sealed class FakeConsole : IUniFiConfigApi
 
         // Ahead of the update paths: "firewall-policies/{id}" would take batch-reorder for an ID.
         if (path == "firewall-policies/batch-reorder") return Task.FromResult(new UniFiRawResponse(200, "{}"));
+        // A client forget answers with the records it removed (main console, Network 11.0.97).
+        if (method == HttpMethod.Post && path == "cmd/stamgr" && JsonNode.Parse(json!) is JsonObject { } cmd && cmd["cmd"]?.ToString() == "forget-sta")
+        {
+            var macs = (cmd["macs"] as JsonArray ?? []).Select(m => m?.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var users = State.Collections.GetValueOrDefault("user") ?? [];
+            var gone = users.Where(u => macs.Contains(u["mac"]?.ToString())).ToList();
+            users.RemoveAll(gone.Contains);
+            return Ok(scope, gone);
+        }
         foreach (var def in ConfigCollections.All.Where(d => d.Write != null && d.Scope == scope))
         {
             var w = def.Write!;

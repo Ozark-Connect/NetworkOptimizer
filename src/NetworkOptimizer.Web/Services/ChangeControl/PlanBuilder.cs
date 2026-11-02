@@ -16,6 +16,12 @@ public sealed class PlanOptions
     /// <summary>Delete live objects the desired state does not have (in the collections planned).</summary>
     public bool DeleteMissing { get; init; } = true;
 
+    /// <summary>
+    /// A client missing from the desired state is forgotten in UniFi. Only Edit sets it: a Roll Back, Restore, template, or
+    /// revert would otherwise forget every client that joined after its snapshot.
+    /// </summary>
+    public bool ForgetClients { get; init; }
+
     /// <summary>Restrict to these (collection, UniFi ID in the desired state) pairs (Roll Back of one change).</summary>
     public IReadOnlySet<(string Collection, string Id)>? OnlyObjects { get; init; }
 
@@ -303,11 +309,28 @@ public static class PlanBuilder
                 doc.Notes.Add($"{def.Noun} {name}: built into UniFi; never deleted.");
                 return null;
             }
-            if (write.DeletePath == null && write.BatchDeletePath == null)
+            // Outside Edit a client is never forgotten, and reads as it did before forgetting existed.
+            var forget = write.DeletePath == null && write.BatchDeletePath == null && write.ForgetPath != null && options.ForgetClients;
+            if (!forget && write.DeletePath == null && write.BatchDeletePath == null)
             {
                 doc.Notes.Add($"{def.Noun} {name}: is not in the source, and UniFi has no delete for it; left in place.");
                 return null;
             }
+            if (forget)
+                return new PlanOperation
+                {
+                    Key = OpKey(def, PlanAction.Delete, name, ConfigState.IdOf(live!)),
+                    Collection = def.Key,
+                    Action = PlanAction.Delete,
+                    ObjectId = ConfigState.IdOf(live!),
+                    ObjectName = name,
+                    // forget-sta takes MACs, not IDs.
+                    Body = new JsonObject { ["mac"] = live!["mac"]?.DeepClone() },
+                    Order = def.Order,
+                    ChangeText = DescribeObject(def, live!, liveCtx),
+                    Tier = PlanTiers.Acknowledge,
+                    Reasons = ["Forgets the client in UniFi Network"],
+                };
             return new PlanOperation
             {
                 Key = OpKey(def, PlanAction.Delete, name, ConfigState.IdOf(live!)),

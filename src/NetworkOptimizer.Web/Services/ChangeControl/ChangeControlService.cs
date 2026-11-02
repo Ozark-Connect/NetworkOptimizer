@@ -714,7 +714,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var baseMs = watch.ElapsedMilliseconds;
         var (desired, problems, touched) = ParseEdits(baseState, filesByCollection);
         var parseMs = watch.ElapsedMilliseconds - baseMs;
-        var plan = touched.Count == 0 ? null : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched });
+        var plan = touched.Count == 0 ? null : PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched, ForgetClients = true });
         _logger.LogDebug("Change Control Edit: checked {Files} file(s) ({Touched} collections touched): base {BaseMs} ms, parse {ParseMs} ms, plan {PlanMs} ms",
             filesByCollection.Count, touched.Count, baseMs, parseMs, watch.ElapsedMilliseconds - baseMs - parseMs);
         var ops = plan?.Operations ?? [];
@@ -793,12 +793,12 @@ public sealed partial class ChangeControlService : IChangeControlService
         if (problems.Any(p => p.Level == "Error"))
             throw new InvalidOperationException("Fix the errors before Review Plan.");
         // Name the collections the edit changes, not every collection the uploaded file carries.
-        var changed = PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched }).Operations
+        var changed = PlanBuilder.Build(desired, baseState, new PlanOptions { Collections = touched, ForgetClients = true }).Operations
             .Select(o => o.Collection).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var named = ConfigCollections.All.Where(d => changed.Contains(d.Key)).Select(d => d.DisplayName).ToList();
         var plan = await Plans.CreateAsync(ConfigPlanKind.Edit, $"Edit {await SiteNameAsync(cancellationToken)}: {(named.Count > 0 ? string.Join(", ", named) : "no changes")}",
             snapshotId == null ? "YAML edit of the live config" : "YAML edit of a snapshot", snapshotId, null, desired,
-            new PlanOptions { Collections = touched }, Actor, cancellationToken);
+            new PlanOptions { Collections = touched, ForgetClients = true }, Actor, cancellationToken);
         return plan.Id;
     }
 

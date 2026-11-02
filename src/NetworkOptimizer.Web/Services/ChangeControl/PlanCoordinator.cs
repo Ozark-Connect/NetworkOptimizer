@@ -122,6 +122,7 @@ public sealed class PlanCoordinator
         SameSite = baseOptions?.SameSite ?? true,
         Collections = baseOptions?.Collections,
         DeleteMissing = baseOptions?.DeleteMissing ?? true,
+        ForgetClients = baseOptions?.ForgetClients ?? false,
         OnlyObjects = baseOptions?.OnlyObjects,
         DeviceMap = baseOptions?.DeviceMap ?? new Dictionary<string, string>(),
         TargetHasGateway = baseOptions?.TargetHasGateway ?? true,

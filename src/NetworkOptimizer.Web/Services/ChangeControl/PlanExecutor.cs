@@ -75,7 +75,16 @@ public sealed class PlanExecutor
             }
             if (sent.Count == 0) continue;
 
-            if (sent[0].Action == PlanAction.Delete && def.Write?.BatchDeletePath != null && sent.Count > 0)
+            if (sent[0].Action == PlanAction.Delete && def.Write is { DeletePath: null, BatchDeletePath: null, ForgetPath: { } forgetPath })
+            {
+                var macs = new JsonArray(sent.Select(o => (JsonNode?)o.Body?["mac"]?.DeepClone()).ToArray());
+                var body = new JsonObject { ["cmd"] = "forget-sta", ["macs"] = macs }.ToJsonString();
+                var response = await _api.SendAsync(def.Scope, HttpMethod.Post, forgetPath, body, ct);
+                var outcome = response.IsSuccess ? "Applied" : "Error";
+                foreach (var op in sent)
+                    Record(result, progress, new OperationResult { Key = op.Key, Outcome = outcome, Message = response.IsSuccess ? null : Error(response) });
+            }
+            else if (sent[0].Action == PlanAction.Delete && def.Write?.BatchDeletePath != null && sent.Count > 0)
             {
                 var ids = new JsonArray(sent.Select(o => (JsonNode?)o.ObjectId).ToArray());
                 var response = await _api.SendAsync(def.Scope, HttpMethod.Post, def.Write.BatchDeletePath, ids.ToJsonString(), ct);

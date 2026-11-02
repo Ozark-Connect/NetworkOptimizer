@@ -299,6 +299,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **UniFi Console Backups** - keeps copies of UniFi's own .unf autobackups for download (Site Admin)
 - **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files, for the whole site or a single collection
   - Remove an object with one click; references to it in lists are removed in the same plan
+  - Remove a client to forget it in UniFi Network, each one an item to acknowledge; Roll Back and Restore never forget clients
   - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements

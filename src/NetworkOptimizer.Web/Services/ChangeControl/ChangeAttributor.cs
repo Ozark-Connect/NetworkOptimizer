@@ -83,10 +83,12 @@ public static class ChangeAttributor
             || (obj.OrderedIds != null && j.Collection == obj.Collection && IsReorder(j))
             || (obj.Action == ConfigChangeAction.Deleted && j.Collection == obj.Collection && IsBatchDelete(j)));
 
-    // Its body is the list of IDs, so the journal names no object: it explains any delete in its
-    // collection, held to writes after the diff's before read (Explaining).
+    // Its body is the list of IDs (MACs for a client forget), so the journal names no object, or only the first: it
+    // explains any delete in its collection, held to writes after the diff's before read (Explaining).
     private static bool IsBatchDelete(ConfigWriteJournalEntry j) =>
-        j.ObjectId == null && j.Path.EndsWith("batch-delete", StringComparison.OrdinalIgnoreCase);
+        (j.ObjectId == null && j.Path.EndsWith("batch-delete", StringComparison.OrdinalIgnoreCase))
+        || (j.Collection != null && ConfigCollections.Get(j.Collection)?.Write?.ForgetPath is { } forget
+            && j.Path.Split('?')[0].Trim('/').Equals(forget, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>True when an unattributed object diff is on a field UniFi rewrites by itself.</summary>
     public static bool IsLikelyUniFiField(ObjectDiff obj) =>

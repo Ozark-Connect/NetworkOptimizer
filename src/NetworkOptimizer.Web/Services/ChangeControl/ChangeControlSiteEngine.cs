@@ -197,7 +197,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         foreach (var def in ConfigCollections.All.OrderByDescending(d => d.ReadPath.Length))
         {
             if (def.Scope != scope && !(def.Key == "device" && clean.StartsWith("rest/device", StringComparison.Ordinal))) continue;
-            var paths = new[] { def.ReadPath, def.Write?.CreatePath, def.Key == "device" ? "rest/device" : null }
+            // A client's forget (cmd/stamgr) is filed under clients, so its AUDIT entry reads as ours.
+            var paths = new[] { def.ReadPath, def.Write?.CreatePath, def.Write?.ForgetPath, def.Key == "device" ? "rest/device" : null }
                 .Where(p => p != null).Select(p => p!).Distinct();
             foreach (var p in paths)
             {

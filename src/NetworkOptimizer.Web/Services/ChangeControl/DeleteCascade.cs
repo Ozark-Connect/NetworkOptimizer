@@ -110,8 +110,10 @@ public static class DeleteCascade
         var match = ObjectMatcher.Match(def, desired.Get(def.Key), baseState.Get(def.Key),
             new ConfigIdentityContext(desired.NamesById()), new ConfigIdentityContext(baseState.NamesById()));
         var ambiguous = match.Conflicts.Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
+        // A client with no config is never in the file (YamlConverter.Export), so its absence removes nothing: counted,
+        // its ID would be cut from every list (client groups) and, from Edit, the client forgotten.
         return match.Pairs.Where(p => p.Left == null && p.Right != null && !ambiguous.Contains(ConfigState.DisplayName(def, p.Right)))
-            .Select(p => p.Right!).ToList();
+            .Select(p => p.Right!).Where(o => def.Key != "user" || ConfigDiffEngine.HasClientConfig(o)).ToList();
     }
 
     /// <summary>UniFi's built-in objects (the Default WLAN group, the default network) refuse deletion.</summary>
