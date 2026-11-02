@@ -64,7 +64,7 @@ public class ConsoleAccessAnalyzerTests
 
         issue.Severity.Should().Be(AuditSeverity.Recommended);
         issue.ScoreImpact.Should().Be(2);
-        issue.Message.Should().Be($"1 API key unused for 7+ days: Key1 ({daysAgo} days).");
+        issue.Message.Should().Be($"1 API Key unused for 7+ days: Key1 ({daysAgo} days).");
     }
 
     [Theory]
@@ -87,7 +87,7 @@ public class ConsoleAccessAnalyzerTests
         var issue = _analyzer.Analyze(null, [fresh, old], Now).Single();
 
         issue.Severity.Should().Be(AuditSeverity.Critical);
-        issue.Message.Should().Be("1 API key unused for 7+ days: Old (never used, created 45 days ago).");
+        issue.Message.Should().Be("1 API Key unused for 7+ days: Old (never used, created 45 days ago).");
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class ConsoleAccessAnalyzerTests
         var issue = issues.Should().ContainSingle().Subject;
         issue.Severity.Should().Be(AuditSeverity.Critical);
         issue.ScoreImpact.Should().Be(5);
-        issue.Message.Should().Be("3 API keys unused for 7+ days: Ancient (90 days), Older (35 days), Stale (10 days).");
+        issue.Message.Should().Be("3 API Keys unused for 7+ days: Ancient (90 days), Older (35 days), Stale (10 days).");
         issue.Metadata!["unused_count"].Should().Be(3);
     }
 
@@ -130,7 +130,7 @@ public class ConsoleAccessAnalyzerTests
     {
         var key = new UniFiOsApiKey { LastUsedAt = Now.AddDays(-10) };
 
-        _analyzer.Analyze(null, [key], Now).Single().Message.Should().Contain("Unnamed key (10 days)");
+        _analyzer.Analyze(null, [key], Now).Single().Message.Should().Contain("Unnamed API Key (10 days)");
     }
 
     #endregion
@@ -151,7 +151,7 @@ public class ConsoleAccessAnalyzerTests
         issue.Type.Should().Be(IssueTypes.UnusedLocalAdmins);
         issue.Severity.Should().Be(AuditSeverity.Recommended);
         issue.ScoreImpact.Should().Be(2);
-        issue.Message.Should().Be("1 local admin account unused for 7+ days: Admin1 (10 days).");
+        issue.Message.Should().Be("1 Local Admin account unused for 7+ days: Admin1 (10 days).");
     }
 
     [Fact]
@@ -171,7 +171,7 @@ public class ConsoleAccessAnalyzerTests
 
         var issue = _analyzer.Analyze([newAccount, oldAccount], null, Now).Single();
 
-        issue.Message.Should().Be("1 local admin account unused for 7+ days: Old (never signed in, created 60 days ago).");
+        issue.Message.Should().Be("1 Local Admin account unused for 7+ days: Old (never signed in, created 60 days ago).");
         issue.Severity.Should().Be(AuditSeverity.Critical);
     }
 
@@ -234,7 +234,7 @@ public class ConsoleAccessAnalyzerTests
 
         var issue = _analyzer.Analyze([connected, other], null, Now, connectedAs).Single();
 
-        issue.Message.Should().Be("1 local admin account unused for 7+ days: Other (60 days).");
+        issue.Message.Should().Be("1 Local Admin account unused for 7+ days: Other (60 days).");
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public class ConsoleAccessAnalyzerTests
 
         issue.Severity.Should().Be(AuditSeverity.Critical);
         issue.ScoreImpact.Should().Be(5);
-        issue.Message.Should().Be("2 local admin accounts unused for 7+ days: B (120 days), A (12 days).");
+        issue.Message.Should().Be("2 Local Admin accounts unused for 7+ days: B (120 days), A (12 days).");
     }
 
     #endregion
