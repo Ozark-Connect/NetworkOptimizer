@@ -186,6 +186,56 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_BatchDelete_WithItsRemovedEntityEvent_IsStillThePlans()
+    {
+        // UniFi's REMOVED_ENTITY names the policy by ID and arrived in the same pass (main site, plan 154, 2026-11-01).
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-20), Method = "POST", Path = "firewall-policies/batch-delete", Collection = "firewall_policy", FieldsJson = "[]", Source = "change-control:plan:154" },
+        };
+        var removed = Event("p1", admin: "Network Optimizer", secondsAgo: 19) with { Key = "REMOVED_ENTITY", Section = "FIREWALL_POLICY", ObjectName = "Test" };
+        var deleted = new ObjectDiff { Collection = "firewall_policy", ObjectId = "p1", Name = "Test", Action = ConfigChangeAction.Deleted };
+
+        var g = ChangeAttributor.Attribute([deleted], [removed], journal, Now, false, beforeReadAt: Now.AddSeconds(-30)).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+        g.PlanId.Should().Be(154);
+    }
+
+    [Fact]
+    public void Attribute_ADeleteInUniFi_WithNoBatchDeleteOfOurs_IsTheAdmins()
+    {
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-20), Method = "PUT", Path = "firewall-policies/p2", Collection = "firewall_policy", ObjectId = "p2", Source = "change-control:plan:155" },
+        };
+        var removed = Event("p1", admin: "TJ", secondsAgo: 19) with { Key = "REMOVED_ENTITY", Section = "FIREWALL_POLICY", ObjectName = "Test" };
+        var deleted = new ObjectDiff { Collection = "firewall_policy", ObjectId = "p1", Name = "Test", Action = ConfigChangeAction.Deleted };
+
+        var g = ChangeAttributor.Attribute([deleted], [removed], journal, Now, false, beforeReadAt: Now.AddSeconds(-30)).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.Person);
+        g.ActorName.Should().Be("TJ");
+    }
+
+    [Fact]
+    public void Attribute_ClientRename_TheAuditNamesByMac_IsThePlans()
+    {
+        // UniFi audits a client by MAC; our journal holds its _id (main site, plan 141, 2026-11-01).
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-20), Method = "PUT", Path = "rest/user/u1", Collection = "user", ObjectId = "u1", FieldsJson = "[\"name\"]", Source = "change-control:plan:141" },
+        };
+        var renamed = Event("aa:bb:cc:dd:ee:ff", admin: "Network Optimizer", secondsAgo: 19) with
+        {
+            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Rig",
+        };
+        var diff = Diff("user", "u1", "Rig", new FieldChange("name", "Old Rig", "Rig"));
+
+        var g = ChangeAttributor.Attribute([diff], [renamed], journal, Now, false, beforeReadAt: Now.AddSeconds(-30)).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+        g.PlanId.Should().Be(141);
+    }
+
+    [Fact]
     public void Attribute_AnOldBatchDelete_DoesNotClaimALaterDelete()
     {
         var journal = new List<ConfigWriteJournalEntry>

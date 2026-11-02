@@ -53,10 +53,13 @@ public static class ChangeAttributor
     public static bool IsOwnEvent(AuditLogEvent e, IReadOnlyList<ConfigWriteJournalEntry> journal) =>
         journal.Any(j => Math.Abs((j.At - e.TimeUtc).TotalSeconds) <= JournalSlack.TotalSeconds
             && (Matches(j.ObjectId, e.ObjectId)
-                // A device's AUDIT entry names it by MAC, our journal by its _id: match those on collection and time.
-                || ((e.ObjectId == null || e.Section == "DEVICE") && SameCollection(j.Collection, e))
+                // A device's or client's AUDIT entry names it by MAC, our journal by its _id: match those on collection and time.
+                || ((e.ObjectId == null || e.Section is "DEVICE" or "CLIENT") && SameCollection(j.Collection, e))
                 // Our batch-reorder names no policy; UniFi audits it as an index change on each one it moved.
-                || (IsReorder(j) && e.SettingField == OrderAuditField && SameCollection(j.Collection, e))));
+                || (IsReorder(j) && e.SettingField == OrderAuditField && SameCollection(j.Collection, e))
+                // Our batch-delete names no policy either; UniFi audits it as a removal of each one. Without this, an
+                // entry that arrived in time claimed the delete as a person named after the API key.
+                || (IsBatchDelete(j) && e.Key == "REMOVED_ENTITY" && SameCollection(j.Collection, e))));
 
     private static bool IsReorder(ConfigWriteJournalEntry j) => j.Path.Contains("batch-reorder", StringComparison.OrdinalIgnoreCase);
 
