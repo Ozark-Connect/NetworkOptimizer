@@ -9,10 +9,11 @@ public static class CcFind
 
     /// <summary>
     /// What people call a collection or list, mapped to the name the YAML gives it (UniFi's API names): a
-    /// query that is a key also finds those. One way only. Keys are singular and lowercase; a query's plural
-    /// finds them too. Names a query already reaches with spaces as "_" (port forwards, ip aliases) need no entry.
+    /// query that is a key also finds those. One way only. Keys are singular; a query's plural, case, and
+    /// "-" or "_" for a space find them too. Names a query already reaches with spaces as "_" (port forwards,
+    /// ip aliases) need no entry.
     /// </summary>
-    private static readonly Dictionary<string, string[]> Aliases = new()
+    private static readonly Dictionary<string, string[]> Aliases = new Dictionary<string, string[]>
     {
         // Collections
         ["vlan"] = ["network"],
@@ -30,7 +31,14 @@ public static class CcFind
         ["port forwarding"] = ["port_forwards"],
         ["dns record"] = ["local_dns"],
         ["ddns"] = ["dynamic_dns"],
-        ["policy based route"] = ["traffic_routes"],
+        ["policy-based route"] = ["traffic_routes"],
+        ["policy-based routing"] = ["traffic_routes"],
+        ["selective routing"] = ["traffic_routes"],
+        ["device-based routing"] = ["traffic_routes"],
+        // WAN load balancing (wan_load_balance_type, _weight) and the per-radio loadbalance_enabled.
+        // "failover" needs none: wan_failover_priority and the failover-only type hold the word.
+        ["load balancing"] = ["load_balance", "loadbalance"],
+        ["wan load balancing"] = ["wan_load_balance"],
         ["pbr"] = ["traffic_routes"],
         // Lists inside objects
         ["access point"] = ["ap_groups", "ap_group_ids", "ap_macs"],
@@ -48,7 +56,7 @@ public static class CcFind
         ["country"] = ["regions"],
         ["cellular"] = ["sim"],
         ["lte"] = ["sim"],
-    };
+    }.ToDictionary(a => AliasKey(a.Key), a => a.Value);
 
     /// <summary>
     /// The texts a query finds: the query and its aliases, longest first so a longer one wins where two
@@ -67,10 +75,11 @@ public static class CcFind
         return terms.OrderByDescending(t => t.Length).ToList();
     }
 
-    // Lowercase and singular: "VLANs" and "Client Devices" look up their keys. "wireless" is left whole.
+    // Lowercase, singular, and "-" or "_" as a space: "VLANs", "Client Devices", and "policy-based route"
+    // look up their keys. "wireless" is left whole.
     private static string AliasKey(string q)
     {
-        var key = q.ToLowerInvariant();
+        var key = Regex.Replace(q.ToLowerInvariant(), @"[\s_-]+", " ").Trim();
         return key.EndsWith('s') && !key.EndsWith("ss", StringComparison.Ordinal) ? key[..^1] : key;
     }
 

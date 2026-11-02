@@ -62,6 +62,34 @@ public class CcFindTests
         CcFind.Count(yaml, "wi fi").Should().Be(1);
     }
 
+    [Theory]
+    [InlineData("policy-based route")]
+    [InlineData("Policy Based Routes")]
+    [InlineData("policy_based_routing")]
+    [InlineData("selective routing")]
+    [InlineData("device-based routing")]
+    [InlineData("PBR")]
+    public void Count_RoutingNamesFindTrafficRoutes(string query)
+    {
+        CcFind.Count("traffic_routes:\n- name: VPN\n", query).Should().Be(1);
+    }
+
+    [Fact]
+    public void Count_LoadBalancingFindsWanAndRadioKeys()
+    {
+        const string yaml = "networks:\n- wan_load_balance_type: failover-only\n  wan_load_balance_weight: 50\n  wan_failover_priority: 1\ndevices:\n- loadbalance_enabled: false\n";
+        CcFind.Count(yaml, "load balancing").Should().Be(3);
+        CcFind.Count(yaml, "WAN load balancing").Should().Be(2);
+        CcFind.Count(yaml, "failover").Should().Be(2);
+    }
+
+    [Fact]
+    public void Count_HyphenatedAliasKey_FindsItsAlias()
+    {
+        CcFind.Count("wlans:\n", "Wi-Fi").Should().Be(1);
+        CcFind.Count("wlans:\n", "wifi").Should().Be(1);
+    }
+
     [Fact]
     public void Terms_AreLongestFirst()
     {
