@@ -272,6 +272,7 @@ public class ZoneSetupTests
         owned.Select(o => o.ObjectId).Should().BeEquivalentTo(newZones.SelectMany(z => new[] { $"ti-in-{z}", $"ti-out-{z}" }),
             "only the ones in a zone the revert deletes; Internal's stays");
         owned.Should().OnlyContain(o => o.Reasons.Any(r => r.Contains("Threat Intelligence rewrites")));
+        owned.Should().OnlyContain(o => o.Tier == PlanTiers.Direct, "the zone's own delete is the acknowledgement");
         var firstZoneDelete = revert.Operations.FindIndex(o => o.Collection == "firewall_zone" && o.Action == PlanAction.Delete);
         owned.Should().OnlyContain(o => revert.Operations.IndexOf(o) < firstZoneDelete);
     }

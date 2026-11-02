@@ -1340,7 +1340,8 @@ public static class PlanBuilder
                 ObjectName = name,
                 Order = def.Order,
                 ChangeText = DescribeObject(def, policy, liveCtx),
-                Tier = PlanTiers.Acknowledge,
+                // Direct: the zone's own delete is the acknowledgement, and the owner rewrites these anyway.
+                Tier = PlanTiers.Direct,
                 Reasons = [$"In a zone this plan deletes; {owner} rewrites its policies for the zones left"],
                 NeedsGateway = def.Write!.NeedsGateway,
             });
