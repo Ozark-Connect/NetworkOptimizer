@@ -52,6 +52,8 @@ let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
 let mode = 'live';
+// 'lan' draws the totals with their WAN share inside; 'wan' the WAN pair alone (Data's switch).
+let view = 'lan';
 let markLayer = null;
 let currentHistory = null;
 let historyCaption = null;
@@ -281,8 +283,8 @@ function updateChart() {
         annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
     }, false, false, false);
     chart.updateSeries([
-        { name: 'Download',     data: pts.map(p => ({ x: p.time, y: p.down })) },
-        { name: 'Upload',       data: pts.map(p => ({ x: p.time, y: p.up })) },
+        { name: 'Download',     data: totalsShown() ? pts.map(p => ({ x: p.time, y: p.down })) : [] },
+        { name: 'Upload',       data: totalsShown() ? pts.map(p => ({ x: p.time, y: p.up })) : [] },
         { name: 'WAN Download', data: reshapeWanSeries(wanPts, pts, 'wanDown', 'down') },
         { name: 'WAN Upload',   data: reshapeWanSeries(wanPts, pts, 'wanUp', 'up') },
     ], false);
@@ -359,12 +361,12 @@ function historySeries(history) {
         .filter(p => p.wanDownloadBps != null || p.wanUploadBps != null)
         .map(p => ({ time: new Date(p.time).getTime(), wanDown: p.wanDownloadBps, wanUp: p.wanUploadBps }));
     return [
-        { name: 'Download',      data: withGaps(pts, w, p => p.downloadBps) },
-        { name: 'Upload',        data: withGaps(pts, w, p => p.uploadBps) },
+        { name: 'Download',      data: totalsShown() ? withGaps(pts, w, p => p.downloadBps) : [] },
+        { name: 'Upload',        data: totalsShown() ? withGaps(pts, w, p => p.uploadBps) : [] },
         { name: 'WAN Download',  data: reshapeWanSeries(wanPts, totals, 'wanDown', 'down', w * 1.5) },
         { name: 'WAN Upload',    data: reshapeWanSeries(wanPts, totals, 'wanUp', 'up', w * 1.5) },
-        { name: 'Peak Download', data: history.hasPeaks ? withGaps(pts, w, p => p.peakDownloadBps) : [] },
-        { name: 'Peak Upload',   data: history.hasPeaks ? withGaps(pts, w, p => p.peakUploadBps) : [] },
+        { name: 'Peak Download', data: history.hasPeaks && totalsShown() ? withGaps(pts, w, p => p.peakDownloadBps) : [] },
+        { name: 'Peak Upload',   data: history.hasPeaks && totalsShown() ? withGaps(pts, w, p => p.peakUploadBps) : [] },
     ];
 }
 
@@ -396,6 +398,19 @@ async function mountHistory(el, gen, history, dotNet) {
     return true;
 }
 
+// The WAN view draws the totals and their peaks as empty series rather than hiding them: the live
+// chart calls updateSeries four times a second, and empty data holds where a hide may not. The WAN
+// pair is still shaped against the totals, so it draws the same in both views.
+const totalsShown = () => view !== 'wan';
+
+/** WAN | LAN + WAN, from the switch under the chart. Redraws at once in either mode. */
+export function setView(next) {
+    view = next === 'wan' ? 'wan' : 'lan';
+    if (!chart) return;
+    if (mode === 'history' && currentHistory) chart.updateSeries(historySeries(currentHistory), false);
+    else if (mode === 'live') updateChart();
+}
+
 /** The same range re-pulled, drawn in place: the window moves up to now and new windows land.
  *  Skipped while the value tooltip is open; the next refresh brings it. */
 export function updateHistory(history) {
@@ -422,6 +437,7 @@ export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return false;
+    view = opts?.view === 'wan' ? 'wan' : 'lan';
     // Both modes hold off redrawing under an open tooltip, which needs the pointer tracked.
     mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
     mouseLeaveHandler = () => { lastMouse = null; };

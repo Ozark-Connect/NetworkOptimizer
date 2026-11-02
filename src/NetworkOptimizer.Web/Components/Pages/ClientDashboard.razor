@@ -508,17 +508,24 @@
                                     <div class="usage-card-spinner"><span class="spinner"></span></div>
                                 }
                             </div>
+                            <div class="throughput-view">
+                                <div class="time-range-selector">
+                                    <button class="time-btn @(_throughputView == "wan" ? "active" : "")" @onclick='() => SetThroughputViewAsync("wan")'>WAN</button>
+                                    <button class="time-btn @(_throughputView == "lan" ? "active" : "")" @onclick='() => SetThroughputViewAsync("lan")'>LAN + WAN</button>
+                                </div>
+                            </div>
                             @if (_throughputHours != 0 && _throughputSummary is { } ts)
                             {
+                                var wanView = _throughputView == "wan";
                                 <div class="speed-hero-results throughput-summary">
-                                    @if (ts.PeakDownBps is { } peakDown)
+                                    @if (!wanView && ts.PeakDownBps is { } peakDown)
                                     {
                                         <div class="speed-metric">
                                             <span class="speed-label">Peak Download</span>
                                             <span class="speed-value speed-down">@DisplayFormatters.FormatRate(peakDown)</span>
                                         </div>
                                     }
-                                    @if (ts.PeakUpBps is { } peakUp)
+                                    @if (!wanView && ts.PeakUpBps is { } peakUp)
                                     {
                                         <div class="speed-metric">
                                             <span class="speed-label">Peak Upload</span>
@@ -526,12 +533,12 @@
                                         </div>
                                     }
                                     <div class="speed-metric">
-                                        <span class="speed-label">Average Download</span>
-                                        <span class="speed-value speed-down">@DisplayFormatters.FormatRate(ts.AvgDownBps)</span>
+                                        <span class="speed-label">@(wanView ? "Average WAN Download" : "Average Download")</span>
+                                        <span class="speed-value speed-down">@DisplayFormatters.FormatRate(wanView ? ts.AvgWanDownBps : ts.AvgDownBps)</span>
                                     </div>
                                     <div class="speed-metric">
-                                        <span class="speed-label">Average Upload</span>
-                                        <span class="speed-value speed-up">@DisplayFormatters.FormatRate(ts.AvgUpBps)</span>
+                                        <span class="speed-label">@(wanView ? "Average WAN Upload" : "Average Upload")</span>
+                                        <span class="speed-value speed-up">@DisplayFormatters.FormatRate(wanView ? ts.AvgWanUpBps : ts.AvgUpBps)</span>
                                     </div>
                                 </div>
                             }
@@ -1334,6 +1341,8 @@
     private int _throughputGeneration;
     private bool _throughputLoading;
     private DateTime _throughputHistoryAt;
+    // WAN | LAN + WAN under the Throughput chart, as on the Data tab's Usage card.
+    private string _throughputView = "lan";
     private static readonly TimeSpan ThroughputHistoryRefresh = TimeSpan.FromSeconds(30);
     private static readonly (int hours, string label)[] _throughputRanges =
     {
@@ -2402,7 +2411,7 @@
             if (_liveChartHours == 0)
             {
                 var (points, wanPoints) = await LoadLiveHistoryWithWanAsync();
-                opts = new { points, wanPoints };
+                opts = new { points, wanPoints, view = _throughputView };
             }
             else
             {
@@ -2418,7 +2427,7 @@
                 // A newer range was picked while this loaded; the next render mounts that one.
                 if (_liveChartHours != _throughputHours) return;
                 _dotNetRef ??= DotNetObjectReference.Create(this);
-                opts = new { history, dotNet = _dotNetRef };
+                opts = new { history, dotNet = _dotNetRef, view = _throughputView };
             }
             // False when the div is not in the DOM yet (a render still on the skeleton); the next
             // render tries again.
@@ -2435,9 +2444,11 @@
         }
     }
 
-    /// <summary>The figures under the Throughput card's history: peaks (null without them) and the
-    /// averages across the range.</summary>
-    private sealed record ThroughputSummary(double? PeakDownBps, double? PeakUpBps, double AvgDownBps, double AvgUpBps);
+    /// <summary>The figures under the Throughput card's history: peaks (null without them), the
+    /// averages across the range, and the WAN share's averages over the windows it was measured
+    /// in (null where it never was), which the WAN view shows instead.</summary>
+    private sealed record ThroughputSummary(double? PeakDownBps, double? PeakUpBps, double AvgDownBps, double AvgUpBps,
+        double? AvgWanDownBps, double? AvgWanUpBps);
     private ThroughputSummary? _throughputSummary;
 
     /// <summary>The Throughput card's history over the last <paramref name="hours"/>, with the
@@ -2464,8 +2475,27 @@
             history.HasPeaks && pts.Count > 0 ? pts.Max(p => p.PeakDownloadBps ?? 0) : null,
             history.HasPeaks && pts.Count > 0 ? pts.Max(p => p.PeakUploadBps ?? 0) : null,
             pts.Count > 0 ? pts.Average(p => p.DownloadBps) : 0,
-            pts.Count > 0 ? pts.Average(p => p.UploadBps) : 0);
+            pts.Count > 0 ? pts.Average(p => p.UploadBps) : 0,
+            pts.Any(p => p.WanDownloadBps != null) ? pts.Where(p => p.WanDownloadBps != null).Average(p => p.WanDownloadBps!.Value) : null,
+            pts.Any(p => p.WanUploadBps != null) ? pts.Where(p => p.WanUploadBps != null).Average(p => p.WanUploadBps!.Value) : null);
         return (new { history.From, history.To, history.WindowMs, history.HasPeaks, history.Points, marks }, summary);
+    }
+
+    /// <summary>WAN | LAN + WAN under the Throughput chart: redraws the mounted chart in place.</summary>
+    private async Task SetThroughputViewAsync(string view)
+    {
+        if (_throughputView == view) return;
+        _throughputView = view;
+        if (!_liveChartReady) return;
+        try
+        {
+            using var chartCts = new CancellationTokenSource(LiveChartCallTimeout);
+            await JS.InvokeVoidAsync("__clientLiveChart.setView", chartCts.Token, view);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Throughput view switch failed");
+        }
     }
 
     /// <summary>The Throughput range a speed test range maps to: the same hours, and All (0) to
@@ -4905,12 +4935,19 @@
     .chart-card-header .monitoring-jump-btn {
         margin-right: -0.35rem;
     }
-    /* Held at its drawn height while a range reloads (header 34 + 12, chart 175, padding 40), and
-       the chart area takes what is left, so the loading spinner centers where the chart goes. */
+    /* Held at its drawn height while a range reloads (header 34 + 12, chart 175, view switch
+       8 + 34, padding 40), and the chart area takes what is left, so the loading spinner centers
+       where the chart goes. */
     .live-chart-card {
         display: flex;
         flex-direction: column;
-        min-height: 262px;
+        min-height: 304px;
+    }
+    /* WAN | LAN + WAN sits under the chart, centered, so it reads as the chart's series choice. */
+    .throughput-view {
+        display: flex;
+        justify-content: center;
+        margin-top: 8px;
     }
     .live-chart-card .chart-container {
         flex: 1 1 auto;
@@ -5370,11 +5407,13 @@
         }
         /* The Usage switch is two words, not the page's time filter: it keeps its own size beside
            the heading instead of the phone's stretched time buttons. */
-        .chart-card-header > .time-range-selector {
+        .chart-card-header > .time-range-selector,
+        .throughput-view > .time-range-selector {
             flex: 0 0 auto;
             width: auto;
         }
-        .chart-card-header > .time-range-selector .time-btn {
+        .chart-card-header > .time-range-selector .time-btn,
+        .throughput-view > .time-range-selector .time-btn {
             flex: 0 0 auto;
             padding: 0.3rem 0.6rem;
             font-size: 0.75rem;
@@ -5407,9 +5446,9 @@
             grid-column: 1;
         }
         /* The range takes its own row here: top 13, heading 25.6, gap 8, range 38.7, then 12 +
-           175 + 20 as on a desktop. */
+           175, the compact view switch 8 + 31.4, and 20. */
         .live-chart-card {
-            min-height: 293px;
+            min-height: 332px;
         }
         /* Live Throughput bleeds into the card's 1rem phone padding on both sides: the newest
            sample lands on the right edge, the value labels sit close to the left. */
