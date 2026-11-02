@@ -95,6 +95,8 @@ public static class ZoneSetup
     /// <summary>The port group Allow Internal to Servers uses; the operator opens more by adding to it.</summary>
     public const string ServerServicesGroup = "Server Services";
 
+    private const string ServersKey = "servers";
+
     /// <summary>
     /// Common corporate and homelab services: web and admin UIs, SSH, RDP, DNS, NTP, SMB, NFS, Proxmox,
     /// Synology DSM, Portainer, Plex, Jellyfin, Home Assistant, MQTT, iperf3.
@@ -107,10 +109,12 @@ public static class ZoneSetup
     /// Casting: AirPlay (7000, 7100), Google Cast (8008-8009, 8443), Sonos (1400, 1443), Roku (8060), and the
     /// ephemeral range AirPlay 2 streams on. NVR: Protect's viewer ports (443, RTSPS 7441, API 7443, streams
     /// 7445, RTSP 7447); off by default, since Protect on the gateway is reached through the Gateway zone.
-    /// Printing: IPP (631), raw (9100), LPD (515). Management: SSH and the device web pages.
+    /// Printing: IPP (631), raw (9100), LPD (515). Management: SSH and the device web pages. Servers: the
+    /// <see cref="ServerServicesGroup"/> port group (no ports of its own).
     /// </summary>
     private static readonly (string Key, ZoneRole Role, string FromName, string Why, bool Default, string Ports)[] ExceptionDefs =
     [
+        (ServersKey, ZoneRole.Servers, "Allow Internal to Servers", "Internal reaches the ports in Server Services Port List", true, ""),
         ("casting", ZoneRole.IoT, "Casting and mDNS", "Phones cast to TVs and speakers", true, "7000,7100,8008-8009,8443,1400,1443,8060,49152-65535"),
         ("nvr", ZoneRole.Cameras, "NVR access", "Only for an NVR on the camera network; Protect on your gateway needs none", false, "443,7441,7443,7445,7447"),
         ("printing", ZoneRole.Printers, "Printing", "Print from home devices", true, "631,9100,515"),
@@ -270,6 +274,16 @@ public static class ZoneSetup
             }
         }
 
+        // A Servers zone the operator built already says what Internal reaches; one an earlier run made keeps its allow.
+        if (exceptionViews.FirstOrDefault(e => e.Key == ServersKey && e.Applicable && e.CoveredBy == null) is { } servers
+            && populated.First(z => z.Role == ZoneRole.Servers) is { ExistingId: { } serversId, BuiltIn: false }
+            && !live.Get("firewall_policy").Any(p => Str(p, "description") == "Set Up Zones" && Str(p["destination"]?["zone_id"]) == serversId
+                && Str(p["source"]?["zone_id"]) == populated.First(z => z.Role == ZoneRole.Internal).ExistingId))
+        {
+            servers.Why = "Your zone: its policies decide what Internal reaches";
+            if (exceptions?.ContainsKey(ServersKey) != true) servers.Enabled = false;
+        }
+
         foreach (var z in zones.Values.Where(z => z.Key != UnassignedKey))
             z.Description = z.Kept ? "Your zone; its policies stay as they are" : Describe(z.Role, exceptionViews);
         return view;
@@ -299,7 +313,7 @@ public static class ZoneSetup
             ZoneRole.IoT => On("casting") ? "Internet only. Internal reaches in" : "Internet only",
             ZoneRole.Cameras => On("nvr") ? "No internet. Internal reaches the NVR" : "No internet",
             ZoneRole.Management => On("manage") ? "Reaches the console and devices. Internal reaches in" : "Reaches the console and devices",
-            ZoneRole.Servers => "Internal reaches its services. Internet out",
+            ZoneRole.Servers => On(ServersKey) ? "Internal reaches its services. Internet out" : "Internet out. Internal reaches what your policies allow",
             ZoneRole.Printers => On("printing") ? "Internal prints" : "Isolated",
             ZoneRole.Hotspot => "Internet only",
             ZoneRole.Dmz => "UniFi's DMZ rules",
@@ -316,9 +330,10 @@ public static class ZoneSetup
         if (a.Role is ZoneRole.Hotspot or ZoneRole.Dmz || b.Role is ZoneRole.Hotspot or ZoneRole.Dmz) return null;
         if (a.Role == b.Role && a.Role != ZoneRole.Custom) return ($"Allow {a.Name} to {b.Name}", null, false);
         if (a.Role != ZoneRole.Internal) return null;
-        if (b.Role == ZoneRole.Servers) return ($"Allow {a.Name} to {b.Name}", null, true);
         var ex = ExceptionDefs.FirstOrDefault(e => e.Role == b.Role);
-        return ex.Key != null && exceptions.Any(e => e.Key == ex.Key && e.Enabled) ? (ex.FromName, ex.Ports, false) : null;
+        if (ex.Key == null || !exceptions.Any(e => e.Key == ex.Key && e.Enabled)) return null;
+        // Named by the zones, so a re-run finds the policy an earlier run wrote under the zone's own name.
+        return ex.Key == ServersKey ? ($"Allow {a.Name} to {b.Name}", null, true) : (ex.FromName, ex.Ports, false);
     }
 
     /// <summary>The desired config for the board: zone membership and the policies it needs.</summary>
@@ -372,6 +387,7 @@ public static class ZoneSetup
 
         var rehomed = Rehome(live, desired, policies, moved, newZoneOf, clientNetworks, ZoneName, notes, ref n);
         CopyZoneWide(live, desired, policies, moved, oldZoneOf, newZoneOf, zoneKey, ZoneName, notes, ref n);
+        NoteJoinedAllows(live, moved, newZoneOf, ZoneName, notes);
 
         var active = board.Zones.Where(z => z.Key != UnassignedKey && !z.Kept && z.NetworkIds.Count > 0 && ids.ContainsKey(z.Key)).ToList();
         var externalId = zones.FirstOrDefault(z => Str(z, "zone_key") == "external") is { } ext ? ConfigState.IdOf(ext) : null;
@@ -423,7 +439,7 @@ public static class ZoneSetup
             foreach (var b in active.Where(b => b != a))
             {
                 if (Allow(a, b, board.Exceptions) is not { } allow) continue;
-                if (ExceptionDefs.Any(e => e.FromName == allow.Name) && Covering(ids[a.Key], ids[b.Key]) is { } covered)
+                if ((allow.ServerGroup || ExceptionDefs.Any(e => e.FromName == allow.Name)) && Covering(ids[a.Key], ids[b.Key]) is { } covered)
                 {
                     notes.Add($"Exception: {allow.Name} ({a.Name} to {b.Name}) is covered by {Str(covered, "name")}; not added.");
                     continue;
@@ -763,9 +779,6 @@ public static class ZoneSetup
             .ToDictionary(g => g.Key, g => g.Select(id => newZoneOf[id]).Where(z => zoneKey.TryGetValue(z, out var k) && k is "" or "internal")
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
         var networksById = desired.Get("networkconf").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
-        // Zone-wide: ANY, or everyone but a few hosts ([UniFi] Allow Select Console Management's shape).
-        static bool ZoneWide(JsonObject? side) => Str(side?["matching_target"]) is null or "ANY"
-            || (Str(side?["matching_target"]) == "IP" && side?["match_opposite_ips"]?.GetValueKind() == System.Text.Json.JsonValueKind.True);
         var templates = live.Get("firewall_policy")
             .Where(p => def.IsGenerated?.Invoke(p) != true && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
                         && ZoneWide(p["source"] as JsonObject) && Str(p["source"]?["zone_id"]) is { } z && lanTargets.ContainsKey(z))
@@ -856,6 +869,36 @@ public static class ZoneSetup
             if (skipped.Count > 0)
                 notes.Add($"Firewall Policy {name} ({zoneName(srcZone)} to {zoneName(into)}): not carried to {Join(skipped, "or")}. "
                     + $"Copy it in the Edit tab if {zoneName(srcZone)} needs to reach {Join(skipped, "or")}.");
+        }
+    }
+
+    /// <summary>Zone-wide: ANY, or everyone but a few hosts ([UniFi] Allow Select Console Management's shape).</summary>
+    private static bool ZoneWide(JsonObject? side) => Str(side?["matching_target"]) is null or "ANY"
+        || (Str(side?["matching_target"]) == "IP" && side?["match_opposite_ips"]?.GetValueKind() == System.Text.Json.JsonValueKind.True);
+
+    /// <summary>
+    /// The operator's zone-wide allows into a zone that gains networks reach those networks too, with no policy changing,
+    /// so each one is named in a note.
+    /// </summary>
+    private static void NoteJoinedAllows(ConfigState live, HashSet<string> moved, Dictionary<string, string> newZoneOf,
+        Func<string?, string> zoneName, List<string> notes)
+    {
+        var def = ConfigCollections.Get("firewall_policy")!;
+        var networkName = live.Get("networkconf").ToDictionary(ConfigState.IdOf, x => Str(x, "name") ?? "network", StringComparer.OrdinalIgnoreCase);
+        var joining = moved.GroupBy(id => newZoneOf[id], StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(id => networkName.GetValueOrDefault(id) ?? id).ToList(), StringComparer.OrdinalIgnoreCase);
+        var allows = live.Get("firewall_policy")
+            .Where(p => Str(p, "action") == "ALLOW" && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+                        && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True && Str(p, "description") != "Set Up Zones"
+                        && def.IsGenerated?.Invoke(p) != true && ConfigCollections.OwnedBy(def, p) == null
+                        && ZoneWide(p["destination"] as JsonObject) && Str(p["destination"]?["zone_id"]) is { } z && joining.ContainsKey(z))
+            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue);
+        foreach (var p in allows)
+        {
+            var into = Str(p["destination"]?["zone_id"]);
+            var nets = joining[into!];
+            notes.Add($"Firewall Policy {Str(p, "name")} ({zoneName(Str(p["source"]?["zone_id"]))} to {zoneName(into)}): now also reaches "
+                + $"{Join(nets, "and")}, which {(nets.Count == 1 ? "moves" : "move")} into {zoneName(into)}.");
         }
     }
 

@@ -316,6 +316,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
     - Carries your firewall policies, DNS blocks, and DNS and console access into the new zones
     - Splits a policy whose networks or clients land in different zones, and deletes blocks the new zones' defaults already cover
+    - Names each of your allows into a zone that a moved network now also falls under
     - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
   - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
     - Addresses on a WAN's carrier side or a VPN's far side stay as they are

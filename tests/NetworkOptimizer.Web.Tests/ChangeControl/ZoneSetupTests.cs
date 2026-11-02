@@ -1321,6 +1321,60 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void ServersAllow_IsUnticked_WhenTheOperatorsOwnRuleCoversIt()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-dns", ["name"] = "DNS Servers", ["vlan"] = 53, ["ip_subnet"] = "10.0.53.1/24" });
+        live.Collections["firewall_zone"].Add(Zone("z-dns", "DNS Servers", null, "n-dns"));
+        live.Collections["firewall_policy"].Add(Rule("p-int", "[DNS] VLANs to Pi-hole", "ALLOW", Side("z-int"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
+        var networks = Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Server)).ToList();
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" });
+
+        var servers = board.Exceptions.Single(e => e.Key == "servers");
+        servers.Enabled.Should().BeFalse();
+        servers.Why.Should().Be("Covered by your rule [DNS] VLANs to Pi-hole (Servers)", "the plan copies the operator's rule into the new zone");
+        board.Zones.Single(z => z.Key == "servers").Description.Should().Be("Internet out. Internal reaches what your policies allow");
+        Named(ZoneSetup.Plan(live, board).Desired, "Allow Internal to Servers").Should().BeNull("Internal keeps the one port its rule opens");
+    }
+
+    [Fact]
+    public void ServersAllow_IsUnticked_ForAServersZoneTheOperatorBuilt()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-srv", ["name"] = "Lab", ["vlan"] = 60, ["ip_subnet"] = "10.0.60.1/24" });
+        live.Collections["firewall_zone"].Add(Zone("z-srv", "Servers", null, "n-srv"));
+        live.Collections["firewall_policy"].Add(Rule("p-iot", "IoT to Lab", "ALLOW", Side("z-int", "IP", ips: ["10.0.30.5"]), Side("z-srv", port: "8123"), protocol: "tcp"));
+        var networks = Networks.Append(Net("n-srv", "Lab", 60, NetworkPurpose.Server)).ToList();
+
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode);
+
+        var servers = board.Exceptions.Single(e => e.Key == "servers");
+        servers.Enabled.Should().BeFalse();
+        servers.Why.Should().Be("Your zone: its policies decide what Internal reaches");
+        Named(ZoneSetup.Plan(live, board).Desired, "Allow Internal to Servers").Should().BeNull();
+        ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, exceptions: new Dictionary<string, bool> { ["servers"] = true })
+            .Exceptions.Single(e => e.Key == "servers").Enabled.Should().BeTrue("the operator's own choice stands");
+    }
+
+    [Fact]
+    public void MovingIntoAZone_NotesTheZoneWideAllowsItNowFallsUnder()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-srv", ["name"] = "Lab", ["vlan"] = 60, ["ip_subnet"] = "10.0.60.1/24" });
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-dns", ["name"] = "DNS Servers", ["vlan"] = 53, ["ip_subnet"] = "10.0.53.1/24" });
+        live.Collections["firewall_zone"].Add(Zone("z-srv", "Servers", null, "n-srv"));
+        live.Collections["firewall_zone"].Add(Zone("z-dns", "DNS Servers", null, "n-dns"));
+        live.Collections["firewall_policy"].Add(Rule("p-ha", "IoT to Home Assistant", "ALLOW", Side("z-int"), Side("z-srv", port: "8123"), protocol: "tcp"));
+        live.Collections["firewall_policy"].Add(Rule("p-one", "Home to Lab Host", "ALLOW", Side("z-int"), Side("z-srv", "IP", ips: ["10.0.60.5"])));
+        var networks = Networks.Append(Net("n-srv", "Lab", 60, NetworkPurpose.Server)).Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Server)).ToList();
+
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" }));
+
+        plan.Notes.Should().Contain("Firewall Policy IoT to Home Assistant (Internal to Servers): now also reaches DNS Servers, which moves into Servers.");
+        plan.Notes.Should().NotContain(n => n.Contains("Home to Lab Host") && n.Contains("now also reaches"), "an allow to one host does not widen");
+    }
+
+    [Fact]
     public void Cameras_WithInternetAccessOff_GetNoInternetBlock()
     {
         var live = WithSubnetsAndGateway();
