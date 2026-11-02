@@ -533,10 +533,6 @@
                                         <span class="speed-label">Average Upload</span>
                                         <span class="speed-value speed-up">@DisplayFormatters.FormatRate(ts.AvgUpBps)</span>
                                     </div>
-                                    <div class="speed-metric">
-                                        <span class="speed-label">Speed Tests</span>
-                                        <span class="speed-value">@ts.Tests</span>
-                                    </div>
                                 </div>
                             }
                         </div>
@@ -547,6 +543,18 @@
                             <h4>Speed Tests</h4>
                             <span class="section-subtitle">@TimeFormatHelper.Pluralize(_speedResults.Count, "test")</span>
                         </div>
+                        @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
+                        {
+                            <div class="speed-actions">
+                                <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
+                                    Run Speed Test
+                                </a>
+                                <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
+                                   data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
+                                    Quick Test
+                                </a>
+                            </div>
+                        }
                         @* A phone keeps this filter in its bottom bar, so the heading carries none there. *@
                         <div class="time-range-selector hide-mobile">
                             @foreach (var tf in _timeFilters)
@@ -557,20 +565,7 @@
                         </div>
                     </div>
 
-                    @* Speed Test Buttons *@
-                    @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
-                    {
-                        <div class="speed-actions">
-                            <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
-                                Run Speed Test
-                            </a>
-                            <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
-                               data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
-                                Quick Test
-                            </a>
-                        </div>
-                    }
-                    else if (_isOwnDevice && _agentOnGateway)
+                    @if (_isOwnDevice && string.IsNullOrEmpty(_openSpeedTestUrl) && _agentOnGateway)
                     {
                         <p class="form-hint">
                             Speed tests aren't available at this site - its agent runs on the UniFi gateway,
@@ -2399,9 +2394,9 @@
         }
     }
 
-    /// <summary>The figures under the Throughput card's history: peaks (null without them), the
-    /// averages across the range, and how many speed tests ran in it.</summary>
-    private sealed record ThroughputSummary(double? PeakDownBps, double? PeakUpBps, double AvgDownBps, double AvgUpBps, int Tests);
+    /// <summary>The figures under the Throughput card's history: peaks (null without them) and the
+    /// averages across the range.</summary>
+    private sealed record ThroughputSummary(double? PeakDownBps, double? PeakUpBps, double AvgDownBps, double AvgUpBps);
     private ThroughputSummary? _throughputSummary;
 
     /// <summary>The Throughput card's history over the last <paramref name="hours"/>, with the
@@ -2428,8 +2423,7 @@
             history.HasPeaks && pts.Count > 0 ? pts.Max(p => p.PeakDownloadBps ?? 0) : null,
             history.HasPeaks && pts.Count > 0 ? pts.Max(p => p.PeakUploadBps ?? 0) : null,
             pts.Count > 0 ? pts.Average(p => p.DownloadBps) : 0,
-            pts.Count > 0 ? pts.Average(p => p.UploadBps) : 0,
-            tests.Count);
+            pts.Count > 0 ? pts.Average(p => p.UploadBps) : 0);
         return (new { history.From, history.To, history.WindowMs, history.HasPeaks, history.Points, marks }, summary);
     }
 
@@ -4870,11 +4864,25 @@
         flex: 1 1 auto;
         position: relative;
     }
-    /* The Speed tab's filter heading: the gap below comes from the tab pane. */
+    /* The Speed tab's section heading: title, the speed test buttons centered, the filter right,
+       on one line. Columns are placed explicitly so a heading without buttons keeps its ends. The
+       gap below comes from the tab pane. */
     .tab-pane > .speed-tests-header {
-        flex-wrap: wrap;
-        gap: 0.5rem 0.75rem;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 0.75rem;
         margin: 0.5rem 0 0;
+    }
+    .speed-tests-header > .speed-tests-title {
+        grid-column: 1;
+    }
+    .speed-tests-header > .speed-actions {
+        grid-column: 2;
+    }
+    .speed-tests-header > .time-range-selector {
+        grid-column: 3;
+        justify-self: end;
     }
     .speed-tests-header h4 {
         margin: 0;
@@ -5275,6 +5283,14 @@
         .chart-card-header > .card-header-right {
             flex: 1 1 100%;
             margin-left: 0;
+        }
+        /* The heading stacks: title, then the full-width buttons (the filter is in the bottom bar). */
+        .tab-pane > .speed-tests-header {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        .speed-tests-header > .speed-tests-title,
+        .speed-tests-header > .speed-actions {
+            grid-column: 1;
         }
         /* The range takes its own row here: top 13, heading 25.6, gap 8, range 38.7, then 12 +
            175 + 20 as on a desktop. */
