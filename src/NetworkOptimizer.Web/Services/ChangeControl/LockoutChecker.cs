@@ -172,9 +172,10 @@ public static class LockoutChecker
         // Networks Network Optimizer reaches the site from (the agent host's, or the server's own).
         var gateways = devicesByMac.Values.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is "ugw" or "udm" or "uxg").Select(Name).ToList();
         // IPv4 only: InSubnet answers true for what it cannot compare, which would match every network.
-        // The routed source only for a zone-membership change; every other plan (Re-address) keeps every host address.
-        var zonePlan = doc.Operations.Any(o => o.Collection == "firewall_zone" && o.Action != PlanAction.Delete);
-        var noAddresses = (zonePlan && options.ReachAddresses.Count > 0 ? options.ReachAddresses : options.ManagementAddresses)
+        // The routed source, where Network Optimizer reaches the site from. A plan that moves a subnet (Re-address) can
+        // change that route, so it keeps every host address; a host with a leg on many VLANs owns addresses it never manages from.
+        var subnetMoves = ImpactAnalyzer.SubnetMoves(live, planned).Count > 0;
+        var noAddresses = (!subnetMoves && options.ReachAddresses.Count > 0 ? options.ReachAddresses : options.ManagementAddresses)
             .Where(a => IPAddress.TryParse(a, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip))
             .ToList();
         var managementNetworks = planned.Get("networkconf")
@@ -311,7 +312,6 @@ public static class LockoutChecker
         // 8. Zone-based firewall paths: a network that reaches its DNS resolver or the inform host today
         //    still does. Devices stay online when DNS breaks, so the commit-confirmed revert never sees it.
         //    Not across a subnet move (Re-address): live and planned addresses differ, so the paths cannot be compared.
-        var subnetMoves = ImpactAnalyzer.SubnetMoves(live, planned).Count > 0;
         if (!subnetMoves && doc.Operations.Any(o => o.Collection is "firewall_zone" or "firewall_policy" or "nat")
             && planned.Collections.ContainsKey("firewall_zone") && planned.Get("firewall_zone").Count > 0)
             findings.AddRange(PathFindings(live, planned, doc, options, devicesByMac.Values, MgmtNetwork));

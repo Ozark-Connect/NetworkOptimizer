@@ -81,6 +81,34 @@ public class LockoutCoverageTests
             "a policy sees traffic only from its source zone, and Network Optimizer's address is in Internal");
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void PolicyEdit_JudgesTheRoutedAddress_NotEveryHostLeg(bool routed, bool expectedLockout)
+    {
+        // The host has a leg on IoT (198.51.100.20) but reaches the site from Internal (192.0.2.50).
+        ConfigState Zoned()
+        {
+            var s = Site();
+            s.Collections["firewall_zone"][0]["network_ids"] = new JsonArray("n-lan");
+            s.Collections["firewall_zone"].Add(new JsonObject { ["_id"] = "z-iot", ["name"] = "IoT", ["network_ids"] = new JsonArray("n-iot") });
+            s.Collections["firewall_policy"] = [Block("p-1", new JsonObject
+            {
+                ["zone_id"] = "z-iot", ["matching_target"] = "IP", ["ips"] = new JsonArray("192.0.2.99"), ["match_opposite_ips"] = true,
+            })];
+            return s;
+        }
+        var desired = Zoned();
+        desired.Collections["firewall_policy"][0]["name"] = "p-1 renamed";
+
+        var doc = PlanBuilder.Build(desired, Zoned(), new PlanOptions
+        {
+            ManagementAddresses = ["192.0.2.50", "198.51.100.20"], ReachAddresses = routed ? ["192.0.2.50"] : [],
+        });
+
+        doc.Lockouts.Any(l => l.Title.Contains("blocks traffic to the gateway")).Should().Be(expectedLockout);
+    }
+
     [Fact]
     public void GatewaySnmpBlock_IsNotFlaggedAsALockout()
     {
