@@ -11429,7 +11429,8 @@ a.path-hop.hop-clickable:hover {
     border-bottom: 1px solid var(--border-color) !important;
 }
 
-.netopt-own-hover-dots .apexcharts-marker {
+/* Legend dots carry apexcharts-marker too; without the exclusion they vanish with the hover dots. */
+.netopt-own-hover-dots .apexcharts-marker:not(.apexcharts-legend-marker) {
     display: none;
 }
 
