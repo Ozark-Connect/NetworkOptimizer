@@ -47,7 +47,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
 # required: without it the agent falls back to the managed ICMP traceroute, whose
 # hop RTTs are wrong under Upstream Discovery's concurrent sweep. The .NET agent
 # runs the tunnel plus the loopback results relay.
-FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION}
+FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION} AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends nginx iperf3 iputils-ping traceroute ca-certificates openssl \
     && rm -rf /var/lib/apt/lists/* /etc/nginx/sites-enabled/default

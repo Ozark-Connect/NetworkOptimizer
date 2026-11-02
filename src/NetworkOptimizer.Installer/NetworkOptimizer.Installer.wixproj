@@ -45,9 +45,13 @@
     <PackageReference Include="WixToolset.UI.wixext" Version="6.*" />
   </ItemGroup>
 
-  <!-- Download nginx before build -->
-  <Target Name="DownloadNginx" BeforeTargets="Build" Condition="!Exists('$(SpeedTestDir)nginx\nginx.exe')">
-    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(SpeedTestDir)Download-Nginx.ps1&quot;" />
+  <!-- Download nginx before build. Keyed on a per-version marker, not nginx.exe, so a version
+       bump replaces an already-staged older nginx. Keep on the nginx.org stable line. -->
+  <PropertyGroup>
+    <NginxVersion>1.30.6</NginxVersion>
+  </PropertyGroup>
+  <Target Name="DownloadNginx" BeforeTargets="Build" Condition="!Exists('$(SpeedTestDir)nginx\nginx-$(NginxVersion).version')">
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(SpeedTestDir)Download-Nginx.ps1&quot; -Version $(NginxVersion)" />
   </Target>
 
   <!-- Download iperf3 before build -->
