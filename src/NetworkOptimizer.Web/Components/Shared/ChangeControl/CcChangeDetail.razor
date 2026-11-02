@@ -164,6 +164,10 @@ else
                         </button>
                     </SiteOperatorOnly>
                 }
+                @if (Detail.Row.PlanId is { } planId)
+                {
+                    <a class="btn btn-contrast" href="@SiteContextService.WithSiteParam($"/change-control/plans/{planId}", Detail.Row.SiteSlug)">View Plan</a>
+                }
                 @if (Detail.Row.PreviousSnapshotId != null && Detail.Row.SnapshotId != null)
                 {
                     <button class="btn btn-contrast" @onclick="OnViewDiff">View Diff</button>
