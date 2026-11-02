@@ -1361,9 +1361,9 @@ Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let
 **How it works:** The client's browser connects to the remote speed test server. Traffic flows: client → your WAN → internet → remote server → internet → your WAN → client. The result is posted back to Network Optimizer with a server identifier, and stored as a WAN speed test result.
 
 **Requirements:**
-- A remote server with Docker (any cloud VPS works)
-- Port 3005 (or your chosen port) open on the remote server
-- **HTTPS on the external server** (strongly recommended - see note below)
+- A remote server with Docker (any cloud VPS works), outside your network. A server behind your own WAN measures your LAN, not your internet connection.
+- Port 3005 (or your chosen port) reachable from your WAN IP. Every test comes from your network, so nothing else needs access.
+- **HTTPS in front of the speed test page** (strongly recommended - see note below). The container serves HTTP, so TLS comes from a reverse proxy, either on your network or on the remote server.
 
 **Why HTTPS?** Chrome and Edge enforce [Private Network Access](https://developer.chrome.com/blog/private-network-access-update) rules. The speed test page is served from a public IP, and the browser posts results back to Network Optimizer on your LAN (a private IP). These browsers block this unless the page origin is HTTPS (a secure context). Firefox and Safari do not currently enforce this restriction, but HTTPS is still strongly recommended.
 
@@ -1374,7 +1374,7 @@ Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let
 3. Save - a **deploy command** will appear with everything pre-filled
 4. SSH to your remote server and run the deploy command
 
-The deploy command handles downloading files, building the container, and starting the server. The Server ID is automatically generated from the name you entered and links results back to this server.
+The deploy command handles downloading files, building the container, and starting the server. The Server ID is automatically generated from the name you entered and links results back to this server. Use the deploy command rather than the `speedtest` image from the main stack: that image has no Server ID, so its results land in Client Speed Test instead of Client WAN Test.
 
 **Interactive deploy** (if you haven't configured Settings yet, the script will walk you through it):
 ```bash
@@ -1386,11 +1386,16 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update
 ```
 
-**Setting up HTTPS:** If you use [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) (Traefik), the WAN speed test route is already included in `config.example.yml` - just uncomment the `speedtest-wan` router and service, update the hostname and VPS address, and you're done. The config enforces HTTP/1.1 and strips compression headers automatically.
+**Setting up HTTPS:** Put a reverse proxy with TLS in front of the container on port 3005. Either placement works:
 
-If you use a different reverse proxy, add a route for the external speed test hostname pointing to your remote server on port 3005. The reverse proxy must force HTTP/1.1 for accurate speed test results (HTTP/2 multiplexing interferes with throughput measurement).
+- **On your network.** Your local reverse proxy terminates TLS and forwards plain HTTP to the remote server. Every test runs from your network, so the remote leg needs no certificate.
+- **On the remote server.** Traefik, Caddy, nginx, or another reverse proxy on the VPS, with a Let's Encrypt certificate (certbot or the proxy's built-in ACME) or a self-signed one. A self-signed certificate works, but each browser has to accept it once before the page counts as a secure context.
 
-Then update the external server settings in Network Optimizer to use `https` scheme and port `443`.
+If you use [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) (Traefik), on either side, the WAN speed test route is already included in `config.example.yml` - just uncomment the `speedtest-wan` router and service, update the hostname and server address, and you're done. The config enforces HTTP/1.1 and strips compression headers automatically.
+
+With any other reverse proxy, add a route for the external speed test hostname pointing to the container on port 3005. The reverse proxy must force HTTP/1.1 for accurate speed test results (HTTP/2 multiplexing interferes with throughput measurement).
+
+Then update the external server settings in Network Optimizer to use your proxy's hostname, `https` scheme, and port `443`. The container keeps listening on 3005.
 
 ### Disabling Optional Services
 
