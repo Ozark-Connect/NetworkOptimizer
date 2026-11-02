@@ -1632,11 +1632,16 @@ public class ZoneSetupTests
     [Theory]
     [InlineData(null, false)]
     [InlineData("443", true)]
+    [InlineData("scheduled", true)]
     public void SameTrustAllow_IsSkipped_OnlyWhenTheOperatorsRuleOpensTheWholePair(string? port, bool added)
     {
         var live = WithSubnetsAndGateway();
-        live.Collections["firewall_policy"].Add(Rule("p-wh", "[Work] Allow Access to Home", "ALLOW",
-            Side("z-int", "NETWORK", ["n-work"]), Side("z-int", "NETWORK", ["n-home"], port: port), protocol: port == null ? "all" : "tcp"));
+        var rule = Rule("p-wh", "[Work] Allow Access to Home", "ALLOW",
+            Side("z-int", "NETWORK", ["n-work"]), Side("z-int", "NETWORK", ["n-home"], port: port is null or "scheduled" ? null : port),
+            protocol: port is null or "scheduled" ? "all" : "tcp");
+        // An allow on a schedule opens the pair only part of the time.
+        if (port == "scheduled") rule["schedule"] = new JsonObject { ["mode"] = "CUSTOM" };
+        live.Collections["firewall_policy"].Add(rule);
 
         var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, Networks, ZoneSetup.PurposeMode));
 
@@ -1784,5 +1789,30 @@ public class ZoneSetupTests
         s.Collections["firewallrule"] = [new JsonObject { ["_id"] = "r1", ["name"] = "Block IoT" }];
         ZoneSetup.IsLegacy(s).Should().BeTrue();
         ZoneSetup.IsLegacy(Live()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnEmptiedZoneSplitTwoWays_HandsItsPoliciesToItsFirstNetworksZone()
+    {
+        var live = WithSubnetsAndGateway();
+        Into(live, "z-mix", "Lab", "n-cam", "n-iot");
+        live.Collections["firewall_policy"].Add(Rule("p-lab", "Lab Out", "BLOCK", Side("z-mix"), Side("z-ext", port: "25"), protocol: "tcp"));
+        var board = ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-cam"] = "cameras", ["n-iot"] = "iot" });
+
+        var plan = ZoneSetup.Plan(live, board);
+
+        Named(plan.Desired, "Lab Out")!["source"]!["zone_id"]!.ToString().Should().Be("new-zone-cameras", "Cameras is first in Lab's own network list");
+    }
+
+    [Fact]
+    public void Build_RefusesARenameAnotherZoneHas()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["firewall_zone"].Add(Zone("z-work", "Work", null));
+
+        var board = ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode, names: new Dictionary<string, string> { ["iot"] = "work", ["cameras"] = "IoT" });
+
+        board.Zones.Single(z => z.Key == "iot").Name.Should().Be("IoT", "Work is an empty zone off the board");
+        board.Zones.Single(z => z.Key == "cameras").Name.Should().Be("Cameras", "IoT is another column's name");
     }
 }

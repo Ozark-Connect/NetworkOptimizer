@@ -91,7 +91,7 @@ public static class ZonePaths
         if (!zoneOf.TryGetValue(sourceNetworkId, out var src)) return null;
         var (dst, dstNetwork) = ZoneOfAddress(state, zoneOf, address);
         if (dst == null) return null;
-        var source = SourceNetwork(state, sourceNetworkId, src);
+        var source = Network(state, sourceNetworkId, src);
         if (source == null) return null;
 
         // Only the zone pair's policies are parsed: the rest can never decide this traffic.
@@ -110,7 +110,7 @@ public static class ZonePaths
 
     /// <summary>Whether a policy's source covers a network as a whole, by the Audit's source matching.</summary>
     public static bool SourceCovers(ConfigState state, JsonObject policy, string network) =>
-        SourceNetwork(state, network, ZoneOfNetwork(state).GetValueOrDefault(network)) is { } source
+        Network(state, network, ZoneOfNetwork(state).GetValueOrDefault(network)) is { } source
         && Parse(state, [policy]).Keys.SingleOrDefault() is { } rule
         && rule.AppliesToSourceNetwork(source, IpFamily.IPv4) && string.IsNullOrEmpty(rule.SourcePort);
 
@@ -174,7 +174,7 @@ public static class ZonePaths
     }
 
     /// <summary>One network as the Audit reads it (<see cref="VlanAnalyzer.NetworkInfoFromConfig"/>), in the zone given.</summary>
-    private static NetworkInfo? SourceNetwork(ConfigState state, string networkId, string? zone)
+    public static NetworkInfo? Network(ConfigState state, string networkId, string? zone)
     {
         if (state.Get("networkconf").FirstOrDefault(n => string.Equals(ConfigState.IdOf(n), networkId, StringComparison.OrdinalIgnoreCase)) is not { } net)
             return null;

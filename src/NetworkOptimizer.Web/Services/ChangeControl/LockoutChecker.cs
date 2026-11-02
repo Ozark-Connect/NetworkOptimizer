@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
@@ -196,29 +197,23 @@ public static class LockoutChecker
         bool UnmanagedNewZone(string? zoneId) => noAddresses.Count > 0 && zoneId != null && createdZones.Contains(zoneId)
             && planned.Get("firewall_zone").FirstOrDefault(z => ConfigState.IdOf(z) == zoneId) is { } zone
             && !(zone["network_ids"] as JsonArray ?? []).Any(n => managementNetworks.Contains(Str(n) ?? "") || consoleNetworks.Contains(Str(n) ?? ""));
+        // Each address Network Optimizer manages from, with the network it is in, for the Audit's source matching.
+        var noNetworkOf = noAddresses.ToDictionary(a => a, a => planned.Get("networkconf")
+            .FirstOrDefault(n => Str(n["ip_subnet"]) is { } s && s.Contains('/') && InSubnet(a, s)) is { } net ? ConfigState.IdOf(net) : null);
         if (gatewayZone != null)
             foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
             {
-                var policy = op.Body as JsonObject;
-                if (policy == null || Str(policy["enabled"]) == "false") continue;
-                if (Str(policy["action"]) is not ("BLOCK" or "REJECT")) continue;
-                if (Str(policy["destination"]?["zone_id"]) != ConfigState.IdOf(gatewayZone)) continue;
+                if (op.Body is not JsonObject policy || ZonePaths.Parse(planned, [policy]).Keys.SingleOrDefault() is not { } rule) continue;
+                if (!rule.Enabled || !rule.ActionType.IsBlockAction()) continue;
+                if (rule.DestinationZoneId != ConfigState.IdOf(gatewayZone)) continue;
                 // A block aimed at SNMP or another unrelated service on the gateway cannot cut off
                 // the console or Network Optimizer. Treat unknown protocol/port shapes conservatively.
-                if (!CouldBlockManagementTraffic(policy, planned)) continue;
-                var source = policy["source"] as JsonObject;
-                var target = Str(source?["matching_target"]);
-                var fromAny = target is null or "ANY";
-                var fromNo = target switch
-                {
-                    "NETWORK" => (source?["network_ids"] as JsonArray ?? []).Any(n => managementNetworks.Contains(Str(n) ?? "")),
-                    "IP" => (source?["ips"] as JsonArray ?? []).Select(Str).OfType<string>()
-                        .Any(ip => noAddresses.Any(a => ip == a || (ip.Contains('/') && InSubnet(a, ip)))),
-                    _ => false,
-                };
-                var fromNoZone = fromAny && managementZones.Contains(Str(source?["zone_id"]) ?? "");
+                if (!CouldBlockManagementTraffic(rule)) continue;
+                var fromAny = rule.IsAnySource();
+                var fromNo = !fromAny && noAddresses.Any(a => rule.AppliesToSourceAddress(noNetworkOf[a], a));
+                var fromNoZone = fromAny && managementZones.Contains(rule.SourceZoneId ?? "");
                 if (!fromAny && !fromNo) continue;
-                if (fromAny && !fromNoZone && UnmanagedNewZone(Str(source?["zone_id"]))) continue;
+                if (fromAny && !fromNoZone && UnmanagedNewZone(rule.SourceZoneId)) continue;
                 findings.Add(new LockoutFinding
                 {
                     Kind = fromNo || fromNoZone ? (options.AgentSite ? "certain" : "possible") : "possible",
@@ -231,40 +226,18 @@ public static class LockoutChecker
                 });
             }
 
-        static bool CouldBlockManagementTraffic(JsonObject policy, ConfigState state, int? onlyPort = null)
+        // Whether a block can take management traffic (TCP to the console's or the gateway's ports), by the Audit's port and
+        // protocol matching. A lockout check errs toward a finding: a protocol the Audit cannot classify, or a port group
+        // it cannot resolve, cannot prove the block safe.
+        static bool CouldBlockManagementTraffic(Audit.Models.FirewallRule rule, int? onlyPort = null)
         {
-            var protocol = Str(policy["protocol"])?.Trim().ToLowerInvariant() ?? "all";
-            if (protocol == "tcp udp") protocol = "tcp_udp";
-            var opposite = policy["match_opposite_protocol"]?.GetValueKind() == System.Text.Json.JsonValueKind.True;
-            // Management services below use TCP. Inverting ICMP/UDP includes TCP, whereas
-            // inverting TCP, TCP+UDP or ALL excludes it. Unknown protocols cannot prove safety.
-            if (protocol is "all" or "tcp" or "tcp_udp" or "udp" or "icmp"
-                && !FirewallGroupHelper.BlocksProtocol(protocol, opposite, "tcp")) return false;
-            var destination = policy["destination"] as JsonObject;
-            // An inverted list matches every port except those named; do not mistake it for a narrow block.
-            if (destination?["match_opposite_ports"]?.GetValueKind() == System.Text.Json.JsonValueKind.True) return true;
-            var portType = Str(destination?["port_matching_type"]);
-            if (portType is null or "ANY") return true;
-            IEnumerable<int> ports;
-            if (portType == "SPECIFIC" && Str(destination?["port"]) is { } list)
-                ports = list.Split(',').SelectMany(part =>
-                {
-                    var range = part.Trim().Split('-', 2);
-                    if (!int.TryParse(range[0], out var first)) return [];
-                    var last = range.Length == 2 && int.TryParse(range[1], out var end) ? end : first;
-                    return Enumerable.Range(first, Math.Max(0, last - first + 1));
-                });
-            else if (portType == "OBJECT" && Str(destination?["port_group_id"]) is { } groupId
-                     && state.Get("firewallgroup").FirstOrDefault(g => ConfigState.IdOf(g) == groupId) is { } group)
-                ports = (group["group_members"] as JsonArray ?? []).Select(Str).OfType<string>().SelectMany(value =>
-                {
-                    var range = value.Trim().Split('-', 2);
-                    if (!int.TryParse(range[0], out var first)) return [];
-                    var last = range.Length == 2 && int.TryParse(range[1], out var end) ? end : first;
-                    return Enumerable.Range(first, Math.Max(0, last - first + 1));
-                });
-            else return true;
-            return ports.Any(port => onlyPort is { } only ? port == only : port is 22 or 80 or 443 or 8080 or 8443);
+            if (rule.HasUnresolvedDestinationPortGroup) return true;
+            var known = (rule.Protocol?.Trim().ToLowerInvariant() ?? "all") is "all" or "tcp" or "udp" or "tcp_udp" or "tcp udp" or "icmp";
+            int[] ports = onlyPort is { } only ? [only] : [22, 80, 443, 8080, 8443];
+            return ports.Any(port => known
+                ? FirewallGroupHelper.RuleMatchesPortAndProtocol(rule, port.ToString(System.Globalization.CultureInfo.InvariantCulture), "tcp")
+                : string.IsNullOrEmpty(rule.DestinationPort)
+                  || FirewallGroupHelper.IncludesPort(rule.DestinationPort, port.ToString(System.Globalization.CultureInfo.InvariantCulture)) != rule.DestinationMatchOppositePorts);
         }
 
         // 6b. The console is not on the gateway, and Network Optimizer reaches it through the On-Site Agent on the gateway:
@@ -278,21 +251,11 @@ public static class LockoutChecker
             if (consoleZone != null && consoleZone != ConfigState.IdOf(gatewayZone))
                 foreach (var op in doc.Operations.Where(o => o.Collection == "firewall_policy" && o.Action is PlanAction.Create or PlanAction.Update))
                 {
-                    if (op.Body is not JsonObject policy || Str(policy["enabled"]) == "false") continue;
-                    if (Str(policy["action"]) is not ("BLOCK" or "REJECT")) continue;
-                    if (Str(policy["source"]?["zone_id"]) != ConfigState.IdOf(gatewayZone) || Str(policy["destination"]?["zone_id"]) != consoleZone) continue;
-                    if (!CouldBlockManagementTraffic(policy, planned, options.GatewayConsolePort)) continue;
-                    var destination = policy["destination"] as JsonObject;
-                    bool Opposite(string field) => destination?[field]?.GetValueKind() == System.Text.Json.JsonValueKind.True;
-                    var covers = Str(destination?["matching_target"]) switch
-                    {
-                        null or "ANY" => true,
-                        "NETWORK" => (destination?["network_ids"] as JsonArray ?? []).Any(n => Str(n) == consoleNetwork) != Opposite("match_opposite_networks"),
-                        "IP" => (destination?["ips"] as JsonArray ?? []).Select(Str).OfType<string>()
-                            .Any(ip => ip == console || (ip.Contains('/') && InSubnet(console, ip))) != Opposite("match_opposite_ips"),
-                        _ => false,
-                    };
-                    if (!covers) continue;
+                    if (op.Body is not JsonObject policy || ZonePaths.Parse(planned, [policy]).Keys.SingleOrDefault() is not { } rule) continue;
+                    if (!rule.Enabled || !rule.ActionType.IsBlockAction()) continue;
+                    if (rule.SourceZoneId != ConfigState.IdOf(gatewayZone) || rule.DestinationZoneId != consoleZone) continue;
+                    if (!CouldBlockManagementTraffic(rule, options.GatewayConsolePort)) continue;
+                    if (!rule.AppliesToDestination(consoleNetwork, console)) continue;
                     findings.Add(new LockoutFinding
                     {
                         Kind = "certain",

@@ -160,7 +160,8 @@ public static class FirewallGroupHelper
         return protocol switch
         {
             "all" => true,
-            "tcp_udp" => target is "tcp" or "udp",
+            // UniFi has stored TCP and UDP both ways.
+            "tcp_udp" or "tcp udp" => target is "tcp" or "udp",
             _ => protocol == target
         };
     }

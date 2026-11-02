@@ -390,4 +390,41 @@ public class FirewallRuleTests
         Dest("NETWORK", networks: ["n1"]).AppliesToDestination(null, "203.0.113.5").Should().BeFalse();
 
     #endregion
+
+    #region AppliesToSourceAddress and ScheduleMode Tests
+
+    private static FirewallRule Src(string? target, List<string>? ips = null, List<string>? networks = null, bool oppositeIps = false, bool oppositeNetworks = false) => new()
+    {
+        Id = "r", SourceMatchingTarget = target, SourceIps = ips, SourceNetworkIds = networks,
+        SourceMatchOppositeIps = oppositeIps, SourceMatchOppositeNetworks = oppositeNetworks,
+    };
+
+    [Theory]
+    [InlineData("ANY", null, false, true)]
+    [InlineData("IP", "10.0.1.10", false, true)]
+    [InlineData("IP", "10.0.1.5-10.0.1.20", false, true)]
+    [InlineData("IP", "10.0.1.0/24", false, true)]
+    [InlineData("IP", "10.0.1.99", false, false)]
+    [InlineData("IP", "10.0.1.99", true, true)]
+    [InlineData("IP", "10.0.1.10", true, false)]
+    [InlineData("CLIENT", null, false, false)]
+    public void AppliesToSourceAddress_ByTarget(string target, string? entry, bool opposite, bool applies) =>
+        Src(target, ips: entry == null ? null : [entry], oppositeIps: opposite).AppliesToSourceAddress("n1", "10.0.1.10").Should().Be(applies);
+
+    [Theory]
+    [InlineData("n1", false, true)]
+    [InlineData("n1", true, false)]
+    [InlineData("n2", true, true)]
+    public void AppliesToSourceAddress_Networks(string listed, bool opposite, bool applies) =>
+        Src("NETWORK", networks: [listed], oppositeNetworks: opposite).AppliesToSourceAddress("n1", "10.0.1.10").Should().Be(applies);
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("ALWAYS", true)]
+    [InlineData("always", true)]
+    [InlineData("CUSTOM", false)]
+    public void IsAlwaysOn_ReadsTheScheduleMode(string? mode, bool always) =>
+        new FirewallRule { Id = "r", ScheduleMode = mode }.IsAlwaysOn.Should().Be(always);
+
+    #endregion
 }
