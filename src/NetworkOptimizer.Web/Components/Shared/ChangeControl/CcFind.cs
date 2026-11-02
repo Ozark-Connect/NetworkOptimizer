@@ -117,6 +117,9 @@ public static class CcFind
         ["fq codel"] = ["wan_smartq"],
         // "wan ip" needs none: the space rule finds wan_ip and wan_ip_aliases.
         ["public ip"] = ["wan_ip"],
+        // Rate limits, Smart Queues rates, and Wi-Fi channel width. Not radio_table's "ht:" (its width): as a
+        // term it also matches "weight:".
+        ["bandwidth"] = ["download_limit", "upload_limit", "qos_rate_max", "wan_smartq_down_rate", "wan_smartq_up_rate", "channel_width", "ht_modes"],
         ["bandwidth limit"] = ["download_limit", "upload_limit", "qos_rate_max"],
         ["speed limit"] = ["download_limit", "upload_limit", "qos_rate_max"],
         ["mss clamping"] = ["mss_clamp"],

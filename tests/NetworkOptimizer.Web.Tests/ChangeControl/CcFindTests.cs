@@ -140,6 +140,13 @@ public class CcFindTests
         CcFind.Count(yaml, "nat-pmp").Should().Be(1);
     }
 
+    [Fact]
+    public void Count_BandwidthFindsRateLimitsAndSmartQueueRates()
+    {
+        const string yaml = "user_groups:\n- qos_rate_max_down: -1\n  qos_rate_max_up: -1\nnetworks:\n- wan_smartq_down_rate: 900000\n  wan_smartq_up_rate: 900000\nchannel_plans:\n- channel_width: 80\n  ht_modes_na: []\n";
+        CcFind.Count(yaml, "bandwidth").Should().Be(6);
+    }
+
     [Theory]
     [InlineData("_")]
     [InlineData(" - ")]
