@@ -262,7 +262,7 @@ public sealed partial class ChangeControlService
         // Phase 2 of a blank-console restore: only device config, for devices adopted since phase 1.
         var options = new PlanOptions
         {
-            SameSite = sameSite, DeleteMissing = deleteMissing && !devicesOnly, TargetHasGateway = hasGateway,
+            SameSite = sameSite, DeleteMissing = deleteMissing && !devicesOnly, TargetHasGateway = hasGateway, KeptClientsBy = "Restore",
             Collections = devicesOnly ? new HashSet<string> { "device" } : null,
         };
         // A legacy-firewall snapshot onto a zone-based console: translate the rules, and audit against the legacy config.

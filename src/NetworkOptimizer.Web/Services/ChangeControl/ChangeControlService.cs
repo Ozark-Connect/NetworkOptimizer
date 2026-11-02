@@ -758,7 +758,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var state = await Engine.LoadSnapshotStateAsync(snapshotId, cancellationToken) ?? throw new InvalidOperationException("Snapshot content not found.");
         var label = TimeFormatHelper.FormatLocalDateTime(snap.TakenAt);
         var plan = await Plans.CreateAsync(ConfigPlanKind.RollbackSnapshot, $"Roll Back {await SiteNameAsync(cancellationToken)} to {label}",
-            $"Snapshot, {label}", snapshotId, null, state, new PlanOptions(), Actor, cancellationToken,
+            $"Snapshot, {label}", snapshotId, null, state, new PlanOptions { ForgetClients = true }, Actor, cancellationToken,
             doc =>
             {
                 doc.Context["source_detail"] = snap.Pinned ? snap.PinReason ?? "Pinned" : TriggerLabel(snap).Text;
@@ -781,7 +781,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var only = objects.Where(o => !o.ObjectId.StartsWith("order:", StringComparison.Ordinal)).Select(o => (o.Collection, o.ObjectId)).ToHashSet();
         var plan = await Plans.CreateAsync(ConfigPlanKind.RollbackChange, $"Roll Back: {change.Summary}",
             $"Change, {TimeFormatHelper.FormatLocalDateTime(change.OccurredAt)}", prev, null, state,
-            new PlanOptions { OnlyObjects = only, Collections = objects.Select(o => o.Collection).ToHashSet() }, Actor, cancellationToken,
+            new PlanOptions { OnlyObjects = only, Collections = objects.Select(o => o.Collection).ToHashSet(), ForgetClients = true }, Actor, cancellationToken,
             rollsBackChangeId: change.Id);
         return plan.Id;
     }
@@ -837,7 +837,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var baseline = await Repo.UseAsync((r, c) => r.GetBaselineSnapshotAsync(c), ct);
         if (baseline == null) return null;
         var state = await Engine.LoadSnapshotStateAsync(baseline.Id, ct);
-        return state == null ? null : (state, $"Baseline, {TimeFormatHelper.FormatLocalDateTime(baseline.TakenAt)}", new PlanOptions(), baseline.Id);
+        return state == null ? null : (state, $"Baseline, {TimeFormatHelper.FormatLocalDateTime(baseline.TakenAt)}", new PlanOptions { ForgetClients = true }, baseline.Id);
     }
 
     public async Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default)

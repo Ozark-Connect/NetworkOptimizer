@@ -59,13 +59,22 @@ public class ClientForgetTests
     }
 
     [Fact]
-    public void RollBackOrRestore_AClientMissing_IsLeftInPlace_AsBefore()
+    public void Restore_AClientMissing_IsLeftInPlace_AndSaysHowToForgetIt()
     {
-        // Every plan but Edit: DeleteMissing alone never forgets a client.
+        // DeleteMissing alone never forgets a client: Restore, and a revert, which can apply unreviewed.
+        var doc = PlanBuilder.Build(WithoutPrinter(), Site(), new PlanOptions { Collections = Clients, KeptClientsBy = "Restore" });
+
+        doc.Operations.Should().BeEmpty();
+        doc.Notes.Should().Contain("Client Printer: not in the source; Restore never forgets clients. Remove it in Edit to forget it.");
+    }
+
+    [Fact]
+    public void Revert_AClientMissing_IsLeftInPlace()
+    {
         var doc = PlanBuilder.Build(WithoutPrinter(), Site(), new PlanOptions { Collections = Clients });
 
         doc.Operations.Should().BeEmpty();
-        doc.Notes.Should().Contain("Client Printer: is not in the source, and UniFi has no delete for it; left in place.");
+        doc.Notes.Should().Contain("Client Printer: not in the source; this plan never forgets clients. Remove it in Edit to forget it.");
     }
 
     [Fact]

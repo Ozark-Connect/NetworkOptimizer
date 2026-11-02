@@ -17,10 +17,14 @@ public sealed class PlanOptions
     public bool DeleteMissing { get; init; } = true;
 
     /// <summary>
-    /// A client missing from the desired state is forgotten in UniFi. Only Edit sets it: a Roll Back, Restore, template, or
-    /// revert would otherwise forget every client that joined after its snapshot.
+    /// A client with config that the desired state lacks is forgotten in UniFi, each one an item to acknowledge. Edit, Roll Back,
+    /// and Return to Baseline set it. Restore does not (from another site, every configured client here would be a forget), nor a
+    /// revert, which can apply with nobody to review it.
     /// </summary>
     public bool ForgetClients { get; init; }
+
+    /// <summary>What the "never forgets clients" note names when a client is left in place ("Restore"); null says "this plan".</summary>
+    public string? KeptClientsBy { get; init; }
 
     /// <summary>Restrict to these (collection, UniFi ID in the desired state) pairs (Roll Back of one change).</summary>
     public IReadOnlySet<(string Collection, string Id)>? OnlyObjects { get; init; }
@@ -311,8 +315,13 @@ public static class PlanBuilder
                 doc.Notes.Add($"{def.Noun} {name}: built into UniFi; never deleted.");
                 return null;
             }
-            // Outside Edit a client is never forgotten, and reads as it did before forgetting existed.
-            var forget = write.DeletePath == null && write.BatchDeletePath == null && write.ForgetPath != null && options.ForgetClients;
+            var forgets = write.DeletePath == null && write.BatchDeletePath == null && write.ForgetPath != null;
+            var forget = forgets && options.ForgetClients;
+            if (forgets && !forget)
+            {
+                doc.Notes.Add($"{def.Noun} {name}: not in the source; {options.KeptClientsBy ?? "this plan"} never forgets clients. Remove it in Edit to forget it.");
+                return null;
+            }
             if (!forget && write.DeletePath == null && write.BatchDeletePath == null)
             {
                 doc.Notes.Add($"{def.Noun} {name}: is not in the source, and UniFi has no delete for it; left in place.");

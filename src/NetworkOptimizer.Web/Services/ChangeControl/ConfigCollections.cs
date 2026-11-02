@@ -50,7 +50,7 @@ public sealed class CollectionWrite
 
     /// <summary>
     /// POST path that forgets objects by MAC, for a collection UniFi has no delete for (clients: <c>cmd/stamgr</c>
-    /// <c>forget-sta</c>; <c>DELETE rest/user/{id}</c> is a 404). Planned only from Edit (<see cref="PlanOptions.ForgetClients"/>).
+    /// <c>forget-sta</c>; <c>DELETE rest/user/{id}</c> is a 404). Planned only where <see cref="PlanOptions.ForgetClients"/> allows it.
     /// </summary>
     public string? ForgetPath { get; init; }
 
