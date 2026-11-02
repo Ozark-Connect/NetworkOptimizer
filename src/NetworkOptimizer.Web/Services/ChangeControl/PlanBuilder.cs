@@ -1292,7 +1292,8 @@ public static class PlanBuilder
             (node?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var zones = doc.Operations.Where(o => o.Collection == "firewall_zone" && o.Action != PlanAction.Delete && o.Body?["network_ids"] is JsonArray).ToList();
-        // A network the plan deletes leaves its zone with it; the zone's own update writes after the delete.
+        // UniFi keeps a deleted network's ID in its zone, and refuses to drop it while the network exists: the zone
+        // update that drops it writes after the delete.
         var networkDeletes = doc.Operations.Where(o => o.Collection == "networkconf" && o.Action == PlanAction.Delete && o.ObjectId != null)
             .ToDictionary(o => o.ObjectId!, o => o.Key, StringComparer.OrdinalIgnoreCase);
         foreach (var op in zones.Where(o => o.Action == PlanAction.Update))
@@ -1303,7 +1304,7 @@ public static class PlanBuilder
             if (given.Count == 0) continue;
             op.After.AddRange(zones.Where(t => t != op && Ids(t.Body).Overlaps(given)).Select(t => t.Key).Except(op.After));
             op.After.AddRange(given.Where(networkDeletes.ContainsKey).Select(id => networkDeletes[id]).Except(op.After));
-            // Only clearing out deleted networks, which the delete already does: a refusal is reported, never fatal.
+            // Only clearing out deleted networks: the networks are gone either way, so a refusal is reported, never fatal.
             var taken = Ids(op.Body);
             taken.ExceptWith(Ids(liveZone));
             if (taken.Count == 0 && given.All(networkDeletes.ContainsKey)) op.ContinueOnError = true;

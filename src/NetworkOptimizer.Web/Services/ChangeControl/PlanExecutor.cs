@@ -144,7 +144,7 @@ public sealed class PlanExecutor
 
     /// <summary>
     /// Before a zone update that only clears out networks the plan deleted: whether the zone still lists them, or
-    /// the network delete already took them out (unproven on UniFi, so it is logged).
+    /// the network delete took them out (UniFi keeps them, main Network 11, 2026-11-02).
     /// </summary>
     private async Task LogZoneCleanupAsync(ConfigCollectionDef def, List<PlanOperation> ops, CancellationToken ct)
     {
