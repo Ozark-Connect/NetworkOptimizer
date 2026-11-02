@@ -5107,6 +5107,10 @@ union(tables: [
     /// Aggregated straight off the tag filter, so storage does the windowing. The port's interface
     /// names and its SNMP and console series are alternative sources for one link, so where two
     /// cover the same window the larger reading stands rather than their sum.
+    ///
+    /// Each window is capped at the link's speed (its highest speed_bps there). A rate is a counter
+    /// delta over the poll interval, and a switch that refreshes its counters slower than the poll
+    /// stores single samples well past line rate. Wi-Fi rates need no cap: none exceeds its PHY.
     /// </summary>
     public async Task<IReadOnlyList<ThroughputWindowPoint>> QueryInterfaceRateWindowsAsync(
         string deviceMac, IReadOnlyCollection<string> ifNames, DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
@@ -5115,19 +5119,24 @@ union(tables: [
         var mac = NormalizeMac(deviceMac);
         var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == ""{SanitizeFluxString(n)}"""));
         var every = ToFluxDuration(window);
-        var flux = $@"base = from(bucket: ""{_bucket}"")
+        var port = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"" and r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => {ifFilter})
+  |> filter(fn: (r) => {ifFilter})";
+        var flux = $@"base = {port}
   |> filter(fn: (r) => r._field == ""rate_out_bps"" or r._field == ""rate_in_bps"")
+speed = {port}
+  |> filter(fn: (r) => r._field == ""speed_bps"")
 union(tables: [
   base |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_mean"" else ""rx_mean""}})),
-  base |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_max"" else ""rx_max""}}))])";
+  base |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_max"" else ""rx_max""}})),
+  speed |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: ""cap"", _value: float(v: r._value)}}))])";
         return await ReadThroughputWindowsAsync(flux, ct);
     }
 
     /// <summary>Assembles rows tagged <c>s</c> = tx_mean / tx_max / rx_mean / rx_max into one point
-    /// per window. Several rows for one window and statistic (alternative series) keep the largest.</summary>
+    /// per window. Several rows for one window and statistic (alternative series) keep the largest.
+    /// A <c>cap</c> row (link speed) bounds the window's figures; a window without one is uncapped.</summary>
     private async Task<IReadOnlyList<ThroughputWindowPoint>> ReadThroughputWindowsAsync(string flux, CancellationToken ct)
     {
         var byTime = new Dictionary<DateTime, double[]>();
@@ -5142,15 +5151,20 @@ union(tables: [
                 "rx_mean" => 1,
                 "tx_max" => 2,
                 "rx_max" => 3,
+                "cap" => 4,
                 _ => -1
             };
             if (slot < 0) continue;
             var t = ToUtc(time.Value);
-            if (!byTime.TryGetValue(t, out var v)) byTime[t] = v = new double[4];
+            // [5] marks a window that has a rate at all: link speed alone (a port that is down) is no point.
+            if (!byTime.TryGetValue(t, out var v)) byTime[t] = v = new double[6];
             v[slot] = Math.Max(v[slot], value.Value);
+            if (slot < 4) v[5] = 1;
         }
-        return byTime.OrderBy(kv => kv.Key)
-            .Select(kv => new ThroughputWindowPoint(kv.Key, kv.Value[0], kv.Value[1], kv.Value[2], kv.Value[3]))
+        double Cap(double[] v, int i) => v[4] > 0 ? Math.Min(v[i], v[4]) : v[i];
+        return byTime.Where(kv => kv.Value[5] > 0)
+            .OrderBy(kv => kv.Key)
+            .Select(kv => new ThroughputWindowPoint(kv.Key, Cap(kv.Value, 0), Cap(kv.Value, 1), Cap(kv.Value, 2), Cap(kv.Value, 3)))
             .ToList();
     }
 
