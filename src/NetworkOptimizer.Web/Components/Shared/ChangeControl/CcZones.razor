@@ -101,13 +101,13 @@ else
                 @if (_adding)
                 {
                     <div class="input-with-button">
-                        <input class="form-control" placeholder="Zone name" @bind="_newZone" @bind:event="oninput" />
+                        <input class="form-control" placeholder="Zone name" @ref="_newZoneInput" @bind="_newZone" @bind:event="oninput" />
                         <button class="btn btn-primary" disabled="@string.IsNullOrWhiteSpace(_newZone)" @onclick="AddZoneAsync">Add</button>
                     </div>
                 }
                 else
                 {
-                    <button class="cc-link-btn" @onclick="() => _adding = true">+ Add Zone</button>
+                    <button class="cc-link-btn" @onclick="StartAddZoneAsync">+ Add Zone</button>
                 }
             </div>
         </div>
@@ -378,6 +378,16 @@ else
     {
         _exceptions[e.Key] = !e.Enabled;
         await RefreshAsync();
+    }
+
+    private ElementReference _newZoneInput;
+
+    private async Task StartAddZoneAsync()
+    {
+        _adding = true;
+        StateHasChanged();
+        await Task.Delay(1); // let the input render before it is focused
+        await _newZoneInput.FocusAsync();
     }
 
     private async Task AddZoneAsync()
