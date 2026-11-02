@@ -8,7 +8,7 @@
 
 <div class="cc-phone-only form-group">
     <label class="form-label">Task</label>
-    <select class="form-control" value="@_task" @onchange="e => SelectTaskAsync(e.Value?.ToString() ?? Replace)">
+    <select class="form-control" value="@_task" @onchange="e => PickTaskAsync(e.Value?.ToString() ?? Replace)">
         <option value="@Restore">Restore a Snapshot</option>
         <option value="@Replace">Replace Device</option>
         <option value="@Adopt">Adopt Pending Devices@(PendingInSnapshot > 0 ? $" ({PendingInSnapshot})" : "")</option>
@@ -18,23 +18,23 @@
 </div>
 
 <div class="cc-action-cards hide-mobile" data-tour="cc-migrate-tasks">
-    <button class="cc-action-card @(_task == Restore ? "active" : "")" @onclick="() => SelectTaskAsync(Restore)">
+    <button class="cc-action-card @(_task == Restore ? "active" : "")" @onclick="() => PickTaskAsync(Restore)">
         <h3>Restore a Snapshot</h3>
         <p>Onto this site, another site, or a blank UniFi Console.</p>
     </button>
-    <button class="cc-action-card @(_task == Replace ? "active" : "")" @onclick="() => SelectTaskAsync(Replace)">
+    <button class="cc-action-card @(_task == Replace ? "active" : "")" @onclick="() => PickTaskAsync(Replace)">
         <h3>Replace Device</h3>
         <p>Move a device's config to new hardware, same model or not.</p>
     </button>
-    <button class="cc-action-card @(_task == Adopt ? "active" : "")" @onclick="() => SelectTaskAsync(Adopt)">
+    <button class="cc-action-card @(_task == Adopt ? "active" : "")" @onclick="() => PickTaskAsync(Adopt)">
         <h3>Adopt Pending Devices @if (PendingInSnapshot > 0) { <span class="status-badge status-info">@PendingInSnapshot</span> }</h3>
         <p>Pending devices whose MAC is in a snapshot.</p>
     </button>
-    <button class="cc-action-card @(_task == Zones ? "active" : "")" @onclick="() => SelectTaskAsync(Zones)">
+    <button class="cc-action-card @(_task == Zones ? "active" : "")" @onclick="() => PickTaskAsync(Zones)">
         <h3>Set Up Zones</h3>
         <p>Group networks into firewall zones by trust or purpose, from the Security Audit's network purposes.</p>
     </button>
-    <button class="cc-action-card @(_task == Readdress ? "active" : "")" @onclick="() => SelectTaskAsync(Readdress)">
+    <button class="cc-action-card @(_task == Readdress ? "active" : "")" @onclick="() => PickTaskAsync(Readdress)">
         <h3>Re-address Networks</h3>
         <p>Move networks to new subnets, with every address in them.</p>
     </button>
@@ -459,6 +459,16 @@ else
         await RunAsync(LoadPendingAsync);
         await SelectTaskAsync(_task);
         if (_task == Replace && _oldMac.Length > 0 && _newMac.Length > 0) await ChooseAsync();
+    }
+
+    /// <summary>
+    /// A card or the phone menu picked a task: the URL carries it, so Back from Review Plan returns to that task.
+    /// Each pick is a history entry, as Change Control's tabs are. Loading the page selects without writing the URL.
+    /// </summary>
+    private async Task PickTaskAsync(string task)
+    {
+        if (task != _task) Nav.NavigateTo(Nav.GetUriWithQueryParameter("task", task));
+        await SelectTaskAsync(task);
     }
 
     private async Task SelectTaskAsync(string task)

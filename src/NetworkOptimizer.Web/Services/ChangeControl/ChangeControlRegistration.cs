@@ -18,6 +18,7 @@ public static class ChangeControlRegistration
         services.AddSingleton<Firmware.IRolloutConfigGuard, RolloutConfigGuard>();
         services.AddScoped<Components.Shared.ChangeControl.CcNavigator>();
         services.AddScoped<Components.Shared.ChangeControl.CcEditDrafts>();
+        services.AddScoped<Components.Shared.ChangeControl.CcZoneDrafts>();
         return services;
     }
 }

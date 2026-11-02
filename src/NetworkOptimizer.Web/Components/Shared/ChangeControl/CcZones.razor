@@ -3,6 +3,7 @@
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
 @inject ILogger<CcZones> Logger
+@inject CcZoneDrafts Drafts
 
 @if (_board == null)
 {
@@ -251,7 +252,29 @@ else
         await RefreshAsync();
     }
 
-    protected override Task OnInitializedAsync() => RefreshAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        await RestoreDraftAsync();
+        await RefreshAsync();
+    }
+
+    /// <summary>
+    /// Back from Review Plan: the board choices it was built from, while that plan is still a draft. A plan that was
+    /// submitted, applied, or cancelled has taken them, so the board opens on the suggestion instead.
+    /// </summary>
+    private async Task RestoreDraftAsync()
+    {
+        if (Drafts.Take(SiteCtx.Slug) is not { } draft) return;
+        var plans = await Site.GetPlansAsync(inProgressOnly: false);
+        if (plans.FirstOrDefault(p => p.Id == draft.PlanId)?.Status != NetworkOptimizer.Storage.Models.ConfigPlanStatus.Draft) return;
+        var c = draft.Choices;
+        _mode = c.Mode;
+        foreach (var (network, zone) in c.Moves) _moves[network] = zone;
+        _added.AddRange(c.AddedZones);
+        foreach (var (key, on) in c.Exceptions) _exceptions[key] = on;
+        _keep.UnionWith(c.KeepZones);
+        foreach (var (key, name) in c.Names) _names[key] = name;
+    }
 
     private async Task RefreshAsync()
     {
@@ -404,7 +427,9 @@ else
         {
             StateHasChanged();
             await Task.Yield();
-            var planId = await Site.BuildZonePlanAsync(Choices());
+            var choices = Choices();
+            var planId = await Site.BuildZonePlanAsync(choices);
+            Drafts.Keep(SiteCtx.Slug, new CcZoneDrafts.Draft(choices, planId));
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
         catch (Exception ex)

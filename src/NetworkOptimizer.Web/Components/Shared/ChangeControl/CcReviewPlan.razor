@@ -587,19 +587,19 @@ else
             {
                 @if (plan.Kind is ConfigPlanKind.Readdress or ConfigPlanKind.ReaddressPrepare)
                 {
-                    <a class="btn btn-primary" href="/change-control/migrate?task=readdress">Back to Re-address Networks</a>
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=readdress", SiteCtx.Slug)">Back to Re-address Networks</a>
                 }
                 else if (plan.Kind is ConfigPlanKind.Zones or ConfigPlanKind.LegacyToZones)
                 {
-                    <a class="btn btn-primary" href="/change-control/migrate?task=zones">Back to Set Up Zones</a>
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=zones", SiteCtx.Slug)">Back to Set Up Zones</a>
                 }
                 else if (plan.Kind == ConfigPlanKind.Edit)
                 {
-                    <a class="btn btn-primary" href="/change-control/edit">Back to Edit</a>
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/edit", SiteCtx.Slug)">Back to Edit</a>
                 }
                 else
                 {
-                    <a class="btn btn-primary" href="/change-control/changes">Back to Changes</a>
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/changes", SiteCtx.Slug)">Back to Changes</a>
                 }
             }
         </div>
