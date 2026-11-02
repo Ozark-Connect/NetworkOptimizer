@@ -786,7 +786,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         return plan.Id;
     }
 
-    public async Task<int> BuildEditPlanAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default)
+    public async Task<int> BuildEditPlanAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, int? replaces = null, CancellationToken cancellationToken = default)
     {
         var baseState = (await LoadSideAsync(snapshotId, cancellationToken)).State;
         var (desired, problems, touched) = ParseEdits(baseState, filesByCollection);
@@ -799,6 +799,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var plan = await Plans.CreateAsync(ConfigPlanKind.Edit, $"Edit {await SiteNameAsync(cancellationToken)}: {(named.Count > 0 ? string.Join(", ", named) : "no changes")}",
             snapshotId == null ? "YAML edit of the live config" : "YAML edit of a snapshot", snapshotId, null, desired,
             new PlanOptions { Collections = touched, ForgetClients = true }, Actor, cancellationToken);
+        if (replaces is { } earlier) await Plans.SupersedeAsync(earlier, plan, cancellationToken);
         return plan.Id;
     }
 

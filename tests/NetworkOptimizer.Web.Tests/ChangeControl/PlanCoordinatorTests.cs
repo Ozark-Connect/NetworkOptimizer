@@ -117,6 +117,43 @@ public sealed class PlanCoordinatorTests : IDisposable
         for (var i = 0; i < n; i++) await _plans.TickAsync(CancellationToken.None);
     }
 
+    private async Task<ConfigPlan> DraftAsync(ConfigPlanKind kind, string name)
+    {
+        var desired = _console.State.Clone();
+        desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
+        return await _plans.CreateAsync(kind, name, "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "device" } }, "Alex", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ABuiltAgainPlan_ReplacesTheDraftItWasBuiltOver()
+    {
+        var first = await DraftAsync(ConfigPlanKind.Zones, "Set up zones");
+        var second = await DraftAsync(ConfigPlanKind.Zones, "Set up zones");
+
+        await _plans.SupersedeAsync(first.Id, second, CancellationToken.None);
+
+        (await PlanAsync(first.Id))!.Status.Should().Be(ConfigPlanStatus.Cancelled);
+        (await PlanAsync(second.Id))!.Status.Should().Be(ConfigPlanStatus.Draft);
+    }
+
+    [Fact]
+    public async Task ABuiltAgainPlan_LeavesASubmittedPlan_AndAnotherKind_Alone()
+    {
+        var submitted = await DraftAsync(ConfigPlanKind.Zones, "Set up zones");
+        await _plans.SubmitAsync(submitted.Id, "Alex", CancellationToken.None);
+        var otherKind = await DraftAsync(ConfigPlanKind.Edit, "Edit");
+        var by = await DraftAsync(ConfigPlanKind.Zones, "Set up zones");
+
+        await _plans.SupersedeAsync(submitted.Id, by, CancellationToken.None);
+        await _plans.SupersedeAsync(otherKind.Id, by, CancellationToken.None);
+        await _plans.SupersedeAsync(by.Id, by, CancellationToken.None);
+
+        (await PlanAsync(submitted.Id))!.Status.Should().Be(ConfigPlanStatus.PendingApproval, "someone may be acting on it");
+        (await PlanAsync(otherKind.Id))!.Status.Should().Be(ConfigPlanStatus.Draft);
+        (await PlanAsync(by.Id))!.Status.Should().Be(ConfigPlanStatus.Draft, "a plan never replaces itself");
+    }
+
     [Fact]
     public async Task ProvisioningDevice_DoesNotRevert()
     {

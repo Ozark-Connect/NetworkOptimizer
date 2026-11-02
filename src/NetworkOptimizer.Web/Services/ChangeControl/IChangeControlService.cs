@@ -130,7 +130,7 @@ public interface IChangeControlService
     /// <summary>Builds a plan from edited YAML files.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
-    Task<int> BuildEditPlanAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, CancellationToken cancellationToken = default);
+    Task<int> BuildEditPlanAsync(int? snapshotId, IReadOnlyDictionary<string, string> filesByCollection, int? replaces = null, CancellationToken cancellationToken = default);
 
     /// <summary>Builds a Return to Baseline plan.</summary>
     [RequireRole(Roles.Operator)]
@@ -189,7 +189,7 @@ public interface IChangeControlService
     /// <summary>Builds the zone setup plan.</summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
-    Task<int> BuildZonePlanAsync(ZoneChoices choices, CancellationToken cancellationToken = default);
+    Task<int> BuildZonePlanAsync(ZoneChoices choices, int? replaces = null, CancellationToken cancellationToken = default);
 
     /// <summary>Fix it for me: builds the plan that fixes a Security Audit finding (DnsFixes.Types). Throws when there is nothing to fix.</summary>
     [RequireRole(Roles.Operator)]
@@ -221,7 +221,7 @@ public interface IChangeControlService
     /// <summary>Builds the Re-address Networks plan.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.ChangeControlPlanSaved, TargetType = "config_plan")]
-    Task<int> BuildReaddressPlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default);
+    Task<int> BuildReaddressPlanAsync(ReaddressChoices choices, int? replaces = null, CancellationToken cancellationToken = default);
 
     /// <summary>The UniFi console backups (.unf) Network Optimizer keeps for this site.</summary>
     [RequireRole(Roles.Admin)]

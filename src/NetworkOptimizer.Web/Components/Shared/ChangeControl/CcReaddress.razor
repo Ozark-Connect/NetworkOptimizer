@@ -4,6 +4,7 @@
 @inject NavigationManager Nav
 @inject ILogger<CcReaddress> Logger
 @inject IJSRuntime JS
+@inject CcPlanDrafts Drafts
 @implements IDisposable
 
 <div class="card">
@@ -400,8 +401,14 @@
                 foreach (var pair in subnets.ToString().Split('|', StringSplitOptions.RemoveEmptyEntries))
                     if (pair.Split('=', 2) is [var id, var cidr] && id.Length > 0) _subnets[id] = cidr;
         }
+        // Back from Review Plan: building again replaces the plan built from these choices, while it is still a draft.
+        if (Drafts.Take("readdress", SiteCtx.Slug) is { } draft
+            && (await Site.GetPlansAsync(inProgressOnly: false)).FirstOrDefault(p => p.Id == draft.PlanId)?.Status == NetworkOptimizer.Storage.Models.ConfigPlanStatus.Draft)
+            _replaces = draft.PlanId;
         await LoadAsync(preview: false);
     }
+
+    private int? _replaces;
 
     private void SyncUrl() => Nav.NavigateTo(Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
     {
@@ -530,7 +537,8 @@
         {
             StateHasChanged();
             await Task.Yield();
-            var planId = await Site.BuildReaddressPlanAsync(Choices());
+            var planId = await Site.BuildReaddressPlanAsync(Choices(), _replaces);
+            Drafts.Keep("readdress", SiteCtx.Slug, new CcPlanDrafts.Draft(null, planId));
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
         catch (Exception ex)

@@ -3,7 +3,7 @@
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
 @inject ILogger<CcZones> Logger
-@inject CcZoneDrafts Drafts
+@inject CcPlanDrafts Drafts
 
 @if (_board == null)
 {
@@ -226,6 +226,9 @@ else
 
     private readonly HashSet<string> _keep = [];
 
+    // The draft plan this board was restored from: building again replaces it.
+    private int? _replaces;
+
     private readonly Dictionary<string, string> _names = [];
 
     private ZoneChoices Choices() => new() { Mode = _mode, Moves = new(_moves), AddedZones = [.. _added], Exceptions = new(_exceptions), KeepZones = [.. _keep], Names = new(_names) };
@@ -264,10 +267,10 @@ else
     /// </summary>
     private async Task RestoreDraftAsync()
     {
-        if (Drafts.Take(SiteCtx.Slug) is not { } draft) return;
+        if (Drafts.Take("zones", SiteCtx.Slug) is not { Choices: ZoneChoices c } draft) return;
         var plans = await Site.GetPlansAsync(inProgressOnly: false);
         if (plans.FirstOrDefault(p => p.Id == draft.PlanId)?.Status != NetworkOptimizer.Storage.Models.ConfigPlanStatus.Draft) return;
-        var c = draft.Choices;
+        _replaces = draft.PlanId;
         _mode = c.Mode;
         foreach (var (network, zone) in c.Moves) _moves[network] = zone;
         _added.AddRange(c.AddedZones);
@@ -428,8 +431,8 @@ else
             StateHasChanged();
             await Task.Yield();
             var choices = Choices();
-            var planId = await Site.BuildZonePlanAsync(choices);
-            Drafts.Keep(SiteCtx.Slug, new CcZoneDrafts.Draft(choices, planId));
+            var planId = await Site.BuildZonePlanAsync(choices, _replaces);
+            Drafts.Keep("zones", SiteCtx.Slug, new CcPlanDrafts.Draft(choices, planId));
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
         }
         catch (Exception ex)

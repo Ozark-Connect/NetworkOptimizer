@@ -314,6 +314,22 @@ public sealed class PlanCoordinator
     }
 
     /// <summary>
+    /// A plan built again from the same wizard (Back from Review Plan, a change, Review Plan again) replaces the one it
+    /// was built over: that one is cancelled while it is still a draft of the same kind, and logged as Network Optimizer's.
+    /// One submitted, approved, or scheduled is left alone: someone else may be acting on it.
+    /// </summary>
+    public async Task SupersedeAsync(int replaced, ConfigPlan by, CancellationToken ct)
+    {
+        if (replaced == by.Id) return;
+        var plan = await _engine.Repositories.UseAsync((r, c) => r.GetPlanAsync(replaced, c), ct);
+        if (plan == null || plan.Status != ConfigPlanStatus.Draft || plan.Kind != by.Kind) return;
+        plan.Status = ConfigPlanStatus.Cancelled;
+        plan.CompletedAt = DateTime.UtcNow;
+        await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
+        Audit(AuditActions.ChangeControlPlanCancelled, plan, AuditOutcomes.Success, new { reason = $"Replaced by {by.Name}", replacedBy = by.Id });
+    }
+
+    /// <summary>
     /// Applies a plan. With approvals required, it must be Approved and its touched objects unchanged
     /// since approval, or it returns to Pending approval. Every apply is preceded by a pinned snapshot.
     /// </summary>

@@ -340,12 +340,16 @@
     /// Back from Review Plan: the edits it was built from, while that plan is still a draft. A plan that was
     /// submitted, applied, or cancelled has taken them, so the editor opens on the config instead.
     /// </summary>
+    // The draft plan these edits were restored from: building again replaces it.
+    private int? _replaces;
+
     private async Task<bool> RestoreDraftAsync()
     {
         if (TemplateId != null || Drafts.Take(FoldScope) is not { } draft) return false;
         var plans = await Site.GetPlansAsync(inProgressOnly: false);
         if (plans.FirstOrDefault(p => p.Id == draft.PlanId)?.Status != NetworkOptimizer.Storage.Models.ConfigPlanStatus.Draft) return false;
         StartFrom = draft.StartFrom;
+        _replaces = draft.PlanId;
         foreach (var (group, text) in draft.Edited) _edited[group] = text;
         _uploaded.UnionWith(draft.Uploaded);
         return true;
@@ -772,7 +776,7 @@
             // Building the plan can take seconds; draw the spinner before it starts.
             StateHasChanged();
             await Task.Yield();
-            var planId = await Site.BuildEditPlanAsync(SnapshotId, Files());
+            var planId = await Site.BuildEditPlanAsync(SnapshotId, Files(), _replaces);
             Drafts.Keep(FoldScope, new CcEditDrafts.Draft(StartFrom, new Dictionary<string, string>(_edited), new HashSet<string>(_uploaded), planId));
             _leavingForPlan = true;
             Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));

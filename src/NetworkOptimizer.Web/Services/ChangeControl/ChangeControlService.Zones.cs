@@ -46,7 +46,7 @@ public sealed partial class ChangeControlService
         return board;
     }
 
-    public async Task<int> BuildZonePlanAsync(ZoneChoices choices, CancellationToken cancellationToken = default)
+    public async Task<int> BuildZonePlanAsync(ZoneChoices choices, int? replaces = null, CancellationToken cancellationToken = default)
     {
         var (board, live, networks) = await ZoneBoardAsync(choices, cancellationToken);
         if (board.LegacyFirewall)
@@ -68,6 +68,7 @@ public sealed partial class ChangeControlService
                 foreach (var c in checks.Where(c => c.Level != "ok")) doc.Notes.Add($"Security Audit check: {c.Label}: {c.Status}.");
                 doc.Context["zone_checks"] = pass ? "pass" : "fail";
             });
+        if (replaces is { } earlier) await Plans.SupersedeAsync(earlier, plan, cancellationToken);
         return plan.Id;
     }
 

@@ -89,7 +89,7 @@ public sealed partial class ChangeControlService
         };
     }
 
-    public async Task<int> BuildReaddressPlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
+    public async Task<int> BuildReaddressPlanAsync(ReaddressChoices choices, int? replaces = null, CancellationToken cancellationToken = default)
     {
         var live = await Engine.ReadLiveAsync(cancellationToken);
         var moves = Moves(live, choices);
@@ -130,6 +130,7 @@ public sealed partial class ChangeControlService
                     doc.Notes.Add($"Network Optimizer moves its own settings with the site once this applies (and back on a revert): "
                         + string.Join(", ", settings.Select(s => SettingText(s)).Distinct()) + ".");
             });
+        if (replaces is { } earlier) await Plans.SupersedeAsync(earlier, plan, cancellationToken);
         return plan.Id;
     }
 
