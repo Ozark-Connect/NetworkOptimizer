@@ -86,7 +86,7 @@
                     @if (_findOpen)
                     {
                         <div class="cc-find">
-                            <input class="form-control" @ref="_findInput" @bind="_query" @bind:event="oninput" @onkeydown="FindKeyAsync"
+                            <input class="form-control" @ref="_findInput" @bind="_query" @bind:event="oninput" @bind:after="QueryChanged" @onkeydown="FindKeyAsync"
                                    placeholder="Fields and values" aria-label="Search collections" />
                             <span class="cc-find-count muted-text" aria-live="polite">@FindCountText</span>
                             <button type="button" class="cc-find-btn" disabled="@(TotalHits == 0)" @onclick="() => StepHitAsync(-1)"
@@ -520,7 +520,7 @@
     private bool _focusFind;
     private ElementReference _findInput;
     private string _query = "";
-    // The query the results are for; null until Enter runs one, and after the texts change under it.
+    // The query the results are for; null until a search runs, and after the texts change under it.
     private string? _searched;
     private bool _finding;
     private readonly Dictionary<string, int> _hits = [];
@@ -543,12 +543,33 @@
     private async Task CloseFindAsync()
     {
         _findOpen = false;
+        _findTimer?.Dispose();
+        _findTimer = null;
         await ClearFindAsync();
     }
 
-    /// <summary>Drops the results and the highlight; the query stays in the box for the next Enter.</summary>
+    // Searches once typing pauses; Enter searches at once.
+    private Timer? _findTimer;
+    private const int FindDebounceMs = 300;
+
+    private void QueryChanged()
+    {
+        _findTimer?.Dispose();
+        _findTimer = new Timer(_ => InvokeAsync(async () =>
+        {
+            await RunFindAsync();
+            StateHasChanged();
+        }), null, FindDebounceMs, Timeout.Infinite);
+    }
+
+    // Each search's number: a newer one supersedes a search still loading collections.
+    private int _findRun;
+
+    /// <summary>Drops the results and the highlight; the query stays in the box for the next search.</summary>
     private async Task ClearFindAsync()
     {
+        _findRun++;
+        _finding = false;
         _searched = null;
         _hits.Clear();
         _hit = -1;
@@ -571,11 +592,20 @@
     /// <summary>Counts the query in every collection, loading the ones not opened yet, then goes to the first match from the open one on.</summary>
     private async Task RunFindAsync()
     {
+        _findTimer?.Dispose();
+        _findTimer = null;
         var query = _query.Trim();
-        await ClearFindAsync();
-        if (query.Length == 0 || _finding) return;
-        _finding = true;
-        StateHasChanged();
+        if (query.Length == 0)
+        {
+            await ClearFindAsync();
+            return;
+        }
+        var run = ++_findRun;
+        // Old results and highlight stay up until the new ones replace them, so typing does not flicker.
+        // "Searching..." shows only while collections not opened yet are read.
+        bool Unloaded(string g) => g != _group && !_edited.ContainsKey(g) && !_original.ContainsKey(g);
+        _finding = VisibleGroups.Any(Unloaded);
+        if (_finding) StateHasChanged();
         var generation = _generation;
         var editing = Editing;
         try
@@ -583,18 +613,22 @@
             var hits = new Dictionary<string, int>();
             foreach (var group in VisibleGroups.ToList())
             {
-                if (group != _group && !_edited.ContainsKey(group) && !_original.ContainsKey(group))
-                    _original[group] = await LoadGroupAsync(group);
-                // Discard, Start from, Upload, or a switch of what is edited replaced the texts meanwhile.
-                if (generation != _generation || editing != Editing) return;
+                if (Unloaded(group)) _original[group] = await LoadGroupAsync(group);
+                // A newer search, or Discard, Start from, Upload, or a switch of what is edited, came in meanwhile.
+                if (run != _findRun || generation != _generation || editing != Editing) return;
                 hits[group] = CcFind.Count(SearchText(group), query);
             }
+            _hits.Clear();
             foreach (var (g, n) in hits) _hits[g] = n;
             _searched = query;
+            _hit = -1;
+            _findAfterPush = null;
             var groups = VisibleGroups.ToList();
             var start = groups.IndexOf(_group);
             var first = Enumerable.Range(0, groups.Count).Select(i => groups[(start + i) % groups.Count]).FirstOrDefault(g => _hits.GetValueOrDefault(g) > 0);
+            // No match anywhere: still hand the editor the new query, which clears the old one's highlight.
             if (first != null) await GoToHitAsync(HitOffset(first));
+            else await FindInEditorAsync(0);
         }
         catch (Exception ex)
         {
@@ -602,7 +636,7 @@
         }
         finally
         {
-            _finding = false;
+            if (run == _findRun) _finding = false;
         }
     }
 
@@ -1036,6 +1070,7 @@
     {
         _disposed = true;
         _debounce?.Dispose();
+        _findTimer?.Dispose();
         await DisposeEditorAsync();
         _self?.Dispose();
     }
