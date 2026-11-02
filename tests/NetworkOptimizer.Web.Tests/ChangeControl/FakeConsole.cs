@@ -81,7 +81,8 @@ internal sealed class FakeConsole : IUniFiConfigApi
             if (client == null) return Task.FromResult(new UniFiRawResponse(404, "{}"));
             if (method == HttpMethod.Put)
             {
-                client["dev_id_override"] = JsonNode.Parse(json!)!["dev_id_override"]?.DeepClone();
+                // Stored as a string, whichever the PUT sent (Network 11.0.97).
+                client["dev_id_override"] = JsonNode.Parse(json!)!["dev_id_override"]?.ToString();
                 client["fingerprint_override"] = true;
             }
             else

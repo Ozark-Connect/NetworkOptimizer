@@ -151,7 +151,10 @@ public sealed class PlanExecutor
     {
         if (op.Collection != "user" || op.StationMac is not { Length: > 0 } mac || body is not JsonObject b) return null;
         if (!DeviceTypeFields.Any(f => op.WriteFields.Contains(f) || b.ContainsKey(f))) return null;
-        var devId = b["dev_id_override"] is JsonValue v && v.TryGetValue<long>(out var id) ? id : (long?)null;
+        // UniFi stores the ID as a string ("4978"); the route takes either.
+        var devId = b["dev_id_override"] is JsonValue v
+            && (v.TryGetValue<long>(out var id) || (v.TryGetValue<string>(out var s) && long.TryParse(s, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out id)))
+            ? id : (long?)null;
         // Turned off, or no device ID to set: cleared. A partial update that changes only the ID keeps it on.
         var on = b["fingerprint_override"] is JsonValue f && f.TryGetValue<bool>(out var flag) ? flag && devId != null : devId != null;
         var path = $"station/{mac}/fingerprint_override";

@@ -474,8 +474,9 @@ public sealed class PlanCoordinatorTests : IDisposable
         return (plan.Id, await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), requireApproval: false, automatic: false, CancellationToken.None));
     }
 
+    // dev_id_override as UniFi stores it: a string (main site's client records, 2026-11-02).
     private static JsonObject Lab(bool deviceType) => deviceType
-        ? new JsonObject { ["_id"] = "u9", ["mac"] = "aa:bb:cc:dd:ee:09", ["name"] = "[Lab] Gateway", ["dev_id_override"] = 4978, ["fingerprint_override"] = true }
+        ? new JsonObject { ["_id"] = "u9", ["mac"] = "aa:bb:cc:dd:ee:09", ["name"] = "[Lab] Gateway", ["dev_id_override"] = "4978", ["fingerprint_override"] = true }
         : new JsonObject { ["_id"] = "u9", ["mac"] = "aa:bb:cc:dd:ee:09", ["name"] = "[Lab] Gateway" };
 
     [Fact]
@@ -490,7 +491,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         var call = _console.Requests.Should().ContainSingle(r => r.Path == "station/aa:bb:cc:dd:ee:09/fingerprint_override").Subject;
         call.Method.Should().Be(HttpMethod.Put);
         JsonNode.Parse(call.Body!)!["dev_id_override"]!.GetValue<int>().Should().Be(4978);
-        _console.State.Get("user").Single()["dev_id_override"]!.GetValue<int>().Should().Be(4978);
+        _console.State.Get("user").Single()["dev_id_override"]!.ToString().Should().Be("4978");
         (await PlanAsync(planId))!.Status.Should().Be(ConfigPlanStatus.Applied, "the read-back finds the device type");
     }
 
@@ -530,7 +531,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         await ApplyClientsAsync([renamed]);
 
         _console.Requests.Should().NotContain(r => r.Path.StartsWith("station/"));
-        _console.State.Get("user").Single()["dev_id_override"]!.GetValue<int>().Should().Be(4978);
+        _console.State.Get("user").Single()["dev_id_override"]!.ToString().Should().Be("4978");
     }
 
     [Fact]
