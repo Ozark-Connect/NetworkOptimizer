@@ -564,8 +564,8 @@ Requires Gateway SSH and UniFi Smart Queues.
 
 Requires Gateway SSH.
 
-- **Steer by protocol and port** - UniFi's Policy-Based Routes match source device or network and destination IP or domain; WAN Steering adds protocol and port matching, and can split a rule's traffic across WANs by **Ratio**
-- Send chosen traffic out a chosen WAN while the rest stays on the primary
+- **Load balance without leaving failover mode** - UniFi Network's multi-WAN either fails over all traffic or load balances all of it; WAN Steering load balances the traffic you choose onto your failover WANs while the rest stays on the primary
+  - UniFi's Policy-Based Routes match source device or network and destination IP or domain; WAN Steering adds protocol and port matching
 - **Traffic Rules** by source CIDR, destination CIDR, source MAC, protocol, and ports
 - Each rule sends a **Ratio** of matching connections to its **Target WAN**; VLAN-tagged and GRE WANs
 - Rule ordering, enable and disable, hot-reload config deploy
