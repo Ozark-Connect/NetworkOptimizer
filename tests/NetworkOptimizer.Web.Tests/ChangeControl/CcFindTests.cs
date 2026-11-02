@@ -148,6 +148,24 @@ public class CcFindTests
     }
 
     [Theory]
+    [InlineData("bw160", 2)]
+    [InlineData("BW 160", 2)]
+    [InlineData("160 MHz", 2)]
+    [InlineData("160mhz", 2)]
+    [InlineData("bw80", 1)]
+    public void Count_ChannelWidthQueryFindsThatWidth(string query, int expected)
+    {
+        const string yaml = "channel_plans:\n- channel_width: 160\ndevices:\n- radio_table:\n  - radio: 6e\n    ht: 160\n  - radio: na\n    ht: 80\n";
+        CcFind.Count(yaml, query).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Count_BwAloneIsBandwidth()
+    {
+        CcFind.Count("networks:\n- wan_smartq_down_rate: 900000\n", "bw").Should().Be(1);
+    }
+
+    [Theory]
     [InlineData("_")]
     [InlineData(" - ")]
     public void Count_SeparatorOnlyQuery_IsZero(string query)

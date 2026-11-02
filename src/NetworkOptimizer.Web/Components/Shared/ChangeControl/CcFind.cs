@@ -120,6 +120,7 @@ public static class CcFind
         // Rate limits, Smart Queues rates, and Wi-Fi channel width. Not radio_table's "ht:" (its width): as a
         // term it also matches "weight:".
         ["bandwidth"] = ["download_limit", "upload_limit", "qos_rate_max", "wan_smartq_down_rate", "wan_smartq_up_rate", "channel_width", "ht_modes"],
+        ["bw"] = ["download_limit", "upload_limit", "qos_rate_max", "wan_smartq_down_rate", "wan_smartq_up_rate", "channel_width", "ht_modes"],
         ["bandwidth limit"] = ["download_limit", "upload_limit", "qos_rate_max"],
         ["speed limit"] = ["download_limit", "upload_limit", "qos_rate_max"],
         ["mss clamping"] = ["mss_clamp"],
@@ -171,6 +172,13 @@ public static class CcFind
         if (Aliases.TryGetValue(key, out var aliases))
             foreach (var term in key.Length >= 4 ? aliases.Prepend(key) : aliases)
                 if (!terms.Contains(term, StringComparer.OrdinalIgnoreCase)) terms.Add(term);
+        // A Wi-Fi channel width ("bw80", "160 MHz"): the YAML holds it as a number, on channel_width and radio_table's ht.
+        if (Regex.Match(key, @"^(?:bw ?(\d{2,3})|(\d{2,3}) ?mhz)$") is { Success: true } width)
+        {
+            var mhz = width.Groups[1].Success ? width.Groups[1].Value : width.Groups[2].Value;
+            terms.Add($"channel_width: {mhz}");
+            terms.Add($"ht: {mhz}");
+        }
         return terms.OrderByDescending(t => t.Length).ToList();
     }
 
