@@ -14,7 +14,7 @@
         <div class="form-group cc-readdress-pattern">
             <label class="form-label">Pattern <span class="tooltip-icon tooltip-icon-sm" data-tooltip="{vlan} is the network's VLAN ID (1 when untagged); {octet3} is its current third octet. Shorthand works too: 10.42.x.x or 10.42.*.0 puts the VLAN ID in the third octet, and no /n keeps each network's prefix.">?</span></label>
             <div class="input-with-button">
-                <input class="form-control" placeholder="10.42.{vlan}.0/24" @bind="_pattern" @bind:event="oninput" />
+                <input class="form-control" placeholder="10.42.{vlan}.0/24" @bind="_pattern" @bind:event="oninput" @onkeydown="PatternKeyAsync" />
                 <button class="btn btn-contrast" disabled="@(_busy || string.IsNullOrWhiteSpace(_pattern))" @onclick="ApplyPatternAsync">Apply Pattern</button>
             </div>
             <small class="form-help">Fills in every network below. Edit any row after.</small>
@@ -438,6 +438,13 @@
         SyncUrl();
         // Recompute now: the address lists and Review Plan follow the choices, with no Preview step.
         await LoadAsync(preview: false);
+    }
+
+    // Enter applies the pattern, under the same conditions as the Apply Pattern button.
+    private async Task PatternKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || _busy || string.IsNullOrWhiteSpace(_pattern)) return;
+        await ApplyPatternAsync();
     }
 
     private async Task ApplyPatternAsync()
