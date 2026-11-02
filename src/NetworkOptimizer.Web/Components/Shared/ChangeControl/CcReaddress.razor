@@ -183,6 +183,8 @@
     </div>
 }
 
+@Footer()
+
 @if (_previewed && _view is { } found)
 {
     @if (found.Rewrites.Count > 0)
@@ -254,31 +256,12 @@
             }
         </div>
     }
-}
 
-<div class="card">
-    <div class="cc-card-footer">
-        @if (_previewed && _view is { } lv && LeaseWarning(lv) is { } warning)
-        {
-            <span class="cc-remaining warning-text">@warning</span>
-            @if (!LeasesShort(lv))
-            {
-                <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
-            }
-        }
-        else
-        {
-            <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")</span>
-        }
-        <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
-            @if (_building)
-            {
-                <span class="spinner-sm"></span>
-            }
-            Review Plan
-        </button>
-    </div>
-</div>
+    @if (found.Rewrites.Count > 0 || found.Settings.Count > 0 || found.Remote.Count > 0 || found.Mentions.Count > 0)
+    {
+        @Footer()
+    }
+}
 
 @if (_error != null)
 {
@@ -341,6 +324,31 @@
     private async Task ReconnectAsync() => await RunAsync(async () => _reconnect = await Site.ReconnectClientsAsync(_powerCycle));
 
     private string? _running;
+
+    // Shown after the cards that need action, and again after the reference lists when there are any.
+    private RenderFragment Footer() => @<div class="card">
+        <div class="cc-card-footer">
+            @if (_previewed && _view is { } lv && LeaseWarning(lv) is { } warning)
+            {
+                <span class="cc-remaining warning-text">@warning</span>
+                @if (!LeasesShort(lv))
+                {
+                    <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
+                }
+            }
+            else
+            {
+                <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")</span>
+            }
+            <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
+                @if (_building)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                Review Plan
+            </button>
+        </div>
+    </div>;
 
     private RenderFragment? Spinner(string action) =>
         _running == action ? @<span class="spinner-sm"></span> : null;
