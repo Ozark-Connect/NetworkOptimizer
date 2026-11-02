@@ -8,6 +8,7 @@ using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Writes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
@@ -510,20 +511,36 @@ public class MonitoringInfluxClient : IAsyncDisposable
                         .OrderBy(r => r.Id).Take(500)
                         .Select(r => new Iperf3Result
                         {
-                            Id = r.Id, TestTime = r.TestTime, Direction = r.Direction,
-                            DeviceHost = r.DeviceHost, DeviceName = r.DeviceName, DeviceType = r.DeviceType,
-                            WanNetworkGroup = r.WanNetworkGroup, WanName = r.WanName,
-                            ExternalServerName = r.ExternalServerName, Success = r.Success,
-                            DownloadBitsPerSecond = r.DownloadBitsPerSecond, UploadBitsPerSecond = r.UploadBitsPerSecond,
-                            DurationSeconds = r.DurationSeconds, ParallelStreams = r.ParallelStreams,
-                            PingMs = r.PingMs, JitterMs = r.JitterMs,
-                            DownloadLatencyMs = r.DownloadLatencyMs, DownloadJitterMs = r.DownloadJitterMs,
-                            UploadLatencyMs = r.UploadLatencyMs, UploadJitterMs = r.UploadJitterMs,
-                            IdleLossPercent = r.IdleLossPercent, IdleLossProbes = r.IdleLossProbes,
-                            DownloadLossPercent = r.DownloadLossPercent, DownloadLossProbes = r.DownloadLossProbes,
-                            UploadLossPercent = r.UploadLossPercent, UploadLossProbes = r.UploadLossProbes,
-                            BackgroundDownloadMbps = r.BackgroundDownloadMbps, BackgroundUploadMbps = r.BackgroundUploadMbps,
-                            ExpectedDownloadMbps = r.ExpectedDownloadMbps, ExpectedUploadMbps = r.ExpectedUploadMbps,
+                            Id = r.Id,
+                            TestTime = r.TestTime,
+                            Direction = r.Direction,
+                            DeviceHost = r.DeviceHost,
+                            DeviceName = r.DeviceName,
+                            DeviceType = r.DeviceType,
+                            WanNetworkGroup = r.WanNetworkGroup,
+                            WanName = r.WanName,
+                            ExternalServerName = r.ExternalServerName,
+                            Success = r.Success,
+                            DownloadBitsPerSecond = r.DownloadBitsPerSecond,
+                            UploadBitsPerSecond = r.UploadBitsPerSecond,
+                            DurationSeconds = r.DurationSeconds,
+                            ParallelStreams = r.ParallelStreams,
+                            PingMs = r.PingMs,
+                            JitterMs = r.JitterMs,
+                            DownloadLatencyMs = r.DownloadLatencyMs,
+                            DownloadJitterMs = r.DownloadJitterMs,
+                            UploadLatencyMs = r.UploadLatencyMs,
+                            UploadJitterMs = r.UploadJitterMs,
+                            IdleLossPercent = r.IdleLossPercent,
+                            IdleLossProbes = r.IdleLossProbes,
+                            DownloadLossPercent = r.DownloadLossPercent,
+                            DownloadLossProbes = r.DownloadLossProbes,
+                            UploadLossPercent = r.UploadLossPercent,
+                            UploadLossProbes = r.UploadLossProbes,
+                            BackgroundDownloadMbps = r.BackgroundDownloadMbps,
+                            BackgroundUploadMbps = r.BackgroundUploadMbps,
+                            ExpectedDownloadMbps = r.ExpectedDownloadMbps,
+                            ExpectedUploadMbps = r.ExpectedUploadMbps,
                             BackgroundLoadInvalid = r.BackgroundLoadInvalid
                         }).ToListAsync(ct);
                     if (results.Count == 0) break;
@@ -5029,12 +5046,8 @@ span |> last() |> yield(name: ""last"")";
         return results;
     }
 
-    // A peak is the highest 10 s mean, not the highest raw sample. A switch refreshes its counters
-    // slower than a 2 s poll, so single samples of a steady 6 Gbps transfer swing from 5 to 12 Gbps.
-    private const string PeakSmoothing = "10s";
-
     /// <summary>One window of a client's throughput, toward (tx) and from (rx) the client: the mean of
-    /// its samples and the highest 10 s mean (<see cref="PeakSmoothing"/>).</summary>
+    /// its samples and the highest one.</summary>
     public sealed record ThroughputWindowPoint(DateTime Time, double TxMeanBps, double RxMeanBps, double TxPeakBps, double RxPeakBps);
 
     /// <summary>
@@ -5082,9 +5095,9 @@ tx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.tx_throughput
 rx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.rx_throughput_bps then float(v: r.rx_throughput_bps) else 0.0}}))
 union(tables: [
   tx |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_mean""),
-  tx |> aggregateWindow(every: {PeakSmoothing}, fn: mean, createEmpty: false) |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_max""),
+  tx |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_max""),
   rx |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_mean""),
-  rx |> aggregateWindow(every: {PeakSmoothing}, fn: mean, createEmpty: false) |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_max"")])";
+  rx |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_max"")])";
         return await ReadThroughputWindowsAsync(flux, ct);
     }
 
@@ -5108,7 +5121,7 @@ union(tables: [
   |> filter(fn: (r) => r._field == ""rate_out_bps"" or r._field == ""rate_in_bps"")
 union(tables: [
   base |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_mean"" else ""rx_mean""}})),
-  base |> aggregateWindow(every: {PeakSmoothing}, fn: mean, createEmpty: false) |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_max"" else ""rx_max""}}))])";
+  base |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_max"" else ""rx_max""}}))])";
         return await ReadThroughputWindowsAsync(flux, ct);
     }
 
@@ -5124,7 +5137,11 @@ union(tables: [
             if (time == null || value == null) continue;
             var slot = (record.GetValueByKey("s") as string) switch
             {
-                "tx_mean" => 0, "rx_mean" => 1, "tx_max" => 2, "rx_max" => 3, _ => -1
+                "tx_mean" => 0,
+                "rx_mean" => 1,
+                "tx_max" => 2,
+                "rx_max" => 3,
+                _ => -1
             };
             if (slot < 0) continue;
             var t = ToUtc(time.Value);
