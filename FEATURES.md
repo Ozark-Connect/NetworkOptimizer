@@ -564,7 +564,7 @@ Requires Gateway SSH and UniFi Smart Queues.
 
 Requires Gateway SSH.
 
-- **Load balance without leaving failover mode** - UniFi Network's multi-WAN either fails over all traffic or load balances all of it; WAN Steering load balances the traffic you choose onto your failover WANs while the rest stays on the primary
+- **Load balance bulk traffic without leaving failover mode** - UniFi Network's multi-WAN either fails over all traffic or load balances all of it, so a site with a fast, low-latency primary such as fiber stays in failover and its other WANs sit idle; WAN Steering load balances bulk and selected traffic onto them while latency-sensitive traffic stays on the primary
   - UniFi's Policy-Based Routes match source device or network and destination IP or domain; WAN Steering adds protocol and port matching
 - **Traffic Rules** by source CIDR, destination CIDR, source MAC, protocol, and ports
 - Each rule sends a **Ratio** of matching connections to its **Target WAN**; VLAN-tagged and GRE WANs
