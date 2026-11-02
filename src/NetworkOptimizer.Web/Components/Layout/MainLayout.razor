@@ -11,7 +11,7 @@
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
     <div class="sidebar @(sidebarOpen ? "open" : "")">
-        <a href="/" class="sidebar-header" @onclick="CloseSidebar">
+        <a href="/" class="sidebar-header" @onclick="OnLogoClickAsync">
             <img src="images/network-optimizer-logo.png" alt="Network Optimizer" class="sidebar-logo" />
             <p class="app-subtitle"><strong>for UniFi</strong></p>
         </a>
@@ -35,7 +35,7 @@
                 <span></span>
                 <span></span>
             </button>
-            <a href="/" class="mobile-logo">
+            <a href="/" class="mobile-logo" @onclick="OnLogoClickAsync">
                 <img src="images/network-optimizer-logo.png" alt="Network Optimizer" />
             </a>
             <div class="status-indicators">
@@ -509,6 +509,22 @@
     {
         sidebarOpen = false;
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Either logo links to the Dashboard. Already on it, the link goes nowhere, so the page scrolls
+    /// back to the top instead: .main-content scrolls on a phone, .page-content on a desktop.
+    /// </summary>
+    private async Task OnLogoClickAsync()
+    {
+        CloseSidebar();
+        if (Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Length != 0) return;
+        try
+        {
+            await JS.InvokeVoidAsync("eval",
+                "['.main-content', '.page-content'].forEach(s => document.querySelector(s)?.scrollTo({ top: 0, behavior: 'smooth' })); window.scrollTo({ top: 0, behavior: 'smooth' });");
+        }
+        catch (JSDisconnectedException) { }
     }
 
     public void Dispose()
