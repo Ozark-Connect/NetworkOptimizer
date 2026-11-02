@@ -52,6 +52,7 @@ public sealed class PathEpisodeWatcher
     private readonly IspHealthRegistry _ispHealth;
     private readonly UpstreamTracerRegistry _tracers;
     private readonly LocalProbeExecutor _localProbe;
+    private readonly SiteAgentCoverage? _coverage;
     private readonly AgentProbeService _agentProbe;
     private readonly AsnResolutionService _asn;
     private readonly ILoggerFactory _loggerFactory;
@@ -88,8 +89,10 @@ public sealed class PathEpisodeWatcher
         LocalProbeExecutor localProbe,
         AgentProbeService agentProbe,
         AsnResolutionService asn,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        SiteAgentCoverage? coverage = null)
     {
+        _coverage = coverage;
         _slug = slug;
         _isDefault = slug == SiteManagementService.DefaultSiteSlug;
         _siteDb = siteDb;
@@ -1128,9 +1131,13 @@ public sealed class PathEpisodeWatcher
         }
     }
 
-    private IProbeExecutor ExecutorFor(PathVantage vantage) => vantage.AgentId is int agentId
+    // A vantage with no agent is the "server" vantage, which resolves as ProbeExecutorFactory.GetServer
+    // does: a resumed target with no trace yet must not run from this server for a site its agent owns.
+    internal IProbeExecutor ExecutorFor(PathVantage vantage) => vantage.AgentId is int agentId
         ? new AgentProbeExecutor(_agentProbe, _slug, _loggerFactory.CreateLogger<AgentProbeExecutor>(), agentId)
-        : _localProbe;
+        : _coverage?.AgentOwnsPathMeasurement(_slug) == true
+            ? new AgentProbeExecutor(_agentProbe, _slug, _loggerFactory.CreateLogger<AgentProbeExecutor>())
+            : _localProbe;
 
     /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
     private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
