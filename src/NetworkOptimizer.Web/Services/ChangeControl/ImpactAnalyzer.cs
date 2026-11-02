@@ -238,6 +238,8 @@ public static class ImpactAnalyzer
     /// <summary>
     /// The audit reads its networks from the gateway's network_table, which shows them as configured now.
     /// Each entry takes the state's networkconf fields, or a re-addressed plan is audited against the old subnets and DNS.
+    /// An entry the state has no network for is dropped: the gateway lists a deleted network until it reprovisions, and
+    /// the audit of the state after a delete must not still find it.
     /// </summary>
     private static void OverlayNetworkTables(ConfigState state, IEnumerable<JsonObject> live)
     {
@@ -249,6 +251,8 @@ public static class ImpactAnalyzer
         foreach (var device in live)
         {
             if (device["network_table"] is not JsonArray table) continue;
+            foreach (var gone in table.OfType<JsonObject>().Where(e => e["_id"]?.ToString() is { } id && !byId.ContainsKey(id)).ToList())
+                table.Remove(gone);
             foreach (var entry in table.OfType<JsonObject>())
             {
                 if (entry["_id"]?.ToString() is not { } id || !byId.TryGetValue(id, out var config)) continue;
