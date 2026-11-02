@@ -3243,20 +3243,23 @@ from(bucket: ""{_bucket}"")
     /// window. Never group before the window aggregate here: that defeats storage pushdown and pulls
     /// every raw point into Flux memory. Callers combine targets themselves.
     /// </summary>
+    /// <param name="includeInternetService">Also read internet-service targets (the loss pool's anycast DNS), for a
+    /// caller that falls back to them when the site has no ISP or transit hop.</param>
     public async Task<IReadOnlyList<TargetLatencyMean>> QueryIspTransitLatencyByTargetAsync(
         DateTime from, DateTime to, IReadOnlyList<string>? targetIds, TimeSpan window, CancellationToken ct = default,
-        LatencyWanScope? wanScope = null)
+        LatencyWanScope? wanScope = null, bool includeInternetService = false)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
         var idFilter = targetIds is { Count: > 0 }
             ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
             : "";
+        var internetService = includeInternetService ? @" or r.target_type == ""internetservice""" : "";
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){idFilter}{BuildWanScopeFilter(wanScope)}
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""{internetService}){idFilter}{BuildWanScopeFilter(wanScope)}
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";

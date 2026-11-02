@@ -64,7 +64,8 @@ public sealed class SiteMetricsReader
     {
         // ISP Health's targets and wan-tag scope: the primary WAN only, so another WAN's degradation stays out.
         var rows = await _influx.QueryIspTransitLatencyByTargetAsync(from, to, await _isp.GetLossPoolTargetIdsAsync(ct), window, ct,
-            await _isp.GetLatencyWanScopeAsync(ct));
+            await _isp.GetLatencyWanScopeAsync(ct), includeInternetService: true);
+        rows = IspHopsOrDns(rows);
         static double? Combine(IEnumerable<IGrouping<string, double>> byType)
         {
             var means = byType.Select(t => t.Average()).ToList();
@@ -74,6 +75,17 @@ public sealed class SiteMetricsReader
             g.Key,
             Combine(g.Where(r => r.RttAvgMs != null).GroupBy(r => r.TargetType, r => r.RttAvgMs!.Value)),
             Combine(g.Where(r => r.LossPercent != null).GroupBy(r => r.TargetType, r => r.LossPercent!.Value)))).ToList();
+    }
+
+    /// <summary>
+    /// The ISP and transit hops when the range has any; otherwise the loss pool's anycast DNS targets, so a site whose
+    /// hops were never discovered (CGNAT, a failed trace) still has WAN lanes. Decided over the whole range: a gap in
+    /// the hop's data must not swap a ~3 ms line for a ~27 ms one mid-chart.
+    /// </summary>
+    internal static IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> IspHopsOrDns(IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> rows)
+    {
+        var hops = rows.Where(r => r.TargetType is "accessisp" or "transit").ToList();
+        return hops.Count > 0 ? hops : rows;
     }
 
     /// <summary>The site row's sparkline on the fleet timeline: WAN latency only, one query.</summary>
