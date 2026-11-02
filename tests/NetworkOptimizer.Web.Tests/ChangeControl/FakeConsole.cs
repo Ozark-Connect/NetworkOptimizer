@@ -134,6 +134,11 @@ internal sealed class FakeConsole : IUniFiConfigApi
                     if (EmptyListsReadBackMissing && v is JsonArray { Count: 0 }) target.Remove(k);
                     else target[k] = v?.DeepClone();
                 }
+                // A zone write saves every network in the zone as "manual" (Network 11).
+                if (def.Key == "firewall_zone")
+                    foreach (var n in State.Get("networkconf").Where(n => (target["network_ids"] as JsonArray ?? []).Any(i => i?.ToString() == ConfigState.IdOf(n))
+                                                                          && n.ContainsKey("setting_preference")))
+                        n["setting_preference"] = "manual";
                 return Ok(scope, [target]);
             }
             if (w.DeletePath != null && method == HttpMethod.Delete && Matches(w.DeletePath, path, out var did))

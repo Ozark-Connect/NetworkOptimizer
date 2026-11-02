@@ -277,6 +277,24 @@ public class PlanEngineTests
         console.Requests.Count(r => r.Method != HttpMethod.Get).Should().Be(writes);
     }
 
+    [Fact]
+    public async Task Executor_ZoneWrite_DoesNotLeaveAutoNetworksManual()
+    {
+        // Default is Auto and untouched by the plan; Test is created as Auto. The zone write that adds Test resets both.
+        var lanAuto = Lan.Replace("\"dhcpd_enabled\":true", "\"dhcpd_enabled\":true,\"setting_preference\":\"auto\"");
+        var test = """{"_id":"n3","name":"Test","purpose":"corporate","vlan":39,"vlan_enabled":true,"ip_subnet":"192.168.39.1/24","setting_preference":"auto"}""";
+        var live = State(("networkconf", lanAuto), ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1"]}"""));
+        var desired = State(("networkconf", lanAuto), ("networkconf", test),
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1","n3"]}"""));
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        console.State.Get("networkconf").Select(n => n["setting_preference"]!.GetValue<string>()).Should().AllBe("auto");
+    }
+
     // A trunk profile with every network tagged has no excluded list; UniFi adds each new network to it (unticked).
     private const string TrunkAllTagged = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1"}""";
     private const string TrunkExcludingTestNet = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1","excluded_networkconf_ids":["n2"]}""";

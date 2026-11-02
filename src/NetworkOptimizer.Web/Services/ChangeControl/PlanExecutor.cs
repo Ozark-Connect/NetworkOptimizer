@@ -96,6 +96,8 @@ public sealed class PlanExecutor
             {
                 if (def.Key == "firewall_zone" && sent.Any(o => o.ContinueOnError))
                     await LogZoneCleanupAsync(def, sent.Where(o => o.ContinueOnError).ToList(), ct);
+                if (def.Key == "firewall_zone" && sent[0].Action != PlanAction.Delete)
+                    await RememberAutoNetworksAsync(sent, ct);
                 foreach (var op in sent)
                 {
                     var r = await SendAsync(def, op, ct);
@@ -139,12 +141,49 @@ public sealed class PlanExecutor
                 }
             }
         }
+        await ReassertAutoAsync(def: ConfigCollections.Get("networkconf")!, ct);
         return (!failed, result);
+    }
+
+    // Networks this run wrote with setting_preference "auto", by ID, and whether it wrote a zone.
+    private readonly Dictionary<string, JsonObject> _autoNetworks = new(StringComparer.OrdinalIgnoreCase);
+    private bool _zoneWritten;
+
+    /// <summary>
+    /// A zone write saves every network in the zone as setting_preference "manual" (Network 11), and
+    /// a plan writes zones after networks. Each network this run wrote as "auto" gets it back once all writes are done.
+    /// </summary>
+    /// <summary>Before zone writes: every live "auto" network in a zone about to be written, unless this run wrote it already.</summary>
+    private async Task RememberAutoNetworksAsync(List<PlanOperation> zones, CancellationToken ct)
+    {
+        var inZones = zones.SelectMany(z => z.Body?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString())
+            .OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (inZones.Count == 0) return;
+        var (networks, _) = await new ConfigSnapshotReader(_logger).ReadCollectionAsync(_api, ConfigCollections.Get("networkconf")!, ct);
+        foreach (var n in networks ?? [])
+        {
+            var id = ConfigState.IdOf(n);
+            if (inZones.Contains(id) && n["setting_preference"]?.ToString() == "auto" && !_autoNetworks.ContainsKey(id))
+                _autoNetworks[id] = n.DeepClone().AsObject();
+        }
+    }
+
+    [VendorSpecific("UniFi", "firewall/zone PUT resaves its networks with setting_preference manual")]
+    private async Task ReassertAutoAsync(ConfigCollectionDef def, CancellationToken ct)
+    {
+        if (!_zoneWritten || _autoNetworks.Count == 0 || def.Write?.UpdatePath is not { } update) return;
+        foreach (var (id, body) in _autoNetworks)
+        {
+            var response = await _api.SendAsync(def.Scope, def.Write.UpdateMethod, update.Replace("{id}", id), body.ToJsonString(), ct);
+            if (!response.IsSuccess)
+                _logger.LogWarning("Change Control: network {Name} could not be set back to Auto after the zone writes: {Message}",
+                    body["name"]?.ToString() ?? id, Error(response));
+        }
     }
 
     /// <summary>
     /// Before a zone update that only clears out networks the plan deleted: whether the zone still lists them, or
-    /// the network delete took them out (UniFi keeps them, main Network 11, 2026-11-02).
+    /// the network delete took them out (UniFi keeps them, Network 11).
     /// </summary>
     private async Task LogZoneCleanupAsync(ConfigCollectionDef def, List<PlanOperation> ops, CancellationToken ct)
     {
@@ -236,6 +275,14 @@ public sealed class PlanExecutor
                 if (await KeepAutoSettingAsync(def, body, newId, ct) is { } refusedAuto)
                     return new OperationResult { Key = op.Key, Outcome = "Error", Message = $"Setting Preference: {refusedAuto}" };
             }
+            if (def.Key == "firewall_zone" && op.Action != PlanAction.Delete) _zoneWritten = true;
+            if (def.Key == "networkconf" && op.Action is PlanAction.Create or PlanAction.Update && op.ObjectId is { } netId
+                && body?["setting_preference"]?.ToString() == "auto")
+            {
+                var keep = body.DeepClone().AsObject();
+                keep["_id"] = netId;
+                _autoNetworks[netId] = keep;
+            }
             if (await WriteDeviceTypeAsync(op, body, ct) is { } refused)
                 return new OperationResult { Key = op.Key, Outcome = "Error", Message = $"Device type: {refused}" };
             return new OperationResult { Key = op.Key, Outcome = "Applied" };
@@ -248,7 +295,7 @@ public sealed class PlanExecutor
 
     /// <summary>
     /// UniFi stores a network created through the API as setting_preference "manual" whatever the create sent, and keeps
-    /// "auto" on an update (main, Network 11, 2026-11-02). A network created as "auto" gets it back in a second write.
+    /// "auto" on an update (Network 11). A network created as "auto" gets it back in a second write.
     /// Null when nothing was needed or it applied, else the console's refusal.
     /// </summary>
     [VendorSpecific("UniFi", "rest/networkconf create forces setting_preference manual; PUT keeps auto")]

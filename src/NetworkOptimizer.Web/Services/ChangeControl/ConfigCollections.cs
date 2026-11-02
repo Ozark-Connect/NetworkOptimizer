@@ -424,7 +424,7 @@ public static class ConfigCollections
                 ExtraSecretFields = Set("psk", "utm_token", "fingerbank_key"),
                 SetArrays = Set("enabled_networks", "excluded_network_ids", "enabled_categories", "geo_ip_filtering_countries"),
                 // ips dns_filters: one content filter per network. A "none" filter with no lists filters nothing,
-                // so it equals no entry (Network 11 dropped two such entries on main's upgrade).
+                // so it equals no entry (Network 11 dropped two such entries on upgrade).
                 KeyedArrays = new Dictionary<string, string> { ["dns_filters"] = "network_id" },
                 UnsetElement = (field, e) => field == "dns_filters" && Str(e, "filter") is null or "none"
                     && new[] { "allowed_sites", "blocked_sites", "blocked_tld" }.All(k => e[k] is not JsonArray { Count: > 0 }),
@@ -586,7 +586,7 @@ public static class ConfigCollections
                 Key = "wlanconf", DisplayName = "WLANs", Noun = "WLAN", Group = "WLANs",
                 FieldGroups = ConfigFieldOrder.WlanFields,
                 // wlan_band is the legacy band field UniFi derives from wlan_bands. Sent on a create, it wins:
-                // "both" drops 6 GHz (main, 10.6.109). The WLAN's bands are wlan_bands.
+                // "both" drops 6 GHz (Network 10.6.109). The WLAN's bands are wlan_bands.
                 // short_id is an index UniFi assigns per site; a create gets the next free one.
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/wlanconf", Order = 5, ReadOnlyFields = Set([.. CommonReadOnly, "wlan_band", "short_id"]),
                 // With private PSKs on, UniFi generates x_passphrase and ignores any write of it; the keys are the PSK entries.
