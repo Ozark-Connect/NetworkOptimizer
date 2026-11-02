@@ -433,11 +433,40 @@ function managedObjects(state) {
     const own = ['input.add-object', 'input.move-policy', 'input.match-fields', 'delete.remove-object'];
     const lock = EditorState.changeFilter.of(tr => {
         if (state.silent || !tr.docChanged || own.some(e => tr.isUserEvent(e))) return true;
+        const blocks = itemBlocks(tr.startState.doc).filter(b => managedBy(state, b));
+        if (!blocks.length) return true;
+        // Never let a change pull an editable line into a locked object. Indenting an object's "- " line
+        // (Tab, or spaces typed before it) makes it part of the object above; were that one locked, the
+        // lock would then cover the line and refuse the Shift+Tab that undoes it (undo skips filters).
+        if (pullsIntoLocked(tr, blocks, state)) return false;
         const locked = [];
-        for (const b of itemBlocks(tr.startState.doc)) if (managedBy(state, b)) locked.push(b.from + 1, b.to);
-        return locked.length ? locked : true;
+        for (const b of blocks) locked.push(b.from + 1, b.to);
+        return locked;
     });
     return [field, lock];
+}
+
+/**
+ * Whether a change leaves a locked object covering a line that was not locked before it. Blank lines are
+ * skipped: Enter at the start of the object below one makes a blank line inside it, and that stays allowed.
+ */
+function pullsIntoLocked(tr, blocksBefore, state) {
+    const before = tr.startState.doc;
+    const lockedBefore = new Set();
+    for (const b of blocksBefore)
+        for (let n = before.lineAt(b.from).number, last = before.lineAt(b.to).number; n <= last; n++) lockedBefore.add(n);
+    const after = tr.state.doc;
+    const back = tr.changes.invertedDesc;
+    for (const b of itemBlocks(after)) {
+        if (!managedBy(state, b)) continue;
+        for (let n = after.lineAt(b.from).number, last = after.lineAt(b.to).number; n <= last; n++) {
+            const line = after.line(n);
+            if (!line.text.trim()) continue;
+            const was = before.lineAt(back.mapPos(line.from, 1)).number;
+            if (!lockedBefore.has(was)) return true;
+        }
+    }
+    return false;
 }
 
 // ---------- Firewall policy order ----------

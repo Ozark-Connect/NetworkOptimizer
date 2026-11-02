@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Playwright;
@@ -337,6 +336,48 @@ public class CcEditorTests
         await page.Keyboard.TypeAsync("xyz");
         await page.Keyboard.PressAsync("Backspace");
         Assert.Equal(text, await DocAsync(page));
+    }
+
+    [BrowserFact]
+    public async Task Tab_OnTheObjectBelowALockedOne_IsRefused_AndItStaysEditable()
+    {
+        // Indented, "- name:" would join the locked policy above, and its lock would then refuse the Shift+Tab back.
+        var managed = new Dictionary<string, string> { [Id(1)] = "UniFi" };
+        var text = Firewall(Policy(0), Policy(1), "- name: Block Internet\n");
+        var page = await OpenAsync(text, Schema(managed));
+
+        await CursorAsync(page, await PosOfAsync(page, "- name: Block Internet", atStart: true));
+        await page.Keyboard.PressAsync("Tab");
+        await page.Keyboard.TypeAsync("  ");
+        Assert.Equal(text, await DocAsync(page));
+
+        await CursorAsync(page, await PosOfAsync(page, "Block Internet"));
+        await page.Keyboard.TypeAsync(" Now");
+        Assert.Contains("- name: Block Internet Now\n", await DocAsync(page));
+    }
+
+    [BrowserFact]
+    public async Task TabThenShiftTab_BelowAnEditableObject_PutsTheLineBack()
+    {
+        var text = Firewall(Policy(0), "- name: Block Internet\n");
+        var page = await OpenAsync(text, Schema());
+
+        await CursorAsync(page, await PosOfAsync(page, "- name: Block Internet", atStart: true));
+        await page.Keyboard.PressAsync("Tab");
+        Assert.Contains("\n  - name: Block Internet\n", await DocAsync(page));
+        await page.Keyboard.PressAsync("Shift+Tab");
+        Assert.Equal(text, await DocAsync(page));
+    }
+
+    [BrowserFact]
+    public async Task Enter_AtTheStartOfTheObjectBelowALockedOne_StillOpensALine()
+    {
+        var managed = new Dictionary<string, string> { [Id(1)] = "UniFi" };
+        var page = await OpenAsync(Firewall(Policy(0), Policy(1), "- name: Block Internet\n"), Schema(managed));
+
+        await CursorAsync(page, await PosOfAsync(page, "- name: Block Internet", atStart: true));
+        await page.Keyboard.PressAsync("Enter");
+        Assert.Contains(Policy(1) + "\n- name: Block Internet\n", await DocAsync(page));
     }
 
     [BrowserFact]
