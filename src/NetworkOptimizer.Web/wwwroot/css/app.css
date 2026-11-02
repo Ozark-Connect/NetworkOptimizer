@@ -24864,6 +24864,11 @@ body:has(.top-bar-hidden) .btn-fit {
     border-color: var(--primary-hover);
 }
 
+/* During a drag only the zone takes the pointer: a child under the cursor fires dragleave on the zone, and Drop here flickers. */
+.change-control .cc-zones.dragging .cc-zone * {
+    pointer-events: none;
+}
+
 .change-control .cc-zone-head {
     display: flex;
     justify-content: space-between;

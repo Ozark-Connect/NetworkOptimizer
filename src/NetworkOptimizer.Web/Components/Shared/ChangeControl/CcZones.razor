@@ -38,12 +38,13 @@ else
             <span class="hide-mobile">@ModeToggle()</span>
         </div>
         <p class="cc-card-intro hide-mobile">Drag a network to another zone, or select it and then select the zone. Purposes come from the Security Audit and your overrides.</p>
-        <div class="cc-zones">
+        <div class="cc-zones @(_dragging != null ? "dragging" : "")">
             @foreach (var z in b.Zones)
             {
                 var isCurrent = _moving != null && z.NetworkIds.Contains(_moving);
+                var key = z.Key;
                 <div class="cc-zone @(_dragOver == z.Key ? "drop-target" : "") @(isCurrent ? "current" : "") @(z.NetworkIds.Count == 0 && z.Key != ZoneSetup.UnassignedKey && !_showAll ? "cc-zone-empty" : "")"
-                     @ondragover:preventDefault @ondragover="() => _dragOver = z.Key" @ondragleave="() => _dragOver = null" @ondrop="() => DropAsync(z.Key)">
+                     @ondragover:preventDefault @ondragenter="() => _dragOver = key" @ondragleave="() => { if (_dragOver == key) _dragOver = null; }" @ondrop="() => DropAsync(key)">
                     <div class="cc-zone-head">
                         <div>
                             <b>@z.Name</b>
@@ -71,7 +72,7 @@ else
                         var n = b.Networks.FirstOrDefault(x => x.Id == id);
                         if (n == null) continue;
                         <button class="cc-net @(_moving == id ? "selected" : "")" draggable="true"
-                                @ondragstart="() => _dragging = id" @onclick="() => _moving = _moving == id ? null : id">
+                                @ondragstart="() => _dragging = id" @ondragend="() => { _dragging = null; _dragOver = null; }" @onclick="() => _moving = _moving == id ? null : id">
                             <span><b>@n.Name</b><span class="cc-vlan">VLAN @n.Vlan</span></span>
                             <span class="status-badge badge-muted">@n.Purpose</span>
                         </button>
