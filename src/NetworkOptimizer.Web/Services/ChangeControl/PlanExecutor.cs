@@ -94,6 +94,8 @@ public sealed class PlanExecutor
             }
             else
             {
+                if (def.Key == "firewall_zone" && sent.Any(o => o.ContinueOnError))
+                    await LogZoneCleanupAsync(def, sent.Where(o => o.ContinueOnError).ToList(), ct);
                 foreach (var op in sent)
                 {
                     var r = await SendAsync(def, op, ct);
@@ -138,6 +140,26 @@ public sealed class PlanExecutor
             }
         }
         return (!failed, result);
+    }
+
+    /// <summary>
+    /// Before a zone update that only clears out networks the plan deleted: whether the zone still lists them, or
+    /// the network delete already took them out (unproven on UniFi, so it is logged).
+    /// </summary>
+    private async Task LogZoneCleanupAsync(ConfigCollectionDef def, List<PlanOperation> ops, CancellationToken ct)
+    {
+        var (zones, _) = await new ConfigSnapshotReader(_logger).ReadCollectionAsync(_api, def, ct);
+        foreach (var op in ops)
+        {
+            var zone = zones?.FirstOrDefault(z => ConfigState.IdOf(z).Equals(op.ObjectId, StringComparison.OrdinalIgnoreCase));
+            if (zone == null) continue;
+            var want = (op.Body?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var still = (zone["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().Where(id => !want.Contains(id)).ToList();
+            _logger.LogDebug(still.Count == 0
+                    ? "Change Control: zone {Zone} no longer lists the deleted network(s); the delete removed them"
+                    : "Change Control: zone {Zone} still lists deleted network(s) {Ids} after the delete; clearing them",
+                op.ObjectName, string.Join(", ", still));
+        }
     }
 
     private static readonly string[] DeviceTypeFields = ["dev_id_override", "fingerprint_override"];
