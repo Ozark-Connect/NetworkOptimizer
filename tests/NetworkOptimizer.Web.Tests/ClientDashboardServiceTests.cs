@@ -8,6 +8,20 @@ namespace NetworkOptimizer.Web.Tests;
 
 public class ClientDashboardServiceTests
 {
+    [Theory]
+    [InlineData(1, 30)]
+    [InlineData(6, 120)]
+    [InlineData(24, 600)]
+    [InlineData(168, 3600)]
+    [InlineData(720, 3600)]
+    public void ThroughputHistoryWindow_KeepsEachRangeNearAChartsWorthOfPoints(int hours, int expectedSeconds)
+    {
+        var window = ClientDashboardService.ThroughputHistoryWindow(TimeSpan.FromHours(hours));
+
+        window.Should().Be(TimeSpan.FromSeconds(expectedSeconds));
+        (TimeSpan.FromHours(hours) / window).Should().BeLessThanOrEqualTo(720);
+    }
+
     [Fact]
     public void ResolveClientIp_UsesLastOrFixedAddressWhenCurrentAddressIsMissing()
     {

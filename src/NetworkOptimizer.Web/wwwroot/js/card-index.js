@@ -365,6 +365,16 @@
                 else if (type === 'wheel' && e.deltaY > 0 && atEnd) place(1);
             }, { passive: true, capture: true });
         });
+        // The app scrolling back to the top for the reader (the logo on the Dashboard) ends a pin
+        // as their own scroll would; without it a click's pin held the card it lit over the top.
+        window.addEventListener('netopt:scroll-top', function () {
+            pinned = -1;
+            clickPin = false;
+            aim = -1;
+            own = false;
+            // Already at the top, no scroll follows to relight it.
+            place(-1);
+        });
         // A resize can change the form (list or row), so rebuild even with the same cards.
         window.addEventListener('resize', function () { signature = null; schedule(); });
         schedule();

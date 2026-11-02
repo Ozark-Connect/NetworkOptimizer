@@ -8719,6 +8719,27 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
 }
 
+/* A mark that opens something: the single tooltip's link row, or a row in a fold's list. */
+.tippy-box[data-theme~='custom'] .chart-mark-action {
+    margin-top: 0.4rem;
+    color: var(--primary-hover);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-action:hover {
+    color: var(--accent-color);
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-action {
+    cursor: pointer;
+    border-radius: var(--border-radius);
+}
+
+.tippy-box[data-theme~='custom'] .chart-mark-item-action:hover {
+    background: var(--bg-hover);
+}
+
 /* ============================================
    Login Page Styles
    ============================================ */
@@ -11449,7 +11470,8 @@ a.path-hop.hop-clickable:hover {
     border-bottom: 1px solid var(--border-color) !important;
 }
 
-.netopt-own-hover-dots .apexcharts-marker {
+/* Legend dots carry apexcharts-marker too; without the exclusion they vanish with the hover dots. */
+.netopt-own-hover-dots .apexcharts-marker:not(.apexcharts-legend-marker) {
     display: none;
 }
 
