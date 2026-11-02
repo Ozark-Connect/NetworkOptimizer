@@ -429,7 +429,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 ## Security Audit
 
-- Score out of 100 from Firewall Rules, VLAN Security, Port Security, DNS Security, and UPnP Security checks, plus a hardening bonus
+- Score out of 100 from Firewall Rules, VLAN Security, Port Security, DNS Security, UPnP Security, and Console Access checks, plus a hardening bonus
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
   - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
@@ -444,6 +444,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - Port 53, DoT, DoQ, and DoH blocking checked per network, Guest and Hotspot networks included
   - **Fix it for me** extends your DNAT and DNS block rules to uncovered networks, or adds a block where none exists, as a [Change Control](#change-control) plan (zone-based firewall)
 - **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
+- **Console Access** - API Keys and Local Admin accounts unused for 7+ days (when the UniFi Console Connection can read them)
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
