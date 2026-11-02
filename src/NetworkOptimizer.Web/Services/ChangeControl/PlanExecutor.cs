@@ -155,7 +155,7 @@ public sealed class PlanExecutor
             if (zone == null) continue;
             var want = (op.Body?["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var still = (zone["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().Where(id => !want.Contains(id)).ToList();
-            _logger.LogDebug(still.Count == 0
+            _logger.LogInformation(still.Count == 0
                     ? "Change Control: zone {Zone} no longer lists the deleted network(s); the delete removed them"
                     : "Change Control: zone {Zone} still lists deleted network(s) {Ids} after the delete; clearing them",
                 op.ObjectName, string.Join(", ", still));
