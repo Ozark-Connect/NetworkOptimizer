@@ -460,6 +460,79 @@ public sealed class PlanCoordinatorTests : IDisposable
         return (plan.Id, await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), requireApproval: false, automatic: false, CancellationToken.None));
     }
 
+    /// <summary>Applies a plan from the live clients to <paramref name="desired"/>, with rest/user dropping the device type as UniFi does.</summary>
+    private async Task<(int PlanId, string? Why)> ApplyClientsAsync(List<JsonObject> desired)
+    {
+        _console.DropFields.UnionWith(["dev_id_override", "fingerprint_override"]);
+        var state = _console.State.Clone();
+        state.Collections["user"] = desired;
+        var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Clients", "test", null, null, state,
+            new PlanOptions { Collections = new HashSet<string> { "user" } }, "Alex", CancellationToken.None);
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements { Items = doc.Operations.Select(o => o.Key).ToHashSet() }, CancellationToken.None);
+        _console.Requests.Clear();
+        return (plan.Id, await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), requireApproval: false, automatic: false, CancellationToken.None));
+    }
+
+    private static JsonObject Lab(bool deviceType) => deviceType
+        ? new JsonObject { ["_id"] = "u9", ["mac"] = "aa:bb:cc:dd:ee:09", ["name"] = "[Lab] Gateway", ["dev_id_override"] = 4978, ["fingerprint_override"] = true }
+        : new JsonObject { ["_id"] = "u9", ["mac"] = "aa:bb:cc:dd:ee:09", ["name"] = "[Lab] Gateway" };
+
+    [Fact]
+    public async Task AClientPutBack_GetsItsDeviceType_ThroughTheStationRoute()
+    {
+        // A Roll Back of a forget: the client is created again, device type included.
+        _console.State.Collections["user"] = [];
+
+        var (planId, why) = await ApplyClientsAsync([Lab(deviceType: true)]);
+
+        why.Should().BeNull();
+        var call = _console.Requests.Should().ContainSingle(r => r.Path == "station/aa:bb:cc:dd:ee:09/fingerprint_override").Subject;
+        call.Method.Should().Be(HttpMethod.Put);
+        JsonNode.Parse(call.Body!)!["dev_id_override"]!.GetValue<int>().Should().Be(4978);
+        _console.State.Get("user").Single()["dev_id_override"]!.GetValue<int>().Should().Be(4978);
+        (await PlanAsync(planId))!.Status.Should().Be(ConfigPlanStatus.Applied, "the read-back finds the device type");
+    }
+
+    [Fact]
+    public async Task AClientsDeviceTypeAlone_PutBack_IsSetThroughTheStationRoute()
+    {
+        // The client is there without its device type (a Roll Back that lost it): Return to Baseline changes only that.
+        _console.State.Collections["user"] = [Lab(deviceType: false)];
+
+        var (planId, why) = await ApplyClientsAsync([Lab(deviceType: true)]);
+
+        why.Should().BeNull();
+        _console.Requests.Should().ContainSingle(r => r.Path == "station/aa:bb:cc:dd:ee:09/fingerprint_override").Which.Method.Should().Be(HttpMethod.Put);
+        _console.State.Get("user").Single()["fingerprint_override"]!.GetValue<bool>().Should().BeTrue();
+        (await PlanAsync(planId))!.Status.Should().Be(ConfigPlanStatus.Applied);
+    }
+
+    [Fact]
+    public async Task AClientsDeviceTypeRemoved_IsClearedThroughTheStationRoute()
+    {
+        _console.State.Collections["user"] = [Lab(deviceType: true)];
+
+        var (planId, _) = await ApplyClientsAsync([Lab(deviceType: false)]);
+
+        _console.Requests.Should().ContainSingle(r => r.Path == "station/aa:bb:cc:dd:ee:09/fingerprint_override").Which.Method.Should().Be(HttpMethod.Delete);
+        _console.State.Get("user").Single().ContainsKey("dev_id_override").Should().BeFalse();
+        (await PlanAsync(planId))!.Status.Should().Be(ConfigPlanStatus.Applied);
+    }
+
+    [Fact]
+    public async Task AClientRename_SendsNoDeviceTypeCall()
+    {
+        _console.State.Collections["user"] = [Lab(deviceType: true)];
+        var renamed = Lab(deviceType: true);
+        renamed["name"] = "[Lab] Gateway 2";
+
+        await ApplyClientsAsync([renamed]);
+
+        _console.Requests.Should().NotContain(r => r.Path.StartsWith("station/"));
+        _console.State.Get("user").Single()["dev_id_override"]!.GetValue<int>().Should().Be(4978);
+    }
+
     [Fact]
     public async Task EditPlan_AConnectedClient_ThatComesBackBare_StillReadsForgotten()
     {

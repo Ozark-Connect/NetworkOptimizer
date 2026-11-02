@@ -140,6 +140,27 @@ public sealed class PlanExecutor
         return (!failed, result);
     }
 
+    private static readonly string[] DeviceTypeFields = ["dev_id_override", "fingerprint_override"];
+
+    /// <summary>
+    /// A client's device type: rest/user answers 200 and stores neither field, so it is set by MAC on its own route,
+    /// or cleared there (Network 11.0.97). Null when nothing was needed or it applied, else the console's refusal.
+    /// </summary>
+    [VendorSpecific("UniFi", "v2 station/{mac}/fingerprint_override: PUT {dev_id_override} sets, DELETE clears")]
+    private async Task<string?> WriteDeviceTypeAsync(PlanOperation op, JsonNode? body, CancellationToken ct)
+    {
+        if (op.Collection != "user" || op.StationMac is not { Length: > 0 } mac || body is not JsonObject b) return null;
+        if (!DeviceTypeFields.Any(f => op.WriteFields.Contains(f) || b.ContainsKey(f))) return null;
+        var devId = b["dev_id_override"] is JsonValue v && v.TryGetValue<long>(out var id) ? id : (long?)null;
+        // Turned off, or no device ID to set: cleared. A partial update that changes only the ID keeps it on.
+        var on = b["fingerprint_override"] is JsonValue f && f.TryGetValue<bool>(out var flag) ? flag && devId != null : devId != null;
+        var path = $"station/{mac}/fingerprint_override";
+        var response = on
+            ? await _api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Put, path, new JsonObject { ["dev_id_override"] = devId }.ToJsonString(), ct)
+            : await _api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Delete, path, null, ct);
+        return response.IsSuccess ? null : Error(response);
+    }
+
     private static void Record(PlanResult result, Action<OperationResult>? progress, OperationResult r)
     {
         result.Operations.Add(r);
@@ -188,6 +209,8 @@ public sealed class PlanExecutor
                 _created[op.Key] = newId;
                 op.ObjectId = newId;
             }
+            if (await WriteDeviceTypeAsync(op, body, ct) is { } refused)
+                return new OperationResult { Key = op.Key, Outcome = "Error", Message = $"Device type: {refused}" };
             return new OperationResult { Key = op.Key, Outcome = "Applied" };
         }
         // Delete of something already gone counts as done.

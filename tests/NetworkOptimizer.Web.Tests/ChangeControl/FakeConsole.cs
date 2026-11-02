@@ -73,6 +73,24 @@ internal sealed class FakeConsole : IUniFiConfigApi
 
         // Ahead of the update paths: "firewall-policies/{id}" would take batch-reorder for an ID.
         if (path == "firewall-policies/batch-reorder") return Task.FromResult(new UniFiRawResponse(200, "{}"));
+        // A client's device type, by MAC: PUT sets it (and the override flag), DELETE clears both (Network 11.0.97).
+        if (scope == UniFiApiScope.SiteV2 && path.StartsWith("station/", StringComparison.Ordinal) && path.EndsWith("/fingerprint_override", StringComparison.Ordinal))
+        {
+            var mac = path.Split('/')[1];
+            var client = (State.Collections.GetValueOrDefault("user") ?? []).FirstOrDefault(u => string.Equals(u["mac"]?.ToString(), mac, StringComparison.OrdinalIgnoreCase));
+            if (client == null) return Task.FromResult(new UniFiRawResponse(404, "{}"));
+            if (method == HttpMethod.Put)
+            {
+                client["dev_id_override"] = JsonNode.Parse(json!)!["dev_id_override"]?.DeepClone();
+                client["fingerprint_override"] = true;
+            }
+            else
+            {
+                client.Remove("dev_id_override");
+                client.Remove("fingerprint_override");
+            }
+            return Task.FromResult(new UniFiRawResponse(200, "{}"));
+        }
         // A client forget answers with the records it removed (main console, Network 11.0.97).
         if (method == HttpMethod.Post && path == "cmd/stamgr" && JsonNode.Parse(json!) is JsonObject { } cmd && cmd["cmd"]?.ToString() == "forget-sta")
         {

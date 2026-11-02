@@ -168,6 +168,8 @@ public static class PlanBuilder
         {
             var op = BuildOperation(def, d, l, desiredById, liveById, idMap, creates, desiredCtx, liveCtx, options, doc, mgmtNetworks, otherVersion);
             if (op == null) continue;
+            // A client's device type is written by MAC, which a partial update's body does not carry (PlanExecutor).
+            if (def.Key == "user") op.StationMac = (l ?? d)?["mac"]?.ToString();
             doc.Operations.Add(op);
             // Right after its create, so PlannedState (before Order) applies the two in sequence.
             if (op.Action == PlanAction.Create && def.Key == "wlanconf" && Wpa3AfterCreate(op, def, op.ObjectName) is { } then)
