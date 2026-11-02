@@ -911,6 +911,12 @@ public sealed partial class ChangeControlService : IChangeControlService
         return true;
     }
 
+    public async Task<bool?> GetGatewayProvisioningAsync(CancellationToken cancellationToken = default)
+    {
+        var (settled, any) = await Plans.GatewayStateAsync(cancellationToken);
+        return any && settled is { } s ? !s : null;
+    }
+
     public async Task<List<PlanSummaryView>> GetPlansAsync(bool inProgressOnly, CancellationToken cancellationToken = default)
     {
         var name = await SiteNameAsync(cancellationToken);

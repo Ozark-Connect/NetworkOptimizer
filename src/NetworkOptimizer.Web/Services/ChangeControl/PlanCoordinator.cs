@@ -520,13 +520,27 @@ public sealed class PlanCoordinator
     }
 
     /// <summary>Whether every adopted gateway is connected (state 1); null when the device list does not load.</summary>
-    private async Task<bool?> GatewaysSettledAsync(CancellationToken ct)
+    private async Task<bool?> GatewaysSettledAsync(CancellationToken ct) => (await GatewayStateAsync(ct, fresh: true)).Settled;
+
+    private (DateTime At, bool? Settled, bool Any) _gatewayState;
+    private static readonly TimeSpan GatewayStateMaxAge = TimeSpan.FromSeconds(4);
+
+    /// <summary>
+    /// The gateway check for the page indicator: whether any gateway is adopted, and whether all are connected.
+    /// Cached a few seconds so every open tab shares one device read; the plan gates pass <paramref name="fresh"/>.
+    /// </summary>
+    internal async Task<(bool? Settled, bool Any)> GatewayStateAsync(CancellationToken ct, bool fresh = false)
     {
+        var cached = _gatewayState;
+        if (!fresh && DateTime.UtcNow - cached.At < GatewayStateMaxAge) return (cached.Settled, cached.Any);
         var r = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
-        if (!r.IsSuccess) return null;
-        return (ConfigSnapshotReader.ExtractList(r.Body) ?? [])
+        if (!r.IsSuccess) return (null, false);
+        var gateways = (ConfigSnapshotReader.ExtractList(r.Body) ?? [])
             .Where(d => d["type"]?.ToString() is "ugw" or "udm" or "uxg" && d["adopted"]?.GetValueKind() != System.Text.Json.JsonValueKind.False)
-            .All(d => d["state"]?.ToString() == "1");
+            .ToList();
+        var settled = gateways.All(d => d["state"]?.ToString() == "1");
+        _gatewayState = (DateTime.UtcNow, settled, gateways.Count > 0);
+        return (settled, gateways.Count > 0);
     }
 
     /// <summary>

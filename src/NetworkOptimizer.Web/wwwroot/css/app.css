@@ -12304,6 +12304,27 @@ a.path-hop.hop-clickable:hover {
     border-radius: var(--border-radius);
 }
 
+/* Change Control: the site gateway's provisioning state, at the right of the tab row. */
+.cc-gateway-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-left: auto;
+    padding: 0 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.cc-gateway-status.is-provisioning {
+    color: var(--warning-color);
+}
+
+.cc-gateway-status.is-done {
+    color: var(--success-color);
+}
+
 @media (max-width: 768px) {
     .wifi-view-tabs-wrapper {
         margin-bottom: 0.75rem;

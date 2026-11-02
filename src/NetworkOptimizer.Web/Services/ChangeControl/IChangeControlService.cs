@@ -236,6 +236,10 @@ public interface IChangeControlService
     [RequireRole(Roles.Viewer)]
     Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the site's gateway is provisioning: true while any adopted gateway is not connected, null with no gateway or no device list.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<bool?> GetGatewayProvisioningAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Plans in progress and recent ones, newest first.</summary>
     [RequireRole(Roles.Viewer)]
     Task<List<PlanSummaryView>> GetPlansAsync(bool inProgressOnly, CancellationToken cancellationToken = default);
