@@ -25757,6 +25757,16 @@ body:has(.top-bar-hidden) .btn-fit {
     border-style: dashed;
 }
 
+.change-control .cc-zone-add.is-idle {
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.change-control .cc-zone-add.is-idle:hover {
+    border-color: var(--primary-hover);
+    background: var(--bg-hover);
+}
+
 .change-control .cc-moving {
     display: flex;
     justify-content: space-between;

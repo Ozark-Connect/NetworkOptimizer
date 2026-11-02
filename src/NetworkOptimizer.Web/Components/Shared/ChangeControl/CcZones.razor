@@ -97,7 +97,7 @@ else
                     }
                 </div>
             }
-            <div class="cc-zone cc-zone-add hide-mobile">
+            <div class="cc-zone cc-zone-add hide-mobile @(_adding ? "" : "is-idle")" @onclick="() => _adding ? Task.CompletedTask : StartAddZoneAsync()">
                 @if (_adding)
                 {
                     <div class="input-with-button">
@@ -107,7 +107,7 @@ else
                 }
                 else
                 {
-                    <button class="cc-link-btn" @onclick="StartAddZoneAsync">+ Add Zone</button>
+                    <button type="button" class="cc-link-btn">+ Add Zone</button>
                 }
             </div>
         </div>
