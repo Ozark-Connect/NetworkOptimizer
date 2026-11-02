@@ -2433,6 +2433,10 @@
         return (new { history.From, history.To, history.WindowMs, history.HasPeaks, history.Points, marks }, summary);
     }
 
+    /// <summary>The Throughput range a speed test range maps to: the same hours, and All (0) to
+    /// the card's widest, 30d. Shared by both directions of the link, so neither undoes the other.</summary>
+    private static int ThroughputRangeFor(int speedFilterHours) => speedFilterHours == 0 ? 720 : speedFilterHours;
+
     private void SetThroughputRange(int hours)
     {
         if (_throughputHours == hours) return;
@@ -2441,6 +2445,8 @@
         _throughputGeneration++;
         _throughputLoading = false;
         _throughputSummary = null;
+        // A past range scopes the speed tests to the same window; going back to Live leaves them.
+        if (hours != 0 && ThroughputRangeFor(_selectedTimeFilter) != hours) SetTimeFilter(hours);
     }
 
     private async Task<(IReadOnlyList<ThroughputSample> Points, IReadOnlyList<ThroughputSample> WanPoints)> LoadLiveHistoryWithWanAsync()
@@ -3200,6 +3206,8 @@
         _signalPage = 1;
         _speedPage = 1;
         _connectionPage = 1;
+        // A Throughput card showing history follows the speed test range; a live card stays live.
+        if (_throughputHours != 0) SetThroughputRange(ThroughputRangeFor(hours));
 
         // Reload data for all tabs with new time range
         _ = InvokeAsync(async () =>
