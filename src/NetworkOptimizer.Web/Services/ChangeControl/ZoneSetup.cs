@@ -901,6 +901,11 @@ public static class ZoneSetup
             return members.Count > 0 && members.All(id => networksById.TryGetValue(id, out var net)
                 && net["internet_access_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.False);
         }
+        var owned = new List<string>();
+        void Owned(JsonObject p)
+        {
+            if (Str(p, "name") is { } ownedName && !owned.Contains(ownedName)) owned.Add(ownedName);
+        }
         foreach (var t in templates)
         {
             var from = Str(t["source"]?["zone_id"])!;
@@ -909,8 +914,7 @@ public static class ZoneSetup
             var name = Str(t, "name") ?? "";
             if (ConfigCollections.OwnedBy(def, t) != null)
             {
-                var owned = $"{name}: managed by Threat Intelligence, which adds its own for each new zone once the gateway settles after the apply.";
-                if (!notes.Contains(owned)) notes.Add(owned);
+                Owned(t);
                 continue;
             }
             var outward = dstKey is "external" or "gateway";
@@ -945,6 +949,21 @@ public static class ZoneSetup
                 notes.Add($"Firewall Policy {name} ({zoneName(from)} to {zoneName(dstZone)}): not carried to {Join(isolated, "or")}, which "
                     + (isolated.Count == 1 ? "stays" : "stay") + $" isolated. Copy it in the Edit tab if {Join(isolated, "or")} needs it.");
         }
+
+        // Threat Intelligence's policies, in one note: those the copy skips, and those deleted with a zone (PlanBuilder
+        // adds the deletes, each one a row).
+        var gone = heir.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ordered = live.Get("firewall_policy").Where(p => ConfigCollections.OwnedBy(def, p) != null)
+            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+        foreach (var p in ordered.Where(p => gone.Contains(Str(p["source"]?["zone_id"]) ?? "") || gone.Contains(Str(p["destination"]?["zone_id"]) ?? "")))
+            Owned(p);
+        var rank = ordered.Select(p => Str(p, "name")).Distinct().Select((name, i) => (name, i)).ToDictionary(x => x.name ?? "", x => x.i);
+        owned = owned.OrderBy(name => rank.GetValueOrDefault(name, int.MaxValue)).ToList();
+        if (owned.Count > 0)
+            notes.Add(gone.Count > 0
+                ? $"Threat Intelligence policies ({string.Join(", ", owned)}): deleted with {Join(gone.Select(zoneName).ToList(), "and")}. "
+                  + "Threat Intelligence writes its own for the zones left once the gateway settles after the apply."
+                : $"{Join(owned, "and")}: managed by Threat Intelligence, which adds its own for each new zone once the gateway settles after the apply.");
 
         // Zone-wide policies INTO a zone that loses networks. An operator zone's inbound policies are about its own
         // networks, so they all follow them; into a built-in zone only a resolver allow does, since its other inbound

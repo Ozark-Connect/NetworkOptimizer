@@ -1303,6 +1303,24 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void AnEmptiedZone_NamesEveryThreatIntelligencePolicyDeletedWithIt_InOneNote()
+    {
+        var (live, networks) = EmptiedZoneSite();
+        live.Collections["firewall_policy"].Add(Rule("ti-in", "Net. Opt. Blocklist", "BLOCK", Side("z-ext"), Side("z-dns")));
+        live.Collections["firewall_policy"].Add(Rule("ti-ex", "Net. Opt. Exception", "ALLOW", Side("z-dns"), Side("z-ext")));
+        live.Collections["firewall_policy"].Add(Rule("ti-pub", "Net. Opt. Public Lists", "BLOCK", Side("z-ext"), Side("z-dns")));
+        live.Collections["firewall_policy"].Add(Rule("ti-out", "Net. Opt. Public Lists (Outbound)", "BLOCK", Side("z-dns"), Side("z-ext")));
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" });
+
+        var plan = ZoneSetup.Plan(live, board);
+
+        var notes = plan.Notes.Where(n => n.Contains("Threat Intelligence")).ToList();
+        notes.Should().ContainSingle().Which.Should().Be(
+            "Threat Intelligence policies (Net. Opt. Blocklist, Net. Opt. Exception, Net. Opt. Public Lists, Net. Opt. Public Lists (Outbound)): "
+            + "deleted with DNS Servers. Threat Intelligence writes its own for the zones left once the gateway settles after the apply.");
+    }
+
+    [Fact]
     public void AnEmptiedOperatorZone_TheOperatorKeeps_KeepsItsPolicies()
     {
         var (live, networks) = EmptiedZoneSite();
