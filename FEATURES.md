@@ -545,6 +545,7 @@ Requires Gateway SSH.
 - Browser speed test from any phone, tablet, or laptop, with no SSH
 - iperf3 to the server from the command line, from any device; each run is captured and stored
 - Results identified by device, with path trace, Wi-Fi channel and MLO links, and personal bests
+  - A personal best follows the device across IP address changes
 - **Speed / Coverage Map** - results with GPS location, colored by speed (HTTPS)
   - Place APs, filter by LAN or external, GPS accuracy filter, AP popups
 

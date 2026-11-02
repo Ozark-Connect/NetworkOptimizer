@@ -62,7 +62,6 @@ public static class SpeedTestEndpoints
         // Public endpoint for external clients (OpenSpeedTest, iperf3) to submit results
         app.MapPost("/api/public/speedtest/results", async (HttpContext context,
             SpeedTestServiceRegistry speedTestRegistry,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
             NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
             ILoggerFactory loggerFactory) =>
         {
@@ -165,44 +164,19 @@ public static class SpeedTestEndpoints
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
-            // Check if this is a new high score for download speed on this device
-            // The "d" param from JS is always the client's download. Due to server perspective swap:
-            //   BrowserToServer: client download stored as UploadBitsPerSecond
-            //   OpenSpeedTestWan: client download stored as DownloadBitsPerSecond
+            // New personal best for the client's download on this device.
             // TODO: Also check if it's the highest score for any device on the same AP (isApHighScore).
             //       Requires AP MAC on the result, which is only available after background enrichment.
             var isHighScore = false;
             try
             {
-                await using var db = siteSlug != null
-                    ? siteDbFactory.CreateForSite(siteSlug)
-                    : await dbFactory.CreateDbContextAsync();
-                var direction = result.Direction;
-                var deviceResults = db.Iperf3Results
-                    .Where(r => r.DeviceHost == result.DeviceHost && r.Direction == direction && r.Success)
-                    .ToList();
-
-                if (deviceResults.Count >= 3)
-                {
-                    // Get client-perspective download speed for comparison
-                    double GetClientDownload(Iperf3Result r) =>
-                        r.Direction == SpeedTestDirection.BrowserToServer
-                            ? r.UploadBitsPerSecond   // server's upload = client's download
-                            : r.DownloadBitsPerSecond; // WAN: stored as client's download
-
-                    var thisDownload = GetClientDownload(result);
-                    var previousMax = deviceResults
-                        .Where(r => r.Id != result.Id)
-                        .Select(GetClientDownload)
-                        .DefaultIfEmpty(0)
-                        .Max();
-
-                    isHighScore = thisDownload > previousMax && previousMax > 0;
-                }
+                isHighScore = await service.IsNewHighScoreAsync(result);
             }
-            catch
+            catch (Exception ex)
             {
                 // Non-critical feature - don't fail the response
+                loggerFactory.CreateLogger("SpeedTestHighScore")
+                    .LogDebug(ex, "High score check failed for result {Id}", result.Id);
             }
 
             return Results.Ok(new
