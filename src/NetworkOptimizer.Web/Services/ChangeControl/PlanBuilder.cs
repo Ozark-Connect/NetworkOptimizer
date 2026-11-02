@@ -185,6 +185,7 @@ public static class PlanBuilder
                     op.ManagementPath = true;
                 }
         }
+        InternetCutChecker.Check(live, planned, doc);
 
         Order(doc);
         doc.WatchDevices = doc.Operations.Any(o => o.ManagementPath);

@@ -35,21 +35,26 @@ public class ChangeControlRenderHarness
         if (string.IsNullOrEmpty(dir)) return;
         Directory.CreateDirectory(dir);
 
+        // The single components first: they need none of the page's services.
+        var detail = await RenderAsync<CcChangeDetail>(new Dictionary<string, object?> { ["Detail"] = Detail() });
+        await File.WriteAllTextAsync(Path.Combine(dir, "detail.html"), Shell($"<div class=\"change-control\"><div class=\"card\">{detail}</div></div>"));
+        var wanOnly = Detail([new() { Id = 2, Title = "ISP packet loss on WAN1", StartedAt = Now.AddHours(-56).AddMinutes(47), IsWan = true }]);
+        var detailWan = await RenderAsync<CcChangeDetail>(new Dictionary<string, object?> { ["Detail"] = wanOnly });
+        await File.WriteAllTextAsync(Path.Combine(dir, "detail-wan.html"), Shell($"<div class=\"change-control\"><div class=\"card\">{detailWan}</div></div>"));
+        var plan = await RenderAsync<CcReviewPlan>(new Dictionary<string, object?> { ["PlanId"] = 7 });
+        await File.WriteAllTextAsync(Path.Combine(dir, "plan.html"), Shell(plan));
+
         foreach (var tab in new[] { "overview", "changes", "snapshots", "edit", "migrate", "settings" })
         {
             var html = await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = tab },
                 tab == "migrate" ? $"change-control/migrate?task=replace&old={SwOld}&new={SwNew}" : null);
             await File.WriteAllTextAsync(Path.Combine(dir, $"{tab}.html"), Shell(html));
         }
-        var detail = await RenderAsync<CcChangeDetail>(new Dictionary<string, object?> { ["Detail"] = Detail() });
-        await File.WriteAllTextAsync(Path.Combine(dir, "detail.html"), Shell($"<div class=\"change-control\"><div class=\"card\">{detail}</div></div>"));
         var migrateAp = await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = "migrate" }, "change-control/migrate?task=replace&old=" + ApOld + "&new=" + ApNew);
         await File.WriteAllTextAsync(Path.Combine(dir, "migrate-ap.html"), Shell(migrateAp));
         foreach (var task in new[] { "restore", "adopt", "zones" })
             await File.WriteAllTextAsync(Path.Combine(dir, $"migrate-{task}.html"),
                 Shell(await RenderAsync<CcPage>(new Dictionary<string, object?> { ["Tab"] = "migrate" }, $"change-control/migrate?task={task}")));
-        var plan = await RenderAsync<CcReviewPlan>(new Dictionary<string, object?> { ["PlanId"] = 7 });
-        await File.WriteAllTextAsync(Path.Combine(dir, "plan.html"), Shell(plan));
     }
 
     private static async Task<string> RenderAsync<T>(Dictionary<string, object?> parameters, string? path = null) where T : IComponent
@@ -72,7 +77,10 @@ public class ChangeControlRenderHarness
         services.AddSingleton<NavigationManager>(new FakeNav(path ?? "change-control"));
         services.AddSingleton<IJSRuntime>(Mock.Of<IJSRuntime>());
         services.AddSingleton((SiteSwitchService)RuntimeHelpers.GetUninitializedObject(typeof(SiteSwitchService)));
+        // Read for IsConnected (false here) and its change event only.
+        services.AddSingleton((UniFiConnectionService)RuntimeHelpers.GetUninitializedObject(typeof(UniFiConnectionService)));
         services.AddScoped<CcNavigator>();
+        services.AddScoped<CcEditDrafts>();
         services.AddAuthorizationCore(o =>
         {
             foreach (var p in new[] { Policies.SiteViewer, Policies.SiteOperator, Policies.SiteAdmin, Policies.RequireViewer, Policies.RequireAdmin })
@@ -209,7 +217,7 @@ public class ChangeControlRenderHarness
         return m;
     }
 
-    private static ChangeDetailView Detail() => new()
+    private static ChangeDetailView Detail(List<IncidentView>? incidents = null) => new()
     {
         Row = Changes()[2],
         Objects =
@@ -219,7 +227,7 @@ public class ChangeControlRenderHarness
         ],
         MadeBy = "Alex", MadeVia = "UniFi Web App", MadeOn = "desktop", MadeFromIp = "203.0.113.24",
         BeforeAfter = [new("Loaded latency", "34", "35 ms", false), new("Loaded loss", "0.0", "0.0%", false), new("Gateway CPU", "18", "19%", false)],
-        IncidentsAfter = [new() { Id = 1, Title = "8 Wi-Fi clients offline", StartedAt = Now.AddHours(-56).AddMinutes(15), ResolvedAt = Now.AddHours(-52) }],
+        IncidentsAfter = incidents ?? [new() { Id = 1, Title = "8 Wi-Fi clients offline", StartedAt = Now.AddHours(-56).AddMinutes(15), ResolvedAt = Now.AddHours(-52) }],
         CanRollBack = true,
     };
 
@@ -484,10 +492,12 @@ public class ChangeControlRenderHarness
                 new() { Key = "fp:delete", Collection = "firewall_policy", Action = PlanAction.Delete, ObjectName = "Block IoT to Internal", ChangeText = "Added Oct 17 by Alex", Tier = PlanTiers.Acknowledge, Reasons = ["Delete"] },
                 new() { Key = "fp:u1", Collection = "firewall_policy", Action = PlanAction.Update, ObjectName = "VPN to Internal", ChangeText = "Action: Allow All to Block", Fields = [new() { Label = "Action", Old = "Allow All", New = "Block" }] },
                 new() { Key = "fp:u2", Collection = "firewall_policy", Action = PlanAction.Update, ObjectName = "Cameras to Internet", ChangeText = "Enabled: on to off", Fields = [new() { Label = "Enabled", Old = "on", New = "off" }] },
+                new() { Key = "fp:c1", Collection = "firewall_policy", Action = PlanAction.Create, ObjectName = "Block Guest Internet", ChangeText = "Block, Guest to External", Tier = PlanTiers.Acknowledge,
+                    Reasons = ["Blocks Guest and Guest IoT from the internet. The commit-confirmed watch does not catch this"] },
                 new() { Key = "wl:home", Collection = "wlanconf", Action = PlanAction.Update, ObjectName = "Home", ChangeText = "Security, PMF, passphrase", Tier = PlanTiers.Acknowledge, Reasons = ["Service tag: WLAN security", "A passphrase change disconnects every client on Home"],
                     Fields = [new() { Label = "Security protocol", Old = "WPA2/WPA3", New = "WPA2" }, new() { Label = "PMF", Old = "Optional", New = "Disabled" }, new() { Label = "Passphrase", Secret = true }] },
                 new() { Key = "portconf:update:Trunk-Core:p1", Collection = "portconf", Action = PlanAction.Update, ObjectName = "Trunk-Core", ChangeText = "Tagged networks: removes Management", Tier = PlanTiers.Lockout, ManagementPath = true },
-                new() { Key = "dns:c", Collection = "static_dns", Action = PlanAction.Create, ObjectName = "printer.lan", ChangeText = "A 192.0.2.40" },
+                new() { Key = "dns:c", Collection = "static_dns", Action = PlanAction.Create, ObjectName = "printer.lan", ChangeText = "A 192.0.2.40", WanPath = true },
                 new() { Key = "net:iot", Collection = "networkconf", Action = PlanAction.Update, ObjectName = "IoT network", ChangeText = "mDNS: off to on", Tier = PlanTiers.Acknowledge, Reasons = ["Service tag: mDNS/multicast"] },
                 new() { Key = "dev:ap", Collection = "device", Action = PlanAction.Update, ObjectName = "Back Yard AP", ChangeText = "5 GHz channel width: 80 to 160" },
             ],

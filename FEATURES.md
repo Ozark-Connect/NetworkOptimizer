@@ -302,7 +302,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
-  - Flags a firewall change that cuts a network off its DNS server or devices off the UniFi Console
+  - Flags a firewall change that cuts a network off its DNS server or the internet, or devices off the UniFi Console
   - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
   - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
 - **Migrate**

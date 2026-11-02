@@ -194,7 +194,8 @@ public static partial class ChangeDescriber
             : string.Join(", ", byCollection.Select(Part));
     }
 
-    private static string JoinAnd(List<string> items) => items.Count switch
+    /// <summary>Names as an English list with the Oxford comma ("A, B, and C").</summary>
+    internal static string JoinAnd(List<string> items) => items.Count switch
     {
         0 => "",
         1 => items[0],
