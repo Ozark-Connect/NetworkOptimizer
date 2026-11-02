@@ -722,9 +722,14 @@ export function findMatches(text, terms) {
     return matches;
 }
 
-/** A term as literal text, except a space, "_", or "-" matches any of the three or nothing. Mirrors CcFind.TermPattern. */
+/**
+ * A term as literal text, except a space, "_", or "-" matches any of the three or nothing, and a letter
+ * followed by a digit may have one between ("dns1" finds dhcpd_dns_1). Mirrors CcFind.TermPattern.
+ */
 export function termPattern(term) {
-    return term.replace(/[ _-]+/g, ' ').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '[ _-]?');
+    // Spaces first: the class the letter-digit step inserts holds a space of its own.
+    return term.replace(/[ _-]+/g, ' ').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/ /g, '[ _-]?').replace(/([A-Za-z])([0-9])/g, '$1[ _-]?$2');
 }
 
 const setFind = StateEffect.define();

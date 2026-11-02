@@ -30,11 +30,13 @@ public static class CcFind
         ["port group"] = ["firewall_groups"],
         ["port forwarding"] = ["port_forwards"],
         ["dns record"] = ["local_dns"],
-        // The DNS servers a LAN hands its clients. "local dns" itself also finds Local DNS and local_dns_record.
-        ["local dns"] = ["dhcpd_dns", "dhcpdv6_dns"],
-        ["local dns server"] = ["dhcpd_dns", "dhcpdv6_dns"],
-        ["lan dns"] = ["dhcpd_dns", "dhcpdv6_dns"],
-        ["lan dns server"] = ["dhcpd_dns", "dhcpdv6_dns"],
+        // The DNS servers on the LAN: what a network hands its clients (dhcpd_dns_*), and each device's own on its
+        // management IP (config_network dns1, dns2). "local dns" itself also finds Local DNS and local_dns_record.
+        ["local dns"] = ["dhcpd_dns", "dhcpdv6_dns", "dns1", "dns2"],
+        ["local dns server"] = ["dhcpd_dns", "dhcpdv6_dns", "dns1", "dns2"],
+        ["lan dns"] = ["dhcpd_dns", "dhcpdv6_dns", "dns1", "dns2"],
+        ["lan dns server"] = ["dhcpd_dns", "dhcpdv6_dns", "dns1", "dns2"],
+        ["device dns"] = ["dns1", "dns2", "dnssuffix"],
         ["ddns"] = ["dynamic_dns"],
         ["policy-based route"] = ["traffic_routes"],
         ["policy-based routing"] = ["traffic_routes"],
@@ -199,10 +201,12 @@ public static class CcFind
     /// <summary>
     /// A term as a pattern: literal text, except a space, "_", or "-" matches any of the three or nothing, as
     /// the YAML writes "port forward" as port_forwards, "user group" as usergroup, and "nat-pmp" as nat_pmp.
+    /// A letter followed by a digit may have one between, so "dns1" finds dhcpd_dns_1 as well as wan_dns1.
     /// Mirrors termPattern in cc-editor.js.
     /// </summary>
     public static string TermPattern(string term) =>
-        Regex.Escape(Regex.Replace(term, "[ _-]+", " ").Trim()).Replace("\\ ", "[ _-]?");
+        Regex.Replace(Regex.Escape(Regex.Replace(term, "[ _-]+", " ").Trim()), "([A-Za-z])([0-9])", "$1[ _-]?$2")
+            .Replace("\\ ", "[ _-]?");
 
     /// <summary>
     /// Case-insensitive, non-overlapping matches of a query's <see cref="Terms"/> in a collection's YAML, which

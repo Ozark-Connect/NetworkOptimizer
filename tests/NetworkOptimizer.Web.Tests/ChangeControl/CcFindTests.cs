@@ -161,6 +161,22 @@ public class CcFindTests
 
     private const string DnsYaml = "local_dns:\n- key: host\nnetworks:\n- dhcpd_dns_enabled: true\n  dhcpd_dns_1: 192.0.2.1\n  dhcpdv6_dns_1: ''\nclients:\n- local_dns_record: host.lan\n";
 
+    [Theory]
+    [InlineData("dns1")]
+    [InlineData("dns_1")]
+    [InlineData("DNS-1")]
+    public void Count_LetterDigitBoundaryMatchesWithOrWithoutSeparator(string query)
+    {
+        const string yaml = "networks:\n- dhcpd_dns_1: 192.0.2.1\n  dhcpdv6_dns_1: ''\n  wan_dns1: 192.0.2.2\ndevices:\n- config_network:\n    dns1: 192.0.2.3\n";
+        CcFind.Count(yaml, query).Should().Be(4);
+    }
+
+    [Fact]
+    public void Count_DeviceDnsFindsManagementDns()
+    {
+        CcFind.Count("devices:\n- config_network:\n    dns1: 192.0.2.3\n    dns2: ''\n    dnssuffix: lan\n", "device DNS").Should().Be(3);
+    }
+
     [Fact]
     public void Count_DnsRecordsFindsCollectionAndClientRecords()
     {
