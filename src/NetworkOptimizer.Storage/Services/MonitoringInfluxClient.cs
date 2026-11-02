@@ -5029,8 +5029,12 @@ span |> last() |> yield(name: ""last"")";
         return results;
     }
 
+    // A peak is the highest 10 s mean, not the highest raw sample. A switch refreshes its counters
+    // slower than a 2 s poll, so single samples of a steady 6 Gbps transfer swing from 5 to 12 Gbps.
+    private const string PeakSmoothing = "10s";
+
     /// <summary>One window of a client's throughput, toward (tx) and from (rx) the client: the mean of
-    /// its samples and the highest one.</summary>
+    /// its samples and the highest 10 s mean (<see cref="PeakSmoothing"/>).</summary>
     public sealed record ThroughputWindowPoint(DateTime Time, double TxMeanBps, double RxMeanBps, double TxPeakBps, double RxPeakBps);
 
     /// <summary>
@@ -5078,9 +5082,9 @@ tx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.tx_throughput
 rx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.rx_throughput_bps then float(v: r.rx_throughput_bps) else 0.0}}))
 union(tables: [
   tx |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_mean""),
-  tx |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_max""),
+  tx |> aggregateWindow(every: {PeakSmoothing}, fn: mean, createEmpty: false) |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""tx_max""),
   rx |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_mean""),
-  rx |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_max"")])";
+  rx |> aggregateWindow(every: {PeakSmoothing}, fn: mean, createEmpty: false) |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> set(key: ""s"", value: ""rx_max"")])";
         return await ReadThroughputWindowsAsync(flux, ct);
     }
 
@@ -5104,7 +5108,7 @@ union(tables: [
   |> filter(fn: (r) => r._field == ""rate_out_bps"" or r._field == ""rate_in_bps"")
 union(tables: [
   base |> aggregateWindow(every: {every}, fn: mean, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_mean"" else ""rx_mean""}})),
-  base |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_max"" else ""rx_max""}}))])";
+  base |> aggregateWindow(every: {PeakSmoothing}, fn: mean, createEmpty: false) |> aggregateWindow(every: {every}, fn: max, createEmpty: false, timeSrc: ""_start"") |> map(fn: (r) => ({{r with s: if r._field == ""rate_out_bps"" then ""tx_max"" else ""rx_max""}}))])";
         return await ReadThroughputWindowsAsync(flux, ct);
     }
 
