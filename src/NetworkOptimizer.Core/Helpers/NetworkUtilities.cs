@@ -1006,4 +1006,19 @@ public static class NetworkUtilities
         if (string.IsNullOrWhiteSpace(dataPathIfName)) return false;
         return Regex.IsMatch(dataPathIfName.Trim(), @"^gre\d+$", RegexOptions.IgnoreCase);
     }
+
+    /// <summary>
+    /// True when a WAN's data-path interface name is a kernel WWAN device - "wwan0" - as the
+    /// cellular modem built into a UDR-5G-Max presents. Linux names only mobile-broadband network
+    /// devices this way (qmi_wwan, cdc_mbim, mhi_net), so a match identifies the medium as cellular.
+    ///
+    /// These are raw-IP, NOARP interfaces: the gateway has no Ethernet neighbor on them, and unlike
+    /// <see cref="IsUniFiCellularModemTunnel"/> there is no tunnel endpoint hop, so hop 1 is the carrier.
+    /// FALSE says nothing about the medium, for the same reasons as that method. Anchored likewise.
+    /// </summary>
+    public static bool IsWwanInterface(string? dataPathIfName)
+    {
+        if (string.IsNullOrWhiteSpace(dataPathIfName)) return false;
+        return Regex.IsMatch(dataPathIfName.Trim(), @"^wwan\d+$", RegexOptions.IgnoreCase);
+    }
 }
