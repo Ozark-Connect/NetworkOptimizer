@@ -318,12 +318,13 @@ public static class ZoneSetup
         {
             var preview = Plan(live, new ZoneSetupView { Mode = mode, Zones = view.Zones, Exceptions = exceptionViews.Select(e => new ZoneException { Key = e.Key, Name = e.Name }).ToList() });
             string ZoneId(ZoneDraft d) => d.ExistingId ?? NewZonePrefix + d.Key;
+            var allows = OperatorAllows(preview.Desired, preview.Desired.Get("firewall_policy"));
             foreach (var e in exceptionViews.Where(e => e.Applicable))
             {
                 var role = ExceptionDefs.First(d => d.Key == e.Key).Role;
                 var from = populated.First(z => z.Role == ZoneRole.Internal);
                 var to = populated.First(z => z.Role == role);
-                if (OperatorAllow(preview.Desired.Get("firewall_policy"), ZoneId(from), ZoneId(to)) is not { } covered) continue;
+                if (OperatorAllow(allows, ZoneId(from), ZoneId(to)) is not { } covered) continue;
                 e.CoveredBy = Str(covered, "name");
                 e.Why = $"Covered by your rule {e.CoveredBy}";
                 if (exceptions?.ContainsKey(e.Key) != true) e.Enabled = false;
@@ -347,11 +348,18 @@ public static class ZoneSetup
         return view;
     }
 
-    /// <summary>An operator allow in a zone pair: enabled, not UniFi's, not one Set Up Zones wrote.</summary>
-    private static JsonObject? OperatorAllow(IEnumerable<JsonObject> policies, string src, string dst) =>
-        policies.FirstOrDefault(p => Str(p, "action") == "ALLOW" && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
-            && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True && Str(p, "description") != "Set Up Zones"
-            && Str(p["source"]?["zone_id"]) == src && Str(p["destination"]?["zone_id"]) == dst);
+    /// <summary>
+    /// An operator allow in a zone pair, by the Audit's model: enabled, opens new connections, not UniFi's, not one Set Up
+    /// Zones wrote (that marker is config identity, read from the JSON). Any scope counts (#1332): the pair is the operator's.
+    /// </summary>
+    private static JsonObject? OperatorAllow(IReadOnlyDictionary<FirewallRule, JsonObject> allows, string src, string dst) =>
+        allows.FirstOrDefault(r => r.Key.SourceZoneId == src && r.Key.DestinationZoneId == dst).Value;
+
+    /// <summary>The operator allows <see cref="OperatorAllow"/> picks from, parsed once.</summary>
+    private static Dictionary<FirewallRule, JsonObject> OperatorAllows(ConfigState state, IEnumerable<JsonObject> policies) =>
+        ZonePaths.Parse(state, policies.Where(p => Str(p, "description") != "Set Up Zones"))
+            .Where(r => r.Key.Enabled && r.Key.ActionType.IsAllowAction() && r.Key.AllowsNewConnections() && !r.Key.Predefined)
+            .ToDictionary(r => r.Key, r => r.Value);
 
     /// <summary>
     /// An allow with no limit between two zones, by the Audit's model: all protocols, ports, and connection states, both
@@ -528,7 +536,9 @@ public static class ZoneSetup
         }
 
         // An operator allow already in the pair (re-homed or their own) covers the generic exception.
-        JsonObject? Covering(string src, string dst) => OperatorAllow(policies, src, dst);
+        // Parsed once: the loop below adds only Set Up Zones policies, which never count.
+        var operatorAllows = OperatorAllows(desired, policies);
+        JsonObject? Covering(string src, string dst) => OperatorAllow(operatorAllows, src, dst);
 
         foreach (var a in active)
             foreach (var b in active.Where(b => b != a))
@@ -540,8 +550,8 @@ public static class ZoneSetup
                     continue;
                 }
                 // Between two zones of one trust level the allow opens everything, so only a rule that does too covers it.
-                if (a.Role == b.Role && policies.FirstOrDefault(p => OperatorAllow([p], ids[a.Key], ids[b.Key]) != null
-                        && OpensWholePair(desired, p, ids[a.Key], a.NetworkIds, b.NetworkIds)) is { } whole)
+                if (a.Role == b.Role && operatorAllows.Where(r => r.Key.SourceZoneId == ids[a.Key] && r.Key.DestinationZoneId == ids[b.Key])
+                        .Select(r => r.Value).FirstOrDefault(p => OpensWholePair(desired, p, ids[a.Key], a.NetworkIds, b.NetworkIds)) is { } whole)
                 {
                     notes.Add($"{allow.Name}: covered by your rule {Str(whole, "name")}; not added.");
                     continue;

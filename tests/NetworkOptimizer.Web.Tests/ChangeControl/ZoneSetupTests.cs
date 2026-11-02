@@ -574,6 +574,38 @@ public class ZoneSetupTests
         ZoneSetup.Build(WithSubnetsAndGateway(), Networks, ZoneSetup.TrustMode).Exceptions.Single(e => e.Key == "casting").Enabled.Should().BeTrue("uncovered keeps its default");
     }
 
+    // Which operator allows in the exception's pair count as covering it (#1332: any allow the operator owns, whatever its scope).
+    [Theory]
+    [InlineData("as is", true)]
+    [InlineData("disabled", false)]
+    [InlineData("block", false)]
+    [InlineData("predefined", false)]
+    [InlineData("set up zones", false)]
+    [InlineData("scheduled", true)]
+    [InlineData("port subset", true)]
+    [InlineData("return only", false)]
+    public void Board_ExceptionCoverage_ByRuleShape(string shape, bool covered)
+    {
+        var live = WithSubnetsAndGateway();
+        var rule = Rule("p-phone", "[IoT] Allow Phone Inbound Access", "ALLOW", Side("z-int", "IP", ips: ["10.0.1.20"]), Side("z-int", "NETWORK", ["n-iot"]));
+        switch (shape)
+        {
+            case "disabled": rule["enabled"] = false; break;
+            case "block": rule["action"] = "BLOCK"; break;
+            case "predefined": rule["predefined"] = true; break;
+            case "set up zones": rule["description"] = "Set Up Zones"; break;
+            case "scheduled": rule["schedule"] = new JsonObject { ["mode"] = "EVERY_DAY", ["time_range_start"] = "08:00", ["time_range_end"] = "17:00" }; break;
+            case "port subset": rule["protocol"] = "tcp"; ((JsonObject)rule["destination"]!)["port"] = "8009"; ((JsonObject)rule["destination"]!)["port_matching_type"] = "SPECIFIC"; break;
+            case "return only": rule["connection_state_type"] = "RESPOND_ONLY"; break;
+        }
+        live.Collections["firewall_policy"].Add(rule);
+
+        var casting = ZoneSetup.Build(live, Networks, ZoneSetup.TrustMode).Exceptions.Single(e => e.Key == "casting");
+
+        (casting.CoveredBy != null).Should().Be(covered);
+        casting.Enabled.Should().Be(!covered);
+    }
+
     [Fact]
     public void Rehome_ByAddress_FollowsTheSubnet()
     {
