@@ -128,6 +128,24 @@ public class AuditRequest
     public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
 
     /// <summary>
+    /// Optional: Console accounts (GetConsoleUsersAsync). Null when the connection cannot read them;
+    /// the unused local admin check is then skipped.
+    /// </summary>
+    public List<UniFiOsUser>? ConsoleUsers { get; init; }
+
+    /// <summary>
+    /// Optional: Console API keys (GetConsoleApiKeysAsync). Null when the connection cannot read them;
+    /// the unused API key check is then skipped.
+    /// </summary>
+    public List<UniFiOsApiKey>? ConsoleApiKeys { get; init; }
+
+    /// <summary>
+    /// Optional: The account Network Optimizer signs in as. It is in use by definition, so the unused
+    /// local admin check skips it whatever its last sign-in time says.
+    /// </summary>
+    public string? ConnectedUsername { get; init; }
+
+    /// <summary>
     /// Optional: Network configurations from /rest/networkconf API.
     /// Used to determine the External/WAN firewall zone ID for firewall rule analysis.
     /// </summary>

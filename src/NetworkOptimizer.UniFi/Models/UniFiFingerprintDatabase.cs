@@ -4,31 +4,6 @@ using System.Text.Json.Serialization;
 namespace NetworkOptimizer.UniFi.Models;
 
 /// <summary>
-/// Converter that handles both string and number JSON values, converting to string
-/// </summary>
-public class StringOrNumberConverter : JsonConverter<string?>
-{
-    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        return reader.TokenType switch
-        {
-            JsonTokenType.String => reader.GetString(),
-            JsonTokenType.Number => reader.GetInt64().ToString(),
-            JsonTokenType.Null => null,
-            _ => throw new JsonException($"Unexpected token type: {reader.TokenType}")
-        };
-    }
-
-    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
-    {
-        if (value == null)
-            writer.WriteNullValue();
-        else
-            writer.WriteStringValue(value);
-    }
-}
-
-/// <summary>
 /// Response from /proxy/network/v2/api/fingerprint_devices/{index}
 /// Contains the UniFi device fingerprint database mappings
 /// </summary>
@@ -121,21 +96,21 @@ public class FingerprintDeviceEntry
     /// Device type category ID (maps to dev_type_ids)
     /// </summary>
     [JsonPropertyName("dev_type_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? DevTypeId { get; set; }
 
     /// <summary>
     /// Device family ID (maps to family_ids)
     /// </summary>
     [JsonPropertyName("family_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? FamilyId { get; set; }
 
     /// <summary>
     /// Vendor ID (maps to vendor_ids)
     /// </summary>
     [JsonPropertyName("vendor_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? VendorId { get; set; }
 
     /// <summary>
@@ -148,34 +123,34 @@ public class FingerprintDeviceEntry
     /// OS class ID
     /// </summary>
     [JsonPropertyName("os_class_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? OsClassId { get; set; }
 
     /// <summary>
     /// OS name ID
     /// </summary>
     [JsonPropertyName("os_name_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? OsNameId { get; set; }
 
     /// <summary>
     /// Facebook device ID (for social device detection)
     /// </summary>
     [JsonPropertyName("fb_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? FbId { get; set; }
 
     /// <summary>
     /// TradeMark ID
     /// </summary>
     [JsonPropertyName("tm_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? TmId { get; set; }
 
     /// <summary>
     /// Category tag ID
     /// </summary>
     [JsonPropertyName("ctag_id")]
-    [JsonConverter(typeof(StringOrNumberConverter))]
+    [JsonConverter(typeof(FlexibleStringOrNumberConverter))]
     public string? CtagId { get; set; }
 }

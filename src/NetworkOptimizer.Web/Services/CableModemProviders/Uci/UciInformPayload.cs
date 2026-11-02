@@ -72,16 +72,16 @@ public sealed class UciChannelRow
 
     /// <summary>Center frequency. Seen as MHz; <see cref="UciStatsMapper"/> also accepts Hz.</summary>
     [JsonPropertyName("freq")]
-    [JsonConverter(typeof(UciFlexibleStringConverter))]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? Frequency { get; set; }
 
     [JsonPropertyName("modulation")]
-    [JsonConverter(typeof(UciFlexibleStringConverter))]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? Modulation { get; set; }
 
     /// <summary>Lock state, "Locked" when locked.</summary>
     [JsonPropertyName("state")]
-    [JsonConverter(typeof(UciFlexibleStringConverter))]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? State { get; set; }
 
     /// <summary>Power in dBmV (receive downstream, transmit upstream).</summary>
@@ -120,30 +120,4 @@ public sealed class UciStateTable
 
     [JsonPropertyName("ci_mode")]
     public string? Mode { get; set; }
-}
-
-/// <summary>Reads a string, a number, or a bool as its text; null for anything else.</summary>
-public sealed class UciFlexibleStringConverter : JsonConverter<string?>
-{
-    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        reader.TokenType switch
-        {
-            JsonTokenType.String => reader.GetString(),
-            JsonTokenType.Number => System.Text.Encoding.UTF8.GetString(reader.ValueSpan),
-            JsonTokenType.True => "true",
-            JsonTokenType.False => "false",
-            _ => SkipAndNull(ref reader),
-        };
-
-    private static string? SkipAndNull(ref Utf8JsonReader reader)
-    {
-        reader.Skip();
-        return null;
-    }
-
-    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
-    {
-        if (value == null) writer.WriteNullValue();
-        else writer.WriteStringValue(value);
-    }
 }
