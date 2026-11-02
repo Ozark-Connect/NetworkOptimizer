@@ -349,6 +349,37 @@ public class ConfigAuditEngineTests
     }
 
     [Fact]
+    public async Task RunAudit_UnusedConsoleCredentials_RaisesConsoleAccessIssues()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var result = await _engine.RunAuditAsync(new AuditRequest
+        {
+            DeviceDataJson = "[]",
+            ConsoleApiKeys = [new UniFiOsApiKey { Name = "Old", CreatedAt = now.AddDays(-90), LastUsedAt = now.AddDays(-45) }],
+            ConsoleUsers =
+            [
+                new UniFiOsUser
+                {
+                    FullName = "Admin1", Status = "ACTIVE", OnlyLocalAccount = true,
+                    CreateTime = now.AddDays(-90).ToUnixTimeSeconds(), LoginTime = now.AddDays(-10).ToUnixTimeSeconds(),
+                    Roles = [new UniFiOsRole { SystemKey = "super_administrator" }]
+                }
+            ]
+        });
+
+        result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.UnusedApiKeys && i.Severity == AuditSeverity.Critical);
+        result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.UnusedLocalAdmins && i.Severity == AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public async Task RunAudit_NoConsoleAccessData_RaisesNoConsoleAccessIssues()
+    {
+        var result = await _engine.RunAuditAsync(new AuditRequest { DeviceDataJson = "[]" });
+
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UnusedApiKeys || i.Type == IssueTypes.UnusedLocalAdmins);
+    }
+
+    [Fact]
     public async Task RunAudit_InvalidJson_ThrowsInvalidOperationException()
     {
         var act = async () => await _engine.RunAuditAsync("not valid json");

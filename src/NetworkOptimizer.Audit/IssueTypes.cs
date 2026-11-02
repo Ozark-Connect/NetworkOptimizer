@@ -93,4 +93,8 @@ public static class IssueTypes
 
     // Threat Intelligence
     public const string ThreatExposedPortForward = "THREAT_EXPOSED_PORT_FORWARD";
+
+    // Console Access
+    public const string UnusedApiKeys = "CONSOLE_UNUSED_API_KEYS";
+    public const string UnusedLocalAdmins = "CONSOLE_UNUSED_LOCAL_ADMINS";
 }

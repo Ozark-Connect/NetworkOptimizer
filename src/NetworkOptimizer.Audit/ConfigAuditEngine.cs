@@ -30,6 +30,7 @@ public class ConfigAuditEngine
     private readonly FirewallRuleAnalyzer _firewallAnalyzer;
     private readonly DnsSecurityAnalyzer _dnsAnalyzer;
     private readonly UpnpSecurityAnalyzer _upnpAnalyzer;
+    private readonly ConsoleAccessAnalyzer _consoleAccessAnalyzer;
     private readonly AuditScorer _scorer;
 
     /// <summary>
@@ -56,6 +57,9 @@ public class ConfigAuditEngine
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
         public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
+        public List<UniFiOsUser>? ConsoleUsers { get; init; }
+        public List<UniFiOsApiKey>? ConsoleApiKeys { get; init; }
+        public string? ConnectedUsername { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -162,6 +166,7 @@ public class ConfigAuditEngine
             new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3) });
         _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>(), thirdPartyDetector);
         _upnpAnalyzer = new UpnpSecurityAnalyzer(loggerFactory.CreateLogger<UpnpSecurityAnalyzer>());
+        _consoleAccessAnalyzer = new ConsoleAccessAnalyzer(loggerFactory.CreateLogger<ConsoleAccessAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
 
@@ -319,6 +324,7 @@ public class ConfigAuditEngine
         await ExecutePhase5b_AnalyzeDnsSecurityAsync(ctx);
         ExecutePhase5c_AnalyzeUpnpSecurity(ctx);
         ExecutePhase5d_AnalyzeThreatExposure(ctx);
+        ExecutePhase5e_AnalyzeConsoleAccess(ctx);
         ExecutePhase6_AnalyzeHardeningMeasures(ctx);
 
         // Build and score the final result
@@ -438,6 +444,9 @@ public class ConfigAuditEngine
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules,
             NetworkConfigs = request.NetworkConfigs,
+            ConsoleUsers = request.ConsoleUsers,
+            ConsoleApiKeys = request.ConsoleApiKeys,
+            ConnectedUsername = request.ConnectedUsername,
             FirewallZones = request.FirewallZones,
             ZoneLookup = zoneLookup,
             ExternalZoneId = externalZoneId,
@@ -1114,6 +1123,20 @@ public class ConfigAuditEngine
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Phase 5e: unused console API keys and local admin accounts. Each list is null when the
+    /// connection could not read it, and that half is skipped.
+    /// </summary>
+    private void ExecutePhase5e_AnalyzeConsoleAccess(AuditContext ctx)
+    {
+        if (ctx.ConsoleUsers == null && ctx.ConsoleApiKeys == null)
+            return;
+
+        _logger.LogInformation("Phase 5e: Analyzing console access");
+        ctx.AllIssues.AddRange(_consoleAccessAnalyzer.Analyze(
+            ctx.ConsoleUsers, ctx.ConsoleApiKeys, DateTimeOffset.UtcNow, ctx.ConnectedUsername));
     }
 
     /// <summary>

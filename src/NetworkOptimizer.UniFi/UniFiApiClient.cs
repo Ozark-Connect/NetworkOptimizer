@@ -946,6 +946,11 @@ public class UniFiApiClient : IDisposable
     public bool IsUniFiOs => _isUniFiOs;
 
     /// <summary>
+    /// The account this connection signs in as; null for an API-key connection.
+    /// </summary>
+    public string? SignInUsername => string.IsNullOrEmpty(_apiKey) && !string.IsNullOrEmpty(_username) ? _username : null;
+
+    /// <summary>
     /// Gets whether this is a standalone Network controller (uses /api/login instead of /api/auth/login)
     /// </summary>
     public bool IsStandaloneNetworkController => _useStandaloneLogin;
@@ -1292,6 +1297,66 @@ public class UniFiApiClient : IDisposable
         }
 
         return result;
+    }
+
+    #endregion
+
+    #region Console Accounts (UniFi OS Users app)
+
+    /// <summary>
+    /// GET /proxy/users/api/v2/users - console accounts (Admins &amp; Users).
+    /// Null when this connection cannot read them (not UniFi OS, or the account lacks permission).
+    /// </summary>
+    [VendorSpecific("UniFi", "UniFi OS Users app GET /proxy/users/api/v2/users")]
+    public Task<List<UniFiOsUser>?> GetConsoleUsersAsync(CancellationToken cancellationToken = default)
+        => GetUsersAppListAsync<UniFiOsUser>("users", cancellationToken);
+
+    /// <summary>
+    /// GET /proxy/users/api/v2/keys - console API keys.
+    /// Null when this connection cannot read them (not UniFi OS, or the account lacks permission).
+    /// </summary>
+    [VendorSpecific("UniFi", "UniFi OS Users app GET /proxy/users/api/v2/keys")]
+    public Task<List<UniFiOsApiKey>?> GetConsoleApiKeysAsync(CancellationToken cancellationToken = default)
+        => GetUsersAppListAsync<UniFiOsApiKey>("keys", cancellationToken);
+
+    private async Task<List<T>?> GetUsersAppListAsync<T>(string resource, CancellationToken cancellationToken)
+    {
+        if (!_isUniFiOs || !await EnsureAuthenticatedAsync(cancellationToken))
+            return null;
+
+        var url = $"{_controllerUrl}/proxy/users/api/v2/{resource}";
+
+        return await ExecuteRequestAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            // No re-auth on 401/403: an account without user-management permission always gets one,
+            // and signing in again would not change that.
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Console {Resource} unavailable to this connection: {StatusCode}", resource, response.StatusCode);
+                return null;
+            }
+
+            UniFiOsUsersAppResponse<T>? body;
+            try
+            {
+                body = await response.Content.ReadFromJsonAsync<UniFiOsUsersAppResponse<T>>(cancellationToken: cancellationToken);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Console {Resource}: unexpected response shape", resource);
+                return null;
+            }
+
+            if (body?.Data == null)
+                return null;
+
+            if (body.Total > body.Data.Count)
+                _logger.LogWarning("Console {Resource}: received {Count} of {Total}", resource, body.Data.Count, body.Total);
+
+            return body.Data;
+        });
     }
 
     #endregion
