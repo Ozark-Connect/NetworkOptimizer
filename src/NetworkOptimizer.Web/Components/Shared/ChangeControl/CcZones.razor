@@ -304,6 +304,8 @@ else
         finally
         {
             if (version == _version) _checking = false;
+            // A rename arrives through InlineEditField's handler, which re-renders only that child.
+            StateHasChanged();
         }
     }
 
