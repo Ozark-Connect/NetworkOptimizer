@@ -41,6 +41,17 @@ public class UpstreamTracerL2NeighborTests
             .Value.Ip.Should().Be("203.0.113.1");
     }
 
+    [Theory]
+    [InlineData("gre1", true)]     // UniFi Cellular Modem tunnel
+    [InlineData("wwan0", true)]    // built-in modem (UDR-5G-Max)
+    [InlineData("eth8", false)]
+    [InlineData("ppp0", false)]
+    [InlineData(null, false)]
+    public void Cellular_uplinks_skip_the_neighbor_lookup(string? uplink, bool expected)
+    {
+        UpstreamTracerService.IsCellularUplinkWithoutNeighbor(uplink).Should().Be(expected);
+    }
+
     [Fact]
     public void SelectWanDefaultGateway_finds_the_wan_table_default()
     {

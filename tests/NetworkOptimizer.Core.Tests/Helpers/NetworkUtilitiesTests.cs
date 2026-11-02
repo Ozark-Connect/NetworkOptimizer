@@ -755,6 +755,36 @@ public class NetworkUtilitiesTests
         NetworkUtilities.IsPppoeInterface(ifName).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("gre0", true)]
+    [InlineData("gre1", true)]
+    [InlineData("GRE1", true)]              // case-insensitive
+    [InlineData("gretap0", false)]          // anchored: not a UniFi Cellular Modem tunnel
+    [InlineData("wwan0", false)]            // built-in modem, no tunnel
+    [InlineData("eth4", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsUniFiCellularModemTunnel_MatchesOnlyGreInterfaces(string? ifName, bool expected)
+    {
+        NetworkUtilities.IsUniFiCellularModemTunnel(ifName).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("wwan0", true)]
+    [InlineData("wwan1", true)]
+    [InlineData("WWAN0", true)]             // case-insensitive
+    [InlineData("wwan0qmi0", false)]        // the QMI device node name, not a netdev
+    [InlineData("wwan", false)]             // no unit number
+    [InlineData("xwwan0", false)]           // anchored: no leading junk
+    [InlineData("gre1", false)]
+    [InlineData("eth8", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsWwanInterface_MatchesOnlyWwanInterfaces(string? ifName, bool expected)
+    {
+        NetworkUtilities.IsWwanInterface(ifName).Should().Be(expected);
+    }
+
     #endregion
 
     #region ComposeAuthority Tests
