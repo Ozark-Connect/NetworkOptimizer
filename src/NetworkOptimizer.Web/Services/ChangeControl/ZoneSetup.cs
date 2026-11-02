@@ -222,6 +222,13 @@ public static class ZoneSetup
             Zone("internal", "Internal", ZoneRole.Internal);
         foreach (var name in addedZones ?? [])
             Zone("custom-" + name.Trim().ToLowerInvariant().Replace(' ', '-'), name.Trim(), ZoneRole.Custom);
+        // By purpose creates its columns as networks need them, so an operator zone named for a network's purpose
+        // ("IoT" holding an IoT network) becomes that column, with its role, as the trust columns find it up front.
+        if (mode == PurposeMode)
+            foreach (var n in networks.Where(n => !external.Contains(n.Id)))
+                if (zoneOf.TryGetValue(n.Id, out var current) && ZonePaths.IsCustom(current) && Bucket(n.Purpose, mode) is { Role: { } role } bucket
+                    && string.Equals(Str(current, "name"), bucket.Name, StringComparison.OrdinalIgnoreCase))
+                    Zone(bucket.Key, bucket.Name, role);
         // A network already in a zone the operator built stays there; its column is kept so it can be dragged back.
         foreach (var current in networks.Where(n => !external.Contains(n.Id)).Select(n => zoneOf.GetValueOrDefault(n.Id)).OfType<JsonObject>()
                      .Where(ZonePaths.IsCustom).DistinctBy(ConfigState.IdOf))

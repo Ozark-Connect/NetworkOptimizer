@@ -1409,6 +1409,27 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void PurposeMode_AnOperatorZoneNamedForThePurpose_KeepsItsRole()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Remove(
+            live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().First(i => i!.ToString() == "n-iot"));
+        live.Collections["firewall_zone"].Add(Zone("z-iot", "IoT", null, "n-iot"));
+        live.Collections["firewall_zone"].Add(Zone("z-zt", "Zero Trust", null));
+        live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-zt")["network_ids"]!.AsArray().Add("n-media");
+        live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().Remove(
+            live.Get("firewall_zone").First(z => z["_id"]!.ToString() == "z-int")["network_ids"]!.AsArray().First(i => i!.ToString() == "n-media"));
+
+        var board = ZoneSetup.Build(live, Networks, ZoneSetup.PurposeMode);
+
+        var iot = board.Zones.Single(z => z.ExistingId == "z-iot");
+        iot.Role.Should().Be(ZoneRole.IoT);
+        iot.Kept.Should().BeFalse();
+        board.Zones.Single(z => z.ExistingId == "z-zt").Kept.Should().BeTrue("a zone not named for the purpose stays the operator's");
+        board.Exceptions.Single(e => e.Key == "casting").Applicable.Should().BeTrue();
+    }
+
+    [Fact]
     public void ServersAllow_IsUnticked_WhenTheOperatorsOwnRuleCoversIt()
     {
         var live = WithSubnetsAndGateway();
