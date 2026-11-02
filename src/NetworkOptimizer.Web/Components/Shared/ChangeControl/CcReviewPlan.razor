@@ -39,6 +39,7 @@ else
     var tierCount = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge);
     var acked = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge && _acks.Items.Contains(o.Key));
     var leftOut = PlanReadiness.LeftOut(doc, _acks.Excluded);
+    var (watchDevices, watchInternet) = PlanReadiness.Watches(doc, leftOut);
     var columns = editable ? 7 : 6;
     var gatewaySteps = doc.WriteOrder.Count(s => s.Detail.Contains("gateway provision", StringComparison.OrdinalIgnoreCase));
 
@@ -97,7 +98,7 @@ else
                 <div>
                     <div class="cc-item-title">@lockout.Title</div>
                     <div class="cc-item-detail">@lockout.Detail @(PlanCoordinator.MovesConsolePath(doc) ? "Devices drop until the UniFi Console is at its new address. Network Optimizer alerts instead of reverting this plan."
-                        : doc.WatchDevices ? $"If it goes offline, Network Optimizer reverts the plan within {_view.WatchMinutes} minutes." : "")</div>
+                        : watchDevices ? $"If it goes offline, Network Optimizer reverts the plan within {_view.WatchMinutes} minutes." : "")</div>
                     @if (lockout == doc.Lockouts.Last() && editable)
                     {
                         <div class="cc-confirm">
@@ -451,16 +452,16 @@ else
                     }
                 </fieldset>
                 <p class="cc-item-detail" style="margin-top:0.75rem">
-                    @if (doc.WatchDevices || doc.WatchInternet)
+                    @if (watchDevices || watchInternet)
                     {
                         <b>Commit-confirmed: @_view.WatchMinutes minutes.</b>
                         @if (PlanCoordinator.MovesConsolePath(doc))
                         {
-                            <span> Network Optimizer watches @(doc.WatchDevices ? "every device" : "")@(doc.WatchDevices && doc.WatchInternet ? " and " : "")@(doc.WatchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this plan: devices reach the console at its old address until the console moves too.</span>
+                            <span> Network Optimizer watches @(watchDevices ? "every device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this plan: devices reach the console at its old address until the console moves too.</span>
                         }
                         else
                         {
-                            <span> Network Optimizer watches @(doc.WatchDevices ? "every device" : "")@(doc.WatchDevices && doc.WatchInternet ? " and " : "")@(doc.WatchInternet ? "internet reachability" : ""). If either fails, it reverts the plan and alerts.</span>
+                            <span> Network Optimizer watches @(watchDevices ? "every device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""). If either fails, it reverts the plan and alerts.</span>
                         }
                     }
                     else

@@ -59,6 +59,17 @@ public static class PlanReadiness
         var left = LeftOut(doc, excluded);
         doc.Operations.RemoveAll(o => left.Contains(o.Key));
         doc.Lockouts.RemoveAll(l => l.OperationKeys.Count > 0 && l.OperationKeys.All(left.Contains));
+        (doc.WatchDevices, doc.WatchInternet) = Watches(doc, left);
+    }
+
+    /// <summary>
+    /// The plan's commit-confirmed watches that the operations still ticked need: devices for a management-path
+    /// write, internet for a WAN one. Leaving items out only clears a watch, never adds one the plan did not have.
+    /// </summary>
+    public static (bool Devices, bool Internet) Watches(PlanDocument doc, IReadOnlySet<string> leftOut)
+    {
+        var applying = doc.Operations.Where(o => !leftOut.Contains(o.Key)).ToList();
+        return (doc.WatchDevices && applying.Any(o => o.ManagementPath), doc.WatchInternet && applying.Any(o => o.WanPath));
     }
 
     /// <summary>Items still open, empty when the plan can apply.</summary>

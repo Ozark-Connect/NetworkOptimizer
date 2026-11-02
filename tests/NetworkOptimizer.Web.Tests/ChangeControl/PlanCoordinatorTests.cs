@@ -402,4 +402,29 @@ public sealed class PlanCoordinatorTests : IDisposable
             _plans.ZonesChanged = null;
         }
     }
+
+    [Fact]
+    public async Task UntickedManagementPathItem_AppliesTheRestWithoutAWatch()
+    {
+        var desired = _console.State.Clone();
+        desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
+        desired.Collections["portconf"][1]["name"] = "Camera Ports";
+        var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Port and profile", "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "device", "portconf" } }, "Alex", CancellationToken.None);
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        doc.Operations.Single(o => o.Collection == "portconf").ManagementPath.Should().BeFalse();
+        doc.WatchDevices.Should().BeTrue();
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements
+        {
+            Items = doc.Operations.Select(o => o.Key).ToHashSet(),
+            Excluded = doc.Operations.Where(o => o.ManagementPath).Select(o => o.Key).ToHashSet(),
+        }, CancellationToken.None);
+
+        var why = await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), requireApproval: false, automatic: false, CancellationToken.None);
+
+        why.Should().BeNull();
+        var applied = (await PlanAsync(plan.Id))!;
+        applied.Status.Should().Be(ConfigPlanStatus.Applied, "only the profile rename applied, which needs no commit-confirmed watch");
+        (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value.Doc.WatchDevices.Should().BeFalse();
+    }
 }
