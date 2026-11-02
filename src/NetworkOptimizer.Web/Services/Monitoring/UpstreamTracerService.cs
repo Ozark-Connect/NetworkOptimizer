@@ -806,15 +806,15 @@ public class UpstreamTracerService
         State.WanIpAddress = wanIp;
         State.WanIpClass = NetworkUtilities.ClassifyPublicAddress(wanIp);
 
-        // A gre* uplink is a UniFi Cellular Modem attached to the gateway, and nothing else on the
-        // gateway presents a WAN that way, so this WAN's medium is known from the interface rather
-        // than guessed from whoever answered. It settles only this case: a third-party modem or a
+        // A gre* uplink is a UniFi Cellular Modem attached to the gateway, and a wwan* uplink is a
+        // modem built into it (UDR-5G-Max), so this WAN's medium is known from the interface rather
+        // than guessed from whoever answered. It settles only these cases: a third-party modem or a
         // bridged carrier router is equally cellular and looks like an ordinary WAN, so those still
         // rely on the inference below or on the user. Decided HERE rather than beside the vendor
-        // inference because a GRE tunnel has no ARP neighbor, so that step returns early on exactly
-        // these WANs and never reaches it. Still only fills an empty slot.
+        // inference because neither interface has an ARP neighbor, so that step returns early on
+        // exactly these WANs and never reaches it. Still only fills an empty slot.
         if (State.AccessTechnology is AccessTechnology.Unknown or AccessTechnology.PppoE
-            && NetworkUtilities.IsUniFiCellularModemTunnel(_wanUplinkIfName))
+            && IsCellularUplinkWithoutNeighbor(_wanUplinkIfName))
         {
             State.AccessTechnology = AccessTechnology.Cellular;
             State.AccessTechnologyInferred = true;
@@ -881,6 +881,16 @@ public class UpstreamTracerService
     private async Task<bool> DiscoverL2NeighborAsync(CancellationToken ct)
     {
         State.Step = TracerStep.DiscoveringL2Neighbor;
+
+        // A GRE tunnel and a raw-IP WWAN device both carry IP with no link layer, so `ip neigh`
+        // can never answer on them. Say so instead of reporting a failed lookup.
+        if (IsCellularUplinkWithoutNeighbor(_wanUplinkIfName))
+        {
+            _logger.LogDebug("Tracer: skipping L2 neighbor lookup on the {Uplink} cellular uplink", _wanUplinkIfName);
+            State.CurrentActivity = "Cellular modem uplink: it has no Ethernet neighbor to identify, so the first upstream device comes from traceroute.";
+            return true;
+        }
+
         State.CurrentActivity = "Identifying the first device upstream of your gateway...";
 
         // OS interface candidates, authoritative-first:
@@ -1022,6 +1032,13 @@ public class UpstreamTracerService
 
         return true;
     }
+
+    /// <summary>
+    /// True for a cellular uplink with no link-layer neighbor: a UniFi Cellular Modem's GRE tunnel
+    /// or a built-in modem's WWAN device. Only the GRE case adds a tunnel-endpoint hop.
+    /// </summary>
+    internal static bool IsCellularUplinkWithoutNeighbor(string? uplinkIfName) =>
+        NetworkUtilities.IsUniFiCellularModemTunnel(uplinkIfName) || NetworkUtilities.IsWwanInterface(uplinkIfName);
 
     /// <summary>
     /// Parses `ip route show table all` output for the default route egressing the given
