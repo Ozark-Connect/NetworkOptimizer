@@ -14,7 +14,7 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { valueSortedTooltip } from './chart-tooltip.js?v=18';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createMarkLayer } from './chart-event-marks.js?v=9';
+import { createMarkLayer } from './chart-event-marks.js?v=10';
 import { createAxisDateCaption } from './chart-axis-date.js?v=4';
 
 const HISTORY_MINUTES = 5;

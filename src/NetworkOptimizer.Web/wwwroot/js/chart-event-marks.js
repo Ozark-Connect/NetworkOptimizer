@@ -116,11 +116,17 @@ export function createMarkLayer({ charts, onAction }) {
     // and mapped back to the mark by a token only this layer hands out.
     const layerId = ++layerCount;
     const actions = new Map();
-    // An action navigates away from the mark, so its tooltip goes: the marker's own (Tippy keeps
-    // the instance on the reference) and any popper still open (Tippy keeps it on the root too).
+    // The tooltip goes only if the action moves the page: the first scroll after the click (any
+    // container, hence capture) hides the marker's own (Tippy keeps the instance on the reference)
+    // and any popper still open. An action that scrolls nothing leaves it standing.
     const runAction = (mark, reference) => {
-        reference?._tippy?.hide();
-        document.querySelectorAll('[data-tippy-root]').forEach(p => p._tippy?.hide());
+        const hide = () => {
+            document.removeEventListener('scroll', hide, true);
+            reference?._tippy?.hide();
+            document.querySelectorAll('[data-tippy-root]').forEach(p => p._tippy?.hide());
+        };
+        document.addEventListener('scroll', hide, true);
+        setTimeout(() => document.removeEventListener('scroll', hide, true), 1500);
         onAction(mark);
     };
     const onDocumentClick = (e) => {
