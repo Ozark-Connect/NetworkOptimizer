@@ -751,7 +751,8 @@ public static class ZoneSetup
     /// External or the Gateway, and allows to a DNS resolver, are copied to each new zone in order: UniFi allows a custom
     /// zone everything out, so the protection is lost otherwise. Network Optimizer's own blocklists are never copied:
     /// Threat Intelligence - Blocking writes one per zone itself. Other allows to LAN zones are not carried, so the
-    /// new zone stays isolated; each is named in a note.
+    /// new zone stays isolated; each is named in a note. Zone-wide policies into the zone are carried to the new zone
+    /// when it was an operator zone, and resolver allows from any zone.
     /// </summary>
     private static void CopyZoneWide(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved, Dictionary<string, string> oldZoneOf,
         Dictionary<string, string> newZoneOf, Dictionary<string, string> zoneKey, Func<string?, string> zoneName, List<string> notes, ref int n)
@@ -817,6 +818,44 @@ public static class ZoneSetup
             if (isolated.Count > 0)
                 notes.Add($"Firewall Policy {name} ({zoneName(from)} to {zoneName(dstZone)}): not carried to {Join(isolated, "or")}, which "
                     + (isolated.Count == 1 ? "stays" : "stay") + $" isolated. Copy it in the Edit tab if {Join(isolated, "or")} needs it.");
+        }
+
+        // Zone-wide policies INTO a zone that loses networks. An operator zone's inbound policies are about its own
+        // networks, so they all follow them; into a built-in zone only a resolver allow does, since its other inbound
+        // allows serve the networks that stay.
+        var inbound = live.Get("firewall_policy")
+            .Where(p => def.IsGenerated?.Invoke(p) != true && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+                        && ConfigCollections.OwnedBy(def, p) == null
+                        && ZoneWide(p["destination"] as JsonObject) && Str(p["destination"]?["zone_id"]) is { } z && lanTargets.ContainsKey(z))
+            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+        foreach (var t in inbound)
+        {
+            var into = Str(t["destination"]?["zone_id"])!;
+            var srcZone = Str(t["source"]?["zone_id"]);
+            var name = Str(t, "name") ?? "";
+            var operatorZone = zoneKey.GetValueOrDefault(into) == "";
+            var resolver = Str(t, "action") == "ALLOW" && CoversPort(t["destination"] as JsonObject, 53, groups);
+            var skipped = new List<string>();
+            foreach (var to in lanTargets[into])
+            {
+                // Within a zone is the within-zone allow's job.
+                if (string.Equals(to, srcZone, StringComparison.OrdinalIgnoreCase) || string.Equals(into, srcZone, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!operatorZone && !resolver)
+                {
+                    if (Str(t, "action") == "ALLOW") skipped.Add(zoneName(to));
+                    continue;
+                }
+                var copyName = NameFor(name, zoneName(into), zoneName(to));
+                if (policies.Any(p => Str(p, "name") == copyName && Str(p["destination"]?["zone_id"]) == to)) continue;
+                var copy = (JsonObject)t.DeepClone();
+                copy["_id"] = NewPolicyPrefix + ++n;
+                copy["name"] = copyName;
+                ((JsonObject)copy["destination"]!)["zone_id"] = to;
+                policies.Add(copy);
+            }
+            if (skipped.Count > 0)
+                notes.Add($"Firewall Policy {name} ({zoneName(srcZone)} to {zoneName(into)}): not carried to {Join(skipped, "or")}. "
+                    + $"Copy it in the Edit tab if {zoneName(srcZone)} needs to reach {Join(skipped, "or")}.");
         }
     }
 

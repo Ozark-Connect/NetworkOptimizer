@@ -1228,6 +1228,46 @@ public class ZoneSetupTests
     }
 
     [Fact]
+    public void ZoneWideAllowsIntoAnOperatorZone_FollowItsNetworkToTheNewZone()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-dns", ["name"] = "DNS Servers", ["vlan"] = 53, ["ip_subnet"] = "10.0.53.1/24" });
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-zt", ["name"] = "Zero Trust", ["vlan"] = 200, ["ip_subnet"] = "10.0.200.1/24" });
+        live.Collections["firewall_zone"].Add(Zone("z-dns", "DNS Servers", null, "n-dns"));
+        live.Collections["firewall_zone"].Add(Zone("z-zt", "Zero Trust", null, "n-zt"));
+        live.Collections["firewall_policy"].Add(Predefined("z-zt", "z-dns", "BLOCK"));
+        live.Collections["firewall_policy"].Add(Rule("p-zt", "[DNS] ZT Access", "ALLOW", Side("z-zt"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
+        live.Collections["firewall_policy"].Add(Rule("p-int", "[DNS] VLANs to Pi-hole", "ALLOW", Side("z-int"), Side("z-dns", port: "53"), protocol: "tcp_udp"));
+        var networks = Networks.Append(Net("n-dns", "DNS Servers", 53, NetworkPurpose.Server)).Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.IoT)).ToList();
+        var board = ZoneSetup.Build(live, networks, ZoneSetup.TrustMode, moves: new Dictionary<string, string> { ["n-dns"] = "servers" });
+
+        var plan = ZoneSetup.Plan(live, board);
+
+        Members(plan.Desired, "Servers").Should().Equal(["n-dns"]);
+        var zt = Named(plan.Desired, "[DNS] ZT Access (Servers)")!;
+        zt["source"]!["zone_id"]!.ToString().Should().Be("z-zt");
+        zt["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-servers");
+        zt["destination"]!["port"]!.ToString().Should().Be("53");
+        Named(plan.Desired, "[DNS] VLANs to Pi-hole (Servers)")!["destination"]!["zone_id"]!.ToString().Should().Be("new-zone-servers");
+        ZonePaths.Allows(plan.Desired, "n-zt", "10.0.53.10", "udp", 53).Should().BeTrue("Zero Trust reached the resolver before the move");
+    }
+
+    [Fact]
+    public void ZoneWideAllowsIntoInternal_AreNotCarried_UnlessTheyReachAResolver()
+    {
+        var live = WithSubnetsAndGateway();
+        live.Collections["networkconf"].Add(new JsonObject { ["_id"] = "n-zt", ["name"] = "Zero Trust", ["vlan"] = 200, ["ip_subnet"] = "10.0.200.1/24" });
+        live.Collections["firewall_zone"].Add(Zone("z-zt", "Zero Trust", null, "n-zt"));
+        live.Collections["firewall_policy"].Add(Rule("p-web", "ZT to Home Assistant", "ALLOW", Side("z-zt"), Side("z-int", port: "8123"), protocol: "tcp"));
+        var networks = Networks.Append(Net("n-zt", "Zero Trust", 200, NetworkPurpose.IoT)).ToList();
+
+        var plan = ZoneSetup.Plan(live, ZoneSetup.Build(live, networks, ZoneSetup.TrustMode));
+
+        Named(plan.Desired, "ZT to Home Assistant (IoT)").Should().BeNull("it serves the networks that stay in Internal");
+        plan.Notes.Should().Contain(n => n.Contains("ZT to Home Assistant") && n.Contains("not carried to IoT"));
+    }
+
+    [Fact]
     public void MovedNetworks_GetAnAllowToTheirResolver_WhenNoOperatorPolicyCarriesIt()
     {
         var live = WithSubnetsAndGateway();
