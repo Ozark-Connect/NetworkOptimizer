@@ -10,7 +10,7 @@ import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 import { detailsTableHtml, fmtUptime } from './detail-table.js?v=1';
-import { createMarkLayer } from './chart-event-marks.js?v=9';
+import { createMarkLayer } from './chart-event-marks.js?v=10';
 import { renderSpectrum, disposeSpectrum } from './cm-spectrum.js?v=3';
 
 // Storage scope for this tab's remembered time window.
