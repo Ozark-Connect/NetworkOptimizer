@@ -20,8 +20,6 @@ public sealed class PlanExecutor
     public static readonly IReadOnlyDictionary<string, string[]> NormalizedFields = new Dictionary<string, string[]>
     {
         ["portconf"] = ["stp_bpdu_guard_enabled"],
-        // A network created through the API with setting_preference "auto" is stored "manual" (main, Network 11, 2026-11-02).
-        ["networkconf"] = ["setting_preference"],
     };
 
     private readonly IUniFiConfigApi _api;
