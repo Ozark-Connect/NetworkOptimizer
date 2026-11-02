@@ -288,6 +288,71 @@ public class ClientSpeedTestService : IClientSpeedTestService
     }
 
     /// <summary>
+    /// How long the high score check waits for a MAC before it matches by address only. The test page
+    /// shows "Result saved." only once the response arrives, so this bounds that delay.
+    /// </summary>
+    private static readonly TimeSpan HighScoreMacLookupTimeout = TimeSpan.FromSeconds(2);
+
+    /// <inheritdoc />
+    public async Task<bool> IsNewHighScoreAsync(Iperf3Result result)
+    {
+        if (result.Direction is not (SpeedTestDirection.BrowserToServer or SpeedTestDirection.OpenSpeedTestWan))
+            return false;
+
+        // The new row has no MAC yet (enrichment runs in the background), so resolve one here.
+        var clientMac = await ResolveClientMacForHighScoreAsync(result.DeviceHost);
+        var lowerMac = clientMac?.ToLowerInvariant();
+        var ip = result.DeviceHost;
+        var direction = result.Direction;
+        var id = result.Id;
+
+        await using var db = await CreateSiteDbAsync();
+        var rows = await db.Iperf3Results.AsNoTracking()
+            .Where(r => r.Success && r.Direction == direction && r.Id != id
+                && (r.DeviceHost == ip || (lowerMac != null && r.ClientMac != null && r.ClientMac.ToLower() == lowerMac)))
+            .Select(r => new { r.DeviceHost, r.ClientMac, r.DownloadBitsPerSecond, r.UploadBitsPerSecond })
+            .ToListAsync();
+
+        var history = rows.Select(r => new HighScoreHistoryEntry(
+            r.DeviceHost, r.ClientMac,
+            SpeedTestHighScore.ClientDownloadBps(direction, r.DownloadBitsPerSecond, r.UploadBitsPerSecond)));
+        var current = SpeedTestHighScore.ClientDownloadBps(direction, result.DownloadBitsPerSecond, result.UploadBitsPerSecond);
+        return SpeedTestHighScore.IsNewHighScore(current, ip, clientMac, history);
+    }
+
+    /// <summary>
+    /// The MAC holding <paramref name="clientIp"/> right now: the console's client list for IPv4, the
+    /// gateway neighbor table for IPv6. Null when neither knows it, or when the lookup is slow or fails.
+    /// </summary>
+    private async Task<string?> ResolveClientMacForHighScoreAsync(string clientIp)
+    {
+        try
+        {
+            if (Ssh.GatewayNeighborTable.IsResolvable(clientIp))
+            {
+                if (_neighborTable == null) return null;
+                var lookup = _neighborTable.ResolveMacAsync(clientIp);
+                var finished = await Task.WhenAny(lookup, Task.Delay(HighScoreMacLookupTimeout));
+                return finished == lookup ? await lookup : null;
+            }
+
+            // A public IPv4 is a WAN test's NAT address, which no console client holds.
+            if (NetworkUtilities.IsPublicIpAddress(clientIp)) return null;
+
+            var client = _connectionService.Client;
+            if (client == null) return null;
+            using var cts = new CancellationTokenSource(HighScoreMacLookupTimeout);
+            var clients = await client.GetClientsAsync(cts.Token);
+            return clients.FirstOrDefault(c => c.Ip == clientIp)?.Mac;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "High score MAC lookup failed for {Ip}; matching by address only", clientIp);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Record a speed test result from an iperf3 client.
     /// Merges with recent result from same client if one direction is missing.
     /// </summary>

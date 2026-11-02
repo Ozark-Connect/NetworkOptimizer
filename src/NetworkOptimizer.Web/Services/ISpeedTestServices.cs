@@ -182,6 +182,13 @@ public interface IClientSpeedTestService
         double? latitude = null, double? longitude = null, int? locationAccuracy = null,
         int? durationSeconds = null, string? externalServerId = null);
 
+    /// <summary>
+    /// Whether a just-recorded browser result is a new personal best for its device, matched by the
+    /// address it came from and by the MAC holding that address now, so a best survives an IP change.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<bool> IsNewHighScoreAsync(Iperf3Result result);
+
     /// <summary>Records a client-initiated iperf3 result relayed by the site's iperf3 server.</summary>
     [RequireRole(Roles.Viewer)]
     Task<Iperf3Result> RecordIperf3ClientResultAsync(
