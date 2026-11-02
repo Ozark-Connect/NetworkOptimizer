@@ -589,6 +589,14 @@ else
                 {
                     <a class="btn btn-primary" href="/change-control/migrate?task=readdress">Back to Re-address Networks</a>
                 }
+                else if (plan.Kind is ConfigPlanKind.Zones or ConfigPlanKind.LegacyToZones)
+                {
+                    <a class="btn btn-primary" href="/change-control/migrate?task=zones">Back to Set Up Zones</a>
+                }
+                else if (plan.Kind == ConfigPlanKind.Edit)
+                {
+                    <a class="btn btn-primary" href="/change-control/edit">Back to Edit</a>
+                }
                 else
                 {
                     <a class="btn btn-primary" href="/change-control/changes">Back to Changes</a>
