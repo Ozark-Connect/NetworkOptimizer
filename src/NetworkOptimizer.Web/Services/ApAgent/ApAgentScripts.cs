@@ -148,6 +148,25 @@ public static class ApAgentScripts
            + $"pkill -f {ApAgentPaths.ProcessPattern} 2>/dev/null; sleep 1; "
            + $"pgrep -f {ApAgentPaths.ProcessPattern} >/dev/null 2>&1 && pkill -9 -f {ApAgentPaths.ProcessPattern}; true";
 
+    /// <summary>Creates the install directory and clears a staged file an interrupted deploy left behind.</summary>
+    public static string PrepareStagingCommand()
+        => $"mkdir -p {ApAgentPaths.RemoteDir} && rm -f {ApAgentPaths.StagedBinaryPath}";
+
+    /// <summary>The staged file's md5, alone on stdout.</summary>
+    public static string StagedMd5Command()
+        => $"md5sum {ApAgentPaths.StagedBinaryPath} 2>/dev/null | cut -d' ' -f1";
+
+    /// <summary>Makes the staged file executable. Runs while the old agent is still serving.</summary>
+    public static string MakeStagedExecutableCommand()
+        => $"chmod +x {ApAgentPaths.StagedBinaryPath}";
+
+    /// <summary>
+    /// Replaces the live build with the verified staged one. A rename within one tmpfs is atomic, so
+    /// the live path always holds a complete binary: the old one or the new one.
+    /// </summary>
+    public static string PromoteStagedCommand(string binaryName)
+        => $"mv -f {ApAgentPaths.StagedBinaryPath} {ApAgentPaths.RemoteBinaryPath(binaryName)}";
+
     /// <summary>Stops the agent and clears everything it wrote. A reboot does the same thing.</summary>
     public static string RemoveCommand(bool procdAvailable)
         => StopCommand(procdAvailable)

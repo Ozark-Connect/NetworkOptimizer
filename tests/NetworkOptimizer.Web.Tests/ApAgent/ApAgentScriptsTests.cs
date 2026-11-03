@@ -77,6 +77,52 @@ public class ApAgentScriptsTests
     }
 
     [Fact]
+    public void TheStagedFile_is_outside_the_build_glob_and_the_process_pattern()
+    {
+        var fileName = ApAgentPaths.StagedBinaryPath[(ApAgentPaths.StagedBinaryPath.LastIndexOf('/') + 1)..];
+        var glob = new System.Text.RegularExpressions.Regex(
+            "^" + ApAgentPaths.BinaryGlob.Replace("*", ".*") + "$");
+        var process = new System.Text.RegularExpressions.Regex(ApAgentPaths.ProcessPattern);
+
+        ApAgentPaths.StagedBinaryPath.Should().StartWith(ApAgentPaths.RemoteDir + "/", "a rename is atomic only within one tmpfs");
+        glob.IsMatch(fileName).Should().BeFalse("the status probe must never read a half-written file as a build");
+        process.IsMatch(ApAgentPaths.StagedBinaryPath).Should().BeFalse("pgrep and pkill must never see the staged file");
+        glob.IsMatch(ApAgentPaths.BinaryPrefix + "arm").Should().BeTrue("the check above is only meaningful if the glob matches a real build");
+    }
+
+    [Fact]
+    public void Promoting_renames_the_staged_file_over_the_live_build()
+    {
+        ApAgentScripts.PromoteStagedCommand("apagent-linux-arm")
+            .Should().Be("mv -f /tmp/netopt-apagent/upload.tmp /tmp/netopt-apagent/apagent-linux-arm");
+    }
+
+    [Fact]
+    public void Preparing_clears_only_the_staged_file_and_never_the_live_build()
+    {
+        var prepare = ApAgentScripts.PrepareStagingCommand();
+
+        prepare.Should().Be("mkdir -p /tmp/netopt-apagent && rm -f /tmp/netopt-apagent/upload.tmp");
+        prepare.Should().NotContain(ApAgentPaths.BinaryPrefix);
+    }
+
+    [Fact]
+    public void ALeftover_staged_file_does_not_change_which_md5_the_probe_reads()
+    {
+        var output = """
+            ---ARCH---
+            armv7l
+            ---BINARY---
+            /tmp/netopt-apagent/apagent-linux-arm
+            ---MD5---
+            aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  /tmp/netopt-apagent/apagent-linux-arm
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  /tmp/netopt-apagent/upload.tmp
+            """;
+
+        ApAgentScripts.ParseStatus(output, success: true).BinaryMd5.Should().Be("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    }
+
+    [Fact]
     public void AMipsProbe_picks_the_little_endian_build_and_its_md5()
     {
         var output = """

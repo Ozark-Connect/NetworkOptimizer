@@ -1482,7 +1482,7 @@
                             <div class="form-row">
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">SSH Username</label>
-                                    <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="netopt" />
+                                    <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="netopt" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                                     <small class="form-help">A read-only user is enough: <code>/user add name=netopt group=read password=...</code></small>
                                 </div>
                                 <div class="form-group" style="flex: 1;">
@@ -1503,7 +1503,7 @@
                             <div class="form-row">
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">SSH Username</label>
-                                    <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="root" />
+                                    <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="root" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">SSH Password</label>
@@ -1525,7 +1525,7 @@
                                 {
                                     <div class="form-group" style="flex: 1;">
                                         <label class="form-label">Username</label>
-                                        <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="admin" />
+                                        <input type="text" class="form-control" @bind="editingModem.Username" @bind:event="oninput" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                                     </div>
                                     <div class="form-group" style="flex: 1;">
                                         <label class="form-label">Password</label>
@@ -1830,7 +1830,8 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
                             <input type="text" class="form-control" @bind="_editingCm.Username" @bind:event="oninput"
-                                   placeholder="@(CmProviderFor(_editingCm.Provider)?.BlankUsernameMeansAdmin == true ? "admin" : "")" />
+                                   placeholder="@(CmProviderFor(_editingCm.Provider)?.BlankUsernameMeansAdmin == true ? "admin" : "")"
+                                   autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                             @if (_editingCm.Provider == "fritzbox-cable")
                             {
                                 <small class="form-help">Enter your FRITZ!Box account name; it may differ from admin.</small>
@@ -2094,7 +2095,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="_editingOnt.Username" @bind:event="oninput" placeholder="admin" />
+                            <input type="text" class="form-control" @bind="_editingOnt.Username" @bind:event="oninput" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
