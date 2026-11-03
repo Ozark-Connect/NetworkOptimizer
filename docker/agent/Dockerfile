@@ -31,7 +31,7 @@ RUN case "$TARGETARCH" in \
 
 # uwnspeedtest Go binary for WAN speed tests run site-local at the agent
 # (uwnspeedtest imports the cfspeedtest module). Built for the target arch.
-FROM golang:1.22-alpine AS uwnspeedtest-build
+FROM golang:1.27-alpine AS uwnspeedtest-build
 ARG TARGETARCH
 WORKDIR /src
 COPY src/cfspeedtest/ cfspeedtest/

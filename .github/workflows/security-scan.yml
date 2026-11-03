@@ -1,0 +1,93 @@
+name: Security Scan
+
+# Three layers, one tool each:
+# - Go: govulncheck reports only the vulnerabilities our code reaches through the call graph. Fails.
+# - .NET: NuGet audit on restore, honoring the NuGetAuditSuppress list. Fails on high or critical.
+# - Images: Trivy on the published images (OS packages, .NET deps.json, Go binaries). Reports to
+#   the Security tab; it does not fail, because a fix often waits on an upstream base image.
+
+on:
+  push:
+    branches: [main, dev, 'release/**']
+  pull_request:
+    branches: [main, dev, 'release/**']
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (${{ matrix.module }})
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [apagent, cfspeedtest, uwnspeedtest, wansteer]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          check-latest: true
+          cache: false
+
+      - name: govulncheck
+        working-directory: src/${{ matrix.module }}
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  dotnet:
+    name: .NET (NuGet audit)
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: '10.0.200'
+
+      # NU1903 = high, NU1904 = critical. Moderate and low still print as warnings.
+      - name: NuGet audit
+        run: >
+          dotnet restore NetworkOptimizer.sln
+          -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=moderate
+          "-p:WarningsAsErrors=NU1903%3BNU1904"
+
+  images:
+    name: Image (${{ matrix.image }})
+    if: >
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - network-optimizer:latest
+          - network-optimizer:preview
+          - speedtest:latest
+          - agent:latest
+    steps:
+      - name: Trivy
+        run: |
+          docker run --rm -v "$PWD:/out" \
+            aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --format sarif --output /out/trivy.sarif \
+            ghcr.io/ozark-connect/${{ matrix.image }}
+
+      - uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-${{ matrix.image }}

@@ -240,8 +240,10 @@ jobs:
           context: .
           file: ./docker/openspeedtest/Dockerfile
           platforms: linux/amd64,linux/arm64
-          # nginx:1.30-alpine floats; pull so each release takes the newest 1.30.x patch.
+          # nginx:1.30-alpine floats; pull so each release takes the newest 1.30.x patch, and skip
+          # the cache so the apk upgrade layer is never reused while the base digest is unchanged.
           pull: true
+          no-cache: true
           push: true
           tags: ${{ steps.speedtest-meta.outputs.tags }}
           labels: ${{ steps.speedtest-meta.outputs.labels }}
@@ -273,7 +275,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.27'
 
       # uwnspeedtest Go binary the agent runs for site-local WAN speed tests;
       # install-native.sh drops it next to the agent binary (imports cfspeedtest,
