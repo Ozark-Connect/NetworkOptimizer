@@ -144,9 +144,6 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             var settings = await GetSettingsAsync();
             if (!settings.IsConfigured || !settings.HasCredentials)
                 return;
-            // Restores a lost connection; never opens one that startup declined (Remember credentials off).
-            if (!settings.RememberCredentials && _lastConnectedAt == null)
-                return;
 
             await ConnectWithSettingsAsync(settings, onlyIfDisconnected: true);
         }
@@ -673,8 +670,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
                 _logger.LogInformation("Loaded saved UniFi configuration for {Url}", settings.ControllerUrl);
 
-                // Auto-connect if we have credentials and RememberCredentials is true
-                if (settings.RememberCredentials && settings.HasCredentials)
+                // Auto-connect whenever credentials are saved
+                if (settings.HasCredentials)
                 {
                     // Only the default site connects at process startup and benefits from a brief
                     // settle delay. A secondary site's connection service is created on demand when
@@ -851,7 +848,6 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 Password = "", // Never expose password
                 ApiKey = _settings.HasApiKey ? "saved" : null, // Signal that key exists without exposing it
                 Site = _settings.Site,
-                RememberCredentials = _settings.RememberCredentials,
                 IgnoreControllerSSLErrors = _settings.IgnoreControllerSSLErrors
             };
         }
@@ -1132,7 +1128,6 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 Password = decryptedPassword ?? "",
                 ApiKey = decryptedApiKey,
                 Site = settings.Site,
-                RememberCredentials = settings.RememberCredentials,
                 IgnoreControllerSSLErrors = settings.IgnoreControllerSSLErrors
             };
 
@@ -1300,7 +1295,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             settings.ControllerUrl = config.ControllerUrl;
             settings.Username = config.Username;
             settings.Site = config.Site;
-            settings.RememberCredentials = config.RememberCredentials;
+            // Retired setting: written true so an older build reading the column auto-connects.
+            settings.RememberCredentials = true;
             settings.IgnoreControllerSSLErrors = config.IgnoreControllerSSLErrors;
             settings.IsConfigured = true;
             settings.LastConnectedAt = DateTime.UtcNow;
@@ -1601,7 +1597,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         // Check if we have saved credentials to connect with
         var settings = await GetSettingsAsync();
-        if (!settings.IsConfigured || !settings.HasCredentials || !settings.RememberCredentials)
+        if (!settings.IsConfigured || !settings.HasCredentials)
         {
             // No auto-connect will happen, don't wait
             return false;
@@ -2074,7 +2070,6 @@ public class UniFiConnectionConfig
     public string Password { get; set; } = "";
     public string? ApiKey { get; set; }
     public string Site { get; set; } = "default";
-    public bool RememberCredentials { get; set; } = true;
     /// <summary>
     /// Whether to ignore SSL certificate errors when connecting to the controller.
     /// Default is true because UniFi controllers use self-signed certificates.

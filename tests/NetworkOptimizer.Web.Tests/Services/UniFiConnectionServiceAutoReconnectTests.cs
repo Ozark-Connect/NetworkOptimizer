@@ -20,7 +20,7 @@ public sealed class UniFiConnectionServiceAutoReconnectTests
 {
     private const string SiteSlug = "test-site";
 
-    private static UniFiConnectionService NewService(FakeUniFiConsole console, bool rememberCredentials = true)
+    private static UniFiConnectionService NewService(FakeUniFiConsole console)
     {
         var settings = new UniFiConnectionSettings
         {
@@ -28,7 +28,8 @@ public sealed class UniFiConnectionServiceAutoReconnectTests
             Username = "User1",
             Password = "encrypted",
             IsConfigured = true,
-            RememberCredentials = rememberCredentials,
+            // Retired and ignored: a row an older build saved unchecked still connects.
+            RememberCredentials = false,
         };
         var repository = new Mock<IUniFiRepository>();
         repository.Setup(r => r.GetUniFiConnectionSettingsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(settings);
@@ -84,22 +85,6 @@ public sealed class UniFiConnectionServiceAutoReconnectTests
             await service.AutoReconnectTickAsync();
 
             console.LoginAttempts.Should().Be(before);
-        }
-        finally { service.DisposeOwned(); }
-    }
-
-    [Fact]
-    public async Task RememberCredentialsOff_NeverOpensAConnectionStartupDeclined()
-    {
-        await using var console = new FakeUniFiConsole(HttpStatusCode.BadGateway);
-        var service = NewService(console, rememberCredentials: false);
-        try
-        {
-            await WaitForInitializedAsync(service);
-
-            await service.AutoReconnectTickAsync();
-
-            console.LoginAttempts.Should().Be(0);
         }
         finally { service.DisposeOwned(); }
     }
