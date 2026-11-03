@@ -136,6 +136,18 @@ public class PathTraceAnalyzerRoundTests
         var last = Hop(v, 4);
         last.EpisodeRttMs.Should().Be(51);
         last.Has(HopTag.InRun).Should().BeTrue();
+        // Normal is the recovery trace here: the episode's own rounds were all high.
+        PathEpisodePresentation.DisplayBaseline(last).Should().Be(31);
+    }
+
+    [Fact]
+    public void Normal_is_never_a_one_trace_minimum_above_most_rounds()
+    {
+        // A jittery link whose recovery trace caught the hop high: normal is its own reference round.
+        double[] access = { 20, 35, 36, 20, 43, 87, 21, 22, 24, 30 };
+        var v = Analyze(access.Select(a => Round(16, a, 52)), Round(16, 47, 32));
+
+        PathEpisodePresentation.DisplayBaseline(Hop(v, 4)).Should().Be(20);
     }
 
     [Fact]

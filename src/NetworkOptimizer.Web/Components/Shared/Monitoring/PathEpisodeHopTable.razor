@@ -43,7 +43,7 @@
                 <span class="path-episode-table-title path-episode-target-name">@table.Target.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
                     Tooltip="@JumpTooltip(table.Target)" OnClick="() => Jump(table.Target)" /></span>
                 <span class="text-muted">
-                    @table.Rounds @(table.Rounds == 1 ? "trace" : "traces") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", normal from the trace after it recovered" : _detail.Episode.ClosedAt == null ? "" : ", no trace after recovery yet")
+                    @table.Rounds @(table.Rounds == 1 ? "trace" : "traces") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", traced again after it recovered" : _detail.Episode.ClosedAt == null ? "" : ", no trace after recovery yet")
                 </span>
                 @if (table.TracedAddress != null && table.TracedAddress != table.Address)
                 {
