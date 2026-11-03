@@ -34,7 +34,13 @@ internal sealed class FakeUniFiConsole : IAsyncDisposable
 
     public HttpStatusCode LoginStatus { get; set; }
 
+    /// <summary>Answer as a standalone UniFi Network Server: no <c>/login</c>, sign-in at <c>/api/login</c>.</summary>
+    public bool Standalone { get; init; }
+
     public int LoginAttempts => Volatile.Read(ref _loginAttempts);
+
+    /// <summary>Every request received, as "METHOD /path".</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<string> Requests { get; } = new();
 
     public string Host => $"127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
 
@@ -58,10 +64,15 @@ internal sealed class FakeUniFiConsole : IAsyncDisposable
                 using var tls = new SslStream(client.GetStream());
                 await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = _certificate }, _stop.Token);
                 var (method, path) = await ReadRequestAsync(tls);
-                var status = (method, path) switch
+                Requests.Enqueue($"{method} {path}");
+                var status = (method, path, Standalone) switch
                 {
-                    ("GET", "/login") => HttpStatusCode.OK,
-                    ("POST", "/api/auth/login") => CountLogin(),
+                    ("GET", "/login", false) => HttpStatusCode.OK,
+                    ("POST", "/api/auth/login", false) => CountLogin(),
+                    ("POST", "/api/auth/logout", false) => HttpStatusCode.OK,
+                    ("GET", "/manage/account/login", true) => HttpStatusCode.OK,
+                    ("POST", "/api/login", true) => CountLogin(),
+                    ("POST", "/api/logout", true) => HttpStatusCode.OK,
                     _ => HttpStatusCode.NotFound,
                 };
                 var response = $"HTTP/1.1 {(int)status} {status}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}";
