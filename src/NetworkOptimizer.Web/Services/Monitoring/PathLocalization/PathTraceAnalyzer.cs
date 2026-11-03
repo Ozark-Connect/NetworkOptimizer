@@ -27,7 +27,9 @@ public enum HopTag
     /// <summary>The destination itself.</summary>
     Destination = 128,
     /// <summary>Part of the elevated run from the onset to the destination.</summary>
-    InRun = 256
+    InRun = 256,
+    /// <summary>Elevated only by slowing in the same traces as the destination: moved with it, direction unknown.</summary>
+    PairedOnly = 512
 }
 
 /// <summary>One TTL of a target's episode, pooled across its path rounds.</summary>
@@ -276,17 +278,21 @@ public static class PathTraceAnalyzer
         {
             var hop = verdicts[0].Hops.Where(h => h.Address != null && sharedIps.Contains(h.Address, StringComparer.OrdinalIgnoreCase))
                 .OrderBy(h => h.Ttl).First();
-            var inEveryRun = verdicts.All(v => v.Hops.Any(h => h.Has(HopTag.InRun)
-                && string.Equals(h.Address, hop.Address, StringComparison.OrdinalIgnoreCase)));
+            var inRuns = verdicts.Select(v => v.Hops.FirstOrDefault(h => h.Has(HopTag.InRun)
+                && string.Equals(h.Address, hop.Address, StringComparison.OrdinalIgnoreCase))).ToList();
+            var inEveryRun = inRuns.All(h => h != null);
+            // Placed by pairing on any path: the hops moved together, which way is not known.
+            var pairedOnly = inEveryRun && inRuns.Any(h => h!.Has(HopTag.PairedOnly));
+            var hopLabel = SharedHopSentence(names, hop, inEveryRun) + (pairedOnly ? ReturnPathCaveat : "");
             return new EpisodeVerdict
             {
                 Scope = CongestionScope.Hop,
-                Disposition = inEveryRun ? CongestionDisposition.Confirmed : CongestionDisposition.Unverifiable,
+                Disposition = inEveryRun && !pairedOnly ? CongestionDisposition.Confirmed : CongestionDisposition.Unverifiable,
                 BottleneckHopIp = hop.Address,
                 BottleneckHopNumber = hop.Ttl,
-                Label = SharedHopSentence(names, hop, inEveryRun),
+                Label = hopLabel,
                 ReturnFinding = returnFinding,
-                Summary = SharedHopSentence(names, hop, inEveryRun) + sideBySide,
+                Summary = hopLabel + sideBySide,
                 Targets = verdicts
             };
         }
@@ -305,16 +311,19 @@ public static class PathTraceAnalyzer
             var sample = verdicts[0].Hops.First(h => h.Asn == asn);
             var network = NetworkName(sample);
             var farSide = destAsns.Count == 1 && destAsns.Contains(asn);
-            var inEveryRun = !farSide && verdicts.All(v => v.Hops.Any(h => h.Has(HopTag.InRun) && !h.Has(HopTag.Destination) && h.Asn == asn));
+            bool InAsnRun(HopReading h) => h.Has(HopTag.InRun) && !h.Has(HopTag.Destination) && h.Asn == asn;
+            var inEveryRun = !farSide && verdicts.All(v => v.Hops.Any(InAsnRun));
+            // Placed by pairing on any path: every in-run hop of that network there moved with the destination only.
+            var pairedOnly = inEveryRun && verdicts.Any(v => v.Hops.Where(InAsnRun).All(h => h.Has(HopTag.PairedOnly)));
             var asnLabel = farSide
                 ? $"{names} all sit inside {network} and their routes share nothing before it, so the problem is inside {network} or on the return path."
                 : inEveryRun
-                    ? $"{names} all cross {network} after their last clean router, and every one shows the problem inside it."
+                    ? $"{names} all cross {network} after their last clean router, and every one shows the problem inside it." + (pairedOnly ? ReturnPathCaveat : "")
                     : $"{names} all cross {network} after their last clean router, but not every one shows the problem inside it.";
             return new EpisodeVerdict
             {
                 Scope = CongestionScope.Asn,
-                Disposition = inEveryRun ? CongestionDisposition.Confirmed : CongestionDisposition.Unverifiable,
+                Disposition = inEveryRun && !pairedOnly ? CongestionDisposition.Confirmed : CongestionDisposition.Unverifiable,
                 Label = asnLabel,
                 ReturnFinding = returnFinding,
                 Summary = asnLabel + sideBySide,
@@ -341,6 +350,9 @@ public static class PathTraceAnalyzer
             Targets = verdicts
         };
     }
+
+    /// <summary>Appended where hops were placed by moving with the destination, which cannot tell direction.</summary>
+    private const string ReturnPathCaveat = " Their replies may come home a different way from there, so it could be on the return path.";
 
     private static string SharedHopSentence(string names, HopReading hop, bool inEveryRun) => inEveryRun
         ? $"{names} all go through {HopName(hop)} after their last clean router, and every one shows the problem from there."
@@ -447,6 +459,7 @@ public static class PathTraceAnalyzer
             var pairedArm = pairingLocalizes && i >= firstPaired && h.PairedRounds is int p && p * 2 > destSlow;
             decided[i] = lossArm || rttArm || pairedArm;
             pairedOnly[i] = pairedArm && !lossArm && !rttArm;
+            if (pairedOnly[i]) tags[i] |= HopTag.PairedOnly;
         }
 
         // Slow-path tell: needs the next responding hop to compare against.
@@ -696,8 +709,8 @@ public static class PathTraceAnalyzer
             Responses = same.Sum(h => h.Responses),
             // Min within a round, not average: slow-path ICMP generation inflates a transit hop's average
             // and max far more than its minimum, which tracks queueing on the forwarding path (spec 5.1).
-            // Median across rounds, never min: the min of rounds keeps only the best one and hides a
-            // rise that comes and goes.
+            // The episode reads the median of those (EpisodeRttMs): the best round alone hides a rise
+            // that comes and goes. MinRttMs stays for the steady-rise arm, which compares like for like.
             MinRttMs = answered.Min(h => h.RttMinMs),
             RoundMinRttMs = roundMins,
             EpisodeRttMs = SeriesStats.Median(roundMins.Where(v => v.HasValue).Select(v => v!.Value).ToList()),

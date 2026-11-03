@@ -8,7 +8,7 @@ public sealed record PathHopLoss(double Shown, double? Higher, string HigherSour
 
 /// <summary>The ISP Health banner for one episode.</summary>
 /// <param name="EpisodeId">The episode it is about.</param>
-/// <param name="Phase">"tracing" or "done": a dismissal covers one phase, so the verdict still shows after the tracing banner was dismissed.</param>
+/// <param name="Phase">"tracing", "ongoing", or "done": a dismissal covers one phase, so the next phase still shows after an earlier banner was dismissed.</param>
 /// <param name="CssClass">The alert class.</param>
 /// <param name="Lead">The bold opening.</param>
 /// <param name="Text">The rest of the sentence.</param>

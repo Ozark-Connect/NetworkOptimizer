@@ -139,6 +139,25 @@ public class PathTraceAnalyzerRoundTests
     }
 
     [Fact]
+    public void Several_destinations_sharing_a_hop_placed_by_pairing_stay_unverifiable()
+    {
+        const string other = "203.0.113.81";
+        TracerouteResult To(string dest, double d) => Round(d - 2, d - 1, d) with
+        {
+            Target = new ProbeTarget(dest, ProbeMode.Icmp),
+            Hops = Round(d - 2, d - 1, d).Hops.Select(h => h.Address == Dest ? h with { Address = dest } : h).ToList()
+        };
+        var a = new TargetTraces("ord", "Speedtest ORD", Dest, DestRounds.Select(d => To(Dest, d)).ToList(), null);
+        var b = new TargetTraces("ord2", "Speedtest ORD 2", other, DestRounds.Select(d => To(other, d)).ToList(), null);
+
+        var v = PathTraceAnalyzer.Analyze(new[] { a, b }, Array.Empty<TargetTraces>(), ip => Asns.GetValueOrDefault(ip), _ => null, Options);
+
+        v.Disposition.Should().Be(CongestionDisposition.Unverifiable);
+        v.BottleneckHopNumber.Should().Be(3);
+        v.Label.Should().EndWith("Their replies may come home a different way from there, so it could be on the return path.");
+    }
+
+    [Fact]
     public void A_swing_that_starts_at_the_access_hop_places_nothing()
     {
         // Starlink: a handover moves the first hop and everything after it in the same rounds, while
