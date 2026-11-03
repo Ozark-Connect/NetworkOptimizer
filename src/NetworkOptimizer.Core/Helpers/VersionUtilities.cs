@@ -10,8 +10,10 @@ public static class VersionUtilities
     /// True when <paramref name="candidate"/> is a lower version than
     /// <paramref name="required"/> under SemVer precedence: numeric core first,
     /// then prerelease identifiers (a release outranks any prerelease of the
-    /// same core; identifiers compare numerically when both numeric, otherwise
-    /// ordinally; a longer identifier list outranks its prefix). Build metadata
+    /// same core; identifiers compare numerically when both numeric, by their
+    /// trailing number when both are the same letters plus a number ("preview9" is
+    /// below "preview15"), otherwise ordinally; a longer identifier list outranks
+    /// its prefix). Build metadata
     /// after '+' is ignored. Returns false when either side is missing or
     /// unparseable - callers flag only provable staleness.
     /// </summary>
@@ -38,15 +40,41 @@ public static class VersionUtilities
         var count = Math.Min(candPre.Length, reqPre.Length);
         for (var i = 0; i < count; i++)
         {
-            int cmp;
-            if (long.TryParse(candPre[i], out var candNum) && long.TryParse(reqPre[i], out var reqNum))
-                cmp = candNum.CompareTo(reqNum);
-            else
-                cmp = string.Compare(candPre[i], reqPre[i], StringComparison.OrdinalIgnoreCase);
+            var cmp = CompareIdentifier(candPre[i], reqPre[i]);
             if (cmp != 0)
                 return cmp < 0;
         }
         return candPre.Length < reqPre.Length;
+    }
+
+    /// <summary>
+    /// Compares one prerelease identifier. Numeric when both are numbers; and when both are the
+    /// same letters followed by a number, by that number, since our tags are "preview15" rather
+    /// than "preview.15" and an ordinal compare puts "preview9" above it. Otherwise ordinal.
+    /// </summary>
+    private static int CompareIdentifier(string a, string b)
+    {
+        if (long.TryParse(a, out var aNum) && long.TryParse(b, out var bNum))
+            return aNum.CompareTo(bNum);
+
+        var (aPrefix, aSuffix) = SplitTrailingNumber(a);
+        var (bPrefix, bSuffix) = SplitTrailingNumber(b);
+        if (aSuffix is { } an && bSuffix is { } bn
+            && string.Equals(aPrefix, bPrefix, StringComparison.OrdinalIgnoreCase))
+            return an.CompareTo(bn);
+
+        return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static (string Prefix, long? Number) SplitTrailingNumber(string identifier)
+    {
+        var start = identifier.Length;
+        while (start > 0 && char.IsAsciiDigit(identifier[start - 1]))
+            start--;
+        if (start == 0 || start == identifier.Length
+            || !long.TryParse(identifier.AsSpan(start), out var number))
+            return (identifier, null);
+        return (identifier[..start], number);
     }
 
     /// <summary>
