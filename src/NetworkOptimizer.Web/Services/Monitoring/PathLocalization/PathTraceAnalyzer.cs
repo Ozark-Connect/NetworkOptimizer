@@ -48,7 +48,7 @@ public sealed record HopReading
     /// so anything above the least-lossy one beyond is this router limiting its own replies.
     /// </summary>
     public double EffectiveLossPct => DownstreamFloorPct is double f ? Math.Min(LossPct, f) : LossPct;
-    /// <summary>The fastest round's min RTT. Not what the episode reads: an intermittent rise always has a clean round.</summary>
+    /// <summary>The fastest round's min RTT: what a steady rise is judged on. An intermittent one always has a clean round, so pairing judges that.</summary>
     public double? MinRttMs { get; init; }
     /// <summary>Median of the rounds' average RTTs, for the slow-path tell.</summary>
     public double? MedianRttMs { get; init; }
@@ -63,8 +63,12 @@ public sealed record HopReading
     public double? EpisodeRttMs { get; init; }
     /// <summary>The same hop's min RTT outside the episode: the recovery round, else the control round.</summary>
     public double? BaselineMinRttMs { get; init; }
-    public double? DeltaRttMs => EpisodeRttMs.HasValue && BaselineMinRttMs.HasValue ? EpisodeRttMs - BaselineMinRttMs : null;
-    /// <summary>What a round is slower than: <see cref="BaselineMinRttMs"/>, else the hop's own fastest round.</summary>
+    /// <summary>
+    /// Best round against the baseline, which is one trace's min too: like for like. Never the median,
+    /// which sits above a one-trace min on any jittery link (Starlink) with nothing wrong.
+    /// </summary>
+    public double? DeltaRttMs => MinRttMs.HasValue && BaselineMinRttMs.HasValue ? MinRttMs - BaselineMinRttMs : null;
+    /// <summary>What a round is slower than: the hop's own second-fastest round in the episode (fastest under three).</summary>
     public double? ReferenceRttMs { get; init; }
     /// <summary>Per round, whether it was slower than <see cref="ReferenceRttMs"/> by the hop RTT threshold.</summary>
     public IReadOnlyList<bool> RoundSlow { get; init; } = Array.Empty<bool>();
@@ -413,6 +417,16 @@ public static class PathTraceAnalyzer
         var decided = new bool?[hops.Count];
         var tags = new HopTag[hops.Count];
         var destSlow = hops.FirstOrDefault(h => h.Has(HopTag.Destination))?.SlowRounds ?? 0;
+        // Pairing places the start only at a hop the trace decides, right after one that stayed fast in
+        // every slow destination round. Without that clean point the swing is upstream of everything (a
+        // Starlink handover moves every hop after the dish), so every hop pairs and none is the start.
+        var firstPaired = destSlow >= options.PathHopMinPairedRounds
+            ? hops.FindIndex(h => !h.Has(HopTag.Destination) && h.PairedRounds is int fp && fp * 2 > destSlow)
+            : -1;
+        var cleanBefore = firstPaired > 0 ? hops.Take(firstPaired).LastOrDefault(h => h.Responses > 0) : null;
+        var pairingLocalizes = firstPaired >= 0 && hops[firstPaired].Address is string fa
+            && anchorOf(fa) == null && accessHops?.Contains(fa) != true
+            && cleanBefore is { PairedRounds: 0 };
         for (var i = 0; i < hops.Count; i++)
         {
             var h = hops[i];
@@ -429,7 +443,7 @@ public static class PathTraceAnalyzer
             var rttArm = h.DeltaRttMs is double d && h.BaselineMinRttMs is double b
                 && d >= RttThreshold(b, options);
             // A rise that comes and goes: slow in most of the rounds the destination was slow in.
-            var pairedArm = destSlow >= options.PathHopMinPairedRounds && h.PairedRounds is int p && p * 2 > destSlow;
+            var pairedArm = pairingLocalizes && i >= firstPaired && h.PairedRounds is int p && p * 2 > destSlow;
             decided[i] = lossArm || rttArm || pairedArm;
         }
 
@@ -600,8 +614,12 @@ public static class PathTraceAnalyzer
         for (var i = 0; i < hops.Count; i++)
         {
             var h = hops[i];
-            var reference = h.BaselineMinRttMs ?? h.RoundMinRttMs.Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(double.NaN).Min();
-            if (double.IsNaN(reference)) continue;
+            // The hop's own rounds, never the recovery or control trace: that is one moment on another
+            // clock, and on a jittery link it can sit above most rounds and hide which ones moved. The
+            // second-fastest round from three on, so one lucky round does not make every other one slow.
+            var answered = h.RoundMinRttMs.Where(v => v.HasValue).Select(v => v!.Value).OrderBy(v => v).ToList();
+            if (answered.Count == 0) continue;
+            var reference = answered.Count >= 3 ? answered[1] : answered[0];
             var threshold = RttThreshold(reference, options);
             hops[i] = h with
             {

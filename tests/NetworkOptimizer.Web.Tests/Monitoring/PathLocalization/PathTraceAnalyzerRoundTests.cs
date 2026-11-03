@@ -133,6 +133,32 @@ public class PathTraceAnalyzerRoundTests
     }
 
     [Fact]
+    public void A_swing_that_starts_at_the_access_hop_places_nothing()
+    {
+        // Starlink: a handover moves the first hop and everything after it in the same rounds, while
+        // the noisy middle hops pair unevenly. No hop past the access link is the start.
+        double[] access = { 20, 35, 36, 20, 43, 87, 21, 60, 22, 70 };
+        var rounds = access.Select(a => new TracerouteResult
+        {
+            Target = new ProbeTarget(Dest, ProbeMode.Icmp),
+            Vantage = ProbeVantage.Server,
+            ModeUsed = ProbeMode.Icmp,
+            Timestamp = DateTime.UtcNow,
+            Reached = true,
+            Hops = new[] { ("100.64.0.1", a), (Edge, a + 8), (Far, a + 10), (Last, a + 11), (Dest, a + 12) }
+                .Select((h, i) => new TraceHop { HopNumber = i + 1, Address = h.Item1, Probes = 5, Responses = 5, RttMinMs = h.Item2, RttAvgMs = h.Item2 + 0.3, RttMaxMs = h.Item2 + 0.6 })
+                .ToList()
+        }).ToList();
+
+        var v = PathTraceAnalyzer.Analyze(new[] { new TargetTraces("dns", "Quad9 DFW", Dest, rounds, null) },
+            Array.Empty<TargetTraces>(), ip => Asns.GetValueOrDefault(ip), _ => null, Options,
+            accessHops: new HashSet<string> { "100.64.0.1" }).Targets[0];
+
+        v.Hops.Where(h => !h.Has(HopTag.Destination)).Should().OnlyContain(h => h.Elevated != true);
+        v.OnsetTtl.Should().BeNull();
+    }
+
+    [Fact]
     public void The_reading_names_how_a_hop_did_against_the_destination()
     {
         var fast = Analyze(DestRounds.Select(d => Round(16, 31, d)));
