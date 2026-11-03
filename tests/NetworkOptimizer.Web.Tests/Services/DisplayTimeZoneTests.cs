@@ -12,21 +12,67 @@ public class DisplayTimeZoneTests
     private const string Chicago = "America/Chicago";
     private const string Tokyo = "Asia/Tokyo";
 
-    private static DisplayTimeZone Build(string? own, string? inherited)
+    private static DisplayTimeZone Build(string? own, string? inherited, string? siteZone = null,
+        Func<string>? slug = null, Mock<ISiteTimeZones>? siteZones = null)
     {
         var source = new Mock<ITimeZonePreferenceSource>();
         source.Setup(s => s.GetOwnAsync()).ReturnsAsync(own);
         source.Setup(s => s.GetInheritedAsync()).ReturnsAsync(inherited);
-        return new DisplayTimeZone(source.Object, NullLogger<DisplayTimeZone>.Instance);
+        if (siteZones == null)
+        {
+            siteZones = new Mock<ISiteTimeZones>();
+            TimeZoneInfo? zone = siteZone == null ? null : TimeZoneInfo.FindSystemTimeZoneById(siteZone);
+            siteZones.Setup(s => s.Cached(It.IsAny<string>())).Returns(zone);
+        }
+        return new DisplayTimeZone(source.Object, siteZones.Object, slug ?? (() => "default"),
+            NullLogger<DisplayTimeZone>.Instance);
     }
 
     [Fact]
-    public async Task Nothing_set_reads_the_server_zone()
+    public async Task Nothing_set_and_no_site_zone_reads_the_server_zone()
     {
         var display = Build(null, null);
         await display.ResolveAsync();
 
         display.Zone.Should().Be(TimeZoneInfo.Local);
+    }
+
+    [Fact]
+    public async Task Nothing_chosen_reads_the_site_zone()
+    {
+        var display = Build(null, null, siteZone: Tokyo);
+        await display.ResolveAsync();
+
+        display.ZoneId.Should().Be(Tokyo);
+    }
+
+    [Fact]
+    public async Task The_install_default_wins_over_the_site_zone()
+    {
+        var display = Build(null, Chicago, siteZone: Tokyo);
+        await display.ResolveAsync();
+
+        display.ZoneId.Should().Be(Chicago);
+    }
+
+    [Fact]
+    public async Task The_site_zone_holds_for_the_circuit_and_follows_a_site_switch()
+    {
+        var site = "default";
+        var siteZones = new Mock<ISiteTimeZones>();
+        siteZones.SetupSequence(s => s.Cached("default"))
+            .Returns((TimeZoneInfo?)null)
+            .Returns(TimeZoneInfo.FindSystemTimeZoneById(Tokyo));
+        siteZones.Setup(s => s.Cached("branch")).Returns(TimeZoneInfo.FindSystemTimeZoneById(Chicago));
+        var display = Build(null, null, slug: () => site, siteZones: siteZones);
+        await display.ResolveAsync();
+
+        // A zone that arrives mid-session does not put one page on two clocks.
+        display.Zone.Should().Be(TimeZoneInfo.Local);
+        display.Zone.Should().Be(TimeZoneInfo.Local);
+
+        site = "branch";
+        display.ZoneId.Should().Be(Chicago);
     }
 
     [Fact]

@@ -2,6 +2,7 @@
 @inject ITimeZonePreferenceSource TimeZonePreferences
 @inject IUserPreferences UserPreferences
 @inject ICallerContext Caller
+@inject IDisplayTimeZone DisplayTime
 @inject NavigationManager Navigation
 
 @* The signed-in user's own time zone. Shown on Settings - Application and on the account page; both
@@ -28,8 +29,13 @@
     {
         _own = await TimeZonePreferences.GetOwnAsync();
         var inherited = await TimeZonePreferences.GetInheritedAsync();
-        var effective = TimeZoneCatalog.TryResolve(inherited, out _) ? inherited! : TimeZoneCatalog.ServerZoneId;
-        _inheritLabel = $"Default - {TimeZoneCatalog.Describe(effective, DateTime.UtcNow)}";
+        var now = DateTime.UtcNow;
+        // Names the layer that applies with no choice of their own, so the effective zone is always visible.
+        _inheritLabel = TimeZoneCatalog.TryResolve(inherited, out _)
+            ? $"Default - {TimeZoneCatalog.Describe(inherited!.Trim(), now)}"
+            : DisplayTime.SiteZone is { } site
+                ? $"Default - site time zone, {TimeZoneCatalog.Describe(TimeZoneCatalog.ToIana(site), now)}"
+                : $"Default - server time zone, {TimeZoneCatalog.Describe(TimeZoneCatalog.ServerZoneId, now)}";
         _loaded = true;
     }
 

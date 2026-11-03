@@ -1,39 +1,60 @@
+@using NetworkOptimizer.Web.Services.Identity
 @inject ITimeZonePreferenceSource TimeZonePreferences
 @inject ISystemSettingsAdmin SettingsAdmin
+@inject IIdentityAdminService IdentityAdmin
+@inject IDisplayTimeZone DisplayTime
 @inject NavigationManager Navigation
+@inject ILogger<TimeZoneSettingsCard> Logger
 
-@* Settings - Application: the viewer's clock. Each user's own zone, then the zone everyone without
-   one reads in. The default is instance-wide, so only a global Admin is offered it. *@
+@* Settings - Application (Global Admin, main site): the install default first, since on a one-user
+   install it is the only setting. Each user's own zone follows once there is more than one user. *@
 
 <div class="card settings-tab-application" id="time-zone">
     <div class="card-header">
         <h2 class="card-title">Time Zone</h2>
     </div>
     <div class="card-body">
-        <PersonalTimeZoneField />
-
         <AuthorizeView Policy="@Policies.RequireAdmin" Context="globalAdmin">
             @if (_loaded)
             {
                 <div class="form-group">
                     <label class="form-label" for="time-zone-default">Default time zone</label>
-                    <TimeZoneSelect Id="time-zone-default" Value="@_default" ValueChanged="SaveDefaultAsync" InheritLabel="@_serverLabel" />
-                    <p class="form-help">For everyone who has not chosen their own, and for alerts.</p>
+                    <TimeZoneSelect Id="time-zone-default" Value="@_default" ValueChanged="SaveDefaultAsync" InheritLabel="@_siteLabel" />
+                    <p class="form-help">For everyone who has not chosen their own. Alerts use each site's time zone.</p>
                 </div>
             }
         </AuthorizeView>
+
+        @if (_severalUsers)
+        {
+            <PersonalTimeZoneField />
+        }
     </div>
 </div>
 
 @code {
     private bool _loaded;
+    private bool _severalUsers;
     private string? _default;
-    private string _serverLabel = "";
+    private string _siteLabel = "";
 
     protected override async Task OnInitializedAsync()
     {
         _default = await TimeZonePreferences.GetInheritedAsync();
-        _serverLabel = $"Server time zone - {TimeZoneCatalog.Describe(TimeZoneCatalog.ServerZoneId, DateTime.UtcNow)}";
+        var now = DateTime.UtcNow;
+        _siteLabel = DisplayTime.SiteZone is { } site
+            ? $"Each site's time zone - this site: {TimeZoneCatalog.Describe(TimeZoneCatalog.ToIana(site), now)}"
+            : $"Each site's time zone - this site: server time zone, {TimeZoneCatalog.Describe(TimeZoneCatalog.ServerZoneId, now)}";
+        try
+        {
+            _severalUsers = (await IdentityAdmin.ListUsersAsync()).Count > 1;
+        }
+        catch (Exception ex)
+        {
+            // Offer the personal field rather than hide it on a failed read.
+            Logger.LogDebug(ex, "Could not count users for the Time Zone card");
+            _severalUsers = true;
+        }
         _loaded = true;
     }
 

@@ -59,16 +59,9 @@ public static class TimeZoneCatalog
         TryResolve(id, out var zone) ? $"{id} ({OffsetLabel(zone, nowUtc)})" : id;
 
     /// <summary>"UTC-05:00" for the offset in force at <paramref name="nowUtc"/>.</summary>
-    public static string OffsetLabel(TimeZoneInfo zone, DateTime nowUtc)
-    {
-        var offset = zone.GetUtcOffset(DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc));
-        return $"UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset:hh\\:mm}";
-    }
+    public static string OffsetLabel(TimeZoneInfo zone, DateTime nowUtc) => DateTimeUtilities.UtcOffsetLabel(zone, nowUtc);
 
-    /// <summary>
-    /// Short name of a zone at an instant: "CDT" where the platform has one (Linux), else the
-    /// initials of the long name ("Central Daylight Time" on Windows).
-    /// </summary>
+    /// <inheritdoc cref="DateTimeUtilities.ZoneAbbreviation"/>
     public static string Abbreviation(TimeZoneInfo zone, DateTime instantUtc) =>
         DateTimeUtilities.ZoneAbbreviation(zone, instantUtc);
 

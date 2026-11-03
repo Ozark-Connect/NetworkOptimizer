@@ -393,9 +393,8 @@ public class RolloutPlanDocument
     public string? ConsoleModel { get; set; }
 
     /// <summary>
-    /// The site's own timezone, as the console reports it. Times are shown in the server's zone -
-    /// one clock across every site an operator watches - and this is what the site-local reading
-    /// beside them is built from, where the two differ.
+    /// The site's own timezone, as the console reports it. Times are shown on the viewer's clock,
+    /// and this is what the site-local reading beside them is built from, where the two differ.
     /// </summary>
     public string? TimeZoneId { get; set; }
 

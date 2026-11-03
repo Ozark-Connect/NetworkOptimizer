@@ -23,6 +23,13 @@ public class SettingsSearchIndexTests
     };
 
     [Fact]
+    public void The_account_time_zone_entry_lands_on_its_card()
+    {
+        ElementIdsInComponents().Should().Contain(AccountSearchProvider.TimeZone.Anchor!);
+        AccountSearchProvider.TimeZone.Route.Should().Be("/account/security");
+    }
+
+    [Fact]
     public void Every_anchor_exists_in_the_markup()
     {
         var ids = ElementIdsInComponents();

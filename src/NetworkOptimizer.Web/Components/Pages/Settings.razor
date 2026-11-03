@@ -4497,6 +4497,18 @@
             return;
         }
 
+        // Lives on another page (the account Security page): go there and ring it once it renders.
+        if (!hit.Entry.Route.StartsWith("/settings", StringComparison.OrdinalIgnoreCase))
+        {
+            NavigationManager.NavigateTo(hit.Entry.Route);
+            if (!string.IsNullOrEmpty(hit.Entry.Anchor))
+            {
+                await Task.Delay(300);
+                await JS.InvokeVoidAsync("noHighlightTarget", hit.Entry.Anchor);
+            }
+            return;
+        }
+
         var tab = ResolveTab(hit.Entry.Key);
 
         // A route carrying more than its tab carries the part a tab switch cannot reproduce: the

@@ -22,33 +22,57 @@ public class NotificationTimeZoneResolverTests
         var services = new ServiceCollection().AddScoped(_ => source.Object).BuildServiceProvider();
         return new NotificationTimeZoneResolver(
             services.GetRequiredService<IServiceScopeFactory>(),
-            slug => readConsoleZone == null ? null : ct =>
+            BuildSiteZones(readConsoleZone),
+            NullLogger<NotificationTimeZoneResolver>.Instance);
+    }
+
+    private SiteTimeZones BuildSiteZones(Func<string, CancellationToken, Task<string?>>? readConsoleZone) =>
+        new(slug => readConsoleZone == null ? null : ct =>
             {
                 _consoleReads++;
                 return readConsoleZone(slug, ct);
             },
-            NullLogger<NotificationTimeZoneResolver>.Instance);
-    }
+            NullLogger<SiteTimeZones>.Instance);
 
     private NotificationTimeZoneResolver Build(string? installDefault, Func<string, string?> consoleZone) =>
         Build(installDefault, (slug, _) => Task.FromResult(consoleZone(slug)));
 
     [Fact]
-    public async Task The_install_default_wins_without_asking_the_console()
+    public async Task The_site_console_zone_wins_over_the_install_default()
     {
         var resolver = Build(Tokyo, _ => Chicago);
 
-        (await resolver.ResolveAsync("branch")).Id.Should().Be(Tokyo);
-        _consoleReads.Should().Be(0);
+        (await resolver.ResolveAsync("branch")).Id.Should().Be(Chicago);
     }
 
     [Fact]
-    public async Task No_default_reads_the_site_console_zone()
+    public async Task Each_site_reads_its_own_console_zone()
     {
         var resolver = Build(null, slug => slug == "branch" ? Tokyo : Chicago);
 
         (await resolver.ResolveAsync("branch")).Id.Should().Be(Tokyo);
         (await resolver.ResolveAsync(null)).Id.Should().Be(Chicago);
+    }
+
+    [Fact]
+    public async Task A_console_with_no_zone_reads_the_install_default()
+    {
+        (await Build(Tokyo, _ => null).ResolveAsync("branch")).Id.Should().Be(Tokyo);
+        (await Build(Tokyo, readConsoleZone: null).ResolveAsync("branch")).Id.Should().Be(Tokyo);
+    }
+
+    [Fact]
+    public async Task A_cached_read_never_waits_and_fills_for_the_next_caller()
+    {
+        var release = new TaskCompletionSource<string?>();
+        var zones = BuildSiteZones((_, _) => release.Task);
+
+        zones.Cached("branch").Should().BeNull();
+        release.SetResult(Chicago);
+        await zones.GetAsync("branch"); // joins the read Cached started
+
+        zones.Cached("branch")!.Id.Should().Be(Chicago);
+        _consoleReads.Should().Be(1);
     }
 
     [Fact]
@@ -122,8 +146,8 @@ public class NotificationTimeZoneResolverTests
         using var apiKey = new UniFi.UniFiApiClient(NullLogger<UniFi.UniFiApiClient>.Instance, "192.0.2.1", "", "", apiKey: "key");
         using var local = new UniFi.UniFiApiClient(NullLogger<UniFi.UniFiApiClient>.Instance, "192.0.2.1", "admin", "secret");
 
-        NotificationTimeZoneResolver.ConsoleCanGiveZone(apiKey).Should().BeFalse();
-        NotificationTimeZoneResolver.ConsoleCanGiveZone(local).Should().BeTrue();
+        SiteTimeZones.ConsoleCanGiveZone(apiKey).Should().BeFalse();
+        SiteTimeZones.ConsoleCanGiveZone(local).Should().BeTrue();
     }
 
     [Fact]

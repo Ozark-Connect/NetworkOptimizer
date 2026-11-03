@@ -42,16 +42,20 @@ public static class ReportEndpoints
         // Audit Report PDF download endpoints (serves pre-generated PDFs)
         // Auth handled by middleware for all /api/* paths
         // Uses strongly-typed int to prevent path traversal attacks
-        group.MapGet("/api/reports/{auditId:int}/pdf", async (int auditId, int? topSources, int? categoryRows, AuditService auditService) =>
+        group.MapGet("/api/reports/{auditId:int}/pdf", async (int auditId, int? topSources, int? categoryRows, AuditService auditService,
+            IDisplayTimeZone displayTime) =>
         {
-            var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(auditId, Rows(topSources, categoryRows));
+            await displayTime.ResolveAsync();
+            var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(auditId, Rows(topSources, categoryRows), displayTime.Zone);
             return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
         });
 
         // Get the latest audit report PDF (works across restarts since it queries database)
-        group.MapGet("/api/reports/latest/pdf", async (int? topSources, int? categoryRows, AuditService auditService) =>
+        group.MapGet("/api/reports/latest/pdf", async (int? topSources, int? categoryRows, AuditService auditService,
+            IDisplayTimeZone displayTime) =>
         {
-            var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync(Rows(topSources, categoryRows));
+            await displayTime.ResolveAsync();
+            var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync(Rows(topSources, categoryRows), displayTime.Zone);
             return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
         });
     }

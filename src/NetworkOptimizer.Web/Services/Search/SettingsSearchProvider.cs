@@ -326,7 +326,7 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("application", "Application", "time-zone",
             "Time Zone",
             ["timezone", "time zone", "tz"],
-            ["your time zone", "default time zone", "server time zone", "local time", "clock", "utc",
+            ["your time zone", "default time zone", "site time zone", "local time", "clock", "utc",
              "daylight saving", "dst", "timestamps", "dates and times"], Reach.InstanceWide),
 
         Entry("application", "Application", "admin-password",

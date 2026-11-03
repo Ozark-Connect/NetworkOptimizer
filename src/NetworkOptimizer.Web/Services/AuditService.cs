@@ -1121,7 +1121,9 @@ public partial class AuditService : IAuditScanService
     /// Gets the PDF bytes for a specific audit by ID.
     /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
     /// </summary>
-    public async Task<(byte[]? PdfBytes, string? FileName)> GetAuditPdfAsync(int auditId, ThreatReportRows? rows = null)
+    /// <param name="viewerZone">The downloader's clock; null keeps the stored copy's.</param>
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetAuditPdfAsync(int auditId, ThreatReportRows? rows = null,
+        TimeZoneInfo? viewerZone = null)
     {
         var audit = await _auditRepository.GetAuditResultAsync(auditId);
         if (audit == null)
@@ -1129,14 +1131,16 @@ public partial class AuditService : IAuditScanService
             _logger.LogWarning("Audit {AuditId} not found", auditId);
             return (null, null);
         }
-        return await GetPdfForAuditAsync(audit, rows);
+        return await GetPdfForAuditAsync(audit, rows, viewerZone);
     }
 
     /// <summary>
     /// Gets the PDF bytes for the most recent audit.
     /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
     /// </summary>
-    public async Task<(byte[]? PdfBytes, string? FileName)> GetLatestAuditPdfAsync(ThreatReportRows? rows = null)
+    /// <param name="viewerZone">The downloader's clock; null keeps the stored copy's.</param>
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetLatestAuditPdfAsync(ThreatReportRows? rows = null,
+        TimeZoneInfo? viewerZone = null)
     {
         var audit = await _auditRepository.GetLatestAuditResultAsync();
         if (audit == null)
@@ -1144,20 +1148,24 @@ public partial class AuditService : IAuditScanService
             _logger.LogWarning("No audit results found");
             return (null, null);
         }
-        return await GetPdfForAuditAsync(audit, rows);
+        return await GetPdfForAuditAsync(audit, rows, viewerZone);
     }
 
     /// <summary>
     /// Common logic for retrieving or regenerating a PDF for an audit.
-    /// Non-default row counts always regenerate, and that copy is not stored.
+    /// Non-default row counts always regenerate, and that copy is not stored. So does a downloader
+    /// whose clock reads the audit time differently from the stored copy's (the notification clock).
     /// </summary>
-    private async Task<(byte[]? PdfBytes, string? FileName)> GetPdfForAuditAsync(StorageAuditResult audit, ThreatReportRows? rows)
+    private async Task<(byte[]? PdfBytes, string? FileName)> GetPdfForAuditAsync(StorageAuditResult audit, ThreatReportRows? rows,
+        TimeZoneInfo? viewerZone)
     {
         rows ??= await GetConfiguredThreatReportRowsAsync();
+        var storedZone = await ReportTimeZoneAsync();
+        var zone = viewerZone ?? storedZone;
         byte[]? pdfBytes;
-        if (rows is { IsDefault: false })
+        if (rows is { IsDefault: false } || !SameClock(zone, storedZone, audit.AuditDate))
         {
-            pdfBytes = await RegeneratePdfFromStoredDataAsync(audit, rows, save: false);
+            pdfBytes = await RegeneratePdfFromStoredDataAsync(audit, rows is { IsDefault: false } ? rows : null, save: false, zone);
         }
         else
         {
@@ -1165,7 +1173,7 @@ public partial class AuditService : IAuditScanService
             if (pdfBytes == null)
             {
                 _logger.LogInformation("PDF not found for audit {AuditId}, attempting to regenerate", audit.Id);
-                pdfBytes = await RegeneratePdfFromStoredDataAsync(audit, null, save: true);
+                pdfBytes = await RegeneratePdfFromStoredDataAsync(audit, null, save: true, storedZone);
             }
         }
 
@@ -1188,11 +1196,18 @@ public partial class AuditService : IAuditScanService
             await _settingsRepository.GetSystemSettingAsync(ThreatReportRows.TopSourcesSettingKey),
             await _settingsRepository.GetSystemSettingAsync(ThreatReportRows.CategoryRowsSettingKey));
 
+    /// <summary>Whether two clocks print an instant the same way, so one zone's copy serves the other.</summary>
+    private static bool SameClock(TimeZoneInfo a, TimeZoneInfo b, DateTime instant) =>
+        DateTimeUtilities.ToZone(instant, a) == DateTimeUtilities.ToZone(instant, b)
+        && DateTimeUtilities.ZoneAbbreviation(a, instant) == DateTimeUtilities.ZoneAbbreviation(b, instant);
+
     /// <summary>
     /// Regenerates a PDF from the stored audit data (ReportDataJson and FindingsJson).
     /// Saves the regenerated PDF for future use.
     /// </summary>
-    private async Task<byte[]?> RegeneratePdfFromStoredDataAsync(StorageAuditResult audit, ThreatReportRows? rows, bool save)
+    /// <param name="timeZone">The clock the generated time is printed on.</param>
+    private async Task<byte[]?> RegeneratePdfFromStoredDataAsync(StorageAuditResult audit, ThreatReportRows? rows, bool save,
+        TimeZoneInfo timeZone)
     {
         if (string.IsNullOrEmpty(audit.ReportDataJson))
         {
@@ -1265,7 +1280,7 @@ public partial class AuditService : IAuditScanService
             var threatSummaryForPdf = rows == null
                 ? await BuildThreatSummaryAsync()
                 : await BuildThreatSummaryAsync(rows.TopSources, rows.CategoryRows);
-            var reportData = BuildReportData(result, threatSummary: threatSummaryForPdf, timeZone: await ReportTimeZoneAsync());
+            var reportData = BuildReportData(result, threatSummary: threatSummaryForPdf, timeZone: timeZone);
             var generator = new Reports.PdfReportGenerator();
             var pdfBytes = generator.GenerateReportBytes(reportData);
 
