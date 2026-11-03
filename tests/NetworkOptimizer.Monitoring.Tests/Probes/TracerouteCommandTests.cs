@@ -156,6 +156,113 @@ public class TracerouteCommandTests
         traits.CanBindInterface.Should().BeTrue();
     }
 
+    // BusyBox 1.37.0 on a UDR7, which has no traceroute binary: no -I in the usage, and the build
+    // sends UDP when given one anyway.
+    private const string UniFiBusyBoxUsage =
+        "BusyBox v1.37.0 (Debian 1:1.37.0-6+b9) multi-call binary.\n\n" +
+        "Usage: traceroute [-46Flnrv] [-f 1ST_TTL] [-m MAXTTL] [-q PROBES] [-p PORT]\n" +
+        "\t[-t TOS] [-w WAIT_SEC] [-s SRC_IP] [-i IFACE]\n" +
+        "\t[-z PAUSE_MSEC] HOST [BYTES]\n\n" +
+        "Trace the route to HOST\n\n" +
+        "\t-4,-6\tForce IP or IPv6 name resolution\n" +
+        "\t-F\tSet don't fragment bit\n" +
+        "\t-s IP\tSource address\n" +
+        "\t-i IFACE Source interface\n";
+
+    [Fact]
+    public void UniFiBusyBoxUsage_BindsButHasNoIcmpOrTcp()
+    {
+        var traits = LocalProbeExecutor.InterpretTracerouteBanner(UniFiBusyBoxUsage);
+
+        traits.IsBusyBox.Should().BeTrue();
+        traits.CanBindAddress.Should().BeTrue();
+        traits.CanBindInterface.Should().BeTrue();
+        traits.CanIcmp.Should().BeFalse();
+        traits.CanTcp.Should().BeFalse();
+        traits.ReportsBackHops.Should().BeFalse();
+    }
+
+    [Fact]
+    public void BusyBoxUsageListingDashI_CanIcmp()
+    {
+        var traits = LocalProbeExecutor.InterpretTracerouteBanner(
+            "BusyBox v1.36.1 multi-call binary.\nUsage: traceroute [-46FIlnrv] [-m MAXTTL] [-s SRC_IP] [-i IFACE] HOST");
+
+        traits.CanIcmp.Should().BeTrue();
+        traits.CanTcp.Should().BeFalse();
+    }
+
+    [Fact]
+    public void BusyBoxApplet_RunsThroughTheMultiCallBinary()
+    {
+        var applet = LocalProbeExecutor.InterpretTracerouteBanner(UniFiBusyBoxUsage) with { ViaBusyBoxMultiCall = true };
+
+        var (exe, args, error) = LocalProbeExecutor.BuildTracerouteCommand(
+            new ProbeTarget("192.0.2.1", ProbeMode.Udp, null, "eth3"), 30, TimeSpan.FromSeconds(1), applet,
+            probesPerHop: 5, isWindows: false);
+
+        error.Should().BeNull();
+        exe.Should().Be("busybox");
+        args.Should().StartWith("traceroute -m 30 -q 5 -w 1 ")
+            .And.Contain("-i eth3")
+            .And.EndWith(" 192.0.2.1")
+            .And.NotContain("-I")
+            .And.NotContain("--back");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IcmpWithoutIcmpSupport_RunsAsUdpOnTheBinary(bool bound)
+    {
+        // Never the managed trace: discovery's managed-RTT check needs every trace in a sweep native.
+        var traits = LocalProbeExecutor.InterpretTracerouteBanner(UniFiBusyBoxUsage);
+
+        var (useBinary, mode, error) = LocalProbeExecutor.ChooseTraceMode(ProbeMode.Icmp, bound, traits);
+
+        useBinary.Should().BeTrue();
+        mode.Should().Be(ProbeMode.Udp);
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void TcpWithoutDashT_TakesTheManagedTraceUnboundAndFailsBound()
+    {
+        var traits = LocalProbeExecutor.InterpretTracerouteBanner(UniFiBusyBoxUsage);
+
+        var unbound = LocalProbeExecutor.ChooseTraceMode(ProbeMode.Tcp, sourceBound: false, traits);
+        var bound = LocalProbeExecutor.ChooseTraceMode(ProbeMode.Tcp, sourceBound: true, traits);
+
+        unbound.UseBinary.Should().BeFalse();
+        unbound.Error.Should().BeNull();
+        bound.UseBinary.Should().BeFalse();
+        bound.Error.Should().Contain("no TCP mode");
+    }
+
+    [Theory]
+    [InlineData(ProbeMode.Icmp)]
+    [InlineData(ProbeMode.Udp)]
+    [InlineData(ProbeMode.Tcp)]
+    public void GnuTraceroute_RunsEveryModeAsAsked(ProbeMode requested)
+    {
+        var (useBinary, mode, error) = LocalProbeExecutor.ChooseTraceMode(requested, sourceBound: true, Gnu);
+
+        useBinary.Should().BeTrue();
+        mode.Should().Be(requested);
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void BindFailureOnStderr_FailsTheTrace()
+    {
+        // BusyBox prints this, then traces out the default route with exit 0.
+        const string stderr = "traceroute: can't bind to interface bogus0: No such device\n";
+
+        LocalProbeExecutor.DetectBindFailure(stderr, "bogus0").Should().Contain("bogus0");
+        LocalProbeExecutor.DetectBindFailure(stderr, null).Should().BeNull();
+        LocalProbeExecutor.DetectBindFailure(string.Empty, "eth3").Should().BeNull();
+    }
+
     [Fact]
     public void ProbesPerHop_SetsTheQueryCountAndAsksLinuxTracerouteForReturnHops()
     {
