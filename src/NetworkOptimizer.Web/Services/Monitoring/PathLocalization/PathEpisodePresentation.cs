@@ -330,8 +330,9 @@ public static class PathEpisodePresentation
 
     /// <summary>
     /// Network Performance on one episode target: its chart category with only that target drawn,
-    /// framed on the episode plus <see cref="TargetLinkPad"/> either side. Custom and Fabric targets
-    /// are not reached over one WAN, so their link asks for every WAN as the Live View links do.
+    /// framed on the episode plus <see cref="TargetLinkPad"/> either side. An episode is one WAN's, so
+    /// a Custom target opens on that WAN: its trace went out over it. Fabric targets are LAN, so their
+    /// link asks for every WAN as the Live View links do.
     /// </summary>
     public static string TargetUrl(PathEpisodeView e, PathEpisodeTargetView t, string? wanKey, DateTime nowUtc)
     {
@@ -340,7 +341,9 @@ public static class PathEpisodePresentation
         if (end > nowUtc) end = nowUtc;
         var startMs = new DateTimeOffset(start).ToUnixTimeMilliseconds();
         var spanMs = Math.Max(1, new DateTimeOffset(end).ToUnixTimeMilliseconds() - startMs);
-        var wan = t.Category is MonitoringLinks.CustomCategory or MonitoringLinks.FabricCategory ? LiveWanScope.AllWansToken : wanKey;
+        var wan = t.Category is MonitoringLinks.FabricCategory || string.IsNullOrEmpty(wanKey) && t.Category is MonitoringLinks.CustomCategory
+            ? LiveWanScope.AllWansToken
+            : wanKey;
         var url = MonitoringLinks.Analysis(t.Category, startMs + spanMs / 2, spanMs, wan);
         return string.IsNullOrEmpty(t.TargetId) ? url : $"{url}&target={Uri.EscapeDataString(t.TargetId)}";
     }

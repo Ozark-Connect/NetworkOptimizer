@@ -59,10 +59,13 @@ public class PathEpisodeBannerTests
         PathEpisodePresentation.TargetUrl(e, transit, "wan2", Now).Should().Be(
             $"/monitoring?tab=performance&category=Transit&at={start + span / 2}&span={span}&wan=wan2&target=aws-1");
 
-        // A Custom target is not reached over one WAN; an open episode's window ends now.
+        // A Custom target opens on the episode's WAN, which its trace went out over; an open episode's window ends now.
         var open = Episode(2, Now.AddMinutes(-10), null, tracing: true);
         var url = PathEpisodePresentation.TargetUrl(open, transit with { Category = "Custom" }, "wan2", Now);
-        url.Should().Contain("category=Custom").And.Contain("&wan=all").And.Contain($"&span={(long)TimeSpan.FromMinutes(40).TotalMilliseconds}");
+        url.Should().Contain("category=Custom").And.Contain("&wan=wan2&").And.Contain($"&span={(long)TimeSpan.FromMinutes(40).TotalMilliseconds}");
+
+        // A Fabric target is LAN, so it asks for every WAN.
+        PathEpisodePresentation.TargetUrl(open, transit with { Category = "Fabric" }, "wan2", Now).Should().Contain("&wan=all");
     }
 
     [Fact]
