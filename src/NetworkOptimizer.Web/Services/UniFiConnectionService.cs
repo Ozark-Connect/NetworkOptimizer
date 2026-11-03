@@ -110,6 +110,54 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         // Start initialization in background (non-blocking)
         StartInitializationAsync();
+
+        _autoReconnectTimer = new Timer(_ => _ = AutoReconnectTickAsync(), null, AutoReconnectInterval, AutoReconnectInterval);
+    }
+
+    // The background reconnect lives here, not in a feature's loop: in the Monitoring collector it
+    // stopped with Monitoring, and a site with Monitoring off stayed down until a restart.
+    // 10 s: how long the banner outlives a console that is back. One sign-in per try, and
+    // ConnectWithSettingsAsync holds a rejected password and the login attempt limit across tries.
+    private static readonly TimeSpan AutoReconnectInterval = TimeSpan.FromSeconds(10);
+    private readonly Timer _autoReconnectTimer;
+    private int _autoReconnectRunning;
+    private volatile bool _disposed;
+
+    /// <summary>Set by a Disconnect in Settings, which the background reconnect must not undo.</summary>
+    private volatile bool _disconnectedByUser;
+
+    /// <summary>
+    /// One background reconnect try: only for a configured console that is down, not waiting on its
+    /// agent (the agent-connected hook reconnects that), and not disconnected on purpose.
+    /// </summary>
+    internal async Task AutoReconnectTickAsync()
+    {
+        if (Interlocked.Exchange(ref _autoReconnectRunning, 1) == 1) return;
+        try
+        {
+            if (_disposed || !IsInitialized || IsConnected || IsAwaitingAgent || _hasNoConsole || _disconnectedByUser)
+                return;
+            // The cached row, so an unconfigured site never touches the database from here.
+            if (_settings is not { IsConfigured: true, HasCredentials: true })
+                return;
+
+            var settings = await GetSettingsAsync();
+            if (!settings.IsConfigured || !settings.HasCredentials)
+                return;
+            // Restores a lost connection; never opens one that startup declined (Remember credentials off).
+            if (!settings.RememberCredentials && _lastConnectedAt == null)
+                return;
+
+            await ConnectWithSettingsAsync(settings, onlyIfDisconnected: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Background console reconnect failed for site {Slug}", SiteSlug);
+        }
+        finally
+        {
+            Volatile.Write(ref _autoReconnectRunning, 0);
+        }
     }
 
     /// <summary>
@@ -744,6 +792,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return;
         }
 
+        // The no-console disconnect above is not the user's, so the background reconnect may retry.
+        _disconnectedByUser = false;
         if (!await ReconnectAsync())
             OnConnectionChanged?.Invoke();
     }
@@ -970,6 +1020,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _isConnected = true;
                 _lastError = null;
                 _consoleUnresponsive = false;
+                _disconnectedByUser = false;
                 _lastConnectedAt = DateTime.UtcNow;
                 _rejectedSavedLogin = null;
 
@@ -1022,7 +1073,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// <summary>
     /// Connect using existing settings from database
     /// </summary>
-    private async Task<bool> ConnectWithSettingsAsync(UniFiConnectionSettings settings)
+    /// <param name="settings">The saved connection settings.</param>
+    /// <param name="onlyIfDisconnected">Skip when connected once the gate is held: a background try
+    /// queued behind a Save or another reconnect must not replace the client that one just built.</param>
+    private async Task<bool> ConnectWithSettingsAsync(UniFiConnectionSettings settings, bool onlyIfDisconnected = false)
     {
         if (!settings.HasCredentials || _hasNoConsole) return false;
 
@@ -1037,6 +1091,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         try
         {
+            if (onlyIfDisconnected && (IsConnected || _disconnectedByUser || IsAwaitingAgent))
+                return IsConnected;
+
             // Read again under the gate. A caller that fetched settings before queueing behind a
             // Save's connect would otherwise reconnect with the credentials that Save just replaced.
             // Re-checked under the gate: the flag can be set while this connect waited its turn.
@@ -1150,6 +1207,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _isConnected = true;
                 _lastError = null;
                 _consoleUnresponsive = false;
+                _disconnectedByUser = false;
                 _lastConnectedAt = DateTime.UtcNow;
 
                 // Cache the console's display name on auto-reconnect too, so the
@@ -1298,13 +1356,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
-    /// Disconnect from the controller
+    /// Disconnect from the controller. The background reconnect stays off until the next connect.
     /// </summary>
     public async Task DisconnectAsync()
     {
         await _connectGate.WaitAsync();
         try
         {
+            // Under the gate: a background connect finishing ahead of this would clear it again.
+            _disconnectedByUser = true;
             if (_client != null)
             {
                 try
@@ -2000,6 +2060,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     internal void DisposeOwned()
     {
+        _disposed = true;
+        _autoReconnectTimer.Dispose();
         _client?.Dispose();
         _connectGate.Dispose();
     }
