@@ -124,7 +124,10 @@ public class FirewallRuleAnalyzer
 
                         // Earlier ALLOW subverts later DENY
                         // Check if this is a "narrow exception before broad deny" pattern
-                        var isNarrowException = FirewallRuleOverlapDetector.IsNarrowerScope(earlierRule, laterRule);
+                        // An ICMP-only allow above an all-protocol deny is a control-plane exception. TCP/UDP
+                        // without ports stays broad: it admits nearly everything the deny blocks.
+                        var isNarrowException = FirewallRuleOverlapDetector.IsNarrowerScope(earlierRule, laterRule)
+                            || (IsIcmpOnly(earlierRule) && IsAllProtocols(laterRule));
 
                         if (isNarrowException)
                         {
@@ -193,8 +196,7 @@ public class FirewallRuleAnalyzer
                         var isDenyNarrower = FirewallRuleOverlapDetector.IsNarrowerScope(earlierRule, laterRule);
                         var denyHasSpecificPort = !string.IsNullOrEmpty(earlierRule.DestinationPort) &&
                                                   string.IsNullOrEmpty(laterRule.DestinationPort);
-                        var denyHasSpecificProtocol = earlierRule.Protocol != "all" &&
-                                                      (laterRule.Protocol == "all" || string.IsNullOrEmpty(laterRule.Protocol));
+                        var denyHasSpecificProtocol = !IsAllProtocols(earlierRule) && IsAllProtocols(laterRule);
 
                         // Check if deny has specific destinations while allow is broader
                         var allowDestTarget = laterRule.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
@@ -2164,6 +2166,7 @@ public class FirewallRuleAnalyzer
         var eclipsingRule = rules.FirstOrDefault(r =>
             r.Enabled &&
             r.ActionType.IsBlockAction() &&
+            r.BlocksNewConnections() &&
             r.Index < allowRule.Index &&
             r.AppliesToSourceNetwork(sourceNetwork, family) &&
             // Block rule must affect the same traffic
@@ -2688,6 +2691,17 @@ public class FirewallRuleAnalyzer
         // Multiple different purposes or unknown - no suffix
         return "";
     }
+
+    /// <summary>True when the rule matches only ICMP or only ICMPv6 (not inverted).</summary>
+    private static bool IsIcmpOnly(FirewallRule rule) =>
+        !rule.MatchOppositeProtocol &&
+        (string.Equals(rule.Protocol, "icmp", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(rule.Protocol, "icmpv6", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True when the rule matches every protocol.</summary>
+    private static bool IsAllProtocols(FirewallRule rule) =>
+        !rule.MatchOppositeProtocol &&
+        (string.IsNullOrEmpty(rule.Protocol) || string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Check if an allow rule is for a known management service (UniFi, AFC, NTP, 5G).

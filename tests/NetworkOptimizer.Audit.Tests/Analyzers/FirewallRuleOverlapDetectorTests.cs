@@ -8,6 +8,26 @@ namespace NetworkOptimizer.Audit.Tests.Analyzers;
 
 public class FirewallRuleOverlapDetectorTests
 {
+    #region ConnectionStatesOverlap Tests
+
+    [Theory]
+    [InlineData("CUSTOM", new[] { "INVALID" }, "ALL", new string[0], true)]
+    [InlineData("CUSTOM", new[] { "INVALID" }, "RESPOND_ONLY", new[] { "RELATED", "ESTABLISHED" }, false)]
+    [InlineData("CUSTOM", new[] { "INVALID" }, null, new string[0], true)]
+    [InlineData("CUSTOM", new[] { "NEW" }, "RESPOND_ONLY", new string[0], false)]
+    [InlineData("ALL", new string[0], "RESPOND_ONLY", new[] { "RELATED", "ESTABLISHED" }, true)]
+    public void ConnectionStatesOverlap_ReturnsWhetherAnyStateIsShared(
+        string? type1, string[] states1, string? type2, string[] states2, bool expected)
+    {
+        var rule1 = new FirewallRule { Id = "r1", ConnectionStateType = type1, ConnectionStates = [.. states1] };
+        var rule2 = new FirewallRule { Id = "r2", ConnectionStateType = type2, ConnectionStates = [.. states2] };
+
+        FirewallRuleOverlapDetector.ConnectionStatesOverlap(rule1, rule2).Should().Be(expected);
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().Be(expected);
+    }
+
+    #endregion
+
     #region ProtocolsOverlap Tests
 
     [Theory]
