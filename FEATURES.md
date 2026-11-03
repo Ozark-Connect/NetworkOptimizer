@@ -124,7 +124,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Path & Congestion Events** - congestion events, path shifts, and path changes
   - **Path Localization** - when an Internet or Custom target degrades and the rest of the connection stays clean, traceroutes from the vantage that measures it place where the degradation first appears, or say it is the return path or far side
   - Hop table per episode: loss, normal to during RTT with one bar per trace behind it, return hops, ICMP-limited hops; **Re-run** in Network Tools; each target opens on Network Performance over the episode
-  - A slowdown that comes and goes is read trace by trace: a hop that slows in the same traces as the destination is where it starts, one that stays fast is not
+  - A slowdown that comes and goes is read trace by trace: hops that slow in the same traces as the destination show where it first appears, and the verdict says when that could be the return path
   - Hops a trace reads as elevated are pinged during the episode, so a router that limits traceroute replies is not blamed; a hostname target is traced at one address for the whole episode
   - Episodes across 2 or more destination networks lower Transit Health by impact (length, breadth, depth, and time of day), shown as a **Path Congestion** row
   - Banner at the top of ISP Health while a path is being traced and for 24 hours after; dismissible, and a new episode shows again
