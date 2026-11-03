@@ -168,7 +168,8 @@ public class FirewallRuleAnalyzer
                         {
                             // Broad or similar scope allow before deny = potential security issue.
                             // A source port alone is no narrowing (the sender picks it), and reordering
-                            // will not fix that, so that shape gets its own text.
+                            // will not fix that, so that shape gets its own text. It scores lower: an
+                            // attacker has to know the port to send from.
                             var sourcePortOnly = IsSourcePortOnly(earlierRule);
                             issues.Add(new AuditIssue
                             {
@@ -185,7 +186,7 @@ public class FirewallRuleAnalyzer
                                     { "deny_index", laterRule.Index }
                                 },
                                 RuleId = "FW-SUBVERT-001",
-                                ScoreImpact = 5,
+                                ScoreImpact = sourcePortOnly ? 2 : 5,
                                 RecommendedAction = sourcePortOnly
                                     ? SourcePortOnlySubvertRecommendation(earlierRule)
                                     : "Review rule order - the deny rule may never match due to the earlier allow rule."

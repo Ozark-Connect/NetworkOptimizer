@@ -2371,7 +2371,7 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
         issue.Severity.Should().Be(AuditSeverity.Recommended);
-        issue.ScoreImpact.Should().Be(5);
+        issue.ScoreImpact.Should().Be(2);
         issue.Message.Should().Be("Allow rule 'Allow mDNS reply' lets traffic from source port 5353 past deny rule 'Block Other Gateway Access', on any port and protocol");
         issue.RecommendedAction.Should().Be("A source port is chosen by the sender, so any device can use it to reach what the deny blocks. Set the allow's protocol and destination port (for mDNS replies: UDP, destination port 5353).");
     }
@@ -2422,6 +2422,7 @@ public class FirewallRuleAnalyzerTests
 
         var issue = _analyzer.DetectShadowedRules(rules).Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
 
+        issue.ScoreImpact.Should().Be(5);
         issue.Message.Should().Be("Allow rule 'allow-broad' may subvert deny rule 'block-gateway'");
         issue.RecommendedAction.Should().Be("Review rule order - the deny rule may never match due to the earlier allow rule.");
     }
