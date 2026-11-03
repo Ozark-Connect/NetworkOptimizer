@@ -41,7 +41,33 @@
         #components-reconnect-modal.components-reconnect-rejected {
             display: flex;
         }
-        #components-reconnect-modal .reconnect-dialog {
+        #circuit-start-failed {
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        #circuit-start-failed.retrying,
+        #circuit-start-failed.failed {
+            display: flex;
+        }
+        #circuit-start-failed .circuit-start-message,
+        #circuit-start-failed .btn,
+        #circuit-start-failed.failed .reconnect-spinner,
+        #circuit-start-failed.failed .circuit-start-retrying {
+            display: none;
+        }
+        #circuit-start-failed.failed .circuit-start-message,
+        #circuit-start-failed.failed .btn {
+            display: block;
+        }
+        #circuit-start-failed .btn {
+            margin: 1.25rem auto 0;
+        }
+        #components-reconnect-modal .reconnect-dialog,
+        #circuit-start-failed .reconnect-dialog {
             background-color: #161618;
             color: #ededef;
             padding: 2rem 3rem;
@@ -50,11 +76,13 @@
             text-align: center;
             min-width: 20rem;
         }
-        #components-reconnect-modal .reconnect-dialog p {
+        #components-reconnect-modal .reconnect-dialog p,
+        #circuit-start-failed .reconnect-dialog p {
             margin: 0;
             font-size: 1rem;
         }
-        #components-reconnect-modal .reconnect-spinner {
+        #components-reconnect-modal .reconnect-spinner,
+        #circuit-start-failed .reconnect-spinner {
             width: 2rem;
             height: 2rem;
             margin: 0 auto 1rem;
@@ -101,6 +129,16 @@
             <p>Reconnecting...</p>
         </div>
     </div>
+
+    <div id="circuit-start-failed" role="alert">
+        <div class="reconnect-dialog">
+            <div class="reconnect-spinner"></div>
+            <p class="circuit-start-retrying">Connecting...</p>
+            <p class="circuit-start-message">This page could not connect to Network Optimizer.</p>
+            <button type="button" class="btn btn-primary">Reload</button>
+        </div>
+    </div>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/circuit-start.js")"></script>
 
     <script>window.__noSiteDefault = "@(NetworkOptimizer.Web.Services.SiteManagementService.DefaultSiteSlug)";</script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/passkey.js")"></script>
