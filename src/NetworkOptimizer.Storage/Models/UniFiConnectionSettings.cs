@@ -33,7 +33,10 @@ public class UniFiConnectionSettings
     [MaxLength(100)]
     public string Site { get; set; } = "default";
 
-    /// <summary>Whether to persist credentials for auto-reconnect on startup</summary>
+    /// <summary>
+    /// Retired: credentials were always saved, and the app now connects at startup whenever they
+    /// are. Kept because the schema is additive-only; saves write true for older builds.
+    /// </summary>
     public bool RememberCredentials { get; set; } = true;
 
     /// <summary>

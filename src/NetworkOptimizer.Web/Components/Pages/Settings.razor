@@ -255,13 +255,6 @@
 
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" @bind="rememberCredentials" />
-                    <span>Remember credentials</span>
-                </label>
-            </div>
-
-            <div class="form-group">
-                <label class="checkbox-label">
                     <input type="checkbox" @bind="ignoreControllerSSLErrors" />
                     <span>Ignore SSL certificate errors</span>
                 </label>
@@ -5321,7 +5314,6 @@
     private string controllerApiKey = "";
     private bool useApiKeyAuth = false;
     private string controllerSite = "default";
-    private bool rememberCredentials = true;
     private bool ignoreControllerSSLErrors = true;
     private string controllerStatus = "Disconnected";
     private bool _currentSiteConsoleViaAgent;
@@ -5758,7 +5750,6 @@
             controllerUsername = ConnectionService.CurrentConfig.Username;
             // Don't load password/API key - keep them empty for security
             controllerSite = ConnectionService.CurrentConfig.Site;
-            rememberCredentials = ConnectionService.CurrentConfig.RememberCredentials;
             ignoreControllerSSLErrors = ConnectionService.CurrentConfig.IgnoreControllerSSLErrors;
             useApiKeyAuth = ConnectionService.CurrentConfig.UseApiKey;
         }
@@ -7124,7 +7115,6 @@
             Password = password,
             ApiKey = apiKey,
             Site = string.IsNullOrWhiteSpace(controllerSite) ? "default" : controllerSite,
-            RememberCredentials = rememberCredentials,
             IgnoreControllerSSLErrors = ignoreControllerSSLErrors
         };
     }
