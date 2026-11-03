@@ -3537,6 +3537,11 @@
                 _scheduleMessage = $"{task.Name} failed: {updated.LastErrorMessage ?? "unknown error"}";
                 _scheduleMessageClass = "danger";
             }
+            else if (updated?.LastStatus == "waiting")
+            {
+                _scheduleMessage = $"{task.Name}: {updated.LastResultSummary ?? "waiting to retry"}";
+                _scheduleMessageClass = "warning";
+            }
             StateHasChanged();
         }
         catch (Exception ex)

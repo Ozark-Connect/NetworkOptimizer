@@ -88,11 +88,13 @@ public static class ScheduleExecutorRegistration
 
     private const string LicenseRestrictedError = "Site is restricted by licensing";
 
-    private static async Task<(bool Success, string? Summary, string? Error)> ExecuteAuditAsync(
+    private static readonly ScheduledAuditRetryPolicy AuditRetry = new();
+
+    private static async Task<NetworkOptimizer.Alerts.ScheduleRunOutcome> ExecuteAuditAsync(
         IServiceProvider services, string siteKey, CancellationToken ct)
     {
         if (IsLicenseRestricted(services, siteKey))
-            return (false, null, LicenseRestrictedError);
+            return new NetworkOptimizer.Alerts.ScheduleRunOutcome(false, null, LicenseRestrictedError);
 
         // Ensure the site's console connection is fresh for scheduled audits
         // (fingerprint cache expires after 24h)
@@ -106,7 +108,7 @@ public static class ScheduleExecutorRegistration
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteKey);
         var auditService = scope.ServiceProvider.GetRequiredService<AuditService>();
         if (auditService.IsRunning)
-            return (false, null, "Audit is already running");
+            return new NetworkOptimizer.Alerts.ScheduleRunOutcome(false, null, "Audit is already running");
 
         // A scheduled scan has no user behind it: run the gated scan as system so it authorizes
         // and audits as "system:scheduler:audit" (design doc 06).
@@ -116,14 +118,11 @@ public static class ScheduleExecutorRegistration
         try
         {
             var result = await auditScan.RunAuditAsync(new AuditOptions { IsScheduled = true });
-            var summary = result.CriticalCount > 0 || result.WarningCount > 0
-                ? $"Score: {result.Score} - {result.CriticalCount} critical, {result.WarningCount} recommended"
-                : $"Score: {result.Score}";
-            return (true, summary, null);
+            return AuditRetry.Decide(siteKey, result, DateTime.UtcNow);
         }
         catch (Exception ex)
         {
-            return (false, null, ex.Message);
+            return new NetworkOptimizer.Alerts.ScheduleRunOutcome(false, null, ex.Message);
         }
     }
 
