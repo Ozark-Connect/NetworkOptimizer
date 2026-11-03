@@ -304,7 +304,7 @@ public static class PathEpisodePresentation
     /// <summary>The Network Tools link that fills Run a Probe with an episode trace's target, vantage, and bind.</summary>
     public static string RerunUrl(string address, string vantage, int? wanContextId)
     {
-        var from = vantage.StartsWith("agent-", StringComparison.Ordinal) && int.TryParse(vantage[6..], out var id)
+        var from = PathVantage.FromLabel(vantage, null).AgentId is int id
             ? wanContextId is int ctx ? $"agent:{id}:{ctx}" : $"agent:{id}"
             : "server";
         return $"/network-tools?from={Uri.EscapeDataString(from)}&target={Uri.EscapeDataString(address)}";
