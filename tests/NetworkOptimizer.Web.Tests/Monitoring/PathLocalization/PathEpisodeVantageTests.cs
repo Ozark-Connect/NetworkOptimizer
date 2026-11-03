@@ -15,29 +15,43 @@ namespace NetworkOptimizer.Web.Tests.Monitoring.PathLocalization;
 /// </summary>
 public class PathEpisodeVantageTests
 {
-    private static PathEpisodeWatcher Watcher(string slug, bool withCoverage) => new(
-        slug, null!, null!, null!, null!, null!,
-        new LocalProbeExecutor(NullLogger<LocalProbeExecutor>.Instance), null!, null!, NullLoggerFactory.Instance,
-        withCoverage ? new SiteAgentCoverage(new ServiceCollection().BuildServiceProvider()) : null);
+    private static PathEpisodeWatcher Watcher(string slug, bool coverDefault = false)
+    {
+        var coverage = new SiteAgentCoverage(new ServiceCollection().BuildServiceProvider());
+        if (coverDefault) coverage.Set(SiteManagementService.DefaultSiteSlug, true);
+        return new(slug, null!, null!, null!, null!, null!,
+            new LocalProbeExecutor(NullLogger<LocalProbeExecutor>.Instance), null!, null!, NullLoggerFactory.Instance,
+            coverage);
+    }
 
     [Fact]
     public void A_named_agent_runs_on_that_agent()
     {
-        Watcher("branch", withCoverage: true).ExecutorFor(new PathVantage(7, null))
-            .Should().BeOfType<AgentProbeExecutor>();
+        Watcher("branch").ExecutorFor(new PathVantage(7, null))
+            .Should().BeOfType<AgentProbeExecutor>()
+            .Which.Vantage.Id.Should().Be("agent:7");
     }
 
     [Fact]
     public void The_server_vantage_of_a_secondary_site_runs_on_its_agent()
     {
-        Watcher("branch", withCoverage: true).ExecutorFor(new PathVantage(null, null))
-            .Should().BeOfType<AgentProbeExecutor>();
+        Watcher("branch").ExecutorFor(new PathVantage(null, null))
+            .Should().BeOfType<AgentProbeExecutor>()
+            .Which.Vantage.Id.Should().Be("agent");
     }
 
     [Fact]
     public void The_server_vantage_of_an_uncovered_default_site_runs_here()
     {
-        Watcher(SiteManagementService.DefaultSiteSlug, withCoverage: true).ExecutorFor(new PathVantage(null, null))
+        Watcher(SiteManagementService.DefaultSiteSlug).ExecutorFor(new PathVantage(null, null))
             .Should().BeOfType<LocalProbeExecutor>();
+    }
+
+    [Fact]
+    public void The_server_vantage_of_a_covered_default_site_runs_on_its_agent()
+    {
+        Watcher(SiteManagementService.DefaultSiteSlug, coverDefault: true).ExecutorFor(new PathVantage(null, null))
+            .Should().BeOfType<AgentProbeExecutor>()
+            .Which.Vantage.Id.Should().Be("agent");
     }
 }
