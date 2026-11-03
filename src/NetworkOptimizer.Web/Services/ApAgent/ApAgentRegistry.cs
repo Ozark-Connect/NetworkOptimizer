@@ -24,6 +24,9 @@ public sealed class ApAgentRegistry : BackgroundService, ISiteScopedRegistry
     /// <summary>Let the consoles connect before the first pass rather than racing startup.</summary>
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(60);
 
+    /// <summary>Sites supervised at once. Each one caps its own deploys, so this bounds the server's SSH total.</summary>
+    internal const int MaxConcurrentSites = 4;
+
     private readonly IServiceProvider _serviceProvider;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
@@ -64,14 +67,17 @@ public sealed class ApAgentRegistry : BackgroundService, ISiteScopedRegistry
         try { await Task.Delay(StartupDelay, stoppingToken); }
         catch (OperationCanceledException) { return; }
 
+        using var passes = new ApAgentSitePassScheduler(MaxConcurrentSites, _logger);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await ReconcileAsync(stoppingToken);
 
-                foreach (var service in _instances.Values)
-                    await Owned(service).SuperviseAsync(stoppingToken);
+                // Not awaited: a site still mid-pass from the last tick is skipped, not waited on.
+                foreach (var (slug, service) in _instances)
+                    passes.TryStart(slug, ct => Owned(service).SuperviseAsync(ct), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -85,6 +91,8 @@ public sealed class ApAgentRegistry : BackgroundService, ISiteScopedRegistry
             try { await Task.Delay(SuperviseInterval, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
+
+        await passes.WhenIdleAsync();
 
         foreach (var service in _instances.Values)
             Owned(service).DisposeOwned();
