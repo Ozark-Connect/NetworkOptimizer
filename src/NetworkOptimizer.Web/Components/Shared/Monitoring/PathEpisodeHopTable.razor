@@ -43,7 +43,7 @@
                 <span class="path-episode-table-title path-episode-target-name">@table.Target.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
                     Tooltip="@JumpTooltip(table.Target)" OnClick="() => Jump(table.Target)" /></span>
                 <span class="text-muted">
-                    @table.Rounds @(table.Rounds == 1 ? "round" : "rounds") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", baseline from the recovery round" : _detail.Episode.ClosedAt == null ? "" : ", no recovery round yet")
+                    @table.Rounds @(table.Rounds == 1 ? "trace" : "traces") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", normal from the trace after it recovered" : _detail.Episode.ClosedAt == null ? "" : ", no trace after recovery yet")
                 </span>
                 @if (table.TracedAddress != null && table.TracedAddress != table.Address)
                 {
@@ -77,7 +77,7 @@
                             <th>Address / PTR</th>
                             <th>Network</th>
                             <th>Loss</th>
-                            <th data-tooltip="Baseline: a monitored hop's own series, else the minimum RTT after the episode (or on the clean control). Then the minimum during it, rather than the average, which ICMP slow-path handling inflates.">RTT (baseline &rarr; episode min)</th>
+                            <th data-tooltip="One bar per trace. Taller is slower.">RTT (normal &rarr; during)</th>
                             @if (table.Hops.Any(ReturnHopsWorthShowing))
                             {
                                 <th data-tooltip="How many hops the reply took to come back, from its TTL. Far from the hop number means a different way home.">Return hops</th>
@@ -143,14 +143,25 @@
                                         <span>-</span>
                                     }
                                 </td>
-                                <td class="path-hop-nowrap">
-                                    @if (RttTooltip(hop) is { } rttTip)
+                                <td class="path-hop-nowrap path-rtt-cell">
+                                    @if (hop.ReferenceRttMs is double reference && hop.RoundMinRttMs.Count > 0)
                                     {
-                                        <span data-tooltip="@rttTip">@RttLabel(hop)</span>
+                                        <span class="path-rtt-bars" aria-hidden="true">
+                                            @for (var r = 0; r < hop.RoundMinRttMs.Count; r++)
+                                            {
+                                                var ms = hop.RoundMinRttMs[r];
+                                                var slow = r < hop.RoundSlow.Count && hop.RoundSlow[r];
+                                                <i class="@(ms == null ? "empty" : slow ? "slow" : "")" style="@BarHeight(ms, reference)"></i>
+                                            }
+                                        </span>
+                                    }
+                                    @if (RttTooltip(hop, table) is { } rttTip)
+                                    {
+                                        <span class="path-rtt-value" data-tooltip="@rttTip">@RttLabel(hop)</span>
                                     }
                                     else
                                     {
-                                        @RttLabel(hop)
+                                        <span class="path-rtt-value">@RttLabel(hop)</span>
                                     }
                                 </td>
                                 @if (table.Hops.Any(ReturnHopsWorthShowing))
@@ -235,11 +246,20 @@
 
     private static string RttLabel(HopReading h)
     {
-        if (h.MinRttMs is not double min) return "-";
-        return PathEpisodePresentation.DisplayBaseline(h) is double b ? $"{b:0.0} → {min:0.0} ms" : $"{min:0.0} ms";
+        if (h.EpisodeRttMs is not double during) return "-";
+        return PathEpisodePresentation.DisplayBaseline(h) is double b ? $"{b:0.0} → {during:0.0} ms" : $"{during:0.0} ms";
     }
 
-    private static string? RttTooltip(HopReading h) => h.MinRttMs.HasValue && h.SeriesBaselineRttMs.HasValue
-        ? "Baseline from its own monitored series: the typical RTT over the last 24 hours."
-        : null;
+    private static string? RttTooltip(HopReading h, NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable table)
+    {
+        if (!h.EpisodeRttMs.HasValue) return null;
+        var reading = PathEpisodePresentation.RoundsReading(h, table.Hops, table.Target.Name);
+        return h.SeriesBaselineRttMs.HasValue
+            ? $"{reading}. Normal is from its own monitored series: the typical RTT over the last 24 hours."
+            : reading;
+    }
+
+    /// <summary>A round's bar: its rise over the hop's reference on a fixed 40 ms scale, so rows compare.</summary>
+    private static string BarHeight(double? ms, double reference) =>
+        ms is double v ? $"height: {Math.Clamp((v - reference) / 40.0 * 100.0, 0, 100):0.#}%" : "";
 }

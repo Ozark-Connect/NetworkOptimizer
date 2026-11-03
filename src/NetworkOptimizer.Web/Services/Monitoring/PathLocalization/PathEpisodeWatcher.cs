@@ -20,6 +20,10 @@ public sealed record PathVantage(int? AgentId, string? SourceInterface)
 {
     /// <summary>The vantage as the latency series names it ("server", "agent-3").</summary>
     public string Label => AgentId is int id ? $"agent-{id}" : "server";
+
+    /// <summary>The vantage a stored label names ("server", "agent-3"), with the bind stored beside it.</summary>
+    public static PathVantage FromLabel(string label, string? sourceInterface) =>
+        new(label.StartsWith("agent-", StringComparison.Ordinal) && int.TryParse(label[6..], out var id) ? id : null, sourceInterface);
 }
 
 /// <summary>
@@ -52,6 +56,7 @@ public sealed class PathEpisodeWatcher
     private readonly IspHealthRegistry _ispHealth;
     private readonly UpstreamTracerRegistry _tracers;
     private readonly LocalProbeExecutor _localProbe;
+    private readonly SiteAgentCoverage _coverage;
     private readonly AgentProbeService _agentProbe;
     private readonly AsnResolutionService _asn;
     private readonly ILoggerFactory _loggerFactory;
@@ -88,8 +93,10 @@ public sealed class PathEpisodeWatcher
         LocalProbeExecutor localProbe,
         AgentProbeService agentProbe,
         AsnResolutionService asn,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        SiteAgentCoverage coverage)
     {
+        _coverage = coverage;
         _slug = slug;
         _isDefault = slug == SiteManagementService.DefaultSiteSlug;
         _siteDb = siteDb;
@@ -111,7 +118,9 @@ public sealed class PathEpisodeWatcher
     /// <summary>A target an episode traces, with its rounds so far.</summary>
     private sealed class RunTarget
     {
-        public required Watched Target { get; init; }
+        public required Watched Target { get; set; }
+        /// <summary>The vantage came from the context, not a trace: replace it with the target's next live observation.</summary>
+        public bool VantageGuessed { get; set; }
         public required PathEpisodeTargetRole Role { get; init; }
         public List<TracerouteResult> Rounds { get; } = new();
         public TracerouteResult? Recovery { get; set; }
@@ -162,7 +171,8 @@ public sealed class PathEpisodeWatcher
     /// </summary>
     private sealed class HopPing
     {
-        public required PathVantage Vantage { get; init; }
+        /// <summary>The degraded target whose trace found the hop; the hop is pinged from that target's current vantage.</summary>
+        public required string TargetId { get; init; }
         public int Sent { get; set; }
         public int Received { get; set; }
         public double? MinRttMs { get; set; }
@@ -215,10 +225,25 @@ public sealed class PathEpisodeWatcher
         if (evaluate) _ = EvaluateContextAsync(key);
     }
 
-    /// <summary>Whether an episode with this id is open and still tracing.</summary>
+    /// <summary>
+    /// Whether an episode with this id is open with path rounds still to run. One that has used them
+    /// all stays open until its targets clear, but is no longer tracing.
+    /// </summary>
     public bool IsTracing(int episodeId)
     {
-        lock (_lock) return _runs.Values.Any(r => r.Row.Id == episodeId && r.Row.ClosedAt == null);
+        lock (_lock) return _runs.Values.Any(r => r.Row.Id == episodeId && r.Row.ClosedAt == null && RoundsLeft(r));
+    }
+
+    /// <summary>The most path rounds any degraded target of this episode has run; null when it is not running here.</summary>
+    public int? RoundsTraced(int episodeId)
+    {
+        lock (_lock) return _runs.Values.FirstOrDefault(r => r.Row.Id == episodeId)?.Degraded.Select(d => d.RoundsRun).DefaultIfEmpty(0).Max();
+    }
+
+    private bool RoundsLeft(EpisodeRun run)
+    {
+        var maxRounds = run.Metered ? 1 : _options.PathMaxRoundsPerTarget;
+        return run.Degraded.Any(d => d.RoundsRun < maxRounds);
     }
 
     /// <summary>
@@ -316,6 +341,15 @@ public sealed class PathEpisodeWatcher
         }
     }
 
+    /// <summary>
+    /// The vantage a resumed target traces from: its last trace's, else the context's. The bind is what
+    /// the context's agent is pushed (AgentProbeResultSink.ResolveSpecSourceIp): its interface, else its
+    /// source IP. A guessed vantage is replaced by the target's next live observation (AdoptLiveVantage).
+    /// </summary>
+    internal static PathVantage ResumedVantage(PathEpisodeTrace? last, WanContext? context) => last != null
+        ? PathVantage.FromLabel(last.Vantage, last.SourceInterface)
+        : new PathVantage(context?.AgentId, context?.InterfaceName ?? context?.ProbeSourceIp);
+
     /// <summary>An interrupted episode's run, rebuilt from what it stored; null when its targets are gone.</summary>
     private EpisodeRun? RebuildRun(PathEpisode episode, IReadOnlyDictionary<int, MonitoringTarget> targets,
         IReadOnlyDictionary<int, WanContext> contexts, DateTime now)
@@ -329,17 +363,13 @@ public sealed class PathEpisodeWatcher
             if (!targets.TryGetValue(stored.MonitoringTargetId, out var mt)) return null;
             var mine = traces.Where(t => t.MonitoringTargetId == mt.Id).ToList();
             var last = mine.LastOrDefault();
-            // The vantage its rounds ran from, so the rest run from there too; the context's when none ran.
-            var vantage = last != null
-                ? new PathVantage(last.Vantage.StartsWith("agent-", StringComparison.Ordinal) && int.TryParse(last.Vantage[6..], out var agentId) ? agentId : null,
-                    last.SourceInterface)
-                : new PathVantage(context?.AgentId, context?.ProbeSourceIp);
             var watched = new Watched(mt.Id, mt.TargetId, string.IsNullOrEmpty(mt.Name) ? mt.Address : mt.Name, mt.Address,
-                RoleOf(mt) ?? GateRole.Path, key, mt.WanContextId, context?.WanInterface, vantage);
+                RoleOf(mt) ?? GateRole.Path, key, mt.WanContextId, context?.WanInterface, ResumedVantage(last, context));
 
             var run = new RunTarget
             {
                 Target = watched,
+                VantageGuessed = last == null,
                 Role = stored.Role,
                 ResolvedAddress = mine.Select(t => t.ResolvedAddress).LastOrDefault(a => !string.IsNullOrEmpty(a)),
                 RoundsRun = mine.Count(t => t.Kind == PathEpisodeTraceKind.Path),
@@ -372,7 +402,7 @@ public sealed class PathEpisodeWatcher
         };
         run.Degraded.AddRange(degraded);
         foreach (var (address, ping) in snapshot.HopPings)
-            run.HopPings[address] = new HopPing { Vantage = degraded[0].Target.Vantage, Sent = ping.Sent, Received = ping.Received, MinRttMs = ping.MinRttMs };
+            run.HopPings[address] = new HopPing { TargetId = degraded[0].Target.TargetId, Sent = ping.Sent, Received = ping.Received, MinRttMs = ping.MinRttMs };
         foreach (var (address, ms) in snapshot.SeriesBaselines)
             run.SeriesBaselines[address] = ms;
         if (episode.ClosedAt is DateTime closed)
@@ -915,7 +945,8 @@ public sealed class PathEpisodeWatcher
 
     private async Task TraceAsync(EpisodeRun run, RunTarget target, PathEpisodeTraceKind kind, CancellationToken ct)
     {
-        var vantage = target.Target.Vantage;
+        PathVantage vantage;
+        lock (_lock) vantage = AdoptLiveVantage(target);
         var executor = ExecutorFor(vantage);
         // A hostname is pinned to one address for the whole episode: a name that rotates (a CDN, an
         // AWS endpoint) would otherwise send each round, and the recovery round, down a different
@@ -1087,11 +1118,11 @@ public sealed class PathEpisodeWatcher
     {
         var analysis = await AnalyzeAsync(run, ct);
         Dictionary<string, PathVantage> vantageOf;
-        lock (_lock) vantageOf = run.Degraded.ToDictionary(d => d.Target.TargetId, d => d.Target.Vantage, StringComparer.OrdinalIgnoreCase);
+        lock (_lock) vantageOf = run.Degraded.ToDictionary(d => d.Target.TargetId, AdoptLiveVantage, StringComparer.OrdinalIgnoreCase);
 
         foreach (var t in analysis.Verdict.Targets)
         {
-            if (!vantageOf.TryGetValue(t.TargetId, out var vantage)) continue;
+            if (!vantageOf.ContainsKey(t.TargetId)) continue;
             foreach (var h in t.Hops)
             {
                 if (h.Address == null || h.Responses == 0 || h.Has(HopTag.Destination) || analysis.Monitored.Contains(h.Address)) continue;
@@ -1101,17 +1132,18 @@ public sealed class PathEpisodeWatcher
                     continue;
                 }
                 if (h.Elevated != true || run.HopPings.Count >= MaxPingedHopsPerRound) continue;
-                run.HopPings[h.Address] = new HopPing { Vantage = vantage, BaselineMinRttMs = h.BaselineMinRttMs };
+                run.HopPings[h.Address] = new HopPing { TargetId = t.TargetId, BaselineMinRttMs = h.BaselineMinRttMs };
             }
         }
 
         foreach (var (address, hop) in run.HopPings.ToList())
         {
+            if (!vantageOf.TryGetValue(hop.TargetId, out var hopVantage)) continue;
             await _traceSlots.WaitAsync(ct);
             try
             {
-                var result = await ExecutorFor(hop.Vantage).PingAsync(
-                    new ProbeTarget(address, ProbeMode.Icmp, null, hop.Vantage.SourceInterface),
+                var result = await ExecutorFor(hopVantage).PingAsync(
+                    new ProbeTarget(address, ProbeMode.Icmp, null, hopVantage.SourceInterface),
                     count: MinHopPings, perPingTimeout: PerHopTimeout, ct: ct);
                 hop.Sent += result.Sent;
                 hop.Received += result.Received;
@@ -1128,9 +1160,30 @@ public sealed class PathEpisodeWatcher
         }
     }
 
-    private IProbeExecutor ExecutorFor(PathVantage vantage) => vantage.AgentId is int agentId
+    /// <summary>
+    /// The vantage a target traces from. A resumed target with no trace yet carries a guess from its
+    /// context; the first live observation after the restart names the exact agent and bind, and
+    /// ResumeEpisodesAsync's TryAdd leaves that one in place, so a different instance there is the live one.
+    /// Caller holds _lock.
+    /// </summary>
+    private PathVantage AdoptLiveVantage(RunTarget target)
+    {
+        if (target.VantageGuessed && _watched.TryGetValue(target.Target.TargetId, out var live)
+            && !ReferenceEquals(live, target.Target))
+        {
+            target.Target = live;
+            target.VantageGuessed = false;
+        }
+        return target.Target.Vantage;
+    }
+
+    // A vantage with no agent is the "server" vantage, which resolves as ProbeExecutorFactory.GetServer
+    // does: a resumed target with no trace yet must not run from this server for a site its agent owns.
+    internal IProbeExecutor ExecutorFor(PathVantage vantage) => vantage.AgentId is int agentId
         ? new AgentProbeExecutor(_agentProbe, _slug, _loggerFactory.CreateLogger<AgentProbeExecutor>(), agentId)
-        : _localProbe;
+        : _coverage.AgentOwnsPathMeasurement(_slug)
+            ? new AgentProbeExecutor(_agentProbe, _slug, _loggerFactory.CreateLogger<AgentProbeExecutor>())
+            : _localProbe;
 
     /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
     private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
@@ -1154,8 +1207,11 @@ public sealed class PathEpisodeWatcher
         row.BottleneckLabel = Truncate(verdict.Label, 1000);
         row.ReturnPathFinding = verdict.ReturnFinding;
         var summary = verdict.Summary;
+        bool roundsLeft;
+        lock (_lock) roundsLeft = RoundsLeft(run);
+        // Open with its rounds used up: no prefix, since the event row's Ongoing badge says it.
         if (row.ClosedAt == null)
-            summary = run.PausedBy != null ? $"Paused: {run.PausedBy}. {summary}" : $"Tracing now. {summary}";
+            summary = run.PausedBy != null ? $"Paused: {run.PausedBy}. {summary}" : roundsLeft ? $"Tracing now. {summary}" : summary;
         else if (run.StopNote != null) summary += $" {run.StopNote}";
         else if (run.Metered) summary += " This WAN is metered, so it was traced once and no recovery round ran.";
         else if (row.RecoveryTracedAt == null) summary += WaitingOnRecoveryNote;

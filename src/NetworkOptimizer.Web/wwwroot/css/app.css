@@ -19934,6 +19934,49 @@ a.isp-health-hero-speed:hover {
     color: var(--text-muted);
 }
 
+/* One bar per trace behind the RTT text: the text stays on top, the bars read as background. */
+.path-episode-hops td.path-rtt-cell {
+    position: relative;
+}
+
+.path-rtt-bars {
+    position: absolute;
+    inset: 3px 0.5rem;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    pointer-events: none;
+}
+
+.path-rtt-bars i {
+    flex: 1;
+    min-height: 2px;
+    border-radius: 1px 1px 0 0;
+    background: var(--text-muted);
+    opacity: 0.45;
+}
+
+.path-rtt-bars i.slow {
+    background: var(--warning-color);
+    opacity: 0.4;
+}
+
+.path-rtt-bars i.empty {
+    background: transparent;
+}
+
+/* An ICMP-limited hop is shown, never blamed: its slow traces stay grey. */
+.path-episode-hops tr.path-hop-icmp .path-rtt-bars i.slow {
+    background: var(--text-muted);
+    opacity: 0.3;
+}
+
+.path-rtt-value {
+    position: relative;
+    font-weight: 500;
+    text-shadow: 0 0 3px var(--bg-card), 0 0 3px var(--bg-card), 0 0 2px var(--bg-card);
+}
+
 .path-hop-tag {
     display: inline-block;
     margin-left: 0.35rem;

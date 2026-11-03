@@ -48,13 +48,13 @@ public static class PathEpisodePresentation
             var end = e.ClosedAt ?? DateTime.UtcNow;
             var label = string.IsNullOrEmpty(e.Label) ? "No trace has completed yet." : e.Label;
             var one = e.Degraded.Count == 1;
-            var lead = e.Tracing
+            var lead = e.ClosedAt == null
                 ? $"{names} {(one ? "is" : "are")} {Symptom(e)}, for {IspHealthPresentation.FormatDuration(end - e.OpenedAt)} so far."
                 : $"{names} {PastSymptom(e, IspHealthPresentation.FormatDuration(end - e.OpenedAt))} while the rest of your connection stayed clean.";
             if (!one) label = WithoutNames(label);
             var confirmed = e.Disposition == CongestionDisposition.Confirmed;
             return new TimelineEntry(e.OpenedAt,
-                e.Tracing ? "Tracing now" : "Congestion",
+                BadgeLabel(e),
                 confirmed ? "isp-event-badge-congestion" : "isp-event-badge-congestion-soft",
                 $"{lead} {Sentence(label)}",
                 e.ClosedAt,
@@ -66,6 +66,9 @@ public static class PathEpisodePresentation
                 TargetIds: e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList(),
                 EpisodeId: e.Id);
         });
+
+    /// <summary>An episode's badge: tracing while rounds run, Ongoing while the problem outlasts them, then Congestion.</summary>
+    public static string BadgeLabel(PathEpisodeView e) => e.Tracing ? "Tracing now" : e.Ongoing ? "Ongoing" : "Congestion";
 
     /// <summary>
     /// Findings: a Confirmed episode is worth telling the user about with its localization attached, and
@@ -122,33 +125,53 @@ public static class PathEpisodePresentation
     public static readonly TimeSpan BannerHold = TimeSpan.FromHours(24);
 
     /// <summary>
-    /// The banner at the top of ISP Health: the newest tracing episode, else the newest one that closed
+    /// The banner at the top of ISP Health: the newest open episode, else the newest one that closed
     /// within <see cref="BannerHold"/>. Null when there is neither.
     /// </summary>
     /// <param name="episodes">Episodes overlapping the last <see cref="BannerHold"/>, any order.</param>
-    public static PathEpisodeBanner? Banner(IReadOnlyList<PathEpisodeView> episodes, DateTime nowUtc)
+    /// <param name="options">For the round count when the episode is not running here.</param>
+    public static PathEpisodeBanner? Banner(IReadOnlyList<PathEpisodeView> episodes, DateTime nowUtc, IspHealthOptions? options = null)
     {
         var shown = episodes
-            .Where(e => e.Tracing || (e.ClosedAt is DateTime c && nowUtc - c <= BannerHold))
-            .OrderByDescending(e => e.Tracing).ThenByDescending(e => e.OpenedAt)
+            .Where(e => e.ClosedAt == null || nowUtc - e.ClosedAt.Value <= BannerHold)
+            .OrderByDescending(e => e.ClosedAt == null).ThenByDescending(e => e.OpenedAt)
             .ToList();
         if (shown.Count == 0) return null;
 
         var e = shown[0];
         var names = Names(e.Degraded);
         var label = string.IsNullOrEmpty(e.Label) ? null : Sentence(e.Label);
+        var verb = e.Degraded.Count == 1 ? "is" : "are";
         if (e.Tracing)
         {
-            var verb = e.Degraded.Count == 1 ? "is" : "are";
             return new PathEpisodeBanner(e.Id, "tracing", "alert-info", "Tracing now",
                 $"{names} {verb} {Symptom(e)} while the rest of your connection is clean. Network Optimizer is tracing the path every minute to find where it starts.",
                 shown.Count - 1);
+        }
+        if (e.Ongoing)
+        {
+            var it = e.Degraded.Count == 1 ? "it" : "them";
+            var next = e.Metered
+                ? $"This WAN is metered, so Network Optimizer traced {it} once."
+                : $"Network Optimizer traced {it} {Times(e.RoundsTraced ?? (options ?? new IspHealthOptions()).PathMaxRoundsPerTarget)}, and traces {it} once more after {(it == "it" ? "it recovers" : "they recover")}, to compare.";
+            return new PathEpisodeBanner(e.Id, "ongoing", "alert-info", StillLead(e),
+                $"{names} {verb} still {Symptom(e)}. {next}", shown.Count - 1);
         }
 
         var confirmed = e.Disposition == CongestionDisposition.Confirmed;
         var text = $"{names}, {Span(e.OpenedAt, e.ClosedAt!.Value)}.{(label == null ? "" : $" {label}")}";
         return new PathEpisodeBanner(e.Id, "done", confirmed ? "alert-warning" : "alert-info",
             confirmed ? "Path degradation localized" : "Path trace finished", text, shown.Count - 1);
+    }
+
+    /// <summary>"once", "10 times".</summary>
+    private static string Times(int n) => n == 1 ? "once" : $"{n} times";
+
+    /// <summary>The Ongoing banner's lead, by what the worst target is doing.</summary>
+    private static string StillLead(PathEpisodeView e)
+    {
+        var symptom = Symptom(e);
+        return symptom.Contains("slower") ? "Still slow" : symptom.StartsWith("losing") ? "Still losing packets" : "Still degraded";
     }
 
     /// <summary>"losing packets (peak 27%)", "running 42 ms slower", or both, from the worst degraded target.</summary>
@@ -203,6 +226,27 @@ public static class PathEpisodePresentation
     /// recovery or control minimum. Shared by the page and the PDF.
     /// </summary>
     public static double? DisplayBaseline(HopReading hop) => hop.SeriesBaselineRttMs ?? hop.BaselineMinRttMs;
+
+    /// <summary>
+    /// What a hop's traces say, in the reader's terms. Against a destination that was slow, a hop that
+    /// slowed in the same traces is on the way to the problem and one that stayed fast is not.
+    /// </summary>
+    /// <param name="hops">The target's whole hop table, for its destination.</param>
+    /// <param name="targetName">The degraded target, as the reader knows it.</param>
+    public static string RoundsReading(HopReading hop, IReadOnlyList<HopReading> hops, string targetName)
+    {
+        var traced = hop.RoundMinRttMs.Count(v => v.HasValue);
+        var destSlow = hops.FirstOrDefault(h => h.Has(HopTag.Destination))?.SlowRounds ?? 0;
+        if (!hop.Has(HopTag.Destination) && destSlow > 0 && hop.PairedRounds is int paired)
+        {
+            if (paired == 0)
+                return destSlow == 1 ? $"Fast in the trace where {targetName} was slow" : $"Fast in all {destSlow} traces where {targetName} was slow";
+            return destSlow == 1 ? $"Slow in the trace where {targetName} was" : $"Slow in {paired} of the {destSlow} traces where {targetName} was";
+        }
+        return hop.SlowRounds == 0
+            ? $"Not slower in any of {traced} {(traced == 1 ? "trace" : "traces")}"
+            : $"Slower in {hop.SlowRounds} of {traced} {(traced == 1 ? "trace" : "traces")}";
+    }
 
     /// <summary>
     /// A hop's Loss cell, lowest first: the trace's loss capped at what the hops beyond it lost, the
@@ -304,7 +348,7 @@ public static class PathEpisodePresentation
     /// <summary>The Network Tools link that fills Run a Probe with an episode trace's target, vantage, and bind.</summary>
     public static string RerunUrl(string address, string vantage, int? wanContextId)
     {
-        var from = vantage.StartsWith("agent-", StringComparison.Ordinal) && int.TryParse(vantage[6..], out var id)
+        var from = PathVantage.FromLabel(vantage, null).AgentId is int id
             ? wanContextId is int ctx ? $"agent:{id}:{ctx}" : $"agent:{id}"
             : "server";
         return $"/network-tools?from={Uri.EscapeDataString(from)}&target={Uri.EscapeDataString(address)}";

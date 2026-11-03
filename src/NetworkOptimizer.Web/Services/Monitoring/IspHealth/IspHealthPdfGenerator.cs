@@ -216,8 +216,9 @@ public class IspHealthPdfGenerator
                                 : !string.IsNullOrEmpty(hop.Hostname) && hop.Hostname != hop.Address ? $"{hop.Hostname} ({hop.Address})" : hop.Address ?? "");
                             Cell(t, Plain(PathLocalization.PathTraceAnalyzer.NetworkCell(hop)));
                             Cell(t, PathLocalization.PathEpisodePresentation.HopLossText(PathLocalization.PathEpisodePresentation.HopLoss(hop, detail)));
-                            Cell(t, hop.MinRttMs is double min
-                                ? PathLocalization.PathEpisodePresentation.DisplayBaseline(hop) is double b ? $"{b:0.0} to {min:0.0} ms" : $"{min:0.0} ms"
+                            Cell(t, hop.EpisodeRttMs is double during
+                                ? (PathLocalization.PathEpisodePresentation.DisplayBaseline(hop) is double b ? $"{b:0.0} to {during:0.0} ms" : $"{during:0.0} ms")
+                                  + (hop.SlowRounds > 0 ? $" (slower in {hop.SlowRounds} of {hop.RoundMinRttMs.Count(v => v.HasValue)} traces)" : "")
                                 : "-");
                             Cell(t, HopReadingText(hop, detail));
                         }
