@@ -53,7 +53,8 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then export PROTOBUF_PROTOC=/usr/bin/protoc;
 # Stage 2: Build uwnspeedtest Go binaries
 # - Container's native arch: for server-side WAN speed tests (local execution)
 # - linux/arm64: for gateway-direct WAN speed tests (deployed via SSH to UniFi gateways)
-FROM golang:1.22-alpine AS uwnspeedtest-build
+# Every Go stage tracks a supported minor; the floating tag takes each patch's stdlib security fixes.
+FROM golang:1.27-alpine AS uwnspeedtest-build
 ARG VERSION=""
 ARG TARGETARCH=amd64
 WORKDIR /src
@@ -73,7 +74,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
 
 # Stage 2.5: Build wansteer Go binary (gateway-only, always linux/arm64)
 # WAN Steering daemon - manages iptables rules to load-balance traffic across multiple WANs
-FROM golang:1.22-alpine AS wansteer-build
+FROM golang:1.27-alpine AS wansteer-build
 ARG VERSION=""
 WORKDIR /src
 COPY src/wansteer/ wansteer/
@@ -86,7 +87,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
 # AP Agent - on-AP Wi-Fi telemetry. U7-class APs are armv7l; arm64 is for UniFi OS gateways with
 # Wi-Fi (UDR7, UX7, UCG-Industrial). MIPS is built in both byte orders (U6-Lite is little-endian,
 # UAP-AC big), soft-float for FPU-less SoCs.
-FROM golang:1.22-alpine AS apagent-build
+FROM golang:1.27-alpine AS apagent-build
 ARG VERSION=""
 WORKDIR /src
 COPY src/apagent/ apagent/
