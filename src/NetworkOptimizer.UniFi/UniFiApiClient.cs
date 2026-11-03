@@ -2855,10 +2855,11 @@ public partial class UniFiApiClient : IDisposable
         {
             _logger.LogDebug("Logging out from UniFi controller");
 
-            var response = await _httpClient!.PostAsync(
-                $"{_controllerUrl}/api/logout",
-                null,
-                cancellationToken);
+            // The same split as sign-in: UniFi OS answers /api/logout with 404.
+            var logoutUrl = _useStandaloneLogin
+                ? $"{_controllerUrl}/api/logout"
+                : $"{_controllerUrl}/api/auth/logout";
+            var response = await _httpClient!.PostAsync(logoutUrl, null, cancellationToken);
 
             _isAuthenticated = false;
             _csrfToken = null;
