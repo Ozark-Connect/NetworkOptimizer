@@ -166,12 +166,17 @@ public class FirewallRuleAnalyzer
                         }
                         else
                         {
-                            // Broad or similar scope allow before deny = potential security issue
+                            // Broad or similar scope allow before deny = potential security issue.
+                            // A source port alone is no narrowing (the sender picks it), and reordering
+                            // will not fix that, so that shape gets its own text.
+                            var sourcePortOnly = IsSourcePortOnly(earlierRule);
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.AllowSubvertsDeny,
                                 Severity = AuditSeverity.Recommended,
-                                Message = $"Allow rule '{earlierRule.Name}' may subvert deny rule '{laterRule.Name}'",
+                                Message = sourcePortOnly
+                                    ? SourcePortOnlySubvertMessage(earlierRule, laterRule)
+                                    : $"Allow rule '{earlierRule.Name}' may subvert deny rule '{laterRule.Name}'",
                                 Metadata = new Dictionary<string, object>
                                 {
                                     { "allow_rule", earlierRule.Name ?? earlierRule.Id },
@@ -181,7 +186,9 @@ public class FirewallRuleAnalyzer
                                 },
                                 RuleId = "FW-SUBVERT-001",
                                 ScoreImpact = 5,
-                                RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule."
+                                RecommendedAction = sourcePortOnly
+                                    ? SourcePortOnlySubvertRecommendation(earlierRule)
+                                    : "Review rule order - the deny rule may never match due to the earlier allow rule."
                             });
                             // For subverts, only report the first one
                             break;
@@ -2766,6 +2773,25 @@ public class FirewallRuleAnalyzer
         !rule.MatchOppositeProtocol &&
         (string.Equals(rule.Protocol, "icmp", StringComparison.OrdinalIgnoreCase) ||
          string.Equals(rule.Protocol, "icmpv6", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// True when a rule's only port match is a source port: no destination port, and the source
+    /// port not inverted.
+    /// </summary>
+    private static bool IsSourcePortOnly(FirewallRule rule) =>
+        !string.IsNullOrEmpty(rule.SourcePort) &&
+        !rule.SourceMatchOppositePorts &&
+        string.IsNullOrEmpty(rule.DestinationPort);
+
+    private static string SourcePortOnlySubvertMessage(FirewallRule allow, FirewallRule deny) =>
+        $"Allow rule '{allow.Name}' lets traffic from source port {allow.SourcePort} past deny rule '{deny.Name}', " +
+        (IsAllProtocols(allow) ? "on any port and protocol" : "on any port");
+
+    private static string SourcePortOnlySubvertRecommendation(FirewallRule allow) =>
+        "A source port is chosen by the sender, so any device can use it to reach what the deny blocks. " +
+        (allow.SourcePort == "5353"
+            ? "Set the allow's protocol and destination port (for mDNS replies: UDP, destination port 5353)."
+            : "Set the allow's protocol and destination port to the traffic it is meant for.");
 
     /// <summary>True when the rule matches every protocol.</summary>
     private static bool IsAllProtocols(FirewallRule rule) =>

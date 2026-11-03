@@ -2354,6 +2354,78 @@ public class FirewallRuleAnalyzerTests
         issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny);
     }
 
+    private static string InternalSourceFromPort(string port, bool opposite = false) =>
+        $@"{{ ""matching_target"": ""ANY"", ""port_matching_type"": ""SPECIFIC"", ""port"": ""{port}"", ""match_opposite_ports"": {(opposite ? "true" : "false")}, ""zone_id"": ""internal-zone"" }}";
+
+    [Fact]
+    public void DetectShadowedRules_SourcePortOnlyAllow_SaysTheSenderPicksThePort()
+    {
+        // An "Allow mDNS reply" shape: from source port 5353, any protocol, any port into the Gateway zone
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("Allow mDNS reply", "ALLOW", 10000, "BOTH", InternalSourceFromPort("5353"), AnyGatewayDest),
+            ParseIpVersionPolicy("Block Other Gateway Access", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        var issue = issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+        issue.ScoreImpact.Should().Be(5);
+        issue.Message.Should().Be("Allow rule 'Allow mDNS reply' lets traffic from source port 5353 past deny rule 'Block Other Gateway Access', on any port and protocol");
+        issue.RecommendedAction.Should().Be("A source port is chosen by the sender, so any device can use it to reach what the deny blocks. Set the allow's protocol and destination port (for mDNS replies: UDP, destination port 5353).");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_SourcePortOnlyAllowWithAProtocol_OmitsProtocolAndTheMdnsExample()
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-from-1900", "ALLOW", 10000, "BOTH", InternalSourceFromPort("1900"), AnyGatewayDest, "udp"),
+            ParseIpVersionPolicy("block-gateway", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issue = _analyzer.DetectShadowedRules(rules).Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
+
+        issue.Message.Should().Be("Allow rule 'allow-from-1900' lets traffic from source port 1900 past deny rule 'block-gateway', on any port");
+        issue.RecommendedAction.Should().Be("A source port is chosen by the sender, so any device can use it to reach what the deny blocks. Set the allow's protocol and destination port to the traffic it is meant for.");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_SourcePortAllowWithADestinationPort_IsAnException()
+    {
+        // The recommended fix: UDP to destination port 5353 is a narrow exception, not a Rule Order Issue
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("Allow mDNS reply", "ALLOW", 10000, "BOTH", InternalSourceFromPort("5353"),
+                @"{ ""matching_target"": ""ANY"", ""port_matching_type"": ""SPECIFIC"", ""port"": ""5353"", ""zone_id"": ""gateway-zone"" }", "udp"),
+            ParseIpVersionPolicy("Block Other Gateway Access", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.AllowSubvertsDeny);
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowExceptionPattern);
+    }
+
+    [Theory]
+    [InlineData(true)]   // "every source port but 5353" is not a source-port-only allow
+    [InlineData(false)]  // no source port at all
+    public void DetectShadowedRules_OtherBroadAllows_KeepTheRuleOrderText(bool invertedSourcePort)
+    {
+        var source = invertedSourcePort ? InternalSourceFromPort("5353", opposite: true) : AnyInternalSource;
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-broad", "ALLOW", 10000, "BOTH", source, AnyGatewayDest),
+            ParseIpVersionPolicy("block-gateway", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issue = _analyzer.DetectShadowedRules(rules).Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
+
+        issue.Message.Should().Be("Allow rule 'allow-broad' may subvert deny rule 'block-gateway'");
+        issue.RecommendedAction.Should().Be("Review rule order - the deny rule may never match due to the earlier allow rule.");
+    }
+
     [Fact]
     public void DetectShadowedRules_InvertedIcmpAllowBeforeAllProtocolDeny_IsStillReported()
     {
