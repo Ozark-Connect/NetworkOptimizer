@@ -225,10 +225,25 @@ public sealed class PathEpisodeWatcher
         if (evaluate) _ = EvaluateContextAsync(key);
     }
 
-    /// <summary>Whether an episode with this id is open and still tracing.</summary>
+    /// <summary>
+    /// Whether an episode with this id is open with path rounds still to run. One that has used them
+    /// all stays open until its targets clear, but is no longer tracing.
+    /// </summary>
     public bool IsTracing(int episodeId)
     {
-        lock (_lock) return _runs.Values.Any(r => r.Row.Id == episodeId && r.Row.ClosedAt == null);
+        lock (_lock) return _runs.Values.Any(r => r.Row.Id == episodeId && r.Row.ClosedAt == null && RoundsLeft(r));
+    }
+
+    /// <summary>The most path rounds any degraded target of this episode has run; null when it is not running here.</summary>
+    public int? RoundsTraced(int episodeId)
+    {
+        lock (_lock) return _runs.Values.FirstOrDefault(r => r.Row.Id == episodeId)?.Degraded.Select(d => d.RoundsRun).DefaultIfEmpty(0).Max();
+    }
+
+    private bool RoundsLeft(EpisodeRun run)
+    {
+        var maxRounds = run.Metered ? 1 : _options.PathMaxRoundsPerTarget;
+        return run.Degraded.Any(d => d.RoundsRun < maxRounds);
     }
 
     /// <summary>
@@ -1192,8 +1207,11 @@ public sealed class PathEpisodeWatcher
         row.BottleneckLabel = Truncate(verdict.Label, 1000);
         row.ReturnPathFinding = verdict.ReturnFinding;
         var summary = verdict.Summary;
+        bool roundsLeft;
+        lock (_lock) roundsLeft = RoundsLeft(run);
+        // Open with its rounds used up: no prefix, since the event row's Ongoing badge says it.
         if (row.ClosedAt == null)
-            summary = run.PausedBy != null ? $"Paused: {run.PausedBy}. {summary}" : $"Tracing now. {summary}";
+            summary = run.PausedBy != null ? $"Paused: {run.PausedBy}. {summary}" : roundsLeft ? $"Tracing now. {summary}" : summary;
         else if (run.StopNote != null) summary += $" {run.StopNote}";
         else if (run.Metered) summary += " This WAN is metered, so it was traced once and no recovery round ran.";
         else if (row.RecoveryTracedAt == null) summary += WaitingOnRecoveryNote;

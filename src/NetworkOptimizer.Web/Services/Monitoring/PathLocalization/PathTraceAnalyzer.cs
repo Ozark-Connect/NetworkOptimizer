@@ -48,12 +48,29 @@ public sealed record HopReading
     /// so anything above the least-lossy one beyond is this router limiting its own replies.
     /// </summary>
     public double EffectiveLossPct => DownstreamFloorPct is double f ? Math.Min(LossPct, f) : LossPct;
+    /// <summary>The fastest round's min RTT. Not what the episode reads: an intermittent rise always has a clean round.</summary>
     public double? MinRttMs { get; init; }
+    /// <summary>Median of the rounds' average RTTs, for the slow-path tell.</summary>
     public double? MedianRttMs { get; init; }
     public double? MaxRttMs { get; init; }
+    /// <summary>
+    /// Each path round's min RTT at this TTL, in round order; null where the round had no answer here or
+    /// another address answered. Min within a round leaves out a router's slow-path ICMP; across rounds
+    /// the values are kept, so a rise that comes and goes is still seen.
+    /// </summary>
+    public IReadOnlyList<double?> RoundMinRttMs { get; init; } = Array.Empty<double?>();
+    /// <summary>The median of <see cref="RoundMinRttMs"/>: the hop's RTT during the episode.</summary>
+    public double? EpisodeRttMs { get; init; }
     /// <summary>The same hop's min RTT outside the episode: the recovery round, else the control round.</summary>
     public double? BaselineMinRttMs { get; init; }
-    public double? DeltaRttMs => MinRttMs.HasValue && BaselineMinRttMs.HasValue ? MinRttMs - BaselineMinRttMs : null;
+    public double? DeltaRttMs => EpisodeRttMs.HasValue && BaselineMinRttMs.HasValue ? EpisodeRttMs - BaselineMinRttMs : null;
+    /// <summary>What a round is slower than: <see cref="BaselineMinRttMs"/>, else the hop's own fastest round.</summary>
+    public double? ReferenceRttMs { get; init; }
+    /// <summary>Per round, whether it was slower than <see cref="ReferenceRttMs"/> by the hop RTT threshold.</summary>
+    public IReadOnlyList<bool> RoundSlow { get; init; } = Array.Empty<bool>();
+    public int SlowRounds => RoundSlow.Count(s => s);
+    /// <summary>Rounds slow here that were also slow at the destination; null on the destination itself.</summary>
+    public int? PairedRounds { get; init; }
     /// <summary>
     /// The hop's own monitored series baseline (median RTT), for a monitored hop or destination. Display
     /// only: a median of burst averages is not comparable to a trace min, so no decision reads it.
@@ -363,9 +380,10 @@ public static class PathTraceAnalyzer
         var hops = new List<HopReading>();
         for (var ttl = 1; ttl <= lastTtl; ttl++)
         {
-            var atTtl = rounds.Select(r => r.Hops.FirstOrDefault(h => h.HopNumber == ttl)).Where(h => h != null).Select(h => h!).ToList();
-            hops.Add(Pool(ttl, atTtl, destTtl == ttl, recoveryByTtl, controlMinRtt, seriesBaselines, asnOf, options));
+            var perRound = rounds.Select(r => r.Hops.FirstOrDefault(h => h.HopNumber == ttl)).ToList();
+            hops.Add(Pool(ttl, perRound, destTtl == ttl, recoveryByTtl, controlMinRtt, seriesBaselines, asnOf, options));
         }
+        PairWithDestination(hops, options);
         if (destTtl == null)
         {
             // Never reached: the destination is still a monitored, degraded target, so it ends the
@@ -394,6 +412,7 @@ public static class PathTraceAnalyzer
         // and its dense ping series outweighs a handful of trace probes.
         var decided = new bool?[hops.Count];
         var tags = new HopTag[hops.Count];
+        var destSlow = hops.FirstOrDefault(h => h.Has(HopTag.Destination))?.SlowRounds ?? 0;
         for (var i = 0; i < hops.Count; i++)
         {
             var h = hops[i];
@@ -408,8 +427,10 @@ public static class PathTraceAnalyzer
             }
             var lossArm = h.EffectiveLossPct >= options.PathHopLossElevatedPct && !h.Has(HopTag.RateLimited);
             var rttArm = h.DeltaRttMs is double d && h.BaselineMinRttMs is double b
-                && d >= Math.Max(options.PathHopRttMinDeltaMs, b * options.PathHopRttDeltaFraction);
-            decided[i] = lossArm || rttArm;
+                && d >= RttThreshold(b, options);
+            // A rise that comes and goes: slow in most of the rounds the destination was slow in.
+            var pairedArm = destSlow >= options.PathHopMinPairedRounds && h.PairedRounds is int p && p * 2 > destSlow;
+            decided[i] = lossArm || rttArm || pairedArm;
         }
 
         // Slow-path tell: needs the next responding hop to compare against.
@@ -565,11 +586,47 @@ public static class PathTraceAnalyzer
         };
     }
 
+    /// <summary>How far over a hop's reference RTT counts as slower: an absolute floor, or a fraction of the reference.</summary>
+    private static double RttThreshold(double reference, IspHealthOptions options) =>
+        Math.Max(options.PathHopRttMinDeltaMs, reference * options.PathHopRttDeltaFraction);
+
+    /// <summary>
+    /// Marks each hop's slow rounds against its reference, and counts the ones that line up with the
+    /// destination's. A hop that slows in the same rounds as the destination is on the way to it; one
+    /// that stays fast while the destination slows is not.
+    /// </summary>
+    private static void PairWithDestination(List<HopReading> hops, IspHealthOptions options)
+    {
+        for (var i = 0; i < hops.Count; i++)
+        {
+            var h = hops[i];
+            var reference = h.BaselineMinRttMs ?? h.RoundMinRttMs.Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(double.NaN).Min();
+            if (double.IsNaN(reference)) continue;
+            var threshold = RttThreshold(reference, options);
+            hops[i] = h with
+            {
+                ReferenceRttMs = reference,
+                RoundSlow = h.RoundMinRttMs.Select(v => v is double ms && ms - reference >= threshold).ToList()
+            };
+        }
+
+        var dest = hops.FirstOrDefault(h => h.Has(HopTag.Destination));
+        if (dest == null || dest.RoundSlow.Count == 0) return;
+        for (var i = 0; i < hops.Count; i++)
+        {
+            if (hops[i].Has(HopTag.Destination)) continue;
+            var slow = hops[i].RoundSlow;
+            hops[i] = hops[i] with { PairedRounds = dest.RoundSlow.Where((s, r) => s && r < slow.Count && slow[r]).Count() };
+        }
+    }
+
     /// <summary>One TTL pooled across rounds: probes, responses, and RTTs summed or taken across them.</summary>
-    private static HopReading Pool(int ttl, List<TraceHop> atTtl, bool isDestination,
+    /// <param name="perRound">The hop each path round recorded at this TTL, in round order; null where it recorded none.</param>
+    private static HopReading Pool(int ttl, IReadOnlyList<TraceHop?> perRound, bool isDestination,
         IReadOnlyDictionary<int, TraceHop> recoveryByTtl, IReadOnlyDictionary<string, double> controlMinRtt,
         IReadOnlyDictionary<string, double> seriesBaselines, Func<string, AsnLookup?> asnOf, IspHealthOptions options)
     {
+        var atTtl = perRound.Where(h => h != null).Select(h => h!).ToList();
         var address = atTtl.Where(h => h.Address != null)
             .GroupBy(h => h.Address!, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault();
@@ -590,6 +647,10 @@ public static class PathTraceAnalyzer
             baseline = ctl;
         }
 
+        var roundMins = perRound.Select(h => h is { Responses: > 0 } r && r.RttMinMs.HasValue
+                && (r.Address == null || string.Equals(r.Address, address, StringComparison.OrdinalIgnoreCase))
+            ? r.RttMinMs : null).ToList();
+
         var tags = isDestination ? HopTag.Destination : HopTag.None;
         // ICMP rate limit: the same number of probes lost in every round, never all of them.
         var lostPerRound = same.Where(h => h.Probes > 0).Select(h => h.Probes - h.Responses).ToList();
@@ -606,9 +667,13 @@ public static class PathTraceAnalyzer
             AsnName = AsnLabel(asn),
             Sent = same.Sum(h => Math.Max(h.Probes, h.Responses)),
             Responses = same.Sum(h => h.Responses),
-            // Min, not average: slow-path ICMP generation inflates a transit hop's average and max far
-            // more than its minimum, which tracks queueing on the forwarding path (spec 5.1).
+            // Min within a round, not average: slow-path ICMP generation inflates a transit hop's average
+            // and max far more than its minimum, which tracks queueing on the forwarding path (spec 5.1).
+            // Median across rounds, never min: the min of rounds keeps only the best one and hides a
+            // rise that comes and goes.
             MinRttMs = answered.Min(h => h.RttMinMs),
+            RoundMinRttMs = roundMins,
+            EpisodeRttMs = SeriesStats.Median(roundMins.Where(v => v.HasValue).Select(v => v!.Value).ToList()),
             MedianRttMs = SeriesStats.Median(answered.Where(h => h.RttAvgMs.HasValue).Select(h => h.RttAvgMs!.Value).ToList()),
             MaxRttMs = answered.Max(h => h.RttMaxMs),
             BaselineMinRttMs = baseline,
