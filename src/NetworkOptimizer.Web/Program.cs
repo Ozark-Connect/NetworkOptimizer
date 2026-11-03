@@ -1445,8 +1445,9 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
 
-// Created before any console connects, so it reads each site's time zone as its connection comes up.
-app.Services.GetRequiredService<ISiteTimeZones>();
+// Created before any console connects, so it reads each site's time zone as its connection comes up,
+// and loaded with the zones read before the restart, so no schedule starts on the server's clock.
+await app.Services.GetRequiredService<ISiteTimeZones>().LoadRememberedAsync();
 
 // Register schedule executor delegates (bridges Alerts project to Web project services)
 app.RegisterScheduleExecutors();

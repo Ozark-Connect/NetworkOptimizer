@@ -719,7 +719,7 @@
                                     else if (_newlyEnabledWans.Contains(wanGroup) && manualAdj == 0)
                                     {
                                         var now = DateTime.UtcNow;
-                                        var (cycleStart, cycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, now);
+                                        var (cycleStart, cycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, now, BillingCalendar);
                                         var daysIntoCycle = (int)(now - cycleStart).TotalDays;
                                         var daysRemaining = (int)Math.Ceiling((cycleEnd - now).TotalDays);
                                         if (daysIntoCycle > 1 && daysRemaining > 2)
@@ -780,12 +780,12 @@
                                     }
                                     else
                                     {
-                                        var (dispCycleStart, dispCycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, DateTime.Now);
+                                        var (dispCycleStart, dispCycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, DateTime.UtcNow, BillingCalendar);
                                         var dispDaysRemaining = Math.Max(0, (int)Math.Ceiling((dispCycleEnd - DateTime.UtcNow).TotalDays));
                                         <div class="schedule-status" style="margin-top: 0.75rem;">
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Billing cycle:</span>
-                                                <span class="detail-value">@dispCycleStart.ToString("MMM d") - @dispCycleEnd.ToString("MMM d")</span>
+                                                <span class="detail-value">@WanDataUsageService.BillingDate(dispCycleStart, BillingCalendar).ToString("MMM d") - @WanDataUsageService.BillingDate(dispCycleEnd, BillingCalendar).ToString("MMM d")</span>
                                             </span>
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Days remaining:</span>
@@ -818,8 +818,7 @@
                                                             @foreach (var h in history)
                                                             {
                                                                 <tr>
-                                                                    @* Billing cycles are computed on the server's clock (WanDataUsageService), so they are read back on it. *@
-                                                                    <td>@h.CycleStart.ToLocalTime().ToString("MMM d, yyyy") - @h.CycleEnd.ToLocalTime().ToString("MMM d, yyyy")</td>
+                                                                    <td>@WanDataUsageService.BillingDate(h.CycleStart, BillingCalendar).ToString("MMM d, yyyy") - @WanDataUsageService.BillingDate(h.CycleEnd, BillingCalendar).ToString("MMM d, yyyy")</td>
                                                                     <td>@($"{h.UsedGb:F1}") GB</td>
                                                                     <td>@(h.CapGb > 0 ? $"{h.CapGb:F0} GB" : "-")</td>
                                                                 </tr>
@@ -2273,6 +2272,9 @@
     private string _scheduleMessageClass = "info";
     private bool CanCreateWanSchedule => (_newWanTestType == "server" && _serverTestOffered) || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
     private string _displayTzAbbrev => DisplayTime.Abbreviation(DateTime.UtcNow);
+
+    /// <summary>The site's calendar, which its ISP bills on; cycle dates read on it.</summary>
+    private TimeZoneInfo BillingCalendar => WanDataUsageService.CalendarZone(DisplayTime.SiteZone);
 
     private RenderFragment WanScheduleForm => __builder =>
     {
@@ -4109,7 +4111,7 @@
         _ => "status-inactive"
     };
 
-    private static string FormatTime(DateTime utcTime) => TimeFormatHelper.FormatRelativeTimeTerse(utcTime);
+    private string FormatTime(DateTime utcTime) => TimeFormatHelper.FormatRelativeTimeTerse(utcTime, DisplayTime.Zone);
 
     private static string FormatDeviceColumn(string? deviceName, string? deviceIp)
     {

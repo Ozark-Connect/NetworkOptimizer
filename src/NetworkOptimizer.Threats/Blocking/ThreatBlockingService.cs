@@ -56,6 +56,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ThreatBlockingService> _logger;
+    private readonly ISiteTimeZoneSource? _siteZones;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? _siteContext;
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
@@ -97,8 +98,10 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
         IThreatSystemAudit? audit = null,
         PublicBlockListCache? lists = null,
-        IGatewayAgentBlocklist? agents = null)
+        IGatewayAgentBlocklist? agents = null,
+        ISiteTimeZoneSource? siteZones = null)
     {
+        _siteZones = siteZones;
         _lists = lists;
         _agents = agents;
         _scopeFactory = scopeFactory;
@@ -506,7 +509,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         var written = lastWrite ?? _startedAt;
         if (_consoleUrgentAt > written) return false;
         if (_consoleUrgentSiteAt.TryGetValue(Key(site), out var siteUrgent) && siteUrgent > written) return false;
-        return written >= LastConsoleWindow(settings.ConsoleSyncHour, now);
+        // The quiet hour is the site's, so it is read on the site's clock.
+        return written >= LastConsoleWindow(settings.ConsoleSyncHour, now, _siteZones?.ZoneFor(site));
     }
 
     /// <summary>The most recent start of the daily console window at or before <paramref name="nowUtc"/>, in UTC.</summary>

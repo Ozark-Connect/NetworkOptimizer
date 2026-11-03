@@ -116,9 +116,9 @@ public static class TimeFormatHelper
     /// <summary>
     /// Format a UTC time as a terse relative string for alert and schedule lists: "Just now",
     /// "5m ago", "3h ago", "2d ago", or for a future time "Any moment", "in 5m", "in 3h 10m",
-    /// "in 2d". A week or more either way shows the date ("Sep 25, 2026").
+    /// "in 2d". A week or more either way shows the date ("Sep 25, 2026") on <paramref name="zone"/>'s clock.
     /// </summary>
-    public static string FormatRelativeTimeTerse(DateTime utcTime, DateTime? nowUtc = null)
+    public static string FormatRelativeTimeTerse(DateTime utcTime, TimeZoneInfo zone, DateTime? nowUtc = null)
     {
         var elapsed = (nowUtc ?? DateTime.UtcNow) - utcTime;
         if (elapsed.TotalSeconds < 0)
@@ -128,13 +128,13 @@ public static class TimeFormatHelper
             if (until.TotalMinutes < 60) return $"in {(int)until.TotalMinutes}m";
             if (until.TotalHours < 24) return $"in {(int)until.TotalHours}h {until.Minutes}m";
             if (until.TotalDays < 7) return $"in {(int)until.TotalDays}d";
-            return utcTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+            return ToLocal(utcTime, zone).ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
         }
         if (elapsed.TotalMinutes < 1) return "Just now";
         if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
         if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
-        return utcTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        return ToLocal(utcTime, zone).ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>

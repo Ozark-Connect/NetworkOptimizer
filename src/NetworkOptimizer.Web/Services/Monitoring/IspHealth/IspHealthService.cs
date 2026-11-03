@@ -70,6 +70,7 @@ public class IspHealthService
     private readonly AgentProbeResultSink? _probeSink;
     /// <summary>Tells a gateway-resident agent from one on the LAN. Null in tests.</summary>
     private readonly AgentOnGatewayDetector? _onGatewayDetector;
+    private readonly ISiteTimeZones? _siteZones;
 
     public IspHealthService(
         MonitoringInfluxRegistry influxRegistry,
@@ -82,8 +83,10 @@ public class IspHealthService
         AgentProbeResultSink? probeSink = null,
         AgentOnGatewayDetector? onGatewayDetector = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        string? wanInterface = null)
+        string? wanInterface = null,
+        ISiteTimeZones? siteZones = null)
     {
+        _siteZones = siteZones;
         _tunnelRegistry = tunnelRegistry;
         _probeSink = probeSink;
         _onGatewayDetector = onGatewayDetector;
@@ -2574,10 +2577,10 @@ public class IspHealthService
             .ToList();
         if (sqmConfigs.Count == 0) return new List<(DateTime, DateTime)>();
 
-        // Schedule hours are in the gateway's local time (crontab timezone). The app runs
-        // on the same network, so server local time matches. Convert to UTC for comparison
-        // with the ISP Health window (all UTC).
-        var localZone = TimeZoneInfo.Local;
+        // Schedule hours are in the gateway's local time (crontab timezone), which is the site's
+        // zone; the server's can differ (a container left on its default TZ). Convert to UTC for
+        // comparison with the ISP Health window (all UTC).
+        var localZone = _siteZones?.Cached(_siteSlug) ?? TimeZoneInfo.Local;
         var exclusions = new List<(DateTime Start, DateTime End)>();
         foreach (var config in sqmConfigs)
         {

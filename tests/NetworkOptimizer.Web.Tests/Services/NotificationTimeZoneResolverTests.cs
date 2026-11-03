@@ -141,6 +141,54 @@ public class NotificationTimeZoneResolverTests
     }
 
     [Fact]
+    public async Task A_failed_refresh_keeps_the_zone_it_had()
+    {
+        var answer = Chicago;
+        var zones = BuildSiteZones((_, _) => answer == null ? throw new HttpRequestException("console down") : Task.FromResult<string?>(answer));
+        (await zones.GetAsync("branch"))!.Id.Should().Be(Chicago);
+
+        // Force the entry stale, then fail the refresh: the site keeps its zone rather than the server's.
+        answer = null;
+        var stale = typeof(SiteTimeZones).GetField("_zones", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(zones) as System.Collections.Concurrent.ConcurrentDictionary<string, (TimeZoneInfo? Zone, DateTime CachedAt, bool Found)>;
+        stale!["branch"] = (stale["branch"].Zone, DateTime.MinValue, true);
+
+        (await zones.GetAsync("branch"))!.Id.Should().Be(Chicago);
+        zones.Cached("branch")!.Id.Should().Be(Chicago);
+    }
+
+    [Fact]
+    public async Task A_failed_first_read_is_retried_within_a_minute()
+    {
+        var calls = 0;
+        var zones = BuildSiteZones((_, _) => ++calls == 1 ? throw new TaskCanceledException() : Task.FromResult<string?>(Chicago));
+        (await zones.GetAsync("branch")).Should().BeNull();
+
+        // Sixty-one seconds on, the failure has lapsed (a console that answered without a zone waits an hour).
+        var entries = typeof(SiteTimeZones).GetField("_zones", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(zones) as System.Collections.Concurrent.ConcurrentDictionary<string, (TimeZoneInfo? Zone, DateTime CachedAt, bool Found)>;
+        entries!["branch"] = (null, entries["branch"].CachedAt - TimeSpan.FromSeconds(61), false);
+
+        (await zones.GetAsync("branch"))!.Id.Should().Be(Chicago);
+    }
+
+    [Fact]
+    public async Task Remembered_zones_serve_before_any_console_answers()
+    {
+        string? saved = null;
+        var first = new SiteTimeZones(_ => _ => Task.FromResult<string?>(Tokyo), NullLogger<SiteTimeZones>.Instance,
+            () => Task.FromResult<string?>(saved), json => { saved = json; return Task.CompletedTask; });
+        await first.GetAsync("branch");
+        saved.Should().Contain(Tokyo);
+
+        // A restart with the console not connected yet: the remembered zone serves at once.
+        var restarted = new SiteTimeZones(_ => null, NullLogger<SiteTimeZones>.Instance, () => Task.FromResult<string?>(saved), _ => Task.CompletedTask);
+        await restarted.LoadRememberedAsync();
+
+        restarted.Cached("branch")!.Id.Should().Be(Tokyo);
+    }
+
+    [Fact]
     public void Api_key_and_legacy_connections_are_never_asked()
     {
         using var apiKey = new UniFi.UniFiApiClient(NullLogger<UniFi.UniFiApiClient>.Instance, "192.0.2.1", "", "", apiKey: "key");

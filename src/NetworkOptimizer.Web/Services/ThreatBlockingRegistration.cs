@@ -11,6 +11,7 @@ public static class ThreatBlockingRegistration
     {
         services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>();
         services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
+        services.AddSingleton<NetworkOptimizer.Threats.Blocking.ISiteTimeZoneSource, ThreatSiteTimeZoneSource>();
         services.AddSingleton<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>();
         services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
         services.AddSingleton<NetworkOptimizer.Threats.Blocking.IPublicListLookup>(sp =>

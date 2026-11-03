@@ -179,11 +179,10 @@ public class DisplayTimeZoneTests
     [Fact]
     public void Components_do_not_read_the_server_clock()
     {
-        // Billing cycles are computed on the server's clock (WanDataUsageService), and the Adaptive
-        // SQM schedule runs on the gateway's; both move to the site clock, not the viewer's.
+        // The Adaptive SQM page compares the gateway's schedule on the site's clock, falling back to
+        // the server's when the site's is not known.
         var allowed = new Dictionary<string, int>(StringComparer.Ordinal)
         {
-            ["Alerts.razor"] = 3,
             ["Sqm.razor"] = 1,
         };
         // DateTimeKind.Local is the reverse trip: a wall-clock time read back on the server's zone.

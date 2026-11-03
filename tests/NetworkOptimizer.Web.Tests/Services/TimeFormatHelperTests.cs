@@ -20,7 +20,17 @@ public class TimeFormatHelperTests
     [InlineData(2 * 86400, "in 2d")]
     public void FormatRelativeTimeTerse_ReturnsExpected(int offsetSeconds, string expected)
     {
-        TimeFormatHelper.FormatRelativeTimeTerse(Now.AddSeconds(offsetSeconds), Now).Should().Be(expected);
+        TimeFormatHelper.FormatRelativeTimeTerse(Now.AddSeconds(offsetSeconds), TimeZoneInfo.Utc, Now).Should().Be(expected);
+    }
+
+    [Fact]
+    public void FormatRelativeTimeTerse_PastAWeek_ShowsTheDateOnTheGivenClock()
+    {
+        var tokyo = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
+        // 20:00 UTC on Sep 17 is already Sep 18 in Tokyo.
+        var lateEvening = new DateTime(2026, 9, 17, 20, 0, 0, DateTimeKind.Utc);
+
+        TimeFormatHelper.FormatRelativeTimeTerse(lateEvening, tokyo, Now).Should().Be("Sep 18, 2026");
     }
 
     [Theory]

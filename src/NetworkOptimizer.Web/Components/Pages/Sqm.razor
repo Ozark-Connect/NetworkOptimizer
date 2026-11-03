@@ -2419,13 +2419,13 @@
 
     /// <summary>
     /// True from shortly before to shortly after an enabled WAN's scheduled calibration. The
-    /// schedule is gateway-local and compared with server-local time, the same assumption the
-    /// ISP Health probe exclusions make.
+    /// schedule is gateway-local, so it is compared on the site's clock, as the ISP Health probe
+    /// exclusions do; the server's zone only when the site's is not known.
     /// </summary>
     private bool IsNearScheduledCalibration()
     {
         if (deploymentStatus?.IsDeployed != true) return false;
-        var now = DateTime.Now;
+        var now = TimeZoneCatalog.ToZone(DateTime.UtcNow, DisplayTime.SiteZone ?? TimeZoneInfo.Local);
         foreach (var wan in new[] { wan1Config, wan2Config })
         {
             if (!wan.Enabled) continue;

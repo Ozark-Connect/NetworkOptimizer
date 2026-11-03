@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
@@ -31,6 +32,37 @@ public class WanDataUsageService : BackgroundService
     // Tracks last known billing cycle start per WAN to detect cycle rollovers
     private readonly Dictionary<string, DateTime> _lastCycleStart = new();
 
+    private readonly ISiteTimeZones? _siteZones;
+
+    /// <summary>
+    /// The clock billing days are counted on: the site's, since the ISP bills on the site's calendar.
+    /// The server's until the site's is known.
+    /// </summary>
+    private TimeZoneInfo CycleZone => _cycleZone ?? CalendarZone(_siteZones?.Cached(_siteSlug));
+
+    // Read (awaited) once per poll or write, so one pass never mixes two clocks; a page reads the last one.
+    private TimeZoneInfo? _cycleZone;
+
+    private async Task RefreshCycleZoneAsync(CancellationToken ct)
+    {
+        if (_siteZones == null) return;
+        try
+        {
+            _cycleZone = CalendarZone(await _siteZones.GetAsync(_siteSlug, ct));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the site's time zone for billing cycles");
+        }
+    }
+
+    /// <summary>
+    /// Whether two cycle starts are the same cycle. Cycles are 28 or more days apart, so starts within
+    /// two days are one cycle read on two clocks (the server's before the site's zone was known, or a
+    /// row recorded before cycles moved to the site's zone), never a rollover.
+    /// </summary>
+    internal static bool SameCycle(DateTime a, DateTime b) => Math.Abs((a - b).TotalDays) < 2;
+
     private DateTime _lastPruneTime = DateTime.MinValue;
 
     // Cache of current usage for UI consumption
@@ -42,8 +74,10 @@ public class WanDataUsageService : BackgroundService
         SiteConnectionRegistry siteConnections,
         IAlertEventBus alertEventBus,
         ILogger<WanDataUsageService> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        ISiteTimeZones? siteZones = null)
     {
+        _siteZones = siteZones;
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
@@ -85,7 +119,7 @@ public class WanDataUsageService : BackgroundService
 
         foreach (var config in configs)
         {
-            var (cycleStart, cycleEnd) = GetCycleWindow(config, now);
+            var (cycleStart, cycleEnd) = GetCycleWindow(config, now, CycleZone);
             var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, ct);
             var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
 
@@ -149,6 +183,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task<WanDataUsageConfig> SaveConfigAsync(WanDataUsageConfig config)
     {
+        await RefreshCycleZoneAsync(CancellationToken.None);
         await using var db = await CreateSiteDb();
         var existing = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == config.WanKey);
 
@@ -167,7 +202,7 @@ public class WanDataUsageService : BackgroundService
             // actually topped up mid-cycle, a single "Reset bucket" click zeroes it from now.
             if (config.ResetMode == DataUsageResetMode.Manual && existing.ResetMode != DataUsageResetMode.Manual)
             {
-                var (cycleStart, _) = GetBillingCycleDates(existing.BillingCycleDayOfMonth, DateTime.UtcNow);
+                var (cycleStart, _) = GetBillingCycleDates(existing.BillingCycleDayOfMonth, DateTime.UtcNow, CycleZone);
                 existing.LastResetAt = cycleStart;
             }
             existing.ResetMode = config.ResetMode;
@@ -204,6 +239,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task ResetUsageAsync(string wanKey)
     {
+        await RefreshCycleZoneAsync(CancellationToken.None);
         // Serialize against the background poll: it mutates _alertState and _lastCycleStart
         // (plain dictionaries) under this same lock, so we must hold it too before touching them.
         await _pollLock.WaitAsync();
@@ -215,7 +251,7 @@ public class WanDataUsageService : BackgroundService
                 return;
 
             var now = DateTime.UtcNow;
-            var (cycleStart, _) = GetCycleWindow(config, now);
+            var (cycleStart, _) = GetCycleWindow(config, now, CycleZone);
 
             // Capture the bucket's usage (including any manual adjustment) so history keeps a record.
             var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, CancellationToken.None);
@@ -341,6 +377,7 @@ public class WanDataUsageService : BackgroundService
 
     private async Task PollAndRecordAsync(CancellationToken ct)
     {
+        await RefreshCycleZoneAsync(ct);
         await using var db = await CreateSiteDb(ct);
         var configs = await db.WanDataUsageConfigs.Where(c => c.Enabled).ToListAsync(ct);
 
@@ -397,7 +434,7 @@ public class WanDataUsageService : BackgroundService
                 // If so, the raw byte counters represent all usage since boot = all usage this cycle.
                 if (lastSnapshot == null && gatewayBootTime.HasValue)
                 {
-                    var (blCycleStart, _) = GetCycleWindow(config, now);
+                    var (blCycleStart, _) = GetCycleWindow(config, now, CycleZone);
                     isBaseline = gatewayBootTime.Value >= blCycleStart;
 
                     if (isBaseline)
@@ -418,12 +455,12 @@ public class WanDataUsageService : BackgroundService
             }
 
             // Calculate cycle usage window (monthly billing cycle, or open-ended manual bucket)
-            var (cycleStart, cycleEnd) = GetCycleWindow(config, now);
+            var (cycleStart, cycleEnd) = GetCycleWindow(config, now, CycleZone);
 
             // Reset manual adjustment when the cycle rolls over. In Monthly mode this fires when the
             // calendar billing cycle changes. In Manual mode the window start only advances via an
             // explicit reset (which already clears the adjustment), so this is a harmless backstop.
-            if (_lastCycleStart.TryGetValue(config.WanKey, out var prevCycleStart) && prevCycleStart != cycleStart
+            if (_lastCycleStart.TryGetValue(config.WanKey, out var prevCycleStart) && !SameCycle(prevCycleStart, cycleStart)
                 && config.ManualAdjustmentGb != 0)
             {
                 config.ManualAdjustmentGb = 0;
@@ -619,15 +656,21 @@ public class WanDataUsageService : BackgroundService
     /// Calculates the billing cycle start and end dates for a given billing day and reference date.
     /// Public for testing.
     /// </summary>
-    public static (DateTime CycleStart, DateTime CycleEnd) GetBillingCycleDates(int billingDay, DateTime referenceDate)
+    public static (DateTime CycleStart, DateTime CycleEnd) GetBillingCycleDates(int billingDay, DateTime referenceDate) =>
+        GetBillingCycleDates(billingDay, referenceDate, TimeZoneInfo.Local);
+
+    /// <summary>
+    /// <see cref="GetBillingCycleDates(int, DateTime)"/> on <paramref name="zone"/>'s calendar: a UTC
+    /// reference date is read, and the cycle returned, on that zone's midnights.
+    /// </summary>
+    public static (DateTime CycleStart, DateTime CycleEnd) GetBillingCycleDates(int billingDay, DateTime referenceDate, TimeZoneInfo zone)
     {
         billingDay = Math.Clamp(billingDay, 1, 28);
 
-        // Use local time to determine which day of month we're on (ISP billing cycles
-        // align with the user's timezone, not UTC). For a self-hosted app, server
-        // local time = user's timezone. Only convert if the input is explicitly UTC.
+        // Use the site's calendar to determine which day of month we're on (ISP billing cycles
+        // align with the site's timezone, not UTC). Only convert if the input is explicitly UTC.
         var localRef = referenceDate.Kind == DateTimeKind.Utc
-            ? referenceDate.ToLocalTime()
+            ? TimeZoneInfo.ConvertTimeFromUtc(referenceDate, zone)
             : referenceDate;
         var outputKind = referenceDate.Kind == DateTimeKind.Utc ? DateTimeKind.Utc : referenceDate.Kind;
 
@@ -648,8 +691,8 @@ public class WanDataUsageService : BackgroundService
         // Convert output to match caller's expectations
         if (referenceDate.Kind == DateTimeKind.Utc)
         {
-            cycleStart = cycleStart.ToUniversalTime();
-            cycleEnd = cycleEnd.ToUniversalTime();
+            cycleStart = MidnightToUtc(cycleStart, zone);
+            cycleEnd = MidnightToUtc(cycleEnd, zone);
         }
         else
         {
@@ -661,6 +704,29 @@ public class WanDataUsageService : BackgroundService
         return (cycleStart, cycleEnd);
     }
 
+    /// <summary>The calendar a site's billing cycles follow: its own zone, else the server's.</summary>
+    public static TimeZoneInfo CalendarZone(TimeZoneInfo? siteZone) => siteZone ?? TimeZoneInfo.Local;
+
+    /// <summary>A midnight on <paramref name="zone"/>'s calendar, in UTC; a midnight skipped by a DST change moves past the gap.</summary>
+    private static DateTime MidnightToUtc(DateTime localMidnight, TimeZoneInfo zone)
+    {
+        var wall = DateTime.SpecifyKind(localMidnight, DateTimeKind.Unspecified);
+        while (zone.IsInvalidTime(wall)) wall = wall.AddMinutes(30);
+        return TimeZoneInfo.ConvertTimeToUtc(wall, zone);
+    }
+
+    /// <summary>
+    /// The calendar date a stored cycle boundary stands for, on the site's calendar. A row recorded
+    /// before cycles moved to the site's zone sits on the server's midnight, and keeps the date it
+    /// was recorded for.
+    /// </summary>
+    public static DateTime BillingDate(DateTime boundaryUtc, TimeZoneInfo siteZone)
+    {
+        var onSite = DateTimeUtilities.ToZone(boundaryUtc, siteZone);
+        var onServer = DateTimeUtilities.ToZone(boundaryUtc, TimeZoneInfo.Local);
+        return onSite.TimeOfDay != TimeSpan.Zero && onServer.TimeOfDay == TimeSpan.Zero ? onServer.Date : onSite.Date;
+    }
+
     /// <summary>
     /// Returns the usage cycle window for a config based on its reset mode.
     /// Monthly: the calendar billing cycle containing <paramref name="now"/>, with an end date.
@@ -668,7 +734,12 @@ public class WanDataUsageService : BackgroundService
     /// with a null end date (the bucket has no scheduled rollover).
     /// Public for testing.
     /// </summary>
-    public static (DateTime CycleStart, DateTime? CycleEnd) GetCycleWindow(WanDataUsageConfig config, DateTime now)
+    public static (DateTime CycleStart, DateTime? CycleEnd) GetCycleWindow(WanDataUsageConfig config, DateTime now) =>
+        GetCycleWindow(config, now, TimeZoneInfo.Local);
+
+    /// <inheritdoc cref="GetCycleWindow(WanDataUsageConfig, DateTime)"/>
+    /// <param name="zone">The site's zone, whose calendar a monthly billing cycle follows.</param>
+    public static (DateTime CycleStart, DateTime? CycleEnd) GetCycleWindow(WanDataUsageConfig config, DateTime now, TimeZoneInfo zone)
     {
         if (config.ResetMode == DataUsageResetMode.Manual)
         {
@@ -677,7 +748,7 @@ public class WanDataUsageService : BackgroundService
             return (DateTime.SpecifyKind(start, DateTimeKind.Utc), null);
         }
 
-        var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+        var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now, zone);
         return (cycleStart, cycleEnd);
     }
 
@@ -687,7 +758,7 @@ public class WanDataUsageService : BackgroundService
         var key = config.WanKey;
 
         // Reset alert state if cycle changed
-        if (_alertState.TryGetValue(key, out var state) && state.CycleStart != cycleStart)
+        if (_alertState.TryGetValue(key, out var state) && !SameCycle(state.CycleStart, cycleStart))
             _alertState.Remove(key);
 
         if (!_alertState.TryGetValue(key, out state))
@@ -778,23 +849,23 @@ public class WanDataUsageService : BackgroundService
             // Snapshot timestamps are UTC; treat them as such so billing-cycle math matches
             // the live path (which passes DateTime.UtcNow).
             var minTs = DateTime.SpecifyKind(minTsRaw.Value, DateTimeKind.Utc);
-            var (currentCycleStart, _) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+            var (currentCycleStart, _) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now, CycleZone);
 
             var recorded = await db.WanDataUsageHistory
                 .Where(h => h.WanKey == config.WanKey)
-                .Select(h => h.CycleStart)
+                .Select(h => new { h.CycleStart, h.CycleEnd })
                 .ToListAsync(ct);
-            var recordedSet = new HashSet<DateTime>(recorded);
 
             // Walk completed cycles from the one containing the earliest snapshot up to (but
             // not including) the current, still-open cycle.
-            var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, minTs);
+            var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, minTs, CycleZone);
             var guard = 0;
             while (cycleStart < currentCycleStart && guard++ < 120)
             {
-                var nextCycleStart = GetBillingCycleDates(config.BillingCycleDayOfMonth, cycleEnd.AddDays(1)).CycleStart;
+                var nextCycleStart = GetBillingCycleDates(config.BillingCycleDayOfMonth, cycleEnd.AddDays(1), CycleZone).CycleStart;
 
-                if (!recordedSet.Contains(cycleStart))
+                // Both ends: a Manual bucket's reset row can start near a monthly boundary, but its end is the reset.
+                if (!recorded.Any(r => SameCycle(r.CycleStart, cycleStart) && SameCycle(r.CycleEnd, cycleEnd)))
                 {
                     var snapshots = await db.WanDataUsageSnapshots
                         .Where(s => s.WanKey == config.WanKey && s.Timestamp >= cycleStart && s.Timestamp < nextCycleStart)
@@ -834,7 +905,7 @@ public class WanDataUsageService : BackgroundService
                 }
 
                 cycleStart = nextCycleStart;
-                cycleEnd = GetBillingCycleDates(config.BillingCycleDayOfMonth, nextCycleStart).CycleEnd;
+                cycleEnd = GetBillingCycleDates(config.BillingCycleDayOfMonth, nextCycleStart, CycleZone).CycleEnd;
             }
         }
 
@@ -856,7 +927,7 @@ public class WanDataUsageService : BackgroundService
             // open bucket older than 2 months would lose its early deltas and undercount.
             foreach (var config in configs.Where(c => c.ResetMode == DataUsageResetMode.Manual))
             {
-                var (manualStart, _) = GetCycleWindow(config, now);
+                var (manualStart, _) = GetCycleWindow(config, now, CycleZone);
                 if (manualStart < cutoff)
                     cutoff = manualStart;
             }
