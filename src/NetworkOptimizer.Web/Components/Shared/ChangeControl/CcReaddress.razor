@@ -6,6 +6,7 @@
 @inject IJSRuntime JS
 @inject CcPlanDrafts Drafts
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="card">
     <div class="card-header">
@@ -131,7 +132,7 @@
                                 {
                                     <tr>
                                         <td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Reserved ? ", reserved" : "")</div></td>
-                                        <td>@(s.LastSeen is { } seen && seen > DateTime.MinValue ? CcFormat.Local(seen).ToString("MMM d, yyyy") : "Unknown")</td>
+                                        <td>@(s.LastSeen is { } seen && seen > DateTime.MinValue ? CcFormat.Local(DisplayTime, seen).ToString("MMM d, yyyy") : "Unknown")</td>
                                         <td><code>@s.Ip</code></td>
                                         <td><code>@s.NewIp</code></td>
                                     </tr>
@@ -303,22 +304,22 @@
 
     private static bool LeasesShort(ReaddressView v) => v.LongestLeaseSeconds is <= ChangeControlService.PrepareLeaseSeconds;
 
-    private static string PrepareStatus(ReaddressView v)
+    private string PrepareStatus(ReaddressView v)
     {
         // A moving network still on a long lease (a preparation missed it, or it was added since) needs lowering again.
         if (v.Prepare is { } p && LeasesShort(v))
             return p.ReadyAt > DateTime.UtcNow
-                ? $"Lowered {CcFormat.Time(p.LoweredAt)}. Every DHCP client is on the short lease by {CcFormat.Time(p.ReadyAt)}."
-                : $"Lowered {CcFormat.Time(p.LoweredAt)}. Every DHCP client is on the short lease: ready to move.";
+                ? $"Lowered {CcFormat.Time(DisplayTime, p.LoweredAt)}. Every DHCP client is on the short lease by {CcFormat.Time(DisplayTime, p.ReadyAt)}."
+                : $"Lowered {CcFormat.Time(DisplayTime, p.LoweredAt)}. Every DHCP client is on the short lease: ready to move.";
         if (v.LongestLeaseSeconds is not { } lease) return "Give at least one network a new subnet first.";
         if (lease <= ChangeControlService.PrepareLeaseSeconds) return $"Leases on the moving networks are already {Hours(lease)} or less: nothing to lower.";
         return $"Leases are up to {Hours(lease)}. Lowered now, every DHCP client is on a {ChangeControlService.PrepareLeaseSeconds / 60}-minute lease by "
-            + $"{CcFormat.Time(DateTime.UtcNow.AddSeconds(lease))}. The re-address puts each lease time back.";
+            + $"{CcFormat.Time(DisplayTime, DateTime.UtcNow.AddSeconds(lease))}. The re-address puts each lease time back.";
     }
 
-    private static string LastMoveStatus(ReaddressView v) => v.LastMoves.Count == 0 || v.LastAppliedAt is not { } at
+    private string LastMoveStatus(ReaddressView v) => v.LastMoves.Count == 0 || v.LastAppliedAt is not { } at
         ? "No re-address applied in the last week."
-        : $"For the re-address applied {CcFormat.Time(at)}: "
+        : $"For the re-address applied {CcFormat.Time(DisplayTime, at)}: "
           + string.Join("; ", v.LastMoves.Select(m => $"{m.NetworkName} {m.OldCidr} to {m.NewCidr}")) + ".";
 
     private static string Hours(int seconds) => TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(seconds));
@@ -488,13 +489,13 @@
     /// What to do about lease times before Review Plan, or null when nothing is: long leases on a moving
     /// network leave its clients on the old address until they renew.
     /// </summary>
-    private static string? LeaseWarning(ReaddressView v)
+    private string? LeaseWarning(ReaddressView v)
     {
         if (v.LongestLeaseSeconds is not { } lease || v.Errors.Count > 0) return null;
         if (!LeasesShort(v))
             return $"Lower lease times first: clients on the moving networks keep their old address for up to {Hours(lease / 2)} after the move.";
         if (v.Prepare is { } p && p.ReadyAt > DateTime.UtcNow)
-            return $"Leases lowered. Every DHCP client is on the short lease by {CcFormat.Local(p.ReadyAt):h:mm tt}; moving earlier leaves some on the old address until they renew.";
+            return $"Leases lowered. Every DHCP client is on the short lease by {CcFormat.Local(DisplayTime, p.ReadyAt):h:mm tt}; moving earlier leaves some on the old address until they renew.";
         return null;
     }
 

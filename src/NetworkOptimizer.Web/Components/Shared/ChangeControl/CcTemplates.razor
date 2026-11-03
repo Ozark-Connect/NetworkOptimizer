@@ -4,6 +4,7 @@
 @inject SiteContextService SiteCtx
 @inject NavigationManager Nav
 @inject ILogger<CcTemplates> Logger
+@inject IDisplayTimeZone DisplayTime
 
 @* Templates: site-wide config shared across sites. Instance Admins create and edit them; a Site Admin applies one or uses it as the Baseline. *@
 <div class="card" data-tour="cc-templates">
@@ -28,7 +29,7 @@
                         <option value="">Live config</option>
                         @foreach (var s in Snapshots.Take(30))
                         {
-                            <option value="@s.Id">Snapshot, @CcFormat.Time(s.TakenAt)</option>
+                            <option value="@s.Id">Snapshot, @CcFormat.Time(DisplayTime, s.TakenAt)</option>
                         }
                     </select>
                 </div>
@@ -81,7 +82,7 @@
                 <div class="cc-template-main">
                     <div><b>@t.Name</b> @if (isBaseline) { <span class="status-badge status-connected">Baseline</span> }</div>
                     <div class="cc-item-detail">
-                        @CcFormat.Plural(t.Collections.Count, "collection", "collections")@(t.SourceSiteSlug != null ? $", from {t.SourceSiteSlug}" : ""), updated @CcFormat.Time(t.UpdatedAt)
+                        @CcFormat.Plural(t.Collections.Count, "collection", "collections")@(t.SourceSiteSlug != null ? $", from {t.SourceSiteSlug}" : ""), updated @CcFormat.Time(DisplayTime, t.UpdatedAt)
                     </div>
                     @if (!string.IsNullOrEmpty(t.Description)) { <div class="cc-item-detail">@t.Description</div> }
                 </div>

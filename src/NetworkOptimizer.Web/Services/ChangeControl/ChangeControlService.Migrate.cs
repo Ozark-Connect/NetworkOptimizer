@@ -190,7 +190,7 @@ public sealed partial class ChangeControlService
         IReadOnlyCollection<string>? acks, CancellationToken cancellationToken = default)
     {
         var (p, _, _, _) = await ProposeAsync(oldMac, newMac, choices, acks, cancellationToken);
-        return new RecablingPdfGenerator().GenerateBytes(p, await SiteNameAsync(cancellationToken));
+        return new RecablingPdfGenerator(timeZone: Viewer).GenerateBytes(p, await SiteNameAsync(cancellationToken));
     }
 
     public async Task<List<MigrateDeviceView>> GetPendingAdoptionsAsync(string? sourceSiteSlug, int? snapshotId, CancellationToken cancellationToken = default)
@@ -247,7 +247,7 @@ public sealed partial class ChangeControlService
         return snaps.Select(s => new RestoreSnapshotView
         {
             Id = s.Id, TakenAt = s.TakenAt, NetworkAppVersion = s.NetworkAppVersion,
-            Label = $"{TimeFormatHelper.FormatLocalDateTime(s.TakenAt)}, {(s.IsBaseline ? "Baseline" : s.Pinned ? s.PinReason ?? "Pinned" : TriggerLabel(s).Text)}",
+            Label = $"{TimeFormatHelper.FormatLocalDateTime(s.TakenAt, Viewer)}, {(s.IsBaseline ? "Baseline" : s.Pinned ? s.PinReason ?? "Pinned" : TriggerLabel(s).Text)}",
         }).ToList();
     }
 
@@ -269,7 +269,7 @@ public sealed partial class ChangeControlService
         var translation = !devicesOnly && LegacyFirewallTranslator.Applies(state, live)
             ? LegacyFirewallTranslator.Translate(state, live, options.DeleteMissing)
             : null;
-        var label = TimeFormatHelper.FormatLocalDateTime(snap.TakenAt);
+        var label = await StoredTimeAsync(snap.TakenAt, cancellationToken);
         var sourceName = sameSite ? await SiteNameAsync(cancellationToken) : sourceSiteSlug;
         var plan = await Plans.CreateAsync(ConfigPlanKind.Restore, $"{(devicesOnly ? "Device config from" : "Restore")} {sourceName} snapshot ({label}) onto {await SiteNameAsync(cancellationToken)}",
             $"Snapshot, {label}{(sameSite ? "" : $", site {sourceSiteSlug}")}", sameSite ? snapshotId : null, sameSite ? null : sourceSiteSlug,

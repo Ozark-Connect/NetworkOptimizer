@@ -186,7 +186,8 @@ public class DisplayTimeZoneTests
             ["Alerts.razor"] = 3,
             ["Sqm.razor"] = 1,
         };
-        var serverClock = new Regex(@"\.ToLocalTime\(\)|TimeZoneInfo\.Local\b|DateTime\.(Now|Today)\b");
+        // DateTimeKind.Local is the reverse trip: a wall-clock time read back on the server's zone.
+        var serverClock = new Regex(@"\.ToLocalTime\(\)|TimeZoneInfo\.Local\b|DateTime\.(Now|Today)\b|DateTimeKind\.Local\b");
 
         var offenders = Directory
             .EnumerateFiles(Path.Combine(FindWebProjectRoot(), "Components"), "*.razor", SearchOption.AllDirectories)

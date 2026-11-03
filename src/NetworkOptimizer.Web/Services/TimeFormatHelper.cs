@@ -5,15 +5,15 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public static class TimeFormatHelper
 {
-    /// <summary>A UTC time in the server's local time zone, whatever its Kind says.</summary>
-    public static DateTime ToLocal(DateTime utc) =>
-        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
+    /// <summary>A UTC time on <paramref name="zone"/>'s clock, whatever its Kind says.</summary>
+    public static DateTime ToLocal(DateTime utc, TimeZoneInfo zone) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
 
-    /// <summary>"Oct 20, 4:42 PM", in local time.</summary>
-    public static string FormatLocalDateTime(DateTime utc) => ToLocal(utc).ToString("MMM d, h:mm tt");
+    /// <summary>"Oct 20, 4:42 PM", on <paramref name="zone"/>'s clock.</summary>
+    public static string FormatLocalDateTime(DateTime utc, TimeZoneInfo zone) => ToLocal(utc, zone).ToString("MMM d, h:mm tt");
 
-    /// <summary>"Oct 20", in local time.</summary>
-    public static string FormatLocalDate(DateTime utc) => ToLocal(utc).ToString("MMM d");
+    /// <summary>"Oct 20", on <paramref name="zone"/>'s clock.</summary>
+    public static string FormatLocalDate(DateTime utc, TimeZoneInfo zone) => ToLocal(utc, zone).ToString("MMM d");
 
     /// <summary>
     /// Append the unit to a count, pluralized (e.g., "1 day", "2 days").

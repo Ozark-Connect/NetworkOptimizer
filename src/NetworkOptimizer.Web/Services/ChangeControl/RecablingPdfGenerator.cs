@@ -14,11 +14,14 @@ public class RecablingPdfGenerator
 {
     private readonly BrandingOptions _branding;
     private readonly byte[]? _logoBytes;
+    private readonly TimeZoneInfo _timeZone;
 
     /// <param name="branding">Branding overrides; the product defaults are used when null.</param>
-    public RecablingPdfGenerator(BrandingOptions? branding = null)
+    /// <param name="timeZone">The requesting user's clock for the generated time; UTC when null.</param>
+    public RecablingPdfGenerator(BrandingOptions? branding = null, TimeZoneInfo? timeZone = null)
     {
         _branding = branding ?? BrandingOptions.OzarkConnect();
+        _timeZone = timeZone ?? TimeZoneInfo.Utc;
         QuestPDF.Settings.License = LicenseType.Community;
         _logoBytes = ReportAssets.Logo();
     }
@@ -30,7 +33,7 @@ public class RecablingPdfGenerator
     {
         ArgumentNullException.ThrowIfNull(proposal);
 
-        var generatedAt = DateTime.Now;
+        var generatedAt = TimeZoneCatalog.ToZone(DateTime.UtcNow, _timeZone);
         return Document.Create(container =>
         {
             container.Page(page =>

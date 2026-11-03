@@ -140,11 +140,16 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     private readonly ILogger<ChangeControlFleetService> _logger;
     private readonly IServiceScopeFactory _scopes;
     private readonly Identity.ICallerContext _caller;
+    private readonly IDisplayTimeZone? _displayTime;
+
+    /// <summary>The viewer's clock, for text built for the page in front of them.</summary>
+    private TimeZoneInfo Viewer => _displayTime?.Zone ?? TimeZoneInfo.Local;
 
     public ChangeControlFleetService(ChangeControlRegistry registry, IDbContextFactory<NetworkOptimizerDbContext> mainDb,
         ISiteAccessFilter access, MonitoringInfluxRegistry influx, IspHealthRegistry isp, IServiceScopeFactory scopes,
-        Identity.ICallerContext caller, ILogger<ChangeControlFleetService> logger)
+        Identity.ICallerContext caller, ILogger<ChangeControlFleetService> logger, IDisplayTimeZone? displayTime = null)
     {
+        _displayTime = displayTime;
         _scopes = scopes;
         _caller = caller;
         _registry = registry;
@@ -205,7 +210,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                 : !connection.IsConnected ? "Console unreachable"
                 : latest == null ? "No snapshot yet"
                 : last == null ? "No changes recorded"
-                : $"Last change {LastChangeText(last.OccurredAt, now)}",
+                : $"Last change {LastChangeText(last.OccurredAt, now, Viewer)}",
             Online = connection.IsConnected,
             AgentOffline = connection.IsAwaitingAgent,
             LastSnapshotAt = latest?.TakenAt,
@@ -325,7 +330,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     At = p.SubmittedAt ?? p.CreatedAt,
                     PlanId = p.Id,
                     Title = p.Name,
-                    Detail = $"Submitted by {p.SubmittedBy}." + (p.ScheduledFor is { } s ? $" Scheduled {TimeFormatHelper.FormatLocalDateTime(s)} once approved." : "")
+                    Detail = $"Submitted by {p.SubmittedBy}." + (p.ScheduledFor is { } s ? $" Scheduled {TimeFormatHelper.FormatLocalDateTime(s, Viewer)} once approved." : "")
                              + (p.HighestTier >= PlanTiers.Lockout ? " Possible lockout." : ""),
                 });
             // Only automatic reverts: one someone pressed is in the plan history already. A Roll Back's revert plan says "Roll Back".
@@ -366,7 +371,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
 
             // Drafts too: Save Draft is how a plan is kept for later, and this is where it is found again.
             view.Plans.AddRange(plans.Where(p => p.Status == ConfigPlanStatus.Draft || ConfigPlanStatuses.InProgress.Contains(p.Status))
-                .Select(p => ChangeControlService.Summary(p, site.Slug, site.Name)));
+                .Select(p => ChangeControlService.Summary(p, site.Slug, site.Name, Viewer)));
 
             var upgradeRow = changes.Where(c => c.Kind == ConfigChangeKind.NetworkAppUpgrade).OrderByDescending(c => c.OccurredAt).FirstOrDefault();
             if (upgradeRow != null)
@@ -431,13 +436,11 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
     public Task RestoreAttentionAsync(string siteSlug, string itemKey, CancellationToken cancellationToken = default) =>
         _registry.GetFor(siteSlug).Repositories.UseAsync((r, c) => r.RemoveDismissalAsync(itemKey, c), cancellationToken);
 
-    private static DateTime Local(DateTime utc) => TimeFormatHelper.ToLocal(utc);
-
-    /// <summary>"at 2:14 PM" today, "Oct 21" this year, "Oct 21, 2025" before that.</summary>
-    internal static string LastChangeText(DateTime atUtc, DateTime nowUtc)
+    /// <summary>"at 2:14 PM" today, "Oct 21" this year, "Oct 21, 2025" before that, on <paramref name="zone"/>'s clock.</summary>
+    internal static string LastChangeText(DateTime atUtc, DateTime nowUtc, TimeZoneInfo zone)
     {
-        var at = Local(atUtc);
-        var now = Local(nowUtc);
+        var at = TimeFormatHelper.ToLocal(atUtc, zone);
+        var now = TimeFormatHelper.ToLocal(nowUtc, zone);
         return at.Date == now.Date ? $"at {at:h:mm tt}" : at.Year == now.Year ? at.ToString("MMM d") : at.ToString("MMM d, yyyy");
     }
 

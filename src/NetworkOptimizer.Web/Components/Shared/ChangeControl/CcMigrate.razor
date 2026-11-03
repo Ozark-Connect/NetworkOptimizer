@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<CcMigrate> Logger
+@inject IDisplayTimeZone DisplayTime
 
 <div class="cc-phone-only form-group">
     <label class="form-label">Task</label>
@@ -81,7 +82,7 @@
                                             <option value="@d.Mac">@d.Name (@d.Model)</option>
                                         }
                                     </select>
-                                    <small class="form-help">From the snapshot of @CcFormat.Time(_devices.SnapshotAt ?? DateTime.UtcNow). Offline devices are listed too.</small>
+                                    <small class="form-help">From the snapshot of @CcFormat.Time(DisplayTime, _devices.SnapshotAt ?? DateTime.UtcNow). Offline devices are listed too.</small>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">New device</label>

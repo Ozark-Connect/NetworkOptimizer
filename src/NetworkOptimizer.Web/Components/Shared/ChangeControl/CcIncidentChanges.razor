@@ -3,6 +3,7 @@
 @inject SiteContextService SiteCtx
 @inject CcNavigator Navigator
 @inject ILogger<CcIncidentChanges> Logger
+@inject IDisplayTimeZone DisplayTime
 
 @* Config changes in the window before an incident, for Alerts & Schedule - Incidents. Wording stays neutral: "before", never "caused". *@
 @if (_changes is { Count: > 0 })
@@ -12,7 +13,7 @@
         @foreach (var c in _changes)
         {
             <div class="cc-incident-change">
-                <span class="muted-text">@CcFormat.Time(c.OccurredAt)</span>
+                <span class="muted-text">@CcFormat.Time(DisplayTime, c.OccurredAt)</span>
                 <button class="cc-link-btn" @onclick="() => Navigator.ChangeAsync(SiteCtx.Slug, c.Id)">@c.Summary</button>
                 <span class="muted-text">@c.Who</span>
                 <SiteOperatorOnly>
