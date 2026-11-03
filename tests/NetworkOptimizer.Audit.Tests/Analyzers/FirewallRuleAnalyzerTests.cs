@@ -2264,6 +2264,74 @@ public class FirewallRuleAnalyzerTests
         issues.Should().BeEmpty();
     }
 
+    private FirewallRule ParseStatefulInternalPolicy(string id, string action, int index, string stateType, params string[] states)
+    {
+        var statesJson = string.Join(", ", states.Select(s => $@"""{s}"""));
+        var json = System.Text.Json.JsonDocument.Parse($@"{{
+            ""_id"": ""{id}"",
+            ""name"": ""{id}"",
+            ""action"": ""{action}"",
+            ""enabled"": true,
+            ""index"": {index},
+            ""protocol"": ""all"",
+            ""connection_state_type"": ""{stateType}"",
+            ""connection_states"": [{statesJson}],
+            ""source"": {{ ""matching_target"": ""ANY"", ""zone_id"": ""internal-zone"" }},
+            ""destination"": {{ ""matching_target"": ""ANY"", ""zone_id"": ""internal-zone"" }}
+        }}").RootElement;
+        return _analyzer.ParseFirewallPolicy(json)!;
+    }
+
+    [Theory]
+    [InlineData("ALL")]
+    [InlineData("RESPOND_ONLY", "RELATED", "ESTABLISHED")]
+    public void DetectShadowedRules_InvalidOnlyDenyBeforeAllow_IsNotReported(string allowStateType, params string[] allowStates)
+    {
+        // A zone-wide "Block Invalid" drops only INVALID packets, so no later allow is ineffective
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("block-invalid", "BLOCK", 10000, "CUSTOM", "INVALID"),
+            ParseStatefulInternalPolicy("allow-admin", "ALLOW", 10001, allowStateType, allowStates)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.DenyShadowsAllow);
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NewOnlyDenyBeforeReturnTrafficAllow_IsNotReported()
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("block-new", "BLOCK", 10000, "CUSTOM", "NEW"),
+            ParseStatefulInternalPolicy("allow-return", "ALLOW", 10001, "RESPOND_ONLY", "RELATED", "ESTABLISHED")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.DenyShadowsAllow);
+    }
+
+    [Theory]
+    [InlineData("ALL", "ALL", new string[0], new string[0])]
+    [InlineData("CUSTOM", "ALL", new[] { "NEW", "ESTABLISHED", "RELATED", "INVALID" }, new string[0])]
+    [InlineData("CUSTOM", "CUSTOM", new[] { "NEW", "INVALID" }, new[] { "NEW" })]
+    [InlineData("ALL", "RESPOND_ONLY", new string[0], new[] { "RELATED", "ESTABLISHED" })]
+    public void DetectShadowedRules_DenyCoversEveryAllowedState_IsReported(
+        string denyStateType, string allowStateType, string[] denyStates, string[] allowStates)
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("block-broad", "BLOCK", 10000, denyStateType, denyStates),
+            ParseStatefulInternalPolicy("allow-later", "ALLOW", 10001, allowStateType, allowStates)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.DenyShadowsAllow);
+    }
+
     [Fact]
     public void DetectShadowedRules_ReturnTrafficAllowBeforeBlockAll_ReturnsExceptionPattern()
     {

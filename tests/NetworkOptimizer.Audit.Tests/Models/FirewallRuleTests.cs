@@ -348,5 +348,25 @@ public class FirewallRuleTests
         rule.AllowsOnlyReturnTraffic().Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(null, new string[0], new[] { "NEW", "ESTABLISHED", "RELATED", "INVALID" })]
+    [InlineData("ALL", new string[0], new[] { "NEW", "ESTABLISHED", "RELATED", "INVALID" })]
+    [InlineData("RESPOND_ONLY", new string[0], new[] { "ESTABLISHED", "RELATED" })]
+    [InlineData("RESPOND_ONLY", new[] { "RELATED", "ESTABLISHED" }, new[] { "ESTABLISHED", "RELATED" })]
+    [InlineData("CUSTOM", new[] { "INVALID" }, new[] { "INVALID" })]
+    [InlineData("CUSTOM", new[] { "NEW", "ESTABLISHED" }, new[] { "NEW", "ESTABLISHED" })]
+    [InlineData("CUSTOM", new string[0], new[] { "NEW", "ESTABLISHED", "RELATED", "INVALID" })]
+    public void MatchedConnectionStates_ReturnsStatesTheRuleMatches(string? stateType, string[] states, string[] expected)
+    {
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = stateType,
+            ConnectionStates = [.. states]
+        };
+
+        rule.MatchedConnectionStates().Should().BeEquivalentTo(expected);
+    }
+
     #endregion
 }
