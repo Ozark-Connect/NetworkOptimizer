@@ -165,7 +165,8 @@ window.updateChecker = {
 
     // Full semver precedence: -1 / 0 / 1. Core compared numerically; a release
     // outranks a prerelease of the same core; prerelease identifiers per semver
-    // (numeric < alphanumeric, more identifiers win when all preceding are equal).
+    // (numeric < alphanumeric, more identifiers win when all preceding are equal),
+    // except that the same letters plus a number compare by the number.
     compareSemver(a, b) {
         const pa = this.parseSemver(a);
         const pb = this.parseSemver(b);
@@ -193,6 +194,14 @@ window.updateChecker = {
             } else if (yn) {
                 return 1;
             } else if (x !== y) {
+                // Our tags are "preview15", not "preview.15": same letters, so compare the number.
+                // A plain string compare puts "preview9" above "preview15".
+                const mx = /^(.*?)(\d+)$/.exec(x), my = /^(.*?)(\d+)$/.exec(y);
+                if (mx && my && mx[1] && mx[1] === my[1]) {
+                    const d = Number(mx[2]) - Number(my[2]);
+                    if (d !== 0) return d > 0 ? 1 : -1;
+                    continue;
+                }
                 return x < y ? -1 : 1;
             }
         }
