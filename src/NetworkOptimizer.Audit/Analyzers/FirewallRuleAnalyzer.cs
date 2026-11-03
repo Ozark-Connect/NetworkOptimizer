@@ -205,15 +205,18 @@ public class FirewallRuleAnalyzer
                         var denyHasSpecificAppCategories = earlierRule.AppCategoryIds?.Count > 0 && (laterRule.AppCategoryIds == null || laterRule.AppCategoryIds.Count == 0);
                         var denyHasSpecificDestination = denyHasSpecificDomains || denyHasSpecificNetworks || denyHasSpecificIps || denyHasSpecificApps || denyHasSpecificAppCategories;
 
-                        if (isDenyNarrower || denyHasSpecificPort || denyHasSpecificProtocol || denyHasSpecificDestination)
+                        // A deny on INVALID only cannot shadow an allow for NEW traffic.
+                        var denyHasSpecificStates = !laterRule.MatchedConnectionStates().IsSubsetOf(earlierRule.MatchedConnectionStates());
+
+                        if (isDenyNarrower || denyHasSpecificPort || denyHasSpecificProtocol || denyHasSpecificDestination || denyHasSpecificStates)
                         {
                             // Deny is more specific in some dimension = partial restriction
                             // Example: Block specific domains before Allow all to External - only those domains are blocked
                             // This is usually intentional and not worth flagging
                             _logger.LogDebug(
                                 "Skipping partial restriction: deny '{Deny}' is more specific than allow '{Allow}' " +
-                                "(narrower={Narrower}, specificPort={Port}, specificProtocol={Protocol}, specificDest={Dest})",
-                                earlierRule.Name, laterRule.Name, isDenyNarrower, denyHasSpecificPort, denyHasSpecificProtocol, denyHasSpecificDestination);
+                                "(narrower={Narrower}, specificPort={Port}, specificProtocol={Protocol}, specificDest={Dest}, specificStates={States})",
+                                earlierRule.Name, laterRule.Name, isDenyNarrower, denyHasSpecificPort, denyHasSpecificProtocol, denyHasSpecificDestination, denyHasSpecificStates);
                         }
                         else
                         {
