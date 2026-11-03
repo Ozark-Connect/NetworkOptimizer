@@ -1015,27 +1015,27 @@
             {
                 <div class="form-group">
                     <label class="form-label">InfluxDB URL</label>
-                    <input type="text" class="form-control" @bind="_influxUrl" @bind:event="oninput" placeholder="http://localhost:8086" />
+                    <input type="text" class="form-control" @bind="_influxUrl" @bind:event="oninput" placeholder="http://localhost:8086" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">API Token</label>
-                    <input type="password" class="form-control" @bind="_influxToken" @bind:event="oninput" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="password" class="form-control" @bind="_influxToken" @bind:event="oninput" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Organization</label>
-                    <input type="text" class="form-control" @bind="_influxOrg" @bind:event="oninput" placeholder="network-optimizer" />
+                    <input type="text" class="form-control" @bind="_influxOrg" @bind:event="oninput" placeholder="network-optimizer" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Primary Bucket</label>
-                    <input type="text" class="form-control" @bind="_influxBucket" @bind:event="oninput" placeholder="network_monitoring" />
+                    <input type="text" class="form-control" @bind="_influxBucket" @bind:event="oninput" placeholder="network_monitoring" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Long-term Bucket</label>
-                    <input type="text" class="form-control" @bind="_influxLongtermBucket" @bind:event="oninput" placeholder="network_monitoring_longterm" />
+                    <input type="text" class="form-control" @bind="_influxLongtermBucket" @bind:event="oninput" placeholder="network_monitoring_longterm" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
             }
             else if (!_mainInfluxConfigured)
