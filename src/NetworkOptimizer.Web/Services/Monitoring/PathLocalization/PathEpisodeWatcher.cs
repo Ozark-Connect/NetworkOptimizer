@@ -43,6 +43,9 @@ public sealed class PathEpisodeWatcher
     /// <summary>How far back the gate reads WAN load: the sustained span that made a target degraded.</summary>
     private static readonly TimeSpan LoadLookback = TimeSpan.FromMinutes(15);
 
+    /// <summary>How far back the gate looks for a target that rose without staying degraded: the span of one degraded run.</summary>
+    private TimeSpan RecentSpan => TimeSpan.FromMinutes(_options.PathDegradationWindowMinutes * _options.PathDegradationConsecutiveWindows);
+
     private const string WaitingOnRecoveryNote = " Waiting on the recovery round for the per-hop baseline.";
 
     private static readonly TimeSpan PerHopTimeout = TimeSpan.FromSeconds(1);
@@ -529,7 +532,8 @@ public sealed class PathEpisodeWatcher
             .Select(w =>
             {
                 var t = _trackers[w.TargetId];
-                return new GateTarget(w.TargetId, w.Role, t.Degraded && !Exhausted(w.TargetId, t), t.IsClean(now), t.PeakLossPct, t.RttRiseMs);
+                return new GateTarget(w.TargetId, w.Role, t.Degraded && !Exhausted(w.TargetId, t), t.IsClean(now), t.PeakLossPct, t.RttRiseMs,
+                    t.ElevatedSince(now - RecentSpan) == true);
             })
             .ToList();
         return (targets, members);

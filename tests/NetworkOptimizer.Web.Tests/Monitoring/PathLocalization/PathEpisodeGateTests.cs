@@ -80,6 +80,40 @@ public class PathEpisodeGateTests
         PathEpisodeGate.Evaluate(Evening, null, 0.5, false).Passed.Should().BeTrue();
     }
 
+    // Starlink, an evening swing as it opens: two of six targets have strung three windows together, the
+    // access hop and the rest are over their lines on and off.
+    private static GateTarget[] Starlink(bool accessElevated = false, double accessRise = 0, bool othersElevated = false) =>
+    [
+        new("cgnat", GateRole.Access, false, !accessElevated, 0, accessRise, accessElevated),
+        Path("cloudflare", true, 0, 20) with { Elevated = true },
+        Path("quad9", true, 0, 18) with { Elevated = true },
+        Path("microsoft", false) with { Elevated = othersElevated },
+        Path("google", false),
+        Path("apple", false),
+        Path("opendns", false),
+    ];
+
+    [Fact]
+    public void AccessHopThatRoseRecently_Blocks_ButNotAnOpenEpisode()
+    {
+        PathEpisodeGate.Evaluate(Starlink(accessElevated: true), null, 0.5, false).BlockedBy.Should().Contain("access hop rose recently");
+        PathEpisodeGate.Evaluate(Starlink(accessElevated: true), null, 0.5, false, requireCleanControl: false).Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AccessHopThatRoseWithTheTargets_Blocks()
+    {
+        // Under its own line, but up 12 ms against the degraded targets' 19.
+        PathEpisodeGate.Evaluate(Starlink(accessRise: 12), null, 0.5, false).BlockedBy.Should().Contain("rose with the degraded targets");
+        PathEpisodeGate.Evaluate(Starlink(accessRise: 4), null, 0.5, false).Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void HalfThePathTargetsRisingRecently_ReadsAsWanWide()
+    {
+        PathEpisodeGate.Evaluate(Starlink(othersElevated: true), null, 0.5, false).BlockedBy.Should().Contain("WAN-wide");
+    }
+
     [Fact]
     public void OpenOutage_Blocks()
     {
