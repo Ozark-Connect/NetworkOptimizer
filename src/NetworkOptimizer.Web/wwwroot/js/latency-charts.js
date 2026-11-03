@@ -6,10 +6,10 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=18';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=19';
 import { renderFilterReset, renderInactiveToggle, isFiltered } from './chart-filter.js?v=6';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createAxisDateCaption } from './chart-axis-date.js?v=4';
+import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
@@ -216,6 +216,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) 
                 style: { colors: '#9ca3af' },
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
+                formatter: noTime.axisFormatter(),
             },
             title: axisDate.option(),
         },
@@ -232,7 +233,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) 
         tooltip: {
             theme: 'dark',
             shared: true,
-            x: { format: 'MMM dd, HH:mm:ss' },
+            x: { format: 'MMM dd, HH:mm:ss', formatter: noTime.tooltipFormatter() },
             custom: valueSortedTooltip,
         },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
@@ -739,8 +740,7 @@ function syncPopoverInputs(container) {
 }
 
 function toLocalDatetimeString(d) {
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return noTime.inputValue(d);
 }
 
 function updateCustomLabel(container) {
@@ -756,7 +756,7 @@ function updateCustomLabel(container) {
         const from = getEffectiveFrom();
         const to = getEffectiveTo();
         if (from && to) {
-            const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const fmt = d => noTime.date(d, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             btn.setAttribute('data-tooltip', `${fmt(from)} - ${fmt(to)}`);
         }
         if (!clearBtn) {
@@ -923,8 +923,8 @@ export async function mount(elId, initialWanScope, initialCategory) {
     });
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
-        const from = fromInput?.value ? new Date(fromInput.value) : null;
-        const to = toInput?.value ? new Date(toInput.value) : null;
+        const from = fromInput?.value ? noTime.fromInputValue(fromInput.value) : null;
+        const to = toInput?.value ? noTime.fromInputValue(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
         notifyTimelineMoved();
         customFrom = from;

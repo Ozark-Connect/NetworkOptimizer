@@ -3,7 +3,7 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=18';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=19';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
@@ -73,6 +73,7 @@ function buildOpts() {
                 style: { colors: '#9ca3af' },
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
+                formatter: noTime.axisFormatter(),
             },
         },
         yaxis: {
@@ -106,7 +107,7 @@ function buildOpts() {
         tooltip: {
             theme: 'dark',
             shared: true,
-            x: { format: 'MMM dd, HH:mm' },
+            x: { format: 'MMM dd, HH:mm', formatter: noTime.tooltipFormatter(false) },
             // The shared renderer: rows ordered by value so they match the vertical order of the
             // lines, plus a hover dot on each. Its own format because this axis prints a bare
             // number under an "ms" title while the tooltip has always carried the unit.

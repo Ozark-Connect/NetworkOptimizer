@@ -499,7 +499,8 @@
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 }
             },
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
@@ -508,7 +509,7 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             }
         };
 

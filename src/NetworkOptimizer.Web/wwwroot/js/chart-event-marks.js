@@ -42,7 +42,7 @@ const DATE_TIME = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-
 const TIME_ONLY = { hour: '2-digit', minute: '2-digit' };
 
 function formatTime(time, opts) {
-    return new Date(time).toLocaleString(undefined, opts);
+    return noTime.string(time, opts);
 }
 
 function row(label, value) {
@@ -77,7 +77,8 @@ function singleTooltip(mark) {
 
 function foldedTooltip(marks) {
     // Time alone is ambiguous once a fold spans days, which it will at the 30d range.
-    const days = new Set(marks.map(m => new Date(m.time).toDateString()));
+    // Days on the viewer's clock, the one the labels are written on.
+    const days = new Set(marks.map(m => { const p = noTime.parts(m.time); return `${p.year}-${p.month}-${p.day}`; }));
     const opts = days.size > 1 ? DATE_TIME : TIME_ONLY;
 
     const items = marks.map(mark => {

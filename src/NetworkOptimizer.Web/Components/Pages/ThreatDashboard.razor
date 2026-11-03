@@ -3587,7 +3587,8 @@ else
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -3620,7 +3621,7 @@ else
                 Theme = Mode.Dark,
                 Intersect = false,
                 Shared = true,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             },
             Fill = new Fill
             {

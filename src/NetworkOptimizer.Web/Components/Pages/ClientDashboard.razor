@@ -3107,7 +3107,7 @@
         _signalChartOptions.Tooltip = new Tooltip
         {
             Theme = Mode.Dark,
-            X = new TooltipX { Format = "MMM dd, HH:mm" },
+            X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
             Y = new TooltipY
             {
                 Formatter = $@"function(val, opts) {{
@@ -3916,7 +3916,8 @@
                 Labels = new XAxisLabels
                 {
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 }
             },
             Yaxis = new List<YAxis>
@@ -3943,7 +3944,7 @@
                 Theme = Mode.Dark,
                 Shared = true,
                 Intersect = false,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 // The shared Monitoring tooltip, via its window hook (a serialized function
                 // string cannot import the module): after LTTB the two legs no longer share x
                 // values, and the stock shared tooltip then resolves only the hovered series.
@@ -3977,7 +3978,8 @@
                 Labels = new XAxisLabels
                 {
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 },
                 // On a datetime axis the hover band spans the gap between points, well past the
                 // bar pair; the shared tooltip already says which bucket is under the cursor.
@@ -4002,7 +4004,7 @@
                 Theme = Mode.Dark,
                 Shared = true,
                 Intersect = false,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 Y = new TooltipY
                 {
                     Formatter = @"function(v) { const k = 1024; if (v >= k*k*k) return (v/(k*k*k)).toFixed(2) + ' GB'; if (v >= k*k) return (v/(k*k)).toFixed(1) + ' MB'; if (v >= k) return (v/k).toFixed(0) + ' KB'; return v + ' B'; }"
@@ -4030,7 +4032,8 @@
                 Labels = new XAxisLabels
                 {
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 }
             },
             Yaxis = new List<YAxis>
@@ -4043,7 +4046,7 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             },
             Legend = new Legend { Show = true, Position = LegendPosition.Top }
         };
@@ -4066,7 +4069,8 @@
                 Labels = new XAxisLabels
                 {
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 }
             },
             Yaxis = new List<YAxis>
@@ -4102,7 +4106,7 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             },
             Legend = new Legend { Show = false }
         };
@@ -4357,7 +4361,8 @@
                 Labels = new XAxisLabels
                 {
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 }
             },
             Yaxis = new List<YAxis>

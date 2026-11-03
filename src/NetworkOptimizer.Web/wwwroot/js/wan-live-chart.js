@@ -3,8 +3,8 @@
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=17';
-import { valueSortedTooltip } from './chart-tooltip.js?v=18';
+import * as flowData from './lan-flow-data.js?v=18';
+import { valueSortedTooltip } from './chart-tooltip.js?v=19';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 
 const HISTORY_MINUTES = 5;
@@ -378,7 +378,7 @@ function buildOpts() {
             // here - and the stack is how a WAN is told from its neighbour, since the chart has no
             // legend and the series names carry the WAN.
             shared: true,
-            x: { format: 'HH:mm:ss', formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+            x: { format: 'HH:mm:ss', formatter: (val) => noTime.time(val, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
             // Comparing uses the same custom tooltip as the rest of the Monitoring charts: it
             // stacks every series at the hovered instant sorted by value, and paints its own
             // hover dots (the library's markers are the flaky ones, and any non-zero size puts a
@@ -482,8 +482,8 @@ function buildTimeTicks(minMs, maxMs) {
     }
     const ticks = [];
     for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
-        const d = new Date(t);
-        const text = [d.getHours(), d.getMinutes(), d.getSeconds()]
+        const p = noTime.parts(t);
+        const text = [p.hour, p.minute, p.second]
             .map(v => String(v).padStart(2, '0')).join(':');
         ticks.push({
             x: t,
@@ -1150,7 +1150,7 @@ function renderHistoric(at, force = false) {
         strokeDashArray: 3,
         opacity: 0.5,
         label: {
-            text: new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            text: noTime.time(at, { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             borderColor: 'transparent',
             style: { background: 'transparent', color: '#f1f5f9', fontSize: '9px' },
             position: 'front',

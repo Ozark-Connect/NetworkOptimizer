@@ -380,7 +380,8 @@
             {
                 Style = new AxisLabelStyle { Colors = "#9ca3af" },
                 DatetimeUTC = false,
-                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                Formatter = ChartTimeFormat.Axis
             },
             AxisBorder = new AxisBorder { Show = false }
         },
@@ -398,7 +399,7 @@
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
         Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
-        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss" } }
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds } }
     };
 
     private static ApexChartOptions<LatencyPlotPoint> BuildLatencyOptions() => new()
@@ -419,7 +420,8 @@
             {
                 Style = new AxisLabelStyle { Colors = "#9ca3af" },
                 DatetimeUTC = false,
-                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                Formatter = ChartTimeFormat.Axis
             }
         },
         Yaxis = new List<YAxis>
@@ -429,7 +431,7 @@
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
         Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
-        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true }
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds } }
     };
 
     private static ApexChartOptions<HealthPlotPoint> BuildHealthOptions() => new()
@@ -450,7 +452,8 @@
             {
                 Style = new AxisLabelStyle { Colors = "#9ca3af" },
                 DatetimeUTC = false,
-                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                Formatter = ChartTimeFormat.Axis
             }
         },
         Yaxis = new List<YAxis>
@@ -459,7 +462,7 @@
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
         Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
-        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true }
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds } }
     };
 
     public class RatePoint

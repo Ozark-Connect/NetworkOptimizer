@@ -228,7 +228,7 @@ export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, o
     const timeParts = options.omitSeconds
         ? { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }
         : { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-    const when = ts ? new Date(ts).toLocaleString(undefined, timeParts) : '';
+    const when = ts ? noTime.string(ts, timeParts) : '';
     const hidden = syncedCopy ? Math.max(0, rows.length - SYNCED_ROW_CAP) : 0;
     const shown = hidden ? rows.slice(0, SYNCED_ROW_CAP) : rows;
     return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')

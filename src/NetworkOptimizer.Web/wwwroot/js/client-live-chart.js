@@ -12,10 +12,10 @@
 // Nothing streams in that mode; live calls are ignored until the next live mount.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip } from './chart-tooltip.js?v=18';
+import { valueSortedTooltip } from './chart-tooltip.js?v=19';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createMarkLayer } from './chart-event-marks.js?v=10';
-import { createAxisDateCaption } from './chart-axis-date.js?v=4';
+import { createMarkLayer } from './chart-event-marks.js?v=12';
+import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 
 const HISTORY_MINUTES = 5;
 // Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
@@ -149,7 +149,7 @@ function buildOpts() {
         tooltip: {
             theme: 'dark',
             shared: true,
-            x: { formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+            x: { formatter: (val) => noTime.time(val, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
             custom: (ctx) => valueSortedTooltip(ctx, { format: v => formatBps(v) }),
             y: [bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter],
         },
@@ -170,8 +170,8 @@ function buildTimeTicks(minMs, maxMs) {
     }
     const ticks = [];
     for (let t = Math.ceil(minMs / gridMs) * gridMs; t <= maxMs; t += gridMs) {
-        const d = new Date(t);
-        const text = [d.getHours(), d.getMinutes(), d.getSeconds()]
+        const p = noTime.parts(t);
+        const text = [p.hour, p.minute, p.second]
             .map(v => String(v).padStart(2, '0')).join(':');
         ticks.push({
             x: t,
@@ -323,7 +323,7 @@ function buildHistoryOpts(history, caption) {
         type: 'datetime',
         min: new Date(history.from).getTime(),
         max: new Date(history.to).getTime(),
-        labels: { datetimeUTC: false, style: { colors: '#9ca3af', fontSize: '10px' } },
+        labels: { datetimeUTC: false, style: { colors: '#9ca3af', fontSize: '10px' }, formatter: noTime.axisFormatter() },
         axisBorder: { show: false },
         axisTicks: { show: false },
         tooltip: { enabled: false },
@@ -332,7 +332,7 @@ function buildHistoryOpts(history, caption) {
     opts.grid.padding = { left: 3, right: 12, top: -8, bottom: 0 };
     opts.responsive = [{ breakpoint: 1024, options: { grid: { padding: { left: -8, right: 4, top: -8, bottom: 0 } } } }];
     // A window is labeled by its start; the date matters once the range spans days.
-    opts.tooltip.x = { formatter: (val) => new Date(val).toLocaleString([], DATE_TIME) };
+    opts.tooltip.x = { formatter: (val) => noTime.string(val, DATE_TIME) };
     opts.tooltip.y = [bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter];
     opts.noData = { text: 'No throughput recorded in this range', style: { color: '#64748b', fontSize: '13px' } };
     return opts;

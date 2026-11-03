@@ -3,15 +3,15 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=18';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=19';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
-import { createAxisDateCaption } from './chart-axis-date.js?v=4';
+import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 import { detailsTableHtml, fmtUptime } from './detail-table.js?v=1';
-import { createMarkLayer } from './chart-event-marks.js?v=10';
-import { renderSpectrum, disposeSpectrum } from './cm-spectrum.js?v=3';
+import { createMarkLayer } from './chart-event-marks.js?v=12';
+import { renderSpectrum, disposeSpectrum } from './cm-spectrum.js?v=5';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'cm';
@@ -98,6 +98,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
                 style: { colors: '#9ca3af' },
                 datetimeUTC: false,
                 datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
+                formatter: noTime.axisFormatter(),
             },
             title: axisDate.option(),
         },
@@ -107,7 +108,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' }, custom: valueSortedTooltip,
+        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss', formatter: noTime.tooltipFormatter() }, custom: valueSortedTooltip,
             y: { formatter: yFormatter } },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
     };
@@ -314,8 +315,7 @@ function startPoll() {
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
 function toLocalDatetimeString(d) {
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return noTime.inputValue(d);
 }
 
 // A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
@@ -350,7 +350,7 @@ function updateCustomLabel(container) {
         btn.classList.add('active');
         const from = getEffectiveFrom(), to = getEffectiveTo();
         if (from && to) {
-            const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const fmt = d => noTime.date(d, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             btn.setAttribute('data-tooltip', `${fmt(from)} - ${fmt(to)}`);
         }
         if (!clearBtn) {
@@ -558,8 +558,8 @@ export async function mount(elId) {
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
         notifyWindowMoved();
-        const from = fromInput?.value ? new Date(fromInput.value) : null;
-        const to = toInput?.value ? new Date(toInput.value) : null;
+        const from = fromInput?.value ? noTime.fromInputValue(fromInput.value) : null;
+        const to = toInput?.value ? noTime.fromInputValue(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
         customFrom = from;
         customTo = to;
@@ -663,7 +663,7 @@ function renderEventLog(container) {
     const devices = (lastData?.devices || []).filter(d => d.log?.length && visibility[d.id] !== false);
     if (!devices.length) { el.innerHTML = ''; return; }
 
-    const fmtTime = t => t ? new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Time not established';
+    const fmtTime = t => t ? noTime.string(t, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Time not established';
     el.innerHTML = devices.map(d => {
         const rows = d.log.map(e => `<tr>
             <td style="white-space: nowrap;">${escapeHtml(fmtTime(e.time))}</td>

@@ -7,6 +7,7 @@
 @inject SidebarState Sidebar
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject IDisplayTimeZone DisplayTime
 
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
@@ -102,6 +103,7 @@
                         </button>
                     </div>
                 }
+                <span id="no-display-tz" data-tz="@DisplayTime.ZoneId" hidden></span>
                 <GateRefusalBoundary>
                     <CascadingValue Name="CanGoBack" Value="_canGoBack">
                         @Body

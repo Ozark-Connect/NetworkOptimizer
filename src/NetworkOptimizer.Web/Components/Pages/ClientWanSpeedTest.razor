@@ -992,7 +992,8 @@
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1017,7 +1018,7 @@
                 Theme = Mode.Dark,
                 Intersect = false,
                 Shared = true,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 // The shared Monitoring tooltip, via its window hook (a serialized function string
                 // cannot import the module): rows ordered as the lines sit, and a dot on every one.
                 Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' Mbps'; }, omitSeconds: true }) : ''; }"
@@ -1054,7 +1055,8 @@
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
                     DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
+                    Formatter = ChartTimeFormat.Axis
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1079,7 +1081,7 @@
                 Theme = Mode.Dark,
                 Intersect = false,
                 Shared = true,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' " + unit + @"'; }, omitSeconds: true }) : ''; }"
             },
             Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } }

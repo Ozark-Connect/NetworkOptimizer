@@ -1311,12 +1311,12 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "HH:mm" }
+                X = new TooltipX { Format = "HH:mm", Formatter = ChartTimeFormat.TooltipTime }
             },
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels { DatetimeUTC = false }
+                Labels = new XAxisLabels { DatetimeUTC = false, Formatter = ChartTimeFormat.AxisDayFirst }
             },
             Yaxis = new List<YAxis> { new YAxis { Min = 0 } }
         };
