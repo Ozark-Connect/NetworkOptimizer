@@ -222,10 +222,19 @@ public static class PathEpisodePresentation
     }
 
     /// <summary>
-    /// The RTT column's baseline: a monitored hop's own series where it has one, else the trace's
-    /// recovery or control minimum. Shared by the page and the PDF.
+    /// The RTT column's normal: a monitored hop's own series where it has one, else the lower of the
+    /// recovery or control trace and the hop's own reference round. One trace's minimum alone can sit
+    /// above most rounds on a jittery link and read as faster during; the episode's rounds alone hide a
+    /// rise that lasted all of them. Shared by the page and the PDF.
     /// </summary>
-    public static double? DisplayBaseline(HopReading hop) => hop.SeriesBaselineRttMs ?? hop.BaselineMinRttMs;
+    public static double? DisplayBaseline(HopReading hop) =>
+        hop.SeriesBaselineRttMs ?? (hop.BaselineMinRttMs, hop.ReferenceRttMs) switch
+        {
+            (double b, double r) => Math.Min(b, r),
+            (double b, null) => b,
+            (null, double r) => r,
+            _ => null
+        };
 
     /// <summary>
     /// What a hop's traces say, in the reader's terms. Against a destination that was slow, a hop that
