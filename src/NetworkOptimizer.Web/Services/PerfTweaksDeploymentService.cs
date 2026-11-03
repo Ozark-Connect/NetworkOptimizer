@@ -23,10 +23,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // Highest UniFi OS version the perf tweaks + SGMII+ module are verified against, one
     // ceiling per gateway line because the UXG and UCG lines receive UniFi OS 6 releases on
     // different schedules (6.0.5 shipped for the UXG-Fiber only; 6.0.7 for the UCG-Fiber).
-    // 6.0.16 verified on the UCG-Fiber (static): kernel rebuilt with no code change, all 362
-    // modules (qca-ssdk.ko included) byte-identical to 6.0.15, tweak dependencies unchanged
-    // (unifi-perf-tweaks docs/compat-6.0.16.md).
-    private static readonly Version MaxSupportedFirmware = new(6, 0, 16);
+    // 6.0.17 verified on the UCG-Fiber (static): kernel changes only an IPv4 options use-after-free
+    // fix off every tweak path, qca-ssdk.ko and the tweak dependencies byte-identical to 6.0.16, and
+    // the new v2 board differs only in its PoE chip (unifi-perf-tweaks docs/compat-6.0.17.md).
+    private static readonly Version MaxSupportedFirmware = new(6, 0, 17);
     // 6.0.10 live-verified on a production UXG-Fiber: SGMII+ loaded at 2500Mb/s, journald and fan
     // tweaks in effect, and its qca-ssdk.ko and qca-nss-dp.ko are byte-identical to the UCG-Fiber
     // 6.0.10 image, so that image's static check applies (unifi-perf-tweaks docs/compat-6.0.10.md).
