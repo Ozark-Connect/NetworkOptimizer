@@ -415,6 +415,7 @@ public static class PathTraceAnalyzer
         // Decide every forward hop. The destination is degraded by definition (it triggered the episode),
         // and its dense ping series outweighs a handful of trace probes.
         var decided = new bool?[hops.Count];
+        var pairedOnly = new bool[hops.Count];
         var tags = new HopTag[hops.Count];
         var destSlow = hops.FirstOrDefault(h => h.Has(HopTag.Destination))?.SlowRounds ?? 0;
         // Pairing places the start only at a hop the trace decides, right after one that stayed fast in
@@ -445,6 +446,7 @@ public static class PathTraceAnalyzer
             // A rise that comes and goes: slow in most of the rounds the destination was slow in.
             var pairedArm = pairingLocalizes && i >= firstPaired && h.PairedRounds is int p && p * 2 > destSlow;
             decided[i] = lossArm || rttArm || pairedArm;
+            pairedOnly[i] = pairedArm && !lossArm && !rttArm;
         }
 
         // Slow-path tell: needs the next responding hop to compare against.
@@ -583,6 +585,13 @@ public static class PathTraceAnalyzer
         {
             disposition = CongestionDisposition.Unverifiable;
             label = $"The problem first shows at {HopName(onsetHop)}, but no router after it responds, so it could also be further along or on the return path.";
+        }
+        // Pairing shows the hops from the onset moved together, not which way: from there their replies
+        // may come home by a congested return path the routers before it do not use.
+        else if (pairedOnly[onset] && !onsetHop.Has(HopTag.Destination))
+        {
+            disposition = CongestionDisposition.Unverifiable;
+            label = $"The problem first shows at {HopName(onsetHop)}, and every router after it shows it too. Their replies may come home a different way than the routers before it, so it could be on the return path.";
         }
 
         return new TargetVerdict

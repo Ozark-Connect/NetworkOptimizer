@@ -83,13 +83,19 @@ public class PathTraceAnalyzerRoundTests
     [Fact]
     public void A_hop_that_slows_with_the_destination_is_where_it_starts()
     {
-        var v = Analyze(DestRounds.Select(d => Round(16, d - 1, d)));
+        var v = Analyze(DestRounds.Select(d => Round(d - 2, d - 1, d)));
 
-        var last = Hop(v, 4);
-        last.PairedRounds.Should().Be(6);
-        last.Has(HopTag.InRun).Should().BeTrue();
-        last.Has(HopTag.Onset).Should().BeTrue();
-        Hop(v, 3).Has(HopTag.LastClean).Should().BeTrue();
+        var far = Hop(v, 3);
+        far.PairedRounds.Should().Be(6);
+        far.Has(HopTag.InRun).Should().BeTrue();
+        far.Has(HopTag.Onset).Should().BeTrue();
+        Hop(v, 4).Has(HopTag.InRun).Should().BeTrue();
+        Hop(v, 2).Has(HopTag.LastClean).Should().BeTrue();
+
+        // Moving together does not say which way: the replies from there may come home another way.
+        v.Disposition.Should().Be(CongestionDisposition.Unverifiable);
+        v.Label.Should().Be("The problem first shows at Akamai `203.0.113.6` (`AS20940`), and every router after it shows it too. "
+            + "Their replies may come home a different way than the routers before it, so it could be on the return path.");
     }
 
     [Fact]
