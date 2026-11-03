@@ -623,7 +623,7 @@
                             </div>
                             <div class="speed-hero-meta">
                                 <span>Latest in range</span>
-                                <span>@_latestSpeedResult.TestTime.ToLocalTime(DisplayTime).ToString("g")</span>
+                                <span>@_latestSpeedResult.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</span>
                                 <span>@_latestSpeedResult.DurationSeconds s test</span>
                             </div>
                         </div>
@@ -917,7 +917,7 @@
                                                     @if (row.IsRange)
                                                     {
                                                         @FormatSignalTime(entry.Timestamp)
-                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime(DisplayTime).Date == row.EndTime.ToLocalTime(DisplayTime).Date ? row.EndTime.ToLocalTime(DisplayTime).ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
+                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime(DisplayTime).Date == row.EndTime.ToLocalTime(DisplayTime).Date ? row.EndTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture) : FormatSignalTime(row.EndTime))</span>
                                                         <span class="row-count">(@row.Count)</span>
                                                     }
                                                     else
@@ -1011,7 +1011,7 @@
                                         @foreach (var evt in GetPagedConnectionEvents())
                                         {
                                             <tr class="@GetEventRowClass(evt.Type)">
-                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString("g")</td>
+                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</td>
                                                 <td>
                                                     <span class="event-badge @GetEventBadgeClass(evt.Type)">
                                                         @FormatEventType(evt.Type)
@@ -2915,7 +2915,9 @@
             _dataUsage = usage;
             _dataLoadedAt = DateTime.UtcNow;
             // A day bar is a date; a time on it only says which midnight the day began at.
-            _usageChartOptions.Tooltip!.X!.Format = usage.Bucket >= TimeSpan.FromDays(1) ? "MMM dd" : "MMM dd, HH:mm";
+            var dayBars = usage.Bucket >= TimeSpan.FromDays(1);
+            _usageChartOptions.Tooltip!.X!.Format = dayBars ? "MMM dd" : "MMM dd, HH:mm";
+            _usageChartOptions.Tooltip.X.Formatter = dayBars ? ChartTimeFormat.TooltipDay : ChartTimeFormat.TooltipMinutes;
             // Keep the user's pick unless that side has nothing to plot.
             if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
             else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
@@ -4166,16 +4168,16 @@
     {
         var local = utcTimestamp.ToLocalTime(DisplayTime);
         return local.Date == DisplayTime.Now.Date
-            ? local.ToString("HH:mm:ss")
-            : local.ToString("MMM dd HH:mm:ss");
+            ? local.ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)
+            : local.ToString(DisplayTime.Format.DayTimeSeconds, DisplayFormat.Culture);
     }
 
     private string FormatTimeShort(DateTime utcTimestamp)
     {
         var local = utcTimestamp.ToLocalTime(DisplayTime);
         return local.Date == DisplayTime.Now.Date
-            ? local.ToString("HH:mm")
-            : local.ToString("MMM dd HH:mm");
+            ? local.ToString(DisplayTime.Format.Time, DisplayFormat.Culture)
+            : local.ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
     }
 
     /// <summary>
@@ -4385,7 +4387,7 @@
             Colors = new List<string> { "#3b82f6" },
             Markers = new Markers { Size = 8 },
             Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
-            Tooltip = new Tooltip { Theme = Mode.Dark },
+            Tooltip = new Tooltip { Theme = Mode.Dark, X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes } },
             Legend = new Legend { Show = false }
         };
     }

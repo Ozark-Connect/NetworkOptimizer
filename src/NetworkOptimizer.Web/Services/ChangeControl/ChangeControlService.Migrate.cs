@@ -190,7 +190,7 @@ public sealed partial class ChangeControlService
         IReadOnlyCollection<string>? acks, CancellationToken cancellationToken = default)
     {
         var (p, _, _, _) = await ProposeAsync(oldMac, newMac, choices, acks, cancellationToken);
-        return new RecablingPdfGenerator(timeZone: Viewer).GenerateBytes(p, await SiteNameAsync(cancellationToken));
+        return new RecablingPdfGenerator(timeZone: Viewer, format: ViewerFormat).GenerateBytes(p, await SiteNameAsync(cancellationToken));
     }
 
     public async Task<List<MigrateDeviceView>> GetPendingAdoptionsAsync(string? sourceSiteSlug, int? snapshotId, CancellationToken cancellationToken = default)
@@ -247,7 +247,7 @@ public sealed partial class ChangeControlService
         return snaps.Select(s => new RestoreSnapshotView
         {
             Id = s.Id, TakenAt = s.TakenAt, NetworkAppVersion = s.NetworkAppVersion,
-            Label = $"{TimeFormatHelper.FormatLocalDateTime(s.TakenAt, Viewer)}, {(s.IsBaseline ? "Baseline" : s.Pinned ? s.PinReason ?? "Pinned" : TriggerLabel(s).Text)}",
+            Label = $"{TimeFormatHelper.FormatLocalDateTime(s.TakenAt, Viewer, ViewerFormat)}, {(s.IsBaseline ? "Baseline" : s.Pinned ? s.PinReason ?? "Pinned" : TriggerLabel(s).Text)}",
         }).ToList();
     }
 

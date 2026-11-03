@@ -50,7 +50,7 @@
                                     <td class="hide-mobile"><code>@PortText(d)</code></td>
                                     <td class="hide-mobile">@d.List</td>
                                     <td class="hide-mobile">@d.Drops.ToString("N0")</td>
-                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(d.LastSeen, DisplayTime.Zone)</td>
+                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(d.LastSeen, DisplayTime.Zone, DisplayTime.Format)</td>
                                     <td>
                                         @if (covering != null)
                                         {
@@ -71,7 +71,7 @@
                                             <div class="expand-wrapper expanded">
                                                 <div class="expand-content">
                                                     <BlockingExceptionForm Initial="_prefill" List="@d.List" DeviceName="DeviceName"
-                                                                           Intro="@($"Filled in from these drops, last at {d.LastSeen.ToLocalTime(DisplayTime):MMM d HH:mm}. Widen or narrow any field before you add it.")"
+                                                                           Intro="@($"Filled in from these drops, last at {d.LastSeen.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)}. Widen or narrow any field before you add it.")"
                                                                            OnSaved="Saved" OnCancel="() => _open = null" />
                                                 </div>
                                             </div>

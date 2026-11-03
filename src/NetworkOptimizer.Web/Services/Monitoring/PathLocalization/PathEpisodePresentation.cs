@@ -77,8 +77,9 @@ public static class PathEpisodePresentation
     /// return-path squeeze reads exactly like this).
     /// </summary>
     /// <param name="zone">The reader's clock: day counts and times are on it.</param>
+    /// <param name="format">How the reader reads times.</param>
     public static IEnumerable<IspHealthIssue> Findings(IReadOnlyList<PathEpisodeView> episodes, IspHealthOptions options,
-        TimeZoneInfo zone, IReadOnlyDictionary<int, int>? pointsById = null)
+        TimeZoneInfo zone, DisplayFormat format, IReadOnlyDictionary<int, int>? pointsById = null)
     {
         var groups = episodes
             .Where(e => !e.Tracing && !string.IsNullOrEmpty(e.Label))
@@ -91,8 +92,8 @@ public static class PathEpisodePresentation
             var names = Names(latest.Degraded);
             var cost = ScoreSentence(list.Sum(e => pointsById?.GetValueOrDefault(e.Id) ?? 0), list.Count > 1);
             var when = list.Count == 1
-                ? IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone)
-                : $"{list.Count} times on {days} days, last {IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone)}";
+                ? IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone, format)
+                : $"{list.Count} times on {days} days, last {IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone, format)}";
             if (g.Key.Disposition == CongestionDisposition.Confirmed)
             {
                 yield return new IspHealthIssue
@@ -132,8 +133,9 @@ public static class PathEpisodePresentation
     /// <param name="episodes">Episodes overlapping the last <see cref="BannerHold"/>, any order.</param>
     /// <param name="options">For the round count when the episode is not running here.</param>
     /// <param name="zone">The reader's clock, for a finished episode's times.</param>
+    /// <param name="format">How the reader reads times.</param>
     public static PathEpisodeBanner? Banner(IReadOnlyList<PathEpisodeView> episodes, DateTime nowUtc, TimeZoneInfo zone,
-        IspHealthOptions? options = null)
+        DisplayFormat format, IspHealthOptions? options = null)
     {
         var shown = episodes
             .Where(e => e.ClosedAt == null || nowUtc - e.ClosedAt.Value <= BannerHold)
@@ -162,7 +164,7 @@ public static class PathEpisodePresentation
         }
 
         var confirmed = e.Disposition == CongestionDisposition.Confirmed;
-        var text = $"{names}, {Span(e.OpenedAt, e.ClosedAt!.Value, zone)}.{(label == null ? "" : $" {label}")}";
+        var text = $"{names}, {Span(e.OpenedAt, e.ClosedAt!.Value, zone, format)}.{(label == null ? "" : $" {label}")}";
         return new PathEpisodeBanner(e.Id, "done", confirmed ? "alert-warning" : "alert-info",
             confirmed ? "Path degradation localized" : "Path trace finished", text, shown.Count - 1);
     }
@@ -295,10 +297,10 @@ public static class PathEpisodePresentation
         : loss.Higher is double h ? $"{loss.Shown:0.#}% ({loss.HigherSource} {h:0.#}%)" : $"{loss.Shown:0.#}%";
 
     /// <summary>"Today, 14:38 to 14:54", or both ends in full when they fall on different days.</summary>
-    private static string Span(DateTime fromUtc, DateTime toUtc, TimeZoneInfo zone) =>
+    private static string Span(DateTime fromUtc, DateTime toUtc, TimeZoneInfo zone, DisplayFormat format) =>
         TimeZoneCatalog.ToZone(fromUtc, zone).Date == TimeZoneCatalog.ToZone(toUtc, zone).Date
-            ? $"{IspHealthPresentation.EventTimeLabel(fromUtc, zone)} to {TimeZoneCatalog.ToZone(toUtc, zone):HH:mm}"
-            : $"{IspHealthPresentation.EventTimeLabel(fromUtc, zone)} to {IspHealthPresentation.EventTimeLabel(toUtc, zone)}";
+            ? $"{IspHealthPresentation.EventTimeLabel(fromUtc, zone, format)} to {TimeZoneCatalog.ToZone(toUtc, zone).ToString(format.Time, DisplayFormat.Culture)}"
+            : $"{IspHealthPresentation.EventTimeLabel(fromUtc, zone, format)} to {IspHealthPresentation.EventTimeLabel(toUtc, zone, format)}";
 
     /// <summary>"AWS us-east-1, AWS us-east-2 and Speedtest ORD".</summary>
     internal static string Names(IReadOnlyList<PathEpisodeTargetView> targets) => targets.Count switch

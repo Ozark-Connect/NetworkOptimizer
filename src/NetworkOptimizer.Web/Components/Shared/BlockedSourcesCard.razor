@@ -61,7 +61,7 @@
                                 <tr>
                                     <td><a href="@DrilldownUrl(b.SourceIp)"><code>@b.SourceIp</code></a>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
                                     <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
-                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt, DisplayTime.Zone)</td>
+                                    <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt, DisplayTime.Zone, DisplayTime.Format)</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
                                     <td>
                                         <SiteAdminOnly>

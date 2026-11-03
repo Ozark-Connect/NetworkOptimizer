@@ -368,7 +368,7 @@
                                 <div class="event-title">@GetEventTitle(evt)</div>
                                 <div class="event-details">@GetEventDetails(evt)</div>
                             </div>
-                            <div class="event-time">@evt.Timestamp.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</div>
+                            <div class="event-time">@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</div>
                         </div>
                     }
                 </div>

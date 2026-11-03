@@ -134,7 +134,7 @@
                             @foreach (var i in _incidents)
                             {
                                 <tr>
-                                    <td>@TimeFormatHelper.FormatRelativeTime(i.StartedAt, DisplayTime.Zone)</td>
+                                    <td>@TimeFormatHelper.FormatRelativeTime(i.StartedAt, DisplayTime.Zone, DisplayTime.Format)</td>
                                     <td>@KindLabel(i.Kind)</td>
                                     <td class="hide-mobile">@(i.Kind == "conntrack" ? $"{i.PeakConntrackPercent}% table" : $"{i.PeakUnsolicitedPps:N0}/s, CPU core {i.PeakSoftirqPercent}%")</td>
                                     <td class="hide-mobile">@(i.EndedAt is { } end ? TimeFormatHelper.FormatDurationCompact(end - i.StartedAt) : "ongoing")</td>

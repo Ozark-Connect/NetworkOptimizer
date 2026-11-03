@@ -122,7 +122,7 @@ else
             {
                 var windowEnd = Detail.Row.OccurredAt.AddHours(2);
                 <div class="cc-item-detail">@(DateTime.UtcNow < windowEnd
-                    ? $"No LAN incidents so far. Watching until {CcFormat.Local(DisplayTime, windowEnd):h:mm tt}."
+                    ? $"No LAN incidents so far. Watching until {CcFormat.Local(DisplayTime, windowEnd).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)}."
                     : "No LAN incidents in the 2 hours after.")</div>
             }
             <table class="cc-field-table">
@@ -131,7 +131,7 @@ else
                     <tr>
                         <td colspan="2">
                             <div>@i.Title</div>
-                            <div class="muted-text">@MinutesAfter(i.StartedAt) after, @CcFormat.Local(DisplayTime, i.StartedAt).ToString("h:mm tt") to @(i.ResolvedAt is { } r ? CcFormat.Local(DisplayTime, r).ToString("h:mm tt") : "now")</div>
+                            <div class="muted-text">@MinutesAfter(i.StartedAt) after, @CcFormat.Local(DisplayTime, i.StartedAt).ToString(DisplayTime.Format.Time, DisplayFormat.Culture) to @(i.ResolvedAt is { } r ? CcFormat.Local(DisplayTime, r).ToString(DisplayTime.Format.Time, DisplayFormat.Culture) : "now")</div>
                         </td>
                     </tr>
                 }
@@ -148,7 +148,7 @@ else
             @if (Detail.Row.RolledBackByPlanId is { } rolledBackBy)
             {
                 <div class="cc-item-detail">
-                    Rolled back@(Detail.Row.RolledBackAt is { } at ? $" {CcFormat.Local(DisplayTime, at):MMM d, h:mm tt}" : "").
+                    Rolled back@(Detail.Row.RolledBackAt is { } at ? $" {CcFormat.Local(DisplayTime, at).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)}" : "").
                     <a href="@SiteContextService.WithSiteParam($"/change-control/plans/{rolledBackBy}", Detail.Row.SiteSlug)">View the plan</a>
                 </div>
             }

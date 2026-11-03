@@ -15,6 +15,12 @@ public interface ITimeZonePreferenceSource
 
     /// <summary>The install default a caller with no choice of their own reads in, or null for none.</summary>
     Task<string?> GetInheritedAsync();
+
+    /// <summary>
+    /// The current caller's own time format ("12" or "24") and date order ("mdy" or "dmy"), each
+    /// null when they have not chosen; their browser's locale decides then.
+    /// </summary>
+    Task<(string? Clock, string? Order)> GetOwnFormatAsync();
 }
 
 /// <inheritdoc />
@@ -25,6 +31,12 @@ public sealed class TimeZonePreferenceSource : ITimeZonePreferenceSource
     /// through <see cref="IUserPreferences"/>, which adds the user.
     /// </summary>
     public const string Key = "display.time_zone";
+
+    /// <summary>A user's own time format, "12" or "24", through <see cref="IUserPreferences"/>.</summary>
+    public const string ClockKey = "display.clock";
+
+    /// <summary>A user's own date order, "mdy" or "dmy", through <see cref="IUserPreferences"/>.</summary>
+    public const string DateOrderKey = "display.date_order";
 
     private readonly ISystemSettingsService _settings;
     private readonly ICallerContext _caller;
@@ -43,6 +55,13 @@ public sealed class TimeZonePreferenceSource : ITimeZonePreferenceSource
 
     /// <inheritdoc />
     public Task<string?> GetInheritedAsync() => _settings.GetGlobalAsync(Key);
+
+    /// <inheritdoc />
+    public async Task<(string? Clock, string? Order)> GetOwnFormatAsync() =>
+        _caller.Current?.UserId is { } userId
+            ? (await _settings.GetGlobalAsync(UserDismissals.UserKey(ClockKey, userId)),
+               await _settings.GetGlobalAsync(UserDismissals.UserKey(DateOrderKey, userId)))
+            : (null, null);
 }
 
 /// <summary>
@@ -58,6 +77,15 @@ public interface IDisplayTimeZone
 {
     /// <summary>The resolved zone.</summary>
     TimeZoneInfo Zone { get; }
+
+    /// <summary>How the viewer reads dates and times: their own choice, else their browser's locale.</summary>
+    DisplayFormat Format { get; }
+
+    /// <summary>What the viewer's browser locale reads, for naming what "Default" means.</summary>
+    DisplayFormat BrowserFormat { get; }
+
+    /// <summary>The viewer's browser's own zone, offered as a choice; null when it has not said.</summary>
+    TimeZoneInfo? BrowserZone { get; }
 
     /// <summary>
     /// The console zone of the site in context, or null when the console has not reported one. It
@@ -115,22 +143,39 @@ public sealed class DisplayTimeZone : IDisplayTimeZone
     private readonly Func<string> _siteSlug;
     private readonly ILogger<DisplayTimeZone> _logger;
     private TimeZoneInfo? _chosen;
+    private readonly Func<string?> _browserFormatCode;
+    private readonly Func<string?> _browserZoneId;
 
-    // Read once per site for the life of the circuit: a zone that arrives mid-session must not leave
-    // one page with times on two clocks. A site switch reads the new site's.
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TimeZoneInfo?> _siteLayer = new();
+    /// <summary>Cookie display-time.js writes with the browser's own IANA zone.</summary>
+    public const string BrowserZoneCookie = "no-btz";
+
+    /// <summary>
+    /// Cookie display-time.js writes from the browser's locale ("12-mdy"), before the circuit opens,
+    /// so the server formats a first page the way that browser reads.
+    /// </summary>
+    public const string BrowserFormatCookie = "no-dtf";
+
+    // A known zone holds for the life of the circuit, so one page never shows two clocks; a site switch
+    // reads the new site's. A miss holds only briefly, so a zone that arrives after the first page (a
+    // console still connecting) is picked up rather than leaving the session on the server's clock.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (TimeZoneInfo? Zone, DateTime ReadAt)> _siteLayer = new();
+    private static readonly TimeSpan SiteMissHold = TimeSpan.FromSeconds(10);
 
     public DisplayTimeZone(
         ITimeZonePreferenceSource source, ISiteTimeZones siteZones, SiteContextService siteContext,
-        ILogger<DisplayTimeZone> logger)
-        : this(source, siteZones, () => siteContext.Slug, logger)
+        ILogger<DisplayTimeZone> logger, IHttpContextAccessor? httpContext = null)
+        : this(source, siteZones, () => siteContext.Slug, logger,
+            () => httpContext?.HttpContext?.Request.Cookies[BrowserFormatCookie],
+            () => httpContext?.HttpContext?.Request.Cookies[BrowserZoneCookie])
     {
     }
 
     internal DisplayTimeZone(
         ITimeZonePreferenceSource source, ISiteTimeZones siteZones, Func<string> siteSlug,
-        ILogger<DisplayTimeZone> logger)
+        ILogger<DisplayTimeZone> logger, Func<string?>? browserFormatCode = null, Func<string?>? browserZoneId = null)
     {
+        _browserFormatCode = browserFormatCode ?? (() => null);
+        _browserZoneId = browserZoneId ?? (() => null);
         _source = source;
         _siteZones = siteZones;
         _siteSlug = siteSlug;
@@ -139,6 +184,15 @@ public sealed class DisplayTimeZone : IDisplayTimeZone
 
     /// <inheritdoc />
     public TimeZoneInfo Zone => _chosen ?? SiteZone ?? TimeZoneInfo.Local;
+
+    /// <inheritdoc />
+    public DisplayFormat Format { get; private set; } = DisplayFormat.Fallback;
+
+    /// <inheritdoc />
+    public DisplayFormat BrowserFormat { get; private set; } = DisplayFormat.Fallback;
+
+    /// <inheritdoc />
+    public TimeZoneInfo? BrowserZone { get; private set; }
 
     /// <inheritdoc />
     public TimeZoneInfo? SiteZone
@@ -155,7 +209,12 @@ public sealed class DisplayTimeZone : IDisplayTimeZone
                 _logger.LogDebug(ex, "No site in context for the display time zone");
                 return null;
             }
-            return _siteLayer.GetOrAdd(slug, s => _siteZones.Cached(s));
+            var now = DateTime.UtcNow;
+            if (_siteLayer.TryGetValue(slug, out var held) && (held.Zone != null || now - held.ReadAt < SiteMissHold))
+                return held.Zone;
+            var zone = _siteZones.Cached(slug);
+            _siteLayer[slug] = (zone, now);
+            return zone;
         }
     }
 
@@ -189,8 +248,28 @@ public sealed class DisplayTimeZone : IDisplayTimeZone
     {
         try
         {
+            var (browserClock, browserOrder) = DisplayFormat.ParseCode(_browserFormatCode());
+            BrowserFormat = new DisplayFormat(browserClock ?? DisplayFormat.Fallback.Clock, browserOrder ?? DisplayFormat.Fallback.Order);
+            // The cookie is the browser's IANA id; the server token is not something a browser says.
+            var browserId = _browserZoneId();
+            BrowserZone = !string.Equals(browserId?.Trim(), TimeZoneCatalog.ServerToken, StringComparison.OrdinalIgnoreCase)
+                && TimeZoneCatalog.TryResolve(browserId, out var browserZone) ? browserZone : null;
+        }
+        catch (Exception ex)
+        {
+            // No request to read (a scope with no HTTP context): the fallback stands.
+            _logger.LogDebug(ex, "Could not read the browser's date and time format");
+        }
+        Format = BrowserFormat;
+
+        try
+        {
             _chosen = ResolveLayer(await _source.GetOwnAsync())
                 ?? ResolveLayer(await _source.GetInheritedAsync());
+            var (clock, order) = await _source.GetOwnFormatAsync();
+            Format = new DisplayFormat(
+                DisplayFormat.ParseCode(clock).Clock ?? BrowserFormat.Clock,
+                DisplayFormat.ParseCode(order).Order ?? BrowserFormat.Order);
         }
         catch (Exception ex)
         {

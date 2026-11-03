@@ -1048,7 +1048,7 @@
             // Load dismissed issues
             dismissedIssues = await AuditService.GetDismissedIssuesAsync();
 
-            lastAuditTime = previousResult.CompletedAt.ToLocalTime(DisplayTime).ToString("MMM dd, yyyy HH:mm");
+            lastAuditTime = previousResult.CompletedAt.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture);
             hasResults = true;
         }
 
@@ -1128,7 +1128,7 @@
             // Load dismissed issues
             dismissedIssues = await AuditService.GetDismissedIssuesAsync();
 
-            lastAuditTime = DisplayTime.Now.ToString("MMM dd, yyyy HH:mm");
+            lastAuditTime = DisplayTime.Now.ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture);
             hasResults = true;
             _purposeOverridesPending = false;
         }

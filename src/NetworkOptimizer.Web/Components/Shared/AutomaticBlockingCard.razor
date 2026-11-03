@@ -158,7 +158,7 @@
                             <span> Downloaded @RefreshText(view.List.Refresh).</span>
                             @if (view.Status.FetchedAt is { } fetched)
                             {
-                                <span>@($" {view.Status.Count:N0} entries, updated {TimeFormatHelper.FormatRelativeTime(fetched, DisplayTime.Zone)}.")</span>
+                                <span>@($" {view.Status.Count:N0} entries, updated {TimeFormatHelper.FormatRelativeTime(fetched, DisplayTime.Zone, DisplayTime.Format)}.")</span>
                             }
                             <span> Source: <a href="@view.List.InfoUrl" target="_blank" rel="noopener">@view.List.Attribution</a>.</span>
                         </small>

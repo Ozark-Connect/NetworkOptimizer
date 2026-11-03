@@ -167,7 +167,7 @@
                                     <span class="schedule-detail-tag tag-muted">Hourly when idle</span>
                                     @if (endsAt.HasValue)
                                     {
-                                        <span class="schedule-detail-tag @(ended ? "tag-accent" : "tag-muted")">@(ended ? "Ended" : "Ends") @endsAt.Value.ToLocalTime(DisplayTime).ToString("MMM d, HH:mm")</span>
+                                        <span class="schedule-detail-tag @(ended ? "tag-accent" : "tag-muted")">@(ended ? "Ended" : "Ends") @endsAt.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                     }
                                 </div>
                                 @if (task.LastRunAt.HasValue || (task.NextRunAt.HasValue && task.Enabled))
@@ -766,7 +766,7 @@
                                         <div class="schedule-status" style="margin-top: 0.75rem; justify-content: space-between;">
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Counting since:</span>
-                                                <span class="detail-value">@DateTime.SpecifyKind(bucketSince, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString("MMM d, yyyy")</span>
+                                                <span class="detail-value">@DateTime.SpecifyKind(bucketSince, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Date, DisplayFormat.Culture)</span>
                                             </span>
                                             @* Zeroing the counter is what you do when a balance is
                                                topped up - part of running the site, not configuring it. *@
@@ -785,7 +785,7 @@
                                         <div class="schedule-status" style="margin-top: 0.75rem;">
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Billing cycle:</span>
-                                                <span class="detail-value">@WanDataUsageService.BillingDate(dispCycleStart, BillingCalendar).ToString("MMM d") - @WanDataUsageService.BillingDate(dispCycleEnd, BillingCalendar).ToString("MMM d")</span>
+                                                <span class="detail-value">@WanDataUsageService.BillingDate(dispCycleStart, BillingCalendar).ToString(DisplayTime.Format.Day, DisplayFormat.Culture) - @WanDataUsageService.BillingDate(dispCycleEnd, BillingCalendar).ToString(DisplayTime.Format.Day, DisplayFormat.Culture)</span>
                                             </span>
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Days remaining:</span>
@@ -818,7 +818,7 @@
                                                             @foreach (var h in history)
                                                             {
                                                                 <tr>
-                                                                    <td>@WanDataUsageService.BillingDate(h.CycleStart, BillingCalendar).ToString("MMM d, yyyy") - @WanDataUsageService.BillingDate(h.CycleEnd, BillingCalendar).ToString("MMM d, yyyy")</td>
+                                                                    <td>@WanDataUsageService.BillingDate(h.CycleStart, BillingCalendar).ToString(DisplayTime.Format.Date, DisplayFormat.Culture) - @WanDataUsageService.BillingDate(h.CycleEnd, BillingCalendar).ToString(DisplayTime.Format.Date, DisplayFormat.Culture)</td>
                                                                     <td>@($"{h.UsedGb:F1}") GB</td>
                                                                     <td>@(h.CapGb > 0 ? $"{h.CapGb:F0} GB" : "-")</td>
                                                                 </tr>
@@ -4037,7 +4037,7 @@
         // Convert stored UTC hour/minute to the viewer's clock for display
         var utcDt = DateTime.UtcNow.Date.AddHours(utcHour).AddMinutes(utcMinute);
         var localDt = utcDt.ToLocalTime(DisplayTime);
-        return localDt.ToString("h:mm tt");
+        return localDt.ToString(DisplayTime.Format.Time, DisplayFormat.Culture);
     }
 
     private static string GetScheduleStatusClass(string status) => status switch
@@ -4111,7 +4111,7 @@
         _ => "status-inactive"
     };
 
-    private string FormatTime(DateTime utcTime) => TimeFormatHelper.FormatRelativeTimeTerse(utcTime, DisplayTime.Zone);
+    private string FormatTime(DateTime utcTime) => TimeFormatHelper.FormatRelativeTimeTerse(utcTime, DisplayTime.Zone, DisplayTime.Format);
 
     private static string FormatDeviceColumn(string? deviceName, string? deviceIp)
     {

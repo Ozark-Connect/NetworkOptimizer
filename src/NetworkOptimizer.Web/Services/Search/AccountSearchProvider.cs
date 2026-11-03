@@ -10,14 +10,14 @@ public sealed class AccountSearchProvider : IAppSearchProvider
     /// <summary>The Security page's Time Zone card.</summary>
     internal static readonly AppSearchEntry TimeZone = new()
     {
-        Title = "Time Zone",
+        Title = "Date & Time",
         Area = "Account",
         Section = "Security",
         Route = "/account/security",
         Anchor = "time-zone",
-        Aliases = ["timezone", "time zone", "tz"],
-        Keywords = ["your time zone", "local time", "clock", "utc", "daylight saving", "dst", "timestamps",
-            "dates and times"],
+        Aliases = ["Time Zone", "timezone", "tz", "Date and Time"],
+        Keywords = ["your time zone", "time format", "date format", "12-hour", "24-hour", "am pm", "day first",
+            "month first", "local time", "clock", "utc", "daylight saving", "dst", "timestamps", "dates and times"],
     };
 
     /// <summary>The search box this answers in: the one on the Settings page.</summary>

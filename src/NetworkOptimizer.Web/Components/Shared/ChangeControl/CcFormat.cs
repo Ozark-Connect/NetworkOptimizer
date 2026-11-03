@@ -10,8 +10,8 @@ public static class CcFormat
     /// <summary>A UTC time on the viewer's clock.</summary>
     public static DateTime Local(IDisplayTimeZone viewer, DateTime utc) => TimeFormatHelper.ToLocal(utc, viewer.Zone);
 
-    /// <summary>"Oct 20, 4:42 PM", on the viewer's clock.</summary>
-    public static string Time(IDisplayTimeZone viewer, DateTime utc) => TimeFormatHelper.FormatLocalDateTime(utc, viewer.Zone);
+    /// <summary>A day and time ("Oct 20, 16:42") on the viewer's clock, in the viewer's format.</summary>
+    public static string Time(IDisplayTimeZone viewer, DateTime utc) => TimeFormatHelper.FormatLocalDateTime(utc, viewer.Zone, viewer.Format);
 
     /// <summary>
     /// An option's text with room after it: Chrome ignores padding on a select's open list, which
@@ -19,8 +19,8 @@ public static class CcFormat
     /// </summary>
     public static string Option(string text) => text + "   ";
 
-    /// <summary>"Oct 20", on the viewer's clock.</summary>
-    public static string Day(IDisplayTimeZone viewer, DateTime utc) => TimeFormatHelper.FormatLocalDate(utc, viewer.Zone);
+    /// <summary>A day ("Oct 20") on the viewer's clock, in the viewer's format.</summary>
+    public static string Day(IDisplayTimeZone viewer, DateTime utc) => TimeFormatHelper.FormatLocalDate(utc, viewer.Zone, viewer.Format);
 
     /// <summary>What "Unattributed" means, for its tooltip.</summary>
     public const string UnattributedTip = "UniFi Network's audit log names no admin for this change.";

@@ -18,6 +18,12 @@ public static class TimeZoneCatalog
     /// <summary>The UTC entry's id.</summary>
     public const string UtcId = "Etc/UTC";
 
+    /// <summary>
+    /// A stored choice meaning "the server's zone": it resolves to the server's zone at the time,
+    /// so it follows the server's TZ if that changes, where storing the city would not.
+    /// </summary>
+    public const string ServerToken = "server";
+
     private static readonly string[] Regions =
         ["Africa", "America", "Antarctica", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific"];
 
@@ -29,10 +35,18 @@ public static class TimeZoneCatalog
     /// <summary>The server's own zone as an IANA id, where the platform can name one.</summary>
     public static string ServerZoneId => ToIana(TimeZoneInfo.Local);
 
-    /// <summary>Resolves a stored id. False for null, blank, or an id this platform does not know.</summary>
+    /// <summary>
+    /// Resolves a stored id, <see cref="ServerToken"/> included. False for null, blank, or an id this
+    /// platform does not know.
+    /// </summary>
     public static bool TryResolve(string? id, [NotNullWhen(true)] out TimeZoneInfo? zone)
     {
         zone = null;
+        if (string.Equals(id?.Trim(), ServerToken, StringComparison.OrdinalIgnoreCase))
+        {
+            zone = TimeZoneInfo.Local;
+            return true;
+        }
         // On Linux an id is a path under the zoneinfo directory; stored ids come from clients.
         return !string.IsNullOrWhiteSpace(id) && IsWellFormedId(id = id.Trim())
             && TimeZoneInfo.TryFindSystemTimeZoneById(id, out zone);
@@ -54,9 +68,14 @@ public static class TimeZoneCatalog
     /// </summary>
     public static DateTime ToZone(DateTime utc, TimeZoneInfo zone) => DateTimeUtilities.ToZone(utc, zone);
 
-    /// <summary>"America/Chicago (UTC-05:00)", with the offset in force at <paramref name="nowUtc"/>.</summary>
+    /// <summary>
+    /// "America/Chicago (UTC-05:00)", with the offset in force at <paramref name="nowUtc"/>; the
+    /// server's zone as "server time zone, America/Chicago (UTC-05:00)".
+    /// </summary>
     public static string Describe(string id, DateTime nowUtc) =>
-        TryResolve(id, out var zone) ? $"{id} ({OffsetLabel(zone, nowUtc)})" : id;
+        string.Equals(id.Trim(), ServerToken, StringComparison.OrdinalIgnoreCase)
+            ? $"server time zone, {Describe(ServerZoneId, nowUtc)}"
+            : TryResolve(id, out var zone) ? $"{id} ({OffsetLabel(zone, nowUtc)})" : id;
 
     /// <summary>"UTC-05:00" for the offset in force at <paramref name="nowUtc"/>.</summary>
     public static string OffsetLabel(TimeZoneInfo zone, DateTime nowUtc) => DateTimeUtilities.UtcOffsetLabel(zone, nowUtc);

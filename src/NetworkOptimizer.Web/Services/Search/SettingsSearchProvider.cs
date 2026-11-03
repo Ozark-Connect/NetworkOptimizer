@@ -324,10 +324,11 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "web application firewall", "waf allow list", "waf-trusted", "only your sites"]),
 
         Entry("application", "Application", "time-zone",
-            "Time Zone",
-            ["timezone", "time zone", "tz"],
-            ["your time zone", "default time zone", "site time zone", "local time", "clock", "utc",
-             "daylight saving", "dst", "timestamps", "dates and times"], Reach.InstanceWide),
+            "Date & Time",
+            ["Time Zone", "timezone", "tz", "Date and Time"],
+            ["your time zone", "default time zone", "site time zone", "time format", "date format", "12-hour",
+             "24-hour", "am pm", "day first", "month first", "local time", "clock", "utc", "daylight saving",
+             "dst", "timestamps", "dates and times"], Reach.InstanceWide),
 
         Entry("application", "Application", "admin-password",
             "Admin Password",

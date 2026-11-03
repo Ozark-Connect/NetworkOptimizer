@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Firmware;
 using Xunit;
 
@@ -88,6 +89,9 @@ public class RolloutScopeCopyTests
         var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
 
         RolloutScopeCopy.SiteAside("America/New_York", start, Zone("America/Chicago"))
+            .Should().Be(" (07:00 at-site)");
+        RolloutScopeCopy.SiteAside("America/New_York", start, Zone("America/Chicago"),
+                new DisplayFormat(ClockStyle.TwelveHour, DateOrder.MonthFirst))
             .Should().Be(" (7:00 AM at-site)");
     }
 
@@ -107,7 +111,7 @@ public class RolloutScopeCopyTests
         var january = new DateTime(2026, 1, 15, 14, 0, 0, DateTimeKind.Utc);
 
         RolloutScopeCopy.SiteAside("America/Phoenix", july, Zone("America/Denver"))
-            .Should().Be(" (7:00 AM at-site)");
+            .Should().Be(" (07:00 at-site)");
         RolloutScopeCopy.SiteAside("America/Phoenix", january, Zone("America/Denver")).Should().BeEmpty();
     }
 
@@ -117,9 +121,9 @@ public class RolloutScopeCopyTests
         var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
 
         RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/Chicago"))
-            .Should().Be("Sun Oct 11, 6:00 AM CDT (7:00 AM at-site)");
+            .Should().Be("Sun Oct 11, 06:00 CDT (07:00 at-site)");
         RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/New_York"))
-            .Should().Be("Sun Oct 11, 7:00 AM EDT");
+            .Should().Be("Sun Oct 11, 07:00 EDT");
     }
 
     [Theory]

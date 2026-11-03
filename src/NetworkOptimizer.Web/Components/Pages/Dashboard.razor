@@ -686,7 +686,7 @@
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
-                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                 </div>
                             }
                         </div>
@@ -734,7 +734,7 @@
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
-                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                 </div>
                             }
                         </div>

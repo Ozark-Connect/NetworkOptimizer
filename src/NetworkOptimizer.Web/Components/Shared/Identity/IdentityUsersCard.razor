@@ -163,7 +163,7 @@
                                 <td class="hide-mobile">
                                     @if (user.LastLoginAt is { } last)
                                     {
-                                        <span data-tooltip="@($"Method: {user.LastLoginMethod ?? "password"}")">@last.ToLocalTime(DisplayTime).ToString("g")</span>
+                                        <span data-tooltip="@($"Method: {user.LastLoginMethod ?? "password"}")">@last.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</span>
                                     }
                                     else
                                     {

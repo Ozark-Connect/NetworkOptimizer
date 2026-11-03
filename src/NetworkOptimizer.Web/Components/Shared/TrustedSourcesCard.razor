@@ -64,11 +64,11 @@
                                                 <td>
                                                     @if (a.ReplacedAt is { } replaced)
                                                     {
-                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen, DisplayTime.Zone), dropped in @TimeFormatHelper.FormatDurationCompact(replaced + TrustedAddressBook.ReplacedRetention - DateTime.UtcNow)</span>
+                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen, DisplayTime.Zone, DisplayTime.Format), dropped in @TimeFormatHelper.FormatDurationCompact(replaced + TrustedAddressBook.ReplacedRetention - DateTime.UtcNow)</span>
                                                     }
                                                     else
                                                     {
-                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen, DisplayTime.Zone)</span>
+                                                        <span>@TimeFormatHelper.FormatRelativeTime(a.LastSeen, DisplayTime.Zone, DisplayTime.Format)</span>
                                                     }
                                                 </td>
                                                 <td class="trusted-action">
@@ -110,7 +110,7 @@
                 @if (_uniFiGroup && _overview.UniFiStatus is { } status)
                 {
                     <small class="@(status.Ok ? "form-help ab-status" : "form-error")">
-                        @(status.Ok ? $"{status.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(status.At, DisplayTime.Zone)}." : status.Error)
+                        @(status.Ok ? $"{status.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(status.At, DisplayTime.Zone, DisplayTime.Format)}." : status.Error)
                     </small>
                 }
             </div>
@@ -139,7 +139,7 @@
                         takes only these addresses and LAN sources; other routes are not affected.
                     </small>
                     <small class="@(waf.Ok ? "form-help ab-status" : "form-error")">
-                        @(waf.Ok ? $"{waf.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(waf.At, DisplayTime.Zone)}." : waf.Error)
+                        @(waf.Ok ? $"{waf.Count} addresses, updated {TimeFormatHelper.FormatRelativeTime(waf.At, DisplayTime.Zone, DisplayTime.Format)}." : waf.Error)
                     </small>
                 </div>
             }

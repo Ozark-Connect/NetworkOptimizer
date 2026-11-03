@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 using NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 using Xunit;
@@ -75,7 +76,7 @@ public class PathEpisodeBannerTests
         {
             Episode(1, Now.AddHours(-1), null, tracing: true),
             Episode(2, Now.AddMinutes(-30), Now.AddMinutes(-10))
-        }, Now, TimeZoneInfo.Utc);
+        }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback);
 
         b!.EpisodeId.Should().Be(1);
         b.Phase.Should().Be("tracing");
@@ -89,7 +90,7 @@ public class PathEpisodeBannerTests
     {
         var e = Episode(3, Now.AddHours(-1), null, peakLoss: 0, baseRtt: 33, peakRtt: 54) with { RoundsTraced = 10 };
 
-        var b = PathEpisodePresentation.Banner(new[] { e, Episode(4, Now.AddMinutes(-30), Now.AddMinutes(-10)) }, Now, TimeZoneInfo.Utc)!;
+        var b = PathEpisodePresentation.Banner(new[] { e, Episode(4, Now.AddMinutes(-30), Now.AddMinutes(-10)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         b.EpisodeId.Should().Be(3);
         b.Phase.Should().Be("ongoing");
         b.Lead.Should().Be("Still slow");
@@ -97,16 +98,16 @@ public class PathEpisodeBannerTests
         PathEpisodePresentation.BadgeLabel(e).Should().Be("Ongoing");
         PathEpisodePresentation.Entries(new[] { e }).Single().Text.Should().StartWith("Target A is running 21 ms slower, for ").And.Contain(" so far.");
 
-        PathEpisodePresentation.Banner(new[] { e with { Metered = true } }, Now, TimeZoneInfo.Utc)!.Text
+        PathEpisodePresentation.Banner(new[] { e with { Metered = true } }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!.Text
             .Should().Be("Target A is still running 21 ms slower. This WAN is metered, so Network Optimizer traced it once.");
     }
 
     [Fact]
     public void Finished_ShowsForADayAfterItCloses()
     {
-        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-23.5), Now.AddHours(-23)) }, Now, TimeZoneInfo.Utc)
+        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-23.5), Now.AddHours(-23)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)
             .Should().NotBeNull();
-        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-26), Now.AddHours(-25)) }, Now, TimeZoneInfo.Utc)
+        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-26), Now.AddHours(-25)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)
             .Should().BeNull();
     }
 
@@ -114,12 +115,12 @@ public class PathEpisodeBannerTests
     public void Finished_ConfirmedIsAWarningAndUnverifiableIsInfo()
     {
         var confirmed = PathEpisodePresentation.Banner(new[]
-            { Episode(1, Now.AddHours(-2), Now.AddHours(-1), disposition: CongestionDisposition.Confirmed) }, Now, TimeZoneInfo.Utc)!;
+            { Episode(1, Now.AddHours(-2), Now.AddHours(-1), disposition: CongestionDisposition.Confirmed) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         confirmed.CssClass.Should().Be("alert-warning");
         confirmed.Lead.Should().Be("Path degradation localized");
         confirmed.Text.Should().EndWith("Past the last clean hop.");
 
-        var unverifiable = PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-2), Now.AddHours(-1)) }, Now, TimeZoneInfo.Utc)!;
+        var unverifiable = PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-2), Now.AddHours(-1)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         unverifiable.CssClass.Should().Be("alert-info");
         unverifiable.Lead.Should().Be("Path trace finished");
     }
@@ -154,7 +155,7 @@ public class PathEpisodeBannerTests
     [Fact]
     public void DismissKey_IsPerSiteEpisodeAndPhase()
     {
-        var b = PathEpisodePresentation.Banner(new[] { Episode(7, Now.AddHours(-1), null, tracing: true) }, Now, TimeZoneInfo.Utc)!;
+        var b = PathEpisodePresentation.Banner(new[] { Episode(7, Now.AddHours(-1), null, tracing: true) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         b.DismissKey("main").Should().Be("PathEpisodeBannerDismissed:main:7:tracing");
         b.DismissKey("other").Should().NotBe(b.DismissKey("main"));
     }

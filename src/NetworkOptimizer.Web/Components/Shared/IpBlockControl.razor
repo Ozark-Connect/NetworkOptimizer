@@ -14,7 +14,7 @@
         @if (_active is { Enforced: true })
         {
             <span class="status-badge status-error" data-tooltip="@_active.Reason">Blocked</span>
-            <span class="ip-block-until">until @_active.ExpiresAt.ToLocalTime(DisplayTime).ToString("MMM d HH:mm")</span>
+            <span class="ip-block-until">until @_active.ExpiresAt.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
             <SiteAdminOnly>
                 <button class="btn btn-sm btn-contrast" disabled="@_busy" @onclick="Release">Release</button>
             </SiteAdminOnly>

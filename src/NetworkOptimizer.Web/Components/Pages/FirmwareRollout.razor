@@ -1736,7 +1736,7 @@ else
     /// <summary>Where the hour starts when a day is first picked: the small hours, like the defaults.</summary>
     private const int DefaultPreferredHour = 2;
 
-    private static string HourLabel(int hour) => new DateTime(2000, 1, 1, hour, 0, 0).ToString("h tt");
+    private string HourLabel(int hour) => new DateTime(2000, 1, 1, hour, 0, 0).ToString(DisplayTime.Format.Hour, DisplayFormat.Culture);
 
     /// <summary>
     /// Whether the site keeps different hours from this server, so a site-local hour needs saying.
@@ -2189,7 +2189,7 @@ else
     /// same hours as the viewer.
     /// </summary>
     private string SiteAside(DateTime utc) => RolloutScopeCopy.SiteAside(
-        _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId, utc, DisplayTime.Zone);
+        _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId, utc, DisplayTime.Zone, DisplayTime.Format);
 
     // ---- Active plan controls ----
 
@@ -2494,7 +2494,7 @@ else
     private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
     private string LocalTime(DateTime? utc) =>
-        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString("ddd MMM d, h:mm tt") : "-";
+        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString(DisplayTime.Format.WeekdayDayTime, DisplayFormat.Culture) : "-";
 
     private static string Duration(int seconds)
     {

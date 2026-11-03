@@ -141,7 +141,8 @@ public static class RolloutScopeCopy
     private static string Count(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 
     /// <summary>
-    /// A start time in an alert: "Tue Oct 27, 3:00 PM CDT" on the notification clock, plus the
+    /// A start time in an alert: "Tue Oct 27, 15:00 CDT" on the notification clock, in the format text
+    /// with no viewer uses (<see cref="DisplayFormat.Fallback"/>), plus the
     /// <see cref="SiteAside"/> when the site keeps other hours. An alert is read out of context, and
     /// whether a 3 AM reboot bothers anyone is a question about the site's hours.
     /// </summary>
@@ -149,8 +150,8 @@ public static class RolloutScopeCopy
     /// <param name="siteTimeZoneId">The site's timezone, as the console reports it.</param>
     /// <param name="zone">The notification clock (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver"/>).</param>
     public static string AlertStartLabel(DateTime startUtc, string? siteTimeZoneId, TimeZoneInfo zone) =>
-        $"{DateTimeUtilities.ToZone(startUtc, zone):ddd MMM d, h:mm tt} {DateTimeUtilities.ZoneAbbreviation(zone, startUtc)}"
-        + SiteAside(siteTimeZoneId, startUtc, zone);
+        $"{DateTimeUtilities.ToZone(startUtc, zone).ToString(DisplayFormat.Fallback.WeekdayDayTime, DisplayFormat.Culture)} {DateTimeUtilities.ZoneAbbreviation(zone, startUtc)}"
+        + SiteAside(siteTimeZoneId, startUtc, zone, DisplayFormat.Fallback);
 
     /// <summary>
     /// The site's own reading of an instant, or empty when the site keeps <paramref name="serverZone"/>'s
@@ -160,7 +161,8 @@ public static class RolloutScopeCopy
     /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
     /// <param name="instantUtc">The instant to read at the site.</param>
     /// <param name="serverZone">The zone every other time beside it is shown in.</param>
-    public static string SiteAside(string? timeZoneId, DateTime instantUtc, TimeZoneInfo serverZone)
+    /// <param name="format">The reader's format; <see cref="DisplayFormat.Fallback"/> when null.</param>
+    public static string SiteAside(string? timeZoneId, DateTime instantUtc, TimeZoneInfo serverZone, DisplayFormat? format = null)
     {
         if (string.IsNullOrWhiteSpace(timeZoneId)) return string.Empty;
 
@@ -171,7 +173,7 @@ public static class RolloutScopeCopy
             if (tz.GetUtcOffset(instant) == serverZone.GetUtcOffset(instant)) return string.Empty;
 
             var at = TimeZoneInfo.ConvertTimeFromUtc(instant, tz);
-            return $" ({at:h:mm tt} at-site)";
+            return $" ({at.ToString((format ?? DisplayFormat.Fallback).Time, DisplayFormat.Culture)} at-site)";
         }
         catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
         {

@@ -132,7 +132,7 @@
                                 {
                                     <tr>
                                         <td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Reserved ? ", reserved" : "")</div></td>
-                                        <td>@(s.LastSeen is { } seen && seen > DateTime.MinValue ? CcFormat.Local(DisplayTime, seen).ToString("MMM d, yyyy") : "Unknown")</td>
+                                        <td>@(s.LastSeen is { } seen && seen > DateTime.MinValue ? CcFormat.Local(DisplayTime, seen).ToString(DisplayTime.Format.Date, DisplayFormat.Culture) : "Unknown")</td>
                                         <td><code>@s.Ip</code></td>
                                         <td><code>@s.NewIp</code></td>
                                     </tr>
@@ -495,7 +495,7 @@
         if (!LeasesShort(v))
             return $"Lower lease times first: clients on the moving networks keep their old address for up to {Hours(lease / 2)} after the move.";
         if (v.Prepare is { } p && p.ReadyAt > DateTime.UtcNow)
-            return $"Leases lowered. Every DHCP client is on the short lease by {CcFormat.Local(DisplayTime, p.ReadyAt):h:mm tt}; moving earlier leaves some on the old address until they renew.";
+            return $"Leases lowered. Every DHCP client is on the short lease by {CcFormat.Local(DisplayTime, p.ReadyAt).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)}; moving earlier leaves some on the old address until they renew.";
         return null;
     }
 

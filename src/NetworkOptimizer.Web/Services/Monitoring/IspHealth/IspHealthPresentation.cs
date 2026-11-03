@@ -284,10 +284,10 @@ public static class IspHealthPresentation
 
     // Event time on the reader's clock, prefixed with the date when it is not today so events in a
     // multi-day (7d/30d/custom) window are unambiguous.
-    public static string EventTimeLabel(DateTime utc, TimeZoneInfo zone)
+    public static string EventTimeLabel(DateTime utc, TimeZoneInfo zone, DisplayFormat format)
     {
         var local = TimeZoneCatalog.ToZone(utc, zone);
-        return local.Date == TimeZoneCatalog.ToZone(DateTime.UtcNow, zone).Date ? $"Today, {local:HH:mm}" : local.ToString("MMM d, HH:mm");
+        return local.Date == TimeZoneCatalog.ToZone(DateTime.UtcNow, zone).Date ? $"Today, {local.ToString(format.Time, DisplayFormat.Culture)}" : local.ToString(format.DayTime, DisplayFormat.Culture);
     }
 
     public static string OutageBadgeText(OutageEvent o) =>
@@ -317,9 +317,9 @@ public static class IspHealthPresentation
                     ? $"Lowered your ISP Health score by {o.ScorePenaltyPoints} {(o.ScorePenaltyPoints == 1 ? "point" : "points")}."
                     : "No score impact.";
 
-    public static string OutageHopStatus(OutageTierState t, TimeZoneInfo zone) =>
+    public static string OutageHopStatus(OutageTierState t, TimeZoneInfo zone, DisplayFormat format) =>
         !t.WentDark ? "stayed up"
-        : t.RecoveredAt.HasValue ? $"back @ {TimeZoneCatalog.ToZone(t.RecoveredAt.Value, zone):HH:mm:ss}"
+        : t.RecoveredAt.HasValue ? $"back @ {TimeZoneCatalog.ToZone(t.RecoveredAt.Value, zone).ToString(format.TimeSeconds, DisplayFormat.Culture)}"
         : "down";
 
     public static string OutageHopTooltip(OutageTierState t) =>
@@ -330,10 +330,10 @@ public static class IspHealthPresentation
     /// ends at (about) now; a custom window ending in the past instead shows a compact span pointing
     /// to its end date ("7d -> Jun 17") - kept short so it doesn't widen the pill and shift the layout.
     /// </summary>
-    public static string ScoredWindowLabel(IspHealthReport r, TimeZoneInfo zone) =>
+    public static string ScoredWindowLabel(IspHealthReport r, TimeZoneInfo zone, DisplayFormat format) =>
         DateTime.UtcNow - r.WindowEnd < TimeSpan.FromHours(1)
             ? $"last {WindowLabel(r)}"
-            : $"{ShortSpan(r)} → {TimeZoneCatalog.ToZone(r.WindowEnd, zone):MMM d}";
+            : $"{ShortSpan(r)} → {TimeZoneCatalog.ToZone(r.WindowEnd, zone).ToString(format.Day, DisplayFormat.Culture)}";
 
     /// <summary>Compact window span for the tight hero pill: "90m", "24h", "7d" - same tiering as
     /// <see cref="WindowLabel"/>, abbreviated units, no space.</summary>
@@ -413,8 +413,8 @@ public static class IspHealthPresentation
     }
 
     /// <summary>The window's absolute bounds on the reader's clock, for a report that outlives the page.</summary>
-    public static string WindowRangeLabel(IspHealthReport r, TimeZoneInfo zone) =>
-        $"{TimeZoneCatalog.ToZone(r.WindowStart, zone):MMM d, yyyy HH:mm} to {TimeZoneCatalog.ToZone(r.WindowEnd, zone):MMM d, yyyy HH:mm}";
+    public static string WindowRangeLabel(IspHealthReport r, TimeZoneInfo zone, DisplayFormat format) =>
+        $"{TimeZoneCatalog.ToZone(r.WindowStart, zone).ToString(format.DateTime, DisplayFormat.Culture)} to {TimeZoneCatalog.ToZone(r.WindowEnd, zone).ToString(format.DateTime, DisplayFormat.Culture)}";
 
     public static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
 

@@ -40,7 +40,7 @@
                     <div class="alert-content">
                         <div class="alert-header">
                             <h3 class="alert-title">@alert.Title</h3>
-                            <span class="alert-time">@TimeFormatHelper.FormatRelativeTimeTerse(alert.TriggeredAt, DisplayTime.Zone)</span>
+                            <span class="alert-time">@TimeFormatHelper.FormatRelativeTimeTerse(alert.TriggeredAt, DisplayTime.Zone, DisplayTime.Format)</span>
                         </div>
                         <p class="alert-message"><LinkifiedText Text="@alert.Message" /></p>
                         <span class="alert-source">

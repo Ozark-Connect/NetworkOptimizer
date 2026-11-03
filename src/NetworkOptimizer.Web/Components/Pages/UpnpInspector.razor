@@ -145,7 +145,7 @@
                 <h2 class="card-title">UPnP Mappings by Device</h2>
                 @if (lastRefreshTime.HasValue)
                 {
-                    <span class="audit-timestamp"><span class="timestamp-label">Last refresh: </span>@lastRefreshTime.Value.ToString("HH:mm:ss")</span>
+                    <span class="audit-timestamp"><span class="timestamp-label">Last refresh: </span>@lastRefreshTime.Value.ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)</span>
                 }
             </div>
             <div class="card-body">

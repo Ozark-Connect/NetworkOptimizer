@@ -245,7 +245,7 @@
                                 <span class="tooltip-icon" data-tooltip="↓ From gateway ↑ To gateway">?</span>
                             </span>
                             <span class="result-box-right">
-                                <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd, HH:mm")</span>
+                                <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                 <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
                             </span>
                         </div>
@@ -984,7 +984,7 @@
                             <tr id="result-@result.Id"
                                 class="@(result.Success ? "" : "error-row") @(result.Success ? "history-row-clickable" : "") @(isExpanded ? "history-row-expanded" : "")"
                                 @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
-                                <td>@result.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd HH:mm")</td>
+                                <td>@result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
                                 <td>
                                     @{
                                         var showDashLink = result.IsLocalLanClient();
@@ -2433,7 +2433,7 @@
 
     /// <summary>A row's text, with the result's age when it carries one ("· 3 hours ago").</summary>
     private string RowText(RowMessage message) =>
-        message.Result is { } result ? $"{message.Text} · {TimeFormatHelper.FormatRelativeTime(result.TestTime, DisplayTime.Zone)}" : message.Text;
+        message.Result is { } result ? $"{message.Text} · {TimeFormatHelper.FormatRelativeTime(result.TestTime, DisplayTime.Zone, DisplayTime.Format)}" : message.Text;
 
     private void RebuildLatestResults()
     {

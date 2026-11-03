@@ -554,7 +554,7 @@ else
                 }
                 @if (plan.Status == ConfigPlanStatus.Watching && plan.WatchUntil is { } until)
                 {
-                    <div class="warning-text" style="font-size:0.875rem">Watching until @CcFormat.Local(DisplayTime, until).ToString("h:mm tt")</div>
+                    <div class="warning-text" style="font-size:0.875rem">Watching until @CcFormat.Local(DisplayTime, until).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)</div>
                 }
             </div>
             @if (ConnectionService.IsConnected)

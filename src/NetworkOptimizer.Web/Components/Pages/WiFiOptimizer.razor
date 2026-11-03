@@ -392,7 +392,7 @@
                             </div>
                             <div class="score-label">@GetScoreLabel(_healthScore.OverallScore)</div>
                             <div class="health-score-timestamp">
-                                Last updated: @_healthScore.Timestamp.ToLocalTime(DisplayTime).ToString("h:mm tt")
+                                Last updated: @_healthScore.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)
                             </div>
                         </div>
 

@@ -40,7 +40,7 @@ public static class FirmwareRolloutEndpoints
             }
 
             await displayTime.ResolveAsync();
-            var pdfBytes = new RolloutReportPdfGenerator(timeZone: displayTime.Zone).GenerateReportBytes(report, siteName);
+            var pdfBytes = new RolloutReportPdfGenerator(timeZone: displayTime.Zone, format: displayTime.Format).GenerateReportBytes(report, siteName);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
             var stamp = displayTime.ToLocal(report.CompletedAt ?? report.GeneratedAt);
             var fileName = $"FirmwareRollout{sitePart}_{planId}_{stamp:yyyyMMdd-HHmm}.pdf";

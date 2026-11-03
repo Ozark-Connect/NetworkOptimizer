@@ -608,7 +608,7 @@
             @if (gatewaySettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @gatewaySettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString("g") - @gatewaySettings.LastTestResult
+                    Last tested: @gatewaySettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) - @gatewaySettings.LastTestResult
                 </div>
             }
 
@@ -727,7 +727,7 @@
             @if (sshSettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @sshSettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString("g") - @sshSettings.LastTestResult
+                    Last tested: @sshSettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) - @sshSettings.LastTestResult
                 </div>
             }
 
@@ -987,7 +987,7 @@
             {
                 <div class="form-group">
                     <label class="form-label">Last Detected</label>
-                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToString("g")</div>
+                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</div>
                 </div>
             }
 
@@ -1375,7 +1375,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(modem.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
+                                <td>@(modem.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditModem(modem)">Edit</button>
@@ -1702,7 +1702,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(cm.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
+                                <td>@(cm.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditCm(cm)">Edit</button>
@@ -1988,7 +1988,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(ont.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
+                                <td>@(ont.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditOnt(ont)">Edit</button>
@@ -2241,7 +2241,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(terminal.LastPolled?.ToLocalTime(DisplayTime).ToString("g") ?? "Never")</td>
+                                <td>@(terminal.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditStarlink(terminal)">Edit</button>
@@ -3542,7 +3542,7 @@
                                     <span class="text-muted">Export type:</span>
                                     <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
                                     <span class="text-muted">Export date:</span>
-                                    <span>@importPreview.ExportDate.ToLocalTime(DisplayTime).ToString("MMM d, yyyy h:mm tt")</span>
+                                    <span>@importPreview.ExportDate.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</span>
                                     <span class="text-muted">App version:</span>
                                     <span>@importPreview.AppVersion</span>
                                     @if (importPreview.TableCounts.Count > 0)
@@ -3809,7 +3809,7 @@
                                             }
                                         </td>
                                         <td><code>@site.Slug</code></td>
-                                        <td class="hide-mobile">@(site.IsDefault ? "" : site.CreatedAt.ToLocalTime(DisplayTime).ToString("MMM d, yyyy"))</td>
+                                        <td class="hide-mobile">@(site.IsDefault ? "" : site.CreatedAt.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Date, DisplayFormat.Culture))</td>
                                         <td>
                                             @if (site.IsDefault)
                                             {
@@ -3946,7 +3946,7 @@
                                                                         }
                                                                         else
                                                                         {
-                                                                            <text>Last seen @agent.LastSeenAt?.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt")</text>
+                                                                            <text>Last seen @agent.LastSeenAt?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</text>
                                                                         }
                                                                     </span>
                                                                     <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(site, agent)">

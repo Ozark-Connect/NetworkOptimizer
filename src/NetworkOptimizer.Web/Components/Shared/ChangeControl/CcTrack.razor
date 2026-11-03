@@ -125,7 +125,7 @@
     private string BandTip(TimelineBand band)
     {
         var end = CcFormat.Local(DisplayTime, band.End).Date == CcFormat.Local(DisplayTime, band.Start).Date
-            ? CcFormat.Local(DisplayTime, band.End).ToString("h:mm tt") : CcFormat.Time(DisplayTime, band.End);
+            ? CcFormat.Local(DisplayTime, band.End).ToString(DisplayTime.Format.Time, DisplayFormat.Culture) : CcFormat.Time(DisplayTime, band.End);
         return $"{band.Label}, {CcFormat.Time(DisplayTime, band.Start)} to {end}";
     }
 }

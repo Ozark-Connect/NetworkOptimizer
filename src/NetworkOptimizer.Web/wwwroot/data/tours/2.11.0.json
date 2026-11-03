@@ -69,6 +69,17 @@
       "body": "Site Health is the share of user-time with good service across internet, devices, Wi-Fi, and LAN. Each site shows it here worst first, with its top issue. **More** adds the last 24 hours, and each site's Incidents and Changes counts open its list.",
       "placement": "bottom",
       "optional": true
+    },
+    {
+      "id": "date-time",
+      "level": "minor",
+      "url": "/account/security",
+      "selector": "[data-tour=\"date-time\"]",
+      "title": "Date & Time",
+      "listLabel": "Times on your clock and in your format, on every site",
+      "body": "Times now show in each site's own time zone, charts included. Pick **Your time zone** to read every site on one clock, and **Time format** and **Date format** to read them your way.\n\nAlerts carry the site's time, labeled with its zone.",
+      "placement": "bottom",
+      "optional": true
     }
   ]
 }

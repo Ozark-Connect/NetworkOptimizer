@@ -11,7 +11,7 @@
 
 <div class="card settings-tab-application" id="time-zone">
     <div class="card-header">
-        <h2 class="card-title">Time Zone</h2>
+        <h2 class="card-title">Date &amp; Time</h2>
     </div>
     <div class="card-body">
         <AuthorizeView Policy="@Policies.RequireAdmin" Context="globalAdmin">
@@ -25,10 +25,8 @@
             }
         </AuthorizeView>
 
-        @if (_severalUsers)
-        {
-            <PersonalTimeZoneField />
-        }
+        @* A one-user install sets the Default time zone above; the formats are still that user's own. *@
+        <PersonalTimeZoneField ShowZone="@_severalUsers" />
     </div>
 </div>
 

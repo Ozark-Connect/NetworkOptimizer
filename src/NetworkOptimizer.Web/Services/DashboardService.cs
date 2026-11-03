@@ -227,7 +227,7 @@ public class DashboardService : IDashboardService
     }
 
     private string FormatRelativeTime(DateTime utcTime) =>
-        TimeFormatHelper.FormatRelativeTime(utcTime, _displayTime.Zone);
+        TimeFormatHelper.FormatRelativeTime(utcTime, _displayTime.Zone, _displayTime.Format);
 
     private static string FormatUptime(long? uptimeSeconds)
     {

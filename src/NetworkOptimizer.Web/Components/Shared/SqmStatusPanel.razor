@@ -51,7 +51,7 @@
             @if (statusData?.TcMonitorTimestamp != null)
             {
                 <div class="tc-timestamp">
-                    <small>Updated: @statusData.TcMonitorTimestamp.Value.ToLocalTime(DisplayTime).ToString("HH:mm:ss")</small>
+                    <small>Updated: @statusData.TcMonitorTimestamp.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)</small>
                 </div>
             }
         </div>

@@ -1528,7 +1528,7 @@
         if (ago.TotalMinutes < 60) return $"{(int)ago.TotalMinutes}m ago";
         if (ago.TotalHours < 24) return $"{(int)ago.TotalHours}h ago";
 
-        return lastSeen.Value.ToLocalTime(DisplayTime).ToString("MMM d HH:mm");
+        return lastSeen.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
     }
 
     private IEnumerable<DfsChannelStatus> GetDfsChannelStatus()

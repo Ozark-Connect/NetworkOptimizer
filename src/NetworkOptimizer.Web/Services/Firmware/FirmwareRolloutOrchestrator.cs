@@ -1157,11 +1157,14 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutPostponed, _siteSlug, plan.Id,
             new { planId = plan.Id, reason, startAt = plan.ScheduledStartAt });
 
+        // The retry time on the notification clock, labeled, as every other rollout alert writes it.
+        var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
         await PublishAsync(
             RolloutAlerts.PostponedHealth,
             AlertSeverity.Info,
             $"Firmware Rollout Postponed{_siteSuffix}",
-            $"The rollout did not start because {reason}. It will try again at {plan.ScheduledStartAt:yyyy-MM-dd HH:mm} UTC.",
+            $"The rollout did not start because {reason}. It will try again at "
+                + $"{RolloutScopeCopy.AlertStartLabel(plan.ScheduledStartAt!.Value, ParseDocument(plan).TimeZoneId, zone)}.",
             null, null, cancellationToken);
 
         _logger.LogInformation(

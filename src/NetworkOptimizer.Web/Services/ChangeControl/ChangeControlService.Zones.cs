@@ -35,7 +35,7 @@ public sealed partial class ChangeControlService
             && await Engine.Repositories.UseAsync((r, c) => r.GetLatestSnapshotWithAsync("firewallrule", c), cancellationToken) is { } legacy)
         {
             board.LegacySnapshotId = legacy.Id;
-            board.LegacySnapshotLabel = Local(legacy.TakenAt).ToString("MMM d, yyyy h:mm tt");
+            board.LegacySnapshotLabel = Local(legacy.TakenAt).ToString(ViewerFormat.DateTime, DisplayFormat.Culture);
         }
         if (runChecks && !board.LegacyFirewall && Engine.Evaluator != null)
         {

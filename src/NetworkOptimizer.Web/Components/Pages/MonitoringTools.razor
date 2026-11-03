@@ -1396,7 +1396,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     /// <summary>Absolute local expiry, counted from when the commands actually ran.</summary>
     private string LeaseExpiryLabel(GatewayInterfaceAddress addr, DateTime collectedAtUtc) =>
         addr.ValidLifetime is TimeSpan span
-            ? collectedAtUtc.Add(span).ToLocalTime(DisplayTime).ToString("MMM d, yyyy HH:mm")
+            ? collectedAtUtc.Add(span).ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)
             : "-";
 
     private async Task OnVantageChanged(ChangeEventArgs e)

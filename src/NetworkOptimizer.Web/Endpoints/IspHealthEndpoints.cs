@@ -73,7 +73,7 @@ public static class IspHealthEndpoints
             }
 
             await displayTime.ResolveAsync();
-            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options, timeZone: displayTime.Zone)
+            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options, timeZone: displayTime.Zone, format: displayTime.Format)
                 .GenerateReportBytes(report, siteName, episodes);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
             var fileName = $"ISPHealth{sitePart}_{displayTime.ToLocal(report.WindowEnd):yyyyMMdd-HHmm}.pdf";

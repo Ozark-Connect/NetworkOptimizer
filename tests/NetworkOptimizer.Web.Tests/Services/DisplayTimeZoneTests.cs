@@ -13,11 +13,13 @@ public class DisplayTimeZoneTests
     private const string Tokyo = "Asia/Tokyo";
 
     private static DisplayTimeZone Build(string? own, string? inherited, string? siteZone = null,
-        Func<string>? slug = null, Mock<ISiteTimeZones>? siteZones = null)
+        Func<string>? slug = null, Mock<ISiteTimeZones>? siteZones = null,
+        string? browserFormat = null, (string?, string?) ownFormat = default)
     {
         var source = new Mock<ITimeZonePreferenceSource>();
         source.Setup(s => s.GetOwnAsync()).ReturnsAsync(own);
         source.Setup(s => s.GetInheritedAsync()).ReturnsAsync(inherited);
+        source.Setup(s => s.GetOwnFormatAsync()).ReturnsAsync(ownFormat);
         if (siteZones == null)
         {
             siteZones = new Mock<ISiteTimeZones>();
@@ -25,7 +27,64 @@ public class DisplayTimeZoneTests
             siteZones.Setup(s => s.Cached(It.IsAny<string>())).Returns(zone);
         }
         return new DisplayTimeZone(source.Object, siteZones.Object, slug ?? (() => "default"),
-            NullLogger<DisplayTimeZone>.Instance);
+            NullLogger<DisplayTimeZone>.Instance, () => browserFormat);
+    }
+
+    [Fact]
+    public async Task With_no_choice_the_browser_locale_sets_the_format()
+    {
+        var display = Build(null, null, browserFormat: "12-dmy");
+        await display.ResolveAsync();
+
+        display.Format.Should().Be(new DisplayFormat(ClockStyle.TwelveHour, DateOrder.DayFirst));
+        display.BrowserFormat.Should().Be(display.Format);
+    }
+
+    [Fact]
+    public async Task The_users_own_format_wins_half_by_half()
+    {
+        var display = Build(null, null, browserFormat: "12-dmy", ownFormat: ("24", null));
+        await display.ResolveAsync();
+
+        display.Format.Should().Be(new DisplayFormat(ClockStyle.TwentyFourHour, DateOrder.DayFirst));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("garbage")]
+    public async Task An_unknown_browser_format_reads_the_fallback(string? cookie)
+    {
+        var display = Build(null, null, browserFormat: cookie);
+        await display.ResolveAsync();
+
+        display.Format.Should().Be(DisplayFormat.Fallback);
+    }
+
+    [Fact]
+    public async Task Choosing_the_server_zone_follows_the_servers_tz()
+    {
+        var display = Build(TimeZoneCatalog.ServerToken, Tokyo, siteZone: Chicago);
+        await display.ResolveAsync();
+
+        display.Zone.Should().Be(TimeZoneInfo.Local);
+        TimeZoneCatalog.Describe(TimeZoneCatalog.ServerToken, DateTime.UtcNow).Should().StartWith("server time zone, ");
+    }
+
+    [Fact]
+    public void Format_strings_spell_the_month_in_both_orders()
+    {
+        var at = new DateTime(2026, 11, 3, 14, 5, 9);
+        string F(DisplayFormat f, string pattern) => at.ToString(pattern, System.Globalization.CultureInfo.InvariantCulture);
+        var us = new DisplayFormat(ClockStyle.TwelveHour, DateOrder.MonthFirst);
+        var eu = new DisplayFormat(ClockStyle.TwentyFourHour, DateOrder.DayFirst);
+
+        F(us, us.DateTime).Should().Be("Nov 3, 2026, 2:05 PM");
+        F(eu, eu.DateTime).Should().Be("3 Nov 2026, 14:05");
+        F(us, us.DayTimeSeconds).Should().Be("Nov 3, 2:05:09 PM");
+        F(eu, eu.Hour).Should().Be("14:00");
+        F(us, us.Hour).Should().Be("2 PM");
+        DisplayFormat.ParseCode(eu.Code).Should().Be((ClockStyle.TwentyFourHour, DateOrder.DayFirst));
     }
 
     [Fact]
@@ -144,7 +203,7 @@ public class DisplayTimeZoneTests
         TimeZoneCatalog.TryResolve(Tokyo, out var tokyo).Should().BeTrue();
         var lateEvening = new DateTime(2026, 1, 15, 20, 0, 0, DateTimeKind.Utc);
 
-        TimeFormatHelper.FormatRelativeTime(lateEvening, tokyo!).Should().Be("Jan 16, 2026");
+        TimeFormatHelper.FormatRelativeTime(lateEvening, tokyo!, DisplayFormat.Fallback).Should().Be("Jan 16, 2026");
     }
 
     [Fact]

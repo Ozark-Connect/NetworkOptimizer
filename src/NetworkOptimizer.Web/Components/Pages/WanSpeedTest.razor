@@ -570,7 +570,7 @@
                                 <tr id="result-@result.Id"
                                     class="@(result.Success ? "history-row-clickable" : "error-row") @(isExpanded ? "history-row-expanded" : "")"
                                     @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
-                                    <td>@result.TestTime.ToLocalTime(DisplayTime).ToString("MMM dd HH:mm")</td>
+                                    <td>@result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
                                     @if (_wanSeries.Count > 1)
                                     {
                                         <td>

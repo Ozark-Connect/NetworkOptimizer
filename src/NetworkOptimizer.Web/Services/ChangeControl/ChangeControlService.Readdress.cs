@@ -372,7 +372,7 @@ public sealed partial class ChangeControlService
             null => new("Clients move as leases renew",
                 $"Within {TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(lease / 2))} of the move. Lower Lease Times first, or Reconnect Clients after, makes it minutes."),
             { } p when p.ReadyAt > DateTime.UtcNow => new("Leases lowered, not everywhere yet",
-                $"Some clients keep their old lease until {TimeFormatHelper.FormatLocalDateTime(p.ReadyAt, Viewer)}. The plan puts each lease time back."),
+                $"Some clients keep their old lease until {TimeFormatHelper.FormatLocalDateTime(p.ReadyAt, Viewer, ViewerFormat)}. The plan puts each lease time back."),
             _ => new("Leases are short", "Clients move within minutes. The plan puts each network's lease time back."),
         });
         return warnings;

@@ -3583,7 +3583,7 @@
     {
         var deviceName = System.Net.WebUtility.HtmlEncode(
             (result.DeviceName ?? result.DeviceHost) ?? "Unknown");
-        var time = result.TestTime.ToLocalTime(DisplayTime).ToString("MMM d, h:mm tt");
+        var time = result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
 
         var apHop = result.PathAnalysis?.Path?.Hops?
             .FirstOrDefault(h => h.Type == HopType.AccessPoint);
@@ -3645,7 +3645,7 @@
 
     private string BuildSignalLogPopup(SignalMapPoint point)
     {
-        var time = point.Timestamp.ToLocalTime(DisplayTime).ToString("MMM d, h:mm:ss tt");
+        var time = point.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTimeSeconds, DisplayFormat.Culture);
         var html = "<div class='map-popup'>";
 
         if (!string.IsNullOrEmpty(point.DeviceName))

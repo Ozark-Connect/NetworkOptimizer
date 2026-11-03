@@ -315,7 +315,7 @@
                                                                 {
                                                                     <div class="ap-agent-cap-row">
                                                                         <span class="ap-agent-cap-name">Next automatic attempt</span>
-                                                                        <span class="ap-agent-cap-src">@next.ToLocalTime(DisplayTime).ToString("h:mm:ss tt")</span>
+                                                                        <span class="ap-agent-cap-src">@next.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)</span>
                                                                     </div>
                                                                 }
                                                             </div>
@@ -485,7 +485,7 @@
     private static string ProbeLabel(string name) => ProbeNames.TryGetValue(name, out var p) ? p.Label : name;
     private static string ProbeSource(string name) => ProbeNames.TryGetValue(name, out var p) ? p.Source : name;
 
-    private string Ago(DateTime utc) => TimeFormatHelper.FormatRelativeTime(utc, DisplayTime.Zone);
+    private string Ago(DateTime utc) => TimeFormatHelper.FormatRelativeTime(utc, DisplayTime.Zone, DisplayTime.Format);
 
     /// <summary>
     /// The transfer-failure lead line. The model and firmware are rendered from the fleet entry at
