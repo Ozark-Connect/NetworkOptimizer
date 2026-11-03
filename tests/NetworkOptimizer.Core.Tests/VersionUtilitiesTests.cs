@@ -30,6 +30,15 @@ public class VersionUtilitiesTests
     [InlineData("2.0-beta.2", "2.0.0-beta.2", false)]
     [InlineData("2.0", "2.0.0", false)]
     [InlineData("2.0", "2.0.1", true)]
+    // Our tags are "previewN", one identifier: the number compares as a number
+    [InlineData("2.11.0-preview9", "2.11.0-preview11", true)]
+    [InlineData("2.11.0-preview9", "2.11.0-preview15", true)]
+    [InlineData("2.11.0-preview15", "2.11.0-preview9", false)]
+    [InlineData("2.11.0-preview11", "2.11.0-preview11", false)]
+    [InlineData("2.11.0-preview9.3+abc123", "2.11.0-preview11", true)]
+    [InlineData("2.11.0-preview16.2", "2.11.0-preview16", false)]
+    [InlineData("2.11.0-preview99", "2.11.0", true)]
+    [InlineData("2.11.0-beta10", "2.11.0-preview2", true)]
     public void IsOlderThan_ComparesSemVerPrecedence(string candidate, string required, bool expected)
     {
         VersionUtilities.IsOlderThan(candidate, required).Should().Be(expected);
