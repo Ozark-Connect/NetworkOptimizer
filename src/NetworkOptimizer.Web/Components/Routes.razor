@@ -7,6 +7,7 @@
 @inject SiteContextService SiteContext
 @inject ICallerContext Caller
 @inject ISiteAccessFilter SiteAccess
+@inject IJSRuntime JS
 
 @if (_siteResolved)
 {
@@ -88,5 +89,17 @@
         }
 
         _siteResolved = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Stands down js/circuit-start.js: a render reaching the browser proves the circuit started.
+        if (!firstRender) return;
+        try
+        {
+            await JS.InvokeVoidAsync("noCircuitStarted");
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException) { }
     }
 }
