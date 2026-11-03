@@ -5,6 +5,9 @@
 # rebuilds, so the whole Alpine layer goes stale with it.
 FROM nginx:1.30-alpine
 
+# The upstream tag lags Alpine's security updates (brotli, curl, expat), so take them at build time.
+RUN apk upgrade --no-cache
+
 # Copy our customized OpenSpeedTest files
 COPY src/OpenSpeedTest/ /usr/share/nginx/html/
 
