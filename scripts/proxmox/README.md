@@ -460,10 +460,11 @@ If you prefer manual installation or the script doesn't work in your environment
 
 ## Support
 
-- **Issues:** [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues)
+- **Help:** [Discord](https://discord.gg/pHrmzbBCY3) (`#install-help`)
+- **Confirmed bugs:** [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues)
 - **Documentation:** [Deployment Guide](../../docker/DEPLOYMENT.md)
 
-When reporting issues, include:
+When asking for help or reporting issues, include:
 - Proxmox VE version (`pveversion`)
 - Container logs (`pct exec <CT_ID> -- docker logs network-optimizer`)
 - Any error messages from the installation script

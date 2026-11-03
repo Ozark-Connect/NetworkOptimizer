@@ -4,6 +4,7 @@ How to run Network Optimizer, its speed test, and On-Site Agents behind
 [Zoraxy](https://github.com/tobychui/zoraxy). If you have no proxy yet,
 [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) (Traefik) is the
 ready-made option. This guide is for people who already run Zoraxy.
+Stuck on a step? Ask in `#install-help` on the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3).
 
 ## Where each step happens
 
