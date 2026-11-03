@@ -23974,6 +23974,10 @@ body:has(.top-bar-hidden) .btn-fit {
     text-align: right;
 }
 
+.change-control .cc-upgrade-card .cc-kv > :last-child {
+    font-size: 0.8125rem;
+}
+
 .change-control .cc-plan-row {
     padding: 12px 16px;
     border-bottom: 1px solid var(--border-color);

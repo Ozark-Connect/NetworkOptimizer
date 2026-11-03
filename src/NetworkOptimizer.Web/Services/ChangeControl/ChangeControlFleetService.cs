@@ -350,8 +350,10 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
                     Detail = p.Message ?? "",
                     Key = $"plan:{p.Id}",
                 });
-            // A gap shorter than this is a restart or a reconnect, not something to look at.
-            foreach (var g in gaps.Where(g => g.EndedAt == null && now - g.StartedAt >= TimeSpan.FromMinutes(5)))
+            // A gap shorter than this is a restart or a reconnect, not something to look at. A connected
+            // console's gap is over: detection closes it on its next pass, up to a minute after a restart.
+            var reconnected = _registry.Connection(site.Slug).IsConnected;
+            foreach (var g in gaps.Where(g => !reconnected && g.EndedAt == null && now - g.StartedAt >= TimeSpan.FromMinutes(5)))
                 Add(new AttentionItem
                 {
                     Kind = "Gap",
