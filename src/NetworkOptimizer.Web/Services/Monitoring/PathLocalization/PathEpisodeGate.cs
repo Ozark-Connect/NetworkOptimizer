@@ -1,3 +1,5 @@
+using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+
 namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 
 /// <summary>Where a target sits for the gate: the access layer, a path target that can trigger, or neither.</summary>
@@ -12,7 +14,9 @@ public enum GateRole
 }
 
 /// <summary>One target of a WAN context as the gate sees it.</summary>
-public sealed record GateTarget(string TargetId, GateRole Role, bool Degraded, bool Clean, double LossPct, double RttRiseMs);
+/// <param name="Elevated">A window over baseline within the last degraded-run span, sustained or not.</param>
+public sealed record GateTarget(string TargetId, GateRole Role, bool Degraded, bool Clean, double LossPct, double RttRiseMs,
+    bool Elevated = false);
 
 /// <summary>The gate's answer for one WAN context.</summary>
 /// <param name="Passed">Whether an episode should open.</param>
@@ -32,6 +36,11 @@ public sealed record GateResult(bool Passed, string? BlockedBy, IReadOnlyList<Ga
 /// Loaded Latency cover.</item>
 /// <item>No outage or dark window is open.</item>
 /// </list>
+/// Opening also judges recent elevation, not only sustained degradation: a target needs three windows
+/// in a row to count as degraded, and on a jittery access link (Starlink) the access hop and most
+/// targets rise together without stringing three together at the same moment. So an episode does not
+/// open while an access hop was over its line recently, while one rose by half the degraded targets'
+/// rise, or while half the path targets were over theirs.
 /// </summary>
 public static class PathEpisodeGate
 {
@@ -41,7 +50,8 @@ public static class PathEpisodeGate
     /// <param name="loadHighFraction">The localizer's self-inflicted threshold.</param>
     /// <param name="outageOpen">Whether an outage or dark window is open for the site.</param>
     /// <param name="requireCleanControl">False for an episode already open: a missing clean control says
-    /// nothing about whether its problem changed, and after a restart no target has a judged window yet.</param>
+    /// nothing about whether its problem changed, and after a restart no target has a judged window yet.
+    /// The recent-elevation checks apply only when true, at opening.</param>
     public static GateResult Evaluate(IReadOnlyList<GateTarget> targets, double? utilization, double loadHighFraction, bool outageOpen,
         bool requireCleanControl = true)
     {
@@ -50,13 +60,20 @@ public static class PathEpisodeGate
             .OrderByDescending(t => t.LossPct).ThenByDescending(t => t.RttRiseMs)
             .ToList();
         var clean = paths.Where(t => t.Clean).ToList();
+        var access = targets.Where(t => t.Role == GateRole.Access).ToList();
+        var degradedRise = degraded.Count > 0 ? SeriesStats.Median(degraded.Select(t => t.RttRiseMs).ToList()) ?? 0 : 0;
 
         string? blocked =
             degraded.Count == 0 ? "no path target is degraded"
             : outageOpen ? "an outage or dark window is open"
-            : targets.Any(t => t.Role == GateRole.Access && t.Degraded) ? "the access layer is degraded"
+            : access.Any(t => t.Degraded) ? "the access layer is degraded"
+            : requireCleanControl && access.Any(t => t.Elevated) ? "an access hop rose recently"
+            : requireCleanControl && degradedRise > 0 && access.Any(t => t.RttRiseMs >= degradedRise / 2)
+                ? "an access hop rose with the degraded targets"
             : requireCleanControl && clean.Count == 0 ? "no clean control on the same WAN"
             : degraded.Count * 2 >= paths.Count ? "half or more of the path targets are degraded (site-wide)"
+            : requireCleanControl && paths.Count(t => t.Degraded || t.Elevated) * 2 >= paths.Count
+                ? "half or more of the path targets rose recently (WAN-wide)"
             : utilization is double u && u >= loadHighFraction ? $"the WAN is loaded ({u * 100:0}% of plan)"
             : null;
 
