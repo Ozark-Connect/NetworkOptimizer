@@ -71,9 +71,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly string _siteSlug;
     private readonly bool _isDefault;
 
-    // Throttles the agent-site console reconnect done inside ReconcileFabricTargetsAsync.
-    private DateTime _lastConsoleEnsureAt;
-
     // Counter delta cache for server-side rate computation. Key = "deviceMac/ifName".
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
     private bool _fabricSeeded;
@@ -2607,28 +2604,8 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {
-        // The console can read disconnected between operations: an agent site's tunnel drops,
-        // and a directly-connected self-hosted console returns 502/503 while its backend restarts,
-        // upgrades, or reprovisions - including right when the optimizer starts up, which fails the
-        // one-shot startup connect and, for the default site, previously left it dark until a
-        // schedule ran or the process restarted. Reconnect it (throttled) so every tier that
-        // enumerates devices - fabric targets, interface name map, device stats - recovers on its
-        // own. Skipped while an agent tunnel is still coming up; OnAgentConnectedAsync reconnects
-        // that case when the tunnel opens.
-        // 10 s: how long the banner outlives a console that is back. One sign-in per try, well clear
-        // of the console's login attempt limit.
-        if (!_connectionService.IsConnected
-            && !_connectionService.IsAwaitingAgent
-            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(10))
-        {
-            _lastConsoleEnsureAt = DateTime.UtcNow;
-            try { await _connectionService.ReconnectAsync(); }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Console reconnect for device fetch failed for site {Slug}", _siteSlug);
-            }
-        }
-
+        // A lost console comes back through UniFiConnectionService's own background reconnect. Never
+        // add one here: it runs only while Monitoring is on, which is how a site sat down for hours.
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return new List<UniFiDeviceResponse>();
 
