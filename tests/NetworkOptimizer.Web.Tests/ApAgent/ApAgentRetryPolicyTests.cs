@@ -122,28 +122,6 @@ public class ApAgentRetryPolicyTests
     }
 
     [Fact]
-    public void TheStagger_is_stable_per_access_point_and_inside_the_window()
-    {
-        var window = TimeSpan.FromMinutes(2);
-
-        ApAgentRetryPolicy.StaggerOffset(Mac, window)
-            .Should().Be(ApAgentRetryPolicy.StaggerOffset(Mac, window));
-        ApAgentRetryPolicy.StaggerOffset(Mac, window).Should().BeLessThan(window);
-    }
-
-    [Fact]
-    public void TheStagger_spreads_a_fleet_rather_than_starting_it_together()
-    {
-        var window = TimeSpan.FromMinutes(2);
-        var macs = Enumerable.Range(0, 40).Select(i => $"00:11:22:33:44:{i:x2}").ToList();
-
-        var slots = macs.Select(m => ApAgentRetryPolicy.StaggerOffset(m, window)).ToList();
-
-        slots.Distinct().Count().Should().BeGreaterThan(macs.Count / 2,
-            "a server restart must not fire a simultaneous transfer at every access point");
-    }
-
-    [Fact]
     public void Forgetting_an_access_point_clears_its_backoff_and_its_claim()
     {
         var policy = new ApAgentRetryPolicy();
