@@ -23,6 +23,7 @@ public class ScheduleService : BackgroundService
     // database sequences, so the key must carry the site too.
     private readonly HashSet<(string SiteKey, int TaskId)> _runningTasks = new();
     private readonly object _runningLock = new();
+    private readonly DeferredScheduleSlots _deferredSlots = new();
 
     // Delegate types for task executors (resolved from DI in ExecuteTaskAsync)
     // This avoids coupling to concrete service types in the Alerts project.
@@ -31,9 +32,9 @@ public class ScheduleService : BackgroundService
 
     /// <summary>
     /// Delegate that the Web project registers to execute audit tasks.
-    /// Takes (siteKey) and returns (success, summary, error).
+    /// Takes (siteKey). Its outcome may defer the run (the console was unavailable) without an alert.
     /// </summary>
-    public Func<string, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? AuditExecutor { get; set; }
+    public Func<string, CancellationToken, Task<ScheduleRunOutcome>>? AuditExecutor { get; set; }
 
     /// <summary>
     /// Delegate that the Web project registers to execute WAN speed test tasks.
@@ -250,8 +251,8 @@ public class ScheduleService : BackgroundService
 
         try
         {
-            // The learning executor steers its own next run and alerting; the others keep the
-            // plain (success, summary, error) contract and the default cadence.
+            // The learning and audit executors steer their own next run and alerting; the others keep
+            // the plain (success, summary, error) contract and the default cadence.
             ScheduleRunOutcome outcome;
             if (taskType == SqmLearningTaskType)
             {
@@ -259,13 +260,16 @@ public class ScheduleService : BackgroundService
                     ? await SqmLearningExecutor(siteKey, taskId, targetId, targetConfig, ct)
                     : new ScheduleRunOutcome(false, null, "Adaptive SQM learning executor not registered");
             }
+            else if (taskType == "audit")
+            {
+                outcome = AuditExecutor != null
+                    ? await AuditExecutor(siteKey, ct)
+                    : new ScheduleRunOutcome(false, null, "Audit executor not registered");
+            }
             else
             {
                 var (s, m, e) = taskType switch
                 {
-                    "audit" => AuditExecutor != null
-                        ? await AuditExecutor(siteKey, ct)
-                        : (false, null, "Audit executor not registered"),
                     "wan_speedtest" => WanSpeedTestExecutor != null
                         ? await WanSpeedTestExecutor(siteKey, taskId, targetId, targetConfig, ct)
                         : (false, null, "WAN speed test executor not registered"),
@@ -279,7 +283,9 @@ public class ScheduleService : BackgroundService
             var (success, summary, error) = (outcome.Success, outcome.Summary, outcome.Error);
 
             var status = outcome.Status ?? (success ? "success" : "failed");
-            var nextRun = outcome.NextRunAt ?? CalculateNextRun(frequencyMinutes, startHour, startMinute, scheduledRunTime);
+            var slotBase = _deferredSlots.Resolve(siteKey, taskId, scheduledRunTime,
+                deferring: outcome.KeepSlot && outcome.NextRunAt != null);
+            var nextRun = outcome.NextRunAt ?? CalculateNextRun(frequencyMinutes, startHour, startMinute, slotBase);
 
             // DB update - failure here shouldn't change the task's reported status
             try
@@ -336,7 +342,8 @@ public class ScheduleService : BackgroundService
             {
                 using var scope = CreatePinnedScope(siteKey);
                 var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
-                var nextRun = CalculateNextRun(frequencyMinutes, startHour, startMinute, scheduledRunTime);
+                var slotBase = _deferredSlots.Resolve(siteKey, taskId, scheduledRunTime, deferring: false);
+                var nextRun = CalculateNextRun(frequencyMinutes, startHour, startMinute, slotBase);
                 await repo.UpdateRunStatusAsync(taskId, startTime, nextRun, "failed", ex.Message, null, ct);
             }
             catch (Exception updateEx)
@@ -476,6 +483,8 @@ public class ScheduleService : BackgroundService
 /// regular cadence for one cycle (null keeps it); <paramref name="Notify"/> false records the run
 /// on the task without raising the completed/failed alert; <paramref name="Status"/> replaces the
 /// recorded "success"/"failed" (a deferred check is neither, and must not read as a result).
+/// <paramref name="KeepSlot"/> with a <paramref name="NextRunAt"/> marks a retry of this slot: the
+/// next regular run still counts from the slot it deferred from, so retries do not move the cadence.
 /// </summary>
 public sealed record ScheduleRunOutcome(
     bool Success,
@@ -483,4 +492,31 @@ public sealed record ScheduleRunOutcome(
     string? Error,
     DateTime? NextRunAt = null,
     bool Notify = true,
-    string? Status = null);
+    string? Status = null,
+    bool KeepSlot = false);
+
+/// <summary>
+/// The regular slot each task's retries deferred from. In memory: after a restart, the next
+/// regular run counts from the pending retry instead, which shifts the cadence once.
+/// </summary>
+public sealed class DeferredScheduleSlots
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string SiteKey, int TaskId), DateTime> _slots = new();
+
+    /// <summary>
+    /// The slot the task's next regular run counts from. A deferral records the first slot it
+    /// deferred from; any other run returns that slot once and clears it.
+    /// </summary>
+    public DateTime? Resolve(string siteKey, int taskId, DateTime? scheduledRunTime, bool deferring)
+    {
+        var key = (siteKey, taskId);
+        if (deferring)
+        {
+            if (scheduledRunTime is { } slot)
+                _slots.TryAdd(key, slot);
+            return scheduledRunTime;
+        }
+
+        return _slots.TryRemove(key, out var original) ? original : scheduledRunTime;
+    }
+}

@@ -911,6 +911,56 @@ public class FirewallRuleAnalyzerTests
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
     }
 
+    [Theory]
+    [InlineData("CUSTOM", new[] { "INVALID" }, false)]
+    [InlineData("ALL", new string[0], true)]
+    [InlineData("CUSTOM", new[] { "NEW", "INVALID" }, true)]
+    public void AnalyzeManagementNetworkFirewallAccess_BlockAboveUniFiAllow_EclipsesOnlyWhenItBlocksNew(
+        string stateType, string[] states, bool expectMissing)
+    {
+        // A block on INVALID packets ahead of the UniFi allow leaves new HTTPS sessions to ui.com open
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-external",
+                Name = "Block External",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all",
+                ConnectionStateType = stateType,
+                ConnectionStates = [.. states]
+            },
+            new FirewallRule
+            {
+                Id = "allow-unifi",
+                Name = "Allow UniFi Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 200,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "ui.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        issues.Any(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS").Should().Be(expectMissing);
+    }
+
     [Fact]
     public void AnalyzeManagementNetworkFirewallAccess_UniFiAccessRuleNotEclipsed_NoIssue()
     {
@@ -2262,6 +2312,171 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.DetectShadowedRules(rules);
 
         issues.Should().BeEmpty();
+    }
+
+    private const string AnyInternalSource = @"{ ""matching_target"": ""ANY"", ""zone_id"": ""internal-zone"" }";
+    private const string AnyGatewayDest = @"{ ""matching_target"": ""ANY"", ""zone_id"": ""gateway-zone"" }";
+
+    [Theory]
+    [InlineData("icmpv6", "IPV6")]
+    [InlineData("icmp", "IPV4")]
+    [InlineData("icmpv6", "BOTH")]
+    public void DetectShadowedRules_IcmpOnlyAllowBeforeAllProtocolDeny_IsExceptionPattern(string protocol, string ipVersion)
+    {
+        // An ICMP control-plane allow (ND, RA, ping) above a zone-wide block to the gateway, no ports on either
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-icmp-control", "ALLOW", 10000, ipVersion, AnyInternalSource, AnyGatewayDest, protocol),
+            ParseIpVersionPolicy("block-gateway", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.AllowSubvertsDeny);
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowExceptionPattern);
+    }
+
+    [Theory]
+    [InlineData("tcp", "all")]
+    [InlineData("udp", "all")]
+    [InlineData("tcp_udp", "all")]
+    [InlineData("icmpv6", "icmpv6")]
+    public void DetectShadowedRules_PortlessAllowNotNarrowerByProtocol_IsStillReported(string allowProtocol, string denyProtocol)
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-broad", "ALLOW", 10000, "BOTH", AnyInternalSource, AnyGatewayDest, allowProtocol),
+            ParseIpVersionPolicy("block-gateway", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest, denyProtocol)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny);
+    }
+
+    [Fact]
+    public void DetectShadowedRules_InvertedIcmpAllowBeforeAllProtocolDeny_IsStillReported()
+    {
+        // match_opposite_protocol turns "icmpv6" into everything except ICMPv6
+        var allow = _analyzer.ParseFirewallPolicy(System.Text.Json.JsonDocument.Parse($@"{{
+            ""_id"": ""allow-not-icmpv6"",
+            ""name"": ""allow-not-icmpv6"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""index"": 10000,
+            ""ip_version"": ""BOTH"",
+            ""protocol"": ""icmpv6"",
+            ""match_opposite_protocol"": true,
+            ""source"": {AnyInternalSource},
+            ""destination"": {AnyGatewayDest}
+        }}").RootElement)!;
+        var rules = new List<FirewallRule>
+        {
+            allow,
+            ParseIpVersionPolicy("block-gateway", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny);
+    }
+
+    private FirewallRule ParseStatefulInternalPolicy(string id, string action, int index, string stateType, params string[] states)
+    {
+        var statesJson = string.Join(", ", states.Select(s => $@"""{s}"""));
+        var json = System.Text.Json.JsonDocument.Parse($@"{{
+            ""_id"": ""{id}"",
+            ""name"": ""{id}"",
+            ""action"": ""{action}"",
+            ""enabled"": true,
+            ""index"": {index},
+            ""protocol"": ""all"",
+            ""connection_state_type"": ""{stateType}"",
+            ""connection_states"": [{statesJson}],
+            ""source"": {{ ""matching_target"": ""ANY"", ""zone_id"": ""internal-zone"" }},
+            ""destination"": {{ ""matching_target"": ""ANY"", ""zone_id"": ""internal-zone"" }}
+        }}").RootElement;
+        return _analyzer.ParseFirewallPolicy(json)!;
+    }
+
+    [Theory]
+    [InlineData("ALL")]
+    [InlineData("RESPOND_ONLY", "RELATED", "ESTABLISHED")]
+    public void DetectShadowedRules_InvalidOnlyDenyBeforeAllow_IsNotReported(string allowStateType, params string[] allowStates)
+    {
+        // A zone-wide "Block Invalid" drops only INVALID packets, so no later allow is ineffective
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("block-invalid", "BLOCK", 10000, "CUSTOM", "INVALID"),
+            ParseStatefulInternalPolicy("allow-admin", "ALLOW", 10001, allowStateType, allowStates)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.DenyShadowsAllow);
+    }
+
+    [Fact]
+    public void DetectShadowedRules_ReturnTrafficAllowBeforeInvalidOnlyDeny_IsNotReported()
+    {
+        // Return traffic and INVALID packets never overlap, so neither rule affects the other
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("allow-return", "ALLOW", 10000, "RESPOND_ONLY", "RELATED", "ESTABLISHED"),
+            ParseStatefulInternalPolicy("block-invalid", "BLOCK", 10001, "CUSTOM", "INVALID")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectShadowedRules_AllStateAllowBeforeInvalidOnlyDeny_IsStillReported()
+    {
+        // The allow admits INVALID packets of its traffic that the deny would drop
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("allow-admin", "ALLOW", 10000, "ALL"),
+            ParseStatefulInternalPolicy("block-invalid", "BLOCK", 10001, "CUSTOM", "INVALID")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny);
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NewOnlyDenyBeforeReturnTrafficAllow_IsNotReported()
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("block-new", "BLOCK", 10000, "CUSTOM", "NEW"),
+            ParseStatefulInternalPolicy("allow-return", "ALLOW", 10001, "RESPOND_ONLY", "RELATED", "ESTABLISHED")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.DenyShadowsAllow);
+    }
+
+    [Theory]
+    [InlineData("ALL", "ALL", new string[0], new string[0])]
+    [InlineData("CUSTOM", "ALL", new[] { "NEW", "ESTABLISHED", "RELATED", "INVALID" }, new string[0])]
+    [InlineData("CUSTOM", "CUSTOM", new[] { "NEW", "INVALID" }, new[] { "NEW" })]
+    [InlineData("ALL", "RESPOND_ONLY", new string[0], new[] { "RELATED", "ESTABLISHED" })]
+    public void DetectShadowedRules_DenyCoversEveryAllowedState_IsReported(
+        string denyStateType, string allowStateType, string[] denyStates, string[] allowStates)
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseStatefulInternalPolicy("block-broad", "BLOCK", 10000, denyStateType, denyStates),
+            ParseStatefulInternalPolicy("allow-later", "ALLOW", 10001, allowStateType, allowStates)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle(i => i.Type == IssueTypes.DenyShadowsAllow);
     }
 
     [Fact]

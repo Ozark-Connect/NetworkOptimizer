@@ -1311,6 +1311,7 @@ public partial class AuditService : IAuditScanService
             _logger.LogWarning("Cannot run audit: UniFi controller not connected");
             return new AuditResult
             {
+                RunStatus = AuditRunStatus.ConsoleUnavailable,
                 Score = 0,
                 ScoreLabel = "UNAVAILABLE",
                 ScoreClass = "poor",
@@ -1328,6 +1329,8 @@ public partial class AuditService : IAuditScanService
                 CompletedAt = DateTime.UtcNow
             };
         }
+
+        var auditClient = _connectionService.Client;
 
         try
         {
@@ -1608,6 +1611,14 @@ public partial class AuditService : IAuditScanService
                 _logger.LogWarning(ex, "Failed to fetch firewall zones for zone validation");
             }
 
+            // A read on a dropped connection either throws (logged and skipped above) or comes back empty.
+            // Scoring either one reports the missing firewall policies and port profiles as findings.
+            if (ConsoleConnectionLost(_connectionService.IsConnected, _connectionService.Client, auditClient))
+            {
+                _logger.LogWarning("Lost the UniFi Console connection while the audit read its configuration; nothing was saved");
+                return ConsoleConnectionLostResult();
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -1722,6 +1733,7 @@ public partial class AuditService : IAuditScanService
 
             return new AuditResult
             {
+                RunStatus = AuditRunStatus.Failed,
                 Score = 0,
                 ScoreLabel = "ERROR",
                 ScoreClass = "poor",
@@ -1740,6 +1752,33 @@ public partial class AuditService : IAuditScanService
             };
         }
     }
+
+    /// <summary>
+    /// True when the console connection the audit started on is no longer the live, connected one.
+    /// A tunnel drop or a silent console marks it down, and a reconnect replaces the client.
+    /// </summary>
+    internal static bool ConsoleConnectionLost(bool isConnected, object? liveClient, object? auditClient) =>
+        !isConnected || !ReferenceEquals(liveClient, auditClient);
+
+    private static AuditResult ConsoleConnectionLostResult() => new()
+    {
+        RunStatus = AuditRunStatus.ConsoleUnavailable,
+        Score = 0,
+        ScoreLabel = "UNAVAILABLE",
+        ScoreClass = "poor",
+        Issues = new List<AuditIssue>
+        {
+            new AuditIssue
+            {
+                Severity = AuditModels.AuditSeverity.Critical,
+                Category = "Connection",
+                Title = "Lost Connection to the UniFi Console",
+                Description = "The connection to the UniFi Console dropped while the audit was reading its configuration. The result would have been incomplete, so it was not saved.",
+                Recommendation = "Run the audit again once the console is connected. A scheduled audit retries on its own."
+            }
+        },
+        CompletedAt = DateTime.UtcNow
+    };
 
     private AuditResult ConvertAuditResult(AuditModels.AuditResult engineResult, AuditOptions options)
     {
@@ -2354,8 +2393,24 @@ public class AuditOptions
     public Dictionary<string, string>? NetworkPurposeOverrides { get; set; }
 }
 
+/// <summary>Whether an audit produced a score, or why it did not.</summary>
+public enum AuditRunStatus
+{
+    /// <summary>The audit read the console and scored it.</summary>
+    Completed,
+
+    /// <summary>The console was not connected, or the connection dropped mid-read. Nothing was saved.</summary>
+    ConsoleUnavailable,
+
+    /// <summary>The audit threw. Nothing was saved.</summary>
+    Failed
+}
+
 public class AuditResult
 {
+    /// <summary>Whether this result is a score. Only <see cref="AuditRunStatus.Completed"/> is saved.</summary>
+    public AuditRunStatus RunStatus { get; set; } = AuditRunStatus.Completed;
+
     public int Score { get; set; }
     public string ScoreLabel { get; set; } = "";
     public string ScoreClass { get; set; } = "";

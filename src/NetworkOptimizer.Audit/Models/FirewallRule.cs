@@ -254,6 +254,24 @@ public class FirewallRule
     /// </summary>
     public List<string>? ConnectionStates { get; init; }
 
+    private static readonly string[] AllConnectionStates = ["NEW", "ESTABLISHED", "RELATED", "INVALID"];
+
+    /// <summary>
+    /// The connection states this rule matches. Stateless, ALL, an unknown type, or an empty CUSTOM list
+    /// match all four; RESPOND_ONLY matches ESTABLISHED and RELATED.
+    /// </summary>
+    public IReadOnlySet<string> MatchedConnectionStates()
+    {
+        if (ConnectionStateType?.Equals("RESPOND_ONLY", StringComparison.OrdinalIgnoreCase) == true)
+            return new HashSet<string>(["ESTABLISHED", "RELATED"], StringComparer.OrdinalIgnoreCase);
+
+        if (ConnectionStateType?.Equals("CUSTOM", StringComparison.OrdinalIgnoreCase) == true &&
+            ConnectionStates is { Count: > 0 })
+            return new HashSet<string>(ConnectionStates, StringComparer.OrdinalIgnoreCase);
+
+        return new HashSet<string>(AllConnectionStates, StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Returns true if this rule blocks NEW connections (not just INVALID).
     /// Rules that only block INVALID connections don't provide inter-VLAN isolation.
