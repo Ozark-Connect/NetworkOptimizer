@@ -19,6 +19,12 @@ public sealed record PathEpisodeView
     public DateTime? ClosedAt { get; init; }
     /// <summary>Rounds are still running.</summary>
     public bool Tracing { get; init; }
+    /// <summary>Open with its rounds used up: the problem is still on, and the recovery round is next.</summary>
+    public bool Ongoing => ClosedAt == null && !Tracing;
+    /// <summary>Path rounds run so far, when the episode is running here; null otherwise.</summary>
+    public int? RoundsTraced { get; init; }
+    /// <summary>The WAN is metered: one round, and no recovery round.</summary>
+    public bool Metered { get; init; }
     /// <summary>Last write, so a hop table that is open re-reads when a round lands.</summary>
     public DateTime UpdatedAt { get; init; }
     public int? WanContextId { get; init; }

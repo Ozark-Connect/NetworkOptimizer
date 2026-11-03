@@ -515,6 +515,12 @@ public class IspHealthOptions
     public double PathHopRttDeltaFraction { get; set; } = 0.15;
 
     /// <summary>
+    /// Slow destination rounds needed before a hop is judged by whether it slowed in the same rounds.
+    /// One round slow at both is coincidence; a hop slow in most of two or more is on the way.
+    /// </summary>
+    public int PathHopMinPairedRounds { get; set; } = 2;
+
+    /// <summary>
     /// A hop's (max - median) RTT spread this many times the next responding hop's, and at least
     /// <see cref="PathHopSlowPathMinSpreadMs"/>, reads as slow-path ICMP generation at that hop.
     /// </summary>

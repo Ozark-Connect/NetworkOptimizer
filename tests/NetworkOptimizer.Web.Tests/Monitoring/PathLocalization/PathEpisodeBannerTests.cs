@@ -82,6 +82,23 @@ public class PathEpisodeBannerTests
     }
 
     [Fact]
+    public void Open_WithItsTracesUsedUp_IsOngoing()
+    {
+        var e = Episode(3, Now.AddHours(-1), null, peakLoss: 0, baseRtt: 33, peakRtt: 54) with { RoundsTraced = 10 };
+
+        var b = PathEpisodePresentation.Banner(new[] { e, Episode(4, Now.AddMinutes(-30), Now.AddMinutes(-10)) }, Now)!;
+        b.EpisodeId.Should().Be(3);
+        b.Phase.Should().Be("ongoing");
+        b.Lead.Should().Be("Still slow");
+        b.Text.Should().Be("Target A is still running 21 ms slower. Network Optimizer traced it 10 times, and traces it once more after it recovers, to compare.");
+        PathEpisodePresentation.BadgeLabel(e).Should().Be("Ongoing");
+        PathEpisodePresentation.Entries(new[] { e }).Single().Text.Should().StartWith("Target A is running 21 ms slower, for ").And.Contain(" so far.");
+
+        PathEpisodePresentation.Banner(new[] { e with { Metered = true } }, Now)!.Text
+            .Should().Be("Target A is still running 21 ms slower. This WAN is metered, so Network Optimizer traced it once.");
+    }
+
+    [Fact]
     public void Finished_ShowsForADayAfterItCloses()
     {
         PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-23.5), Now.AddHours(-23)) }, Now)

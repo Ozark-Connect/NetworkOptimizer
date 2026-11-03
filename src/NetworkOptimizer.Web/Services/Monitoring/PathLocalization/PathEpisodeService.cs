@@ -161,6 +161,8 @@ public sealed class PathEpisodeService : IPathEpisodeService
             OpenedAt = Utc(e.OpenedAt),
             ClosedAt = e.ClosedAt is DateTime closed ? Utc(closed) : null,
             Tracing = e.ClosedAt == null && _registry.GetFor(_site.Slug).IsTracing(e.Id),
+            RoundsTraced = e.ClosedAt == null ? _registry.GetFor(_site.Slug).RoundsTraced(e.Id) : null,
+            Metered = PathGateSnapshot.Read(e.GateSnapshot).Metered,
             UpdatedAt = Utc(e.UpdatedAt),
             WanContextId = e.WanContextId,
             WanInterface = e.WanInterface,
