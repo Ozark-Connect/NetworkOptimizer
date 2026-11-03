@@ -168,7 +168,7 @@
                         @if (view.List.NeedsToken)
                         {
                             <div class="input-with-button ab-token" data-autosave>
-                                <input type="password" class="form-control" autocomplete="off" @bind="_tokens[view.List.Id]"
+                                <input type="password" class="form-control" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore @bind="_tokens[view.List.Id]"
                                        placeholder="@(view.HasToken ? "Token saved. Enter a new one to replace it, or leave empty to remove it."
                                                     : view.FromOtherSite ? $"Another site downloads this list, so no {view.List.TokenName} is needed here"
                                                     : $"Your {view.List.TokenName}")" />
@@ -256,7 +256,7 @@
                         <div class="form-row" data-autosave>
                             <div class="form-group">
                                 <label class="form-label">Account ID</label>
-                                <input type="text" class="form-control" @bind="_cfAccount" />
+                                <input type="text" class="form-control" @bind="_cfAccount" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                                 <small class="form-help">Account home: press Ctrl+K and search "Copy account ID".</small>
                             </div>
                             <div class="form-group">

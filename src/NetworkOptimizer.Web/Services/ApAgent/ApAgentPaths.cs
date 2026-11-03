@@ -83,6 +83,12 @@ public static class ApAgentPaths
     public static string RemoteBinaryPath(string binaryName) => $"{RemoteDir}/{binaryName}";
 
     /// <summary>
+    /// Where a new build lands before it replaces the live one. Outside <see cref="BinaryGlob"/> and
+    /// <see cref="ProcessPattern"/>, so the status probe, pgrep, and pkill never see a half-written file.
+    /// </summary>
+    public const string StagedBinaryPath = RemoteDir + "/upload.tmp";
+
+    /// <summary>
     /// Pattern that matches the running agent and nothing else. Two traps make the obvious forms
     /// wrong: a plain -f pattern also matches the shell of the SSH command that carries it, so
     /// pkill kills its own session and pgrep reports a running agent when none exists; and -x

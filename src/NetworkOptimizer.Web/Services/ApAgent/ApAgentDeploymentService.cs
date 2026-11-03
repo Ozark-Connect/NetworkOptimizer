@@ -38,8 +38,16 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     private static readonly TimeSpan SshTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(5);
 
-    /// <summary>Deploys open an SSH session and move ~10 MB, so a site runs a couple at a time, not a fleet.</summary>
-    private readonly SemaphoreSlim _deployGate = new(2);
+    /// <summary>Deploys open an SSH session and move ~10 MB, so a site runs a few at a time, not a fleet.</summary>
+    internal const int DeployConcurrency = 4;
+
+    /// <summary>
+    /// APs a supervision pass works on at once. Most of a pass is one small health probe per AP, so
+    /// this runs ahead of <see cref="DeployConcurrency"/>; the deploys it finds queue on the gate.
+    /// </summary>
+    internal const int SupervisionParallelism = 8;
+
+    private readonly SemaphoreSlim _deployGate = new(DeployConcurrency);
 
     private readonly ILogger<ApAgentDeploymentService> _logger;
     private readonly IServiceProvider _serviceProvider;
@@ -50,7 +58,6 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
     private readonly Firmware.RolloutSuppressionRegistry _rolloutSuppression;
     private readonly string _siteSlug;
-    private readonly DateTime _startedAtUtc = DateTime.UtcNow;
 
     private readonly ApAgentRetryPolicy _retry = new();
     private readonly Dictionary<string, ApAgentAssessment> _lastAssessment = new(StringComparer.OrdinalIgnoreCase);
@@ -444,38 +451,41 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         var records = await LoadRecordsAsync(ct);
         var now = DateTime.UtcNow;
 
-        foreach (var ap in accessPoints)
+        // APs run side by side so a version bump reaches a large site in one pass. _deployGate caps
+        // the transfers inside it, which is what keeps a restart from hitting every AP at once.
+        var options = new ParallelOptions { MaxDegreeOfParallelism = SupervisionParallelism, CancellationToken = ct };
+        try
         {
-            if (ct.IsCancellationRequested) return;
-
-            var mac = NormalizeMac(ap.Mac);
-            records.TryGetValue(mac, out var record);
-            if (record is { Enabled: false }) continue;
-
-            // A firmware rollout holds the agent off an AP that is mid-upgrade. The hold lapses on
-            // its own if the rollout stops refreshing it, and the next pass redeploys as normal.
-            if (_rolloutSuppression.IsAgentHeld(_siteSlug, mac, now)) continue;
-
-            // The stagger: a server restart must not fire a simultaneous transfer at every AP on
-            // the site, so each one waits out its own offset before its first pass.
-            if (now - _startedAtUtc < ApAgentRetryPolicy.StaggerOffset(mac)) continue;
-
-            if (_retry.IsWorkInFlight(mac) || !_retry.IsReady(mac, now)) continue;
-
-            try
+            await Parallel.ForEachAsync(accessPoints, options, async (ap, token) =>
             {
-                record ??= await GetOrCreateRecordAsync(mac, ap.Name, ct);
-                var assessment = await AssessAsync(ap, record, ct);
-                await ActOnAsync(ap, assessment, ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "AP Agent supervision failed for {Host} on site {Site}", ap.DisplayIpAddress, _siteSlug);
-            }
+                var mac = NormalizeMac(ap.Mac);
+                records.TryGetValue(mac, out var record);
+                if (record is { Enabled: false }) return;
+
+                // A firmware rollout holds the agent off an AP that is mid-upgrade. The hold lapses on
+                // its own if the rollout stops refreshing it, and the next pass redeploys as normal.
+                if (_rolloutSuppression.IsAgentHeld(_siteSlug, mac, now)) return;
+
+                if (_retry.IsWorkInFlight(mac) || !_retry.IsReady(mac, now)) return;
+
+                try
+                {
+                    record ??= await GetOrCreateRecordAsync(mac, ap.Name, token);
+                    var assessment = await AssessAsync(ap, record, token);
+                    await ActOnAsync(ap, assessment, token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "AP Agent supervision failed for {Host} on site {Site}", ap.DisplayIpAddress, _siteSlug);
+                }
+            });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
         }
     }
 
@@ -714,13 +724,8 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             return ApAgentOperationResult.Ok();
         }
 
-        // Past the idempotent return, so this covers real deploys only. The agent is down and its
-        // token is about to change; holding it out of the directory keeps callers off it throughout.
-        using var hold = _directory.HoldDuringDeploy(_siteSlug, mac);
-
-        progress?.Report("Stopping any running agent...");
-        await RunAsync(target, ApAgentScripts.StopCommand(status.ProcdAvailable), ct);
-
+        // Stage before stopping: the old agent serves through the copy, and a copy cut off by a
+        // server restart leaves it running rather than an AP with a truncated binary and no agent.
         if (!binaryIsCurrent)
         {
             progress?.Report("Transferring the agent...");
@@ -731,6 +736,24 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
                     lock (_lastAssessment) _lastAssessment[mac] = new ApAgentAssessment(ApAgentState.TransferFailed, ApAgentAction.None, transferred.Error!);
                 await RecordFailureAsync(mac, transferred.Error, ct);
                 return transferred;
+            }
+        }
+
+        // The agent is down from here and its token is about to change; holding it out of the
+        // directory keeps callers off it throughout.
+        using var hold = _directory.HoldDuringDeploy(_siteSlug, mac);
+
+        progress?.Report("Stopping any running agent...");
+        await RunAsync(target, ApAgentScripts.StopCommand(status.ProcdAvailable), ct);
+
+        if (!binaryIsCurrent)
+        {
+            var promoted = await RunAsync(target, ApAgentScripts.PromoteStagedCommand(status.BinaryName!), ct);
+            if (!promoted.success)
+            {
+                var error = $"Could not move the new agent into place: {promoted.output}";
+                await RecordFailureAsync(mac, error, ct);
+                return ApAgentOperationResult.Fail(error);
             }
         }
 
@@ -782,10 +805,9 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
     }
 
     /// <summary>
-    /// Pushes the binary over the probed transfer chain, attempting each method in order until one
-    /// both uploads and verifies. The md5 comparison is the only integrity check in the path:
-    /// without it a truncated binary surfaces as "The agent did not start" and burns a retry cycle
-    /// before the next pass's md5 catches it.
+    /// Stages the binary over the probed transfer chain (<see cref="ApAgentBinaryStager"/>). The md5
+    /// comparison is the only integrity check in the path: without it a truncated binary surfaces as
+    /// "The agent did not start" and burns a retry cycle before the next pass's md5 catches it.
     /// </summary>
     private async Task<ApAgentOperationResult> TransferBinaryAsync(
         string mac, DeviceSshTarget target, string localPath, string localMd5, ApAgentSshStatus status, CancellationToken ct)
@@ -795,49 +817,21 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
         if (connection == null)
             return ApAgentOperationResult.Fail(await Router.DescribeMissingConnectionAsync(target, ct));
 
-        var mkdir = await RunAsync(target, $"mkdir -p {ApAgentPaths.RemoteDir}", ct);
-        if (!mkdir.success)
-            return ApAgentOperationResult.Fail($"Could not create the install directory: {mkdir.output}");
+        var staged = await ApAgentBinaryStager.StageAsync(
+            (command, token) => RunAsync(target, command, token),
+            _transferSelector.Resolve(status), connection, localPath, localMd5, _logger, ct);
 
-        var remotePath = ApAgentPaths.RemoteBinaryPath(status.BinaryName!);
-        var failures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var transfer in _transferSelector.Resolve(status))
+        if (staged.SetupError != null)
+            return ApAgentOperationResult.Fail(staged.SetupError);
+
+        if (staged.Method is { } method)
         {
-            string? error = null;
-            try
-            {
-                await transfer.UploadAsync(connection, localPath, remotePath, ct);
-
-                var check = await RunAsync(target, $"md5sum {remotePath} 2>/dev/null | cut -d' ' -f1", ct);
-                if (!check.success || !string.Equals(check.output.Trim(), localMd5, StringComparison.OrdinalIgnoreCase))
-                    error = "The copied file did not match the original (md5 mismatch).";
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                error = ex.Message;
-            }
-
-            if (error != null)
-            {
-                failures[transfer.Name] = error;
-                _logger.LogDebug("AP Agent transfer to {Host} over {Method} failed: {Error}", host, transfer.Name, error);
-                continue;
-            }
-
-            var chmod = await RunAsync(target, $"chmod +x {remotePath}", ct);
-            if (!chmod.success)
-                return ApAgentOperationResult.Fail($"Could not make the agent executable: {chmod.output}");
-
             // Information rather than Debug on a non-default method, so an AP sitting on a slower
             // path is visible in the log rather than silently slow.
-            if (transfer.Name != ApAgentTransferSelector.SftpMethod)
-                _logger.LogInformation("AP Agent transferred to {Host} over {Method} on site {Site}", host, transfer.Name, _siteSlug);
+            if (method != ApAgentTransferSelector.SftpMethod)
+                _logger.LogInformation("AP Agent transferred to {Host} over {Method} on site {Site}", host, method, _siteSlug);
 
-            var note = TransferNoteFor(transfer.Name, status);
+            var note = TransferNoteFor(method, status);
             lock (_transferNotes)
             {
                 if (note == null) _transferNotes.Remove(mac);
@@ -847,6 +841,7 @@ public sealed class ApAgentDeploymentService : IApAgentDeploymentService, IDispo
             return ApAgentOperationResult.Ok();
         }
 
+        var failures = staged.Failures;
         var detail = string.Join("\n",
             "Could not copy the AP Agent to this access point.",
             "- SFTP: " + (failures.TryGetValue(ApAgentTransferSelector.SftpMethod, out var sftpError) ? sftpError : "not available on this firmware"),
