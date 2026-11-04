@@ -134,6 +134,12 @@
     window.noTime = {
         zone,
 
+        /** The viewer's format: { h24, dayFirst }. */
+        format,
+
+        /** A time alone in the viewer's format: "14:05[:09]" or "2:05[:09] PM". */
+        timeLabel: (value, seconds = true) => timeText(parts(value), seconds),
+
         /** toLocaleString on the viewer's clock and format. */
         string: (value, options) => local('toLocaleString', value, options),
         /** toLocaleTimeString on the viewer's clock and format. */

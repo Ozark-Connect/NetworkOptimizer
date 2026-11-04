@@ -413,8 +413,8 @@ function buildOpts() {
 }
 
 // Time labels pinned to a fixed grid, rendered as x-axis annotations so
-// they scroll with the data. Full 24-hour time on every tick, placed below
-// the axis in the space freed by the hidden built-in labels. The grid
+// they scroll with the data. Full time to the second, in the viewer's format, on every tick, placed
+// below the axis in the space freed by the hidden built-in labels. The grid
 // interval is chosen from the chart's own rendered width (clientWidth), not
 // the viewport, so half-view panels and mobile - which constrain the chart
 // below full width while the viewport stays wide - step out to a sparser
@@ -464,9 +464,9 @@ function compareSeries() {
 
 function buildTimeTicks(minMs, maxMs) {
     const width = document.getElementById(elId)?.clientWidth || 800;
-    // An HH:mm:ss label is ~46px at 10px; budget 64px per slot for breathing
-    // room, then pick the densest grid whose tick count fits that budget.
-    const slots = Math.max(2, Math.floor(width / 64));
+    // An HH:mm:ss label is ~46px at 10px and "10:32:20 PM" ~62px; budget 18px over that per slot
+    // for breathing room, then pick the densest grid whose tick count fits that budget.
+    const slots = Math.max(2, Math.floor(width / (noTime.format().h24 ? 64 : 80)));
     const spanMs = maxMs - minMs;
     const GRIDS = [20000, 30000, 60000, 120000];
     let GRID_MS = GRIDS[GRIDS.length - 1];
@@ -475,9 +475,7 @@ function buildTimeTicks(minMs, maxMs) {
     }
     const ticks = [];
     for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
-        const p = noTime.parts(t);
-        const text = [p.hour, p.minute, p.second]
-            .map(v => String(v).padStart(2, '0')).join(':');
+        const text = noTime.timeLabel(t);
         ticks.push({
             x: t,
             borderColor: 'transparent',

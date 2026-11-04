@@ -150,11 +150,12 @@ function buildOpts() {
     };
 }
 
-// Time labels pinned to a fixed grid, as annotations so they scroll with the data. The grid
-// interval comes from the rendered width, so a narrow panel steps out to a sparser grid.
+// Time labels pinned to a fixed grid, as annotations so they scroll with the data, in the viewer's
+// format. The grid interval comes from the rendered width, so a narrow panel steps out to a sparser
+// grid; a 12-hour label ("10:32:20 PM") is wider and gets a wider slot.
 function buildTimeTicks(minMs, maxMs) {
     const width = document.getElementById(elId)?.clientWidth || 800;
-    const slots = Math.max(2, Math.floor(width / 64));
+    const slots = Math.max(2, Math.floor(width / (noTime.format().h24 ? 64 : 80)));
     const spanMs = maxMs - minMs;
     const GRIDS = [20000, 30000, 60000, 120000];
     let gridMs = GRIDS[GRIDS.length - 1];
@@ -163,9 +164,7 @@ function buildTimeTicks(minMs, maxMs) {
     }
     const ticks = [];
     for (let t = Math.ceil(minMs / gridMs) * gridMs; t <= maxMs; t += gridMs) {
-        const p = noTime.parts(t);
-        const text = [p.hour, p.minute, p.second]
-            .map(v => String(v).padStart(2, '0')).join(':');
+        const text = noTime.timeLabel(t);
         ticks.push({
             x: t,
             borderColor: 'transparent',
