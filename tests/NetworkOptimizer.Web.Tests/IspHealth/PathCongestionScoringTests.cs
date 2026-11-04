@@ -32,6 +32,48 @@ public class PathCongestionScoringTests
     private static List<PathCongestionEpisode> Score(params PathEpisode[] episodes) =>
         IspHealthService.ScorablePathCongestion(episodes, AsnById, DestinationAsns, WindowStart, WindowEnd, minAsns: 2);
 
+    private static readonly Dictionary<int, string> TargetIdById = new() { [1] = "aws-us-east-1", [2] = "aws-us-east-2", [3] = "path-apple-as714" };
+
+    private static PathEpisode StepEpisode(double peakLoss) => new()
+    {
+        Id = 9,
+        OpenedAt = WindowStart.AddHours(19),
+        ClosedAt = WindowStart.AddHours(21),
+        BottleneckLabel = "The common factor is most likely the return path into your ISP.",
+        Targets = new[] { 1, 3 }.Select(t => new PathEpisodeTarget
+        {
+            MonitoringTargetId = t, Role = PathEpisodeTargetRole.Degraded, PeakLossPct = peakLoss, BaselineRttMs = 20, PeakRttMs = 33
+        }).ToList()
+    };
+
+    private static readonly List<PathShiftEvent> CorrelatedStep = new()
+    {
+        new PathShiftEvent
+        {
+            Time = WindowStart.AddHours(19).AddMinutes(10),
+            TargetId = "aws-us-east-1",
+            TargetIds = { "aws-us-east-1", "path-apple-as714" },
+            BeforeMedianMs = 20,
+            AfterMedianMs = 33,
+            CorrelatedTargetCount = 2
+        }
+    };
+
+    [Fact]
+    public void AnEpisodeAPathShiftExplains_IsNotCongestion()
+    {
+        // Two networks, so it would score; both sit on one correlated step with no real loss.
+        IspHealthService.ExplainedByShift(StepEpisode(peakLoss: 0), TargetIdById, CorrelatedStep, new IspHealthOptions())
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void RealLossOnTheStep_StillScores()
+    {
+        IspHealthService.ExplainedByShift(StepEpisode(peakLoss: 12), TargetIdById, CorrelatedStep, new IspHealthOptions())
+            .Should().BeFalse();
+    }
+
     [Fact]
     public void TwoNetworks_Count_WithTheirBreadthAndDepth()
     {
