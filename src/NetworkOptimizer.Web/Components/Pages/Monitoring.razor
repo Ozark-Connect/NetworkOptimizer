@@ -3044,9 +3044,8 @@
 
         // Deep link from the ISP Health loss factors into investigation. Armed by the NAVIGATION
         // that carried it, like the linked instant below: ?investigate= stays in the address bar
-        // while the investigation is on screen, so arming on every re-supply re-ran the search
-        // whenever anything else touched the URL - a drag-zoom drops ?at=/?wan= and did exactly
-        // that, reframing the chart over the range the user had just drawn.
+        // until the user moves the window, so arming on every re-supply re-ran the search whenever
+        // anything else touched the URL (a WAN pill drops ?wan=).
         // The arm is once per visit: leaving the tab releases it, or the next jump from ISP Health
         // (the same URL every time) matches the stale arm and never runs.
         if (_activeTab != "performance") _armedInvestigateUri = null;
@@ -4571,14 +4570,6 @@
     public void OnTimelineMovedByUser() => ClearLinkedInstant();
 
     /// <summary>
-    /// Drops ?at= and ?wan= once the timeline is under the user's own hand. Both say where a link
-    /// wanted to put them - one in time, one on a WAN - and left in place after they move, a reload
-    /// or the back button drags them back to it. Done on THEIR input and nowhere else - clearing on
-    /// arrival instead cost an extra navigation per jump, and looping between the jump icons tripped
-    /// the browser's throttle. The two are dropped in ONE navigation for the same reason: a second
-    /// replaceState behind Blazor's router is what desynchronized the two views of the URL before.
-    /// </summary>
-    /// <summary>
     /// Drops ?wan= once the user picks their own WAN, and leaves ?at= alone: choosing which WAN is
     /// on screen says nothing about the instant they are looking at. Otherwise the same reasoning as
     /// <see cref="ClearLinkedInstant"/> - the parameter records which WAN a link wanted, and left in
@@ -4603,14 +4594,31 @@
         NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
     }
 
-    private void ClearLinkedInstant()
+    /// <summary>
+    /// Drops the link's window (?at=, ?span=, ?investigate=) and ?wan= once the timeline is under the
+    /// user's own hand. Each says where a link wanted to put them, and left in place after they move,
+    /// a reload, the back button, or a site switch (which reloads this URL) drags them back to it.
+    /// Done on THEIR input and nowhere else - clearing on arrival instead cost an extra navigation per
+    /// jump, and looping between the jump icons tripped the browser's throttle. All are dropped in ONE
+    /// navigation for the same reason: a second replaceState behind Blazor's router is what
+    /// desynchronized the two views of the URL before.
+    /// </summary>
+    /// <param name="keepInvestigation">
+    /// True for paging inside an investigation: it moves the window, so ?at= and ?span= go, but it is
+    /// still the investigation (and the WAN) the link opened, so ?investigate= and ?wan= stay.
+    /// </param>
+    private void ClearLinkedInstant(bool keepInvestigation = false)
     {
         _linkedInstantMs = null;
         var current = NavigationManager.Uri;
         var stripped = current;
         if (!string.IsNullOrWhiteSpace(AtParam))
             stripped = SiteContextService.RemoveQueryParam(stripped, "at");
-        if (!string.IsNullOrWhiteSpace(WanParam))
+        if (!string.IsNullOrWhiteSpace(SpanParam))
+            stripped = SiteContextService.RemoveQueryParam(stripped, "span");
+        if (!keepInvestigation && !string.IsNullOrWhiteSpace(InvestigateParam))
+            stripped = SiteContextService.RemoveQueryParam(stripped, "investigate");
+        if (!keepInvestigation && !string.IsNullOrWhiteSpace(WanParam))
             stripped = SiteContextService.RemoveQueryParam(stripped, "wan");
         if (stripped == current) return;
         // Armed against the new URL first, or being re-supplied under it would arm a fresh seek
@@ -5449,7 +5457,13 @@
         catch { }
     }
 
-    private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null, loadedOnly: false);
+    // Starting a new search replaces the one a link opened, so it consumes the link first. Paging
+    // keeps the investigation and drops only the time. A deep-linked run never comes through here.
+    private Task InvestigatePacketLoss()
+    {
+        ClearLinkedInstant();
+        return NavigateToLossEvent(null, null, loadedOnly: false);
+    }
 
     /// <summary>
     /// Loaded loss is a WAN's own signal - graded against that WAN's plan speeds and read off its
@@ -5475,6 +5489,9 @@
             try { await ApplyWanSelectionAsync(persist: true); }
             finally { _investigatingLoss = false; }
         }
+        // After the scope change, never before: its ClearLinkedWan can navigate from the URL as it
+        // stood, and only a clear that runs last (and strips the superset) leaves the right one.
+        ClearLinkedInstant();
         await NavigateToLossEvent(null, null, loadedOnly: true);
     }
     // Step to the previous/next distinct event by querying strictly outside the current
@@ -5485,10 +5502,19 @@
     // bucket is actually excluded (the coalesce gap guarantees the previous event is >= 2 min
     // earlier, so it is never dropped). Forward needs no such fudge: the current event's data
     // all precedes the EventEnd stamp, so an inclusive start just past EventEnd excludes it.
-    private Task LossNavBack() => _lossNavEventStart.HasValue
-        ? NavigateToLossEvent(_lossNavEventStart.Value.AddMinutes(-1), null, _lossNavLoadedOnly) : Task.CompletedTask;
-    private Task LossNavForward() => _lossNavEventEnd.HasValue
-        ? NavigateToLossEvent(null, _lossNavEventEnd.Value.AddSeconds(1), _lossNavLoadedOnly) : Task.CompletedTask;
+    private Task LossNavBack()
+    {
+        if (!_lossNavEventStart.HasValue) return Task.CompletedTask;
+        ClearLinkedInstant(keepInvestigation: true);
+        return NavigateToLossEvent(_lossNavEventStart.Value.AddMinutes(-1), null, _lossNavLoadedOnly);
+    }
+
+    private Task LossNavForward()
+    {
+        if (!_lossNavEventEnd.HasValue) return Task.CompletedTask;
+        ClearLinkedInstant(keepInvestigation: true);
+        return NavigateToLossEvent(null, _lossNavEventEnd.Value.AddSeconds(1), _lossNavLoadedOnly);
+    }
 
     // Clear the loss-investigation state (no chart call). Used both by the Exit button and
     // when leaving the performance tab, so the card never shows "active" without a live chart.
@@ -5504,6 +5530,7 @@
 
     private async Task LossNavDeactivate()
     {
+        ClearLinkedInstant();
         ResetLossNavState();
         StateHasChanged();
         await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
