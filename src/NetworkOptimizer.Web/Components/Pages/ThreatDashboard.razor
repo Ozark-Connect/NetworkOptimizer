@@ -109,7 +109,7 @@
             <div style="display:flex; align-items:center; gap:0.25rem;">
                 <button class="btn btn-sm @(_filtersActive ? "btn-primary" : "btn-secondary")"
                         @onclick="ToggleFiltersActive" disabled="@(!_canConfigure)"
-                        data-tooltip="@(_filtersActive ? "Noise filters active - click to disable" : "Noise filters disabled - click to enable")"
+                        data-tooltip="@(_filtersActive ? "Noise filters active in your view - click to disable (alerts stay filtered)" : "Noise filters off in your view - click to enable (alerts stay filtered)")"
                         data-tooltip-hover-only>
                     <span>Filters</span>
                     @{
