@@ -85,6 +85,24 @@ public class PhysicalLinkScorerSatelliteTests
     }
 
     [Fact]
+    public void Satellite_lower_signal_than_predicted_alone_does_not_cap()
+    {
+        var result = ScoreSat(obstruction: 0.0006, dropAvg: 0.001, outageSeconds: 0,
+            alerts: new[] { "lower_signal_than_predicted" });
+        result.Factor.Score.Should().BeGreaterThan(90);
+        result.Issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Satellite_lower_signal_than_predicted_with_obstruction_caps()
+    {
+        var result = ScoreSat(obstruction: 0.001, dropAvg: 0.001, outageSeconds: 0,
+            alerts: new[] { "lower_signal_than_predicted" });
+        result.Factor.Score.Should().BeLessThanOrEqualTo(75);
+        result.Issues.Should().Contain(i => i.Title.Contains("lower than predicted"));
+    }
+
+    [Fact]
     public void Satellite_slow_ethernet_is_advisory_only()
     {
         var withSlowEth = ScoreSat(obstruction: 0.0005, dropAvg: 0.001, outageSeconds: 0, ethSpeed: 100);

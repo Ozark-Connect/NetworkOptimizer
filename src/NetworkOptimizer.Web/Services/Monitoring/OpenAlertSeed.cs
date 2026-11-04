@@ -20,6 +20,7 @@ public sealed class OpenAlertSeed
     private readonly IReadOnlyCollection<string> _openTypes;
     private readonly Func<AlertHistoryEntry, string?> _subject;
     private readonly ILogger _logger;
+    private readonly bool _includeHandResolved;
     private readonly object _lock = new();
     private Task<OpenAlerts>? _read;
 
@@ -32,14 +33,20 @@ public sealed class OpenAlertSeed
     /// skips the alert.
     /// </param>
     /// <param name="logger">Logger for a failed read.</param>
+    /// <param name="includeHandResolved">
+    /// Also treat an opening resolved by hand as open: resolved, with no recovery after it. The
+    /// condition was still standing when someone resolved it, so without this a restart re-raises
+    /// it as new.
+    /// </param>
     public OpenAlertSeed(IServiceScopeFactory? scopes, string siteSlug, IReadOnlyCollection<string> openTypes,
-        Func<AlertHistoryEntry, string?> subject, ILogger logger)
+        Func<AlertHistoryEntry, string?> subject, ILogger logger, bool includeHandResolved = false)
     {
         _scopes = scopes;
         _siteSlug = siteSlug;
         _openTypes = openTypes;
         _subject = subject;
         _logger = logger;
+        _includeHandResolved = includeHandResolved;
     }
 
     /// <summary>The conditions open at start-up, read on first call. Never throws; empty on failure.</summary>
@@ -58,7 +65,10 @@ public sealed class OpenAlertSeed
             var repo = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
 
             var floor = DateTime.UtcNow - Lookback;
-            var openings = (await repo.GetUnresolvedAlertsAsync())
+            var candidates = _includeHandResolved
+                ? await repo.GetAlertsForDigestAsync(floor)
+                : await repo.GetUnresolvedAlertsAsync();
+            var openings = candidates
                 .Where(a => _openTypes.Contains(a.EventType) && a.TriggeredAt >= floor && _subject(a) != null)
                 .ToList();
             if (openings.Count == 0) return OpenAlerts.None;
