@@ -1381,7 +1381,7 @@ public class IspHealthService
                     usageFingerprint, UsageWeighting.LocalHoursSpanned(o.Start, o.End, usageZone), _options.UsageWeightFloor);
         }
 
-        var pathCongestion = await LoadPathCongestionAsync(windowStart, windowEnd, scoredWanKey, primaryScope, targets, ct);
+        var pathCongestion = await LoadPathCongestionAsync(windowStart, windowEnd, scoredWanKey, primaryScope, targets, pathShifts, ct);
         if (usageFingerprint != null)
         {
             foreach (var e in pathCongestion)
@@ -1608,8 +1608,11 @@ public class IspHealthService
     /// The window's Path Localization episodes on the scored WAN that count against the ISP. One
     /// SQLite read; never fails the compute, since the score stands without it.
     /// </summary>
+    /// <param name="pathShifts">The report's path shifts. An episode one explains is that shift's trace,
+    /// and path shifts never score.</param>
     private async Task<List<PathCongestionEpisode>> LoadPathCongestionAsync(DateTime windowStart, DateTime windowEnd,
-        string scoredWanKey, bool primaryScope, List<MonitoringTarget> scopedTargets, CancellationToken ct)
+        string scoredWanKey, bool primaryScope, List<MonitoringTarget> scopedTargets, IReadOnlyList<PathShiftEvent> pathShifts,
+        CancellationToken ct)
     {
         try
         {
@@ -1622,8 +1625,12 @@ public class IspHealthService
             if (episodes.Count == 0) return new List<PathCongestionEpisode>();
 
             var ids = episodes.SelectMany(e => e.Targets.Select(t => t.MonitoringTargetId)).Distinct().ToList();
-            var asnById = await db.MonitoringTargets.AsNoTracking().Where(t => ids.Contains(t.Id))
-                .ToDictionaryAsync(t => t.Id, t => t.AsnNumber, ct);
+            var targetRows = await db.MonitoringTargets.AsNoTracking().Where(t => ids.Contains(t.Id))
+                .Select(t => new { t.Id, t.AsnNumber, t.TargetId })
+                .ToListAsync(ct);
+            var asnById = targetRows.ToDictionary(t => t.Id, t => t.AsnNumber);
+            var targetIdById = targetRows.ToDictionary(t => t.Id, t => t.TargetId);
+            episodes = episodes.Where(e => !ExplainedByShift(e, targetIdById, pathShifts, _options)).ToList();
             var destinationAsns = scopedTargets
                 .Where(t => t.TargetType == MonitoringTargetType.InternetService && t.AsnNumber is > 0)
                 .Select(t => t.AsnNumber!.Value)
@@ -1635,6 +1642,18 @@ public class IspHealthService
             _logger.LogDebug(ex, "ISP Health: could not read Path Localization episodes; scoring without them");
             return new List<PathCongestionEpisode>();
         }
+    }
+
+    /// <summary>Whether a path shift explains a stored episode (<see cref="PathLocalization.PathShiftMatch"/>).</summary>
+    internal static bool ExplainedByShift(PathEpisode e, IReadOnlyDictionary<int, string> targetIdById,
+        IReadOnlyList<PathShiftEvent> pathShifts, IspHealthOptions options)
+    {
+        var degraded = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).ToList();
+        if (degraded.Any(t => !targetIdById.ContainsKey(t.MonitoringTargetId))) return false;
+        var levels = degraded
+            .Select(t => new PathLocalization.EpisodeTargetLevels(targetIdById[t.MonitoringTargetId], t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct))
+            .ToList();
+        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options) != null;
     }
 
     /// <summary>

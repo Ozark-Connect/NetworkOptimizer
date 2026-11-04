@@ -67,6 +67,34 @@ public static class PathEpisodePresentation
                 EpisodeId: e.Id);
         });
 
+    /// <summary>
+    /// Episodes a Path shift explains (<see cref="PathShiftMatch"/>), folded into the shift's row: the shift
+    /// carries the earliest one's hop table, and none of them gets a congestion row, finding, or banner.
+    /// </summary>
+    /// <param name="TraceByShift">The episode whose hop table each shift row shows.</param>
+    /// <param name="Explained">Every episode a shift explains.</param>
+    public sealed record ShiftFold(IReadOnlyDictionary<PathShiftEvent, int> TraceByShift, IReadOnlySet<int> Explained)
+    {
+        public static readonly ShiftFold None = new(new Dictionary<PathShiftEvent, int>(), new HashSet<int>());
+
+        /// <summary>The episodes that keep their own row, finding, and banner.</summary>
+        public IEnumerable<T> Unexplained<T>(IEnumerable<T> episodes, Func<T, int> id) => episodes.Where(e => !Explained.Contains(id(e)));
+    }
+
+    /// <summary>Folds the episodes the report's Path shifts explain; <see cref="ShiftFold.None"/> without a report.</summary>
+    public static ShiftFold FoldIntoShifts(IReadOnlyList<PathEpisodeView> episodes, IspHealthReport? report, IspHealthOptions options)
+    {
+        if (report == null || episodes.Count == 0) return ShiftFold.None;
+        var matched = PathShiftMatch.Match(episodes, report.PathShifts, options);
+        if (matched.Count == 0) return ShiftFold.None;
+        var openedAt = episodes.ToDictionary(e => e.Id, e => e.OpenedAt);
+        var traceByShift = matched
+            .GroupBy(m => m.Value, ReferenceEqualityComparer.Instance)
+            .ToDictionary(g => (PathShiftEvent)g.Key!, g => g.OrderBy(m => openedAt[m.Key]).First().Key,
+                (IEqualityComparer<PathShiftEvent>)ReferenceEqualityComparer.Instance);
+        return new ShiftFold(traceByShift, matched.Keys.ToHashSet());
+    }
+
     /// <summary>An episode's badge: tracing while rounds run, Ongoing while the problem outlasts them, then Congestion.</summary>
     public static string BadgeLabel(PathEpisodeView e) => e.Tracing ? "Tracing now" : e.Ongoing ? "Ongoing" : "Congestion";
 

@@ -913,7 +913,7 @@ else
         </div>
         <div class="card-body">
             @{
-                var allEvents = EventTimeline(r)
+                var allEvents = EventTimeline(r, _shiftFold.TraceByShift)
                     .Concat(_episodeEntries)
                     .OrderBy(e => e.Time)
                     .Where(InZoomWindow).Where(InVisibleSeries).ToList();
@@ -940,19 +940,7 @@ else
                             <span class="isp-event-time">@EventTimeLabel(entry.Time, DisplayTime.Zone, DisplayTime.Format)</span>
                             <span class="isp-event-text">
                                 <TextWithCode Text="@entry.Text" />
-                                @if (entry.EpisodeId is int episodeId)
-                                {
-                                    var episodeKey = $"episode:{episodeId}";
-                                    var episodeOpen = _expandedEvents.Contains(episodeKey);
-                                    @(" ")
-                                    <button type="button" class="isp-event-members-toggle" aria-expanded="@episodeOpen"
-                                            @onclick="() => ToggleEventMembers(episodeKey)">@(episodeOpen ? "Hide hop table" : "Show hop table")</button>
-                                    @if (episodeOpen)
-                                    {
-                                        <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
-                                    }
-                                }
-                                else if (entry.Members is { Count: > 0 })
+                                @if (entry.Members is { Count: > 0 })
                                 {
                                     var key = EventMemberKey(entry);
                                     var open = _expandedEvents.Contains(key);
@@ -969,6 +957,18 @@ else
                                                 <div>@member</div>
                                             }
                                         </div>
+                                    }
+                                }
+                                @if (entry.EpisodeId is int episodeId)
+                                {
+                                    var episodeKey = $"episode:{episodeId}";
+                                    var episodeOpen = _expandedEvents.Contains(episodeKey);
+                                    @(" ")
+                                    <button type="button" class="isp-event-members-toggle" aria-expanded="@episodeOpen"
+                                            @onclick="() => ToggleEventMembers(episodeKey)">@(episodeOpen ? "Hide hop table" : "Show hop table")</button>
+                                    @if (episodeOpen)
+                                    {
+                                        <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
                                     }
                                 }
                             </span>
@@ -1087,6 +1087,10 @@ else
     // on every render never matches its last key, so an open hop table would be torn down and
     // re-read on every 30 s tick.
     private IReadOnlyList<TimelineEntry> _episodeEntries = Array.Empty<TimelineEntry>();
+    // Episodes the report's Path shifts explain: the shift row carries the trace instead. Keyed by the
+    // report's own shift instances, so it is rebuilt with every load.
+    private NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.ShiftFold _shiftFold =
+        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.ShiftFold.None;
     private static readonly IspHealthOptions EpisodeOptions = new();
 
     // The banner reads the last 24 hours whatever the report window, so a 1-hour view still shows
@@ -1102,7 +1106,9 @@ else
             var recent = await PathEpisodes.GetEpisodesAsync(
                 now - NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.BannerHold,
                 now, _selectedWanKey, _wanSvc == null);
-            var banner = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Banner(recent, now, DisplayTime.Zone, DisplayTime.Format);
+            var fold = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(recent, _report, EpisodeOptions);
+            var banner = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Banner(
+                fold.Unexplained(recent, e => e.Id).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
             // A failed read keeps it hidden, like the plan-speed hint.
             var dismissed = banner == null || await Dismissals.IsDismissedAsync(banner.DismissKey(SiteContext.Slug));
             _episodeBanner = banner;
@@ -1155,7 +1161,8 @@ else
     }
 
     private IEnumerable<IspHealthIssue> EpisodeFindings =>
-        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Findings(_episodes, EpisodeOptions, DisplayTime.Zone, DisplayTime.Format,
+        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Findings(
+            _shiftFold.Unexplained(_episodes, e => e.Id).ToList(), EpisodeOptions, DisplayTime.Zone, DisplayTime.Format,
             NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report));
 
     private async Task LoadEpisodesAsync()
@@ -1166,6 +1173,7 @@ else
         {
             _episodes = Array.Empty<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeView>();
             _episodeEntries = Array.Empty<TimelineEntry>();
+            _shiftFold = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.ShiftFold.None;
             return;
         }
         try
@@ -1173,7 +1181,9 @@ else
             // The live view runs to now, so an episode tracing since the last compute still shows.
             var to = IsLiveWindow ? DateTime.UtcNow : r.WindowEnd;
             _episodes = await PathEpisodes.GetEpisodesAsync(r.WindowStart, to, _selectedWanKey, _wanSvc == null);
-            _episodeEntries = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Entries(_episodes,
+            _shiftFold = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(_episodes, r, EpisodeOptions);
+            _episodeEntries = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Entries(
+                _shiftFold.Unexplained(_episodes, e => e.Id),
                 NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(r)).ToList();
         }
         catch (Exception ex)

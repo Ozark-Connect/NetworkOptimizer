@@ -24,8 +24,8 @@ public enum EventCategory
 /// <see cref="TargetIds"/> is every monitored target behind the entry, so a renderer that also
 /// draws the series (the tab, not the PDF) can hide an entry whose lines are all filtered out.
 ///
-/// <see cref="EpisodeId"/> marks a Path Localization episode, whose detail is its hop table rather
-/// than a list of members.
+/// <see cref="EpisodeId"/> marks a Path Localization episode's hop table: on an episode's own row, or on
+/// the Path shift row that explains the episode, beside that shift's members.
 /// </summary>
 public record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null,
     EventCategory Category = EventCategory.Congestion, string? BadgeTooltip = null,
@@ -48,7 +48,10 @@ public static class IspHealthPresentation
     /// Builds the Path &amp; Congestion Events feed for a report: congestion events with
     /// their disposition-specific wording, then path shifts and route changes, in time order.
     /// </summary>
-    public static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r)
+    /// <param name="traceByShift">The Path Localization episode each path shift carries the hop table of,
+    /// when the shift explains it.</param>
+    public static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r,
+        IReadOnlyDictionary<PathShiftEvent, int>? traceByShift = null)
     {
         var entries = new List<TimelineEntry>();
         foreach (var group in GroupCongestion(r.CongestionEvents))
@@ -159,7 +162,8 @@ public static class IspHealthPresentation
                 : null;
             entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-shift",
                 $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
-                Category: EventCategory.Shift, Members: shiftMembers, MemberNoun: "path", TargetIds: shift.TargetIds));
+                Category: EventCategory.Shift, Members: shiftMembers, MemberNoun: "path", TargetIds: shift.TargetIds,
+                EpisodeId: traceByShift != null && traceByShift.TryGetValue(shift, out var traced) ? traced : null));
         }
         return entries.OrderBy(e => e.Time);
     }
