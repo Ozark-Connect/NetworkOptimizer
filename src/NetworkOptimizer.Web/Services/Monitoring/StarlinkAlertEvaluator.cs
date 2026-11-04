@@ -36,9 +36,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </para>
 ///
 /// <para>
-/// State is in memory only. At start-up the alerts still open are read back
-/// (<see cref="OpenAlertSeed"/>) and each rule starts open, so a condition spanning a restart keeps
-/// its one alert and one that cleared meanwhile is closed by the rule's own clear test. The
+/// State is in memory only. At start-up the alerts still open, and those resolved by hand with no
+/// recovery after them, are read back (<see cref="OpenAlertSeed"/>) and each rule starts open, so a
+/// condition spanning a restart keeps its one alert and one that cleared meanwhile is closed by the
+/// rule's own clear test. The
 /// windowed rules still need their samples again: alignment stays quiet until the window refills,
 /// and a seeded outage burst is held open for a full window rather than closed on an empty one.
 /// </para>
@@ -178,7 +179,8 @@ public class StarlinkAlertEvaluator
     /// Only the first is measured; the other four are judged on what the code means, since nothing
     /// has been observed raising them. Everything else the dish reports is passed through verbatim:
     /// these are SpaceX's own judgment about its own hardware, and translating them would only lose
-    /// what a search for the exact string turns up.
+    /// what a search for the exact string turns up. <c>lower_signal_than_predicted</c> is not
+    /// benign but counts only when <see cref="StarlinkHealthThresholds.IsLowSignalCorroborated"/>.
     ///
     /// <para>
     /// The reference dish is fixed-tilt, motorless and permanently rate restricted, and raised
@@ -221,7 +223,7 @@ public class StarlinkAlertEvaluator
         _openAtStart = new OpenAlertSeed(scopeFactory,
             string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug,
             [DishAlertEvent, ObstructedEvent, AlignmentDriftEvent, EthSpeedDegradedEvent, OutageBurstEvent, ServiceRestrictedEvent],
-            SeedSubject, logger);
+            SeedSubject, logger, includeHandResolved: true);
         _eventBus = eventBus;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
@@ -458,10 +460,15 @@ public class StarlinkAlertEvaluator
         // The dish's codes verbatim - they are SpaceX's own vocabulary for its own hardware, and
         // paraphrasing them would only lose what a search for the exact string turns up.
         var codes = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lowSignalCorroborated = StarlinkHealthThresholds.IsLowSignalCorroborated(
+            stats.FractionObstructed, stats.IsSnrPersistentlyLow);
         foreach (var code in stats.ActiveAlerts)
         {
-            if (!string.IsNullOrWhiteSpace(code) && !BenignDishAlerts.Contains(code))
-                codes.Add(code);
+            if (string.IsNullOrWhiteSpace(code) || BenignDishAlerts.Contains(code)) continue;
+            if (!lowSignalCorroborated
+                && string.Equals(code, StarlinkHealthThresholds.LowerSignalThanPredictedAlert, StringComparison.OrdinalIgnoreCase))
+                continue;
+            codes.Add(code);
         }
 
         // The signature the open alert was raised for. It carries the disablement code and the

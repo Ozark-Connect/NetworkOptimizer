@@ -223,6 +223,53 @@ public class StarlinkAlertEvaluatorTests
         Of("starlink.dish_alert").Should().HaveCount(2, "the condition cleared, so it can raise again");
     }
 
+    /// <summary>The flag stays raised for hours after weather passes while every other reading is healthy.</summary>
+    [Fact]
+    public async Task LowerSignalThanPredicted_OnAnOtherwiseHealthyDish_DoesNotAlert()
+    {
+        var stats = Healthy();
+        stats.ActiveAlerts = ["install_pending", "lower_signal_than_predicted"];
+        stats.IsSnrAboveNoiseFloor = false; // proto3 default when the dish omits it
+
+        await Feed(stats);
+
+        Of("starlink.dish_alert").Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0.001, false)]
+    [InlineData(0.0006, true)]
+    public async Task LowerSignalThanPredicted_BackedByObstructionOrSnr_Alerts(
+        double fraction, bool snrPersistentlyLow)
+    {
+        var stats = Healthy();
+        stats.ActiveAlerts = ["lower_signal_than_predicted"];
+        stats.FractionObstructed = fraction;
+        stats.IsSnrPersistentlyLow = snrPersistentlyLow;
+        stats.IsSnrAboveNoiseFloor = false;
+
+        await Feed(stats);
+
+        Of("starlink.dish_alert").Should().ContainSingle()
+            .Which.Context["dish_alerts"].Should().Be("lower_signal_than_predicted");
+    }
+
+    [Fact]
+    public async Task LowerSignalThanPredicted_LosingItsBacking_Recovers()
+    {
+        var backed = Healthy();
+        backed.ActiveAlerts = ["lower_signal_than_predicted"];
+        backed.IsSnrPersistentlyLow = true;
+        await Feed(backed);
+
+        _time.Advance(TimeSpan.FromMinutes(1));
+        var bare = Healthy();
+        bare.ActiveAlerts = ["lower_signal_than_predicted"];
+        await Feed(bare);
+
+        RecoveriesOf("starlink.dish_alert").Should().ContainSingle();
+    }
+
     // --- starlink.obstructed -------------------------------------------------------------
 
     [Fact]
@@ -688,6 +735,36 @@ public class StarlinkAlertEvaluatorTests
         }, Stored("starlink.dish_alert", ("dish_alerts", "thermal_throttle")));
 
         _bus.Published.Should().BeEmpty();
+    }
+
+    /// <summary>Resolving a standing fault by hand acknowledges it; a restart must not raise it again.</summary>
+    [Fact]
+    public async Task DishFaultResolvedByHand_SameCodeStanding_IsNotRepublishedAfterRestart()
+    {
+        await AfterRestartAsync(5, TimeSpan.FromMinutes(1), () =>
+        {
+            var stats = Healthy();
+            stats.ActiveAlerts = ["thermal_throttle"];
+            return stats;
+        }, Stored("starlink.dish_alert", ("dish_alerts", "thermal_throttle")).Resolved());
+
+        _bus.Published.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DishFaultResolvedByItsRecovery_SameCodeBack_IsRaisedAfterRestart()
+    {
+        await AfterRestartAsync(1, TimeSpan.FromMinutes(1), () =>
+        {
+            var stats = Healthy();
+            stats.ActiveAlerts = ["thermal_throttle"];
+            return stats;
+        },
+            Stored("starlink.dish_alert", ("dish_alerts", "thermal_throttle")).Resolved(),
+            OpenAlertTestScope.Alert("starlink.recovered", $"starlink:{DishId}", TimeSpan.FromMinutes(30),
+                context: ("recovered_type", "starlink.dish_alert")).Resolved());
+
+        Of("starlink.dish_alert").Should().ContainSingle();
     }
 
     /// <summary>The reference dish fails its self-test permanently, so only the stored regression keeps this open.</summary>

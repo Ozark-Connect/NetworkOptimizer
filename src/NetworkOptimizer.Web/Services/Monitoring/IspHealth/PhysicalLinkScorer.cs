@@ -517,7 +517,7 @@ public static class PhysicalLinkScorer
             "A tilted mount degrades tracking. Level the mount so the dish can align properly."),
         ("dish_water_detected", 60, IspIssueSeverity.Warning, "Starlink: water detected in the dish",
             "The dish is reporting water intrusion; inspect the unit and its cable connections."),
-        ("lower_signal_than_predicted", 75, IspIssueSeverity.Warning, "Starlink: signal lower than predicted",
+        (StarlinkHealthThresholds.LowerSignalThanPredictedAlert, 75, IspIssueSeverity.Warning, "Starlink: signal lower than predicted",
             "The dish sees weaker signal than its ephemeris predicts, which usually means partial blockage or misalignment."),
     };
 
@@ -627,6 +627,9 @@ public static class PhysicalLinkScorer
             foreach (var (alert, cap, severity, title, recommendation) in SatelliteCapAlerts)
             {
                 if (!alerts.Contains(alert, StringComparer.OrdinalIgnoreCase)) continue;
+                if (alert == StarlinkHealthThresholds.LowerSignalThanPredictedAlert
+                    && !StarlinkHealthThresholds.IsLowSignalCorroborated(input.ObstructionFraction, input.SnrPersistentlyLow))
+                    continue;
                 score = Math.Min(score, cap);
                 issues.Add(new IspHealthIssue
                 {
