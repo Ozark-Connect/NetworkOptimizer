@@ -140,6 +140,19 @@ public static class RolloutScopeCopy
 
     private static string Count(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 
+    /// <summary>What the open Scheduled and Starting Soon alerts say once a waiting rollout's start moves.</summary>
+    /// <param name="document">The plan document.</param>
+    /// <param name="devices">Devices the rollout will touch.</param>
+    /// <param name="startUtc">The new start.</param>
+    /// <param name="previousUtc">The start it replaced.</param>
+    /// <param name="nowUtc">The current time.</param>
+    /// <param name="zone">The notification clock (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver"/>).</param>
+    public static string Moved(
+        RolloutPlanDocument document, int devices, DateTime startUtc, DateTime previousUtc, DateTime nowUtc, TimeZoneInfo zone) =>
+        $"{Sentence(Subject(document, devices))} will be upgraded starting {AlertStartLabel(startUtc, document.TimeZoneId, zone)}, "
+        + $"{StartsIn(startUtc - nowUtc)}. The start moved from {AlertStartLabel(previousUtc, document.TimeZoneId, zone)}. "
+        + "Open Firmware Rollout to postpone or stop it.";
+
     /// <summary>
     /// A start time in an alert: "Tue Oct 27, 15:00 CDT" on the notification clock, in the format text
     /// with no viewer uses (<see cref="DisplayFormat.Fallback"/>), plus the

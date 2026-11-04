@@ -134,4 +134,39 @@ public class RolloutScopeCopyTests
     {
         RolloutScopeCopy.SiteAside(zone, DateTime.UtcNow, Zone("America/Chicago")).Should().BeEmpty();
     }
+
+    [Fact]
+    public void Moved_StatesTheNewStartAndTheOneItReplaced_OnTheNotificationClock()
+    {
+        var now = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+        var previous = now.AddDays(2);
+        var start = now.AddDays(3);
+
+        var message = RolloutScopeCopy.Moved(Doc(), devices: 3, start, previous, now, Zone("America/Chicago"));
+
+        message.Should().Be(
+            "3 devices will be upgraded starting Wed Oct 14, 06:00 CDT, in about 3 days. "
+            + "The start moved from Tue Oct 13, 06:00 CDT. Open Firmware Rollout to postpone or stop it.");
+    }
+
+    [Fact]
+    public void Moved_CarriesTheSiteAsideWhenTheSiteKeepsOtherHours()
+    {
+        var now = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+        var doc = Doc();
+        doc.TimeZoneId = "America/New_York";
+
+        RolloutScopeCopy.Moved(doc, devices: 1, now.AddDays(1), now, now, Zone("America/Chicago"))
+            .Should().Contain("Mon Oct 12, 06:00 CDT (07:00 at-site)")
+            .And.Contain("moved from Sun Oct 11, 06:00 CDT (07:00 at-site)");
+    }
+
+    [Fact]
+    public void Moved_ForAConsoleOnlyRollout_NamesTheConsole()
+    {
+        var now = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+
+        RolloutScopeCopy.Moved(Doc(os: true), devices: 0, now.AddHours(5), now.AddHours(2), now, Zone("America/Chicago"))
+            .Should().StartWith("UniFi OS will be upgraded starting ");
+    }
 }

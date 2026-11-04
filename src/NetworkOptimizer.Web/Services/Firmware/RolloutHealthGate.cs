@@ -1,4 +1,5 @@
 using NetworkOptimizer.Alerts.Interfaces;
+using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Web.Services.Firmware;
@@ -22,8 +23,12 @@ public sealed record RolloutHealthVerdict(bool Healthy, string? Reason = null)
 public interface IRolloutHealthGate
 {
     /// <summary>Evaluates the site's current health.</summary>
+    /// <param name="openedSince">
+    /// Counts only critical alerts opened at or after this instant (the plan's booking), or every open
+    /// critical alert when null.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<RolloutHealthVerdict> EvaluateAsync(CancellationToken cancellationToken = default);
+    Task<RolloutHealthVerdict> EvaluateAsync(DateTime? openedSince, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -51,7 +56,7 @@ public class RolloutHealthGate : IRolloutHealthGate
     }
 
     /// <inheritdoc />
-    public async Task<RolloutHealthVerdict> EvaluateAsync(CancellationToken cancellationToken = default)
+    public async Task<RolloutHealthVerdict> EvaluateAsync(DateTime? openedSince, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -61,19 +66,7 @@ public class RolloutHealthGate : IRolloutHealthGate
                 scope.ServiceProvider, FirmwareRolloutRepositoryAccessor.SystemActor);
 
             var alerts = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
-            var active = await alerts.GetActiveAlertsAsync(cancellationToken);
-            var criticals = active
-                .Where(a => a.Severity == AlertSeverity.Critical && a.Status == AlertStatus.Active)
-                .ToList();
-
-            if (criticals.Count == 0)
-                return RolloutHealthVerdict.Ok();
-
-            var first = criticals[0].Title;
-            var reason = criticals.Count == 1
-                ? $"a critical alert is open ({first})"
-                : $"{criticals.Count} critical alerts are open (including {first})";
-            return RolloutHealthVerdict.Blocked(reason);
+            return Judge(await alerts.GetActiveAlertsAsync(cancellationToken), openedSince);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -82,5 +75,31 @@ public class RolloutHealthGate : IRolloutHealthGate
             _logger.LogWarning(ex, "Could not read active alerts for the rollout health gate on site {Site}", _siteSlug);
             return RolloutHealthVerdict.Ok();
         }
+    }
+
+    /// <summary>
+    /// The verdict over a site's alerts: blocked by any active (not acknowledged) critical alert,
+    /// newest first in the reason. A critical opened before <paramref name="openedSince"/> was already
+    /// open when the rollout was booked, so it does not hold the start: a stale one would postpone the
+    /// rollout every window for as long as nobody closed it.
+    /// </summary>
+    /// <param name="alerts">The site's alerts.</param>
+    /// <param name="openedSince">Earliest open time that counts, or null for every open critical alert.</param>
+    public static RolloutHealthVerdict Judge(IEnumerable<AlertHistoryEntry> alerts, DateTime? openedSince)
+    {
+        var criticals = alerts
+            .Where(a => a.Severity == AlertSeverity.Critical && a.Status == AlertStatus.Active)
+            .Where(a => openedSince is not { } since || a.TriggeredAt >= since)
+            .OrderByDescending(a => a.TriggeredAt)
+            .ToList();
+
+        if (criticals.Count == 0)
+            return RolloutHealthVerdict.Ok();
+
+        var first = criticals[0].Title;
+        var reason = criticals.Count == 1
+            ? $"a critical alert is open ({first})"
+            : $"{criticals.Count} critical alerts are open (including {first})";
+        return RolloutHealthVerdict.Blocked(reason);
     }
 }

@@ -226,8 +226,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     /// Where the console and the probe vantages sit on the uplink tree. Null places the console at
     /// the tree's root (a Cloud Gateway) and no vantage at all.
     /// </param>
+    /// <param name="alertEditor">
+    /// Corrects the open Scheduled and Starting Soon alerts when a waiting plan's start moves. Null
+    /// leaves them as they were published.
+    /// </param>
     private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? _sharedCatalog;
     private readonly IRolloutConfigGuard? _configGuard;
+    private readonly IRolloutAlertEditor? _alertEditor;
 
     public FirmwareRolloutOrchestrator(
         IFirmwareRolloutRepositoryAccessor repositories,
@@ -251,10 +256,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         Auditing.IAuditLogger? audit = null,
         NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository? sharedCatalog = null,
         IRolloutConfigGuard? configGuard = null,
-        INotificationTimeZoneResolver? timeZones = null)
+        INotificationTimeZoneResolver? timeZones = null,
+        IRolloutAlertEditor? alertEditor = null)
     {
         _configGuard = configGuard;
         _timeZones = timeZones;
+        _alertEditor = alertEditor;
         _audit = audit;
         _sharedCatalog = sharedCatalog;
         _tunnelRouting = tunnelRouting;
@@ -514,9 +521,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (plan is not { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced })
                 return false;
 
-            plan.ScheduledStartAt = (plan.ScheduledStartAt ?? Now) + HealthPostponeWindow;
+            var previous = plan.ScheduledStartAt ?? Now;
+            plan.ScheduledStartAt = previous + HealthPostponeWindow;
             plan.Status = FirmwareRolloutStatus.Scheduled;
             await PersistPlanAsync(plan, cancellationToken);
+            await RestateStartAsync(plan, previous, cancellationToken);
 
             _logger.LogInformation(
                 "Firmware rollout {Id} on site {Site} postponed to {When}", plan.Id, _siteSlug, plan.ScheduledStartAt);
@@ -546,7 +555,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (plan is not { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced })
                 return null;
 
-            if (target(plan.ScheduledStartAt ?? Now) is not DateTime start || start <= Now)
+            var previous = plan.ScheduledStartAt ?? Now;
+            if (target(previous) is not DateTime start || start <= Now)
                 return null;
 
             var document = ParseDocument(plan);
@@ -555,6 +565,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             plan.ScheduledStartAt = start;
             plan.Status = FirmwareRolloutStatus.Scheduled;
             await PersistPlanAsync(plan, cancellationToken);
+            await RestateStartAsync(plan, previous, cancellationToken);
 
             _logger.LogInformation(
                 "Firmware rollout {Id} on site {Site} moved to {When}", plan.Id, _siteSlug, start);
@@ -822,7 +833,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (current is null or { Status: not (FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced or FirmwareRolloutStatus.Draft) })
                 return current is { Status: FirmwareRolloutStatus.Running };
 
-            var started = await BeginCoreAsync(current, overrideHealthGate, cancellationToken);
+            var started = await BeginCoreAsync(current, overrideHealthGate, automatic, cancellationToken);
             if (started && automatic)
             {
                 RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutStarted, _siteSlug, current.Id,
@@ -836,11 +847,14 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
     }
 
-    private async Task<bool> BeginCoreAsync(FirmwareRolloutPlan plan, bool overrideHealthGate, CancellationToken cancellationToken)
+    private async Task<bool> BeginCoreAsync(
+        FirmwareRolloutPlan plan, bool overrideHealthGate, bool automatic, CancellationToken cancellationToken)
     {
         if (!overrideHealthGate)
         {
-            var verdict = await _health.EvaluateAsync(cancellationToken);
+            // A scheduled start counts only trouble since the plan was booked; a critical already open
+            // then would otherwise hold it every window until someone closed the alert.
+            var verdict = await _health.EvaluateAsync(automatic ? plan.CreatedAt : null, cancellationToken);
             if (!verdict.Healthy)
             {
                 await PostponeAsync(plan, verdict.Reason ?? "the site is not healthy", cancellationToken);
@@ -1151,11 +1165,14 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
     private async Task PostponeAsync(FirmwareRolloutPlan plan, string reason, CancellationToken cancellationToken)
     {
-        plan.ScheduledStartAt = (plan.ScheduledStartAt ?? Now) + HealthPostponeWindow;
+        var previous = plan.ScheduledStartAt ?? Now;
+        var start = previous + HealthPostponeWindow;
+        plan.ScheduledStartAt = start;
         plan.Status = FirmwareRolloutStatus.Scheduled;
         await PersistPlanAsync(plan, cancellationToken);
         RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutPostponed, _siteSlug, plan.Id,
             new { planId = plan.Id, reason, startAt = plan.ScheduledStartAt });
+        await RestateStartAsync(plan, previous, cancellationToken);
 
         // The retry time on the notification clock, labeled, as every other rollout alert writes it.
         var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
@@ -1164,12 +1181,33 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             AlertSeverity.Info,
             $"Firmware Rollout Postponed{_siteSuffix}",
             $"The rollout did not start because {reason}. It will try again at "
-                + $"{RolloutScopeCopy.AlertStartLabel(plan.ScheduledStartAt!.Value, ParseDocument(plan).TimeZoneId, zone)}.",
+                + $"{RolloutScopeCopy.AlertStartLabel(start, ParseDocument(plan).TimeZoneId, zone)}.",
             null, null, cancellationToken);
 
         _logger.LogInformation(
             "Firmware rollout {Id} on site {Site} postponed to {When}: {Reason}",
             plan.Id, _siteSlug, plan.ScheduledStartAt, reason);
+    }
+
+    /// <summary>
+    /// Restates the open Scheduled and Starting Soon alerts with the plan's new start. Edited in
+    /// place, so the move notifies nobody. A failed edit leaves the old text and never stops the move.
+    /// </summary>
+    private async Task RestateStartAsync(FirmwareRolloutPlan plan, DateTime previous, CancellationToken cancellationToken)
+    {
+        if (_alertEditor == null || plan.ScheduledStartAt is not DateTime start) return;
+
+        var document = ParseDocument(plan);
+        try
+        {
+            var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
+            var message = RolloutScopeCopy.Moved(document, document.Waves.Sum(w => w.Steps.Count), start, previous, Now, zone);
+            await _alertEditor.RewriteOpenAsync([RolloutAlerts.Upcoming, RolloutAlerts.StartingSoon], message, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not update the open alerts for firmware rollout {Id} on site {Site}", plan.Id, _siteSlug);
+        }
     }
 
     private async Task<bool> IsStandaloneConsoleAsync(CancellationToken cancellationToken)
