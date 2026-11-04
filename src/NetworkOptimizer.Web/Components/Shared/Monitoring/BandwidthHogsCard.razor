@@ -5,12 +5,21 @@
 @inject SiteContextService SiteContext
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject ILogger<BandwidthHogsCard> Logger
+@inject NetworkOptimizer.Web.Services.Monitoring.LiveWanScope SelfWan
+@inject MonitoringLiveStats LiveStats
+@inject UniFiConnectionService ConnectionService
 @implements IDisposable
 
-<div class="card bandwidth-hogs-card" style="margin-top: 1rem;" data-tour="bandwidth-hogs">
+@if (SelfFedUnavailable)
+{
+    @Unavailable
+}
+else
+{
+<div class="card bandwidth-hogs-card" style="margin-top: 1rem;" data-tour="@(SelfFed ? null : "bandwidth-hogs")">
     <div class="card-header">
         <div class="card-title-group">
-            <h2 class="card-title">Bandwidth Hogs</h2>
+            <h2 class="card-title">@Title</h2>
             @* The maps' own mode badge, so the card says what they say about the moment it shows. *@
             @if (HistoricAt != null)
             {
@@ -252,8 +261,60 @@
         }
     </div>
 </div>
+}
 
 @code {
+    /// <summary>The card's heading. Firmware Rollout names it Active Traffic.</summary>
+    [Parameter] public string Title { get; set; } = "Bandwidth Hogs";
+
+    /// <summary>
+    /// The card reads every WAN's live rate itself, for a page with no Live View tiles to feed
+    /// it. Live only: the WAN parameters and the playhead are ignored.
+    /// </summary>
+    [Parameter] public bool SelfFed { get; set; }
+
+    /// <summary>Shown in place of a self-fed card once the site turns out to have no live traffic data.</summary>
+    [Parameter] public RenderFragment? Unavailable { get; set; }
+
+    private string? _selfGatewayMac;
+    private List<string> _selfGatewayWanIfNames = new();
+    private bool _selfResolved;
+
+    /// <summary>No live WAN rate and no client rows once everything has been asked: nothing to show.</summary>
+    private bool SelfFedUnavailable => SelfFed && _selfResolved && (_result != null || _error)
+        && _result?.Rows.Count is null or 0 && CurrentWanRate() is (null, null);
+
+    private (double? Down, double? Up) WanRateNow() => SelfFed
+        ? SelfWan.LiveRates(LiveStats, _selfGatewayMac, _selfGatewayWanIfNames)
+        : (WanDownBps, WanUpBps);
+
+    private IReadOnlyCollection<string> WanKeysNow() => SelfFed ? SelfWan.SelectedKeys : WanKeys;
+
+    private IReadOnlyCollection<string> WanHistoryKeysNow() => SelfFed
+        ? SelfWan.LiveRateHistoryKeys(_selfGatewayMac, _selfGatewayWanIfNames)
+        : WanHistoryKeys;
+
+    /// <summary>The gateway and every WAN, for a self-fed card. Every WAN: a rollout touches the whole site.</summary>
+    private async Task ResolveSelfFedAsync()
+    {
+        try
+        {
+            await SelfWan.LoadAsync();
+            await SelfWan.SelectAllAsync(persist: false);
+            var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+            var gw = devices?.FirstOrDefault(d =>
+                d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+            _selfGatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
+            _selfGatewayWanIfNames = gw?.WanInterfaceNames ?? new();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: could not resolve the gateway for a self-fed card");
+        }
+        _selfResolved = true;
+    }
+
     /// <summary>The map's playhead; null while live. A change re-answers the list for that instant.</summary>
     [Parameter] public DateTime? HistoricAt { get; set; }
 
@@ -388,6 +449,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+        if (SelfFed) await ResolveSelfFedAsync();
         await RestorePreferencesAsync();
         _ready = true;
         await RefreshAsync();
@@ -426,7 +488,8 @@
 
     protected override void OnParametersSet()
     {
-        if (!_ready) return;
+        // A self-fed card has no page tick to follow; its own timer refreshes it.
+        if (!_ready || SelfFed) return;
         if (HistoricAt != _loadedAt || SeekKey() != _loadedSeekKey)
         {
             _refreshCts?.Cancel();
@@ -580,13 +643,14 @@
         var discarded = false;
         try
         {
-            var wanKeys = WanKeys.ToList();
+            var wanKeys = WanKeysNow().ToList();
+            var (wanDown, wanUp) = WanRateNow();
             if (at == null) _lastLiveRefresh = DateTime.UtcNow;
             // At the playhead the window snaps to five minutes, so a drag inside them reuses the
             // same cached answer rather than asking for each position.
             var end = at is { } a ? new DateTime(a.Ticks - a.Ticks % TimeSpan.FromMinutes(5).Ticks, DateTimeKind.Utc) : DateTime.UtcNow;
             var result = _mode == Mode.Throughput
-                ? await Hogs.GetThroughputAsync(at, WanDownBps, WanUpBps, wanKeys, WanHistoryKeys, cts.Token)
+                ? await Hogs.GetThroughputAsync(at, wanDown, wanUp, wanKeys, WanHistoryKeysNow(), cts.Token)
                 : await Hogs.GetDataUsageAsync(end - TimeSpan.FromHours(_hours), end, includeLan: _view == View.LanPlusWan, ct: cts.Token);
             // Answered for an instant the playhead has since left: nobody's answer now.
             if (cts.IsCancellationRequested)
@@ -740,7 +804,7 @@
     /// it: that is the rate the tiles held when the question was asked, and at the playhead the
     /// snapshot can land after the question does.
     /// </summary>
-    private (double? Down, double? Up) CurrentWanRate() => (WanDownBps, WanUpBps);
+    private (double? Down, double? Up) CurrentWanRate() => WanRateNow();
 
     private string FormatDown(HogRow row) => (_mode, _view) switch
     {
