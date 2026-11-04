@@ -27,9 +27,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // fix off every tweak path, qca-ssdk.ko and the tweak dependencies byte-identical to 6.0.16, and
     // the new v2 board differs only in its PoE chip (unifi-perf-tweaks docs/compat-6.0.17.md).
     private static readonly Version MaxSupportedFirmware = new(6, 0, 17);
-    // 6.0.17 verified (static) on the UXG-Fiber and UXG-Max images: the UXG-Fiber qca-ssdk.ko is
+    // 6.0.17 verified on the UXG-Fiber and UXG-Max images (static): the UXG-Fiber qca-ssdk.ko is
     // byte-identical to the UCG-Fiber 6.0.17 image and its device tree to UXG-Fiber 6.0.5; on both
-    // models the journald and fan tweak dependencies match (unifi-perf-tweaks docs/compat-6.0.17.md).
+    // models the journald and fan tweak dependencies match. Live on a production UXG-Fiber: SGMII+
+    // loaded at 2500Mb/s, journald and fan tweaks in effect (unifi-perf-tweaks docs/compat-6.0.17.md).
     private static readonly Version MaxSupportedFirmwareUxg = new(6, 0, 17);
 
     /// <summary>
