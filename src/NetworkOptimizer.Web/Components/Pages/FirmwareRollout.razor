@@ -126,12 +126,16 @@ else if (_active != null && !_wizardOpen)
             }
             else
             {
-                <div class="firmware-rollout-map-stage firmware-rollout-map-waiting">
-                    <div class="empty-state">
-                        <h3>Waiting for the scheduled start</h3>
-                        <p>Devices light up here as each one upgrades.</p>
-                    </div>
-                </div>
+                <NetworkOptimizer.Web.Components.Shared.Monitoring.BandwidthHogsCard Title="Active Traffic" SelfFed="true">
+                    <Unavailable>
+                        <div class="firmware-rollout-map-stage firmware-rollout-map-waiting">
+                            <div class="empty-state">
+                                <h3>Waiting for the scheduled start</h3>
+                                <p>Devices light up here as each one upgrades.</p>
+                            </div>
+                        </div>
+                    </Unavailable>
+                </NetworkOptimizer.Web.Components.Shared.Monitoring.BandwidthHogsCard>
             }
 
             <div class="table-responsive firmware-rollout-steps">
