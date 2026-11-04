@@ -254,6 +254,10 @@
         const day = pad(d.getUTCDate());
         if (unit === 'y' || (unit === 'M' && major)) return String(d.getUTCFullYear());
         if (unit === 'M') return month;
+        // A day axis marks the month change as ApexCharts does: "Nov '26", and the year on January 1st.
+        if (unit === 'd' && d.getUTCDate() === 1) {
+            return d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : `${month} '${String(d.getUTCFullYear()).slice(2)}`;
+        }
         if (unit === 'd' || major) return format().dayFirst ? `${day} ${month}` : `${month} ${day}`;
         const h = d.getUTCHours(), m = d.getUTCMinutes();
         if (format().h24) return `${pad(h)}:${pad(m)}`;
