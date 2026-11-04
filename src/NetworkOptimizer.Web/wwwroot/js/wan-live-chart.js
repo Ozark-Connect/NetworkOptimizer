@@ -6,6 +6,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=17';
 import { valueSortedTooltip } from './chart-tooltip.js?v=18';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
+import { formatBps } from './chart-format.js?v=1';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -131,14 +132,6 @@ const CLICK_RENDER_MS = 2000;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
-
-function formatBps(v) {
-    if (v == null || v < 1) return '0';
-    if (v >= 1e9) return (v / 1e9).toFixed(1) + ' Gbps';
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
-    if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
-    return v.toFixed(0) + ' bps';
-}
 
 // The plot (grid) rect: exactly the X-Y area, excluding the axis gutters and
 // the label strip. .apexcharts-grid rather than .apexcharts-inner - the inner
