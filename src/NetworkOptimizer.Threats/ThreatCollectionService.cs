@@ -715,9 +715,7 @@ public class ThreatCollectionService : BackgroundService
         {
             if (noiseFilters.Any(f => f.Matches(contact.SourceIp, contact.DestIp, contact.DestPort)))
                 continue;
-            // An allowed contact that a Blocking exception lets through is the traffic the user approved.
-            if (contact.Action != ThreatAction.Blocked && exceptions.Any(x => x.Matches(Blocking.ExceptionDirection.Outbound,
-                    contact.SourceIp, contact.DestIp, contact.Protocol, contact.DestPort)))
+            if (Blocking.PublicListContact.IsExcepted(contact, exceptions))
                 continue;
             try
             {
