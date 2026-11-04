@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Alerts.Delivery;
 
@@ -56,7 +57,7 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
                     description = alertEvent.Message,
                     color = GetSeverityColorInt(alertEvent.Severity),
                     fields,
-                    timestamp = alertEvent.Timestamp.ToString("o"),
+                    timestamp = DateTimeUtilities.AsUtc(alertEvent.Timestamp).ToString("o"),
                     footer = new { text = "Network Optimizer" }
                 }
             }

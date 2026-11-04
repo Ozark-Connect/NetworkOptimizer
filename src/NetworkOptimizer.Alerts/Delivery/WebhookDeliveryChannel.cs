@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using Scriban;
 
 namespace NetworkOptimizer.Alerts.Delivery;
@@ -52,7 +53,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
                 threshold_value = alertEvent.ThresholdValue,
                 context = alertEvent.Context,
                 tags = alertEvent.Tags,
-                timestamp = alertEvent.Timestamp.ToString("o"),
+                timestamp = DateTimeUtilities.AsUtc(alertEvent.Timestamp).ToString("o"),
                 alert_id = historyEntry.Id,
                 source_url = alertEvent.SourceUrl
             }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
@@ -78,7 +79,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
                 title = a.Title,
                 severity = a.Severity.ToString().ToLowerInvariant(),
                 source = a.Source,
-                triggered_at = a.TriggeredAt.ToString("o")
+                triggered_at = DateTimeUtilities.AsUtc(a.TriggeredAt).ToString("o")
             }),
             generated_at = DateTime.UtcNow.ToString("o")
         }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
@@ -185,7 +186,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
         threshold_value = alertEvent.ThresholdValue,
         context = alertEvent.Context,
         tags = alertEvent.Tags,
-        timestamp = alertEvent.Timestamp.ToString("o"),
+        timestamp = DateTimeUtilities.AsUtc(alertEvent.Timestamp).ToString("o"),
         source_url = alertEvent.SourceUrl
     };
 }
