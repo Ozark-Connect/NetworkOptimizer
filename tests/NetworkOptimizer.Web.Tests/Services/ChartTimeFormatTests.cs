@@ -39,6 +39,8 @@ public class ChartTimeFormatTests
 
         labels.Formatter.Should().BeNull();
         labels.DatetimeFormatter.Should().NotBeNull();
+        // display-time.js draws this axis's labels: ApexCharts' own crowd a wide chart.
+        labels.Style!.CssClass.Should().Be(ChartTimeFormat.AxisClass);
     }
 
     [Fact]

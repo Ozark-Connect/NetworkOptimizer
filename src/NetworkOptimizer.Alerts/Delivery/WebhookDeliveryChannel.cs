@@ -1,4 +1,3 @@
-using NetworkOptimizer.Core.Helpers;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;

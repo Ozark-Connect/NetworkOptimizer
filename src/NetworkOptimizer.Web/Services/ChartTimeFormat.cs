@@ -22,7 +22,13 @@ public static class ChartTimeFormat
         labels.DatetimeUTC = displayTime.ChartsOnWallClock();
         labels.DatetimeFormatter = DatetimeFormatterFor(displayTime.Format);
         labels.Formatter = null;
+        // Opts the axis into display-time.js drawTimeAxis, which draws the labels ApexCharts' own would crowd.
+        labels.Style ??= new AxisLabelStyle();
+        labels.Style.CssClass = AxisClass;
     }
+
+    /// <summary>The x-axis label class display-time.js drawTimeAxis draws the labels for.</summary>
+    public const string AxisClass = "no-time-axis";
 
     /// <summary>
     /// ApexCharts' datetimeFormatter tokens for a format; year and month keep ApexCharts' defaults.

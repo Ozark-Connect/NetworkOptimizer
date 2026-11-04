@@ -186,6 +186,169 @@
             : { year: 'yyyy', month: "MMM 'yy", day: dayFirst ? 'dd MMM' : 'MMM dd', hour: 'h TT', minute: 'h:mm TT', second: 'h:mm:ss TT' };
     }
 
+    // ---- The time axis's labels ----
+    //
+    // ApexCharts' time scale keeps a label for every hour (24h) or day (30d) that fits, and no setting
+    // thins those intervals. A time chart keeps ApexCharts' axis for layout, with its labels and tick
+    // marks hidden, and this draws the labels: on natural breaks in the viewer's zone, about one per
+    // LABEL_PX, evenly spaced, always including the day or month change.
+    const AXIS_CLASS = 'no-time-axis';
+    const LABEL_PX = 130;
+    const MINUTE = 60000, HOUR = 3600000, DAY = 86400000;
+    const STEPS = [
+        ['m', 1], ['m', 5], ['m', 10], ['m', 15], ['m', 30],
+        ['h', 1], ['h', 2], ['h', 3], ['h', 4], ['h', 6], ['h', 12],
+        ['d', 1], ['d', 2], ['d', 3], ['d', 5], ['d', 7], ['d', 14],
+        ['M', 1], ['M', 3], ['M', 6], ['y', 1],
+    ];
+    const STEP_MS = { m: MINUTE, h: HOUR, d: DAY, M: 30 * DAY, y: 365 * DAY };
+
+    function pickStep(spanMs, maxLabels) {
+        for (const [unit, n] of STEPS) {
+            // A window of several days reads by the day, one of several hours by the hour.
+            if (unit === 'm' && spanMs > 3 * HOUR) continue;
+            if (unit === 'h' && spanMs > 3 * DAY) continue;
+            if (spanMs / (STEP_MS[unit] * n) <= maxLabels) return [unit, n];
+        }
+        return ['y', 1];
+    }
+
+    // Wall-clock instants (the viewer's clock read as UTC) to label, each with whether it is a day,
+    // month, or year change, which is set in bold.
+    function axisTicks(wallMin, wallMax, unit, n) {
+        const ticks = [];
+        if (unit === 'm' || unit === 'h') {
+            // Every minute and hour step divides a day, so midnight is always one of the ticks.
+            const step = STEP_MS[unit] * n;
+            for (let w = Math.ceil(wallMin / step) * step; w <= wallMax; w += step) {
+                ticks.push({ wall: w, major: w % DAY === 0 });
+            }
+        } else if (unit === 'd') {
+            // Counted in whole steps from the newest month change in view, so that change is labeled
+            // and the spacing stays even across it; with none in view, from the window's last midnight.
+            const lastMidnight = Math.floor(wallMax / DAY) * DAY;
+            const end = new Date(lastMidnight);
+            const monthStart = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1);
+            const anchor = monthStart >= wallMin ? monthStart : lastMidnight;
+            const step = n * DAY;
+            const first = anchor - Math.floor((anchor - wallMin) / step) * step;
+            for (let w = first; w <= wallMax; w += step) {
+                if (w >= wallMin) ticks.push({ wall: w, major: new Date(w).getUTCDate() === 1 });
+            }
+        } else {
+            const start = new Date(wallMin);
+            for (let y = start.getUTCFullYear(), m = start.getUTCMonth(); ; m++) {
+                const w = Date.UTC(y, m, 1);
+                if (w > wallMax) break;
+                const month = new Date(w).getUTCMonth();
+                const keep = unit === 'y' ? month === 0 : month % n === 0;
+                if (w >= wallMin && keep) ticks.push({ wall: w, major: month === 0 });
+            }
+        }
+        return ticks;
+    }
+
+    function axisText(wall, unit, major) {
+        const d = new Date(wall);
+        const month = MONTHS[d.getUTCMonth()];
+        const day = pad(d.getUTCDate());
+        if (unit === 'y' || (unit === 'M' && major)) return String(d.getUTCFullYear());
+        if (unit === 'M') return month;
+        if (unit === 'd' || major) return format().dayFirst ? `${day} ${month}` : `${month} ${day}`;
+        const h = d.getUTCHours(), m = d.getUTCMinutes();
+        if (format().h24) return `${pad(h)}:${pad(m)}`;
+        const h12 = h % 12 === 0 ? 12 : h % 12;
+        const ampm = h < 12 ? 'AM' : 'PM';
+        // "2 PM" on an hour axis; a minute axis keeps ":00" so its labels read alike.
+        return unit === 'h' ? `${h12} ${ampm}` : `${h12}:${pad(m)} ${ampm}`;
+    }
+
+    const SVG = 'http://www.w3.org/2000/svg';
+    let axisStyleAdded = false;
+
+    /** Draws a time chart's axis labels; a chart opts in with xaxis.labels.style.cssClass 'no-time-axis'. */
+    function drawTimeAxis(chart) {
+        const w = chart?.w;
+        const labels = w?.config?.xaxis?.labels;
+        if (w?.config?.xaxis?.type !== 'datetime' || !String(labels?.style?.cssClass || '').includes(AXIS_CLASS)) return;
+        const el = chart.el;
+        const inner = el?.querySelector('.apexcharts-inner');
+        const g = w.globals;
+        inner?.querySelector(':scope > .no-time-axis-g')?.remove();
+        if (!inner || !(g.gridWidth > 0) || !(g.maxX > g.minX) || labels.show === false) return;
+
+        if (!axisStyleAdded) {
+            axisStyleAdded = true;
+            const style = document.createElement('style');
+            style.textContent = '.no-time-axis-chart .apexcharts-xaxis-texts-g, .no-time-axis-chart .apexcharts-xaxis-tick { visibility: hidden; }';
+            document.head.appendChild(style);
+        }
+        el.classList.add('no-time-axis-chart');
+
+        // Positions are linear in the chart's own x; the breaks are on the viewer's wall clock.
+        const wallChart = onWallClock(w);
+        const toWall = x => (wallChart ? x : shift(x));
+        const toX = wall => (wallChart ? wall : unshift(wall));
+        const wallMin = toWall(g.minX), wallMax = toWall(g.maxX);
+        const [unit, n] = pickStep(wallMax - wallMin, Math.max(2, Math.round(g.gridWidth / LABEL_PX)));
+
+        // Font and placement from ApexCharts' own (hidden) labels, so ours sit where its would.
+        const ref = el.querySelector('.apexcharts-xaxis-texts-g text');
+        const shiftY = ref?.parentNode?.getAttribute('transform') || '';
+        const dy = /translate\(\s*[-\d.]+\s*,\s*([-\d.]+)\s*\)/.exec(shiftY)?.[1];
+        const offsetY = dy ? parseFloat(dy) : 0;
+        const color = Array.isArray(labels.style?.colors) ? labels.style.colors[0] : (labels.style?.colors || '#9ca3af');
+        const fontSize = ref?.getAttribute('font-size') || labels.style?.fontSize || '12px';
+        const fontFamily = ref?.getAttribute('font-family') || 'Helvetica, Arial, sans-serif';
+        const fontWeight = ref?.getAttribute('font-weight') || '400';
+        const textY = ref ? parseFloat(ref.getAttribute('y')) + offsetY : g.gridHeight + 18;
+        const ticksOn = w.config.xaxis.axisTicks?.show !== false;
+        const tickColor = w.config.xaxis.axisTicks?.color || '#78909C';
+        const group = document.createElementNS(SVG, 'g');
+        group.setAttribute('class', 'no-time-axis-g');
+        inner.appendChild(group);
+
+        // A label may hang into the chart's padding, never past the chart itself.
+        const leftLimit = -g.translateX;
+        const rightLimit = (g.svgWidth || g.translateX + g.gridWidth) - g.translateX;
+        let lastRight = -Infinity;
+        for (const t of axisTicks(wallMin, wallMax, unit, n)) {
+            const x = (toX(t.wall) - g.minX) / (g.maxX - g.minX) * g.gridWidth;
+            if (x < 0 || x > g.gridWidth) continue;
+            const text = document.createElementNS(SVG, 'text');
+            text.setAttribute('x', String(x));
+            text.setAttribute('y', String(textY));
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('fill', color);
+            text.setAttribute('font-size', fontSize);
+            text.setAttribute('font-family', fontFamily);
+            text.setAttribute('font-weight', t.major ? '600' : fontWeight);
+            text.setAttribute('class', 'apexcharts-text apexcharts-xaxis-label');
+            text.textContent = axisText(t.wall, unit, t.major);
+            group.appendChild(text);
+            const width = text.getComputedTextLength?.() || 0;
+            if (x - width / 2 < leftLimit || x + width / 2 > rightLimit || x - width / 2 < lastRight + 4) {
+                text.remove();
+                continue;
+            }
+            lastRight = x + width / 2;
+            if (ticksOn) {
+                const tick = document.createElementNS(SVG, 'line');
+                tick.setAttribute('x1', String(x));
+                tick.setAttribute('x2', String(x));
+                tick.setAttribute('y1', String(g.gridHeight));
+                tick.setAttribute('y2', String(g.gridHeight + 6));
+                tick.setAttribute('stroke', tickColor);
+                group.insertBefore(tick, text);
+            }
+        }
+    }
+
+    // Every chart on the page gets the hook; drawTimeAxis acts only on the ones that opted in.
+    window.Apex = window.Apex || {};
+    window.Apex.chart = window.Apex.chart || {};
+    window.Apex.chart.events = { ...(window.Apex.chart.events || {}), mounted: drawTimeAxis, updated: drawTimeAxis };
+
     /** A tooltip header: "Nov 3, 14:05[:09]", or the time alone. */
     function tooltipLabel(value, seconds = true, withDate = true) {
         const p = parts(value);
@@ -251,7 +414,15 @@
          * xaxis.labels for a time axis on the viewer's clock and in their format, merged over `extra`
          * (style, rotation). Its series must carry toChart x values; datetimeUTC says which kind they are.
          */
-        timeAxisLabels: (extra) => ({ ...(extra || {}), datetimeUTC: !!zone(), datetimeFormatter: datetimeFormatter() }),
+        timeAxisLabels: (extra) => ({
+            ...(extra || {}),
+            datetimeUTC: !!zone(),
+            datetimeFormatter: datetimeFormatter(),
+            // Opts the axis into drawTimeAxis, which draws the labels ApexCharts' own would crowd.
+            style: { ...((extra || {}).style || {}), cssClass: AXIS_CLASS },
+        }),
+
+        drawTimeAxis,
 
         /** An ApexCharts tooltip.x.formatter for a time chart, in the viewer's format. */
         chartTooltipFormatter: (seconds = true) => (value, opts) => tooltipLabel(instantOfChart(value, opts?.w), seconds),
