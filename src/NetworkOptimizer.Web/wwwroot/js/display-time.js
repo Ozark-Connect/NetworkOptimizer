@@ -193,7 +193,7 @@
     // marks hidden, and this draws the labels: on natural breaks in the viewer's zone, about one per
     // LABEL_PX, evenly spaced, always including the day or month change.
     const AXIS_CLASS = 'no-time-axis';
-    const LABEL_PX = 130;
+    const LABEL_PX = 85;
     const MINUTE = 60000, HOUR = 3600000, DAY = 86400000;
     const STEPS = [
         ['m', 1], ['m', 5], ['m', 10], ['m', 15], ['m', 30],
