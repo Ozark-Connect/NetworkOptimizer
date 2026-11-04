@@ -72,7 +72,7 @@ public sealed record HealthContributor(string Area, double Impairment, string Te
 public static class SiteHealthScorer
 {
     /// <summary>Bump when the scoring changes; stored hours at an older version are recomputed.</summary>
-    public const int Version = 8;
+    public const int Version = 9;
 
     /// <summary>Gateway CPU at or above this, averaged over a window or an hour, makes that time's Internet impairment local.</summary>
     public const double GatewayBusyCpuPct = 90;

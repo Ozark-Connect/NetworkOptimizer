@@ -154,12 +154,10 @@ public sealed class SiteHealthJob
             : Task.FromResult<IReadOnlyList<(DateTime Time, double Value)>>([]);
         await Task.WhenAll(lossTask, satisfactionTask, wirelessTask, wiredTask, fabricTask, portsTask, ratesTask, cpuTask);
 
-        // The first clean hop: the access target with the lowest median RTT, as ISP Health picks it.
+        // Access latency is ISP Health's access floor over the pool's access hops: the lowest RTT at
+        // each window, the lowest-median hop where fewer than two report.
         var lossPool = lossTask.Result;
-        var firstHop = lossPool.Where(p => p.TargetType == "accessisp" && p.RttAvgMs != null)
-            .GroupBy(p => p.TargetId).OrderBy(g => Median(g.Select(p => p.RttAvgMs!.Value))).Select(g => g.Key).FirstOrDefault();
-        var firstHopFine = firstHop == null ? []
-            : await influx.QueryTargetLatencyMeansAsync(from, to, [firstHop], null, fine, scope, ct);
+        var firstHopFine = AccessFloorRows(lossPool);
         // The rate query stamps each sample at its window's end and the latency reads at the start;
         // restamped at the start so a sample lands in the 5-minute window it measured.
         var rates = ratesTask.Result.Select(r => new ThroughputSample(r.Time - RateStep, r.DownloadBps, r.UploadBps)).ToList();
@@ -470,6 +468,24 @@ public sealed class SiteHealthJob
             result[g.Key] = new WindowLoadSummary(g.Count(), loaded, idle, saturation, mbps / g.Count());
         }
         return result;
+    }
+
+    /// <summary>
+    /// The pool's access hops reduced to <see cref="AccessFloor"/> rows, with the lowest-median hop
+    /// (ISP Health's pick) as the fallback. Empty when the pool has no access hop with an RTT.
+    /// </summary>
+    internal static List<MonitoringInfluxClient.TargetLatencyMean> AccessFloorRows(IReadOnlyList<MonitoringInfluxClient.TargetLatencyMean> pool)
+    {
+        var hops = pool.Where(p => p.TargetType == "accessisp")
+            .GroupBy(p => p.TargetId)
+            .Select(g => g.OrderBy(p => p.Time).Select(p => new LatencySample(p.Time, p.RttAvgMs, null, null, p.LossPercent)).ToList())
+            .Where(s => s.Any(p => p.RttAvgMs != null))
+            .ToList();
+        if (hops.Count == 0) return [];
+        var lowest = hops.OrderBy(s => Median(s.Where(p => p.RttAvgMs != null).Select(p => p.RttAvgMs!.Value))).First();
+        return AccessFloor.Build(hops, lowest)
+            .Select(s => new MonitoringInfluxClient.TargetLatencyMean(s.Time, "access-floor", "accessisp", s.RttAvgMs, s.LossPercent))
+            .ToList();
     }
 
     internal static DateTime FloorHour(DateTime t) => new(t.Year, t.Month, t.Day, t.Hour, 0, 0, DateTimeKind.Utc);
