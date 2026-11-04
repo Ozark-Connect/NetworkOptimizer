@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.ChangeControl;
 using NetworkOptimizer.Web.Services.ChangeControl.SiteHealth;
@@ -299,5 +300,37 @@ public class SiteHealthTests
     {
         SiteHealthSeriesBuilder.IssueHref(area).Should().Be(href);
         (SiteHealthSeriesBuilder.IssueHrefLabel(area) == null).Should().Be(href == null);
+    }
+
+    private static MonitoringInfluxClient.TargetLatencyMean Row(int minute, string target, string type, double? rtt, double? loss = 0) =>
+        new(T.AddMinutes(minute), target, type, rtt, loss);
+
+    [Fact]
+    public void AccessFloorRows_TakeLowestAccessRttPerWindow_IgnoringOtherTargetTypes()
+    {
+        var pool = new List<MonitoringInfluxClient.TargetLatencyMean>
+        {
+            Row(0, "a", "accessisp", 1.8), Row(5, "a", "accessisp", 9.0),
+            Row(0, "b", "accessisp", 2.0), Row(5, "b", "accessisp", 2.1),
+            Row(0, "t", "transit", 0.5), Row(5, "t", "transit", 0.5),
+        };
+
+        var floor = SiteHealthJob.AccessFloorRows(pool);
+
+        floor.Select(r => r.RttAvgMs).Should().Equal(1.8, 2.1);
+    }
+
+    [Fact]
+    public void AccessFloorRows_OneAccessHop_IsThatHop()
+    {
+        var pool = new List<MonitoringInfluxClient.TargetLatencyMean> { Row(0, "a", "accessisp", 1.8), Row(5, "a", "accessisp", 9.0) };
+
+        SiteHealthJob.AccessFloorRows(pool).Select(r => r.RttAvgMs).Should().Equal(1.8, 9.0);
+    }
+
+    [Fact]
+    public void AccessFloorRows_NoAccessHop_IsEmpty()
+    {
+        SiteHealthJob.AccessFloorRows([Row(0, "t", "transit", 0.5)]).Should().BeEmpty();
     }
 }
