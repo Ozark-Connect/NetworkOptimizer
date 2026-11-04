@@ -35,8 +35,8 @@ public static class StarlinkHealthThresholds
 
     /// <summary>
     /// Whether the dish's own readings back up <see cref="LowerSignalThanPredictedAlert"/>: low SNR,
-    /// or obstruction past the excellent bar. The flag alone stays raised for many hours after
-    /// weather has passed, while every other reading is healthy, so on its own it is not a fault.
+    /// or obstruction past the excellent bar. On the reference dish the flag alone stayed up for as
+    /// long as a day, five times in 60 days, with loss, outages, obstruction and SNR all normal.
     /// </summary>
     /// <remarks>
     /// Never add <c>is_snr_above_noise_floor</c>: proto3 reads an absent bool as false, so a
