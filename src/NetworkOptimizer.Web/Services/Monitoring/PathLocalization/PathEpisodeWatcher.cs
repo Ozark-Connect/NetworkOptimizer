@@ -48,6 +48,9 @@ public sealed class PathEpisodeWatcher
 
     private const string WaitingOnRecoveryNote = " Waiting on the recovery round for the per-hop baseline.";
 
+    /// <summary>Ends the time-limit stop note, which goes into the summary; a restart finds those episodes by it.</summary>
+    internal const string TimeLimitNoteTail = "hours of tracing, so tracing stopped.";
+
     private static readonly TimeSpan PerHopTimeout = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan TraceDeadline = TimeSpan.FromSeconds(25);
 
@@ -74,9 +77,9 @@ public sealed class PathEpisodeWatcher
     private readonly Dictionary<int, EpisodeRun> _runs = new();
     private readonly Dictionary<int, string?> _lastBlocked = new();
     private readonly HashSet<int> _evaluating = new();
-    // Targets whose episode hit its time limit, with the DegradedSince of the degradation it traced.
-    // The same degradation does not open another episode; a new one (a new DegradedSince) does.
-    private readonly Dictionary<string, DateTime?> _exhausted = new(StringComparer.OrdinalIgnoreCase);
+    // Targets whose episode hit its time limit, with when it stopped. No new episode opens on the target
+    // until it runs clean after that: keyed by time, not DegradedSince, so a restart can restore it.
+    private readonly Dictionary<string, DateTime> _exhausted = new(StringComparer.OrdinalIgnoreCase);
     private bool _started;
 
     // One trace at a time across this site's episodes. Linux routers rate-limit Time Exceeded per
@@ -283,8 +286,55 @@ public sealed class PathEpisodeWatcher
         {
             _logger.LogWarning(ex, "Path Localization could not resume interrupted episodes for site {Slug}", _slug);
         }
+        await RestoreExhaustedAsync();
         await SeedBaselinesAsync();
     }
+
+    /// <summary>
+    /// Puts back the time-limit block a restart cleared. Without it, the reseeded tracker degrades again at
+    /// the same stuck level and opens a second episode for it. Older than a baseline span, the stuck level
+    /// is already in the baseline, so nothing is restored.
+    /// </summary>
+    private async Task RestoreExhaustedAsync()
+    {
+        try
+        {
+            await using var db = _siteDb.CreateForSite(_slug, _isDefault);
+            var since = DateTime.UtcNow - TimeSpan.FromHours(_options.PathBaselineHours);
+            var episodes = await db.PathEpisodes.AsNoTracking()
+                .Include(e => e.Targets)
+                .Where(e => e.ClosedAt == null || e.ClosedAt >= since)
+                .ToListAsync();
+            var stopped = TimedOutTargets(episodes);
+            if (stopped.Count == 0) return;
+
+            var ids = stopped.Keys.ToList();
+            var targetIds = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => ids.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.TargetId);
+            lock (_lock)
+            {
+                foreach (var (id, stoppedAt) in stopped)
+                    if (targetIds.TryGetValue(id, out var targetId))
+                        _exhausted.TryAdd(targetId, stoppedAt);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Path Localization could not restore time-limited targets for site {Slug}", _slug);
+        }
+    }
+
+    /// <summary>
+    /// Degraded targets whose newest episode stopped on the time limit, with when it stopped (UTC). A newer
+    /// episode on the target means the block was already lifted.
+    /// </summary>
+    internal static Dictionary<int, DateTime> TimedOutTargets(IEnumerable<PathEpisode> episodes) => episodes
+        .SelectMany(e => e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).Select(t => (t.MonitoringTargetId, Episode: e)))
+        .GroupBy(x => x.MonitoringTargetId)
+        .Select(g => g.OrderByDescending(x => x.Episode.OpenedAt).First())
+        .Where(x => x.Episode.ClosedAt != null && x.Episode.Summary?.Contains(TimeLimitNoteTail, StringComparison.Ordinal) == true)
+        .ToDictionary(x => x.MonitoringTargetId, x => PathEpisodeTraceMapping.Utc(x.Episode.ClosedAt!.Value));
 
     /// <summary>
     /// Picks up every episode a restart interrupted: still tracing, or closed and waiting on its
@@ -570,7 +620,10 @@ public sealed class PathEpisodeWatcher
     private bool AnyDegraded(EpisodeRun run, DateTime now) => run.Degraded.Any(d => StillDegraded(d, now));
 
     private bool Exhausted(string targetId, TargetDegradation t) =>
-        _exhausted.TryGetValue(targetId, out var since) && since == t.DegradedSince;
+        _exhausted.TryGetValue(targetId, out var stoppedAt) && IsExhausted(stoppedAt, t);
+
+    /// <summary>A target whose episode stopped on the time limit stays exhausted until it runs clean after that.</summary>
+    internal static bool IsExhausted(DateTime stoppedAt, TargetDegradation t) => !(t.LastCleanRunAt > stoppedAt);
 
     /// <summary>
     /// The same targets degraded again before the recovery round: still one episode, so it reopens. The
@@ -844,11 +897,11 @@ public sealed class PathEpisodeWatcher
                     clearedAt = trackers.Select(t => t?.ClearedAt).Where(c => c.HasValue).Max();
                     if (timedOut)
                     {
-                        run.StopNote = $"Still degraded after {_options.PathMaxEpisodeHours} hours of tracing, so tracing stopped.";
+                        run.StopNote = $"Still degraded after {_options.PathMaxEpisodeHours} {TimeLimitNoteTail}";
                         // The level it is stuck at is this degradation's, and it gets no second episode.
                         foreach (var d in run.Degraded)
                             if (_trackers.TryGetValue(d.Target.TargetId, out var t) && t.Degraded)
-                                _exhausted[d.Target.TargetId] = t.DegradedSince;
+                                _exhausted[d.Target.TargetId] = now;
                     }
                     else if (silent)
                     {
