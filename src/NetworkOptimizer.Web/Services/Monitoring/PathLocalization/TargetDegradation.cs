@@ -81,7 +81,11 @@ public sealed class TargetDegradation
     /// <summary>Baseline mean loss as of the last closed window.</summary>
     public double? BaselineLossPct { get; private set; }
 
-    /// <summary>Worst window loss since <see cref="DegradedSince"/>.</summary>
+    /// <summary>End of the window that last completed a run of clean windows long enough to clear, degraded or not.</summary>
+    public DateTime? LastCleanRunAt { get; private set; }
+
+    /// <summary>Worst loss since <see cref="DegradedSince"/> among windows that read as loss. A probe lost in a
+    /// window degraded only on RTT is noise, not packet loss to report.</summary>
     public double PeakLossPct { get; private set; }
 
     /// <summary>Worst window median RTT since <see cref="DegradedSince"/>.</summary>
@@ -283,6 +287,7 @@ public sealed class TargetDegradation
         {
             _cleanRun++;
             _degradedRun = 0;
+            if (_cleanRun >= need) LastCleanRunAt = w.Start + _windowLength;
             if (Degraded && _cleanRun >= need)
             {
                 Degraded = false;
@@ -293,7 +298,7 @@ public sealed class TargetDegradation
 
     private void TrackPeak(DegradationWindow w)
     {
-        if (w.LossPct > PeakLossPct) PeakLossPct = w.LossPct;
+        if (w.Signal.HasFlag(DegradationSignal.Loss) && w.LossPct > PeakLossPct) PeakLossPct = w.LossPct;
         if (w.MedianRttMs is double m && (PeakRttMs is null || m > PeakRttMs)) PeakRttMs = m;
     }
 

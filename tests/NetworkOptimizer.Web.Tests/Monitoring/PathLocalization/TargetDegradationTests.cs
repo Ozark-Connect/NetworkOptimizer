@@ -144,6 +144,49 @@ public class TargetDegradationTests
     }
 
     [Fact]
+    public void RttDegradation_WithOneLostProbe_ReportsNoPeakLoss()
+    {
+        // One probe of 100 in a window is 1% loss, under the 2% floor: noise, not packet loss to report.
+        var t = WithBaseline(out var now);
+        now = Feed(t, now, TimeSpan.FromMinutes(7), 60);
+        t.Record(now, 60, 5, 4, () => false);
+        now = Feed(t, now.AddSeconds(15), TimeSpan.FromMinutes(15), 60);
+
+        t.Degraded.Should().BeTrue();
+        t.PeakLossPct.Should().Be(0);
+        t.PeakRttMs.Should().Be(60);
+    }
+
+    [Fact]
+    public void LossInAnRttDegradation_StillCountsWhenItReadsAsLoss()
+    {
+        var t = WithBaseline(out var now);
+        now = Feed(t, now, TimeSpan.FromMinutes(20), 60);
+        t.Degraded.Should().BeTrue();
+        t.PeakLossPct.Should().Be(0);
+
+        now = Feed(t, now, TimeSpan.FromMinutes(5), 60, lostPerBurst: 1);
+        t.Record(now, 60, 5, 5, () => false);
+        t.PeakLossPct.Should().BeApproximately(20, 0.01);
+    }
+
+    [Fact]
+    public void LastCleanRunAt_MovesOnlyWhenAFullCleanRunCloses()
+    {
+        var t = WithBaseline(out var now);
+        now = Feed(t, now, TimeSpan.FromMinutes(20), 60);
+        t.Degraded.Should().BeTrue();
+        var before = t.LastCleanRunAt;
+        before.Should().NotBeNull();
+
+        now = Feed(t, now, TimeSpan.FromMinutes(10), 42);
+        t.LastCleanRunAt.Should().Be(before, "two clean windows are not a clean run");
+        Feed(t, now, TimeSpan.FromMinutes(10), 42);
+        t.LastCleanRunAt.Should().BeAfter(before!.Value);
+        t.LastCleanRunAt.Should().Be(t.ClearedAt);
+    }
+
+    [Fact]
     public void ReplayedBacklog_OlderThanTheOpenWindow_IsDropped()
     {
         var t = WithBaseline(out var now);
