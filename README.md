@@ -40,11 +40,11 @@ Also on the Gateway, we've got WAN flood mitigation support now (for UniFi OS 6.
 
 If you haven't already checked out [our Traefik based reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) it's definitely worth setting up with this coming soon.
 
-## Coming Soon: Hosted Network Optimizer
+## It's Here: Hosted Network Optimizer
 
 For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is coming soon: $15/month for up to 3 sites, with a 14 day free trial and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits.
 
-Update: the hosted service is up for beta testing, please contact me here for trial access: tj@ozarkconnect.net
+Update: https://ozarkconnect.net/network-optimizer/signup for a 14-day trial
 
 ## Multi-Site Support
 
