@@ -3092,8 +3092,9 @@ from(bucket: ""{_bucket}"")
     /// Gateway WAN throughput from the SNMP interface counters, for the interface(s) named.
     ///
     /// CONTRACT: passing more than one interface SUMS them into a single combined series
-    /// (grouped per (_time, _field)). That is correct for exactly ONE caller class - the
-    /// all-WAN usage fingerprint, which asks "was the user doing anything on any WAN" - and
+    /// (grouped per (_time, _field)). That is correct for exactly ONE caller class - site-total
+    /// traffic that is never compared to a plan: the all-WAN usage fingerprint, which asks "was
+    /// the user doing anything on any WAN", and the Device Stats WAN Throughput chart - and
     /// wrong for every load/utilization computation, because a summed multi-WAN series divided
     /// by one WAN's plan speeds silently understates or overstates load (and ISP Health's
     /// packet-loss ceiling scales with load QUADRATICALLY, so the damage compounds). Per-WAN

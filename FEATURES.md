@@ -155,6 +155,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### Device Stats
 
 - **Device Health** charts - temperature, CPU, memory, and fan speed for every device on one screen
+- **WAN Throughput** chart - total download and upload across every WAN, when the gateway is the only device selected
 - Custom OID and Health Check charts
 - UniFi power appliances (UPS) shown as Smart Power
 - **Temperature Alert Thresholds** for switches and gateways

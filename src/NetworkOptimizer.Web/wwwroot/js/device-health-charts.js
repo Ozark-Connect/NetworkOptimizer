@@ -10,6 +10,8 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
+import { downloadColor, uploadColor } from './chart-colors.js?v=2';
+import { formatBps } from './chart-format.js?v=1';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'device-health';
@@ -47,6 +49,11 @@ let tempChart = null;
 let cpuChart = null;
 let memChart = null;
 let fanChart = null;
+// The site's summed WAN download and upload, shown only while the gateway is the one device
+// selected. Built when it appears and destroyed when it goes: ApexCharts sizes itself to its
+// container, and a hidden card has no width to size to.
+let wanChart = null;
+let wanChartRendering = null;
 let customCharts = {};
 let customFieldDefs = [];
 // Health check charts, keyed by the check's Influx field. Below the custom OID ones; each carries
@@ -133,17 +140,71 @@ function buildQueryParams() {
     } else {
         params = `rangeHours=${currentRangeHours}`;
     }
+    // Asked for only when it will be drawn, so the other selections cost no WAN query.
+    if (gatewaySolo()) params += '&wanThroughput=true';
     return params;
+}
+
+// True when the gateway is the only device on screen, which is when its WAN traffic belongs here.
+function gatewaySolo() {
+    const shown = deviceMeta.filter(d => visibility[d.mac] !== false);
+    return shown.length === 1 && shown[0].isGateway;
+}
+
+function wanSeries() {
+    const wan = lastData?.wanThroughput;
+    const pts = arr => (arr || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+    return padFirst([
+        { name: 'Download', color: downloadColor(), data: pts(wan?.download) },
+        { name: 'Upload', color: uploadColor(), data: pts(wan?.upload) },
+    ]);
+}
+
+async function syncWanChart() {
+    const container = document.getElementById(containerId);
+    const card = container?.querySelector('.health-wan-card');
+    const el = container?.querySelector('.health-wan-chart');
+    if (!card || !el) {
+        // Unmounted while the chart rendered: nothing else will destroy it.
+        if (wanChart) { wanChart.destroy(); wanChart = null; }
+        return;
+    }
+
+    if (!(gatewaySolo() && lastData?.wanThroughput)) {
+        card.style.display = 'none';
+        if (wanChart) { wanChart.destroy(); wanChart = null; delete chartEls.wan; }
+        return;
+    }
+    card.style.display = '';
+    if (wanChart) { wanChart.updateSeries(wanSeries(), false); return; }
+    if (wanChartRendering) return;
+
+    wanChartRendering = (async () => {
+        const chart = new ApexCharts(el, {
+            ...baseOpts(200, 'Throughput', v => v != null ? formatBps(v) : ''),
+            series: wanSeries(), colors: [downloadColor(), uploadColor()],
+        });
+        await chart.render();
+        wanChart = chart;
+        chartEls.wan = el;
+    })();
+    try { await wanChartRendering; } finally { wanChartRendering = null; }
+    // The selection or the tab may have moved on while it rendered; this settles it either way.
+    await syncWanChart();
+    applyAnnotations();
 }
 
 async function fetchData() {
     if (fetchController) fetchController.abort();
     fetchController = new AbortController();
     try {
-        const resp = await fetch(`/api/monitoring/device-health-chart?${buildQueryParams()}`,
+        const params = buildQueryParams();
+        const resp = await fetch(`/api/monitoring/device-health-chart?${params}`,
             { signal: fetchController.signal });
         if (!resp.ok) return null;
-        return await resp.json();
+        const data = await resp.json();
+        data.wanAsked = params.includes('wanThroughput=true');
+        return data;
     } catch (e) {
         if (e.name === 'AbortError') return null;
         return null;
@@ -204,6 +265,7 @@ function drawSeries() {
     if (cpuChart) cpuChart.updateSeries(padFirst(makeSeries('cpu')), false);
     if (memChart) memChart.updateSeries(padFirst(makeSeries('mem')), false);
     if (fanChart) fanChart.updateSeries(padFirst(makeSeries('fan')), false);
+    syncWanChart();
     for (const [field, chart] of Object.entries(customCharts)) {
         if (!chart) continue;
         chart.updateSeries(padFirst(devices.map(d => ({
@@ -254,6 +316,9 @@ function checkDashes(series) {
 function updateVisibility() {
     drawSeries();
     applyAnnotations();
+    // Narrowed to the gateway on a response that did not carry its WAN rates: fetch them now
+    // rather than leave the card waiting for the next poll.
+    if (gatewaySolo() && lastData && !lastData.wanAsked) loadAndUpdate();
 }
 
 // Every chart on the tab paired with the element it rendered into, which is what the mark
@@ -263,6 +328,7 @@ function chartEntries() {
         [tempChart, chartEls.temp],
         [cpuChart, chartEls.cpu],
         [memChart, chartEls.mem],
+        [wanChart, chartEls.wan],
         [fanChart, chartEls.fan],
         ...Object.keys(customCharts).map(k => [customCharts[k], chartEls[`custom:${k}`]]),
         ...Object.keys(checkCharts).map(k => [checkCharts[k], chartEls[`check:${k}`]]),
@@ -290,7 +356,7 @@ async function loadAndUpdate() {
     const data = await fetchData();
     if (!data?.devices) return;
     deviceMeta = data.devices.map(d => ({
-        name: d.name, mac: d.mac, color: hashColor(d.name),
+        name: d.name, mac: d.mac, color: hashColor(d.name), isGateway: !!d.isGateway,
     }));
     groupExtents = extentsOf((data.devices || []).map(d => d.data || []));
     // Set before updateVisibility below, which is what draws the marks.
@@ -645,6 +711,7 @@ export async function mount(elId) {
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
     if (memChart) { memChart.destroy(); memChart = null; }
     if (fanChart) { fanChart.destroy(); fanChart = null; }
+    if (wanChart) { wanChart.destroy(); wanChart = null; }
 
     chartEls = { temp: tempEl, cpu: cpuEl, mem: memEl };
 
@@ -808,6 +875,7 @@ export function unmount() {
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
     if (memChart) { memChart.destroy(); memChart = null; }
     if (fanChart) { fanChart.destroy(); fanChart = null; }
+    if (wanChart) { wanChart.destroy(); wanChart = null; }
     for (const chart of Object.values(customCharts)) chart.destroy();
     customCharts = {};
     customFieldDefs = [];

@@ -2030,9 +2030,38 @@ public class IspHealthService
         }
     }
 
+    private static readonly TimeSpan AllWanCounterCacheTtl = TimeSpan.FromSeconds(60);
+    // One immutable record behind one reference, so concurrent requests never read a torn entry.
+    private sealed record AllWanCounters(DateTime At, string? Mac, List<string> IfNames);
+    private AllWanCounters? _allWanCounterCache;
+
     /// <summary>
-    /// Gateway MAC plus EVERY WAN's counter interface, for the all-WAN usage fingerprint only
-    /// (see the summing contract on QueryGatewayWanRatesAsync). Live enumeration when the
+    /// Gateway MAC plus EVERY WAN's counter interface, for callers that want the site's total WAN
+    /// traffic rather than one WAN's load: the Device Stats WAN Throughput chart. Never pair the
+    /// result with plan speeds (see the summing contract on QueryGatewayWanRatesAsync).
+    /// </summary>
+    public async Task<(string? GatewayMac, List<string> CounterIfNames)> GetAllWanCounterInterfacesAsync(CancellationToken ct = default)
+    {
+        // Cached: the chart polls every few seconds, and the resolve reads the console's raw device list.
+        if (_allWanCounterCache is { } cached && DateTime.UtcNow - cached.At < AllWanCounterCacheTtl)
+            return (cached.Mac, cached.IfNames.ToList());
+        try
+        {
+            var (mac, ifNames) = await ResolveAllWanCounterInterfacesAsync(ct);
+            _allWanCounterCache = new AllWanCounters(DateTime.UtcNow, mac, ifNames.ToList());
+            return (mac, ifNames);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health could not resolve every WAN's counter interfaces");
+            return (null, new List<string>());
+        }
+    }
+
+    /// <summary>
+    /// Gateway MAC plus EVERY WAN's counter interface, for the all-WAN sums only: the usage
+    /// fingerprint and <see cref="GetAllWanCounterInterfacesAsync"/> (see the summing contract on
+    /// QueryGatewayWanRatesAsync). Live enumeration when the
     /// console answers, augmented by the remembered per-WAN profile rows so WANs the console
     /// currently omits (down, disabled) still contribute their recorded usage.
     /// </summary>

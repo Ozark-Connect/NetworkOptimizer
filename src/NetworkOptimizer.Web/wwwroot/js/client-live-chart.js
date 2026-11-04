@@ -16,6 +16,7 @@ import { valueSortedTooltip } from './chart-tooltip.js?v=19';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createMarkLayer } from './chart-event-marks.js?v=12';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
+import { formatBps } from './chart-format.js?v=1';
 
 const HISTORY_MINUTES = 5;
 // Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
@@ -57,14 +58,6 @@ let view = 'lan';
 let markLayer = null;
 let currentHistory = null;
 let historyCaption = null;
-
-function formatBps(v) {
-    if (v == null || v < 1) return '0';
-    if (v >= 1e9) return (v / 1e9).toFixed(1) + ' Gbps';
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
-    if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
-    return v.toFixed(0) + ' bps';
-}
 
 // True only while the value tooltip is on screen. ApexCharts marks the mount on any mousemove and
 // misses fast exits, so with a mouse the class is cross-checked against the pointer being over the
