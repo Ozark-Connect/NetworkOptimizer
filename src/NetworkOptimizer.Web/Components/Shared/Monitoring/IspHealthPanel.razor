@@ -516,10 +516,6 @@ else
                                             {
                                                 <span class="isp-hop-name-text">@target.Name</span>
                                             }
-                                            @if (target.IsGradedHop)
-                                            {
-                                                <span class="isp-target-badge isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
-                                            }
                                             @if (target.SuggestDisable)
                                             {
                                                 <button type="button" class="isp-target-badge isp-target-disable-hint"
@@ -577,6 +573,19 @@ else
                             <p class="page-description">No ISP hop data in the window.</p>
                         }
                         <div class="isp-hop-list">
+                            @if (r.AccessFloor is { } floor)
+                            {
+                                <div class="isp-hop">
+                                    <div class="isp-hop-name">
+                                        <span class="isp-hop-name-text">Access floor</span>
+                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The lowest RTT across these access hops at each moment. Access-layer idle latency is measured from it, so one hop's slow replies don't count.">?</span>
+                                    </div>
+                                    <div class="isp-hop-stats">
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(floor.RttMs)</span>
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">P90 Jitter</span>@FormatJitter(floor.JitterMs)</span>
+                                    </div>
+                                </div>
+                            }
                             @foreach (var target in ispTargets.Take(NetworkPreviewCount))
                             {
                                 @hopRow(target)

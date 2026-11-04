@@ -135,6 +135,31 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void AccessFloor_is_reported_with_two_or_more_access_hops()
+    {
+        var hops = new List<List<LatencySample>>
+        {
+            TestSeries.Flat(TestSeries.Start, Day, 1.5, 0.3),
+            TestSeries.Flat(TestSeries.Start, Day, 1.7, 0.3)
+        };
+
+        var floor = new IspHealthScorer(Options).Score(BuildInputs(accessHops: hops), Gpon).AccessFloor;
+
+        floor.Should().NotBeNull();
+        floor!.HopCount.Should().Be(2);
+        floor.RttMs.Should().NotBeNull();
+        floor.JitterMs.Should().BeApproximately(0.3, 1e-9);
+    }
+
+    [Fact]
+    public void AccessFloor_is_absent_with_one_access_hop()
+    {
+        var hops = new List<List<LatencySample>> { TestSeries.Flat(TestSeries.Start, Day, 1.5, 0.3) };
+
+        new IspHealthScorer(Options).Score(BuildInputs(accessHops: hops), Gpon).AccessFloor.Should().BeNull();
+    }
+
+    [Fact]
     public void Outage_drops_overall_by_the_duration_curve()
     {
         new IspHealthScorer(Options).Score(BuildInputs(), Gpon).OverallScore.Should().Be(100);

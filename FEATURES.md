@@ -119,7 +119,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Uptime** and outages, with where the path broke and a per-hop recovery timeline
   - LAN outages kept apart from WAN; **that was me** excludes a self-caused outage
 - **Findings** with links into the charts; Smart Queues and Adaptive SQM recommendations
-- Per-hop detail: lowest RTT, P90 jitter, loss, address, and reverse DNS
+- Per-hop detail: RTT, P90 jitter, loss, address, and reverse DNS
+- **Access floor**: idle latency from the lowest RTT across all access hops at each moment
 - **Networks on Your Path** - per-ASN grading, including IX peering
 - **Path & Congestion Events** - congestion events, path shifts, and path changes
   - **Path Localization** - when an Internet or Custom target degrades and the rest of the connection stays clean, traceroutes from the vantage that measures it place where the degradation first appears, or say it is the return path or far side
