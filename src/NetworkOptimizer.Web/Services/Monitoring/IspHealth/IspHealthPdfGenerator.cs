@@ -27,9 +27,14 @@ public class IspHealthPdfGenerator
 
     /// <summary>The report's findings followed by the episodes', as the tab lists them.</summary>
     private List<IspHealthIssue> AllFindings(IspHealthReport report) => report.Issues
-        .Concat(PathLocalization.PathEpisodePresentation.Findings(_episodes.Select(e => e.Episode).ToList(), _options,
+        .Concat(PathLocalization.PathEpisodePresentation.Findings(
+            Fold(report).Unexplained(_episodes.Select(e => e.Episode), e => e.Id).ToList(), _options,
             PathLocalization.PathEpisodePresentation.PointsById(report)))
         .ToList();
+
+    /// <summary>Episodes the report's Path shifts explain, which print on the shift's row as on the tab.</summary>
+    private PathLocalization.PathEpisodePresentation.ShiftFold Fold(IspHealthReport report) =>
+        PathLocalization.PathEpisodePresentation.FoldIntoShifts(_episodes.Select(e => e.Episode).ToList(), report, _options);
 
     /// <param name="options">The scorer's own options, so the limiting-aspect column weighs
     /// stability against congestion exactly as the tab does.</param>
@@ -600,8 +605,9 @@ public class IspHealthPdfGenerator
         {
             SectionHeading(column, "Path & Congestion Events");
 
-            var timeline = IspHealthPresentation.EventTimeline(report)
-                .Concat(PathLocalization.PathEpisodePresentation.Entries(_episodes.Select(e => e.Episode)))
+            var fold = Fold(report);
+            var timeline = IspHealthPresentation.EventTimeline(report, fold.TraceByShift)
+                .Concat(PathLocalization.PathEpisodePresentation.Entries(fold.Unexplained(_episodes.Select(e => e.Episode), e => e.Id)))
                 .OrderBy(e => e.Time)
                 .ToList();
             if (timeline.Count == 0)
