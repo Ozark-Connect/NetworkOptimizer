@@ -97,6 +97,50 @@ public sealed class LiveWanScope
     public IReadOnlyList<Option> SelectedOptions =>
         Options.Where(o => _selected.Contains(o.Key)).ToList();
 
+    /// <summary>
+    /// Live throughput for the WANs on screen. One WAN reads its own counter; several are summed,
+    /// which is what asking to see them together means. A WAN whose counters are not in the
+    /// polled data contributes nothing rather than being folded in as a zero.
+    /// </summary>
+    public (double? Down, double? Up) LiveRates(MonitoringLiveStats liveStats, string? gatewayMac, IReadOnlyList<string> gatewayWanIfNames)
+    {
+        if (gatewayMac == null) return (null, null);
+        double? down = null, up = null;
+        foreach (var ifName in CounterInterfaces(gatewayWanIfNames))
+        {
+            var rate = liveStats.GetPortRate(gatewayMac, ifName);
+            if (rate == null) continue;
+            // PortLiveRate: DownBps = SNMP rateOut (port TX), UpBps = rateIn (RX). On a WAN port
+            // RX is download from the ISP and TX is upload to it.
+            down = (down ?? 0) + rate.UpBps;
+            up = (up ?? 0) + rate.DownBps;
+        }
+        return (down, up);
+    }
+
+    /// <summary>The live-cache history keys behind <see cref="LiveRates"/>' interfaces, resolved the same way.</summary>
+    public List<string> LiveRateHistoryKeys(string? gatewayMac, IReadOnlyList<string> gatewayWanIfNames) =>
+        gatewayMac == null
+            ? new List<string>()
+            : CounterInterfaces(gatewayWanIfNames).Select(ifName => MonitoringLiveStats.PortRowKey(gatewayMac, ifName)).ToList();
+
+    /// <summary>
+    /// The counter interfaces for the selection. No WAN options is the ordinary state, not an
+    /// empty selection: a site without a reachable console never produces them, and reads its
+    /// rate from the gateway's discovered interface names instead.
+    /// </summary>
+    private IEnumerable<string> CounterInterfaces(IReadOnlyList<string> gatewayWanIfNames)
+    {
+        var selected = SelectedOptions;
+        if (selected.Count == 0) return gatewayWanIfNames;
+        // A WAN the console names but has no counter for falls back to the discovered
+        // interface, which is the same name the tiles used before any of this existed.
+        return selected
+            .Select(w => w.IsPrimary && string.IsNullOrEmpty(w.CounterIfName) ? gatewayWanIfNames.FirstOrDefault() : w.CounterIfName)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Select(n => n!);
+    }
+
     /// <summary>True while more than one WAN is shown - the tiles aggregate and the chart splits.</summary>
     public bool IsComparing => _selected.Count > 1;
 
