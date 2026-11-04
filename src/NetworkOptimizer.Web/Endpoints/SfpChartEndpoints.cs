@@ -183,10 +183,11 @@ public static class SfpChartEndpoints
 
             // The host devices' own reboots, remedies, and alerts, keyed by device MAC. The chart
             // draws them only while every module on screen sits on one device.
+            // Keyed the builder's way (no separators); Key is the module's deviceMac spelling.
             var hostsByNormalized = sfps
                 .Select(s => s.DeviceMac.Replace("-", ":").ToLowerInvariant())
                 .Distinct()
-                .ToDictionary(mac => mac, mac => (Key: mac, Name: nameMap.TryGetValue(mac, out var hn) ? hn : mac));
+                .ToDictionary(DeviceHealthChartEndpoints.NormalizeMac, mac => (Key: mac, Name: nameMap.TryGetValue(mac, out var hn) ? hn : mac));
             var deviceEvents = await DeviceHealthChartEndpoints.BuildAnnotationsAsync(
                 influx, db, hostsByNormalized, queryFrom, queryTo, ct, HostEventTypesMarkedHere);
 
