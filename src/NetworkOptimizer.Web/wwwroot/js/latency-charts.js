@@ -765,6 +765,7 @@ function updateCustomLabel(container) {
             clearBtn.textContent = '×';
             clearBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                notifyTimelineMoved();
                 const ctr = document.getElementById(containerId);
                 if (ctr) selectPresetRange(ctr, currentRangeHours);
             });
