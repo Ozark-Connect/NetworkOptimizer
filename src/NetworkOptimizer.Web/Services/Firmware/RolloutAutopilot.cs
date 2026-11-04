@@ -326,7 +326,7 @@ public class RolloutAutopilot : IRolloutAutopilot
             Title = $"Firmware Rollout Scheduled{_siteSuffix}",
             Message =
                 $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(result.Document, devices))} will be upgraded starting "
-                + $"{startAtUtc.ToLocalTime():ddd MMM d, h:mm tt}{RolloutScopeCopy.SiteAside(window.TimeZoneId, startAtUtc)}, "
+                + $"{RolloutScopeCopy.StartTime(window.TimeZoneId, startAtUtc)}, "
                 + $"{RolloutScopeCopy.StartsIn(startAtUtc - Now)} - chosen from {window.Basis}. "
                 + "Open Firmware Rollout to postpone or stop it.",
             SourceUrl = RolloutAlerts.SourceUrl,

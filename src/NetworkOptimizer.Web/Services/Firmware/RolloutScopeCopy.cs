@@ -139,6 +139,29 @@ public static class RolloutScopeCopy
     private static string Count(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 
     /// <summary>
+    /// A rollout's start as every rollout alert writes it: the server's clock, plus the site's own
+    /// reading when the two differ.
+    /// </summary>
+    /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
+    /// <param name="startUtc">The start.</param>
+    public static string StartTime(string? timeZoneId, DateTime startUtc)
+    {
+        var instant = DateTime.SpecifyKind(startUtc, DateTimeKind.Utc);
+        return $"{instant.ToLocalTime():ddd MMM d, h:mm tt}{SiteAside(timeZoneId, instant)}";
+    }
+
+    /// <summary>What the open Scheduled and Starting Soon alerts say once a waiting rollout's start moves.</summary>
+    /// <param name="document">The plan document.</param>
+    /// <param name="devices">Devices the rollout will touch.</param>
+    /// <param name="startUtc">The new start.</param>
+    /// <param name="previousUtc">The start it replaced.</param>
+    /// <param name="nowUtc">The current time.</param>
+    public static string Moved(RolloutPlanDocument document, int devices, DateTime startUtc, DateTime previousUtc, DateTime nowUtc) =>
+        $"{Sentence(Subject(document, devices))} will be upgraded starting {StartTime(document.TimeZoneId, startUtc)}, "
+        + $"{StartsIn(startUtc - nowUtc)}. The start moved from {StartTime(document.TimeZoneId, previousUtc)}. "
+        + "Open Firmware Rollout to postpone or stop it.";
+
+    /// <summary>
     /// The site's own reading of an instant, for the one place it matters most: an alert is read
     /// out of context, and whether a 3 AM reboot bothers anyone is a question about the site's
     /// hours. Empty when the site keeps the server's, which is every single-site install.

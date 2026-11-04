@@ -285,7 +285,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Start now**, **Schedule once**, or **Autopilot** on every new firmware, with a heads-up
 - Pace (Conservative, Balanced, Fast), approval at every wave, minimum release age
 - Live map and step table; pause, resume, abort, postpone, deploy now, re-plan
-- Health gate postpones a start while critical alerts are open
+- Health gate postpones a scheduled start while critical alerts opened since it was booked are open
+- Postponing or rescheduling updates the open **Firmware Rollout Scheduled** alert with the new start
 - A dark console or dropped agent pauses the rollout instead of failing it
 - Canaries are online devices; a device offline at its turn is skipped, not failed
 - Tries SSH when a device ignores the upgrade command
