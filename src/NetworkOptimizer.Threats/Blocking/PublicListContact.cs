@@ -30,6 +30,14 @@ public static class PublicListContact
         signatureName.Split(" on ", 2) is { Length: 2 } parts ? parts[1] : "a public block list";
 
     /// <summary>
+    /// Whether <paramref name="e"/> got through by an outbound Blocking exception: traffic the user approved,
+    /// so it raises no alert. A blocked attempt never qualifies.
+    /// </summary>
+    public static bool IsExcepted(ThreatEvent e, IEnumerable<BlockingException> exceptions) =>
+        e.Action != ThreatAction.Blocked
+        && exceptions.Any(x => x.Matches(ExceptionDirection.Outbound, e.SourceIp, e.DestIp, e.Protocol, e.DestPort));
+
+    /// <summary>
     /// Marks <paramref name="e"/> as a contact with <paramref name="list"/> (null when the list is not known,
     /// as for a drop a gateway agent reported after the list changed).
     /// </summary>
