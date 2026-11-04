@@ -4974,68 +4974,11 @@
         if (_historicSnapshot is not null)
             return (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps);
 
-        if (_gatewayMac == null) return (null, null);
-
-        // No WAN options is the ordinary state, not an empty selection: they come from the
-        // console's WAN list, which a site without a reachable console never produces - and every
-        // such site was reading its rate from the discovered interface names long before there
-        // was a WAN picker. Falling through to the per-option loop returned nothing at all and
-        // blanked the tiles on exactly those sites.
-        var selected = LiveWan.SelectedOptions;
-        if (selected.Count == 0)
-        {
-            if (_gatewayWanIfNames.Count == 0) return (null, null);
-            double? legacyDown = null, legacyUp = null;
-            foreach (var ifName in _gatewayWanIfNames)
-            {
-                var r = LiveStats.GetPortRate(_gatewayMac, ifName);
-                if (r == null) continue;
-                legacyDown = (legacyDown ?? 0) + r.UpBps;
-                legacyUp = (legacyUp ?? 0) + r.DownBps;
-            }
-            return (legacyDown, legacyUp);
-        }
-
-        double? down = null, up = null;
-        foreach (var wan in selected)
-        {
-            // A WAN the console names but has no counter for falls back to the discovered
-            // interface, which is the same name the tiles used before any of this existed.
-            var ifName = wan.IsPrimary && string.IsNullOrEmpty(wan.CounterIfName)
-                ? _gatewayWanIfNames.FirstOrDefault()
-                : wan.CounterIfName;
-            if (string.IsNullOrEmpty(ifName)) continue;
-            var rate = LiveStats.GetPortRate(_gatewayMac, ifName!);
-            if (rate == null) continue;
-            // PortLiveRate: DownBps = SNMP rateOut (port TX), UpBps = rateIn (RX). On a WAN port
-            // RX is download from the ISP and TX is upload to it.
-            down = (down ?? 0) + rate.UpBps;
-            up = (up ?? 0) + rate.DownBps;
-        }
-        return (down, up);
+        return LiveWan.LiveRates(LiveStats, _gatewayMac, _gatewayWanIfNames);
     }
 
     /// <summary>The live-cache history keys behind <see cref="GetWanRates"/>' interfaces, resolved the same way.</summary>
-    private List<string> GetWanHistoryKeys()
-    {
-        var keys = new List<string>();
-        if (_gatewayMac == null) return keys;
-        var selected = LiveWan.SelectedOptions;
-        if (selected.Count == 0)
-        {
-            foreach (var ifName in _gatewayWanIfNames)
-                keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName));
-            return keys;
-        }
-        foreach (var wan in selected)
-        {
-            var ifName = wan.IsPrimary && string.IsNullOrEmpty(wan.CounterIfName)
-                ? _gatewayWanIfNames.FirstOrDefault()
-                : wan.CounterIfName;
-            if (!string.IsNullOrEmpty(ifName)) keys.Add(MonitoringLiveStats.PortRowKey(_gatewayMac, ifName!));
-        }
-        return keys;
-    }
+    private List<string> GetWanHistoryKeys() => LiveWan.LiveRateHistoryKeys(_gatewayMac, _gatewayWanIfNames);
 
     /// <summary>Label for the throughput tiles: names the aggregate so a summed figure cannot read as one WAN's.</summary>
     private string WanRateCount() =>
