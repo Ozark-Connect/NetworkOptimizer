@@ -205,8 +205,8 @@
 
     function pickStep(spanMs, maxLabels) {
         for (const [unit, n] of STEPS) {
-            // A window of several days reads by the day, one of several hours by the hour.
-            if (unit === 'm' && spanMs > 3 * HOUR) continue;
+            // A window of several days reads by the day; one of several hours by the hour or half hour.
+            if (unit === 'm' && spanMs > (n === 30 ? 12 : 3) * HOUR) continue;
             if (unit === 'h' && spanMs > 3 * DAY) continue;
             if (spanMs / (STEP_MS[unit] * n) <= maxLabels) return [unit, n];
         }
