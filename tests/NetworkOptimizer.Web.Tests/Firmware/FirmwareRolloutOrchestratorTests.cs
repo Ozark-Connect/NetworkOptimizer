@@ -1347,6 +1347,136 @@ public class FirmwareRolloutOrchestratorTests
 
         started.Should().BeTrue();
         (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
+        harness.Health.Asked.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ScheduledStartOnAHealthySite_StartsAndLeavesTheAnnouncementAlone()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start, Step(ApMac));
+
+        await harness.TickAsync();
+
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Running);
+        harness.AlertEditor.Rewrites.Should().BeEmpty();
+        harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.PostponedHealth);
+    }
+
+    [Fact]
+    public async Task ScheduledStart_AsksTheHealthGateOnlyAboutTroubleSinceThePlanWasBooked()
+    {
+        using var harness = new RolloutHarness();
+        var booked = RolloutHarness.Start.AddDays(-6);
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start, Step(ApMac));
+        await harness.BookedAtAsync(plan.Id, booked);
+
+        await harness.TickAsync();
+
+        harness.Health.Asked.Should().Equal(booked);
+    }
+
+    [Fact]
+    public async Task ManualStartWithoutTheOverride_CountsEveryOpenCritical()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddDays(1), Step(ApMac));
+
+        (await harness.Orchestrator.StartNowAsync(plan.Id, overrideHealthGate: false)).Should().BeTrue();
+
+        harness.Health.Asked.Should().Equal((DateTime?)null);
+    }
+
+    private static string Moved(DateTime start, DateTime previous, DateTime now) =>
+        RolloutScopeCopy.Moved(Document(Wave(1, PlanStep(ApMac))), devices: 1, start, previous, now);
+
+    [Fact]
+    public async Task MovingTheStart_RestatesTheOpenAlertsWithTheNewTime()
+    {
+        using var harness = new RolloutHarness();
+        var original = RolloutHarness.Start.AddDays(7);
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), original, Step(ApMac));
+        var moved = RolloutHarness.Start.AddDays(3);
+
+        await harness.Orchestrator.MoveStartAsync(plan.Id, _ => moved);
+
+        var rewrite = harness.AlertEditor.Rewrites.Should().ContainSingle().Subject;
+        rewrite.EventTypes.Should().BeEquivalentTo([RolloutAlerts.Upcoming, RolloutAlerts.StartingSoon]);
+        rewrite.Message.Should().Be(Moved(moved, original, RolloutHarness.Start));
+        // An edit, not an alert: the move notifies nobody.
+        harness.Bus.Published.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MovingTheStart_IntoThePast_LeavesTheAlertsAlone()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddHours(10), Step(ApMac));
+
+        await harness.Orchestrator.MoveStartAsync(plan.Id, current => current.AddHours(-24));
+
+        harness.AlertEditor.Rewrites.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Postponing_RestatesTheOpenAlertsWithTheNewTime()
+    {
+        using var harness = new RolloutHarness();
+        var original = RolloutHarness.Start.AddDays(2);
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), original, Step(ApMac));
+
+        (await harness.Orchestrator.PostponeAsync(plan.Id)).Should().BeTrue();
+
+        var start = original + FirmwareRolloutOrchestrator.HealthPostponeWindow;
+        (await harness.PlanAsync(plan.Id))!.ScheduledStartAt.Should().Be(start);
+        harness.AlertEditor.Rewrites.Should().ContainSingle()
+            .Which.Message.Should().Be(Moved(start, original, RolloutHarness.Start));
+        harness.Bus.Published.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PostponingARunningRollout_IsRefusedAndLeavesTheAlertsAlone()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(Document(Wave(1, PlanStep(ApMac))), Step(ApMac));
+
+        (await harness.Orchestrator.PostponeAsync(plan.Id)).Should().BeFalse();
+
+        harness.AlertEditor.Rewrites.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task HealthPostpone_RestatesTheOpenAlertsAndSaysWhenItTriesAgain()
+    {
+        using var harness = new RolloutHarness();
+        harness.Health.Verdict = RolloutHealthVerdict.Blocked("a critical alert is open (WAN Outage)");
+        var plan = await harness.SeedScheduledPlanAsync(Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start, Step(ApMac));
+
+        await harness.TickAsync();
+
+        var start = RolloutHarness.Start + FirmwareRolloutOrchestrator.HealthPostponeWindow;
+        harness.AlertEditor.Rewrites.Should().ContainSingle()
+            .Which.Message.Should().Be(Moved(start, RolloutHarness.Start, RolloutHarness.Start));
+        harness.Bus.Published.Should().ContainSingle(e => e.EventType == RolloutAlerts.PostponedHealth)
+            .Which.Message.Should().Be(
+                "The rollout did not start because a critical alert is open (WAN Outage). "
+                + $"It will try again at {RolloutScopeCopy.StartTime(null, start)}.");
+    }
+
+    [Fact]
+    public async Task AFailedAlertEdit_StillMovesTheStart()
+    {
+        using var harness = new RolloutHarness();
+        harness.AlertEditor.Throws = true;
+        var plan = await harness.SeedScheduledPlanAsync(
+            Document(Wave(1, PlanStep(ApMac))), RolloutHarness.Start.AddDays(7), Step(ApMac));
+        var moved = RolloutHarness.Start.AddDays(3);
+
+        (await harness.Orchestrator.MoveStartAsync(plan.Id, _ => moved)).Should().Be(moved);
+
+        (await harness.PlanAsync(plan.Id))!.ScheduledStartAt.Should().Be(moved);
     }
 
     [Fact]

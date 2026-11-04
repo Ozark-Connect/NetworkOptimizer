@@ -119,4 +119,59 @@ public class RolloutScopeCopyTests
     {
         RolloutScopeCopy.SiteAside(zone, DateTime.UtcNow, Zone("America/Chicago")).Should().BeEmpty();
     }
+
+    private static string ServerClock(DateTime utc) =>
+        DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime().ToString("ddd MMM d, h:mm tt");
+
+    [Fact]
+    public void StartTime_ReadsTheServersClock()
+    {
+        var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+
+        RolloutScopeCopy.StartTime(null, start).Should().Be(ServerClock(start));
+    }
+
+    [Fact]
+    public void StartTime_TreatsAStoredTimeAsUtc()
+    {
+        // A start read back from the database carries no kind; it is still UTC.
+        var stored = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Unspecified);
+
+        RolloutScopeCopy.StartTime(null, stored)
+            .Should().Be(RolloutScopeCopy.StartTime(null, DateTime.SpecifyKind(stored, DateTimeKind.Utc)));
+    }
+
+    [Fact]
+    public void StartTime_AddsTheSiteReadingWhenItDiffers()
+    {
+        var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+        var farZone = TimeZoneInfo.Local.GetUtcOffset(start) == TimeSpan.FromHours(10) ? "America/Chicago" : "Australia/Brisbane";
+
+        RolloutScopeCopy.StartTime(farZone, start)
+            .Should().Be(ServerClock(start) + RolloutScopeCopy.SiteAside(farZone, start))
+            .And.EndWith("at-site)");
+    }
+
+    [Fact]
+    public void Moved_StatesTheNewStartAndTheOneItReplaced()
+    {
+        var now = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+        var previous = now.AddDays(2);
+        var start = now.AddDays(3);
+
+        var message = RolloutScopeCopy.Moved(Doc(), devices: 3, start, previous, now);
+
+        message.Should().Be(
+            $"3 devices will be upgraded starting {ServerClock(start)}, in about 3 days. "
+            + $"The start moved from {ServerClock(previous)}. Open Firmware Rollout to postpone or stop it.");
+    }
+
+    [Fact]
+    public void Moved_ForAConsoleOnlyRollout_NamesTheConsole()
+    {
+        var now = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+
+        RolloutScopeCopy.Moved(Doc(os: true), devices: 0, now.AddHours(5), now.AddHours(2), now)
+            .Should().StartWith("UniFi OS will be upgraded starting ");
+    }
 }

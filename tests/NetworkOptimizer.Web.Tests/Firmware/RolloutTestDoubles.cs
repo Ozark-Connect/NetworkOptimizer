@@ -404,8 +404,28 @@ internal sealed class FakeHealthGate : IRolloutHealthGate
 {
     public RolloutHealthVerdict Verdict { get; set; } = RolloutHealthVerdict.Ok();
 
-    public Task<RolloutHealthVerdict> EvaluateAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(Verdict);
+    /// <summary>The <c>openedSince</c> of every evaluation, in order.</summary>
+    public List<DateTime?> Asked { get; } = [];
+
+    public Task<RolloutHealthVerdict> EvaluateAsync(DateTime? openedSince, CancellationToken cancellationToken = default)
+    {
+        Asked.Add(openedSince);
+        return Task.FromResult(Verdict);
+    }
+}
+
+/// <summary>Alert editor that records every rewrite, and can be told to fail.</summary>
+internal sealed class RecordingAlertEditor : IRolloutAlertEditor
+{
+    public List<(IReadOnlyCollection<string> EventTypes, string Message)> Rewrites { get; } = [];
+    public bool Throws { get; set; }
+
+    public Task<int> RewriteOpenAsync(IReadOnlyCollection<string> eventTypes, string message, CancellationToken cancellationToken = default)
+    {
+        if (Throws) throw new InvalidOperationException("The alert history is unavailable");
+        Rewrites.Add((eventTypes, message));
+        return Task.FromResult(1);
+    }
 }
 
 /// <summary>Mesh queue that records what it was asked to re-pair.</summary>
@@ -630,6 +650,7 @@ internal sealed class RolloutHarness : IDisposable
     public FakeObserverLocator Locator { get; } = new();
     public FakeLitmusService Litmus { get; } = new();
     public FakeHealthGate Health { get; } = new();
+    public RecordingAlertEditor AlertEditor { get; } = new();
     public RecordingMeshRepairQueue Mesh { get; } = new();
     public RolloutSuppressionRegistry Suppression { get; } = new();
     public CapturingBus Bus { get; } = new();
@@ -714,7 +735,8 @@ internal sealed class RolloutHarness : IDisposable
         rebootWitness: Reboots,
         observerLocator: Locator,
         audit: AuditLog,
-        configGuard: ConfigGuard)
+        configGuard: ConfigGuard,
+        alertEditor: AlertEditor)
     {
         // The settle wait runs on the wall clock; tests decide the device state up front.
         SshDropSettleWindow = TimeSpan.Zero,
