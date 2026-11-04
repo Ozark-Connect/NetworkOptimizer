@@ -18,6 +18,7 @@ internal static class ChartEventMarks
         "ont.bip_errors",
         "ont.fec_errors",
         "ont.hec_errors",
+        "ont.rebooted",
     };
 
     /// <summary>Severity as the mark layer colours it.</summary>
