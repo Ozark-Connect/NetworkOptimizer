@@ -205,13 +205,15 @@ public static class DeviceHealthChartEndpoints
     /// <param name="from">Window start.</param>
     /// <param name="to">Window end.</param>
     /// <param name="ct">Cancellation token.</param>
-    private static async Task<List<object>> BuildAnnotationsAsync(
+    /// <param name="excludeAlertTypes">Alert types the caller marks itself, left out here (SFP Stats' own SFP alerts).</param>
+    internal static async Task<List<object>> BuildAnnotationsAsync(
         MonitoringInfluxClient influx,
         NetworkOptimizerDbContext db,
         Dictionary<string, (string Key, string Name)> macsByNormalized,
         DateTime from,
         DateTime to,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlySet<string>? excludeAlertTypes = null)
     {
         // Carried alongside the payload so the two sources can be merged into one time-ordered
         // list; the payload itself stays an anonymous object to keep the JSON property names
@@ -288,6 +290,7 @@ public static class DeviceHealthChartEndpoints
         foreach (var alert in alerts)
         {
             if (AlertTypesCoveredElsewhere.Contains(alert.EventType)) continue;
+            if (excludeAlertTypes?.Contains(alert.EventType) == true) continue;
             if (!macsByNormalized.TryGetValue(NormalizeMac(alert.DeviceId!), out var series)) continue;
 
             // TriggeredAt is written as UtcNow but comes back from SQLite as Unspecified, and "o"

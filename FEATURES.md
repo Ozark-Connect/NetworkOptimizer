@@ -164,6 +164,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Every SFP module: RX/TX power, temperature, voltage, and bias current
 - Mark a module as PON, Active Ethernet, or regular SFP; monitor or unmonitor it
 - **SFP Diagnostics** charts, including PON errors, host link errors, and GEM frames
+- The host device's reboots, health check actions, and alerts marked on the charts while one device's modules are shown
 - PON details: PLOAM state, ONU ID, FEC, ONT uptime; GPON vs XGS-PON detection
 - **SFP Anomalies** investigation and **SFP Alert Thresholds**
 - Option to ignore single-poll DDM spikes on SFP ONTs
