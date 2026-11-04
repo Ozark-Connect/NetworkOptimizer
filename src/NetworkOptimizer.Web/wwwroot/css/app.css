@@ -20097,7 +20097,7 @@ a.isp-outage-ack:hover {
 
 .isp-outage-hop {
     display: grid;
-    grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 7rem);
+    grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 9rem);
     align-items: center;
     gap: 0.6rem;
 }
