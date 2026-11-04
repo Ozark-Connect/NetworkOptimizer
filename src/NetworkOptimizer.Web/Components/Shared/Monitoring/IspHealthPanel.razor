@@ -791,7 +791,7 @@ else
         <div class="card isp-health-card" id="isp-outages">
             <div class="card-header"><h2 class="card-title">@OutageSectionTitle(r) (@WindowLabel(r))</h2></div>
             <div class="card-body">
-                <div class="isp-outage-list">
+                <div class="isp-outage-list@(DisplayTime.Format.Clock == ClockStyle.TwelveHour ? " isp-outage-h12" : "")">
                     @foreach (var outage in r.Outages)
                     {
                         <div class="isp-outage">

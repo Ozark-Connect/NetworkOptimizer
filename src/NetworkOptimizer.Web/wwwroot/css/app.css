@@ -20097,9 +20097,16 @@ a.isp-outage-ack:hover {
 
 .isp-outage-hop {
     display: grid;
-    grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 9rem);
+    grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 7rem);
     align-items: center;
     gap: 0.6rem;
+}
+
+/* 12-hour clocks need room for "back @ 12:59:59 PM". Desktop only: mobile stacks the row. */
+@media (min-width: 769px) {
+    .isp-outage-h12 .isp-outage-hop {
+        grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 9rem);
+    }
 }
 
 .isp-outage-hop-name {
