@@ -216,8 +216,25 @@ const opticsMarkLayer = createMarkLayer({ charts: opticsChartEntries });
 const ponMarkLayer = createMarkLayer({ charts: ponChartEntries });
 
 function applyAnnotations() {
-    opticsMarkLayer.apply(lastEvents.filter(e => e.scope !== 'pon'), visibility);
-    ponMarkLayer.apply(lastEvents, visibility);
+    // Re-sorted: the layer folds by proximity, which assumes time order.
+    const events = lastEvents.concat(hostDeviceEvents())
+        .sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+    opticsMarkLayer.apply(events.filter(e => e.scope !== 'pon'), visibility);
+    ponMarkLayer.apply(events, visibility);
+}
+
+// The host device's reboots, remedies, and alerts, only while every module on screen sits on that
+// one device: with two devices shown, a reboot mark could not say which module it is about.
+// Re-keyed to a visible module so the layer's visibility filter keeps them.
+function hostDeviceEvents() {
+    const visibleModules = (lastData?.modules || []).filter(m => visibility[m.id] !== false);
+    const hosts = new Set(visibleModules.map(m => m.deviceMac));
+    if (hosts.size !== 1) return [];
+    const [host] = hosts;
+    const anchor = visibleModules[0].id;
+    return (lastData?.deviceEvents || [])
+        .filter(e => e.key === host)
+        .map(e => ({ ...e, key: anchor, scope: 'device' }));
 }
 
 // A narrower plot fits fewer marks before they collide, so the folds have to be recomputed.
