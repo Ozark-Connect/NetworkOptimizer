@@ -26,7 +26,7 @@ public static class DeviceHealthChartEndpoints
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
             HealthCheckTemplateService templateService,
-            NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthService ispHealth,
+            WanCounterInterfaces wanCounters,
             UniFiConnectionService connectionService,
             int? rangeHours,
             DateTime? from,
@@ -114,8 +114,9 @@ public static class DeviceHealthChartEndpoints
             object? wanRates = null;
             if (wanThroughput == true)
             {
-                // Left null when no WAN resolves, so a site without WAN counters shows no empty card.
-                var (gatewayMac, wanIfNames) = await ispHealth.GetAllWanCounterInterfacesAsync(ct);
+                // The interfaces the WAN live chart stacks for All WANs, one per WAN. Left null when no
+                // WAN resolves, so a site without WAN counters shows no empty card.
+                var (gatewayMac, wanIfNames) = await wanCounters.AllAsync(ct);
                 if (gatewayMac != null && wanIfNames.Count > 0)
                 {
                     var rates = await influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo,

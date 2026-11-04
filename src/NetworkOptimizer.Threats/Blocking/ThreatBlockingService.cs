@@ -771,8 +771,9 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     public BlockTargetStatus? ExceptionsConsoleStatus(string? site) =>
         _exceptionsStatus.TryGetValue(Key(site), out var s) ? s : null;
 
-    // The exceptions' Allow policies follow the public lists' Network Lists: written on a change (a save
-    // triggers it at once), re-checked hourly, and held like them while a gateway agent enforces.
+    // The exceptions' Allow policies follow the public lists' Network Lists: re-checked hourly, and that
+    // re-write is held like theirs while a gateway agent enforces. A save is written at once even then,
+    // reprovisioning the gateway: the console's Block policy still drops what the agent now lets through.
     private async Task ReconcileGatewayExceptionsAsync(string? site, IServiceProvider services, BlockingSettings settings,
         IReadOnlyList<BlockingException> exceptions, DateTime now, CancellationToken ct)
     {

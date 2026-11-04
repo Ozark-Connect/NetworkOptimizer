@@ -2030,52 +2030,23 @@ public class IspHealthService
         }
     }
 
-    private static readonly TimeSpan AllWanCounterCacheTtl = TimeSpan.FromSeconds(60);
-    // One immutable record behind one reference, so concurrent requests never read a torn entry.
-    private sealed record AllWanCounters(DateTime At, string? Mac, List<string> IfNames);
-    private AllWanCounters? _allWanCounterCache;
-
     /// <summary>
-    /// Gateway MAC plus EVERY WAN's counter interface, for callers that want the site's total WAN
-    /// traffic rather than one WAN's load: the Device Stats WAN Throughput chart. Never pair the
-    /// result with plan speeds (see the summing contract on QueryGatewayWanRatesAsync).
-    /// </summary>
-    public async Task<(string? GatewayMac, List<string> CounterIfNames)> GetAllWanCounterInterfacesAsync(CancellationToken ct = default)
-    {
-        // Cached: the chart polls every few seconds, and the resolve reads the console's raw device list.
-        if (_allWanCounterCache is { } cached && DateTime.UtcNow - cached.At < AllWanCounterCacheTtl)
-            return (cached.Mac, cached.IfNames.ToList());
-        try
-        {
-            var (mac, ifNames) = await ResolveAllWanCounterInterfacesAsync(ct);
-            _allWanCounterCache = new AllWanCounters(DateTime.UtcNow, mac, ifNames.ToList());
-            return (mac, ifNames);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "ISP Health could not resolve every WAN's counter interfaces");
-            return (null, new List<string>());
-        }
-    }
-
-    /// <summary>
-    /// Gateway MAC plus EVERY WAN's counter interface, for the all-WAN sums only: the usage
-    /// fingerprint and <see cref="GetAllWanCounterInterfacesAsync"/> (see the summing contract on
-    /// QueryGatewayWanRatesAsync). Live enumeration when the
+    /// Gateway MAC plus EVERY WAN's counter interface, for the all-WAN usage fingerprint only
+    /// (see the summing contract on QueryGatewayWanRatesAsync). Live enumeration when the
     /// console answers, augmented by the remembered per-WAN profile rows so WANs the console
     /// currently omits (down, disabled) still contribute their recorded usage.
     /// </summary>
     private async Task<(string? Mac, List<string> IfNames)> ResolveAllWanCounterInterfacesAsync(CancellationToken ct)
     {
         string? mac = null;
-        var names = new List<string>();
+        var live = new List<(string Group, string? Counter)>();
+        var remembered = new List<(string Group, string? Counter)>();
         try
         {
             var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
             mac = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway)?.Mac;
             foreach (var wan in await _connectionService.GetAllWanInterfacesAsync(ct))
-                if (!string.IsNullOrEmpty(wan.CounterIfName))
-                    names.Add(wan.CounterIfName!);
+                live.Add((wan.NetworkGroup, wan.CounterIfName));
         }
         catch (Exception ex)
         {
@@ -2088,14 +2059,33 @@ public class IspHealthService
                 .Where(w => w.CounterInterface != null)
                 .ToListAsync(ct);
             foreach (var p in profiles)
-                names.Add(p.CounterInterface!);
+                remembered.Add((p.WanNetworkgroup, p.CounterInterface));
             mac ??= profiles.Select(p => p.GatewayMac).FirstOrDefault(m => !string.IsNullOrEmpty(m));
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "ISP Health: could not read the remembered WAN profiles for the usage fingerprint");
         }
-        return (mac, names.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+        return (mac, OneCounterPerWan(live, remembered));
+    }
+
+    /// <summary>
+    /// One counter interface per WAN, keyed by network group: the console's counter wins, the way the
+    /// WAN live chart resolves a WAN, and a remembered one only stands in for a WAN the console does
+    /// not list. Merged by name instead, a VLAN WAN counted twice: its physical port live, and its
+    /// sub-interface from a profile written before the profile stored the physical port.
+    /// </summary>
+    /// <param name="live">Each WAN the console lists, with its counter interface.</param>
+    /// <param name="remembered">Each remembered WAN profile, with its counter interface.</param>
+    internal static List<string> OneCounterPerWan(
+        IEnumerable<(string Group, string? Counter)> live,
+        IEnumerable<(string Group, string? Counter)> remembered)
+    {
+        var byGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (group, counter) in live.Concat(remembered))
+            if (!string.IsNullOrEmpty(counter))
+                byGroup.TryAdd(GatewayWanHelper.WanNetworkGroupFromKey(group), counter);
+        return byGroup.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>Expected plan speeds for callers outside the scoring pipeline (e.g. loaded-loss investigation).</summary>
@@ -2450,15 +2440,17 @@ public class IspHealthService
             // offline PPPoE check grade the line without its overlay, which is what splitting these
             // two columns exists to prevent. Scoped instances resolve THEIR WAN's data path; the
             // primary keeps the primary resolver.
-            var liveDataPath = _scopedWanKey == null
-                ? await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct)
-                : (await _connectionService.GetWanInterfacesForGroupAsync(
-                    GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey), ct)) is { } scopedIfaces
-                    ? scopedIfaces.UplinkIfName ?? scopedIfaces.PhysicalIfName
-                    : null;
+            var liveIfaces = _scopedWanKey == null
+                ? await _connectionService.GetPrimaryWanInterfacesAsync(ct)
+                : await _connectionService.GetWanInterfacesForGroupAsync(
+                    GatewayWanHelper.WanNetworkGroupFromKey(_scopedWanKey), ct);
+            var liveDataPath = liveIfaces == null ? null : liveIfaces.UplinkIfName ?? liveIfaces.PhysicalIfName;
             var dataPath = liveDataPath ?? row.DataPathInterface ?? wan.Interface;
             row.DataPathInterface = dataPath;
-            row.CounterInterface = NetworkUtilities.PreferredWanCounterInterface(wan.Interface, dataPath);
+            // The console's own counter for this WAN, the one ISP Health and the WAN live chart read.
+            // The pair is only for an offline console: wan.Interface can be the sub-interface itself.
+            row.CounterInterface = liveIfaces?.CounterIfName
+                ?? NetworkUtilities.PreferredWanCounterInterface(wan.Interface, dataPath);
 
             // Stored WAN rates are keyed on gateway MAC AND interface, so every offline fallback
             // filters on this being present - without it they match no row and silently do nothing.

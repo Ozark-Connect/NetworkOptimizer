@@ -432,8 +432,9 @@ public sealed class ThreatBlockingOperations
     }
 
     /// <summary>
-    /// Adds an exception, or replaces the one with the same id. Validated first; the next cycle, which
-    /// this triggers, applies it to the gateway agent and writes the console's policies.
+    /// Adds an exception, or replaces the one with the same id. Validated first; the cycle this triggers
+    /// applies it to the gateway agent and writes the console's policies at once, without waiting for the
+    /// daily console write, so it reprovisions the gateway.
     /// </summary>
     public async Task<BlockingException> SaveExceptionAsync(string slug, BlockingException exception, string savedBy, CancellationToken ct)
     {
@@ -461,7 +462,10 @@ public sealed class ThreatBlockingOperations
         return await scope.ServiceProvider.GetRequiredService<IThreatRepository>().GetPublicListDropsAsync(from, to, 200, ct);
     }
 
-    /// <summary>Removes an exception; false when it was already gone.</summary>
+    /// <summary>
+    /// Removes an exception; false when it was already gone. Like a save, it writes the console at once,
+    /// which reprovisions the gateway.
+    /// </summary>
     public async Task<bool> RemoveExceptionAsync(string slug, string id, CancellationToken ct)
     {
         var site = Site(slug);
